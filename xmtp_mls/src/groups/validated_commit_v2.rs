@@ -20,13 +20,13 @@ use xmtp_proto::{
 use crate::{
     configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
     identity_updates::{InstallationDiff, InstallationDiffError},
-    storage::db_connection::DbConnection,
+    storage::{db_connection::DbConnection, group},
     Client,
 };
 
 use super::{
     group_membership::{GroupMembership, MembershipDiff},
-    group_metadata::{extract_group_metadata, GroupMetadataError},
+    group_metadata::{extract_group_metadata, GroupMetadata, GroupMetadataError},
 };
 
 #[derive(Debug, Error)]
@@ -74,14 +74,18 @@ pub(crate) struct CommitParticipant {
     // TODO: Add is_admin
 }
 
-impl TryFrom<&LeafNode> for CommitParticipant {
-    type Error = CommitValidationError;
+impl CommitParticipant {
+    pub fn from_leaf_node(
+        leaf_node: &LeafNode,
+        group_metadata: &GroupMetadata,
+    ) -> Result<Self, CommitValidationError> {
+        let inbox_id = inbox_id_from_credential(leaf_node.credential())?;
+        let is_creator = inbox_id == group_metadata.creator_inbox_id;
 
-    fn try_from(leaf_node: &LeafNode) -> Result<Self, Self::Error> {
         Ok(Self {
-            inbox_id: inbox_id_from_credential(leaf_node.credential())?,
+            inbox_id,
             installation_id: leaf_node.signature_key().as_slice().to_vec(),
-            is_creator: false,
+            is_creator,
         })
     }
 }
@@ -121,9 +125,11 @@ impl ValidatedCommit {
         openmls_group: &OpenMlsGroup,
         client: &'client Client<ApiClient>,
     ) -> Result<Self, CommitValidationError> {
+        // Get the group metadata
+        let group_metadata = extract_group_metadata(openmls_group)?;
         // Get the actor who created the commit.
         // Because we don't allow for multiple actors in a commit, this will error if two proposals come from different authors.
-        let actor = extract_actor(staged_commit, openmls_group)?;
+        let actor = extract_actor(staged_commit, openmls_group, &group_metadata)?;
 
         // Get the expected diff of installations added and removed based on the difference between the current
         // group membership and the new group membership.
@@ -138,6 +144,7 @@ impl ValidatedCommit {
             client,
             openmls_group.export_group_context(),
             staged_commit.group_context(),
+            &group_metadata,
         )
         .await?;
 
@@ -146,7 +153,7 @@ impl ValidatedCommit {
             added_installations,
             removed_installations,
             mut credentials_to_verify,
-        } = get_proposal_changes(staged_commit, openmls_group)?;
+        } = get_proposal_changes(staged_commit, openmls_group, &group_metadata)?;
 
         // Ensure that the expected diff matches the added/removed installations in the proposals
         expected_diff_matches_commit(
@@ -185,8 +192,6 @@ impl ValidatedCommit {
             }
         }
 
-        // Get the group metadata
-        let _group_metadata = extract_group_metadata(openmls_group)?;
         let verified_commit = Self {
             actor,
             added_inboxes,
@@ -206,6 +211,7 @@ struct ProposalChanges {
 fn get_proposal_changes(
     staged_commit: &StagedCommit,
     openmls_group: &OpenMlsGroup,
+    group_metadata: &GroupMetadata,
 ) -> Result<ProposalChanges, CommitValidationError> {
     // The actual installations added and removed via proposals in the commit
     let mut added_installations: HashSet<Vec<u8>> = HashSet::new();
@@ -217,7 +223,10 @@ fn get_proposal_changes(
             // For update proposals, we need to validate that the credential and installation key
             // are valid for the inbox_id in the current group membership state
             Proposal::Update(update_proposal) => {
-                credentials_to_verify.push(update_proposal.leaf_node().try_into()?)
+                credentials_to_verify.push(CommitParticipant::from_leaf_node(
+                    update_proposal.leaf_node(),
+                    group_metadata,
+                )?);
             }
             // For Add Proposals, all we need to do is validate that the installation_id is in the expected diff
             Proposal::Add(add_proposal) => {
@@ -268,6 +277,7 @@ async fn extract_expected_diff<
     client: &'client Client<ApiClient>,
     existing_group_context: &GroupContext,
     new_group_context: &GroupContext,
+    group_metadata: &GroupMetadata,
 ) -> Result<ExpectedDiff, CommitValidationError> {
     let old_group_membership = extract_group_membership(existing_group_context)?;
     let new_group_membership = extract_group_membership(new_group_context)?;
@@ -277,7 +287,7 @@ async fn extract_expected_diff<
         .iter()
         .map(|inbox_id| Inbox {
             inbox_id: inbox_id.to_string(),
-            is_creator: false,
+            is_creator: *inbox_id == &group_metadata.creator_inbox_id,
         })
         .collect::<Vec<Inbox>>();
 
@@ -286,7 +296,7 @@ async fn extract_expected_diff<
         .iter()
         .map(|inbox_id| Inbox {
             inbox_id: inbox_id.to_string(),
-            is_creator: false,
+            is_creator: *inbox_id == &group_metadata.creator_inbox_id,
         })
         .collect::<Vec<Inbox>>();
 
@@ -363,16 +373,17 @@ fn validate_membership_diff(
 fn extract_commit_participant(
     leaf_index: &LeafNodeIndex,
     group: &OpenMlsGroup,
+    group_metadata: &GroupMetadata,
 ) -> Result<CommitParticipant, CommitValidationError> {
     if let Some(leaf_node) = group.member_at(*leaf_index) {
         let installation_id = leaf_node.signature_key.to_vec();
         let inbox_id = inbox_id_from_credential(&leaf_node.credential)?;
+        let is_creator = inbox_id == group_metadata.creator_inbox_id;
 
         Ok(CommitParticipant {
             inbox_id,
             installation_id,
-            // TODO: Update this when we have is_creator migrated to inbox_id
-            is_creator: false,
+            is_creator,
         })
     } else {
         // TODO: Handle external joins/commits
@@ -415,6 +426,7 @@ fn inbox_id_from_credential(
 fn extract_actor(
     staged_commit: &StagedCommit,
     openmls_group: &OpenMlsGroup,
+    group_metadata: &GroupMetadata,
 ) -> Result<CommitParticipant, CommitValidationError> {
     // If there was a path update, get the leaf node that was updated
     let path_update_leaf_node: Option<&LeafNode> = staged_commit.update_path_leaf_node();
@@ -459,12 +471,12 @@ fn extract_actor(
 
     // Convert the path update leaf node to a [`CommitParticipant`]
     if let Some(path_update_leaf_node) = path_update_leaf_node {
-        return path_update_leaf_node.try_into();
+        return CommitParticipant::from_leaf_node(path_update_leaf_node, group_metadata);
     }
 
     // Convert the proposal author leaf index to a [`CommitParticipant`]
     if let Some(leaf_index) = proposal_author_leaf_index {
-        return extract_commit_participant(leaf_index, openmls_group);
+        return extract_commit_participant(leaf_index, openmls_group, group_metadata);
     }
 
     // To get here there must be no path update and no proposals found. This should actually be impossible
