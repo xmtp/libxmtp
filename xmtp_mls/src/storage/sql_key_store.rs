@@ -1,5 +1,5 @@
 use log::{debug, error};
-use openmls_traits::key_store::{MlsEntity, OpenMlsKeyStore};
+use openmls_traits::storage::{self, StorageProvider, CURRENT_VERSION};
 
 use super::{
     encrypted_store::{db_connection::DbConnection, key_store_entry::StoredKeyStoreEntry},
@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{Delete, Fetch};
 
-/// CRUD Operations for an [`OpenMlsKeyStore`]
+/// CRUD Operations for an [`StorageProvider`]
 #[derive(Debug)]
 pub struct SqlKeyStore<'a> {
     conn: &'a DbConnection<'a>,
@@ -24,7 +24,7 @@ impl<'a> SqlKeyStore<'a> {
     }
 }
 
-impl OpenMlsKeyStore for SqlKeyStore<'_> {
+impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
     /// The error type returned by the [`OpenMlsKeyStore`].
     type Error = StorageError;
 
@@ -75,7 +75,7 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
 #[cfg(test)]
 mod tests {
     use openmls_basic_credential::SignatureKeyPair;
-    use openmls_traits::key_store::OpenMlsKeyStore;
+    use openmls_traits::storage::StorageProvider;
 
     use super::SqlKeyStore;
     use crate::{

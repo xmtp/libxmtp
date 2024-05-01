@@ -5,7 +5,7 @@ use openmls::prelude::tls_codec::{Deserialize, Error as TlsCodecError, Serialize
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::types::HpkeCiphertext;
 use openmls_traits::OpenMlsProvider;
-use openmls_traits::{key_store::OpenMlsKeyStore, types::HpkePrivateKey};
+use openmls_traits::{storage::StorageProvider, types::HpkePrivateKey};
 use thiserror::Error;
 
 use crate::{
