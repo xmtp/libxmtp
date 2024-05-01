@@ -102,7 +102,7 @@ pub enum MessageProcessingError {
     #[error("invalid payload")]
     InvalidPayload,
     #[error("openmls process message error: {0}")]
-    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
+    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError<StorageError>),
     #[error("merge pending commit: {0}")]
     MergePendingCommit(#[from] openmls::group::MergePendingCommitError<StorageError>),
     #[error("merge staged commit: {0}")]

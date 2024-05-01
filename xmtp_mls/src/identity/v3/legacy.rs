@@ -49,7 +49,7 @@ pub enum IdentityError {
     #[error("storage error: {0}")]
     StorageError(#[from] StorageError),
     #[error("generating key package: {0}")]
-    KeyPackageGenerationError(#[from] KeyPackageNewError<StorageError>),
+    KeyPackageGenerationError(#[from] KeyPackageNewError),
     #[error("deserialization: {0}")]
     Deserialization(#[from] prost::DecodeError),
     #[error("invalid extension: {0}")]
