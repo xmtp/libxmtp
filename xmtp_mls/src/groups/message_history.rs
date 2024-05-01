@@ -1,7 +1,6 @@
 use rand::{
     distributions::{Alphanumeric, DistString},
-    rngs::OsRng,
-    Rng, RngCore,
+    Rng,
 };
 
 use xmtp_proto::{
@@ -26,14 +25,11 @@ where
     ApiClient: XmtpMlsClient + XmtpIdentityClient,
 {
     pub async fn allow_history_sync(&self) -> Result<(), ClientError> {
-        let sync_group = self.create_sync_group()?;
-        let conn = self.store.conn()?;
-        let provider = sync_group.client.mls_provider(&conn);
-        sync_group
-            .add_missing_installations(provider)
+        let history_sync_group = self.create_sync_group()?;
+        history_sync_group
+            .sync()
             .await
             .map_err(|e| ClientError::Generic(e.to_string()))?;
-
         Ok(())
     }
 
@@ -155,12 +151,16 @@ fn new_request_id() -> String {
 
 fn new_key() -> [u8; 32] {
     let mut key = [0u8; 32];
-    OsRng.fill_bytes(&mut key);
+    let rng = rand::thread_rng();
+    rng.sample_iter(&Alphanumeric)
+        .take(32)
+        .enumerate()
+        .for_each(|(i, c)| key[i] = c);
     key
 }
 
 fn key_to_string(key: [u8; 32]) -> String {
-    String::from_utf8_lossy(&key).to_string()
+    key.into_iter().map(char::from).collect()
 }
 
 fn new_pin() -> String {
@@ -221,7 +221,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_request_reply_roundtrip() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -232,22 +231,42 @@ mod tests {
             .await;
         assert_ok!(add_members_result);
 
-        let _ = amal_b.send_message_history_request().await;
+        assert!(amal_b.allow_history_sync().await.is_ok());
+
+        group.send_message(b"hello").await.expect("send message");
+        let result = amal_b.send_message_history_request().await;
+        assert_ok!(result);
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_prepare_messages_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let group_a = amal_a.create_group(None).expect("create group");
+        let group = amal_a.create_group(None).expect("create group");
 
-        group_a.send_message(b"hello").await.expect("send message");
-        group_a
-            .send_message(b"hello again")
-            .await
-            .expect("send message");
-        let _messages_result = amal_a.prepare_messages_to_sync().await;
-        // println!("{:?}", messages_result);
+        group.send_message(b"hello").await.expect("send message");
+        group.send_message(b"hello x2").await.expect("send message");
+        let messages_result = amal_a.prepare_messages_to_sync().await;
+        println!("{:?}", messages_result);
+        assert_ok!(messages_result);
+    }
+
+    #[test]
+    fn test_new_pin() {
+        let pin = new_pin();
+        assert_eq!(pin.len(), 4);
+    }
+
+    #[test]
+    fn test_new_key() {
+        let key = new_key();
+        assert_eq!(key.len(), 32);
+    }
+
+    #[test]
+    fn test_key_to_string() {
+        let key = new_key();
+        let key_str = key_to_string(key);
+        assert_eq!(key_str.len(), 32);
     }
 }
