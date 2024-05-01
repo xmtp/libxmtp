@@ -9,19 +9,23 @@ use futures::future::join_all;
 use xmtp_id::associations::{
     self, try_map_vec, AssociationError, DeserializationError, MemberIdentifier,
 };
-use xmtp_mls::{utils::id::serialize_group_id, verified_key_package::VerifiedKeyPackage};
+use xmtp_mls::{
+    utils::id::serialize_group_id,
+    verified_key_package::VerifiedKeyPackage,
+    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+};
 use xmtp_proto::xmtp::{
     identity::associations::IdentityUpdate as IdentityUpdateProto,
-    identity::MlsCredential,
     mls_validation::v1::{
         validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
+        validate_inbox_id_key_packages_response::Response as ValidateInboxIdKeyPackageResponse,
         validate_inbox_ids_request::ValidationRequest as InboxIdValidationRequest,
         validate_inbox_ids_response::ValidationResponse as InboxIdValidationResponse,
         validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
         validation_api_server::ValidationApi, GetAssociationStateRequest,
         GetAssociationStateResponse, ValidateGroupMessagesRequest, ValidateGroupMessagesResponse,
-        ValidateInboxIdsRequest, ValidateInboxIdsResponse, ValidateKeyPackagesRequest,
-        ValidateKeyPackagesResponse,
+        ValidateInboxIdKeyPackagesResponse, ValidateInboxIdsRequest, ValidateInboxIdsResponse,
+        ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
     },
 };
 
@@ -123,6 +127,30 @@ impl ValidationApi for ValidationService {
             .map_err(Into::into)
     }
 
+    async fn validate_inbox_id_key_packages(
+        &self,
+        request: Request<ValidateKeyPackagesRequest>,
+    ) -> Result<Response<ValidateInboxIdKeyPackagesResponse>, Status> {
+        let ValidateKeyPackagesRequest { key_packages } = request.into_inner();
+
+        let responses: Vec<_> = key_packages
+            .into_iter()
+            .map(|k| k.key_package_bytes_tls_serialized)
+            .map(validate_inbox_id_key_package)
+            .collect();
+
+        let responses: Vec<ValidateInboxIdKeyPackageResponse> = join_all(responses)
+            .await
+            .into_iter()
+            .map(|res| res.map_err(ValidateInboxIdKeyPackageResponse::from))
+            .map(|r| r.unwrap_or_else(|e| e))
+            .collect();
+
+        Ok(Response::new(ValidateInboxIdKeyPackagesResponse {
+            responses,
+        }))
+    }
+
     async fn validate_inbox_ids(
         &self,
         request: Request<ValidateInboxIdsRequest>,
@@ -139,6 +167,37 @@ impl ValidationApi for ValidationService {
 
         Ok(Response::new(ValidateInboxIdsResponse { responses }))
     }
+}
+
+#[derive(thiserror::Error, Debug)]
+enum ValidateInboxIdKeyPackageError {
+    #[error(transparent)]
+    KeyPackageVerification(#[from] KeyPackageVerificationError),
+}
+
+impl From<ValidateInboxIdKeyPackageError> for ValidateInboxIdKeyPackageResponse {
+    fn from(error: ValidateInboxIdKeyPackageError) -> ValidateInboxIdKeyPackageResponse {
+        ValidateInboxIdKeyPackageResponse {
+            is_ok: false,
+            error_message: error.to_string(),
+            credential: None,
+            installation_public_key: vec![],
+        }
+    }
+}
+
+async fn validate_inbox_id_key_package(
+    key_package: Vec<u8>,
+) -> Result<ValidateInboxIdKeyPackageResponse, ValidateInboxIdKeyPackageError> {
+    let rust_crypto = RustCrypto::default();
+    let kp = VerifiedKeyPackageV2::from_bytes(&rust_crypto, key_package.as_slice())?;
+
+    Ok(ValidateInboxIdKeyPackageResponse {
+        is_ok: true,
+        error_message: "".into(),
+        credential: Some(kp.credential),
+        installation_public_key: kp.installation_public_key,
+    })
 }
 
 /// Error type for inbox ID validation
