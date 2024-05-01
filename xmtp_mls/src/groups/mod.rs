@@ -71,7 +71,7 @@ use crate::{
     retry::RetryableError,
     retryable,
     storage::{
-        group::{GroupMembershipState, StoredGroup},
+        group::{GroupMembershipState, StoredGroup, Purpose},
         group_intent::{IntentKind, NewGroupIntent},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         StorageError,
@@ -213,6 +213,7 @@ where
         let protected_metadata = build_protected_metadata_extension(
             &client.identity,
             permissions.unwrap_or_default().to_policy_set(),
+            Purpose::Conversation,
         )?;
         let mutable_metadata = build_mutable_metadata_extension_default()?;
         let group_config = build_group_config(protected_metadata, mutable_metadata)?;
@@ -303,6 +304,7 @@ where
         let protected_metadata = build_protected_metadata_extension(
             &client.identity,
             PreconfiguredPolicies::default().to_policy_set(),
+            Purpose::Sync,
         )?;
         let mutable_metadata = build_mutable_metadata_extension_default()?;
         let group_config = build_group_config(protected_metadata, mutable_metadata)?;
@@ -585,9 +587,14 @@ fn validate_ed25519_keys(keys: &[Vec<u8>]) -> Result<(), GroupError> {
 fn build_protected_metadata_extension(
     identity: &Identity,
     policies: PolicySet,
+    group_purpose: Purpose,
 ) -> Result<Extension, GroupError> {
+    let group_type = match group_purpose {
+        Purpose::Conversation => ConversationType::Group,
+        Purpose::Sync => ConversationType::Sync,
+    };
     let metadata = GroupMetadata::new(
-        ConversationType::Group,
+        group_type,
         identity.account_address.clone(),
         policies,
     );
@@ -1060,7 +1067,7 @@ mod tests {
         // add a second installation for amal using the same wallet
         let _amal_2nd = ClientBuilder::new_test_client(&amal_wallet).await;
 
-        // test that adding the new installation(s), worked
+        // test if adding the new installation(s) worked
         let new_installations_were_added = group.add_missing_installations(provider).await;
         assert!(new_installations_were_added.is_ok());
     }

@@ -107,6 +107,7 @@ impl TryFrom<GroupMetadataProto> for GroupMetadata {
 pub enum ConversationType {
     Group,
     Dm,
+    Sync
 }
 
 impl From<ConversationType> for ConversationTypeProto {
@@ -114,6 +115,7 @@ impl From<ConversationType> for ConversationTypeProto {
         match value {
             ConversationType::Group => Self::Group,
             ConversationType::Dm => Self::Dm,
+            ConversationType::Sync => Self::Sync,
         }
     }
 }
@@ -125,6 +127,7 @@ impl TryFrom<i32> for ConversationType {
         Ok(match value {
             1 => Self::Group,
             2 => Self::Dm,
+            3 => Self::Sync,
             _ => return Err(GroupMetadataError::InvalidConversationType),
         })
     }

@@ -301,6 +301,7 @@ impl serde::Serialize for ConversationType {
             Self::Unspecified => "CONVERSATION_TYPE_UNSPECIFIED",
             Self::Group => "CONVERSATION_TYPE_GROUP",
             Self::Dm => "CONVERSATION_TYPE_DM",
+            Self::Sync => "CONVERSATION_TYPE_SYNC",
         };
         serializer.serialize_str(variant)
     }
@@ -315,6 +316,7 @@ impl<'de> serde::Deserialize<'de> for ConversationType {
             "CONVERSATION_TYPE_UNSPECIFIED",
             "CONVERSATION_TYPE_GROUP",
             "CONVERSATION_TYPE_DM",
+            "CONVERSATION_TYPE_SYNC",
         ];
 
         struct GeneratedVisitor;
@@ -358,6 +360,7 @@ impl<'de> serde::Deserialize<'de> for ConversationType {
                     "CONVERSATION_TYPE_UNSPECIFIED" => Ok(ConversationType::Unspecified),
                     "CONVERSATION_TYPE_GROUP" => Ok(ConversationType::Group),
                     "CONVERSATION_TYPE_DM" => Ok(ConversationType::Dm),
+                    "CONVERSATION_TYPE_SYNC" => Ok(ConversationType::Sync),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
