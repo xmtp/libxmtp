@@ -443,7 +443,6 @@ mod tests {
     use openmls::{
         credentials::{BasicCredential, CredentialWithKey},
         extensions::ExtensionType,
-        group::config::CryptoConfig,
         messages::proposals::ProposalType,
         prelude::Capabilities,
         prelude_test::KeyPackage,
@@ -601,10 +600,7 @@ mod tests {
         let bad_key_package = KeyPackage::builder()
             .leaf_node_capabilities(capabilities)
             .build(
-                CryptoConfig {
-                    ciphersuite: CIPHERSUITE,
-                    version: ProtocolVersion::default(),
-                },
+                CIPHERSUITE,
                 &bola_provider,
                 &bola.identity.installation_keys,
                 CredentialWithKey {

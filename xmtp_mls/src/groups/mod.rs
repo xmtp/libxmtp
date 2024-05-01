@@ -20,9 +20,8 @@ use openmls::{
     group::{CreateGroupContextExtProposalError, MlsGroupCreateConfig, MlsGroupJoinConfig},
     messages::proposals::ProposalType,
     prelude::{
-        BasicCredentialError, Capabilities, CredentialWithKey, CryptoConfig,
-        Error as TlsCodecError, GroupId, MlsGroup as OpenMlsGroup, StagedWelcome,
-        Welcome as MlsWelcome, WireFormatPolicy,
+        BasicCredentialError, Capabilities, CredentialWithKey, Error as TlsCodecError, GroupId,
+        MlsGroup as OpenMlsGroup, StagedWelcome, Welcome as MlsWelcome, WireFormatPolicy,
     },
 };
 use openmls_traits::OpenMlsProvider;
@@ -94,7 +93,7 @@ pub enum GroupError {
     #[error("intent error: {0}")]
     Intent(#[from] IntentError),
     #[error("create message: {0}")]
-    CreateMessage(#[from] openmls::prelude::CreateMessageError),
+    CreateMessage(#[from] openmls::prelude::CreateMessageError<StorageError>),
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
     #[error("add members: {0}")]
@@ -660,7 +659,7 @@ fn build_group_config(
     Ok(MlsGroupCreateConfig::builder()
         .with_group_context_extensions(extensions)?
         .capabilities(capabilities)
-        .crypto_config(CryptoConfig::with_default_version(CIPHERSUITE))
+        .crypto_config(CIPHERSUITE)
         .wire_format_policy(WireFormatPolicy::default())
         .max_past_epochs(3) // Trying with 3 max past epochs for now
         .use_ratchet_tree_extension(true)

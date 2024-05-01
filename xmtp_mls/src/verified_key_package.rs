@@ -124,7 +124,6 @@ mod tests {
         extensions::{
             ApplicationIdExtension, Extension, ExtensionType, Extensions, LastResortExtension,
         },
-        group::config::CryptoConfig,
         prelude::Capabilities,
         prelude_test::KeyPackage,
         versions::ProtocolVersion,
@@ -163,10 +162,7 @@ mod tests {
             .key_package_extensions(Extensions::single(last_resort))
             .leaf_node_extensions(leaf_node_extensions)
             .build(
-                CryptoConfig {
-                    ciphersuite: CIPHERSUITE,
-                    version: ProtocolVersion::default(),
-                },
+                CIPHERSUITE,
                 &provider,
                 &client.identity.installation_keys,
                 CredentialWithKey {

@@ -194,7 +194,6 @@ mod tests {
         extensions::{ApplicationIdExtension, Extension, Extensions},
         prelude::{
             tls_codec::Serialize, Ciphersuite, Credential as OpenMlsCredential, CredentialWithKey,
-            CryptoConfig,
         },
         prelude_test::KeyPackage,
         versions::ProtocolVersion,
@@ -244,10 +243,7 @@ mod tests {
         let kp = KeyPackage::builder()
             .leaf_node_extensions(Extensions::single(application_id))
             .build(
-                CryptoConfig {
-                    ciphersuite: CIPHERSUITE,
-                    version: ProtocolVersion::default(),
-                },
+                CIPHERSUITE,
                 &rust_crypto,
                 keypair,
                 credential_with_key.clone(),

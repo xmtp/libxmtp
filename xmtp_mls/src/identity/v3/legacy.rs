@@ -10,8 +10,8 @@ use openmls::{
     messages::proposals::ProposalType,
     prelude::{
         tls_codec::{Error as TlsCodecError, Serialize},
-        Capabilities, Credential as OpenMlsCredential, CredentialWithKey, CryptoConfig, Extension,
-        ExtensionType, Extensions, KeyPackage, KeyPackageNewError, Lifetime,
+        Capabilities, Credential as OpenMlsCredential, CredentialWithKey, Extension, ExtensionType,
+        Extensions, KeyPackage, KeyPackageNewError, Lifetime,
     },
     versions::ProtocolVersion,
 };
@@ -219,10 +219,7 @@ impl Identity {
             .key_package_extensions(key_package_extensions)
             .key_package_lifetime(Lifetime::new(6 * 30 * 86400))
             .build(
-                CryptoConfig {
-                    ciphersuite: CIPHERSUITE,
-                    version: ProtocolVersion::default(),
-                },
+                CIPHERSUITE,
                 provider,
                 &self.installation_keys,
                 CredentialWithKey {

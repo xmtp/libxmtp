@@ -9,6 +9,7 @@ use super::{
 };
 use crate::{Delete, Fetch};
 
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct SqlKeyStore<'a> {
     conn: &'a DbConnection<'a>,
 }
@@ -164,12 +165,12 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         // write proposal to key (group_id, proposal_ref)
         let key = serde_json::to_vec(&(group_id, proposal_ref))?;
         let value = serde_json::to_vec(proposal)?;
-        self.write::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key, value)?;
+        self.write::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key, &value)?;
 
         // update proposal list for group_id
         let key = serde_json::to_vec(group_id)?;
         let value = serde_json::to_vec(proposal_ref)?;
-        self.append::<CURRENT_VERSION>(PROPOSAL_QUEUE_REFS_LABEL, &key, value)?;
+        self.append::<CURRENT_VERSION>(PROPOSAL_QUEUE_REFS_LABEL, &key, &value)?;
 
         Ok(())
     }
@@ -185,7 +186,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         self.write::<CURRENT_VERSION>(
             TREE_LABEL,
             &serde_json::to_vec(&group_id).unwrap(),
-            serde_json::to_vec(&tree).unwrap(),
+            &serde_json::to_vec(&tree).unwrap(),
         )
     }
 
@@ -379,7 +380,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         let key = serde_json::to_vec(&hash_ref).unwrap();
         let value = serde_json::to_vec(&key_package).unwrap();
 
-        self.write::<CURRENT_VERSION>(KEY_PACKAGE_LABEL, &key, value)
+        self.write::<CURRENT_VERSION>(KEY_PACKAGE_LABEL, &key, &value)
             .unwrap();
 
         Ok(())
@@ -396,7 +397,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         self.write::<CURRENT_VERSION>(
             PSK_LABEL,
             &serde_json::to_vec(&psk_id).unwrap(),
-            serde_json::to_vec(&psk).unwrap(),
+            &serde_json::to_vec(&psk).unwrap(),
         )
     }
 
@@ -411,7 +412,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         self.write::<CURRENT_VERSION>(
             ENCRYPTION_KEY_PAIR_LABEL,
             &serde_json::to_vec(public_key).unwrap(),
-            serde_json::to_vec(key_pair).unwrap(),
+            &serde_json::to_vec(key_pair).unwrap(),
         )
     }
 
@@ -503,7 +504,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         self.write::<CURRENT_VERSION>(
             GROUP_STATE_LABEL,
             &serde_json::to_vec(group_id)?,
-            serde_json::to_vec(group_state)?,
+            &serde_json::to_vec(group_state)?,
         )
     }
 
@@ -535,7 +536,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         self.write::<CURRENT_VERSION>(
             MESSAGE_SECRETS_LABEL,
             &serde_json::to_vec(group_id)?,
-            serde_json::to_vec(message_secrets)?,
+            &serde_json::to_vec(message_secrets)?,
         )
     }
 
@@ -567,7 +568,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         self.write::<CURRENT_VERSION>(
             RESUMPTION_PSK_STORE_LABEL,
             &serde_json::to_vec(group_id)?,
-            serde_json::to_vec(resumption_psk_store)?,
+            &serde_json::to_vec(resumption_psk_store)?,
         )
     }
 
@@ -599,7 +600,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         self.write::<CURRENT_VERSION>(
             OWN_LEAF_NODE_INDEX_LABEL,
             &serde_json::to_vec(group_id)?,
-            serde_json::to_vec(own_leaf_index)?,
+            &serde_json::to_vec(own_leaf_index)?,
         )
     }
 
@@ -625,7 +626,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         self.write::<CURRENT_VERSION>(
             USE_RATCHET_TREE_LABEL,
             &serde_json::to_vec(group_id)?,
-            serde_json::to_vec(&value)?,
+            &serde_json::to_vec(&value)?,
         )
     }
 
@@ -657,7 +658,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         self.write::<CURRENT_VERSION>(
             EPOCH_SECRETS_LABEL,
             &serde_json::to_vec(group_id)?,
-            serde_json::to_vec(group_epoch_secrets)?,
+            &serde_json::to_vec(group_epoch_secrets)?,
         )
     }
 
@@ -688,7 +689,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
             log::debug!("  value: {}", hex::encode(&value));
         }
 
-        self.write::<CURRENT_VERSION>(EPOCH_KEY_PAIRS_LABEL, &key, value)
+        self.write::<CURRENT_VERSION>(EPOCH_KEY_PAIRS_LABEL, &key, &value)
     }
 
     fn encryption_epoch_key_pairs<
@@ -769,7 +770,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         let key = serde_json::to_vec(group_id).unwrap();
         let value = serde_json::to_vec(config).unwrap();
 
-        self.write::<CURRENT_VERSION>(JOIN_CONFIG_LABEL, &key, value)
+        self.write::<CURRENT_VERSION>(JOIN_CONFIG_LABEL, &key, &value)
     }
 
     fn own_leaf_nodes<
@@ -792,7 +793,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
     ) -> Result<(), Self::Error> {
         let key = serde_json::to_vec(group_id)?;
         let value = serde_json::to_vec(leaf_node)?;
-        self.append::<CURRENT_VERSION>(OWN_LEAF_NODES_LABEL, &key, value)
+        self.append::<CURRENT_VERSION>(OWN_LEAF_NODES_LABEL, &key, &value)
     }
 
     fn clear_own_leaf_nodes<GroupId: traits::GroupId<CURRENT_VERSION>>(
@@ -817,7 +818,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         aad: &[u8],
     ) -> Result<(), Self::Error> {
         let key = serde_json::to_vec(group_id)?;
-        self.write::<CURRENT_VERSION>(AAD_LABEL, &key, aad.to_vec())
+        self.write::<CURRENT_VERSION>(AAD_LABEL, &key, &aad.to_vec())
     }
 
     fn delete_aad<GroupId: traits::GroupId<CURRENT_VERSION>>(
@@ -886,7 +887,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         let key = serde_json::to_vec(group_id).unwrap();
         let value = serde_json::to_vec(proposal_ref).unwrap();
 
-        self.remove_item::<CURRENT_VERSION>(PROPOSAL_QUEUE_REFS_LABEL, &key, value)?;
+        self.remove_item::<CURRENT_VERSION>(PROPOSAL_QUEUE_REFS_LABEL, &key, &value)?;
 
         let key = serde_json::to_vec(&(group_id, proposal_ref)).unwrap();
         self.delete::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key)
@@ -906,11 +907,16 @@ fn build_key<const V: u16, K: Serialize>(label: &[u8], key: K) -> Vec<u8> {
     build_key_from_vec::<V>(label, serde_json::to_vec(&key).unwrap())
 }
 
-fn epoch_key_pairs_id(
-    group_id: &impl traits::GroupId<CURRENT_VERSION>,
-    epoch: &impl traits::EpochKey<CURRENT_VERSION>,
+fn epoch_key_pairs_id<'a, G, E, V>(
+    group_id: &'a G,
+    epoch: &'a E,
     leaf_index: u32,
-) -> Result<Vec<u8>, <SqlKeyStore as StorageProvider<CURRENT_VERSION>>::Error> {
+) -> Result<Vec<u8>, V>
+where
+    G: traits::GroupId<CURRENT_VERSION> + Serialize,
+    E: traits::EpochKey<CURRENT_VERSION> + Serialize,
+    V: std::error::Error,
+{
     let mut key = serde_json::to_vec(group_id)?;
     key.extend_from_slice(&serde_json::to_vec(epoch)?);
     key.extend_from_slice(&serde_json::to_vec(&leaf_index)?);
