@@ -34,7 +34,7 @@ pub struct StoredGroup {
     pub installations_last_checked: i64,
     /// Enum, [`Purpose`] signifies the group purpose which extends to who can access it.
     pub purpose: Purpose,
-    /// String representing the wallet address of the who added the user to a group.
+    /// The wallet address of who added the user to a group.
     pub added_by_address: String,
     /// A BigInt type variable used to record the time of key rotated. 
     pub rotated_at_ns: BigInt,
