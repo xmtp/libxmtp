@@ -209,7 +209,7 @@ mod tests {
 
         let conn_c = amal_c.store.conn().unwrap();
         let amal_c_sync_groups = conn_c.find_sync_groups().unwrap();
-        
+
         assert_eq!(amal_a_sync_groups.len(), 1);
         assert_eq!(amal_b_sync_groups.len(), 1);
         assert_eq!(amal_c_sync_groups.len(), 1);

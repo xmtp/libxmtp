@@ -107,7 +107,7 @@ impl TryFrom<GroupMetadataProto> for GroupMetadata {
 pub enum ConversationType {
     Group,
     Dm,
-    Sync
+    Sync,
 }
 
 impl From<ConversationType> for ConversationTypeProto {
