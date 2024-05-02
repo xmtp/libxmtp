@@ -26,7 +26,6 @@ impl GroupMembership {
         self.members.get(inbox_id.as_ref())
     }
 
-    #[allow(clippy::unnecessary_get_then_check)]
     pub fn diff<'inbox_id>(
         &'inbox_id self,
         new_group_membership: &'inbox_id Self,
@@ -51,10 +50,10 @@ impl GroupMembership {
             .members
             .iter()
             .filter_map(|(inbox_id, _)| {
-                if self.members.get(inbox_id).is_none() {
-                    Some(inbox_id)
-                } else {
+                if self.members.contains_key(inbox_id) {
                     None
+                } else {
+                    Some(inbox_id)
                 }
             })
             .collect::<Vec<&String>>();
