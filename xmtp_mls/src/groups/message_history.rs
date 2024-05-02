@@ -191,6 +191,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_installations_are_added_to_sync_group() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let amal_b = ClientBuilder::new_test_client(&wallet).await;
+        let amal_c = ClientBuilder::new_test_client(&wallet).await;
+        assert!(amal_c.allow_history_sync().await.is_ok());
+
+        amal_a.sync_welcomes().await.expect("sync_welcomes");
+        amal_b.sync_welcomes().await.expect("sync_welcomes");
+
+        let conn_a = amal_a.store.conn().unwrap();
+        let amal_a_sync_groups = conn_a.find_sync_groups().unwrap();
+
+        let conn_b = amal_b.store.conn().unwrap();
+        let amal_b_sync_groups = conn_b.find_sync_groups().unwrap();
+
+        let conn_c = amal_c.store.conn().unwrap();
+        let amal_c_sync_groups = conn_c.find_sync_groups().unwrap();
+        
+        assert_eq!(amal_a_sync_groups.len(), 1);
+        assert_eq!(amal_b_sync_groups.len(), 1);
+        assert_eq!(amal_c_sync_groups.len(), 1);
+        // make sure all installations are in the same sync group
+        assert_eq!(amal_a_sync_groups[0].id, amal_b_sync_groups[0].id);
+        assert_eq!(amal_b_sync_groups[0].id, amal_c_sync_groups[0].id);
+    }
+
+    #[tokio::test]
     async fn test_send_mesage_history_request() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;

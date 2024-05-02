@@ -71,7 +71,7 @@ use crate::{
     retry::RetryableError,
     retryable,
     storage::{
-        group::{GroupMembershipState, StoredGroup, Purpose},
+        group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         StorageError,
@@ -254,14 +254,24 @@ where
 
         let mut mls_group = mls_welcome.into_group(provider)?;
         mls_group.save(provider.key_store())?;
-
         let group_id = mls_group.group_id().to_vec();
-        let to_store = StoredGroup::new(
-            group_id,
-            now_ns(),
-            GroupMembershipState::Pending,
-            added_by_address.clone(),
-        );
+        let metadata = extract_group_metadata(&mls_group)?;
+        let group_type = metadata.conversation_type;
+
+        let to_store = match group_type {
+            ConversationType::Group | ConversationType::Dm => StoredGroup::new(
+                group_id.clone(),
+                now_ns(),
+                GroupMembershipState::Pending,
+                added_by_address.clone(),
+            ),
+            ConversationType::Sync => StoredGroup::new_sync_group(
+                group_id.clone(),
+                now_ns(),
+                GroupMembershipState::Allowed,
+            ),
+        };
+
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
 
         Ok(Self::new(
@@ -593,11 +603,7 @@ fn build_protected_metadata_extension(
         Purpose::Conversation => ConversationType::Group,
         Purpose::Sync => ConversationType::Sync,
     };
-    let metadata = GroupMetadata::new(
-        group_type,
-        identity.account_address.clone(),
-        policies,
-    );
+    let metadata = GroupMetadata::new(group_type, identity.account_address.clone(), policies);
     let protected_metadata = Metadata::new(metadata.try_into()?);
 
     Ok(Extension::ImmutableMetadata(protected_metadata))
