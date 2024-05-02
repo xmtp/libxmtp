@@ -108,8 +108,17 @@ impl<'a> SqlKeyStore<'a> {
             });
 
         match results {
-            Ok(data) => Ok(data.into_iter().next().map(|entry| entry.data)),
-            Err(e) => Err(Box::new(e)),
+            Ok(data) => {
+                if let Some(entry) = data.into_iter().next() {
+                    match serde_json::from_slice::<V>(&entry.data) {
+                        Ok(deserialized) => Ok(Some(deserialized)),
+                        Err(e) => Err(MemoryStorageError::SerializationError),
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            Err(e) => Err(MemoryStorageError::None),
         }
     }
 
@@ -125,13 +134,19 @@ impl<'a> SqlKeyStore<'a> {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
-                .load(conn)
+                .load::<StorageData>(conn)
         }) {
-            Ok(results) => Ok(results
-                .into_iter()
-                .map(|entry: StorageData| entry.data)
-                .collect()),
-            Err(e) => Err(Box::new(e)),
+            Ok(results) => {
+                let mut deserialized_results = Vec::new();
+                for entry in results {
+                    match serde_json::from_slice::<V>(&entry.data) {
+                        Ok(deserialized) => deserialized_results.push(deserialized),
+                        Err(e) => return Err(MemoryStorageError::SerializationError),
+                    }
+                }
+                Ok(deserialized_results)
+            }
+            Err(e) => Err(MemoryStorageError::None),
         }
     }
 
@@ -241,11 +256,10 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         group_id: &GroupId,
         interim_transcript_hash: &InterimTranscriptHash,
     ) -> Result<(), Self::Error> {
-        let mut values = self.values.write().unwrap();
         let key = build_key::<CURRENT_VERSION, &GroupId>(INTERIM_TRANSCRIPT_HASH_LABEL, group_id);
         let value = serde_json::to_vec(&interim_transcript_hash).unwrap();
+        self.write::<CURRENT_VERSION>(TREE_LABEL, &key[..], &value[..]);
 
-        values.insert(key, value);
         Ok(())
     }
 
@@ -257,11 +271,10 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         group_id: &GroupId,
         group_context: &GroupContext,
     ) -> Result<(), Self::Error> {
-        let mut values = self.values.write().unwrap();
         let key = build_key::<CURRENT_VERSION, &GroupId>(GROUP_CONTEXT_LABEL, group_id);
         let value = serde_json::to_vec(&group_context).unwrap();
+        self.write::<CURRENT_VERSION>(TREE_LABEL, &key[..], &value[..]);
 
-        values.insert(key, value);
         Ok(())
     }
 
@@ -273,11 +286,10 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         group_id: &GroupId,
         confirmation_tag: &ConfirmationTag,
     ) -> Result<(), Self::Error> {
-        let mut values = self.values.write().unwrap();
         let key = build_key::<CURRENT_VERSION, &GroupId>(CONFIRMATION_TAG_LABEL, group_id);
         let value = serde_json::to_vec(&confirmation_tag).unwrap();
+        self.write::<CURRENT_VERSION>(TREE_LABEL, &key[..], &value[..]);
 
-        values.insert(key, value);
         Ok(())
     }
 
@@ -289,13 +301,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         public_key: &SignaturePublicKey,
         signature_key_pair: &SignatureKeyPair,
     ) -> Result<(), Self::Error> {
-        let mut values = self.values.write().unwrap();
-        let key =
-            build_key::<CURRENT_VERSION, &SignaturePublicKey>(SIGNATURE_KEY_PAIR_LABEL, public_key);
-        let value = serde_json::to_vec(&signature_key_pair).unwrap();
-
-        values.insert(key, value);
-        Ok(())
+        Err(MemoryStorageError::UnsupportedMethod)
     }
 
     fn queued_proposal_refs<
@@ -401,15 +407,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         &self,
         public_key: &SignaturePublicKey,
     ) -> Result<Option<SignatureKeyPair>, Self::Error> {
-        let values = self.values.read().unwrap();
-
-        let key =
-            build_key::<CURRENT_VERSION, &SignaturePublicKey>(SIGNATURE_KEY_PAIR_LABEL, public_key);
-
-        let value = values.get(&key).unwrap();
-        let value = serde_json::from_slice(value).unwrap();
-
-        Ok(value)
+        Err(MemoryStorageError::UnsupportedMethod)
     }
 
     fn write_key_package<
@@ -437,11 +435,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         psk_id: &PskId,
         psk: &PskBundle,
     ) -> Result<(), Self::Error> {
-        self.write::<CURRENT_VERSION>(
-            PSK_LABEL,
-            &serde_json::to_vec(&psk_id).unwrap(),
-            &serde_json::to_vec(&psk).unwrap(),
-        )
+        Err(MemoryStorageError::UnsupportedMethod)
     }
 
     fn write_encryption_key_pair<
@@ -474,7 +468,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         &self,
         psk_id: &PskId,
     ) -> Result<Option<PskBundle>, Self::Error> {
-        self.read(PSK_LABEL, &serde_json::to_vec(&psk_id).unwrap())
+        Err(MemoryStorageError::UnsupportedMethod)
     }
 
     fn encryption_key_pair<
@@ -496,10 +490,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         &self,
         public_key: &SignaturePublicKeuy,
     ) -> Result<(), Self::Error> {
-        self.delete::<CURRENT_VERSION>(
-            SIGNATURE_KEY_PAIR_LABEL,
-            &serde_json::to_vec(public_key).unwrap(),
-        )
+        Err(MemoryStorageError::UnsupportedMethod)
     }
 
     fn delete_encryption_key_pair<EncryptionKey: traits::EncryptionKey<CURRENT_VERSION>>(
@@ -523,7 +514,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         &self,
         psk_id: &PskKey,
     ) -> Result<(), Self::Error> {
-        self.delete::<CURRENT_VERSION>(PSK_LABEL, &serde_json::to_vec(&psk_id)?)
+        Err(MemoryStorageError::UnsupportedMethod)
     }
 
     fn group_state<
@@ -597,7 +588,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         &self,
         group_id: &GroupId,
     ) -> Result<Option<ResumptionPskStore>, Self::Error> {
-        self.read(RESUMPTION_PSK_STORE_LABEL, &serde_json::to_vec(group_id)?)
+        Err(MemoryStorageError::UnsupportedMethod)
     }
 
     fn write_resumption_psk_store<
@@ -608,18 +599,14 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         group_id: &GroupId,
         resumption_psk_store: &ResumptionPskStore,
     ) -> Result<(), Self::Error> {
-        self.write::<CURRENT_VERSION>(
-            RESUMPTION_PSK_STORE_LABEL,
-            &serde_json::to_vec(group_id)?,
-            &serde_json::to_vec(resumption_psk_store)?,
-        )
+        Err(MemoryStorageError::UnsupportedMethod)
     }
 
     fn delete_all_resumption_psk_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
-        self.delete::<CURRENT_VERSION>(RESUMPTION_PSK_STORE_LABEL, &serde_json::to_vec(group_id)?)
+        Err(MemoryStorageError::UnsupportedMethod)
     }
 
     fn own_leaf_index<
@@ -781,13 +768,8 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
-        let mut values = self.values.write().unwrap();
-
         let key = build_key::<CURRENT_VERSION, &GroupId>(QUEUED_PROPOSAL_LABEL, group_id);
-
-        // XXX #1566: also remove the proposal refs. can't be done now because they are stored in a
-        // non-recoverable way
-        values.remove(&key);
+        self.delete::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key);
 
         Ok(())
     }
@@ -950,16 +932,11 @@ fn build_key<const V: u16, K: Serialize>(label: &[u8], key: K) -> Vec<u8> {
     build_key_from_vec::<V>(label, serde_json::to_vec(&key).unwrap())
 }
 
-fn epoch_key_pairs_id<'a, G, E, V>(
-    group_id: &'a G,
-    epoch: &'a E,
+fn epoch_key_pairs_id(
+    group_id: &impl traits::GroupId<CURRENT_VERSION>,
+    epoch: &impl traits::EpochKey<CURRENT_VERSION>,
     leaf_index: u32,
-) -> Result<Vec<u8>, V>
-where
-    G: traits::GroupId<CURRENT_VERSION> + Serialize,
-    E: traits::EpochKey<CURRENT_VERSION> + Serialize,
-    V: std::error::Error,
-{
+) -> Result<Vec<u8>, MemoryStorageError> {
     let mut key = serde_json::to_vec(group_id)?;
     key.extend_from_slice(&serde_json::to_vec(epoch)?);
     key.extend_from_slice(&serde_json::to_vec(&leaf_index)?);
