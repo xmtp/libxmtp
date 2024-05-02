@@ -149,6 +149,7 @@ fn new_request_id() -> String {
     Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
 }
 
+#[allow(dead_code)]
 fn new_key() -> [u8; 32] {
     let mut key = [0u8; 32];
     let rng = rand::thread_rng();
