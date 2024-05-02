@@ -1,3 +1,4 @@
+use futures::future::join_all;
 use openmls::{
     credentials::BasicCredential,
     prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage},
@@ -5,7 +6,6 @@ use openmls::{
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
-use futures::future::join_all;
 use xmtp_id::associations::{
     self, try_map_vec, AssociationError, DeserializationError, MemberIdentifier,
 };
@@ -171,7 +171,7 @@ impl ValidationApi for ValidationService {
 
 #[derive(thiserror::Error, Debug)]
 enum ValidateInboxIdKeyPackageError {
-    #[error(transparent)]
+    #[error("XMTP Key Package failed {0}")]
     KeyPackageVerification(#[from] KeyPackageVerificationError),
 }
 
@@ -392,11 +392,18 @@ mod tests {
     };
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_rust_crypto::OpenMlsRustCrypto;
+    use openmls_traits::signatures::Signer;
     use prost::Message;
-    use xmtp_id::associations::{generate_inbox_id, Action, CreateInbox, IdentityUpdate};
+    use sha2::{Digest, Sha512};
+    use xmtp_id::associations::{
+        generate_inbox_id,
+        unsigned_actions::{SignatureTextCreator as _, UnsignedCreateInbox},
+        Action, AddAssociation, CreateInbox, IdentityUpdate, InstallationKeySignature, Signature,
+    };
     use xmtp_mls::{credential::Credential, InboxOwner};
     use xmtp_proto::xmtp::{
         identity::associations::IdentityUpdate as IdentityUpdateProto,
+        identity::MlsCredential as InboxIdMlsCredential,
         mls::message_contents::MlsCredential as CredentialProto,
         mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
     };
@@ -409,6 +416,7 @@ mod tests {
         let rng = &mut rand::thread_rng();
         let wallet = LocalWallet::new(rng);
         let signature_key_pair = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
+
         let _pub_key = signature_key_pair.public();
         let account_address = wallet.get_address();
 
@@ -423,17 +431,53 @@ mod tests {
         )
     }
 
+    fn generate_inbox_id_credential() -> (String, SignatureKeyPair, CreateInbox) {
+        let keypair = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
+        let unsigned_action = UnsignedCreateInbox {
+            nonce: 0,
+            account_address: "test".to_string(),
+        };
+        let sig_text = unsigned_action.signature_text();
+
+        let mut prehash: [u8; 64] = [0u8; 64];
+        let mut hashed: Sha512 = Sha512::new();
+        hashed.update(sig_text.clone());
+        prehash.copy_from_slice(hashed.finalize().as_slice());
+
+        let signature = keypair.sign(&prehash).unwrap();
+        println!("signature {:X?}", signature);
+        let signature =
+            InstallationKeySignature::new(sig_text, signature.to_vec(), keypair.public().to_vec());
+
+        let create = CreateInbox {
+            nonce: 0,
+            account_address: "test".into(),
+            initial_address_signature: Box::new(signature),
+        };
+
+        let inbox_id = generate_inbox_id(&create.account_address, &create.nonce);
+
+        (inbox_id, keypair, create)
+    }
+
     fn build_key_package_bytes(
         keypair: &SignatureKeyPair,
         credential_with_key: &CredentialWithKey,
-        account_address: String,
+        account_address: Option<String>,
     ) -> Vec<u8> {
         let rust_crypto = OpenMlsRustCrypto::default();
-        let application_id =
-            Extension::ApplicationId(ApplicationIdExtension::new(account_address.as_bytes()));
 
-        let kp = KeyPackage::builder()
-            .leaf_node_extensions(Extensions::single(application_id))
+        let kp = KeyPackage::builder();
+
+        let kp = if let Some(address) = account_address {
+            let application_id =
+                Extension::ApplicationId(ApplicationIdExtension::new(address.as_bytes()));
+            kp.leaf_node_extensions(Extensions::single(application_id))
+        } else {
+            kp
+        };
+
+        let kp = kp
             .build(
                 CryptoConfig {
                     ciphersuite: CIPHERSUITE,
@@ -444,6 +488,7 @@ mod tests {
                 credential_with_key.clone(),
             )
             .unwrap();
+
         kp.tls_serialize_detached().unwrap()
     }
 
@@ -457,8 +502,11 @@ mod tests {
             signature_key: keypair.to_public_vec().into(),
         };
 
-        let key_package_bytes =
-            build_key_package_bytes(&keypair, &credential_with_key, account_address.clone());
+        let key_package_bytes = build_key_package_bytes(
+            &keypair,
+            &credential_with_key,
+            Some(account_address.clone()),
+        );
         let request = ValidateKeyPackagesRequest {
             key_packages: vec![KeyPackageProtoWrapper {
                 key_package_bytes_tls_serialized: key_package_bytes,
@@ -489,7 +537,7 @@ mod tests {
         };
 
         let key_package_bytes =
-            build_key_package_bytes(&keypair, &credential_with_key, account_address);
+            build_key_package_bytes(&keypair, &credential_with_key, Some(account_address));
 
         let request = ValidateKeyPackagesRequest {
             key_packages: vec![KeyPackageProtoWrapper {
@@ -531,5 +579,111 @@ mod tests {
             }))
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_validate_inbox_id_key_package_happy_path() {
+        let (inbox_id, keypair, _) = generate_inbox_id_credential();
+        let credential: OpenMlsCredential = InboxIdMlsCredential {
+            inbox_id: inbox_id.clone(),
+        }
+        .try_into()
+        .unwrap();
+
+        let credential_with_key = CredentialWithKey {
+            credential,
+            signature_key: keypair.to_public_vec().into(),
+        };
+
+        let key_package_bytes = build_key_package_bytes(&keypair, &credential_with_key, None);
+        let request = ValidateKeyPackagesRequest {
+            key_packages: vec![KeyPackageProtoWrapper {
+                key_package_bytes_tls_serialized: key_package_bytes,
+            }],
+        };
+
+        let res = ValidationService::default()
+            .validate_inbox_id_key_packages(Request::new(request))
+            .await
+            .unwrap();
+
+        let first_response = &res.into_inner().responses[0];
+        assert!(first_response.is_ok);
+        assert_eq!(first_response.installation_public_key, keypair.public());
+        assert_eq!(
+            first_response.credential.as_ref().unwrap().inbox_id,
+            inbox_id
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_inbox_id_key_package_failure() {
+        let (inbox_id, keypair, _) = generate_inbox_id_credential();
+        let (_, other_keypair, _) = generate_inbox_id_credential();
+
+        let credential: OpenMlsCredential = InboxIdMlsCredential {
+            inbox_id: inbox_id.clone(),
+        }
+        .try_into()
+        .unwrap();
+
+        let credential_with_key = CredentialWithKey {
+            credential,
+            signature_key: other_keypair.to_public_vec().into(),
+        };
+
+        let key_package_bytes = build_key_package_bytes(&keypair, &credential_with_key, None);
+        let request = ValidateKeyPackagesRequest {
+            key_packages: vec![KeyPackageProtoWrapper {
+                key_package_bytes_tls_serialized: key_package_bytes,
+            }],
+        };
+
+        let res = ValidationService::default()
+            .validate_inbox_id_key_packages(Request::new(request))
+            .await
+            .unwrap();
+
+        let first_response = &res.into_inner().responses[0];
+        assert!(!first_response.is_ok);
+        assert_eq!(
+            first_response.error_message,
+            "XMTP Key Package failed mls validation: The leaf node signature is not valid."
+        );
+        assert_eq!(first_response.credential, None);
+        assert_eq!(first_response.installation_public_key, Vec::<u8>::new());
+    }
+
+    #[tokio::test]
+    async fn test_validate_inbox_ids_happy_path() {
+        let (inbox_id, keypair, create) = generate_inbox_id_credential();
+        let updates =
+            vec![
+                IdentityUpdate::new_test(vec![Action::CreateInbox(create)], inbox_id.clone())
+                    .to_proto(),
+            ];
+
+        let credential = Some(InboxIdMlsCredential {
+            inbox_id: inbox_id.clone(),
+        });
+        let request = ValidateInboxIdsRequest {
+            requests: vec![InboxIdValidationRequest {
+                credential: credential.clone(),
+                installation_public_key: keypair.public().to_vec(),
+                identity_updates: updates.clone(),
+            }],
+        };
+
+        let res = ValidationService::default()
+            .validate_inbox_ids(Request::new(request))
+            .await
+            .unwrap();
+
+        println!("{:#?}", res);
+        let res = &res.into_inner().responses[0];
+
+        assert!(res.is_ok);
+        assert_eq!(res.error_message, "".to_string());
+        assert_eq!(res.inbox_id, inbox_id);
     }
 }

@@ -7,7 +7,7 @@ pub mod signature;
 mod state;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
-mod unsigned_actions;
+pub mod unsigned_actions;
 
 pub use self::association_log::*;
 pub use self::hashes::generate_inbox_id;

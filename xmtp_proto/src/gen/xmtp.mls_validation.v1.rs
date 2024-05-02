@@ -3,22 +3,22 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ValidateInboxIdKeyPackagesResponse {
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub responses: ::prost::alloc::vec::Vec<validate_inbox_id_key_packages_response::Response>,
 }
 /// Nested message and enum types in `ValidateInboxIdKeyPackagesResponse`.
 pub mod validate_inbox_id_key_packages_response {
     /// one response corresponding to information about one key package
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Response {
-        #[prost(bool, tag="1")]
+        #[prost(bool, tag = "1")]
         pub is_ok: bool,
-        #[prost(string, tag="2")]
+        #[prost(string, tag = "2")]
         pub error_message: ::prost::alloc::string::String,
-        #[prost(message, optional, tag="3")]
+        #[prost(message, optional, tag = "3")]
         pub credential: ::core::option::Option<super::super::super::identity::MlsCredential>,
-        #[prost(bytes="vec", tag="4")]
+        #[prost(bytes = "vec", tag = "4")]
         pub installation_public_key: ::prost::alloc::vec::Vec<u8>,
     }
 }
@@ -26,16 +26,16 @@ pub mod validate_inbox_id_key_packages_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ValidateKeyPackagesRequest {
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub key_packages: ::prost::alloc::vec::Vec<validate_key_packages_request::KeyPackage>,
 }
 /// Nested message and enum types in `ValidateKeyPackagesRequest`.
 pub mod validate_key_packages_request {
     /// Wrapper for each key package
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct KeyPackage {
-        #[prost(bytes="vec", tag="1")]
+        #[prost(bytes = "vec", tag = "1")]
         pub key_package_bytes_tls_serialized: ::prost::alloc::vec::Vec<u8>,
     }
 }
@@ -43,26 +43,26 @@ pub mod validate_key_packages_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ValidateKeyPackagesResponse {
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub responses: ::prost::alloc::vec::Vec<validate_key_packages_response::ValidationResponse>,
 }
 /// Nested message and enum types in `ValidateKeyPackagesResponse`.
 pub mod validate_key_packages_response {
     /// An individual response to one key package
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct ValidationResponse {
-        #[prost(bool, tag="1")]
+        #[prost(bool, tag = "1")]
         pub is_ok: bool,
-        #[prost(string, tag="2")]
+        #[prost(string, tag = "2")]
         pub error_message: ::prost::alloc::string::String,
-        #[prost(bytes="vec", tag="3")]
+        #[prost(bytes = "vec", tag = "3")]
         pub installation_id: ::prost::alloc::vec::Vec<u8>,
-        #[prost(string, tag="4")]
+        #[prost(string, tag = "4")]
         pub account_address: ::prost::alloc::string::String,
-        #[prost(bytes="vec", tag="5")]
+        #[prost(bytes = "vec", tag = "5")]
         pub credential_identity_bytes: ::prost::alloc::vec::Vec<u8>,
-        #[prost(uint64, tag="6")]
+        #[prost(uint64, tag = "6")]
         pub expiration: u64,
     }
 }
@@ -70,16 +70,16 @@ pub mod validate_key_packages_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ValidateGroupMessagesRequest {
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub group_messages: ::prost::alloc::vec::Vec<validate_group_messages_request::GroupMessage>,
 }
 /// Nested message and enum types in `ValidateGroupMessagesRequest`.
 pub mod validate_group_messages_request {
     /// Wrapper for each message
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct GroupMessage {
-        #[prost(bytes="vec", tag="1")]
+        #[prost(bytes = "vec", tag = "1")]
         pub group_message_bytes_tls_serialized: ::prost::alloc::vec::Vec<u8>,
     }
 }
@@ -87,20 +87,20 @@ pub mod validate_group_messages_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ValidateGroupMessagesResponse {
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub responses: ::prost::alloc::vec::Vec<validate_group_messages_response::ValidationResponse>,
 }
 /// Nested message and enum types in `ValidateGroupMessagesResponse`.
 pub mod validate_group_messages_response {
     /// An individual response to one message
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct ValidationResponse {
-        #[prost(bool, tag="1")]
+        #[prost(bool, tag = "1")]
         pub is_ok: bool,
-        #[prost(string, tag="2")]
+        #[prost(string, tag = "2")]
         pub error_message: ::prost::alloc::string::String,
-        #[prost(string, tag="3")]
+        #[prost(string, tag = "3")]
         pub group_id: ::prost::alloc::string::String,
     }
 }
@@ -109,9 +109,9 @@ pub mod validate_group_messages_response {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetAssociationStateRequest {
     /// List of identity updates
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub old_updates: ::prost::alloc::vec::Vec<super::super::identity::associations::IdentityUpdate>,
-    #[prost(message, repeated, tag="2")]
+    #[prost(message, repeated, tag = "2")]
     pub new_updates: ::prost::alloc::vec::Vec<super::super::identity::associations::IdentityUpdate>,
 }
 /// Response to GetAssociationStateRequest, containing the final association state
@@ -119,31 +119,34 @@ pub struct GetAssociationStateRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetAssociationStateResponse {
-    #[prost(message, optional, tag="1")]
-    pub association_state: ::core::option::Option<super::super::identity::associations::AssociationState>,
-    #[prost(message, optional, tag="2")]
-    pub state_diff: ::core::option::Option<super::super::identity::associations::AssociationStateDiff>,
+    #[prost(message, optional, tag = "1")]
+    pub association_state:
+        ::core::option::Option<super::super::identity::associations::AssociationState>,
+    #[prost(message, optional, tag = "2")]
+    pub state_diff:
+        ::core::option::Option<super::super::identity::associations::AssociationStateDiff>,
 }
 /// Request to validate an InboxID with the backend service. Ensures an Inbox Id <> Installation key are valid.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ValidateInboxIdsRequest {
     /// list of validation requests
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub requests: ::prost::alloc::vec::Vec<validate_inbox_ids_request::ValidationRequest>,
 }
 /// Nested message and enum types in `ValidateInboxIdsRequest`.
 pub mod validate_inbox_ids_request {
     /// a single validation request
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct ValidationRequest {
-        #[prost(message, optional, tag="1")]
+        #[prost(message, optional, tag = "1")]
         pub credential: ::core::option::Option<super::super::super::identity::MlsCredential>,
-        #[prost(bytes="vec", tag="2")]
+        #[prost(bytes = "vec", tag = "2")]
         pub installation_public_key: ::prost::alloc::vec::Vec<u8>,
-        #[prost(message, repeated, tag="3")]
-        pub identity_updates: ::prost::alloc::vec::Vec<super::super::super::identity::associations::IdentityUpdate>,
+        #[prost(message, repeated, tag = "3")]
+        pub identity_updates:
+            ::prost::alloc::vec::Vec<super::super::super::identity::associations::IdentityUpdate>,
     }
 }
 /// Response to ValidateInboxIdRequest
@@ -151,20 +154,20 @@ pub mod validate_inbox_ids_request {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ValidateInboxIdsResponse {
     /// List of validation responses
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub responses: ::prost::alloc::vec::Vec<validate_inbox_ids_response::ValidationResponse>,
 }
 /// Nested message and enum types in `ValidateInboxIdsResponse`.
 pub mod validate_inbox_ids_response {
     /// a single validation response
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct ValidationResponse {
-        #[prost(bool, tag="1")]
+        #[prost(bool, tag = "1")]
         pub is_ok: bool,
-        #[prost(string, tag="2")]
+        #[prost(string, tag = "2")]
         pub error_message: ::prost::alloc::string::String,
-        #[prost(string, tag="3")]
+        #[prost(string, tag = "3")]
         pub inbox_id: ::prost::alloc::string::String,
     }
 }
@@ -649,3 +652,4 @@ pub const FILE_DESCRIPTOR_SET: &[u8] = &[
 include!("xmtp.mls_validation.v1.serde.rs");
 include!("xmtp.mls_validation.v1.tonic.rs");
 // @@protoc_insertion_point(module)
+

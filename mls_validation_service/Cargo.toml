@@ -36,3 +36,4 @@ ethers.workspace = true
 rand = { workspace = true }
 xmtp_id = { workspace = true, features = ["test-utils"]}
 anyhow.workspace = true
+sha2.workspace = true

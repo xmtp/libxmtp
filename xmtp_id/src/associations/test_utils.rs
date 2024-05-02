@@ -1,16 +1,5 @@
 use rand::{distributions::Alphanumeric, Rng};
-use xmtp_proto::{
-    xmtp::identity::associations::{
-        signature::Signature as SignatureKindProto, Erc1271Signature as Erc1271SignatureProto,
-        LegacyDelegatedSignature as LegacyDelegatedSignatureProto,
-        RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
-        RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
-        Signature as SignatureProto,
-    },
-    xmtp::message_contents::{
-        Signature as LegacySignatureProto, SignedPublicKey as LegacySignedPublicKeyProto,
-    },
-};
+use xmtp_proto::xmtp::identity::associations::Signature as SignatureProto;
 
 use super::{MemberIdentifier, Signature, SignatureError, SignatureKind};
 
@@ -80,38 +69,6 @@ impl Signature for MockSignature {
     }
 
     fn to_proto(&self) -> SignatureProto {
-        match self.signature_kind {
-            SignatureKind::Erc191 => SignatureProto {
-                signature: Some(SignatureKindProto::Erc191(RecoverableEcdsaSignatureProto {
-                    bytes: vec![0],
-                })),
-            },
-            SignatureKind::Erc1271 => SignatureProto {
-                signature: Some(SignatureKindProto::Erc1271(Erc1271SignatureProto {
-                    account_id: "eip155:1:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb".into(),
-                    block_number: 0,
-                    signature: vec![0],
-                })),
-            },
-            SignatureKind::InstallationKey => SignatureProto {
-                signature: Some(SignatureKindProto::InstallationKey(
-                    RecoverableEd25519SignatureProto {
-                        bytes: vec![0],
-                        public_key: vec![0],
-                    },
-                )),
-            },
-            SignatureKind::LegacyDelegated => SignatureProto {
-                signature: Some(SignatureKindProto::DelegatedErc191(
-                    LegacyDelegatedSignatureProto {
-                        delegated_key: Some(LegacySignedPublicKeyProto {
-                            key_bytes: vec![0],
-                            signature: Some(LegacySignatureProto { union: None }),
-                        }),
-                        signature: Some(RecoverableEcdsaSignatureProto { bytes: vec![0] }),
-                    },
-                )),
-            },
-        }
+        panic!("No method to convert `MockSignature` back from protobuf, therefore this fails")
     }
 }
