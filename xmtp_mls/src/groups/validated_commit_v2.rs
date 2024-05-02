@@ -20,7 +20,7 @@ use xmtp_proto::{
 use crate::{
     configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
     identity_updates::{InstallationDiff, InstallationDiffError},
-    storage::{db_connection::DbConnection, group},
+    storage::db_connection::DbConnection,
     Client,
 };
 
@@ -277,7 +277,6 @@ async fn extract_expected_diff<
     client: &'client Client<ApiClient>,
     existing_group_context: &GroupContext,
     new_group_context: &GroupContext,
-    group_metadata: &GroupMetadata,
 ) -> Result<ExpectedDiff, CommitValidationError> {
     let old_group_membership = extract_group_membership(existing_group_context)?;
     let new_group_membership = extract_group_membership(new_group_context)?;
