@@ -648,6 +648,7 @@ impl FfiGroupMetadata {
         match self.inner.conversation_type {
             ConversationType::Group => "group".to_string(),
             ConversationType::Dm => "dm".to_string(),
+            ConversationType::Sync => "sync".to_string(),
         }
     }
 
