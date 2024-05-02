@@ -34,14 +34,13 @@ impl<'a> DbConnection<'a> {
     where
         F: FnOnce(&mut RawDbConnection) -> Result<T, diesel::result::Error>,
     {
-        let mut lock = self.wrapped_conn.lock().map_or_else(
+        let mut lock = self.wrapped_conn.lock().unwrap_or_else(
             |err| {
                 log::error!(
                     "Recovering from poisoned mutex - a thread has previously panicked holding this lock"
                 );
                 err.into_inner()
             },
-            |guard| guard,
         );
         match *lock {
             RefOrValue::Ref(ref mut conn_ref) => fun(conn_ref),
