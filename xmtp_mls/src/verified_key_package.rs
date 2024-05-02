@@ -54,7 +54,7 @@ impl VerifiedKeyPackage {
     /// Validates starting with a KeyPackage (which is already validated by OpenMLS)
     pub fn from_key_package(kp: KeyPackage) -> Result<Self, KeyPackageVerificationError> {
         let leaf_node = kp.leaf_node();
-        let basic_credential = BasicCredential::try_from(leaf_node.credential())?;
+        let basic_credential = BasicCredential::try_from(leaf_node.credential().clone())?;
         let pub_key_bytes = leaf_node.signature_key().as_slice();
         let account_address =
             identity_to_account_address(basic_credential.identity(), pub_key_bytes)?;
@@ -172,7 +172,7 @@ mod tests {
             )
             .unwrap();
 
-        let verified_kp_result = VerifiedKeyPackage::from_key_package(kp);
+        let verified_kp_result = VerifiedKeyPackage::from_key_package(kp.key_package().clone());
         assert!(verified_kp_result.is_err());
         assert_eq!(
             KeyPackageVerificationError::ApplicationIdCredentialMismatch(

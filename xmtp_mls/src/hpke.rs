@@ -45,7 +45,7 @@ pub fn decrypt_welcome(
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, HpkeError> {
     let private_key = provider
-        .key_store()
+        .storage()
         .read::<HpkePrivateKey>(hpke_public_key)
         .ok_or(HpkeError::KeyNotFound)?;
 

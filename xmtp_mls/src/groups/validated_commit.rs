@@ -615,7 +615,7 @@ mod tests {
             .add_members(
                 &amal_provider,
                 &amal.identity.installation_keys,
-                &[bad_key_package],
+                &[bad_key_package.key_package().clone()],
             )
             .unwrap();
 

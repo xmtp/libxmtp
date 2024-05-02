@@ -109,7 +109,7 @@ impl Identity {
             Credential::create_from_legacy(&signature_keys, legacy_signed_private_key)?;
         let credential_proto: CredentialProto = credential.into();
         let mls_credential: OpenMlsCredential =
-            BasicCredential::new(credential_proto.encode_to_vec())?.into();
+            BasicCredential::new(credential_proto.encode_to_vec()).into();
         info!("Successfully created identity from legacy key");
         Ok(Self {
             account_address,
@@ -147,7 +147,7 @@ impl Identity {
             )?
             .into();
             let credential: OpenMlsCredential =
-                BasicCredential::new(credential_proto.encode_to_vec())?.into();
+                BasicCredential::new(credential_proto.encode_to_vec()).into();
             self.set_credential(credential)?;
         }
 
@@ -157,7 +157,7 @@ impl Identity {
         api_client.register_installation(kp_bytes).await?;
 
         // Only persist the installation keys if the registration was successful
-        self.installation_keys.store(provider.key_store())?;
+        self.installation_keys.store(provider.storage());
         StoredIdentity::from(self).store(provider.conn())?;
 
         Ok(())
@@ -228,7 +228,7 @@ impl Identity {
                 },
             )?;
 
-        Ok(kp)
+        Ok(kp.key_package().clone())
     }
 
     pub(crate) fn get_validated_account_address(

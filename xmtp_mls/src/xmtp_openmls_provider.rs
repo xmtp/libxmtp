@@ -36,6 +36,6 @@ impl<'a> OpenMlsProvider for XmtpOpenMlsProvider<'a> {
     }
 
     fn storage(&self) -> &Self::StorageProvider {
-        &self.storage
+        &self.key_store
     }
 }

@@ -225,7 +225,7 @@ where
                 signature_key: client.identity.installation_keys.to_public_vec().into(),
             },
         )?;
-        mls_group.save(provider.key_store())?;
+        mls_group.save(provider.storage())?;
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::new(
@@ -251,7 +251,7 @@ where
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
 
         let mut mls_group = mls_welcome.into_group(provider)?;
-        mls_group.save(provider.key_store())?;
+        mls_group.save(provider.storage())?;
 
         let group_id = mls_group.group_id().to_vec();
         let to_store = StoredGroup::new(
@@ -286,7 +286,7 @@ where
 
         let added_by_node = staged_welcome.welcome_sender()?;
 
-        let added_by_credential = BasicCredential::try_from(added_by_node.credential())?;
+        let added_by_credential = BasicCredential::try_from(added_by_node.credential().clone())?;
         let pub_key_bytes = added_by_node.signature_key().as_slice();
         let account_address =
             Identity::get_validated_account_address(added_by_credential.identity(), pub_key_bytes)?;
@@ -314,7 +314,7 @@ where
                 signature_key: client.identity.installation_keys.to_public_vec().into(),
             },
         )?;
-        mls_group.save(provider.key_store())?;
+        mls_group.save(provider.storage())?;
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group =
@@ -659,7 +659,7 @@ fn build_group_config(
     Ok(MlsGroupCreateConfig::builder()
         .with_group_context_extensions(extensions)?
         .capabilities(capabilities)
-        .crypto_config(CIPHERSUITE)
+        .ciphersuite(CIPHERSUITE)
         .wire_format_policy(WireFormatPolicy::default())
         .max_past_epochs(3) // Trying with 3 max past epochs for now
         .use_ratchet_tree_extension(true)
