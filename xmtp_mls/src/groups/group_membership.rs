@@ -26,6 +26,7 @@ impl GroupMembership {
         self.members.get(inbox_id.as_ref())
     }
 
+    #[allow(clippy::unnecessary_get_then_check)]
     pub fn diff<'inbox_id>(
         &'inbox_id self,
         new_group_membership: &'inbox_id Self,
