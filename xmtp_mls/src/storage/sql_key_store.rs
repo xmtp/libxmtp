@@ -343,13 +343,12 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         &self,
         group_id: &GroupId,
     ) -> Result<Option<TreeSync>, Self::Error> {
-        let values = self.values.read().unwrap();
         let key = build_key::<CURRENT_VERSION, &GroupId>(TREE_LABEL, group_id);
 
-        let value = values.get(&key).unwrap();
-        let value = serde_json::from_slice(value).unwrap();
-
-        Ok(value)
+        match self.read(TREE_LABEL, &key) {
+            Ok(value) => Ok(value),
+            Err(e) => Err(e),
+        }
     }
 
     fn group_context<
@@ -359,13 +358,12 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         &self,
         group_id: &GroupId,
     ) -> Result<Option<GroupContext>, Self::Error> {
-        let values = self.values.read().unwrap();
         let key = build_key::<CURRENT_VERSION, &GroupId>(GROUP_CONTEXT_LABEL, group_id);
 
-        let value = values.get(&key).unwrap();
-        let value = serde_json::from_slice(value).unwrap();
-
-        Ok(value)
+        match self.read(GROUP_CONTEXT_LABEL, &key) {
+            Ok(value) => Ok(value),
+            Err(e) => Err(e),
+        }
     }
 
     fn interim_transcript_hash<
@@ -375,13 +373,12 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         &self,
         group_id: &GroupId,
     ) -> Result<Option<InterimTranscriptHash>, Self::Error> {
-        let values = self.values.read().unwrap();
         let key = build_key::<CURRENT_VERSION, &GroupId>(INTERIM_TRANSCRIPT_HASH_LABEL, group_id);
 
-        let value = values.get(&key).unwrap();
-        let value = serde_json::from_slice(value).unwrap();
-
-        Ok(value)
+        match self.read(INTERIM_TRANSCRIPT_HASH_LABEL, &key) {
+            Ok(value) => Ok(value),
+            Err(e) => Err(e),
+        }
     }
 
     fn confirmation_tag<
@@ -391,13 +388,12 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         &self,
         group_id: &GroupId,
     ) -> Result<Option<ConfirmationTag>, Self::Error> {
-        let values = self.values.read().unwrap();
         let key = build_key::<CURRENT_VERSION, &GroupId>(CONFIRMATION_TAG_LABEL, group_id);
 
-        let value = values.get(&key).unwrap();
-        let value = serde_json::from_slice(value).unwrap();
-
-        Ok(value)
+        match self.read(CONFIRMATION_TAG_LABEL, &key) {
+            Ok(value) => Ok(value),
+            Err(e) => Err(e),
+        }
     }
 
     fn signature_key_pair<
@@ -736,19 +732,18 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         let storage_key = build_key_from_vec::<CURRENT_VERSION>(EPOCH_KEY_PAIRS_LABEL, key);
         log::debug!("Reading encryption epoch key pairs");
 
-        let values = self.values.read().unwrap();
-        let value = values.get(&storage_key);
-
-        #[cfg(feature = "test-utils")]
-        log::debug!("  key: {}", hex::encode(&storage_key));
-
-        if let Some(value) = value {
-            #[cfg(feature = "test-utils")]
-            log::debug!("  value: {}", hex::encode(value));
-            return Ok(serde_json::from_slice(value).unwrap());
+        match self.read_list(EPOCH_KEY_PAIRS_LABEL, &storage_key) {
+            Ok(data) => {
+                #[cfg(feature = "test-utils")]
+                log::debug!("  value: {}", hex::encode(&data));
+                serde_json::from_slice::<Vec<HpkeKeyPair>>(&data)
+                    .map_err(|e| MemoryStorageError::SerializationError)
+            }
+            Err(e) => {
+                log::error!("Failed to read from storage: {}", e);
+                Err(e)
+            }
         }
-
-        Err(MemoryStorageError::None)
     }
 
     fn delete_encryption_epoch_key_pairs<
