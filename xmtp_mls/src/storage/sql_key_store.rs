@@ -1,7 +1,7 @@
+use diesel::sql_types::{Binary, Text};
+use diesel::{deserialize::QueryableByName, sql_query, RunQueryDsl};
 use log::{debug, error};
 use openmls_traits::storage::*;
-use diesel::{deserialize::QueryableByName, sql_query, RunQueryDsl};
-use diesel::sql_types::{Binary, Text};
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -15,13 +15,13 @@ pub struct SqlKeyStore<'a> {
     conn: &'a DbConnection<'a>,
 }
 
-    #[derive(QueryableByName)]
-    #[table_name = "storage"]
-    struct StorageData {
-        #[column_name = "data"]
-        #[sql_type = "Binary"]
-        data: Vec<u8>,
-    }
+#[derive(QueryableByName)]
+#[table_name = "storage"]
+struct StorageData {
+    #[column_name = "data"]
+    #[sql_type = "Binary"]
+    data: Vec<u8>,
+}
 
 impl<'a> SqlKeyStore<'a> {
     pub fn new(conn: &'a DbConnection<'a>) -> Self {
@@ -37,7 +37,7 @@ impl<'a> SqlKeyStore<'a> {
         label: &[u8],
         key: &[u8],
         value: &[u8],
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "REPLACE INTO storage (storage_key, version, data) VALUES (?, ?, ?)";
 
@@ -57,7 +57,7 @@ impl<'a> SqlKeyStore<'a> {
         label: &[u8],
         key: &[u8],
         value: &[u8],
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "INSERT INTO storage (storage_key, version, data) VALUES (?, ?, JSON_ARRAY_APPEND(COALESCE((SELECT data FROM storage WHERE storage_key = ? AND version = ?), '[]'), '$', ?)) ON DUPLICATE KEY UPDATE data = VALUES(data)";
         self.conn.raw_query(|conn| {
@@ -77,7 +77,7 @@ impl<'a> SqlKeyStore<'a> {
         label: &[u8],
         key: &[u8],
         value: &[u8],
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "UPDATE storage SET data = JSON_REMOVE(data, JSON_UNQUOTE(JSON_SEARCH(data, 'one', ?))) WHERE storage_key = ? AND version = ?";
         self.conn.raw_query(|conn| {
@@ -87,36 +87,37 @@ impl<'a> SqlKeyStore<'a> {
                 .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
                 .execute(conn)
         });
-        
+
         Ok(())
     }
 
-    pub fn read<const VERSION: u16>(
+    pub fn read<const VERSION: u16, V: Entity<VERSION>>(
         &self,
         label: &[u8],
         key: &[u8],
-    ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error>> {
+    ) -> Result<Option<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "SELECT data FROM storage WHERE storage_key = ? AND version = ?";
 
-        let results: Result<Vec<StorageData>, diesel::result::Error> = self.conn.raw_query(|conn| {
-            sql_query(query)
-                .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
-                .load(conn)
-        });
+        let results: Result<Vec<StorageData>, diesel::result::Error> =
+            self.conn.raw_query(|conn| {
+                sql_query(query)
+                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                    .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
+                    .load(conn)
+            });
 
         match results {
             Ok(data) => Ok(data.into_iter().next().map(|entry| entry.data)),
-            Err(e) => Err(Box::new(e))
+            Err(e) => Err(Box::new(e)),
         }
     }
 
-    pub fn read_list<const VERSION: u16>(
+    pub fn read_list<const VERSION: u16, V: Entity<VERSION>>(
         &self,
         label: &[u8],
         key: &[u8],
-    ) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "SELECT data FROM storage WHERE storage_key = ? AND version = ?";
 
@@ -126,8 +127,11 @@ impl<'a> SqlKeyStore<'a> {
                 .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
                 .load(conn)
         }) {
-            Ok(results) => Ok(results.into_iter().map(|entry: StorageData| entry.data).collect()),
-            Err(e) => Err(Box::new(e))
+            Ok(results) => Ok(results
+                .into_iter()
+                .map(|entry: StorageData| entry.data)
+                .collect()),
+            Err(e) => Err(Box::new(e)),
         }
     }
 
@@ -135,7 +139,7 @@ impl<'a> SqlKeyStore<'a> {
         &mut self,
         label: &[u8],
         key: &[u8],
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "DELETE FROM storage WHERE storage_key = ? AND version = ?";
         self.conn.raw_query(|conn| {

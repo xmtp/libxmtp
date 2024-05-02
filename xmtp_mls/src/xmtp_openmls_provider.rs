@@ -34,7 +34,7 @@ impl<'a> OpenMlsProvider for XmtpOpenMlsProvider<'a> {
     fn rand(&self) -> &Self::RandProvider {
         &self.crypto
     }
-    
+
     fn storage(&self) -> &Self::StorageProvider {
         &self.storage
     }
