@@ -20,7 +20,7 @@ use xmtp_proto::{
 use crate::{
     configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
     identity_updates::{InstallationDiff, InstallationDiffError},
-    storage::db_connection::DbConnection,
+    storage::{db_connection::DbConnection, group},
     Client,
 };
 
