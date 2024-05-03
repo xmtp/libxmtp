@@ -57,6 +57,7 @@ pub enum IdentityError {
     Crypto(#[from] CryptoError),
 }
 
+#[derive(Debug, Clone)]
 pub struct Identity {
     pub(crate) inbox_id: InboxId,
     pub(crate) installation_keys: SignatureKeyPair,
@@ -71,7 +72,6 @@ impl Identity {
 
     pub(crate) async fn create_to_be_signed<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
         inbox_id: InboxId,
-        nonce: u64,
         account_address: String,
         api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<Self, IdentityError> {
@@ -112,7 +112,6 @@ impl Identity {
 
     pub(crate) async fn create_from_legacy<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
         inbox_id: InboxId,
-        nonce: u64,
         account_address: String,
         legacy_signed_private_key: Vec<u8>,
         api_client: &ApiClientWrapper<ApiClient>,
@@ -202,6 +201,10 @@ impl Identity {
         );
 
         Ok(installation_key_sig)
+    }
+
+    pub fn credential(&self) -> OpenMlsCredential {
+        self.credential.clone()
     }
 
     async fn sign_with_legacy_key(
