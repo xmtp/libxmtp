@@ -67,19 +67,15 @@ where
     pub(crate) async fn prepare_messages_to_sync(
         &self,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
-        // println!("prepreparepare_messages_to_sync called");
         let conn = self.store.conn()?;
         let groups = conn.find_groups(None, None, None, None)?;
         let mut all_messages: Vec<StoredGroupMessage> = vec![];
 
         for StoredGroup { id, .. } in groups.clone() {
             let messages = conn.get_group_messages(id, None, None, None, None, None)?;
-            // println!("{:#?}", messages);
             all_messages.extend(messages);
         }
 
-        // println!("groups: {:#?}", groups);
-        // println!("# of grprepareoup messages: {:?}", all_messages.len());
         Ok(all_messages)
     }
 }
@@ -111,8 +107,8 @@ struct HistoryReply {
     request_id: String,
     url: String,
     bundle_hash: Vec<u8>,
-    signing_key: MHKeyType,
-    encryption_key: MHKeyType,
+    signing_key: HistoryKeyType,
+    encryption_key: HistoryKeyType,
 }
 
 impl HistoryReply {
@@ -120,8 +116,8 @@ impl HistoryReply {
         id: &str,
         url: &str,
         bundle_hash: Vec<u8>,
-        signing_key: MHKeyType,
-        encryption_key: MHKeyType,
+        signing_key: HistoryKeyType,
+        encryption_key: HistoryKeyType,
     ) -> Self {
         Self {
             request_id: id.into(),
@@ -135,41 +131,39 @@ impl HistoryReply {
 
 impl From<HistoryReply> for MessageHistoryReply {
     fn from(reply: HistoryReply) -> Self {
-        let sig_key = reply.signing_key;
-        let enc_key = reply.encryption_key;
-        
         MessageHistoryReply {
             request_id: reply.request_id,
             url: reply.url,
             bundle_hash: reply.bundle_hash,
-            signing_key: Some(sig_key.into()),
-            encryption_key: Some(enc_key.into()),
+            signing_key: Some(reply.signing_key.into()),
+            encryption_key: Some(reply.encryption_key.into()),
         }
     }
 }
 
-enum MHKeyType {
+#[derive(Copy, Clone)]
+enum HistoryKeyType {
     Chacha20Poly1305([u8; 32]),
 }
 
-impl MHKeyType {
+impl HistoryKeyType {
     fn new_chacha20_poly1305_key() -> Self {
         let mut key = [0u8; 32];
         crypto_utils::rng().fill_bytes(&mut key[..]);
-        MHKeyType::Chacha20Poly1305(key)
+        HistoryKeyType::Chacha20Poly1305(key)
     }
 
     fn len(&self) -> usize {
         match self {
-            MHKeyType::Chacha20Poly1305(key) => key.len(),
+            HistoryKeyType::Chacha20Poly1305(key) => key.len(),
         }
     }
 }
 
-impl From<MHKeyType> for MessageHistoryKeyType {
-    fn from(key: MHKeyType) -> Self {
+impl From<HistoryKeyType> for MessageHistoryKeyType {
+    fn from(key: HistoryKeyType) -> Self {
         match key {
-            MHKeyType::Chacha20Poly1305(key) => MessageHistoryKeyType {
+            HistoryKeyType::Chacha20Poly1305(key) => MessageHistoryKeyType {
                 key: Some(Key::Chacha20Poly1305(key.to_vec())),
             },
         }
@@ -258,8 +252,8 @@ mod tests {
         let request_id = new_request_id();
         let url = "https://test.com/abc-123";
         let backup_hash = b"ABC123".into();
-        let signing_key = MHKeyType::new_chacha20_poly1305_key();
-        let encryption_key = MHKeyType::new_chacha20_poly1305_key();
+        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
         let reply = HistoryReply::new(&request_id, url, backup_hash, signing_key, encryption_key);
         let result = client.send_message_history_reply(reply.into()).await;
         assert_ok!(result);
@@ -292,7 +286,6 @@ mod tests {
         group.send_message(b"hello").await.expect("send message");
         group.send_message(b"hello x2").await.expect("send message");
         let messages_result = amal_a.prepare_messages_to_sync().await;
-        println!("{:?}", messages_result);
         assert_ok!(messages_result);
     }
 
@@ -304,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_new_key() {
-        let key = MHKeyType::new_chacha20_poly1305_key();
+        let key = HistoryKeyType::new_chacha20_poly1305_key();
         assert_eq!(key.len(), 32);
     }
 }
