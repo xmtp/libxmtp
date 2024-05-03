@@ -1,14 +1,17 @@
-use rand::{
-    distributions::{Alphanumeric, DistString},
-    Rng,
-};
+use rand::distributions::{Alphanumeric, DistString};
+use rand::Rng;
+use rand::RngCore;
 
+use xmtp_cryptography::utils as crypto_utils;
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{Reply, Request},
     xmtp::mls::message_contents::plaintext_envelope::{Content, V2},
     xmtp::mls::message_contents::PlaintextEnvelope,
-    xmtp::mls::message_contents::{MessageHistoryReply, MessageHistoryRequest},
+    xmtp::mls::message_contents::{
+        message_history_key_type::Key, MessageHistoryKeyType, MessageHistoryReply,
+        MessageHistoryRequest,
+    },
 };
 
 use super::GroupError;
@@ -64,19 +67,15 @@ where
     pub(crate) async fn prepare_messages_to_sync(
         &self,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
-        // println!("prepreparepare_messages_to_sync called");
         let conn = self.store.conn()?;
         let groups = conn.find_groups(None, None, None, None)?;
         let mut all_messages: Vec<StoredGroupMessage> = vec![];
 
         for StoredGroup { id, .. } in groups.clone() {
             let messages = conn.get_group_messages(id, None, None, None, None, None)?;
-            // println!("{:#?}", messages);
             all_messages.extend(messages);
         }
 
-        // println!("groups: {:#?}", groups);
-        // println!("# of grprepareoup messages: {:?}", all_messages.len());
         Ok(all_messages)
     }
 }
@@ -108,8 +107,8 @@ struct HistoryReply {
     request_id: String,
     url: String,
     bundle_hash: Vec<u8>,
-    bundle_signing_key: [u8; 32],
-    encryption_key: [u8; 32],
+    signing_key: HistoryKeyType,
+    encryption_key: HistoryKeyType,
 }
 
 impl HistoryReply {
@@ -118,14 +117,14 @@ impl HistoryReply {
         id: &str,
         url: &str,
         bundle_hash: Vec<u8>,
-        bundle_signing_key: [u8; 32],
-        encryption_key: [u8; 32],
+        signing_key: HistoryKeyType,
+        encryption_key: HistoryKeyType,
     ) -> Self {
         Self {
             request_id: id.into(),
             url: url.into(),
             bundle_hash,
-            bundle_signing_key,
+            signing_key,
             encryption_key,
         }
     }
@@ -133,35 +132,49 @@ impl HistoryReply {
 
 impl From<HistoryReply> for MessageHistoryReply {
     fn from(reply: HistoryReply) -> Self {
-        let bundle_signing_key = key_to_string(reply.bundle_signing_key);
-        let encryption_key = key_to_string(reply.encryption_key);
         MessageHistoryReply {
             request_id: reply.request_id,
             url: reply.url,
             bundle_hash: reply.bundle_hash,
-            bundle_signing_key,
-            encryption_key,
+            signing_key: Some(reply.signing_key.into()),
+            encryption_key: Some(reply.encryption_key.into()),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum HistoryKeyType {
+    Chacha20Poly1305([u8; 32]),
+}
+
+impl HistoryKeyType {
+    #[allow(dead_code)]
+    fn new_chacha20_poly1305_key() -> Self {
+        let mut key = [0u8; 32];
+        crypto_utils::rng().fill_bytes(&mut key[..]);
+        HistoryKeyType::Chacha20Poly1305(key)
+    }
+
+    #[allow(dead_code)]
+    fn len(&self) -> usize {
+        match self {
+            HistoryKeyType::Chacha20Poly1305(key) => key.len(),
+        }
+    }
+}
+
+impl From<HistoryKeyType> for MessageHistoryKeyType {
+    fn from(key: HistoryKeyType) -> Self {
+        match key {
+            HistoryKeyType::Chacha20Poly1305(key) => MessageHistoryKeyType {
+                key: Some(Key::Chacha20Poly1305(key.to_vec())),
+            },
         }
     }
 }
 
 fn new_request_id() -> String {
     Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
-}
-
-#[allow(dead_code)]
-fn new_key() -> [u8; 32] {
-    let mut key = [0u8; 32];
-    let rng = rand::thread_rng();
-    rng.sample_iter(&Alphanumeric)
-        .take(32)
-        .enumerate()
-        .for_each(|(i, c)| key[i] = c);
-    key
-}
-
-fn key_to_string(key: [u8; 32]) -> String {
-    key.into_iter().map(char::from).collect()
 }
 
 fn new_pin() -> String {
@@ -242,9 +255,9 @@ mod tests {
         let request_id = new_request_id();
         let url = "https://test.com/abc-123";
         let backup_hash = b"ABC123".into();
-        let signing_key = new_key();
-        let aes_key = new_key();
-        let reply = HistoryReply::new(&request_id, url, backup_hash, signing_key, aes_key);
+        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let reply = HistoryReply::new(&request_id, url, backup_hash, signing_key, encryption_key);
         let result = client.send_message_history_reply(reply.into()).await;
         assert_ok!(result);
     }
@@ -276,7 +289,6 @@ mod tests {
         group.send_message(b"hello").await.expect("send message");
         group.send_message(b"hello x2").await.expect("send message");
         let messages_result = amal_a.prepare_messages_to_sync().await;
-        println!("{:?}", messages_result);
         assert_ok!(messages_result);
     }
 
@@ -288,14 +300,10 @@ mod tests {
 
     #[test]
     fn test_new_key() {
-        let key = new_key();
-        assert_eq!(key.len(), 32);
-    }
-
-    #[test]
-    fn test_key_to_string() {
-        let key = new_key();
-        let key_str = key_to_string(key);
-        assert_eq!(key_str.len(), 32);
+        let sig_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
+        assert_eq!(sig_key.len(), 32);
+        // ensure keys are different (seed isn't reused)
+        assert_ne!(sig_key, enc_key);
     }
 }
