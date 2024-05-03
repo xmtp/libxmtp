@@ -8,8 +8,6 @@ mod message_history;
 mod subscriptions;
 mod sync;
 pub mod validated_commit;
-#[allow(dead_code)]
-mod validated_commit_v2;
 
 use intents::SendMessageIntentData;
 use openmls::{

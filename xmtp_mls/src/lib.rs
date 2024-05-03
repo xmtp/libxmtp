@@ -1,4 +1,5 @@
 pub mod api;
+pub(crate) mod await_helper;
 pub mod builder;
 pub mod client;
 pub mod codecs;

@@ -175,6 +175,32 @@ impl EncryptedMessageStore {
         })
     }
 
+    /// Start a new database transaction with the OpenMLS Provider from XMTP
+    /// # Arguments
+    /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// store.transaction(|provider| {
+    ///     // do some operations requiring provider
+    ///     // access the connection with .conn()
+    ///     provider.conn().db_operation()?;
+    /// })
+    /// ```
+    pub fn async_transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(XmtpOpenMlsProvider) -> Result<T, E>,
+        E: From<diesel::result::Error> + From<StorageError>,
+    {
+        let mut connection = self.raw_conn()?;
+        connection.transaction(|conn| {
+            let db_connection = DbConnection::new(conn);
+            let provider = XmtpOpenMlsProvider::new(&db_connection);
+            fun(provider)
+        })
+    }
+
     pub fn generate_enc_key() -> EncryptionKey {
         // TODO: Handle Key Better/ Zeroize
         let mut key = [0u8; 32];

@@ -42,14 +42,14 @@ use super::{
 
 use crate::{
     api::IdentityUpdate,
+    await_helper::await_helper,
     client::MessageProcessingError,
     codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
     configuration::{MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
     groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
     identity::v3::Identity,
-    retry,
-    retry::Retry,
+    retry::{self, Retry},
     retry_async,
     storage::{
         db_connection::DbConnection,
@@ -154,11 +154,11 @@ where
         Err(last_err.unwrap_or(GroupError::Generic("failed to wait for intent".to_string())))
     }
 
-    fn process_own_message(
+    async fn process_own_message(
         &self,
         intent: StoredGroupIntent,
         openmls_group: &mut OpenMlsGroup,
-        provider: &XmtpOpenMlsProvider,
+        provider: &'c XmtpOpenMlsProvider<'c>,
         message: ProtocolMessage,
         envelope_timestamp_ns: u64,
         allow_epoch_increment: bool,
@@ -197,9 +197,12 @@ where
                     return Ok(());
                 }
                 let maybe_validated_commit = ValidatedCommit::from_staged_commit(
+                    conn,
                     maybe_pending_commit.expect("already checked"),
                     openmls_group,
-                )?;
+                    self.client,
+                )
+                .await?;
 
                 debug!("[{}] merging pending commit", self.client.account_address());
                 if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
@@ -262,10 +265,10 @@ where
         Ok(())
     }
 
-    fn process_external_message(
+    async fn process_external_message(
         &self,
         openmls_group: &mut OpenMlsGroup,
-        provider: &XmtpOpenMlsProvider,
+        provider: &'c XmtpOpenMlsProvider<'c>,
         message: PrivateMessageIn,
         envelope_timestamp_ns: u64,
         allow_epoch_increment: bool,
@@ -340,24 +343,23 @@ where
                 );
 
                 let sc = *staged_commit;
+                let conn = provider.conn();
                 // Validate the commit
-                let validated_commit = ValidatedCommit::from_staged_commit(&sc, openmls_group)?;
+                let validated_commit =
+                    ValidatedCommit::from_staged_commit(conn, &sc, openmls_group, self.client)
+                        .await?;
                 openmls_group.merge_staged_commit(provider, sc)?;
-                self.save_transcript_message(
-                    provider.conn(),
-                    validated_commit,
-                    envelope_timestamp_ns,
-                )?;
+                self.save_transcript_message(conn, validated_commit, envelope_timestamp_ns)?;
             }
         };
 
         Ok(())
     }
 
-    pub(super) fn process_message(
+    pub(super) async fn process_message(
         &self,
         openmls_group: &mut OpenMlsGroup,
-        provider: &XmtpOpenMlsProvider,
+        provider: &'c XmtpOpenMlsProvider<'c>,
         envelope: &GroupMessageV1,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
@@ -375,22 +377,28 @@ where
             .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
         match intent {
             // Intent with the payload hash matches
-            Ok(Some(intent)) => self.process_own_message(
-                intent,
-                openmls_group,
-                provider,
-                message.into(),
-                envelope.created_ns,
-                allow_epoch_increment,
-            ),
+            Ok(Some(intent)) => {
+                self.process_own_message(
+                    intent,
+                    openmls_group,
+                    provider,
+                    message.into(),
+                    envelope.created_ns,
+                    allow_epoch_increment,
+                )
+                .await
+            }
             // No matching intent found
-            Ok(None) => self.process_external_message(
-                openmls_group,
-                provider,
-                message,
-                envelope.created_ns,
-                allow_epoch_increment,
-            ),
+            Ok(None) => {
+                self.process_external_message(
+                    openmls_group,
+                    provider,
+                    message,
+                    envelope.created_ns,
+                    allow_epoch_increment,
+                )
+                .await
+            }
             Err(err) => Err(MessageProcessingError::Storage(err)),
         }
     }
@@ -410,7 +418,7 @@ where
             EntityKind::Group,
             msgv1.id,
             |provider| -> Result<(), MessageProcessingError> {
-                self.process_message(openmls_group, &provider, msgv1, true)?;
+                await_helper(self.process_message(openmls_group, &provider, msgv1, true))?;
                 openmls_group.save(provider.key_store())?;
                 Ok(())
             },
@@ -459,53 +467,48 @@ where
     fn save_transcript_message(
         &self,
         conn: &DbConnection,
-        maybe_validated_commit: Option<ValidatedCommit>,
+        validated_commit: ValidatedCommit,
         timestamp_ns: u64,
     ) -> Result<Option<StoredGroupMessage>, MessageProcessingError> {
-        let mut transcript_message = None;
-        if let Some(validated_commit) = maybe_validated_commit {
-            // If there are no members added or removed, don't write a transcript message
-            if validated_commit.members_added.is_empty()
-                && validated_commit.members_removed.is_empty()
-            {
-                return Ok(None);
-            }
-            log::info!(
-                "{}: Storing a transcript message with {} members added and {} members removed",
-                self.client.account_address(),
-                validated_commit.members_added.len(),
-                validated_commit.members_removed.len()
-            );
-            let sender_installation_id = validated_commit.actor_installation_id();
-            let sender_account_address = validated_commit.actor_account_address();
-            let payload: GroupMembershipChanges = validated_commit.into();
-            let encoded_payload = GroupMembershipChangeCodec::encode(payload)?;
-            let mut encoded_payload_bytes = Vec::new();
-            encoded_payload.encode(&mut encoded_payload_bytes)?;
-            let group_id = self.group_id.as_slice();
-            let message_id = calculate_message_id(
-                group_id,
-                encoded_payload_bytes.as_slice(),
-                &sender_account_address,
-                &timestamp_ns.to_string(),
-            );
-
-            let msg = StoredGroupMessage {
-                id: message_id,
-                group_id: group_id.to_vec(),
-                decrypted_message_bytes: encoded_payload_bytes.to_vec(),
-                sent_at_ns: timestamp_ns as i64,
-                kind: GroupMessageKind::MembershipChange,
-                sender_installation_id,
-                sender_account_address,
-                delivery_status: DeliveryStatus::Published,
-            };
-
-            msg.store(conn)?;
-            transcript_message = Some(msg);
+        if validated_commit.added_inboxes.is_empty() && validated_commit.removed_inboxes.is_empty()
+        {
+            return Ok(None);
         }
+        log::info!(
+            "{}: Storing a transcript message with {} members added and {} members removed",
+            self.client.account_address(),
+            validated_commit.added_inboxes.len(),
+            validated_commit.removed_inboxes.len()
+        );
+        let sender_installation_id = validated_commit.actor.installation_id;
+        // TODO: Rename this field on StoredGroupMessage
+        let sender_account_address = validated_commit.actor.inbox_id;
+        let payload: GroupMembershipChanges = validated_commit.into();
+        let encoded_payload = GroupMembershipChangeCodec::encode(payload)?;
+        let mut encoded_payload_bytes = Vec::new();
+        encoded_payload.encode(&mut encoded_payload_bytes)?;
+        let group_id = self.group_id.as_slice();
+        let message_id = calculate_message_id(
+            group_id,
+            encoded_payload_bytes.as_slice(),
+            &sender_account_address,
+            &timestamp_ns.to_string(),
+        );
 
-        Ok(transcript_message)
+        let msg = StoredGroupMessage {
+            id: message_id,
+            group_id: group_id.to_vec(),
+            decrypted_message_bytes: encoded_payload_bytes.to_vec(),
+            sent_at_ns: timestamp_ns as i64,
+            kind: GroupMessageKind::MembershipChange,
+            sender_installation_id,
+            sender_account_address,
+            delivery_status: DeliveryStatus::Published,
+        };
+
+        msg.store(conn)?;
+
+        Ok(Some(msg))
     }
 
     pub(super) async fn publish_intents<'a>(
@@ -569,7 +572,7 @@ where
     // Takes a StoredGroupIntent and returns the payload and post commit data as a tuple
     async fn get_publish_intent_data(
         &self,
-        provider: &XmtpOpenMlsProvider<'_>,
+        provider: &'c XmtpOpenMlsProvider<'c>,
         openmls_group: &mut OpenMlsGroup,
         intent: &StoredGroupIntent,
     ) -> Result<(Vec<u8>, Option<Vec<u8>>), GroupError> {
@@ -606,7 +609,13 @@ where
 
                 if let Some(staged_commit) = openmls_group.pending_commit() {
                     // Validate the commit, even if it's from yourself
-                    ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
+                    ValidatedCommit::from_staged_commit(
+                        provider.conn(),
+                        staged_commit,
+                        openmls_group,
+                        self.client,
+                    )
+                    .await?;
                 }
 
                 let commit_bytes = commit.tls_serialize_detached()?;
@@ -659,7 +668,13 @@ where
 
                 if let Some(staged_commit) = openmls_group.pending_commit() {
                     // Validate the commit, even if it's from yourself
-                    ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
+                    ValidatedCommit::from_staged_commit(
+                        provider.conn(),
+                        staged_commit,
+                        openmls_group,
+                        self.client,
+                    )
+                    .await?;
                 }
 
                 let commit_bytes = commit.tls_serialize_detached()?;
@@ -688,7 +703,13 @@ where
 
                 if let Some(staged_commit) = openmls_group.pending_commit() {
                     // Validate the commit, even if it's from yourself
-                    ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
+                    ValidatedCommit::from_staged_commit(
+                        provider.conn(),
+                        staged_commit,
+                        openmls_group,
+                        self.client,
+                    )
+                    .await?;
                 }
                 let commit_bytes = commit.tls_serialize_detached()?;
 
