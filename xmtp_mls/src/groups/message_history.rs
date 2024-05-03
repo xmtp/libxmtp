@@ -112,6 +112,7 @@ struct HistoryReply {
 }
 
 impl HistoryReply {
+    #[allow(dead_code)]
     pub(crate) fn new(
         id: &str,
         url: &str,
@@ -147,12 +148,14 @@ enum HistoryKeyType {
 }
 
 impl HistoryKeyType {
+    #[allow(dead_code)]
     fn new_chacha20_poly1305_key() -> Self {
         let mut key = [0u8; 32];
         crypto_utils::rng().fill_bytes(&mut key[..]);
         HistoryKeyType::Chacha20Poly1305(key)
     }
 
+    #[allow(dead_code)]
     fn len(&self) -> usize {
         match self {
             HistoryKeyType::Chacha20Poly1305(key) => key.len(),
