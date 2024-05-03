@@ -73,6 +73,7 @@ impl GroupMetadata {
     pub(crate) fn to_proto(&self) -> Result<GroupMetadataProto, GroupMetadataError> {
         let conversation_type: ConversationTypeProto = self.conversation_type.clone().into();
         Ok(GroupMetadataProto {
+            creator_inbox_id: "".to_string(),
             conversation_type: conversation_type as i32,
             creator_inbox_id: self.creator_inbox_id.clone(),
             creator_account_address: self.creator_account_address.clone(),

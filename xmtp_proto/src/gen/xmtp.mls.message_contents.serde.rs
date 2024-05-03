@@ -2018,6 +2018,103 @@ impl<'de> serde::Deserialize<'de> for membership_policy::BasePolicy {
         deserializer.deserialize_any(GeneratedVisitor)
     }
 }
+impl serde::Serialize for MessageHistoryKeyType {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.key.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.MessageHistoryKeyType", len)?;
+        if let Some(v) = self.key.as_ref() {
+            match v {
+                message_history_key_type::Key::Chacha20Poly1305(v) => {
+                    #[allow(clippy::needless_borrow)]
+                    struct_ser.serialize_field("chacha20Poly1305", pbjson::private::base64::encode(&v).as_str())?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for MessageHistoryKeyType {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "chacha20_poly1305",
+            "chacha20Poly1305",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Chacha20Poly1305,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "chacha20Poly1305" | "chacha20_poly1305" => Ok(GeneratedField::Chacha20Poly1305),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = MessageHistoryKeyType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.MessageHistoryKeyType")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<MessageHistoryKeyType, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut key__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Chacha20Poly1305 => {
+                            if key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("chacha20Poly1305"));
+                            }
+                            key__ = map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| message_history_key_type::Key::Chacha20Poly1305(x.0));
+                        }
+                    }
+                }
+                Ok(MessageHistoryKeyType {
+                    key: key__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.MessageHistoryKeyType", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for MessageHistoryReply {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -2032,13 +2129,13 @@ impl serde::Serialize for MessageHistoryReply {
         if !self.url.is_empty() {
             len += 1;
         }
-        if !self.encryption_key.is_empty() {
+        if self.encryption_key.is_some() {
+            len += 1;
+        }
+        if self.signing_key.is_some() {
             len += 1;
         }
         if !self.bundle_hash.is_empty() {
-            len += 1;
-        }
-        if !self.bundle_signing_key.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.MessageHistoryReply", len)?;
@@ -2048,15 +2145,15 @@ impl serde::Serialize for MessageHistoryReply {
         if !self.url.is_empty() {
             struct_ser.serialize_field("url", &self.url)?;
         }
-        if !self.encryption_key.is_empty() {
-            struct_ser.serialize_field("encryptionKey", &self.encryption_key)?;
+        if let Some(v) = self.encryption_key.as_ref() {
+            struct_ser.serialize_field("encryptionKey", v)?;
+        }
+        if let Some(v) = self.signing_key.as_ref() {
+            struct_ser.serialize_field("signingKey", v)?;
         }
         if !self.bundle_hash.is_empty() {
             #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("bundleHash", pbjson::private::base64::encode(&self.bundle_hash).as_str())?;
-        }
-        if !self.bundle_signing_key.is_empty() {
-            struct_ser.serialize_field("bundleSigningKey", &self.bundle_signing_key)?;
         }
         struct_ser.end()
     }
@@ -2073,10 +2170,10 @@ impl<'de> serde::Deserialize<'de> for MessageHistoryReply {
             "url",
             "encryption_key",
             "encryptionKey",
+            "signing_key",
+            "signingKey",
             "bundle_hash",
             "bundleHash",
-            "bundle_signing_key",
-            "bundleSigningKey",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2084,8 +2181,8 @@ impl<'de> serde::Deserialize<'de> for MessageHistoryReply {
             RequestId,
             Url,
             EncryptionKey,
+            SigningKey,
             BundleHash,
-            BundleSigningKey,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2110,8 +2207,8 @@ impl<'de> serde::Deserialize<'de> for MessageHistoryReply {
                             "requestId" | "request_id" => Ok(GeneratedField::RequestId),
                             "url" => Ok(GeneratedField::Url),
                             "encryptionKey" | "encryption_key" => Ok(GeneratedField::EncryptionKey),
+                            "signingKey" | "signing_key" => Ok(GeneratedField::SigningKey),
                             "bundleHash" | "bundle_hash" => Ok(GeneratedField::BundleHash),
-                            "bundleSigningKey" | "bundle_signing_key" => Ok(GeneratedField::BundleSigningKey),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2134,8 +2231,8 @@ impl<'de> serde::Deserialize<'de> for MessageHistoryReply {
                 let mut request_id__ = None;
                 let mut url__ = None;
                 let mut encryption_key__ = None;
+                let mut signing_key__ = None;
                 let mut bundle_hash__ = None;
-                let mut bundle_signing_key__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RequestId => {
@@ -2154,7 +2251,13 @@ impl<'de> serde::Deserialize<'de> for MessageHistoryReply {
                             if encryption_key__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("encryptionKey"));
                             }
-                            encryption_key__ = Some(map_.next_value()?);
+                            encryption_key__ = map_.next_value()?;
+                        }
+                        GeneratedField::SigningKey => {
+                            if signing_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("signingKey"));
+                            }
+                            signing_key__ = map_.next_value()?;
                         }
                         GeneratedField::BundleHash => {
                             if bundle_hash__.is_some() {
@@ -2164,20 +2267,14 @@ impl<'de> serde::Deserialize<'de> for MessageHistoryReply {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::BundleSigningKey => {
-                            if bundle_signing_key__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("bundleSigningKey"));
-                            }
-                            bundle_signing_key__ = Some(map_.next_value()?);
-                        }
                     }
                 }
                 Ok(MessageHistoryReply {
                     request_id: request_id__.unwrap_or_default(),
                     url: url__.unwrap_or_default(),
-                    encryption_key: encryption_key__.unwrap_or_default(),
+                    encryption_key: encryption_key__,
+                    signing_key: signing_key__,
                     bundle_hash: bundle_hash__.unwrap_or_default(),
-                    bundle_signing_key: bundle_signing_key__.unwrap_or_default(),
                 })
             }
         }
