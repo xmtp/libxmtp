@@ -1,6 +1,8 @@
 use prost::Message;
-use rand::distributions::{Alphanumeric, DistString};
-use rand::{Rng, RngCore};
+use rand::{
+    distributions::{Alphanumeric, DistString},
+    Rng, RngCore,
+};
 
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_proto::{
@@ -42,6 +44,14 @@ where
 
     #[allow(dead_code)]
     pub(crate) async fn send_message_history_request(&self) -> Result<(), GroupError> {
+        // find the sync group
+        let conn = &mut self.store.conn()?;
+        let sync_group_id = conn
+            .find_sync_groups()?
+            .pop()
+            .ok_or(GroupError::GroupNotFound)?.id;
+        let sync_group = self.group(sync_group_id.clone())?;
+
         // build the request
         let contents = HistoryRequest::new();
         let idempotency_key = new_request_id();
@@ -52,18 +62,19 @@ where
             })),
         };
 
-        // find the sync group
-        let conn = &mut self.store.conn()?;
-        let sync_group = conn.find_sync_groups()?.pop().ok_or(GroupError::GroupNotFound)?;
-        
-        // store the request locally
+        // build the intent
         let mut encoded_envelope = vec![];
         envelope
             .encode(&mut encoded_envelope)
             .map_err(GroupError::EncodeError)?;
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        let intent = NewGroupIntent::new(IntentKind::SendMessage, sync_group.id, intent_data);
+        let intent = NewGroupIntent::new(IntentKind::SendMessage, sync_group_id, intent_data);
         intent.store(conn)?;
+
+        // publish the intent
+        if let Err(err) = sync_group.publish_intents(conn).await {
+            println!("error publishing sync group intents: {:?}", err);
+        }
 
         Ok(())
     }
@@ -73,7 +84,7 @@ where
         &self,
         contents: MessageHistoryReply,
     ) -> Result<(), GroupError> {
-        let _request = PlaintextEnvelope {
+        let _envelope = PlaintextEnvelope {
             content: Some(Content::V2(V2 {
                 idempotency_key: new_request_id(),
                 message_type: Some(Reply(contents)),
