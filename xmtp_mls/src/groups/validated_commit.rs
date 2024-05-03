@@ -186,7 +186,7 @@ fn extract_actor(
     if let Some(leaf_node) = group.member_at(leaf_index) {
         let signature_key = leaf_node.signature_key.as_slice();
 
-        let basic_credential = BasicCredential::try_from(&leaf_node.credential)?;
+        let basic_credential = BasicCredential::try_from(leaf_node.credential)?;
         let account_address =
             Identity::get_validated_account_address(basic_credential.identity(), signature_key)?;
 
@@ -238,7 +238,7 @@ fn extract_identity_from_remove(
     if let Some(member) = group.member_at(leaf_index) {
         let signature_key = member.signature_key.as_slice();
 
-        let basic_credential = BasicCredential::try_from(&member.credential)?;
+        let basic_credential = BasicCredential::try_from(member.credential)?;
         let account_address =
             Identity::get_validated_account_address(basic_credential.identity(), signature_key)?;
         let is_creator = account_address.eq(&group_metadata.creator_account_address);
@@ -605,7 +605,7 @@ mod tests {
                 &bola.identity.installation_keys,
                 CredentialWithKey {
                     // Broken credential
-                    credential: BasicCredential::new(vec![1, 2, 3]).unwrap().into(),
+                    credential: BasicCredential::new(vec![1, 2, 3]).into(),
                     signature_key: bola.identity.installation_keys.to_public_vec().into(),
                 },
             )
