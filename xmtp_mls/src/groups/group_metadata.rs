@@ -30,19 +30,24 @@ pub enum GroupMetadataError {
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupMetadata {
     pub conversation_type: ConversationType,
+    // TODO: Remove this once transition is completed
     pub creator_account_address: String,
+    pub creator_inbox_id: String,
     pub policies: PolicySet,
 }
 
 impl GroupMetadata {
     pub fn new(
         conversation_type: ConversationType,
+        // TODO: Remove this once transition is completed
         creator_account_address: String,
+        creator_inbox_id: String,
         policies: PolicySet,
     ) -> Self {
         Self {
             conversation_type,
             creator_account_address,
+            creator_inbox_id,
             policies,
         }
     }
@@ -60,6 +65,7 @@ impl GroupMetadata {
         Ok(Self::new(
             proto.conversation_type.try_into()?,
             proto.creator_account_address.clone(),
+            proto.creator_inbox_id.clone(),
             PolicySet::from_proto(policies)?,
         ))
     }
@@ -67,8 +73,8 @@ impl GroupMetadata {
     pub(crate) fn to_proto(&self) -> Result<GroupMetadataProto, GroupMetadataError> {
         let conversation_type: ConversationTypeProto = self.conversation_type.clone().into();
         Ok(GroupMetadataProto {
-            creator_inbox_id: "".to_string(),
             conversation_type: conversation_type as i32,
+            creator_inbox_id: self.creator_inbox_id.clone(),
             creator_account_address: self.creator_account_address.clone(),
             policies: Some(self.policies.to_proto()?),
         })
@@ -157,6 +163,7 @@ mod tests {
         let group_metadata = GroupMetadata::new(
             ConversationType::Group,
             account_address.to_string(),
+            "inbox_id".to_string(),
             policy_everyone_is_admin(),
         );
         assert_eq!(
@@ -167,6 +174,7 @@ mod tests {
         let group_metadata_creator_admin = GroupMetadata::new(
             ConversationType::Group,
             account_address.to_string(),
+            "inbox_id".to_string(),
             policy_group_creator_is_admin(),
         );
 
