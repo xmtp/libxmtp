@@ -216,7 +216,6 @@ where
                         envelope_timestamp_ns,
                     )?;
                 }
-                // TOOD: Handle writing transcript messages for adding/removing members
             }
             IntentKind::SendMessage => {
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
