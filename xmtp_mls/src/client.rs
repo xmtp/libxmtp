@@ -327,7 +327,8 @@ where
     }
 
     /// Get a list of `installation_id`s associated with the given `account_addresses`
-    /// One `account_address` may have multiple `installation_id`s if the account has multiple applications or devices on the network
+    /// One `account_address` may have multiple `installation_id`s if the account has multiple
+    /// applications or devices on the network
     pub async fn get_all_active_installation_ids(
         &self,
         account_addresses: Vec<String>,
