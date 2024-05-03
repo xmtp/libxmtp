@@ -614,17 +614,17 @@ fn build_protected_metadata_extension(
     policies: PolicySet,
     group_purpose: Purpose,
 ) -> Result<Extension, GroupError> {
+    let group_type = match group_purpose {
+        Purpose::Conversation => ConversationType::Group,
+        Purpose::Sync => ConversationType::Sync,
+    };
     let metadata = GroupMetadata::new(
-        ConversationType::Group,
+        group_type,
         identity.account_address.clone(),
         // TODO: Remove me
         "inbox_id".to_string(),
         policies,
     );
-    let group_type = match group_purpose {
-        Purpose::Conversation => ConversationType::Group,
-        Purpose::Sync => ConversationType::Sync,
-    };
     let protected_metadata = Metadata::new(metadata.try_into()?);
 
     Ok(Extension::ImmutableMetadata(protected_metadata))
