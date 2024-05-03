@@ -142,7 +142,7 @@ impl From<HistoryReply> for MessageHistoryReply {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum HistoryKeyType {
     Chacha20Poly1305([u8; 32]),
 }
@@ -300,7 +300,10 @@ mod tests {
 
     #[test]
     fn test_new_key() {
-        let key = HistoryKeyType::new_chacha20_poly1305_key();
-        assert_eq!(key.len(), 32);
+        let sig_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
+        assert_eq!(sig_key.len(), 32);
+        // ensure keys are different (seed isn't reused)
+        assert_ne!(sig_key, enc_key);
     }
 }
