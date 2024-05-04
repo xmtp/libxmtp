@@ -36,7 +36,7 @@ use crate::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
         refresh_state::EntityKind,
-        EncryptedMessageStore, StorageError,
+        sql_key_store, EncryptedMessageStore, StorageError,
     },
     types::Address,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
@@ -102,11 +102,13 @@ pub enum MessageProcessingError {
     #[error("invalid payload")]
     InvalidPayload,
     #[error("openmls process message error: {0}")]
-    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError<StorageError>),
+    OpenMlsProcessMessage(
+        #[from] openmls::prelude::ProcessMessageError<sql_key_store::MemoryStorageError>,
+    ),
     #[error("merge pending commit: {0}")]
     MergePendingCommit(#[from] openmls::group::MergePendingCommitError<StorageError>),
     #[error("merge staged commit: {0}")]
-    MergeStagedCommit(#[from] openmls::group::MergeCommitError<StorageError>),
+    MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::MemoryStorageError>),
     #[error(
         "no pending commit to merge. group epoch is {group_epoch:?} and got {message_epoch:?}"
     )]

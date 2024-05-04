@@ -411,7 +411,6 @@ where
             msgv1.id,
             |provider| -> Result<(), MessageProcessingError> {
                 self.process_message(openmls_group, &provider, msgv1, true)?;
-                openmls_group.save(provider.key_store())?;
                 Ok(())
             },
         )?;
@@ -557,10 +556,6 @@ where
                 sha256(payload_slice),
                 post_commit_data,
             )?;
-        }
-
-        if num_intents > 0 {
-            openmls_group.save(provider.key_store())?;
         }
 
         Ok(())

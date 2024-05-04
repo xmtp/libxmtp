@@ -93,17 +93,17 @@ pub enum GroupError {
     #[error("intent error: {0}")]
     Intent(#[from] IntentError),
     #[error("create message: {0}")]
-    CreateMessage(#[from] openmls::prelude::CreateMessageError<StorageError>),
+    CreateMessage(#[from] openmls::prelude::CreateMessageError<sql_key_store::MemoryStorageError>),
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
     #[error("add members: {0}")]
-    AddMembers(#[from] openmls::prelude::AddMembersError<StorageError>),
+    AddMembers(#[from] openmls::prelude::AddMembersError<sql_key_store::MemoryStorageError>),
     #[error("remove members: {0}")]
-    RemoveMembers(#[from] openmls::prelude::RemoveMembersError<StorageError>),
+    RemoveMembers(#[from] openmls::prelude::RemoveMembersError<sql_key_store::MemoryStorageError>),
     #[error("group create: {0}")]
     GroupCreate(#[from] openmls::group::NewGroupError<sql_key_store::MemoryStorageError>),
     #[error("self update: {0}")]
-    SelfUpdate(#[from] openmls::group::SelfUpdateError<StorageError>),
+    SelfUpdate(#[from] openmls::group::SelfUpdateError<sql_key_store::MemoryStorageError>),
     #[error("welcome error: {0}")]
     WelcomeError(#[from] openmls::prelude::WelcomeError<sql_key_store::MemoryStorageError>),
     #[error("Invalid extension {0}")]
@@ -139,7 +139,9 @@ pub enum GroupError {
     #[error("serialization error: {0}")]
     EncodeError(#[from] prost::EncodeError),
     #[error("create group context proposal error: {0}")]
-    CreateGroupContextExtProposalError(#[from] CreateGroupContextExtProposalError<StorageError>),
+    CreateGroupContextExtProposalError(
+        #[from] CreateGroupContextExtProposalError<sql_key_store::MemoryStorageError>,
+    ),
     #[error("Credential error")]
     CredentialError(#[from] BasicCredentialError),
     #[error("LeafNode error")]
