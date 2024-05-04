@@ -49,6 +49,7 @@ use xmtp_proto::{
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
 use self::{
+    group_membership::GroupMembership,
     group_metadata::extract_group_metadata,
     group_mutable_metadata::{
         extract_group_mutable_metadata, GroupMutableMetadata, GroupMutableMetadataError,
@@ -65,7 +66,9 @@ use self::{
 
 use crate::{
     client::{deserialize_welcome, ClientError, MessageProcessingError},
-    configuration::{CIPHERSUITE, MAX_GROUP_SIZE, MUTABLE_METADATA_EXTENSION_ID},
+    configuration::{
+        CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MAX_GROUP_SIZE, MUTABLE_METADATA_EXTENSION_ID,
+    },
     hpke::{decrypt_welcome, HpkeError},
     identity::v3::{Identity, IdentityError},
     retry::RetryableError,
@@ -216,7 +219,12 @@ where
             Purpose::Conversation,
         )?;
         let mutable_metadata = build_mutable_metadata_extension_default()?;
-        let group_config = build_group_config(protected_metadata, mutable_metadata)?;
+        let group_membership = build_starting_group_membership_extension(
+            client.inbox_id(),
+            client.inbox_latest_sequence_id(),
+        );
+        let group_config =
+            build_group_config(protected_metadata, mutable_metadata, group_membership)?;
 
         let mut mls_group = OpenMlsGroup::new(
             &provider,
@@ -317,7 +325,12 @@ where
             Purpose::Sync,
         )?;
         let mutable_metadata = build_mutable_metadata_extension_default()?;
-        let group_config = build_group_config(protected_metadata, mutable_metadata)?;
+        let group_membership = build_starting_group_membership_extension(
+            client.inbox_id(),
+            client.inbox_latest_sequence_id(),
+        );
+        let group_config =
+            build_group_config(protected_metadata, mutable_metadata, group_membership)?;
         let mut mls_group = OpenMlsGroup::new(
             &provider,
             &client.identity.installation_keys,
@@ -603,7 +616,13 @@ fn build_protected_metadata_extension(
         Purpose::Conversation => ConversationType::Group,
         Purpose::Sync => ConversationType::Sync,
     };
-    let metadata = GroupMetadata::new(group_type, identity.account_address.clone(), policies);
+    let metadata = GroupMetadata::new(
+        group_type,
+        identity.account_address.clone(),
+        // TODO: Remove me
+        "inbox_id".to_string(),
+        policies,
+    );
     let protected_metadata = Metadata::new(metadata.try_into()?);
 
     Ok(Extension::ImmutableMetadata(protected_metadata))
@@ -635,11 +654,21 @@ pub fn build_mutable_metadata_extensions(
     Ok(extensions)
 }
 
+pub fn build_starting_group_membership_extension(inbox_id: String, sequence_id: u64) -> Extension {
+    let mut group_membership = GroupMembership::new();
+    group_membership.add(inbox_id, sequence_id);
+    let unknown_gc_extension = UnknownExtension(group_membership.into());
+
+    Extension::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID, unknown_gc_extension)
+}
+
 fn build_group_config(
     protected_metadata_extension: Extension,
     mutable_metadata_extension: Extension,
+    group_membership_extension: Extension,
 ) -> Result<MlsGroupCreateConfig, GroupError> {
     let required_extension_types = &[
+        ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
         ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
         ExtensionType::ImmutableMetadata,
         ExtensionType::LastResort,
@@ -667,6 +696,7 @@ fn build_group_config(
     let extensions = Extensions::from_vec(vec![
         protected_metadata_extension,
         mutable_metadata_extension,
+        group_membership_extension,
         required_capabilities,
     ])?;
 
