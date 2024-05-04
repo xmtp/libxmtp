@@ -1,0 +1,6 @@
+rust_input: src/libxmtp_api.rs
+dart_output: lib/src/generated
+rust_output: src/generated/bridge_generated.rs
+dart_format_line_length: 80
+add_mod_to_lib: false
+web: false

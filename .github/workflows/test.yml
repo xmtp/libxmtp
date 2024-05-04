@@ -47,3 +47,6 @@ jobs:
         run: |
           export CLASSPATH="${{ env.CLASSPATH }}"
           cargo test --manifest-path bindings_ffi/Cargo.toml
+
+      - name: Run cargo test on Flutter bindings
+        run: cargo test --manifest-path bindings_flutter/Cargo.toml
