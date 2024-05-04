@@ -19,7 +19,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use super::{
     group_mutable_metadata::GroupMutableMetadata,
     // validated_commit::{AggregatedMembershipChange, CommitParticipant, ValidatedCommit},
-    validated_commit_v2::{CommitParticipant, Inbox, MetadataChange, ValidatedCommit},
+    validated_commit::{CommitParticipant, Inbox, MetadataChange, ValidatedCommit},
 };
 
 // A trait for policies that can update Metadata for the group
