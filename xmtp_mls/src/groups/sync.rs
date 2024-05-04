@@ -206,7 +206,7 @@ where
                     openmls_group.merge_pending_commit(provider)
                 {
                     log::error!("error merging commit: {}", err);
-                    openmls_group.clear_pending_commit();
+                    openmls_group.clear_pending_commit(provider.storage());
                     conn.set_group_intent_to_publish(intent.id)?;
                 } else {
                     // If no error committing the change, write a transcript message

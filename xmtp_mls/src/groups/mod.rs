@@ -73,7 +73,7 @@ use crate::{
         group::{GroupMembershipState, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-        StorageError,
+        sql_key_store, StorageError,
     },
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -101,11 +101,11 @@ pub enum GroupError {
     #[error("remove members: {0}")]
     RemoveMembers(#[from] openmls::prelude::RemoveMembersError<StorageError>),
     #[error("group create: {0}")]
-    GroupCreate(#[from] openmls::prelude::NewGroupError<StorageError>),
+    GroupCreate(#[from] openmls::group::NewGroupError<sql_key_store::MemoryStorageError>),
     #[error("self update: {0}")]
     SelfUpdate(#[from] openmls::group::SelfUpdateError<StorageError>),
     #[error("welcome error: {0}")]
-    WelcomeError(#[from] openmls::prelude::WelcomeError<StorageError>),
+    WelcomeError(#[from] openmls::prelude::WelcomeError<sql_key_store::MemoryStorageError>),
     #[error("Invalid extension {0}")]
     InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
     #[error("Invalid signature: {0}")]
@@ -194,10 +194,13 @@ where
     // Load the stored MLS group from the OpenMLS provider's keystore
     fn load_mls_group(&self, provider: &XmtpOpenMlsProvider) -> Result<OpenMlsGroup, GroupError> {
         let mls_group =
-            OpenMlsGroup::load(&GroupId::from_slice(&self.group_id), provider.key_store())
-                .ok_or(GroupError::GroupNotFound)?;
+            OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
+                .map_err(|e| GroupError::GroupNotFound)?;
 
-        Ok(mls_group)
+        match mls_group {
+            Some(group) => Ok(group),
+            None => Err(GroupError::GroupNotFound),
+        }
     }
 
     // Create a new group and save it to the DB
@@ -225,7 +228,6 @@ where
                 signature_key: client.identity.installation_keys.to_public_vec().into(),
             },
         )?;
-        mls_group.save(provider.storage())?;
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::new(
@@ -251,7 +253,6 @@ where
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
 
         let mut mls_group = mls_welcome.into_group(provider)?;
-        mls_group.save(provider.storage())?;
 
         let group_id = mls_group.group_id().to_vec();
         let to_store = StoredGroup::new(
@@ -314,7 +315,6 @@ where
                 signature_key: client.identity.installation_keys.to_public_vec().into(),
             },
         )?;
-        mls_group.save(provider.storage())?;
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group =

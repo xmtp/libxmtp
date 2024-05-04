@@ -1,3 +1,7 @@
+use crate::{
+    configuration::{CIPHERSUITE, WELCOME_HPKE_LABEL},
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+};
 use openmls::ciphersuite::hpke::{
     decrypt_with_label, encrypt_with_label, Error as OpenmlsHpkeError,
 };
@@ -7,11 +11,7 @@ use openmls_traits::types::HpkeCiphertext;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::{storage::StorageProvider, types::HpkePrivateKey};
 use thiserror::Error;
-
-use crate::{
-    configuration::{CIPHERSUITE, WELCOME_HPKE_LABEL},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
-};
+use xmtp_proto::xmtp::message_contents::private_key;
 
 #[derive(Debug, Error)]
 pub enum HpkeError {
@@ -44,19 +44,20 @@ pub fn decrypt_welcome(
     hpke_public_key: &[u8],
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, HpkeError> {
-    let private_key = provider
-        .storage()
-        .read::<HpkePrivateKey>(hpke_public_key)
-        .ok_or(HpkeError::KeyNotFound)?;
-
     let ciphertext = HpkeCiphertext::tls_deserialize_exact(ciphertext)?;
 
-    Ok(decrypt_with_label(
-        private_key.to_vec().as_slice(),
-        WELCOME_HPKE_LABEL,
-        &[],
-        &ciphertext,
-        CIPHERSUITE,
-        &RustCrypto::default(),
-    )?)
+    match provider
+        .storage()
+        .read_list(WELCOME_HPKE_LABEL.as_bytes(), hpke_public_key)
+    {
+        Ok(private_key) => Ok(decrypt_with_label(
+            serde_json::from_slice::<&[u8]>(&private_key).map_err(|e| HpkeError::KeyNotFound)?,
+            WELCOME_HPKE_LABEL,
+            &[],
+            &ciphertext,
+            CIPHERSUITE,
+            &RustCrypto::default(),
+        )?),
+        Err(e) => Err(HpkeError::KeyNotFound),
+    }
 }
