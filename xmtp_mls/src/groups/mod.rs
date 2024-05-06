@@ -537,6 +537,28 @@ where
         Ok(())
     }
 
+    /// Checking the last key rotation time before rotating the key. 
+    pub async fn pre_intent_hook(&self) -> Result<(), GroupError> {
+        let conn = &self.client.store.conn()?;
+        let last_rotated_time = conn.get_rotated_time_checked(self.group_id.clone());
+        
+        match last_rotated_time {
+            Ok(rotated_time) => {
+                if rotated_time == 0 {
+                    let _ = self.queue_key_update();
+                    let update_interval = Some(5_000_000);
+                    self.maybe_update_installations(conn, update_interval).await?;
+                }
+            }
+            Err(err) => {
+                // Handle the error appropriately
+                log::error!("database error fetching rotated time {:?}", err);
+            }
+        }
+
+        self.sync_with_conn(conn).await
+    }
+
     pub fn is_active(&self) -> Result<bool, GroupError> {
         let conn = &self.client.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);

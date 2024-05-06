@@ -6,7 +6,7 @@ use diesel::{
     expression::AsExpression,
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
-    sql_types::{BigInt, Integer},
+    sql_types::Integer,
     sqlite::Sqlite,
 };
 
@@ -36,8 +36,7 @@ pub struct StoredGroup {
     pub purpose: Purpose,
     /// The wallet address of who added the user to a group.
     pub added_by_address: String,
-    /// A BigInt type variable used to record the time of key rotated. 
-    pub rotated_at_ns: BigInt,
+    pub rotated_at_ns: i64,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -58,7 +57,7 @@ impl StoredGroup {
             installations_last_checked: 0,
             purpose: Purpose::Conversation,
             added_by_address,
-            rotated_at_ns: BigInt::zero(),
+            rotated_at_ns: 0,
         }
     }
 
@@ -75,7 +74,7 @@ impl StoredGroup {
             installations_last_checked: 0,
             purpose: Purpose::Sync,
             added_by_address: "".into(),
-            rotated_at_ns: BigInt::zero(),
+            rotated_at_ns: 0,
         }
     }
 }
@@ -159,7 +158,7 @@ impl DbConnection<'_> {
         last_ts.ok_or(StorageError::NotFound)
     }
 
-    pub fn get_rotated_time_checked(&self, group_id: Vec<u8>) -> Result<BigInt, StorageError> {
+    pub fn get_rotated_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
         let last_ts = self.raw_query(|conn| {
             let ts = dsl::groups
                 .find(&group_id)
@@ -170,7 +169,6 @@ impl DbConnection<'_> {
         })?;
 
         last_ts.ok_or(StorageError::NotFound)
-
     }
 
     /// Updates the 'last time checked' we checked for new installations.
