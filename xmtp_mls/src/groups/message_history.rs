@@ -298,7 +298,7 @@ mod tests {
         assert_ok!(amal_b.allow_history_sync().await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
-        
+
         let sent = amal_b.send_message_history_request().await;
         assert_ok!(sent);
 
@@ -309,7 +309,7 @@ mod tests {
         let amal_a_sync_group = amal_a.group(amal_a_sync_groups[0].id.clone()).unwrap();
         amal_a_sync_group.sync().await.expect("sync");
 
-         // find the sync group (it should be the same as amal_a's sync group)
+        // find the sync group (it should be the same as amal_a's sync group)
         let amal_b_sync_groups = amal_b.store.conn().unwrap().find_sync_groups().unwrap();
         assert_eq!(amal_b_sync_groups.len(), 1);
         // get the first sync group
@@ -320,9 +320,10 @@ mod tests {
         assert_eq!(amal_a_sync_group.group_id, amal_b_sync_group.group_id);
 
         let amal_a_conn = amal_a.store.conn().unwrap();
-        let amal_a_messages = amal_a_conn.get_group_messages(amal_a_sync_group.group_id, None, None, None, None, None).unwrap();
+        let amal_a_messages = amal_a_conn
+            .get_group_messages(amal_a_sync_group.group_id, None, None, None, None, None)
+            .unwrap();
         assert_eq!(amal_a_messages.len(), 1);
-
     }
 
     #[tokio::test]

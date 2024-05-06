@@ -343,7 +343,7 @@ where
                                 sender_installation_id,
                                 sender_account_address,
                                 delivery_status: DeliveryStatus::Published,
-                                }
+                            }
                             .store(provider.conn())?
                         } else {
                             return Err(MessageProcessingError::InvalidPayload);
