@@ -1,20 +1,13 @@
-use diesel::sql_types::{Binary, Text};
+use std::cell::{Ref, RefCell};
+use std::rc::Rc;
+
+use diesel::sql_types::Binary;
 use diesel::{deserialize::QueryableByName, sql_query, RunQueryDsl};
-use log::{debug, error};
+use log::error;
 use openmls_traits::storage::*;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use super::{
-    encrypted_store::{db_connection::DbConnection, key_store_entry::StoredKeyStoreEntry},
-    serialization::{db_deserialize, db_serialize},
-    StorageError,
-};
-use crate::{Delete, Fetch};
-
-#[derive(Debug)]
-pub struct SqlKeyStore<'a> {
-    conn: &'a DbConnection<'a>,
-}
+use super::encrypted_store::db_connection::DbConnection;
 
 #[derive(QueryableByName)]
 #[table_name = "storage"]
@@ -24,17 +17,24 @@ struct StorageData {
     data: Vec<u8>,
 }
 
+#[derive(Debug)]
+pub struct SqlKeyStore<'a> {
+    conn: Rc<RefCell<&'a DbConnection<'a>>>,
+}
+
 impl<'a> SqlKeyStore<'a> {
     pub fn new(conn: &'a DbConnection<'a>) -> Self {
-        Self { conn }
+        Self {
+            conn: Rc::new(RefCell::new(conn)),
+        }
     }
 
-    pub fn conn(&self) -> &DbConnection<'a> {
-        self.conn
+    pub fn conn(&self) -> Ref<'_, &DbConnection<'a>> {
+        self.conn.borrow()
     }
 
     pub fn write<const VERSION: u16>(
-        &mut self,
+        &self,
         label: &[u8],
         key: &[u8],
         value: &[u8],
@@ -42,7 +42,7 @@ impl<'a> SqlKeyStore<'a> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "REPLACE INTO storage (storage_key, version, data) VALUES (?, ?, ?)";
 
-        self.conn.raw_query(|conn| {
+        self.conn.borrow_mut().raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
@@ -54,14 +54,14 @@ impl<'a> SqlKeyStore<'a> {
     }
 
     pub fn append<const VERSION: u16>(
-        &mut self,
+        &self,
         label: &[u8],
         key: &[u8],
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "INSERT INTO storage (storage_key, version, data) VALUES (?, ?, JSON_ARRAY_APPEND(COALESCE((SELECT data FROM storage WHERE storage_key = ? AND version = ?), '[]'), '$', ?)) ON DUPLICATE KEY UPDATE data = VALUES(data)";
-        self.conn.raw_query(|conn| {
+        self.conn.borrow_mut().raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
@@ -74,14 +74,14 @@ impl<'a> SqlKeyStore<'a> {
     }
 
     pub fn remove_item<const VERSION: u16>(
-        &mut self,
+        &self,
         label: &[u8],
         key: &[u8],
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "UPDATE storage SET data = JSON_REMOVE(data, JSON_UNQUOTE(JSON_SEARCH(data, 'one', ?))) WHERE storage_key = ? AND version = ?";
-        self.conn.raw_query(|conn| {
+        self.conn.borrow_mut().raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&value)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
@@ -101,7 +101,7 @@ impl<'a> SqlKeyStore<'a> {
         let query = "SELECT data FROM storage WHERE storage_key = ? AND version = ?";
 
         let results: Result<Vec<StorageData>, diesel::result::Error> =
-            self.conn.raw_query(|conn| {
+            self.conn.borrow_mut().raw_query(|conn| {
                 sql_query(query)
                     .bind::<diesel::sql_types::Binary, _>(&storage_key)
                     .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
@@ -131,7 +131,7 @@ impl<'a> SqlKeyStore<'a> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "SELECT data FROM storage WHERE storage_key = ? AND version = ?";
 
-        match self.conn.raw_query(|conn| {
+        match self.conn.borrow_mut().raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
@@ -152,13 +152,13 @@ impl<'a> SqlKeyStore<'a> {
     }
 
     pub fn delete<const VERSION: u16>(
-        &mut self,
+        &self,
         label: &[u8],
         key: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "DELETE FROM storage WHERE storage_key = ? AND version = ?";
-        self.conn.raw_query(|conn| {
+        self.conn.borrow_mut().raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
@@ -948,7 +948,6 @@ impl From<serde_json::Error> for MemoryStorageError {
 #[cfg(test)]
 mod tests {
     use openmls_basic_credential::SignatureKeyPair;
-    use openmls_traits::storage::StorageProvider;
 
     use super::SqlKeyStore;
     use crate::{

@@ -1,3 +1,5 @@
+use std::cell::Ref;
+
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 
@@ -17,7 +19,7 @@ impl<'a> XmtpOpenMlsProvider<'a> {
         }
     }
 
-    pub(crate) fn conn(&self) -> &DbConnection<'a> {
+    pub(crate) fn conn(&self) -> Ref<'_, &DbConnection<'a>> {
         self.key_store.conn()
     }
 }

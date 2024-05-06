@@ -238,8 +238,9 @@ where
             membership_state,
             added_by_address.clone(),
         );
-
-        stored_group.store(provider.conn())?;
+        
+        let conn = provider.conn();
+        stored_group.store(&*conn)?;
         Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
 
@@ -321,8 +322,9 @@ where
         let group_id = mls_group.group_id().to_vec();
         let stored_group =
             StoredGroup::new_sync_group(group_id.clone(), now_ns(), GroupMembershipState::Allowed);
-
-        stored_group.store(provider.conn())?;
+        
+        let conn = provider.conn();
+        stored_group.store(&*conn)?;
         Ok(Self::new(
             client,
             stored_group.id,

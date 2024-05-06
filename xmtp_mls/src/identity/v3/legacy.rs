@@ -126,7 +126,8 @@ impl Identity {
         recoverable_wallet_signature: Option<Vec<u8>>,
     ) -> Result<(), IdentityError> {
         // Do not re-register if already registered
-        let stored_identity: Option<StoredIdentity> = provider.conn().fetch(&())?;
+        let conn = provider.conn();
+        let stored_identity: Option<StoredIdentity> = conn.fetch(&())?;
         if stored_identity.is_some() {
             info!("Identity already registered, skipping registration");
             return Ok(());
@@ -158,7 +159,7 @@ impl Identity {
 
         // Only persist the installation keys if the registration was successful
         self.installation_keys.store(provider.storage());
-        StoredIdentity::from(self).store(provider.conn())?;
+        StoredIdentity::from(self).store(&*conn)?;  // Use the `conn_ref` to ensure proper lifetime
 
         Ok(())
     }

@@ -211,7 +211,7 @@ where
                 } else {
                     // If no error committing the change, write a transcript message
                     self.save_transcript_message(
-                        conn,
+                        &*conn,
                         maybe_validated_commit,
                         envelope_timestamp_ns,
                     )?;
@@ -297,6 +297,7 @@ where
                             &self.client.account_address(),
                             &idempotency_key,
                         );
+                        let conn = provider.conn();
                         StoredGroupMessage {
                             id: message_id,
                             group_id: self.group_id.clone(),
@@ -307,7 +308,7 @@ where
                             sender_account_address,
                             delivery_status: DeliveryStatus::Published,
                         }
-                        .store(provider.conn())?
+                        .store(&*conn)?
                     }
                     Some(Content::V2(V2 {
                         idempotency_key: _,
@@ -343,8 +344,9 @@ where
                 // Validate the commit
                 let validated_commit = ValidatedCommit::from_staged_commit(&sc, openmls_group)?;
                 openmls_group.merge_staged_commit(provider, sc)?;
+                let conn = provider.conn();
                 self.save_transcript_message(
-                    provider.conn(),
+                    &*conn,
                     validated_commit,
                     envelope_timestamp_ns,
                 )?;
