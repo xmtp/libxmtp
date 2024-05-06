@@ -49,8 +49,8 @@ use crate::{
     groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
     identity::v3::Identity,
-    retry::{self, Retry},
-    retry_async,
+    retry::Retry,
+    retry_async, retry_sync,
     storage::{
         db_connection::DbConnection,
         group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
@@ -436,7 +436,7 @@ where
         let receive_errors: Vec<MessageProcessingError> = messages
             .into_iter()
             .map(|envelope| -> Result<(), MessageProcessingError> {
-                retry!(
+                retry_sync!(
                     Retry::default(),
                     (|| self.consume_message(&envelope, &mut openmls_group))
                 )
@@ -510,9 +510,9 @@ where
         Ok(Some(msg))
     }
 
-    pub(super) async fn publish_intents<'a>(
+    pub(super) async fn publish_intents(
         &self,
-        conn: &'a DbConnection<'a>,
+        conn: &'c DbConnection<'c>,
     ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;

@@ -140,7 +140,7 @@ impl Retry {
 ///
 /// fn main() {
 ///      let mut i = 0;
-///      retry!(Retry::default(), (|| -> Result<(), MyError> {
+///      retry_sync!(Retry::default(), (|| -> Result<(), MyError> {
 ///         let res = fallable_fn(i);
 ///         i += 1;
 ///         res
@@ -149,7 +149,7 @@ impl Retry {
 ///  }
 /// ```
 #[macro_export]
-macro_rules! retry {
+macro_rules! retry_sync {
     ($retry: expr, $code: tt) => {{
         #[allow(unused)]
         use $crate::retry::RetryableError;
@@ -302,7 +302,7 @@ mod tests {
             Ok(())
         };
 
-        retry!(Retry::default(), test_fn).unwrap();
+        retry_sync!(Retry::default(), test_fn).unwrap();
     }
 
     #[test]
@@ -317,12 +317,12 @@ mod tests {
             retryable_with_args(i, "Hello".to_string(), &list)
         };
 
-        retry!(Retry::default(), test_fn).unwrap();
+        retry_sync!(Retry::default(), test_fn).unwrap();
     }
 
     #[test]
     fn it_fails_on_three_retries() {
-        let result: Result<(), SomeError> = retry!(
+        let result: Result<(), SomeError> = retry_sync!(
             Retry::default(),
             (|| -> Result<(), SomeError> {
                 retry_error_fn()?;
@@ -341,7 +341,7 @@ mod tests {
             Err(SomeError::DontRetryThis)
         };
 
-        let _r = retry!(Retry::default(), test_fn);
+        let _r = retry_sync!(Retry::default(), test_fn);
 
         assert_eq!(attempts, 1);
     }
