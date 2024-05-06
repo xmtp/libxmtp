@@ -204,9 +204,9 @@ class ConversationsTests: XCTestCase {
 
         let timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
         let signatureText = Signature.consentProofText(peerAddress: boClient.address, timestamp: timestamp)
-        let digest = Data(signatureText.utf8)
-        let signature = try await alix.sign(Util.keccak256(digest))
-        let hex = Data(try signature.serializedData()).toHex
+        let signature = try await alix.sign(message: signatureText)
+        
+        let hex = signature.rawData.toHex
         var consentProofPayload = ConsentProofPayload()
         consentProofPayload.signature = hex
         consentProofPayload.timestamp = timestamp
@@ -231,9 +231,8 @@ class ConversationsTests: XCTestCase {
 
         let timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
         let signatureText = Signature.consentProofText(peerAddress: boClient.address, timestamp: timestamp)
-        let digest = Data(signatureText.utf8)
-        let signature = try await alix.sign(Util.keccak256(digest))
-        let hex = Data(try signature.serializedData()).toHex
+        let signature = try await alix.sign(message: signatureText)
+        let hex = signature.rawData.toHex
         var consentProofPayload = ConsentProofPayload()
         consentProofPayload.signature = hex
         consentProofPayload.timestamp = timestamp
@@ -259,9 +258,8 @@ class ConversationsTests: XCTestCase {
 
         let timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
         let signatureText = Signature.consentProofText(peerAddress: boClient.address, timestamp: timestamp + 1)
-        let digest = Data(signatureText.utf8)
-        let signature = try await alix.sign(Util.keccak256(digest))
-        let hex = Data(try signature.serializedData()).toHex
+        let signature = try await alix.sign(message:signatureText)
+        let hex = signature.rawData.toHex
         var consentProofPayload = ConsentProofPayload()
         consentProofPayload.signature = hex
         consentProofPayload.timestamp = timestamp

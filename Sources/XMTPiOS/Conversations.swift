@@ -547,26 +547,26 @@ public actor Conversations {
 	}
     
     private func validateConsentSignature(signature: String, clientAddress: String, peerAddress: String, timestamp: UInt64) -> Bool {
+        // timestamp should be in the past
+        if timestamp > UInt64(Date().timeIntervalSince1970 * 1000) {
+            return false
+        }
+        let thirtyDaysAgo = Date().addingTimeInterval(-30 * 24 * 60 * 60)
+        let thirtyDaysAgoTimestamp = UInt64(thirtyDaysAgo.timeIntervalSince1970 * 1000)
+        if timestamp < thirtyDaysAgoTimestamp {
+            return false
+        }
+
         let message = Signature.consentProofText(peerAddress: peerAddress, timestamp: timestamp)
 
         guard let signatureData = Data(hex: signature) else {
             print("Invalid signature format")
             return false
         }
-        var sig = Signature()
+
         do {
-            sig = try Signature(serializedData: signatureData)
-        } catch {
-            print("Invalid signature format: \(error)")
-            return false
-        }
-        // Convert the message to Data
-        guard let messageData = message.data(using: .utf8) else {
-            print("Invalid message format")
-            return false
-        }
-        do {
-            let recoveredKey = try KeyUtilx.recoverPublicKeyKeccak256(from: sig.rawData, message: messageData)
+            let ethMessage = try Signature.ethHash(message)
+            let recoveredKey = try KeyUtilx.recoverPublicKey(message: ethMessage, signature: signatureData)
             let address = KeyUtilx.generateAddress(from: recoveredKey).toChecksumAddress()
 
             return clientAddress == address

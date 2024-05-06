@@ -64,10 +64,16 @@ extension Signature {
 	}
     
     static func consentProofText(peerAddress: String, timestamp: UInt64) -> String {
+        let date = Date(timeIntervalSince1970: Double(timestamp) / 1000)
+        let dateFormatter = DateFormatter()
+        dateFormatter.timeZone = TimeZone(abbreviation: "UTC")
+        dateFormatter.dateFormat = "EEE, d MMM yyyy HH:mm:ss 'GMT'"
+        let dateString = dateFormatter.string(from: date)
+
         return (
             "XMTP : Grant inbox consent to sender\n" +
             "\n" +
-            "Current Time: \(timestamp)\n" +
+            "Current Time: \(dateString)\n" +
             "From Address: \(peerAddress)\n" +
             "\n" +
             "For more info: https://xmtp.org/signatures/"

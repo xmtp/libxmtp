@@ -89,6 +89,9 @@ enum KeyUtilx {
 		// get recoverable signature
 		let signaturePtr = UnsafeMutablePointer<secp256k1_ecdsa_recoverable_signature>.allocate(capacity: 1)
 		defer { signaturePtr.deallocate() }
+    if signature.count < 65 {
+        throw KeyUtilError.signatureParseFailure
+    }
 
 		let serializedSignature = Data(signature[0 ..< 64])
 		var v = Int32(signature[64])
@@ -100,28 +103,40 @@ enum KeyUtilx {
 			v -= 35
 		}
 
-		// swiftlint:disable force_unwrapping
-		try serializedSignature.withUnsafeBytes {
-			guard secp256k1_ecdsa_recoverable_signature_parse_compact(ctx, signaturePtr, $0.bindMemory(to: UInt8.self).baseAddress!, v) == 1 else {
-				throw KeyUtilError.signatureParseFailure
-			}
-		}
-		let pubkey = UnsafeMutablePointer<secp256k1_pubkey>.allocate(capacity: 1)
+    try serializedSignature.withUnsafeBytes {
+        guard let baseAddress = $0.bindMemory(to: UInt8.self).baseAddress else {
+            throw KeyUtilError.signatureParseFailure // or a more specific error for "empty buffer"
+        }
+        if v > 3 {
+            throw KeyUtilError.signatureParseFailure
+        }
+        guard secp256k1_ecdsa_recoverable_signature_parse_compact(ctx, signaturePtr, baseAddress, v) == 1 else {
+            throw KeyUtilError.signatureParseFailure
+        }
+    }
+    
+    let pubkey = UnsafeMutablePointer<secp256k1_pubkey>.allocate(capacity: 1)
 		defer { pubkey.deallocate() }
 
-		try message.withUnsafeBytes {
-			guard secp256k1_ecdsa_recover(ctx, pubkey, signaturePtr, $0.bindMemory(to: UInt8.self).baseAddress!) == 1 else {
-				throw KeyUtilError.signatureFailure
-			}
-		}
+        try message.withUnsafeBytes {
+            guard let baseAddress = $0.bindMemory(to: UInt8.self).baseAddress else {
+                throw KeyUtilError.signatureFailure // Consider throwing a more specific error
+            }
+
+            guard secp256k1_ecdsa_recover(ctx, pubkey, signaturePtr, baseAddress) == 1 else {
+                throw KeyUtilError.signatureFailure
+            }
+        }
 
 		var size = 65
-		var rv = Data(count: size)
-		_ = rv.withUnsafeMutableBytes {
-			secp256k1_ec_pubkey_serialize(ctx, $0.bindMemory(to: UInt8.self).baseAddress!, &size, pubkey, UInt32(SECP256K1_EC_UNCOMPRESSED))
-		}
+        var rv = Data(count: size)
+        rv.withUnsafeMutableBytes { buffer -> Void in
+            guard let baseAddress = buffer.bindMemory(to: UInt8.self).baseAddress else {
+                return // Optionally, handle the error or log this condition
+            }
+            secp256k1_ec_pubkey_serialize(ctx, baseAddress, &size, pubkey, UInt32(SECP256K1_EC_UNCOMPRESSED))
+        }
 
-		// swiftlint:enable force_unwrapping
 		return rv
 	}
 }
