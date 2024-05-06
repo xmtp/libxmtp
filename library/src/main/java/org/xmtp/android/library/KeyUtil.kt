@@ -1,15 +1,15 @@
 package org.xmtp.android.library
 
-import com.google.protobuf.kotlin.toByteString
+import org.web3j.utils.Numeric
 import org.web3j.crypto.ECDSASignature
 import org.web3j.crypto.Keys
 import org.web3j.crypto.Sign
 import org.web3j.crypto.Sign.SignatureData
-import org.web3j.utils.Numeric
 import org.xmtp.android.library.messages.Signature
 import org.xmtp.android.library.messages.consentProofText
-import org.xmtp.android.library.messages.rawData
+import org.xmtp.android.library.messages.ethHash
 import java.math.BigInteger
+import java.util.Date
 
 object KeyUtil {
     fun getPublicKey(privateKey: ByteArray): ByteArray {
@@ -82,11 +82,22 @@ object KeyUtil {
     }
 
     fun validateConsentSignature(signature: String, clientAddress: String, peerAddress: String, timestamp: Long): Boolean {
-        val messageData = Signature.newBuilder().build().consentProofText(peerAddress, timestamp).toByteArray()
-        val signatureData = Numeric.hexStringToByteArray(signature)
-        val sig = Signature.parseFrom(signatureData)
-        val recoveredPublicKey = recoverPublicKeyKeccak256(sig.rawData.toByteString().toByteArray(), Util.keccak256(messageData))
-            ?: return false
-        return clientAddress == publicKeyToAddress(recoveredPublicKey)
+        if (timestamp > Date().time) {
+            return false
+        }
+        val thirtyDaysAgo = Date().time - 30L * 24 * 60 * 60 * 1000
+        if (timestamp < thirtyDaysAgo) {
+            return false
+        }
+
+        val signatureClass = Signature.newBuilder().build()
+        val signatureText = signatureClass.consentProofText(peerAddress, timestamp)
+        val digest = signatureClass.ethHash(signatureText)
+        val signatureBytes = Numeric.hexStringToByteArray(signature)
+        val signatureData = getSignatureData(signatureBytes)
+        val key = Sign.signedMessageHashToKey(digest, signatureData)
+        val rawAddress = Keys.getAddress(key)
+        val address = Keys.toChecksumAddress(rawAddress)
+        return clientAddress == address
     }
 }
