@@ -206,7 +206,7 @@ where
     pub(crate) fn stream_messages_with_callback(
         client: Arc<Client<ApiClient>>,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
-        mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
+        mut callback: impl FnMut(StoredGroupMessage) + Send,
     ) -> Result<StreamCloser, ClientError> {
         let (close_sender, close_receiver) = oneshot::channel::<()>();
         let is_closed = Arc::new(AtomicBool::new(false));

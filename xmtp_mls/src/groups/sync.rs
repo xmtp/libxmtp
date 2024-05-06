@@ -77,10 +77,7 @@ where
         self.sync_with_conn(conn).await
     }
 
-    pub(super) async fn sync_with_conn<'a>(
-        &self,
-        conn: &'a DbConnection<'a>,
-    ) -> Result<(), GroupError> {
+    pub(super) async fn sync_with_conn(&self, conn: &DbConnection<'c>) -> Result<(), GroupError> {
         let mut errors: Vec<GroupError> = vec![];
 
         // Even if publish fails, continue to receiving
@@ -117,9 +114,9 @@ where
      *
      * This method will retry up to `crate::configuration::MAX_GROUP_SYNC_RETRIES` times.
      */
-    pub(super) async fn sync_until_intent_resolved<'a>(
+    pub(super) async fn sync_until_intent_resolved(
         &self,
-        conn: &'a DbConnection<'a>,
+        conn: &DbConnection<'c>,
         intent_id: ID,
     ) -> Result<(), GroupError> {
         let mut num_attempts = 0;
@@ -205,7 +202,7 @@ where
 
                 debug!("[{}] merging pending commit", self.client.account_address());
                 if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
-                    openmls_group.merge_pending_commit(provider)
+                    openmls_group.merge_pending_commit(&provider)
                 {
                     log::error!("error merging commit: {}", err);
                     openmls_group.clear_pending_commit();
@@ -424,6 +421,7 @@ where
         let intent = provider
             .conn()
             .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
+
         match intent {
             // Intent with the payload hash matches
             Ok(Some(intent)) => self.process_own_message(
@@ -472,7 +470,7 @@ where
     pub fn process_messages<'a>(
         &self,
         messages: Vec<GroupMessage>,
-        conn: &'a DbConnection<'a>,
+        conn: &DbConnection<'a>,
     ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
@@ -496,7 +494,7 @@ where
         }
     }
 
-    pub(super) async fn receive<'a>(&self, conn: &'a DbConnection<'a>) -> Result<(), GroupError> {
+    pub(super) async fn receive(&self, conn: &DbConnection<'_>) -> Result<(), GroupError> {
         let messages = self
             .client
             .query_group_messages(&self.group_id, conn)
@@ -574,13 +572,16 @@ where
         let num_intents = intents.len();
 
         for intent in intents {
-            let result = retry_async!(
-                Retry::default(),
-                (async {
-                    self.get_publish_intent_data(&provider, &mut openmls_group, &intent)
-                        .await
-                })
-            );
+            // let result = retry_async!(
+            //     Retry::default(),
+            //     (async {
+            //         self.get_publish_intent_data(&provider, &mut openmls_group, &intent)
+            //             .await
+            //     })
+            // );
+            let result = self
+                .get_publish_intent_data(provider.clone(), &mut openmls_group, &intent)
+                .await;
 
             if let Err(err) = result {
                 log::error!("error getting publish intent data {:?}", err);
@@ -630,7 +631,7 @@ where
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
                 // TODO: Handle pending_proposal errors and UseAfterEviction errors
                 let msg = openmls_group.create_message(
-                    provider,
+                    &provider,
                     &self.client.identity.installation_keys,
                     intent_data.message.as_slice(),
                 )?;
@@ -650,7 +651,7 @@ where
                     key_packages.iter().map(|kp| kp.inner.clone()).collect();
 
                 let (commit, welcome, _group_info) = openmls_group.add_members(
-                    provider,
+                    &provider,
                     &self.client.identity.installation_keys,
                     mls_key_packages.as_slice(),
                 )?;
@@ -703,7 +704,7 @@ where
                 // The second return value is a Welcome, which is only possible if there
                 // are pending proposals. Ignoring for now
                 let (commit, _, _) = openmls_group.remove_members(
-                    provider,
+                    &provider,
                     &self.client.identity.installation_keys,
                     leaf_nodes.as_slice(),
                 )?;
@@ -718,8 +719,8 @@ where
                 Ok((commit_bytes, None))
             }
             IntentKind::KeyUpdate => {
-                let (commit, _, _) =
-                    openmls_group.self_update(provider, &self.client.identity.installation_keys)?;
+                let (commit, _, _) = openmls_group
+                    .self_update(&provider, &self.client.identity.installation_keys)?;
 
                 Ok((commit.tls_serialize_detached()?, None))
             }
@@ -732,7 +733,7 @@ where
                 )?;
 
                 let (commit, _, _) = openmls_group.update_group_context_extensions(
-                    provider,
+                    &provider,
                     mutable_metadata_extensions,
                     &self.client.identity.installation_keys,
                 )?;

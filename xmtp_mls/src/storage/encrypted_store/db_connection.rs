@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::{fmt, sync::Mutex};
 
 use crate::storage::RawDbConnection;
@@ -13,18 +14,19 @@ enum RefOrValue<'a, T> {
 /// and transaction state can be shared between the OpenMLS Provider and
 /// native XMTP operations
 pub struct DbConnection<'a> {
-    wrapped_conn: Mutex<RefOrValue<'a, RawDbConnection>>,
+    wrapped_conn: Mutex<&'a mut RawDbConnection>,
 }
 
 impl<'a> DbConnection<'a> {
     pub(crate) fn new(conn: &'a mut RawDbConnection) -> Self {
         Self {
-            wrapped_conn: Mutex::new(RefOrValue::Ref(conn)),
+            wrapped_conn: Mutex::new(conn),
         }
     }
-    pub(crate) fn held(conn: RawDbConnection) -> Self {
+
+    pub(crate) fn held(mut conn: RawDbConnection) -> Self {
         Self {
-            wrapped_conn: Mutex::new(RefOrValue::Value(conn)),
+            wrapped_conn: Mutex::new(&mut conn),
         }
     }
 
@@ -42,10 +44,7 @@ impl<'a> DbConnection<'a> {
                 err.into_inner()
             },
         );
-        match *lock {
-            RefOrValue::Ref(ref mut conn_ref) => fun(conn_ref),
-            RefOrValue::Value(ref mut conn) => fun(conn),
-        }
+        fun(*lock)
     }
 }
 
