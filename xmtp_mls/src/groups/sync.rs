@@ -25,8 +25,10 @@ use xmtp_proto::{
         },
         GroupMessage, WelcomeMessageInput,
     },
+    xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::Request,
     xmtp::mls::message_contents::plaintext_envelope::{Content, V1, V2},
     xmtp::mls::message_contents::GroupMembershipChanges,
+    xmtp::mls::message_contents::MessageHistoryRequest,
     xmtp::mls::message_contents::PlaintextEnvelope,
 };
 
@@ -247,9 +249,9 @@ where
                             "Send Message History Request with message_type {:#?}",
                             message_type
                         );
-                        return Err(MessageProcessingError::Generic(
-                            "not yet implemented".into(),
-                        ));
+
+                        // return Empty Ok because it is okay to not process this self message
+                        return Ok(());
                     }
                     None => return Err(MessageProcessingError::InvalidPayload),
                 };
@@ -309,16 +311,43 @@ where
                         .store(provider.conn())?
                     }
                     Some(Content::V2(V2 {
-                        idempotency_key: _,
+                        idempotency_key,
                         message_type,
                     })) => {
                         debug!(
                             "Received Message History Request with message_type {:#?}",
                             message_type
                         );
-                        return Err(MessageProcessingError::Generic(
-                            "not yet implemented".into(),
-                        ));
+                        if let Some(request) = message_type {
+                            let Request(MessageHistoryRequest {
+                                request_id,
+                                pin_code: _,
+                            }) = request
+                            else {
+                                return Err(MessageProcessingError::InvalidPayload);
+                            };
+
+                            let message_id = calculate_message_id(
+                                &self.group_id,
+                                request_id.as_bytes(),
+                                &self.client.account_address(),
+                                &idempotency_key,
+                            );
+
+                            StoredGroupMessage {
+                                id: message_id,
+                                group_id: self.group_id.clone(),
+                                decrypted_message_bytes: request_id.as_bytes().to_vec(),
+                                sent_at_ns: envelope_timestamp_ns as i64,
+                                kind: GroupMessageKind::Application,
+                                sender_installation_id,
+                                sender_account_address,
+                                delivery_status: DeliveryStatus::Published,
+                                }
+                            .store(provider.conn())?
+                        } else {
+                            return Err(MessageProcessingError::InvalidPayload);
+                        }
                     }
                     None => return Err(MessageProcessingError::InvalidPayload),
                 }

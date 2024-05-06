@@ -49,7 +49,8 @@ where
         let sync_group_id = conn
             .find_sync_groups()?
             .pop()
-            .ok_or(GroupError::GroupNotFound)?.id;
+            .ok_or(GroupError::GroupNotFound)?
+            .id;
         let sync_group = self.group(sync_group_id.clone())?;
 
         // build the request
@@ -268,6 +269,7 @@ mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
         assert_ok!(client.allow_history_sync().await);
 
+        // test that the request is sent
         let result = client.send_message_history_request().await;
         assert_ok!(result);
     }
@@ -295,11 +297,32 @@ mod tests {
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
         assert_ok!(amal_b.allow_history_sync().await);
 
-        // let group = amal_a.create_group(None).expect("create group");
-        // not necessary for this test
-        // group.send_message(b"hello").await.expect("send message");
-        let result = amal_b.send_message_history_request().await;
-        assert_ok!(result);
+        amal_a.sync_welcomes().await.expect("sync_welcomes");
+        
+        let sent = amal_b.send_message_history_request().await;
+        assert_ok!(sent);
+
+        // find the sync group
+        let amal_a_sync_groups = amal_a.store.conn().unwrap().find_sync_groups().unwrap();
+        assert_eq!(amal_a_sync_groups.len(), 1);
+        // get the first sync group
+        let amal_a_sync_group = amal_a.group(amal_a_sync_groups[0].id.clone()).unwrap();
+        amal_a_sync_group.sync().await.expect("sync");
+
+         // find the sync group (it should be the same as amal_a's sync group)
+        let amal_b_sync_groups = amal_b.store.conn().unwrap().find_sync_groups().unwrap();
+        assert_eq!(amal_b_sync_groups.len(), 1);
+        // get the first sync group
+        let amal_b_sync_group = amal_b.group(amal_b_sync_groups[0].id.clone()).unwrap();
+        amal_b_sync_group.sync().await.expect("sync");
+
+        // make sure they are the same group
+        assert_eq!(amal_a_sync_group.group_id, amal_b_sync_group.group_id);
+
+        let amal_a_conn = amal_a.store.conn().unwrap();
+        let amal_a_messages = amal_a_conn.get_group_messages(amal_a_sync_group.group_id, None, None, None, None, None).unwrap();
+        assert_eq!(amal_a_messages.len(), 1);
+
     }
 
     #[tokio::test]
