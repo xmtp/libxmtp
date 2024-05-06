@@ -9,7 +9,7 @@ use super::{
 use crate::{Delete, Fetch};
 
 /// CRUD Operations for an [`OpenMlsKeyStore`]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SqlKeyStore<'a> {
     conn: &'a DbConnection<'a>,
 }

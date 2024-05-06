@@ -219,7 +219,7 @@ where
         self.identity.text_to_sign()
     }
 
-    pub(crate) fn mls_provider(&self, conn: &'a DbConnection<'a>) -> XmtpOpenMlsProvider<'a> {
+    pub(crate) fn mls_provider(&self, conn: &DbConnection<'a>) -> XmtpOpenMlsProvider<'a> {
         XmtpOpenMlsProvider::<'a>::new(conn)
     }
 
@@ -363,7 +363,7 @@ where
     pub(crate) async fn query_group_messages(
         &self,
         group_id: &Vec<u8>,
-        conn: &'a DbConnection<'a>,
+        conn: &DbConnection<'a>,
     ) -> Result<Vec<GroupMessage>, ClientError> {
         let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
 

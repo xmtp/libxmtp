@@ -43,7 +43,7 @@ sha2.workspace = true
 smart-default = "0.7.1"
 thiserror = { workspace = true }
 tls_codec = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 toml = "0.8.4"
 xmtp_cryptography = { workspace = true }
 xmtp_id = { path = "../xmtp_id" }

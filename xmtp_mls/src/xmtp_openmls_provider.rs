@@ -9,6 +9,15 @@ pub struct XmtpOpenMlsProvider<'a> {
     key_store: SqlKeyStore<'a>,
 }
 
+impl<'a> Clone for XmtpOpenMlsProvider<'a> {
+    fn clone(&self) -> Self {
+        Self {
+            crypto: RustCrypto::default(),
+            key_store: self.key_store.clone(),
+        }
+    }
+}
+
 impl<'a> XmtpOpenMlsProvider<'a> {
     pub fn new(conn: &'a DbConnection<'a>) -> Self {
         Self {
