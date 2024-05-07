@@ -33,6 +33,9 @@ pub enum ClientBuilderError {
     #[error("Database was configured with a different wallet")]
     StoredIdentityMismatch,
 
+    #[error("Inbox ID mismatch with address")]
+    InboxIdMismatch,
+
     // #[error("Associating an address to account failed")]
     // AssociationFailed(#[from] AssociationError),
     // #[error("Error Initializing Store")]
