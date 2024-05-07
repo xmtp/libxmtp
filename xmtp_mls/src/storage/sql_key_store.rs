@@ -10,9 +10,9 @@ use serde_json::{from_slice, Value};
 use super::encrypted_store::db_connection::DbConnection;
 
 #[derive(QueryableByName)]
-#[table_name = "storage"]
+#[table_name = "openmls_key_value"]
 struct StorageData {
-    #[column_name = "data"]
+    #[column_name = "value_bytes"]
     #[sql_type = "Binary"]
     data: Vec<u8>,
 }
@@ -41,7 +41,8 @@ impl<'a> SqlKeyStore<'a> {
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        let query = "REPLACE INTO storage (storage_key, version, data) VALUES (?, ?, ?)";
+        let query =
+            "REPLACE INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (?, ?, ?)";
 
         let mut conn = self.conn.lock().unwrap();
         conn.raw_query(|conn| {
@@ -62,8 +63,10 @@ impl<'a> SqlKeyStore<'a> {
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        let select_query = "SELECT data FROM storage WHERE storage_key = ? AND version = ?";
-        let update_query = "UPDATE storage SET data = ? WHERE storage_key = ? AND version = ?";
+        let select_query =
+            "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
+        let update_query =
+            "UPDATE openmls_key_value SET value_bytes = ? WHERE key_bytes = ? AND version = ?";
 
         let conn: MutexGuard<_> = self.conn.lock().unwrap();
 
@@ -113,7 +116,7 @@ impl<'a> SqlKeyStore<'a> {
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        let query = "UPDATE storage SET data = json_set(data, '$.path_to_remove', null) WHERE storage_key = ? AND version = ?";
+        let query = "UPDATE openmls_key_value SET value_bytes = json_set(value_bytes, '$.path_to_remove', null) WHERE key_bytes = ? AND version = ?";
         let mut conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
         conn.raw_query(|conn| {
             sql_query(query)
@@ -132,7 +135,7 @@ impl<'a> SqlKeyStore<'a> {
         key: &[u8],
     ) -> Result<Option<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        let query = "SELECT data FROM storage WHERE storage_key = ? AND version = ?";
+        let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
         let mut conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
 
         let results: Result<Vec<StorageData>, diesel::result::Error> = conn.raw_query(|conn| {
@@ -163,7 +166,7 @@ impl<'a> SqlKeyStore<'a> {
         key: &[u8],
     ) -> Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        let query = "SELECT data FROM storage WHERE storage_key = ? AND version = ?";
+        let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
         let mut conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
         match conn.raw_query(|conn| {
             sql_query(query)
@@ -191,7 +194,7 @@ impl<'a> SqlKeyStore<'a> {
         key: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        let query = "DELETE FROM storage WHERE storage_key = ? AND version = ?";
+        let query = "DELETE FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
         let mut conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
         conn.raw_query(|conn| {
             sql_query(query)
