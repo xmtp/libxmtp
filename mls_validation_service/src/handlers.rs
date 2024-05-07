@@ -250,7 +250,7 @@ mod tests {
                 credential_with_key.clone(),
             )
             .unwrap();
-        kp.init_private_key().tls_serialize_detached().unwrap()
+        kp.key_package().tls_serialize_detached().unwrap()
     }
 
     #[tokio::test]

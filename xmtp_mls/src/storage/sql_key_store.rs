@@ -991,6 +991,7 @@ impl From<serde_json::Error> for MemoryStorageError {
 #[cfg(test)]
 mod tests {
     use openmls_basic_credential::SignatureKeyPair;
+    use openmls_traits::storage::StorageProvider;
 
     use super::SqlKeyStore;
     use crate::{
@@ -1011,10 +1012,30 @@ mod tests {
         let key_store = SqlKeyStore::new(conn);
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
         let index = "index".as_bytes();
-        // assert!(key_store.read::<SignatureKeyPair>(index).is_none());
-        // key_store.store(index, &signature_keys).unwrap();
-        // assert!(key_store.read::<SignatureKeyPair>(index).is_some());
-        // key_store.delete::<SignatureKeyPair>(index).unwrap();
-        // assert!(key_store.read::<SignatureKeyPair>(index).is_none());
+        // assert!(key_store.signature_key_pair(index).is_none());
+        // key_store.write_signature_key_pair(index, &signature_keys).unwrap();
+        // assert!(key_store.signature_key_pair(index).is_some());
+        // key_store.delete_signature_key_pair(index).unwrap();
+        // assert!(key_store.signature_key_pair(index).is_none());
+    }
+
+
+    #[test]
+    fn list_append_remove() {
+        let db_path = tmp_path();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(db_path),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+        let conn = &store.conn().unwrap();
+        let key_store = SqlKeyStore::new(conn);
+        let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
+        let index = "index".as_bytes();
+        // assert!(key_store.signature_key_pair(index).is_none());
+        // key_store.write_signature_key_pair(index, &signature_keys).unwrap();
+        // assert!(key_store.signature_key_pair(index).is_some());
+        // key_store.delete_signature_key_pair(index).unwrap();
+        // assert!(key_store.signature_key_pair(index).is_none());
     }
 }
