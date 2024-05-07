@@ -67,7 +67,7 @@ extension Signature {
         let date = Date(timeIntervalSince1970: Double(timestamp) / 1000)
         let dateFormatter = DateFormatter()
         dateFormatter.timeZone = TimeZone(abbreviation: "UTC")
-        dateFormatter.dateFormat = "EEE, d MMM yyyy HH:mm:ss 'GMT'"
+        dateFormatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
         let dateString = dateFormatter.string(from: date)
 
         return (
