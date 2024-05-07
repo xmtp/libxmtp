@@ -207,10 +207,10 @@ class ConversationsTest {
         val alixConversation = alixConversations.find {
             it.topic == boConversation.topic
         }
-        assertNotNull(alixConversation)
+        assertNotNull("Alix Conversation should exist " + alixConversations.size, alixConversation)
 //        Commenting out for now, the signature being created is not valid
-//        val isAllowed = runBlocking { alixClient.contacts.isAllowed(boClient.address) }
-//        assertTrue(isAllowed)
+        val isAllowed = runBlocking { alixClient.contacts.isAllowed(boClient.address) }
+        assertTrue(isAllowed)
     }
 
     @Test
@@ -268,8 +268,8 @@ class ConversationsTest {
         }
         val alixConversations = runBlocking { alixClient.conversations.list() }
         val alixConversation = alixConversations.find { it.topic == boConversation.topic }
-        assertNotNull(alixConversation)
+        assertNotNull("Alix conversation should exist" + alixConversations.size, alixConversation)
         val isAllowed = runBlocking { alixClient.contacts.isAllowed(boClient.address) }
-        assertFalse(isAllowed)
+        assertFalse("Should not be allowed", isAllowed)
     }
 }

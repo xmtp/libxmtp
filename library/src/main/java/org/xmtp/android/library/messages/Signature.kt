@@ -50,7 +50,7 @@ fun Signature.enableIdentityText(key: ByteArray): String =
     ("XMTP : Enable Identity\n" + "${key.toHex()}\n" + "\n" + "For more info: https://xmtp.org/signatures/")
 
 fun Signature.consentProofText(peerAddress: String, timestamp: Long): String {
-    val formatter = SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss 'GMT'")
+    val formatter = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss 'GMT'")
     formatter.timeZone = TimeZone.getTimeZone("UTC")
     val timestampString = formatter.format(timestamp)
     return ("XMTP : Grant inbox consent to sender\n" + "\n" + "Current Time: ${timestampString}\n" + "From Address: ${peerAddress}\n" + "\n" + "For more info: https://xmtp.org/signatures/")
