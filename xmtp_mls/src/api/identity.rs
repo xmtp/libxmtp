@@ -56,7 +56,7 @@ impl TryFrom<IdentityUpdateLog> for InboxUpdate {
 type InboxUpdateMap = HashMap<InboxId, Vec<InboxUpdate>>;
 
 /// Maps account addresses to inbox IDs. If no inbox ID found, the value will be None
-type AddressToInboxIdMap = HashMap<String, Option<InboxId>>;
+type AddressToInboxIdMap = HashMap<String, Option<InboxId>>; // TODO: hashmap has build-in optional value, so we can use InboxId as value
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where

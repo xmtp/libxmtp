@@ -44,6 +44,8 @@ pub enum ClientBuilderError {
     StorageError(#[from] StorageError),
     #[error(transparent)]
     Identity(#[from] crate::identity::xmtp_id::identity::IdentityError),
+    #[error(transparent)]
+    WrappedApiError(#[from] crate::api::WrappedApiError),
 }
 
 pub struct ClientBuilder<ApiClient> {

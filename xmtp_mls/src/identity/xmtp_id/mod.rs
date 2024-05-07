@@ -3,35 +3,41 @@ pub mod identity;
 use crate::storage::identity_inbox::StoredIdentity;
 use crate::{api::ApiClientWrapper, builder::ClientBuilderError, storage::EncryptedMessageStore};
 use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Fetch};
-use ethers::etherscan::account;
 pub use identity::Identity;
 use log::debug;
 use log::info;
 use xmtp_id::InboxId;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
-pub enum LegacyIdentity {
-    /// No legacy identity provided
-    None,
-    /// An encoded PrivateKeyBundle was provided
-    FromKeys(Vec<u8>),
+/// The member that the [Identity] is created from.
+pub enum Member {
+    /// user's Ethereum wallet address
+    Address(String),
+    /// address and corresponding legacy private key(same secp256k1 as Ethereum wallet)
+    LegacyKey(String, Vec<u8>),
 }
 
 pub enum IdentityStrategy {
     /// Tries to get an identity from the disk store, if not found creates an identity.
-    /// This strategy takes `inbox_id`(id), `wallet_address`(addr), `v2_identity`(v2) and ask a series of questions before deciding the behavior -
-    /// `v2` matches the `addr`?
-    ///     Y: `addr` has registered with an inbox(`registered_id`)?
-    ///         Y: `id` matches `registered_id`?
-    ///             Y: create an identity, if local installation key doesn't belong to `id` then generate a new installation key & signature request
-    ///             N: create an identity that requires revoking the `addr` from `registered_id` and associate `addr`with `id`
-    ///         N: create a new inbox with `addr` and nonce 0.
-    ///     N: `addr` has registered with an inbox(`registered_id`)?
-    ///         Y: `id` matches `registered_id`?
-    ///             Y: create an identity, if local installation key doesn't belong to `id` then generate a new installation key & signature request
-    ///             N: create an identity that requires revoking the `addr` from `registered_id` and associate `addr`with `id`
-    ///         N: create a new inbox with `addr` and random nonce.
-    CreateIfNotFound(InboxId, String, LegacyIdentity),
+    ///
+    /// Platform SDK could have following logic before calling `libxmtp.create_client`:
+    ///
+    /// inbox_id = libxmtp.get_inbox_id(wallet_address)
+    /// if !inbox_id {
+    ///     inbox_id = libxmtp.generate_inbox_id(wallet_address, 0)
+    ///     if use_legacy_key {
+    ///         pass // We will create inbox & add association in one call in `libxmtp.create_client(inbox_id, member_address)`
+    ///     } else {
+    ///         inbox_id = libxmtp.generate_inbox_id(wallet_address, random_nonce)
+    ///         libxmtp.create_new_inbox_with_user_signature(inbox_id, wallet_address)
+    ///     }
+    /// } else if user_wants_additional_inbox() {
+    ///     inbox_id = libxmtp.generate_inbox_id(wallet_address, random_nonce)
+    ///     libxmtp.create_new_inbox_with_user_signature(inbox_id, wallet_address)
+    /// }
+    ///
+    /// libxmtp.create_client(inbox_id, member_address)
+    CreateIfNotFound(InboxId, Member),
     /// Identity that is already in the disk store
     CachedOnly,
     /// An already-built Identity for testing purposes
@@ -55,57 +61,27 @@ impl IdentityStrategy {
         debug!("Existing identity in store: {:?}", stored_identity);
         match self {
             IdentityStrategy::CachedOnly => {
-                // Q: do we just trust the cached identity without checking anything here?
                 stored_identity.ok_or(ClientBuilderError::RequiredIdentityNotFound)
             }
-            IdentityStrategy::CreateIfNotFound(inbox_id, account_address, legacy_identity) => {
-                let v2_address = legacy_identity.into();
-                if v2_address == account_address {
-                    let registered_inbox_id =
-                        api_client.get_inbox_ids(vec![account_addresses]).await;
-                    if registered_inbox_id.is_not_empty() {
-                        if registered_inbox_id == inbox_id {
-                            // create an identity, if local installation key doesn't belong to `id` then generate a new installation key & signature request
-                        } else {
-                            // create an identity that requires revoking the `addr` from `registered_id` and associate `addr`with `id`
-                        }
-                    } else {
-                        // create a new inbox with `addr` and nonce 0.
+            IdentityStrategy::CreateIfNotFound(inbox_id, member) => {
+                // sanity check if member is associated with inbox_id and then create identity
+                let identity = match member {
+                    Member::Address(address) => {
+                        let inbox_ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
+                        let inbox_id = inbox_ids.get(&address).unwrap().as_ref().unwrap();
+                        Identity::create_to_be_signed(inbox_id.to_string(), address, api_client)
+                            .await?
                     }
-                } else {
-                    let registered_inbox_id =
-                        api_client.get_inbox_ids(vec![account_addresses]).await;
-                    if registered_inbox_id.is_not_empty() {
-                        if registered_inbox_id == inbox_id {
-                            // create an identity, if local installation key doesn't belong to `id` then generate a new installation key & signature request
-                        } else {
-                            // create an identity that requires revoking the `addr` from `registered_id` and associate `addr`with `id`
-                        }
-                    } else {
-                        // create a new inbox with `addr` and random nonce.
+                    Member::LegacyKey(account_address, key) => {
+                        Identity::create_from_legacy(inbox_id, account_address, key, api_client)
+                            .await?
                     }
-                }
+                };
+
+                Ok(identity)
             }
             #[cfg(test)]
             IdentityStrategy::ExternalIdentity(identity) => Ok(identity),
         }
-    }
-
-    async fn create_identity<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
-        api_client: &ApiClientWrapper<ApiClient>,
-        inbox_id: InboxId,
-        account_address: String,
-        legacy_identity: LegacyIdentity,
-    ) -> Result<Identity, ClientBuilderError> {
-        info!("Creating identity");
-        let identity = match legacy_identity {
-            LegacyIdentity::None => {
-                Identity::create_to_be_signed(inbox_id, account_address, api_client).await?
-            }
-            LegacyIdentity::FromKeys(key) => {
-                Identity::create_from_legacy(inbox_id, account_address, key, api_client).await?
-            }
-        };
-        Ok(identity)
     }
 }

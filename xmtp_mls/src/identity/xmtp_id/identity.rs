@@ -8,6 +8,7 @@ use openmls::{
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::types::CryptoError;
 use prost::Message;
+use rand::Rng;
 use sha2::{Digest, Sha512};
 use thiserror::Error;
 use xmtp_id::{
@@ -82,7 +83,7 @@ impl Identity {
         let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
 
         if !Self::is_existing_inbox(inbox_id.clone(), api_client).await? {
-            builder = builder.create_inbox(member_identifier.clone(), nonce);
+            builder = builder.create_inbox(member_identifier.clone(), rand::thread_rng().gen());
         }
 
         let mut signature_request = builder
@@ -112,22 +113,19 @@ impl Identity {
 
     pub(crate) async fn create_from_legacy<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
         inbox_id: InboxId,
-        account_address: String,
+        account_address: String, // TODO: we can derive account_address from the private_key, it can be removed.
         legacy_signed_private_key: Vec<u8>,
         api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<Self, IdentityError> {
+        if Self::is_existing_inbox(inbox_id.clone(), api_client).await? {
+            return Err(IdentityError::LegacyKeyReuse);
+        }
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
         let installation_public_key = signature_keys.public();
         let member_identifier: MemberIdentifier = account_address.into();
-
         let builder = SignatureRequestBuilder::new(inbox_id.clone());
-
-        if nonce != 0 || Self::is_existing_inbox(inbox_id.clone(), api_client).await? {
-            return Err(IdentityError::LegacyKeyReuse);
-        }
-
         let mut signature_request = builder
-            .create_inbox(member_identifier.clone(), nonce)
+            .create_inbox(member_identifier.clone(), 0)
             .add_association(installation_public_key.to_vec().into(), member_identifier)
             .build();
 
