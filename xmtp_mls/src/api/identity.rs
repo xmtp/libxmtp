@@ -238,9 +238,6 @@ mod tests {
             .expect("should work");
 
         assert_eq!(result.len(), 1);
-        assert_eq!(
-            result.get(&address).unwrap().as_ref().unwrap(),
-            &inbox_id_clone_2
-        );
+        assert_eq!(result.get(&address).unwrap(), &inbox_id_clone_2);
     }
 }
