@@ -74,7 +74,9 @@ impl IdentityStrategy {
                 let identity = match member {
                     Member::Address(address) => {
                         let inbox_ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
-                        let inbox_id = inbox_ids.get(&address).unwrap().as_ref().unwrap(); // TODO: return error if `inbox_ids` is empty
+                        let inbox_id = inbox_ids
+                            .get(&address)
+                            .ok_or(ClientBuilderError::UncoveredCase)?;
                         if stored_identity.is_some() {
                             if &stored_identity.clone().unwrap().inbox_id != inbox_id {
                                 return Err(ClientBuilderError::StoredIdentityMismatch);
@@ -89,14 +91,12 @@ impl IdentityStrategy {
 
                     Member::LegacyKey(address, key) => {
                         let inbox_ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
-                        let inbox_id = inbox_ids.get(&address).unwrap().as_ref().unwrap();
+                        let inbox_id = inbox_ids
+                            .get(&address)
+                            .ok_or(ClientBuilderError::UncoveredCase)?;
 
                         if stored_identity.is_some() {
-                            if &stored_identity.clone().unwrap().inbox_id != inbox_id {
-                                return Err(ClientBuilderError::StoredIdentityMismatch);
-                            } else {
-                                return Ok(stored_identity.unwrap());
-                            }
+                            return Ok(stored_identity.unwrap());
                         } else {
                             Identity::create_from_legacy(inbox_id.clone(), address, key, api_client)
                                 .await?

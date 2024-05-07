@@ -35,6 +35,8 @@ pub enum ClientBuilderError {
 
     #[error("Inbox ID mismatch with address")]
     InboxIdMismatch,
+    #[error("Uncovered Case")]
+    UncoveredCase,
 
     // #[error("Associating an address to account failed")]
     // AssociationFailed(#[from] AssociationError),
