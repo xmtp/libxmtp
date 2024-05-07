@@ -33,6 +33,11 @@ pub enum ClientBuilderError {
     #[error("Database was configured with a different wallet")]
     StoredIdentityMismatch,
 
+    #[error("Inbox ID mismatch with address")]
+    InboxIdMismatch,
+    #[error("Uncovered Case")]
+    UncoveredCase,
+
     // #[error("Associating an address to account failed")]
     // AssociationFailed(#[from] AssociationError),
     // #[error("Error Initializing Store")]
@@ -42,6 +47,10 @@ pub enum ClientBuilderError {
 
     #[error("Storage Error")]
     StorageError(#[from] StorageError),
+    #[error(transparent)]
+    Identity(#[from] crate::identity::xmtp_id::identity::IdentityError),
+    #[error(transparent)]
+    WrappedApiError(#[from] crate::api::WrappedApiError),
 }
 
 pub struct ClientBuilder<ApiClient> {
