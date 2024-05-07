@@ -29,7 +29,7 @@ use xmtp_proto::{
 use xmtp_v2::k256_helper;
 
 use crate::{
-    api::{ApiClientWrapper, GetIdentityUpdatesV2Filter, WrappedApiError},
+    api::{ApiClientWrapper, WrappedApiError},
     configuration::CIPHERSUITE,
 };
 
