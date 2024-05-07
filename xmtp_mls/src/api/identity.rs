@@ -56,7 +56,7 @@ impl TryFrom<IdentityUpdateLog> for InboxUpdate {
 type InboxUpdateMap = HashMap<InboxId, Vec<InboxUpdate>>;
 
 /// Maps account addresses to inbox IDs. If no inbox ID found, the value will be None
-type AddressToInboxIdMap = HashMap<String, Option<InboxId>>;
+type AddressToInboxIdMap = HashMap<String, InboxId>;
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
@@ -122,7 +122,8 @@ where
         Ok(result
             .responses
             .into_iter()
-            .map(|inbox_id| (inbox_id.address, inbox_id.inbox_id))
+            .filter(|inbox_id| inbox_id.inbox_id.is_some())
+            .map(|inbox_id| (inbox_id.address, inbox_id.inbox_id.unwrap()))
             .collect())
     }
 }
