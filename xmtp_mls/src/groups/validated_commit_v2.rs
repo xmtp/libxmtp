@@ -412,7 +412,7 @@ pub fn extract_group_membership(
 fn inbox_id_from_credential(
     credential: &OpenMlsCredential,
 ) -> Result<String, CommitValidationError> {
-    let basic_credential = BasicCredential::try_from(credential)?;
+    let basic_credential = BasicCredential::try_from(credential.clone())?;
     let identity_bytes = basic_credential.identity();
     let decoded = MlsCredential::decode(identity_bytes)?;
 
