@@ -307,7 +307,12 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         public_key: &SignaturePublicKey,
         signature_key_pair: &SignatureKeyPair,
     ) -> Result<(), Self::Error> {
-        Err(MemoryStorageError::UnsupportedMethod)
+        let key =
+            build_key::<CURRENT_VERSION, &SignaturePublicKey>(SIGNATURE_KEY_PAIR_LABEL, public_key);
+        let value = serde_json::to_vec(&signature_key_pair).unwrap();
+        self.write::<CURRENT_VERSION>(SIGNATURE_KEY_PAIR_LABEL, &key[..], &value[..]);
+
+        Ok(())
     }
 
     fn queued_proposal_refs<
