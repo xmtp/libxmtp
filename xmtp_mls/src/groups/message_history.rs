@@ -3,6 +3,7 @@ use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
 };
+use thiserror::Error;
 
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_proto::{
@@ -20,7 +21,7 @@ use super::GroupError;
 
 use crate::{
     client::ClientError,
-    groups::{intents::SendMessageIntentData, StoredGroupMessage},
+    groups::{intents::SendMessageIntentData, GroupMessageKind, StoredGroupMessage},
     storage::{
         group::StoredGroup,
         group_intent::{IntentKind, NewGroupIntent},
@@ -28,6 +29,14 @@ use crate::{
     },
     Client, Store,
 };
+
+#[derive(Debug, Error)]
+pub enum MessageHistoryError {
+    #[error("Pin not found")]
+    PinNotFound,
+    #[error("Pin does not match the expected value")]
+    PinMismatch,
+}
 
 impl<'c, ApiClient> Client<ApiClient>
 where
@@ -43,7 +52,10 @@ where
     }
 
     #[allow(dead_code)]
-    pub(crate) async fn send_message_history_request(&self) -> Result<(), GroupError> {
+    pub(crate) async fn send_message_history_request(
+        &self,
+        request: HistoryRequest,
+    ) -> Result<(), GroupError> {
         // find the sync group
         let conn = &mut self.store.conn()?;
         let sync_group_id = conn
@@ -54,11 +66,10 @@ where
         let sync_group = self.group(sync_group_id.clone())?;
 
         // build the request
-        let contents = HistoryRequest::new();
         let idempotency_key = new_request_id();
         let envelope = PlaintextEnvelope {
             content: Some(Content::V2(V2 {
-                message_type: Some(Request(contents.into())),
+                message_type: Some(Request(request.into())),
                 idempotency_key,
             })),
         };
@@ -95,6 +106,41 @@ where
     }
 
     #[allow(dead_code)]
+    pub(crate) fn provide_pin(&self, pin_challenge: &str) -> Result<(), GroupError> {
+        let conn = self.store.conn()?;
+        let sync_group_id = conn
+            .find_sync_groups()?
+            .pop()
+            .ok_or(GroupError::GroupNotFound)?
+            .id;
+
+        let requests = conn.get_group_messages(
+            sync_group_id,
+            None,
+            None,
+            Some(GroupMessageKind::Application),
+            None,
+            None,
+        )?;
+        let request = requests.into_iter().find(|msg| {
+            let msg_bytes = &msg.decrypted_message_bytes;
+            match msg_bytes.iter().position(|&idx| idx == b':') {
+                Some(index) => {
+                    let (_id_part, pin_part) = msg_bytes.split_at(index);
+                    let pin = String::from_utf8_lossy(&pin_part[1..]);
+                    verify_pin(&pin, pin_challenge)
+                }
+                None => false,
+            }
+        });
+        if request.is_none() {
+            return Err(GroupError::MessageHistory(MessageHistoryError::PinNotFound));
+        }
+
+        Ok(())
+    }
+
+    #[allow(dead_code)]
     pub(crate) async fn prepare_messages_to_sync(
         &self,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
@@ -111,12 +157,14 @@ where
     }
 }
 
-struct HistoryRequest {
+#[derive(Clone)]
+pub(crate) struct HistoryRequest {
     pin_code: String,
     request_id: String,
 }
 
 impl HistoryRequest {
+    #[allow(dead_code)]
     pub(crate) fn new() -> Self {
         Self {
             pin_code: new_pin(),
@@ -214,7 +262,9 @@ fn new_pin() -> String {
     format!("{:04}", pin)
 }
 
-#[allow(dead_code)]
+// Yes, this is a just a simple string comparison.
+// If we need to add more complex logic, we can do so here.
+// For example if we want to add a time limit or enforce a certain number of attempts.
 fn verify_pin(expected: &str, actual: &str) -> bool {
     expected == actual
 }
@@ -270,7 +320,8 @@ mod tests {
         assert_ok!(client.allow_history_sync().await);
 
         // test that the request is sent
-        let result = client.send_message_history_request().await;
+        let new_request = HistoryRequest::new();
+        let result = client.send_message_history_request(new_request).await;
         assert_ok!(result);
     }
 
@@ -299,7 +350,8 @@ mod tests {
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
-        let sent = amal_b.send_message_history_request().await;
+        let request = HistoryRequest::new();
+        let sent = amal_b.send_message_history_request(request).await;
         assert_ok!(sent);
 
         // find the sync group
@@ -324,6 +376,32 @@ mod tests {
             .get_group_messages(amal_a_sync_group.group_id, None, None, None, None, None)
             .unwrap();
         assert_eq!(amal_a_messages.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_provide_pin_challenge() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let amal_b = ClientBuilder::new_test_client(&wallet).await;
+        assert_ok!(amal_b.allow_history_sync().await);
+
+        amal_a.sync_welcomes().await.expect("sync_welcomes");
+
+        let request = HistoryRequest::new();
+        let sent = amal_b.send_message_history_request(request.clone()).await;
+        assert_ok!(sent);
+
+        let amal_a_sync_groups = amal_a.store.conn().unwrap().find_sync_groups().unwrap();
+        assert_eq!(amal_a_sync_groups.len(), 1);
+        // get the first sync group
+        let amal_a_sync_group = amal_a.group(amal_a_sync_groups[0].id.clone()).unwrap();
+        amal_a_sync_group.sync().await.expect("sync");
+        let pin_challenge_result = amal_a.provide_pin(&request.pin_code);
+        assert_ok!(pin_challenge_result);
+
+        // TODO: add tests for pin not found; pin mismatch.
+        let pin_challenge_result_2 = amal_a.provide_pin("000");
+        assert!(pin_challenge_result_2.is_err());
     }
 
     #[tokio::test]
