@@ -177,7 +177,8 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
 
     let credential = verified_key_package.inner.leaf_node().credential();
 
-    let basic_credential = BasicCredential::try_from(credential).map_err(|e| e.to_string())?;
+    let basic_credential =
+        BasicCredential::try_from(credential.clone()).map_err(|e| e.to_string())?;
 
     Ok(ValidateKeyPackageResult {
         installation_id: verified_key_package.installation_id(),
@@ -249,14 +250,14 @@ mod tests {
                 credential_with_key.clone(),
             )
             .unwrap();
-        kp.tls_serialize_detached().unwrap()
+        kp.init_private_key().tls_serialize_detached().unwrap()
     }
 
     #[tokio::test]
     async fn test_validate_key_packages_happy_path() {
         let (identity, keypair, account_address) = generate_identity();
 
-        let credential: OpenMlsCredential = BasicCredential::new(identity).unwrap().into();
+        let credential: OpenMlsCredential = BasicCredential::new(identity).into();
         let credential_with_key = CredentialWithKey {
             credential,
             signature_key: keypair.to_public_vec().into(),
@@ -286,7 +287,7 @@ mod tests {
         let (identity, keypair, account_address) = generate_identity();
         let (_, other_keypair, _) = generate_identity();
 
-        let credential: OpenMlsCredential = BasicCredential::new(identity).unwrap().into();
+        let credential: OpenMlsCredential = BasicCredential::new(identity).into();
         let credential_with_key = CredentialWithKey {
             credential,
             // Use the wrong signature key to make the validation fail

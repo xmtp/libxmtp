@@ -159,7 +159,7 @@ impl Identity {
 
         // Only persist the installation keys if the registration was successful
         self.installation_keys.store(provider.storage());
-        StoredIdentity::from(self).store(&*conn)?;  // Use the `conn_ref` to ensure proper lifetime
+        StoredIdentity::from(self).store(&*conn)?; // Use the `conn_ref` to ensure proper lifetime
 
         Ok(())
     }

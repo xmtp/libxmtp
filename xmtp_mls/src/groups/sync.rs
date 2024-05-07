@@ -345,11 +345,7 @@ where
                 let validated_commit = ValidatedCommit::from_staged_commit(&sc, openmls_group)?;
                 openmls_group.merge_staged_commit(provider, sc)?;
                 let conn = provider.conn();
-                self.save_transcript_message(
-                    &*conn,
-                    validated_commit,
-                    envelope_timestamp_ns,
-                )?;
+                self.save_transcript_message(&*conn, validated_commit, envelope_timestamp_ns)?;
             }
         };
 

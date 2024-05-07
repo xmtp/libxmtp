@@ -1,6 +1,4 @@
-use std::cell::{Ref, RefCell};
-use std::rc::Rc;
-use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use diesel::sql_types::Binary;
 use diesel::{deserialize::QueryableByName, sql_query, RunQueryDsl};
@@ -107,13 +105,12 @@ impl<'a> SqlKeyStore<'a> {
         let query = "SELECT data FROM storage WHERE storage_key = ? AND version = ?";
         let mut conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
 
-        let results: Result<Vec<StorageData>, diesel::result::Error> =
-            conn.raw_query(|conn| {
-                sql_query(query)
-                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                    .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
-                    .load(conn)
-            });
+        let results: Result<Vec<StorageData>, diesel::result::Error> = conn.raw_query(|conn| {
+            sql_query(query)
+                .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
+                .load(conn)
+        });
 
         match results {
             Ok(data) => {
