@@ -75,7 +75,7 @@ impl IdentityStrategy {
                 let identity = match member {
                     Member::Address(address) => {
                         let inbox_ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
-                        let inbox_id = inbox_ids.get(&address).unwrap().as_ref().unwrap();
+                        let inbox_id = inbox_ids.get(&address).unwrap().as_ref().unwrap(); // TODO: return error if `inbox_ids` is empty
                         if stored_identity.is_some() {
                             if &stored_identity.clone().unwrap().inbox_id != inbox_id {
                                 return Err(ClientBuilderError::StoredIdentityMismatch);
