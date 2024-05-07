@@ -46,7 +46,7 @@ impl<'a> SqlKeyStore<'a> {
         conn.raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
+                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                 .bind::<diesel::sql_types::Binary, _>(&value)
                 .execute(conn)
         });
@@ -67,9 +67,9 @@ impl<'a> SqlKeyStore<'a> {
         conn.raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
+                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
+                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                 .bind::<diesel::sql_types::Binary, _>(&value)
                 .execute(conn)
         });
@@ -89,7 +89,7 @@ impl<'a> SqlKeyStore<'a> {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&value)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
+                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                 .execute(conn)
         });
 
@@ -138,7 +138,7 @@ impl<'a> SqlKeyStore<'a> {
         match conn.raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
+                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                 .load::<StorageData>(conn)
         }) {
             Ok(results) => {
@@ -166,7 +166,7 @@ impl<'a> SqlKeyStore<'a> {
         conn.raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
+                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                 .execute(conn)
         });
         Ok(())
