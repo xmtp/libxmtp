@@ -63,6 +63,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    openmls_key_value (version, key_bytes) {
+        version -> Integer,
+        key_bytes -> Binary,
+        value_bytes -> Binary,
+    }
+}
+
+diesel::table! {
     refresh_state (entity_id, entity_kind) {
         entity_id -> Binary,
         entity_kind -> Integer,
@@ -80,5 +88,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     identity,
     identity_updates,
     openmls_key_store,
+    openmls_key_value,
     refresh_state,
 );
