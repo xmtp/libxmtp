@@ -13,6 +13,28 @@ pub struct AssociationStateDiff {
     pub removed_members: Vec<MemberIdentifier>,
 }
 
+impl AssociationStateDiff {
+    pub fn new_installations(&self) -> Vec<Vec<u8>> {
+        self.new_members
+            .iter()
+            .filter_map(|member| match member {
+                MemberIdentifier::Installation(installation_id) => Some(installation_id.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn removed_installations(&self) -> Vec<Vec<u8>> {
+        self.removed_members
+            .iter()
+            .filter_map(|member| match member {
+                MemberIdentifier::Installation(installation_id) => Some(installation_id.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct AssociationState {
     pub(crate) inbox_id: String,

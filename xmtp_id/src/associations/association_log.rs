@@ -1,8 +1,6 @@
 use super::hashes::generate_inbox_id;
 use super::member::{Member, MemberIdentifier, MemberKind};
-use super::serialization::{
-    from_identity_update_proto, to_identity_update_proto, DeserializationError,
-};
+use super::serialization::{from_identity_update_proto, DeserializationError};
 use super::signature::{Signature, SignatureError, SignatureKind};
 use super::state::AssociationState;
 use async_trait::async_trait;
@@ -60,7 +58,7 @@ pub trait IdentityAction: Send + 'static {
 }
 
 /// CreateInbox Action
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CreateInbox {
     pub nonce: u64,
     pub account_address: String,
@@ -103,7 +101,7 @@ impl IdentityAction for CreateInbox {
 }
 
 /// AddAssociation Action
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AddAssociation {
     pub new_member_signature: Box<dyn Signature>,
     pub new_member_identifier: MemberIdentifier,
@@ -201,7 +199,7 @@ impl IdentityAction for AddAssociation {
 }
 
 /// RevokeAssociation Action
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RevokeAssociation {
     pub recovery_address_signature: Box<dyn Signature>,
     pub revoked_member: MemberIdentifier,
@@ -255,7 +253,7 @@ impl IdentityAction for RevokeAssociation {
 }
 
 /// ChangeRecoveryAddress Action
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ChangeRecoveryAddress {
     pub recovery_address_signature: Box<dyn Signature>,
     pub new_recovery_address: String,
@@ -291,7 +289,7 @@ impl IdentityAction for ChangeRecoveryAddress {
 }
 
 /// All possible Action types that can be used inside an `IdentityUpdate`
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Action {
     CreateInbox(CreateInbox),
     AddAssociation(AddAssociation),
@@ -324,7 +322,7 @@ impl IdentityAction for Action {
 }
 
 /// An `IdentityUpdate` contains one or more Actions that can be applied to the AssociationState
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IdentityUpdate {
     pub inbox_id: String,
     pub client_timestamp_ns: u64,
@@ -340,18 +338,12 @@ impl IdentityUpdate {
         }
     }
 
-    pub fn to_proto(&self) -> IdentityUpdateProto {
-        to_identity_update_proto(self)
+    pub fn to_proto(self) -> IdentityUpdateProto {
+        IdentityUpdateProto::from(self)
     }
 
     pub fn from_proto(proto: IdentityUpdateProto) -> Result<Self, DeserializationError> {
         from_identity_update_proto(proto)
-    }
-}
-
-impl From<IdentityUpdate> for IdentityUpdateProto {
-    fn from(proto: IdentityUpdate) -> IdentityUpdateProto {
-        IdentityUpdate::to_proto(&proto)
     }
 }
 

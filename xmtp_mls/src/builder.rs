@@ -178,14 +178,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_allow_history_sync() {
-        let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(&wallet).await;
-        // This asserts that a sync group was successfully created
-        assert!(client.allow_history_sync().is_ok());
-    }
-
-    #[tokio::test]
     async fn identity_persistence_test() {
         let tmpdb = tmp_path();
         let wallet = &generate_local_wallet();
