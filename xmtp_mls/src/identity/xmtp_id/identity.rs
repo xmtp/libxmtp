@@ -221,7 +221,7 @@ impl Identity {
         let (mut delegating_signature, recovery_id) = k256_helper::sign_sha256(
             &legacy_private_key, // secret_key
             // TODO: Verify this will create a verifiable signature
-            &signature_text.as_bytes(), // message
+            signature_text.as_bytes(), // message
         )
         .map_err(IdentityError::LegacySignature)?;
         delegating_signature.push(recovery_id); // TODO: normalize recovery ID if necessary
@@ -244,9 +244,9 @@ impl Identity {
 
 #[allow(dead_code)]
 fn sized_installation_key(installation_key: &[u8]) -> Result<&[u8; 32], IdentityError> {
-    Ok(installation_key
+    installation_key
         .try_into()
-        .map_err(|e: TryFromSliceError| IdentityError::InstallationKey(e.to_string()))?)
+        .map_err(|e: TryFromSliceError| IdentityError::InstallationKey(e.to_string()))
 }
 
 #[allow(dead_code)]

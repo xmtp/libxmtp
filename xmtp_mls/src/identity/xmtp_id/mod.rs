@@ -77,11 +77,11 @@ impl IdentityStrategy {
                         let inbox_id = inbox_ids
                             .get(&address)
                             .ok_or(ClientBuilderError::UncoveredCase)?;
-                        if stored_identity.is_some() {
-                            if &stored_identity.clone().unwrap().inbox_id != inbox_id {
+                        if let Some(stored_identity) = stored_identity {
+                            if &stored_identity.clone().inbox_id != inbox_id {
                                 return Err(ClientBuilderError::StoredIdentityMismatch);
                             } else {
-                                return Ok(stored_identity.unwrap());
+                                return Ok(stored_identity);
                             }
                         } else {
                             Identity::create_to_be_signed(inbox_id.to_string(), address, api_client)
@@ -95,8 +95,8 @@ impl IdentityStrategy {
                             .get(&address)
                             .ok_or(ClientBuilderError::UncoveredCase)?;
 
-                        if stored_identity.is_some() {
-                            return Ok(stored_identity.unwrap());
+                        if let Some(stored_identity) = stored_identity {
+                            return Ok(stored_identity);
                         } else {
                             Identity::create_from_legacy(inbox_id.clone(), address, key, api_client)
                                 .await?
