@@ -31,7 +31,7 @@ diesel::table! {
         id -> Binary,
         created_at_ns -> BigInt,
         membership_state -> Integer,
-        installation_last_checked -> BigInt,
+        installations_last_checked -> BigInt,
         purpose -> Integer,
         added_by_inbox_id -> Text,
     }
