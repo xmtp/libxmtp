@@ -14,8 +14,10 @@ use thiserror::Error;
 use xmtp_id::associations::AssociationState;
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::identity::MlsCredential,
-    xmtp::mls::message_contents::GroupMembershipChanges,
+    xmtp::{
+        identity::MlsCredential,
+        mls::message_contents::{GroupMembershipChanges, MembershipChange},
+    },
 };
 
 use crate::{
@@ -237,12 +239,7 @@ impl ValidatedCommit {
 impl From<ValidatedCommit> for GroupMembershipChanges {
     fn from(commit: ValidatedCommit) -> Self {
         // TODO: Use new GroupMembershipChanges
-        Self {
-            members_added: vec![],
-            members_removed: vec![],
-            installations_added: vec![],
-            installations_removed: vec![],
-        }
+        todo!()
     }
 }
 

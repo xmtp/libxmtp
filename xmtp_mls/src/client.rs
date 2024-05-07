@@ -219,7 +219,10 @@ where
         self.identity.text_to_sign()
     }
 
-    pub(crate) fn mls_provider(&self, conn: &'a DbConnection<'a>) -> XmtpOpenMlsProvider<'a> {
+    pub(crate) fn mls_provider<'connlt>(
+        &self,
+        conn: &'connlt DbConnection<'a>,
+    ) -> XmtpOpenMlsProvider<'a> {
         XmtpOpenMlsProvider::<'a>::new(conn)
     }
 

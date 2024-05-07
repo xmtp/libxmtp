@@ -640,209 +640,180 @@ impl std::fmt::Display for PreconfiguredPolicies {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use crate::utils::test::{rand_account_address, rand_vec};
+#[cfg(test)]
+mod tests {
+    use crate::utils::test::{rand_string, rand_vec};
 
-//     use super::*;
+    use super::*;
 
-//     fn build_change(
-//         account_address: Option<String>,
-//         installation_id: Option<Vec<u8>>,
-//         is_creator: bool,
-//     ) -> AggregatedMembershipChange {
-//         AggregatedMembershipChange {
-//             account_address: account_address.unwrap_or_else(rand_account_address),
-//             installation_ids: vec![installation_id.unwrap_or_else(rand_vec)],
-//             is_creator,
-//         }
-//     }
+    fn build_change(inbox_id: Option<String>, is_creator: bool) -> Inbox {
+        Inbox {
+            inbox_id: inbox_id.unwrap_or(rand_string()),
+            is_creator,
+        }
+    }
 
-//     fn build_actor(
-//         account_address: Option<String>,
-//         installation_id: Option<Vec<u8>>,
-//         is_creator: bool,
-//     ) -> CommitParticipant {
-//         CommitParticipant {
-//             account_address: account_address.unwrap_or_else(rand_account_address),
-//             installation_id: installation_id.unwrap_or_else(rand_vec),
-//             is_creator,
-//         }
-//     }
+    fn build_actor(
+        inbox_id: Option<String>,
+        installation_id: Option<Vec<u8>>,
+        is_creator: bool,
+    ) -> CommitParticipant {
+        CommitParticipant {
+            inbox_id: inbox_id.unwrap_or(rand_string()),
+            installation_id: installation_id.unwrap_or_else(rand_vec),
+            is_creator,
+        }
+    }
 
-//     fn build_validated_commit(
-//         // Add a member with the same account address as the actor if true, random account address if false
-//         member_added: Option<bool>,
-//         member_removed: Option<bool>,
-//         installation_added: Option<bool>,
-//         installation_removed: Option<bool>,
-//         actor_is_creator: bool,
-//     ) -> ValidatedCommit {
-//         let actor = build_actor(None, None, actor_is_creator);
-//         let build_membership_change = |same_address_as_actor| {
-//             if same_address_as_actor {
-//                 vec![build_change(
-//                     Some(actor.account_address.clone()),
-//                     None,
-//                     actor_is_creator,
-//                 )]
-//             } else {
-//                 vec![build_change(None, None, false)]
-//             }
-//         };
+    fn build_validated_commit(
+        // Add a member with the same account address as the actor if true, random account address if false
+        member_added: Option<bool>,
+        member_removed: Option<bool>,
+        actor_is_creator: bool,
+    ) -> ValidatedCommit {
+        let actor = build_actor(None, None, actor_is_creator);
+        let build_membership_change = |same_address_as_actor| {
+            if same_address_as_actor {
+                vec![build_change(Some(actor.inbox_id.clone()), actor_is_creator)]
+            } else {
+                vec![build_change(None, false)]
+            }
+        };
 
-//         ValidatedCommit {
-//             actor: actor.clone(),
-//             members_added: member_added
-//                 .map(build_membership_change)
-//                 .unwrap_or_default(),
-//             members_removed: member_removed
-//                 .map(build_membership_change)
-//                 .unwrap_or_default(),
-//             installations_added: installation_added
-//                 .map(build_membership_change)
-//                 .unwrap_or_default(),
-//             installations_removed: installation_removed
-//                 .map(build_membership_change)
-//                 .unwrap_or_default(),
-//             group_name_updated: MetadataChange::default(),
-//         }
-//     }
+        ValidatedCommit {
+            actor: actor.clone(),
+            added_inboxes: member_added
+                .map(build_membership_change)
+                .unwrap_or_default(),
+            removed_inboxes: member_removed
+                .map(build_membership_change)
+                .unwrap_or_default(),
+            metadata_changes: vec![],
+        }
+    }
 
-//     // TODO CVOELL: add metadata specific test here
+    // TODO CVOELL: add metadata specific test here
 
-//     #[test]
-//     fn test_allow_all() {
-//         let permissions = PolicySet::new(
-//             MembershipPolicies::allow(),
-//             MembershipPolicies::allow(),
-//             MetadataPolicies::default_map(MetadataPolicies::allow()),
-//         );
+    #[test]
+    fn test_allow_all() {
+        let permissions = PolicySet::new(
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
+            MetadataPolicies::default_map(MetadataPolicies::allow()),
+        );
 
-//         let commit = build_validated_commit(Some(true), Some(true), None, None, false);
-//         assert!(permissions.evaluate_commit(&commit));
-//     }
+        let commit = build_validated_commit(Some(true), Some(true), false);
+        assert!(permissions.evaluate_commit(&commit));
+    }
 
-//     #[test]
-//     fn test_deny() {
-//         let permissions = PolicySet::new(
-//             MembershipPolicies::deny(),
-//             MembershipPolicies::deny(),
-//             MetadataPolicies::default_map(MetadataPolicies::deny()),
-//         );
+    #[test]
+    fn test_deny() {
+        let permissions = PolicySet::new(
+            MembershipPolicies::deny(),
+            MembershipPolicies::deny(),
+            MetadataPolicies::default_map(MetadataPolicies::deny()),
+        );
 
-//         let member_added_commit = build_validated_commit(Some(false), None, None, None, false);
-//         assert!(!permissions.evaluate_commit(&member_added_commit));
+        let member_added_commit = build_validated_commit(Some(false), None, false);
+        assert!(!permissions.evaluate_commit(&member_added_commit));
 
-//         let member_removed_commit = build_validated_commit(None, Some(false), None, None, false);
-//         assert!(!permissions.evaluate_commit(&member_removed_commit));
+        let member_removed_commit = build_validated_commit(None, Some(false), false);
+        assert!(!permissions.evaluate_commit(&member_removed_commit));
+    }
 
-//         let installation_added_commit =
-//             build_validated_commit(None, None, Some(false), None, false);
-//         // Installation added is always allowed
-//         assert!(permissions.evaluate_commit(&installation_added_commit));
+    #[test]
+    fn test_actor_is_creator() {
+        let permissions = PolicySet::new(
+            MembershipPolicies::allow_if_actor_creator(),
+            MembershipPolicies::allow_if_actor_creator(),
+            MetadataPolicies::default_map(MetadataPolicies::deny()),
+        );
 
-//         // Installation removed is always denied
-//         let installation_removed_commit =
-//             build_validated_commit(None, None, None, Some(false), false);
-//         assert!(!permissions.evaluate_commit(&installation_removed_commit));
-//     }
+        let commit_with_creator = build_validated_commit(Some(true), Some(true), true);
+        assert!(permissions.evaluate_commit(&commit_with_creator));
 
-//     #[test]
-//     fn test_actor_is_creator() {
-//         let permissions = PolicySet::new(
-//             MembershipPolicies::allow_if_actor_creator(),
-//             MembershipPolicies::allow_if_actor_creator(),
-//             MetadataPolicies::default_map(MetadataPolicies::deny()),
-//         );
+        let commit_without_creator = build_validated_commit(Some(true), Some(true), false);
+        assert!(!permissions.evaluate_commit(&commit_without_creator));
+    }
 
-//         let commit_with_creator = build_validated_commit(Some(true), Some(true), None, None, true);
-//         assert!(permissions.evaluate_commit(&commit_with_creator));
+    #[test]
+    fn test_allow_same_member() {
+        let permissions = PolicySet::new(
+            MembershipPolicies::allow_same_member(),
+            MembershipPolicies::deny(),
+            MetadataPolicies::default_map(MetadataPolicies::deny()),
+        );
 
-//         let commit_without_creator =
-//             build_validated_commit(Some(true), Some(true), None, None, false);
-//         assert!(!permissions.evaluate_commit(&commit_without_creator));
-//     }
+        let commit_with_same_member = build_validated_commit(Some(true), None, false);
+        assert!(permissions.evaluate_commit(&commit_with_same_member));
 
-//     #[test]
-//     fn test_allow_same_member() {
-//         let permissions = PolicySet::new(
-//             MembershipPolicies::allow_same_member(),
-//             MembershipPolicies::deny(),
-//             MetadataPolicies::default_map(MetadataPolicies::deny()),
-//         );
+        let commit_with_different_member = build_validated_commit(Some(false), None, false);
+        assert!(!permissions.evaluate_commit(&commit_with_different_member));
+    }
 
-//         let commit_with_same_member = build_validated_commit(Some(true), None, None, None, false);
-//         assert!(permissions.evaluate_commit(&commit_with_same_member));
+    #[test]
+    fn test_and_condition() {
+        let permissions = PolicySet::new(
+            MembershipPolicies::and(vec![
+                MembershipPolicies::Standard(BasePolicies::Deny),
+                MembershipPolicies::Standard(BasePolicies::Allow),
+            ]),
+            MembershipPolicies::allow(),
+            MetadataPolicies::default_map(MetadataPolicies::deny()),
+        );
 
-//         let commit_with_different_member =
-//             build_validated_commit(Some(false), None, None, None, false);
-//         assert!(!permissions.evaluate_commit(&commit_with_different_member));
-//     }
+        let member_added_commit = build_validated_commit(Some(true), None, false);
+        assert!(!permissions.evaluate_commit(&member_added_commit));
+    }
 
-//     #[test]
-//     fn test_and_condition() {
-//         let permissions = PolicySet::new(
-//             MembershipPolicies::and(vec![
-//                 MembershipPolicies::Standard(BasePolicies::Deny),
-//                 MembershipPolicies::Standard(BasePolicies::Allow),
-//             ]),
-//             MembershipPolicies::allow(),
-//             MetadataPolicies::default_map(MetadataPolicies::deny()),
-//         );
+    #[test]
+    fn test_any_condition() {
+        let permissions = PolicySet::new(
+            MembershipPolicies::any(vec![
+                MembershipPolicies::deny(),
+                MembershipPolicies::allow(),
+            ]),
+            MembershipPolicies::allow(),
+            MetadataPolicies::default_map(MetadataPolicies::deny()),
+        );
 
-//         let member_added_commit = build_validated_commit(Some(true), None, None, None, false);
-//         assert!(!permissions.evaluate_commit(&member_added_commit));
-//     }
+        let member_added_commit = build_validated_commit(Some(true), None, false);
+        assert!(permissions.evaluate_commit(&member_added_commit));
+    }
 
-//     #[test]
-//     fn test_any_condition() {
-//         let permissions = PolicySet::new(
-//             MembershipPolicies::any(vec![
-//                 MembershipPolicies::deny(),
-//                 MembershipPolicies::allow(),
-//             ]),
-//             MembershipPolicies::allow(),
-//             MetadataPolicies::default_map(MetadataPolicies::deny()),
-//         );
+    #[test]
+    fn test_serialize() {
+        let permissions = PolicySet::new(
+            MembershipPolicies::any(vec![
+                MembershipPolicies::allow(),
+                MembershipPolicies::deny(),
+            ]),
+            MembershipPolicies::and(vec![
+                MembershipPolicies::allow_if_actor_creator(),
+                MembershipPolicies::deny(),
+            ]),
+            MetadataPolicies::default_map(MetadataPolicies::deny()),
+        );
 
-//         let member_added_commit = build_validated_commit(Some(true), None, None, None, false);
-//         assert!(permissions.evaluate_commit(&member_added_commit));
-//     }
+        let proto = permissions.to_proto().unwrap();
+        assert!(proto.add_member_policy.is_some());
+        assert!(proto.remove_member_policy.is_some());
 
-//     #[test]
-//     fn test_serialize() {
-//         let permissions = PolicySet::new(
-//             MembershipPolicies::any(vec![
-//                 MembershipPolicies::allow(),
-//                 MembershipPolicies::deny(),
-//             ]),
-//             MembershipPolicies::and(vec![
-//                 MembershipPolicies::allow_if_actor_creator(),
-//                 MembershipPolicies::deny(),
-//             ]),
-//             MetadataPolicies::default_map(MetadataPolicies::deny()),
-//         );
+        let as_bytes = permissions.to_bytes().expect("serialization failed");
+        let restored = PolicySet::from_bytes(as_bytes.as_slice()).expect("proto conversion failed");
+        // All fields implement PartialEq so this should test equality all the way down
+        assert!(permissions.eq(&restored))
+    }
 
-//         let proto = permissions.to_proto().unwrap();
-//         assert!(proto.add_member_policy.is_some());
-//         assert!(proto.remove_member_policy.is_some());
+    #[test]
+    fn test_disallow_serialize_allow_same_member() {
+        let permissions = PolicySet::new(
+            MembershipPolicies::allow_same_member(),
+            MembershipPolicies::deny(),
+            MetadataPolicies::default_map(MetadataPolicies::deny()),
+        );
 
-//         let as_bytes = permissions.to_bytes().expect("serialization failed");
-//         let restored = PolicySet::from_bytes(as_bytes.as_slice()).expect("proto conversion failed");
-//         // All fields implement PartialEq so this should test equality all the way down
-//         assert!(permissions.eq(&restored))
-//     }
-
-//     #[test]
-//     fn test_disallow_serialize_allow_same_member() {
-//         let permissions = PolicySet::new(
-//             MembershipPolicies::allow_same_member(),
-//             MembershipPolicies::deny(),
-//             MetadataPolicies::default_map(MetadataPolicies::deny()),
-//         );
-
-//         let proto_result = permissions.to_proto();
-//         assert!(proto_result.is_err());
-//     }
-// }
+        let proto_result = permissions.to_proto();
+        assert!(proto_result.is_err());
+    }
+}
