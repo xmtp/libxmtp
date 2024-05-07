@@ -66,6 +66,7 @@ pub struct Identity {
     pub(crate) signature_request: Option<SignatureRequest>,
 }
 
+#[allow(dead_code)]
 impl Identity {
     fn is_ready(&self) -> bool {
         self.signature_request.is_none()
@@ -241,16 +242,18 @@ impl Identity {
     }
 }
 
+#[allow(dead_code)]
 fn sized_installation_key(installation_key: &[u8]) -> Result<&[u8; 32], IdentityError> {
     Ok(installation_key
         .try_into()
         .map_err(|e: TryFromSliceError| IdentityError::InstallationKey(e.to_string()))?)
 }
 
+#[allow(dead_code)]
 fn create_credential(inbox_id: InboxId) -> Result<OpenMlsCredential, IdentityError> {
     let cred = MlsCredential { inbox_id };
     let mut credential_bytes = Vec::new();
-    cred.encode(&mut credential_bytes);
+    let _ = cred.encode(&mut credential_bytes);
 
     Ok(BasicCredential::new(credential_bytes)?.into())
 }

@@ -6,8 +6,6 @@ use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Fetch};
 pub use identity::Identity;
 use log::debug;
 use log::info;
-use xmtp_cryptography::signature::sanitize_evm_addresses;
-use xmtp_id::InboxId;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 /// The member that the [Identity] is created from.
@@ -53,6 +51,7 @@ pub enum IdentityStrategy {
     ExternalIdentity(Identity),
 }
 
+#[allow(dead_code)]
 impl IdentityStrategy {
     pub(crate) async fn initialize_identity<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
         self,
