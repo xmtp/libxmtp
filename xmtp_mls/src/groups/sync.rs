@@ -294,6 +294,7 @@ where
                         let message_id = calculate_message_id(
                             &self.group_id,
                             &content,
+                            // TODO: Replace with inbox_id...or maybe omit altogether
                             &self.client.account_address(),
                             &idempotency_key,
                         );
@@ -304,7 +305,8 @@ where
                             sent_at_ns: envelope_timestamp_ns as i64,
                             kind: GroupMessageKind::Application,
                             sender_installation_id,
-                            sender_account_address,
+                            // TODO: Replace with real inbox ID
+                            sender_inbox_id: "TODO".to_string(),
                             delivery_status: DeliveryStatus::Published,
                         }
                         .store(provider.conn())?
@@ -497,7 +499,8 @@ where
                 sent_at_ns: timestamp_ns as i64,
                 kind: GroupMessageKind::MembershipChange,
                 sender_installation_id,
-                sender_account_address,
+                // TODO: Replace with real inbox ID
+                sender_inbox_id: sender_account_address,
                 delivery_status: DeliveryStatus::Published,
             };
 

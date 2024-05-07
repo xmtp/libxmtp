@@ -35,7 +35,7 @@ pub struct StoredGroup {
     /// Enum, [`Purpose`] signifies the group purpose which extends to who can access it.
     pub purpose: Purpose,
     /// The wallet address of who added the user to a group.
-    pub added_by_address: String,
+    pub added_by_inbox_id: String,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -47,7 +47,7 @@ impl StoredGroup {
         id: ID,
         created_at_ns: i64,
         membership_state: GroupMembershipState,
-        added_by_address: String,
+        added_by_inbox_id: String,
     ) -> Self {
         Self {
             id,
@@ -55,7 +55,7 @@ impl StoredGroup {
             membership_state,
             installations_last_checked: 0,
             purpose: Purpose::Conversation,
-            added_by_address,
+            added_by_inbox_id,
         }
     }
 

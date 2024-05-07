@@ -32,7 +32,7 @@ pub struct StoredGroupMessage {
     /// The ID of the App Installation this message was sent from.
     pub sender_installation_id: Vec<u8>,
     /// Network wallet address of the Sender
-    pub sender_account_address: String,
+    pub sender_inbox_id: String,
     /// We optimistically store messages before sending.
     pub delivery_status: DeliveryStatus,
 }
@@ -215,7 +215,7 @@ mod tests {
             decrypted_message_bytes: rand_vec(),
             sent_at_ns: sent_at_ns.unwrap_or(rand_time()),
             sender_installation_id: rand_vec(),
-            sender_account_address: "0x0".to_string(),
+            sender_inbox_id: "0x0".to_string(),
             kind: kind.unwrap_or(GroupMessageKind::Application),
             delivery_status: DeliveryStatus::Unpublished,
         }

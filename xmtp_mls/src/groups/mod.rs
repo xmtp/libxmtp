@@ -376,7 +376,8 @@ where
             sent_at_ns: now,
             kind: GroupMessageKind::Application,
             sender_installation_id: self.client.installation_public_key(),
-            sender_account_address: self.client.account_address(),
+            // TODO: Replace with real inbox ID
+            sender_inbox_id: self.client.account_address(),
             delivery_status: DeliveryStatus::Unpublished,
         };
         group_message.store(conn)?;
