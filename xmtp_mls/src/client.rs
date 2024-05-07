@@ -203,6 +203,17 @@ where
         self.identity.installation_keys.to_public_vec()
     }
 
+    /// Get the inbox_id associated with the client
+    pub fn inbox_id(&self) -> String {
+        // TODO:@neekolas Replace with value from Identity
+        "inbox_id".to_string()
+    }
+
+    pub fn inbox_latest_sequence_id(&self) -> u64 {
+        // TODO:@neekolas Replace with value from Identity
+        0
+    }
+
     /// In some cases, the client may need a signature from the wallet to call [`register_identity`](Self::register_identity).
     /// Integrators should always check the `text_to_sign` return value of this function before calling [`register_identity`](Self::register_identity).
     /// If `text_to_sign` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
@@ -212,10 +223,6 @@ where
 
     pub(crate) fn mls_provider(&self, conn: &'a DbConnection<'a>) -> XmtpOpenMlsProvider<'a> {
         XmtpOpenMlsProvider::<'a>::new(conn)
-    }
-
-    pub fn allow_history_sync(&self) -> Result<(), StorageError> {
-        self.create_sync_group().map(|_| ())
     }
 
     /// Create a new group with the default settings
@@ -322,7 +329,8 @@ where
     }
 
     /// Get a list of `installation_id`s associated with the given `account_addresses`
-    /// One `account_address` may have multiple `installation_id`s if the account has multiple applications or devices on the network
+    /// One `account_address` may have multiple `installation_id`s if the account has multiple
+    /// applications or devices on the network
     pub async fn get_all_active_installation_ids(
         &self,
         account_addresses: Vec<String>,

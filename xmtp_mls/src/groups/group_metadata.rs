@@ -30,19 +30,24 @@ pub enum GroupMetadataError {
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupMetadata {
     pub conversation_type: ConversationType,
+    // TODO: Remove this once transition is completed
     pub creator_account_address: String,
+    pub creator_inbox_id: String,
     pub policies: PolicySet,
 }
 
 impl GroupMetadata {
     pub fn new(
         conversation_type: ConversationType,
+        // TODO: Remove this once transition is completed
         creator_account_address: String,
+        creator_inbox_id: String,
         policies: PolicySet,
     ) -> Self {
         Self {
             conversation_type,
             creator_account_address,
+            creator_inbox_id,
             policies,
         }
     }
@@ -60,6 +65,7 @@ impl GroupMetadata {
         Ok(Self::new(
             proto.conversation_type.try_into()?,
             proto.creator_account_address.clone(),
+            proto.creator_inbox_id.clone(),
             PolicySet::from_proto(policies)?,
         ))
     }
@@ -68,6 +74,7 @@ impl GroupMetadata {
         let conversation_type: ConversationTypeProto = self.conversation_type.clone().into();
         Ok(GroupMetadataProto {
             conversation_type: conversation_type as i32,
+            creator_inbox_id: self.creator_inbox_id.clone(),
             creator_account_address: self.creator_account_address.clone(),
             policies: Some(self.policies.to_proto()?),
         })
@@ -107,6 +114,7 @@ impl TryFrom<GroupMetadataProto> for GroupMetadata {
 pub enum ConversationType {
     Group,
     Dm,
+    Sync,
 }
 
 impl From<ConversationType> for ConversationTypeProto {
@@ -114,6 +122,7 @@ impl From<ConversationType> for ConversationTypeProto {
         match value {
             ConversationType::Group => Self::Group,
             ConversationType::Dm => Self::Dm,
+            ConversationType::Sync => Self::Sync,
         }
     }
 }
@@ -125,6 +134,7 @@ impl TryFrom<i32> for ConversationType {
         Ok(match value {
             1 => Self::Group,
             2 => Self::Dm,
+            3 => Self::Sync,
             _ => return Err(GroupMetadataError::InvalidConversationType),
         })
     }
@@ -153,6 +163,7 @@ mod tests {
         let group_metadata = GroupMetadata::new(
             ConversationType::Group,
             account_address.to_string(),
+            "inbox_id".to_string(),
             policy_everyone_is_admin(),
         );
         assert_eq!(
@@ -163,6 +174,7 @@ mod tests {
         let group_metadata_creator_admin = GroupMetadata::new(
             ConversationType::Group,
             account_address.to_string(),
+            "inbox_id".to_string(),
             policy_group_creator_is_admin(),
         );
 

@@ -454,7 +454,9 @@ mod tests {
     use super::ValidatedCommit;
     use crate::{
         builder::ClientBuilder,
-        configuration::{CIPHERSUITE, MUTABLE_METADATA_EXTENSION_ID},
+        configuration::{
+            CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID,
+        },
         Client,
     };
 
@@ -590,6 +592,7 @@ mod tests {
                 ExtensionType::LastResort,
                 ExtensionType::ApplicationId,
                 ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
+                ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
                 ExtensionType::ImmutableMetadata,
             ]),
             Some(&[ProposalType::GroupContextExtensions]),
