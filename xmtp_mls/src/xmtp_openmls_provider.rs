@@ -1,4 +1,4 @@
-use std::cell::Ref;
+use std::sync::MutexGuard;
 
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
@@ -19,7 +19,7 @@ impl<'a> XmtpOpenMlsProvider<'a> {
         }
     }
 
-    pub(crate) fn conn(&self) -> Ref<'_, &DbConnection<'a>> {
+    pub(crate) fn conn(&self) -> MutexGuard<&'a DbConnection<'a>> {
         self.key_store.conn()
     }
 }

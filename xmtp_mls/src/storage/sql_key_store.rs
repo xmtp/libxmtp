@@ -1,5 +1,6 @@
 use std::cell::{Ref, RefCell};
 use std::rc::Rc;
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use diesel::sql_types::Binary;
 use diesel::{deserialize::QueryableByName, sql_query, RunQueryDsl};
@@ -19,18 +20,19 @@ struct StorageData {
 
 #[derive(Debug)]
 pub struct SqlKeyStore<'a> {
-    conn: Rc<RefCell<&'a DbConnection<'a>>>,
+    // Directly wrap the DbConnection which is a SqliteConnection in this case
+    conn: Arc<Mutex<&'a DbConnection<'a>>>,
 }
 
 impl<'a> SqlKeyStore<'a> {
     pub fn new(conn: &'a DbConnection<'a>) -> Self {
         Self {
-            conn: Rc::new(RefCell::new(conn)),
+            conn: Arc::new(Mutex::new(conn)),
         }
     }
 
-    pub fn conn(&self) -> Ref<'_, &DbConnection<'a>> {
-        self.conn.borrow()
+    pub fn conn(&self) -> MutexGuard<&'a DbConnection<'a>> {
+        self.conn.lock().unwrap()
     }
 
     pub fn write<const VERSION: u16>(
@@ -42,7 +44,8 @@ impl<'a> SqlKeyStore<'a> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "REPLACE INTO storage (storage_key, version, data) VALUES (?, ?, ?)";
 
-        self.conn.borrow_mut().raw_query(|conn| {
+        let mut conn = self.conn.lock().unwrap();
+        conn.raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
@@ -61,7 +64,9 @@ impl<'a> SqlKeyStore<'a> {
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "INSERT INTO storage (storage_key, version, data) VALUES (?, ?, JSON_ARRAY_APPEND(COALESCE((SELECT data FROM storage WHERE storage_key = ? AND version = ?), '[]'), '$', ?)) ON DUPLICATE KEY UPDATE data = VALUES(data)";
-        self.conn.borrow_mut().raw_query(|conn| {
+        let mut conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
+
+        conn.raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
@@ -81,7 +86,8 @@ impl<'a> SqlKeyStore<'a> {
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "UPDATE storage SET data = JSON_REMOVE(data, JSON_UNQUOTE(JSON_SEARCH(data, 'one', ?))) WHERE storage_key = ? AND version = ?";
-        self.conn.borrow_mut().raw_query(|conn| {
+        let mut conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
+        conn.raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&value)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
@@ -99,9 +105,10 @@ impl<'a> SqlKeyStore<'a> {
     ) -> Result<Option<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "SELECT data FROM storage WHERE storage_key = ? AND version = ?";
+        let mut conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
 
         let results: Result<Vec<StorageData>, diesel::result::Error> =
-            self.conn.borrow_mut().raw_query(|conn| {
+            conn.raw_query(|conn| {
                 sql_query(query)
                     .bind::<diesel::sql_types::Binary, _>(&storage_key)
                     .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
@@ -130,8 +137,8 @@ impl<'a> SqlKeyStore<'a> {
     ) -> Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "SELECT data FROM storage WHERE storage_key = ? AND version = ?";
-
-        match self.conn.borrow_mut().raw_query(|conn| {
+        let mut conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
+        match conn.raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
@@ -158,7 +165,8 @@ impl<'a> SqlKeyStore<'a> {
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "DELETE FROM storage WHERE storage_key = ? AND version = ?";
-        self.conn.borrow_mut().raw_query(|conn| {
+        let mut conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
+        conn.raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
