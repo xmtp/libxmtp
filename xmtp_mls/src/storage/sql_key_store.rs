@@ -5,6 +5,7 @@ use diesel::{deserialize::QueryableByName, sql_query, RunQueryDsl};
 use log::error;
 use openmls_traits::storage::*;
 use serde::Serialize;
+use serde_json::{from_slice, Value};
 
 use super::encrypted_store::db_connection::DbConnection;
 
@@ -61,19 +62,48 @@ impl<'a> SqlKeyStore<'a> {
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        let query = "INSERT INTO storage (storage_key, version, data) VALUES (?, ?, JSON_ARRAY_APPEND(COALESCE((SELECT data FROM storage WHERE storage_key = ? AND version = ?), '[]'), '$', ?)) ON DUPLICATE KEY UPDATE data = VALUES(data)";
-        let mut conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
+        let select_query = "SELECT data FROM storage WHERE storage_key = ? AND version = ?";
+        let update_query = "UPDATE storage SET data = ? WHERE storage_key = ? AND version = ?";
 
-        conn.raw_query(|conn| {
-            sql_query(query)
-                .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                .bind::<diesel::sql_types::Binary, _>(&value)
-                .execute(conn)
-        });
-        Ok(())
+        let conn: MutexGuard<_> = self.conn.lock().unwrap();
+
+        let current_data: Result<Vec<StorageData>, diesel::result::Error> =
+            conn.raw_query(|conn| {
+                sql_query(select_query)
+                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                    .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
+                    .load(conn)
+            });
+
+        match current_data {
+            Ok(data) => {
+                if let Some(entry) = data.into_iter().next() {
+                    match from_slice::<Value>(&entry.data) {
+                        Ok(mut deserialized) => {
+                            // Assuming value is JSON and needs to be added to an array
+                            if let Value::Array(ref mut arr) = deserialized {
+                                arr.push(Value::from(String::from_utf8_lossy(value)));
+                            }
+                            let modified_data = serde_json::to_string(&deserialized)
+                                .map_err(|_| MemoryStorageError::SerializationError)?;
+
+                            conn.raw_query(|conn| {
+                                sql_query(update_query)
+                                    .bind::<diesel::sql_types::Text, _>(&modified_data)
+                                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                                    .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
+                                    .execute(conn)
+                            });
+                            Ok(())
+                        }
+                        Err(e) => Err(MemoryStorageError::SerializationError),
+                    }
+                } else {
+                    Ok(())
+                }
+            }
+            Err(_) => Err(MemoryStorageError::None),
+        }
     }
 
     pub fn remove_item<const VERSION: u16>(
@@ -83,7 +113,7 @@ impl<'a> SqlKeyStore<'a> {
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        let query = "UPDATE storage SET data = JSON_REMOVE(data, JSON_UNQUOTE(JSON_SEARCH(data, 'one', ?))) WHERE storage_key = ? AND version = ?";
+        let query = "UPDATE storage SET data = json_set(data, '$.path_to_remove', null) WHERE storage_key = ? AND version = ?";
         let mut conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
         conn.raw_query(|conn| {
             sql_query(query)
@@ -108,7 +138,7 @@ impl<'a> SqlKeyStore<'a> {
         let results: Result<Vec<StorageData>, diesel::result::Error> = conn.raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Text, _>(&VERSION.to_string())
+                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                 .load(conn)
         });
 
