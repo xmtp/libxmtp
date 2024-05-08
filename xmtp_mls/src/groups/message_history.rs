@@ -481,7 +481,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(amal_b_messages.len(), 1);
-        
+
         // for message in amal_b_messages {
         //     println!("{:?}", String::from_utf8(message.decrypted_message_bytes));
         // }
