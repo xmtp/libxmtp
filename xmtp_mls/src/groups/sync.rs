@@ -321,23 +321,23 @@ where
                         if let Some(request) = message_type {
                             let Request(MessageHistoryRequest {
                                 request_id,
-                                pin_code: _,
+                                pin_code,
                             }) = request
                             else {
                                 return Err(MessageProcessingError::InvalidPayload);
                             };
 
+                            let contents = format!("{request_id}:{pin_code}").into_bytes();
                             let message_id = calculate_message_id(
                                 &self.group_id,
-                                request_id.as_bytes(),
+                                &contents,
                                 &self.client.account_address(),
                                 &idempotency_key,
                             );
-
                             StoredGroupMessage {
                                 id: message_id,
                                 group_id: self.group_id.clone(),
-                                decrypted_message_bytes: request_id.as_bytes().to_vec(),
+                                decrypted_message_bytes: contents,
                                 sent_at_ns: envelope_timestamp_ns as i64,
                                 kind: GroupMessageKind::Application,
                                 sender_installation_id,
