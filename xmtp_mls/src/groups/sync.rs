@@ -882,6 +882,9 @@ where
     }
 }
 
+// TODO: Replace with function that validates that the installation key is in the group
+// We do not need to validate the AssociationState here, since it was already validated
+// as part of adding the member to the tree
 fn validate_message_sender(
     openmls_group: &mut OpenMlsGroup,
     decrypted_message: &ProcessedMessage,
