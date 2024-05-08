@@ -38,6 +38,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    identity (rowid) {
+        account_address -> Text,
+        installation_keys -> Binary,
+        credential_bytes -> Binary,
+        rowid -> Nullable<Integer>,
+    }
+}
+
+diesel::table! {
     identity_inbox (rowid) {
         inbox_id -> Text,
         installation_keys -> Binary,

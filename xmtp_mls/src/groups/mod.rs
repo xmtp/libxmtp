@@ -527,7 +527,8 @@ where
             .map_err(GroupError::from)
             .and_then(|fetch_result| {
                 fetch_result
-                    .map(|group| group.added_by_address.clone())
+                    // TODO: Rename function to added_by_inbox_id
+                    .map(|group| group.added_by_inbox_id.clone())
                     .ok_or_else(|| GroupError::GroupNotFound)
             })
     }
