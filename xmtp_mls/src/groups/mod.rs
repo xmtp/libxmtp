@@ -63,6 +63,7 @@ use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
     group_permissions::PolicySet,
     intents::{AddMembersIntentData, RemoveMembersIntentData},
+    message_history::MessageHistoryError,
     validated_commit::CommitValidationError,
 };
 
@@ -76,7 +77,7 @@ use crate::{
     retry::RetryableError,
     retryable,
     storage::{
-        group::{GroupMembershipState, StoredGroup},
+        group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         StorageError,
@@ -150,6 +151,8 @@ pub enum GroupError {
     CredentialError(#[from] BasicCredentialError),
     #[error("LeafNode error")]
     LeafNodeError(#[from] LibraryError),
+    #[error("Message History error: {0}")]
+    MessageHistory(#[from] MessageHistoryError),
 }
 
 impl RetryableError for GroupError {
@@ -218,6 +221,7 @@ where
         let protected_metadata = build_protected_metadata_extension(
             &client.identity,
             permissions.unwrap_or_default().to_policy_set(),
+            Purpose::Conversation,
         )?;
         let mutable_metadata = build_mutable_metadata_extension_default()?;
         let group_membership = build_starting_group_membership_extension(
@@ -263,14 +267,24 @@ where
 
         let mut mls_group = mls_welcome.into_group(provider)?;
         mls_group.save(provider.key_store())?;
-
         let group_id = mls_group.group_id().to_vec();
-        let to_store = StoredGroup::new(
-            group_id,
-            now_ns(),
-            GroupMembershipState::Pending,
-            added_by_address.clone(),
-        );
+        let metadata = extract_group_metadata(&mls_group)?;
+        let group_type = metadata.conversation_type;
+
+        let to_store = match group_type {
+            ConversationType::Group | ConversationType::Dm => StoredGroup::new(
+                group_id.clone(),
+                now_ns(),
+                GroupMembershipState::Pending,
+                added_by_address.clone(),
+            ),
+            ConversationType::Sync => StoredGroup::new_sync_group(
+                group_id.clone(),
+                now_ns(),
+                GroupMembershipState::Allowed,
+            ),
+        };
+
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
 
         Ok(Self::new(
@@ -313,6 +327,7 @@ where
         let protected_metadata = build_protected_metadata_extension(
             &client.identity,
             PreconfiguredPolicies::default().to_policy_set(),
+            Purpose::Sync,
         )?;
         let mutable_metadata = build_mutable_metadata_extension_default()?;
         let group_membership = build_starting_group_membership_extension(
@@ -600,9 +615,14 @@ fn validate_ed25519_keys(keys: &[Vec<u8>]) -> Result<(), GroupError> {
 fn build_protected_metadata_extension(
     identity: &Identity,
     policies: PolicySet,
+    group_purpose: Purpose,
 ) -> Result<Extension, GroupError> {
+    let group_type = match group_purpose {
+        Purpose::Conversation => ConversationType::Group,
+        Purpose::Sync => ConversationType::Sync,
+    };
     let metadata = GroupMetadata::new(
-        ConversationType::Group,
+        group_type,
         identity.account_address.clone(),
         // TODO: Remove me
         "inbox_id".to_string(),
@@ -1088,7 +1108,7 @@ mod tests {
         // add a second installation for amal using the same wallet
         let _amal_2nd = ClientBuilder::new_test_client(&amal_wallet).await;
 
-        // test that adding the new installation(s), worked
+        // test if adding the new installation(s) worked
         let new_installations_were_added = group.add_missing_installations(provider).await;
         assert!(new_installations_were_added.is_ok());
     }
