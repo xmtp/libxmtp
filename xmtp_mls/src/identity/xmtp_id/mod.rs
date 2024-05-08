@@ -8,19 +8,9 @@ use log::debug;
 use log::info;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
-/// The member that the [Identity] is created from.
-pub enum Member {
-    /// user's Ethereum wallet address
-    Address(String),
-    /// address and corresponding legacy private key(same secp256k1 as Ethereum wallet)
-    LegacyKey(String, Vec<u8>),
-}
-
 pub enum IdentityStrategy {
-    /// Tries to get an identity from the disk store. If not found, then it checks whether the address has an associated inbox and create one if not.
-    /// Finally use that inbox to create an identity.
-    /// Note that if you want to associate the wallet with a different inbox_id than already associated, do that separately.
-    CreateIfNotFound(Member),
+    /// Tries to get an identity from the disk store. If not found, getting one from backend.
+    CreateIfNotFound(String, Option<Vec<u8>>), // (address, legacy_signed_private_key)
     /// Identity that is already in the disk store
     CachedOnly,
     /// An already-built Identity for testing purposes
@@ -47,16 +37,14 @@ impl IdentityStrategy {
             IdentityStrategy::CachedOnly => {
                 stored_identity.ok_or(ClientBuilderError::RequiredIdentityNotFound)
             }
-            IdentityStrategy::CreateIfNotFound(member) => {
-                let identity = match member {
-                    Member::Address(address) => stored_identity
-                        .unwrap_or(Identity::create_to_be_signed(address, api_client).await?),
-
-                    Member::LegacyKey(address, key) => stored_identity
-                        .unwrap_or(Identity::create_from_legacy(address, key, api_client).await?),
-                };
-
-                Ok(identity)
+            IdentityStrategy::CreateIfNotFound(address, legacy_signed_private_key) => {
+                if let Some(identity) = stored_identity {
+                    Ok(identity)
+                } else {
+                    Identity::new(address, legacy_signed_private_key, api_client)
+                        .await
+                        .map_err(ClientBuilderError::from)
+                }
             }
             #[cfg(test)]
             IdentityStrategy::ExternalIdentity(identity) => Ok(identity),
