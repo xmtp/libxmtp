@@ -381,7 +381,7 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
 #[cfg(test)]
 mod tests {
     use ed25519_dalek::SigningKey;
-    use ethers::signers::LocalWallet;
+    use ethers::signers::{LocalWallet, Signer as _};
     use openmls::{
         extensions::{ApplicationIdExtension, Extension, Extensions},
         prelude::{
@@ -399,10 +399,11 @@ mod tests {
         associations::{
             generate_inbox_id,
             unsigned_actions::{
-                SignatureTextCreator as _, UnsignedAction, UnsignedCreateInbox,
-                UnsignedIdentityUpdate,
+                SignatureTextCreator as _, UnsignedAction, UnsignedAddAssociation,
+                UnsignedCreateInbox, UnsignedIdentityUpdate,
             },
-            Action, CreateInbox, IdentityUpdate, InstallationKeySignature,
+            Action, AddAssociation, CreateInbox, IdentityUpdate, InstallationKeySignature,
+            RecoverableEcdsaSignature,
         },
         constants::INSTALLATION_KEY_SIGNATURE_CONTEXT,
     };
@@ -437,22 +438,17 @@ mod tests {
         )
     }
 
-    fn generate_inbox_id_credential() -> (String, SignatureKeyPair, CreateInbox) {
+    async fn generate_inbox_id_credential() -> (String, LocalWallet, SigningKey, CreateInbox) {
         let signing_key = SigningKey::generate(&mut rand::thread_rng());
-        let secret = signing_key.to_bytes();
-        let public = signing_key.verifying_key().to_bytes();
 
-        let keypair = SignatureKeyPair::from_raw(
-            CIPHERSUITE.signature_algorithm(),
-            secret.into(),
-            public.into(),
-        );
+        let wallet = LocalWallet::new(&mut rand::thread_rng());
+        let address = format!("0x{}", hex::encode(wallet.address()));
 
-        let inbox_id = generate_inbox_id(&"test".to_string(), &0);
+        let inbox_id = generate_inbox_id(&address, &0);
 
         let unsigned_action = UnsignedAction::CreateInbox(UnsignedCreateInbox {
             nonce: 0,
-            account_address: "test".to_string(),
+            account_address: address.clone(),
         });
 
         let update = UnsignedIdentityUpdate {
@@ -461,12 +457,57 @@ mod tests {
             actions: vec![unsigned_action],
         };
 
-        let mut prehashed: Sha512 = Sha512::new();
-        prehashed.update(update.signature_text());
+        let signature = wallet
+            .sign_message(update.signature_text())
+            .await
+            .unwrap()
+            .to_vec();
 
+        let ecdsa_signature =
+            RecoverableEcdsaSignature::new(update.signature_text(), signature.clone());
+        let create = CreateInbox {
+            nonce: 0,
+            account_address: address,
+            initial_address_signature: Box::new(ecdsa_signature),
+        };
+
+        (inbox_id, wallet, signing_key, create)
+    }
+
+    async fn generate_installation_association(
+        signing_key: &SigningKey,
+        wallet: LocalWallet,
+        inbox_id: &str,
+    ) -> AddAssociation {
+        let keypair = SignatureKeyPair::from_raw(
+            CIPHERSUITE.signature_algorithm(),
+            signing_key.to_bytes().into(),
+            signing_key.verifying_key().to_bytes().into(),
+        );
+
+        let action = UnsignedAction::AddAssociation(UnsignedAddAssociation {
+            new_member_identifier: MemberIdentifier::Installation(keypair.public().to_vec()),
+        });
+
+        let update = UnsignedIdentityUpdate {
+            client_timestamp_ns: 2_000_000u64,
+            inbox_id: inbox_id.to_owned(),
+            actions: vec![action],
+        };
+
+        let mut prehashed = Sha512::new();
+        prehashed.update(update.signature_text());
         let signature = signing_key
             .sign_prehashed(prehashed.clone(), Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))
             .unwrap();
+        let existing_member = wallet
+            .sign_message(update.signature_text())
+            .await
+            .unwrap()
+            .to_vec();
+
+        let existing_member =
+            RecoverableEcdsaSignature::new(update.signature_text(), existing_member);
 
         let signature = InstallationKeySignature::new(
             update.signature_text(),
@@ -474,13 +515,11 @@ mod tests {
             signing_key.verifying_key().as_bytes().to_vec(),
         );
 
-        let create = CreateInbox {
-            nonce: 0,
-            account_address: "test".into(),
-            initial_address_signature: Box::new(signature),
-        };
-
-        (inbox_id, keypair, create)
+        AddAssociation {
+            new_member_signature: Box::new(signature),
+            new_member_identifier: MemberIdentifier::Installation(keypair.public().to_vec()),
+            existing_member_signature: Box::new(existing_member),
+        }
     }
 
     fn build_key_package_bytes(
@@ -513,6 +552,17 @@ mod tests {
             .unwrap();
 
         kp.tls_serialize_detached().unwrap()
+    }
+
+    fn to_signature_keypair(key: SigningKey) -> SignatureKeyPair {
+        let secret = key.to_bytes();
+        let public = key.verifying_key().to_bytes();
+
+        SignatureKeyPair::from_raw(
+            CIPHERSUITE.signature_algorithm(),
+            secret.into(),
+            public.into(),
+        )
     }
 
     #[tokio::test]
@@ -606,7 +656,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_inbox_id_key_package_happy_path() {
-        let (inbox_id, keypair, _) = generate_inbox_id_credential();
+        let (inbox_id, _, keypair, _) = generate_inbox_id_credential().await;
+        let keypair = to_signature_keypair(keypair);
+
         let credential: OpenMlsCredential = InboxIdMlsCredential {
             inbox_id: inbox_id.clone(),
         }
@@ -641,8 +693,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_inbox_id_key_package_failure() {
-        let (inbox_id, keypair, _) = generate_inbox_id_credential();
-        let (_, other_keypair, _) = generate_inbox_id_credential();
+        let (inbox_id, _, keypair, _) = generate_inbox_id_credential().await;
+        let (_, _, other_keypair, _) = generate_inbox_id_credential().await;
+
+        let keypair = to_signature_keypair(keypair);
+        let other_keypair = to_signature_keypair(other_keypair);
 
         let credential: OpenMlsCredential = InboxIdMlsCredential {
             inbox_id: inbox_id.clone(),
@@ -676,40 +731,48 @@ mod tests {
         assert_eq!(first_response.credential, None);
         assert_eq!(first_response.installation_public_key, Vec::<u8>::new());
     }
-    /*
-        #[tokio::test]
-        async fn test_validate_inbox_ids_happy_path() {
-            let (inbox_id, keypair, create) = generate_inbox_id_credential();
-            let updates = vec![IdentityUpdate::new(
+
+    #[tokio::test]
+    async fn test_validate_inbox_ids_happy_path() {
+        let (inbox_id, wallet, keypair, create) = generate_inbox_id_credential().await;
+        let add_association = generate_installation_association(&keypair, wallet, &inbox_id).await;
+        let keypair = to_signature_keypair(keypair);
+
+        let updates = vec![
+            IdentityUpdate::new(
                 vec![Action::CreateInbox(create)],
                 inbox_id.clone(),
                 1_000_000u64,
             )
-            .to_proto()];
-            println!("Updates: {:?}", updates);
+            .to_proto(),
+            IdentityUpdate::new(
+                vec![Action::AddAssociation(add_association)],
+                inbox_id.clone(),
+                2_000_000u64,
+            )
+            .to_proto(),
+        ];
 
-            let credential = Some(InboxIdMlsCredential {
-                inbox_id: inbox_id.clone(),
-            });
-            let request = ValidateInboxIdsRequest {
-                requests: vec![InboxIdValidationRequest {
-                    credential: credential.clone(),
-                    installation_public_key: keypair.public().to_vec(),
-                    identity_updates: updates.clone(),
-                }],
-            };
+        let credential = Some(InboxIdMlsCredential {
+            inbox_id: inbox_id.clone(),
+        });
+        let request = ValidateInboxIdsRequest {
+            requests: vec![InboxIdValidationRequest {
+                credential: credential.clone(),
+                installation_public_key: keypair.public().to_vec(),
+                identity_updates: updates.clone(),
+            }],
+        };
 
-            let res = ValidationService::default()
-                .validate_inbox_ids(Request::new(request))
-                .await
-                .unwrap();
+        let res = ValidationService::default()
+            .validate_inbox_ids(Request::new(request))
+            .await
+            .unwrap();
 
-            println!("{:#?}", res);
-            let res = &res.into_inner().responses[0];
+        let res = &res.into_inner().responses[0];
 
-            assert!(res.is_ok);
-            assert_eq!(res.error_message, "".to_string());
-            assert_eq!(res.inbox_id, inbox_id);
-        }
-    */
+        assert!(res.is_ok);
+        assert_eq!(res.error_message, "".to_string());
+        assert_eq!(res.inbox_id, inbox_id);
+    }
 }
