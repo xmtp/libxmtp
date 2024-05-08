@@ -52,10 +52,7 @@ where
     }
 
     #[allow(dead_code)]
-    pub(crate) async fn send_message_history_request(
-        &self,
-        request: HistoryRequest,
-    ) -> Result<(), GroupError> {
+    pub(crate) async fn send_message_history_request(&self) -> Result<String, GroupError> {
         // find the sync group
         let conn = &mut self.store.conn()?;
         let sync_group_id = conn
@@ -66,10 +63,13 @@ where
         let sync_group = self.group(sync_group_id.clone())?;
 
         // build the request
+        let history_request = HistoryRequest::new();
+        let pin_code = history_request.pin_code.clone();
+
         let idempotency_key = new_request_id();
         let envelope = PlaintextEnvelope {
             content: Some(Content::V2(V2 {
-                message_type: Some(Request(request.into())),
+                message_type: Some(Request(history_request.into())),
                 idempotency_key,
             })),
         };
@@ -88,7 +88,7 @@ where
             println!("error publishing sync group intents: {:?}", err);
         }
 
-        Ok(())
+        Ok(pin_code)
     }
 
     #[allow(dead_code)]
@@ -158,7 +158,7 @@ where
 }
 
 #[derive(Clone)]
-pub(crate) struct HistoryRequest {
+struct HistoryRequest {
     pin_code: String,
     request_id: String,
 }
@@ -319,10 +319,12 @@ mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
         assert_ok!(client.allow_history_sync().await);
 
-        // test that the request is sent
-        let new_request = HistoryRequest::new();
-        let result = client.send_message_history_request(new_request).await;
-        assert_ok!(result);
+        // test that the request is sent, and that the pin code is returned
+        let pin_code = client
+            .send_message_history_request()
+            .await
+            .expect("history request");
+        assert_eq!(pin_code.len(), 4);
     }
 
     #[tokio::test]
@@ -350,9 +352,10 @@ mod tests {
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
-        let request = HistoryRequest::new();
-        let sent = amal_b.send_message_history_request(request).await;
-        assert_ok!(sent);
+        let _sent = amal_b
+            .send_message_history_request()
+            .await
+            .expect("history request");
 
         // find the sync group
         let amal_a_sync_groups = amal_a.store.conn().unwrap().find_sync_groups().unwrap();
@@ -387,9 +390,10 @@ mod tests {
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
-        let request = HistoryRequest::new();
-        let sent = amal_b.send_message_history_request(request.clone()).await;
-        assert_ok!(sent);
+        let _sent = amal_b
+            .send_message_history_request()
+            .await
+            .expect("history request");
 
         let amal_a_sync_groups = amal_a.store.conn().unwrap().find_sync_groups().unwrap();
         assert_eq!(amal_a_sync_groups.len(), 1);
