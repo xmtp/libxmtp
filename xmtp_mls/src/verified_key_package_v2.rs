@@ -46,7 +46,7 @@ impl VerifiedKeyPackageV2 {
         }
     }
 
-    /// Create a verified key pacakge from TLS-Serialized bytes.
+    /// Create a verified key package from TLS-Serialized bytes.
     pub fn from_bytes(
         crypto_provider: &RustCrypto,
         data: &[u8],
