@@ -1001,14 +1001,23 @@ impl From<serde_json::Error> for MemoryStorageError {
 
 #[cfg(test)]
 mod tests {
+    use openmls::{group::GroupId, treesync::LeafNode};
     use openmls_basic_credential::{SignatureKeyPair, StorageId};
-    use openmls_traits::storage::StorageProvider;
+    use openmls_traits::{storage::StorageProvider, OpenMlsProvider};
+    use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
     use super::SqlKeyStore;
     use crate::{
+        api::test_utils::get_test_api_client,
+        api::ApiClientWrapper,
+        builder::ClientBuilder,
         configuration::CIPHERSUITE,
+        identity::v3::Identity,
         storage::{EncryptedMessageStore, StorageOption},
         utils::test::tmp_path,
+        xmtp_openmls_provider::XmtpOpenMlsProvider,
+        InboxOwner,
     };
 
     #[test]
@@ -1060,7 +1069,7 @@ mod tests {
     }
 
     #[test]
-    fn list_append_remove() {
+    fn list_write_remove() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
             StorageOption::Persistent(db_path),
@@ -1069,5 +1078,78 @@ mod tests {
         .unwrap();
         let conn = &store.conn().unwrap();
         let key_store = SqlKeyStore::new(conn);
+        let provider = XmtpOpenMlsProvider::new(&conn);
+        let group_id = GroupId::random(provider.rand());
+
+        assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
+
+        key_store
+            .write_aad::<GroupId>(&group_id, "aad".as_bytes())
+            .unwrap();
+
+        assert!(!key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
+
+        key_store.delete_aad::<GroupId>(&group_id).unwrap();
+
+        assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
+    }
+
+    pub async fn create_registered_identity<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+        provider: &XmtpOpenMlsProvider<'_>,
+        api_client: &ApiClientWrapper<ApiClient>,
+        owner: &impl InboxOwner,
+    ) -> Identity {
+        let identity = Identity::create_to_be_signed(owner.get_address()).unwrap();
+        let signature: Option<Vec<u8>> = identity
+            .text_to_sign()
+            .map(|text_to_sign| owner.sign(&text_to_sign).unwrap().into());
+        identity
+            .register(provider, api_client, signature)
+            .await
+            .unwrap();
+        identity
+    }
+
+    #[tokio::test]
+    async fn list_append_remove() {
+        let db_path = tmp_path();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(db_path),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+        let conn = &store.conn().unwrap();
+        let key_store = SqlKeyStore::new(conn);
+        let provider = XmtpOpenMlsProvider::new(&conn);
+        let group_id = GroupId::random(provider.rand());
+        let api_client = get_test_api_client().await;
+
+        let identity =
+            create_registered_identity(&provider, &api_client, &generate_local_wallet()).await;
+
+        let new_key_package = identity.new_key_package(&provider).unwrap();
+
+        assert!(key_store
+            .own_leaf_nodes::<GroupId, LeafNode>(&group_id)
+            .unwrap()
+            .is_empty());
+
+        key_store
+            .append_own_leaf_node::<GroupId, LeafNode>(&group_id, &new_key_package.leaf_node())
+            .unwrap();
+
+        assert!(!key_store
+            .own_leaf_nodes::<GroupId, LeafNode>(&group_id)
+            .unwrap()
+            .is_empty());
+
+        key_store
+            .clear_own_leaf_nodes::<GroupId>(&group_id)
+            .unwrap();
+
+        assert!(key_store
+            .own_leaf_nodes::<GroupId, LeafNode>(&group_id)
+            .unwrap()
+            .is_empty());
     }
 }
