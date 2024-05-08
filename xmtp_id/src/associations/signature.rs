@@ -25,11 +25,11 @@ use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKey
 pub enum SignatureError {
     #[error(transparent)]
     CryptoSignatureError(#[from] xmtp_cryptography::signature::SignatureError),
-    #[error("ECDSA failed {0}")]
+    #[error(transparent)]
     ECDSAError(#[from] ethers::types::SignatureError),
     #[error(transparent)]
     VerifierError(#[from] crate::erc1271_verifier::VerifierError),
-    #[error("ED25519 Signature failed {0}")]
+    #[error("ed25519 Signature failed {0}")]
     Ed25519Error(#[from] ed25519_dalek::SignatureError),
     #[error(transparent)]
     TryFromSliceError(#[from] TryFromSliceError),
@@ -235,7 +235,6 @@ impl Signature for InstallationKeySignature {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         let signature: Ed25519Signature =
             Ed25519Signature::from_bytes(self.bytes().as_slice().try_into()?);
-        println!("SIGNATURE IN TRAIT {}", signature);
         let verifying_key: VerifyingKey =
             VerifyingKey::from_bytes(&self.verifying_key.as_slice().try_into()?)?;
         let mut prehashed: Sha512 = Sha512::new();

@@ -30,7 +30,8 @@ pub async fn get_state<Updates: AsRef<[IdentityUpdate]>>(
 ) -> Result<AssociationState, AssociationError> {
     let mut state = None;
     for update in updates.as_ref().iter() {
-        state = Some(update.update_state(state).await?);
+        let res = update.update_state(state).await;
+        state = Some(res?);
     }
 
     state.ok_or(AssociationError::NotCreated)

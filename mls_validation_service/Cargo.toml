@@ -13,7 +13,6 @@ env_logger = "0.10.0"
 hex = { workspace = true }
 log = { workspace = true }
 openmls = { workspace = true }
-openmls_basic_credential = { workspace = true }
 openmls_rust_crypto = { workspace = true }
 openmls_traits = { workspace = true }
 prost = { workspace = true, features = ["prost-derive"] }
@@ -30,6 +29,8 @@ xmtp_proto = { path = "../xmtp_proto", features = [
 xmtp_id.workspace = true
 xmtp_mls.workspace = true 
 thiserror.workspace = true
+ed25519-dalek = { workspace = true, features = ["digest"] }
+
 
 [dev-dependencies]
 ethers.workspace = true 
@@ -37,3 +38,5 @@ rand = { workspace = true }
 xmtp_id = { workspace = true, features = ["test-utils"]}
 anyhow.workspace = true
 sha2.workspace = true
+openmls_basic_credential = { workspace = true, features = ["test-utils"] }
+
