@@ -47,7 +47,7 @@ tokio = { workspace = true }
 toml = "0.8.4"
 xmtp_cryptography = { workspace = true }
 xmtp_id = { path = "../xmtp_id" }
-xmtp_proto = { workspace = true, features = ["proto_full"] }
+xmtp_proto = { workspace = true, features = ["proto_full", "convert"] }
 xmtp_v2 = { path = "../xmtp_v2" }
 
 [dev-dependencies]

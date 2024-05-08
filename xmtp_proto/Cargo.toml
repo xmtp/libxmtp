@@ -18,7 +18,7 @@ openmls_basic_credential = { workspace = true, optional = true }
 openmls = { workspace = true, optional = true }
 
 [features]
-default = ["convert"]
+default = []
 convert = ["openmls_basic_credential", "openmls", "proto_full"]
 grpc = ["tonic"]
 # @@protoc_deletion_point(features)
