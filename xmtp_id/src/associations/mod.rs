@@ -7,7 +7,7 @@ pub mod signature;
 mod state;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
-mod unsigned_actions;
+pub mod unsigned_actions;
 
 pub use self::association_log::*;
 pub use self::hashes::generate_inbox_id;
@@ -30,7 +30,8 @@ pub async fn get_state<Updates: AsRef<[IdentityUpdate]>>(
 ) -> Result<AssociationState, AssociationError> {
     let mut state = None;
     for update in updates.as_ref().iter() {
-        state = Some(update.update_state(state).await?);
+        let res = update.update_state(state).await;
+        state = Some(res?);
     }
 
     state.ok_or(AssociationError::NotCreated)
