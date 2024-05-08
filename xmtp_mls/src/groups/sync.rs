@@ -343,7 +343,8 @@ where
                                 sent_at_ns: envelope_timestamp_ns as i64,
                                 kind: GroupMessageKind::Application,
                                 sender_installation_id,
-                                sender_account_address,
+                                // TODO: Replace with real inbox ID
+                                sender_inbox_id: "TODO".to_string(),
                                 delivery_status: DeliveryStatus::Published,
                             }
                             .store(provider.conn())?

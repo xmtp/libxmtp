@@ -71,7 +71,7 @@ impl StoredGroup {
             membership_state,
             installations_last_checked: 0,
             purpose: Purpose::Sync,
-            added_by_address: "".into(),
+            added_by_inbox_id: "".into(),
         }
     }
 }
