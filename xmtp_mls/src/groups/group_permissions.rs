@@ -1,5 +1,9 @@
 use std::collections::HashMap;
 
+use openmls::{
+    extensions::{Extension, UnknownExtension},
+    group::MlsGroup as OpenMlsGroup,
+};
 use prost::Message;
 use thiserror::Error;
 
@@ -12,14 +16,116 @@ use xmtp_proto::xmtp::mls::message_contents::{
         AndCondition as MetadataAndConditionProto, AnyCondition as MetadataAnyConditionProto,
         Kind as MetadataPolicyKindProto, MetadataBasePolicy as MetadataBasePolicyProto,
     },
+    permissions_update_policy::{
+        AndCondition as PermissionsAndConditionProto, AnyCondition as PermissionsAnyConditionProto,
+        Kind as PermissionsPolicyKindProto, PermissionsBasePolicy as PermissionsBasePolicyProto,
+    },
+    GroupMutablePermissionsV1 as GroupMutablePermissionsProto,
     MembershipPolicy as MembershipPolicyProto, MetadataPolicy as MetadataPolicyProto,
-    PolicySet as PolicySetProto,
+    PermissionsUpdatePolicy as PermissionsPolicyProto, PolicySet as PolicySetProto,
 };
+
+use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 
 use super::{
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError},
     validated_commit::{AggregatedMembershipChange, CommitParticipant, ValidatedCommit},
 };
+
+#[derive(Debug, Error)]
+pub enum GroupMutablePermissionsError {
+    #[error("serialization: {0}")]
+    Serialization(#[from] prost::EncodeError),
+    #[error("deserialization: {0}")]
+    Deserialization(#[from] prost::DecodeError),
+    #[error("policy error {0}")]
+    Policy(#[from] PolicyError),
+    #[error("invalid conversation type")]
+    InvalidConversationType,
+    #[error("missing policies")]
+    MissingPolicies,
+    #[error("missing extension")]
+    MissingExtension,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GroupMutablePermissions {
+    pub policies: PolicySet,
+}
+
+impl GroupMutablePermissions {
+    pub fn new(policies: PolicySet) -> Self {
+        Self { policies }
+    }
+
+    pub fn preconfigured_policy(
+        &self,
+    ) -> Result<PreconfiguredPolicies, GroupMutablePermissionsError> {
+        Ok(PreconfiguredPolicies::from_policy_set(&self.policies)?)
+    }
+
+    pub(crate) fn from_proto(
+        proto: GroupMutablePermissionsProto,
+    ) -> Result<Self, GroupMutablePermissionsError> {
+        if proto.policies.is_none() {
+            return Err(GroupMutablePermissionsError::MissingPolicies);
+        }
+        let policies = proto.policies.unwrap();
+
+        Ok(Self::new(PolicySet::from_proto(policies)?))
+    }
+
+    pub(crate) fn to_proto(
+        &self,
+    ) -> Result<GroupMutablePermissionsProto, GroupMutablePermissionsError> {
+        Ok(GroupMutablePermissionsProto {
+            policies: Some(self.policies.to_proto()?),
+        })
+    }
+}
+
+impl TryFrom<GroupMutablePermissions> for Vec<u8> {
+    type Error = GroupMutablePermissionsError;
+
+    fn try_from(value: GroupMutablePermissions) -> Result<Self, Self::Error> {
+        let mut buf = Vec::new();
+        let proto_val = value.to_proto()?;
+        proto_val.encode(&mut buf)?;
+
+        Ok(buf)
+    }
+}
+
+impl TryFrom<&Vec<u8>> for GroupMutablePermissions {
+    type Error = GroupMutablePermissionsError;
+
+    fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
+        let proto_val = GroupMutablePermissionsProto::decode(value.as_slice())?;
+        Self::from_proto(proto_val)
+    }
+}
+
+impl TryFrom<GroupMutablePermissionsProto> for GroupMutablePermissions {
+    type Error = GroupMutablePermissionsError;
+
+    fn try_from(value: GroupMutablePermissionsProto) -> Result<Self, Self::Error> {
+        Self::from_proto(value)
+    }
+}
+
+pub fn extract_group_permissions(
+    group: &OpenMlsGroup,
+) -> Result<GroupMutablePermissions, GroupMutablePermissionsError> {
+    let extensions = group.export_group_context().extensions();
+    for extension in extensions.iter() {
+        if let Extension::Unknown(GROUP_PERMISSIONS_EXTENSION_ID, UnknownExtension(metadata)) =
+            extension
+        {
+            return GroupMutablePermissions::try_from(metadata);
+        }
+    }
+    Err(GroupMutablePermissionsError::MissingExtension)
+}
 
 // A trait for policies that can update Metadata for the group
 pub trait MetadataPolicy: std::fmt::Debug {
@@ -33,17 +139,26 @@ pub trait MetadataPolicy: std::fmt::Debug {
 pub enum MetadataBasePolicies {
     Allow,
     Deny,
-    // Allow the change if the actor is the creator of the group
-    AllowIfActorCreator,
-    // AllowIfActorAdmin, TODO: Enable this once we have admin roles
+    AllowIfActorAdminOrSuperAdmin,
+    AllowIfActorSuperAdmin,
 }
 
 impl MetadataPolicy for &MetadataBasePolicies {
-    fn evaluate(&self, actor: &CommitParticipant, _change: &MetadataChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataChange) -> bool {
         match self {
             MetadataBasePolicies::Allow => true,
             MetadataBasePolicies::Deny => false,
-            MetadataBasePolicies::AllowIfActorCreator => actor.is_creator,
+            MetadataBasePolicies::AllowIfActorAdminOrSuperAdmin => {
+                change.old_value.admin_list.contains(&actor.account_address)
+                    || change
+                        .old_value
+                        .super_admin_list
+                        .contains(&actor.account_address)
+            }
+            MetadataBasePolicies::AllowIfActorSuperAdmin => change
+                .old_value
+                .super_admin_list
+                .contains(&actor.account_address),
         }
     }
 
@@ -51,8 +166,11 @@ impl MetadataPolicy for &MetadataBasePolicies {
         let inner = match self {
             MetadataBasePolicies::Allow => MetadataBasePolicyProto::Allow as i32,
             MetadataBasePolicies::Deny => MetadataBasePolicyProto::Deny as i32,
-            MetadataBasePolicies::AllowIfActorCreator => {
-                MetadataBasePolicyProto::AllowIfActorCreator as i32
+            MetadataBasePolicies::AllowIfActorAdminOrSuperAdmin => {
+                MetadataBasePolicyProto::AllowIfAdmin as i32
+            }
+            MetadataBasePolicies::AllowIfActorSuperAdmin => {
+                MetadataBasePolicyProto::AllowIfSuperAdmin as i32
             }
         };
 
@@ -87,9 +205,12 @@ impl MetadataPolicies {
         MetadataPolicies::Standard(MetadataBasePolicies::Deny)
     }
 
-    #[allow(dead_code)]
-    pub fn allow_if_actor_creator() -> Self {
-        MetadataPolicies::Standard(MetadataBasePolicies::AllowIfActorCreator)
+    pub fn allow_if_actor_admin() -> Self {
+        MetadataPolicies::Standard(MetadataBasePolicies::AllowIfActorAdminOrSuperAdmin)
+    }
+
+    pub fn allow_if_actor_super_admin() -> Self {
+        MetadataPolicies::Standard(MetadataBasePolicies::AllowIfActorSuperAdmin)
     }
 
     pub fn and(policies: Vec<MetadataPolicies>) -> Self {
@@ -109,11 +230,12 @@ pub struct MetadataChange {
     pub(crate) metadata_policies: HashMap<String, MetadataPolicies>,
 }
 
-impl Default for MetadataChange {
-    fn default() -> Self {
+impl MetadataChange {
+    #[cfg(test)]
+    fn empty_for_testing() -> Self {
         Self {
-            old_value: GroupMutableMetadata::default(),
-            new_value: GroupMutableMetadata::default(),
+            old_value: GroupMutableMetadata::new_default("empty".to_string()),
+            new_value: GroupMutableMetadata::new_default("empty".to_string()),
             metadata_policies: MetadataPolicies::default_map(MetadataPolicies::allow()),
         }
     }
@@ -127,7 +249,8 @@ impl TryFrom<MetadataPolicyProto> for MetadataPolicies {
             Some(MetadataPolicyKindProto::Base(inner)) => match inner {
                 1 => Ok(MetadataPolicies::allow()),
                 2 => Ok(MetadataPolicies::deny()),
-                3 => Ok(MetadataPolicies::allow_if_actor_creator()),
+                3 => Ok(MetadataPolicies::allow_if_actor_admin()),
+                4 => Ok(MetadataPolicies::allow_if_actor_super_admin()),
                 _ => Err(PolicyError::InvalidPolicy),
             },
             Some(MetadataPolicyKindProto::AndCondition(inner)) => {
@@ -247,6 +370,227 @@ impl MetadataPolicy for MetadataAnyCondition {
     }
 }
 
+// A trait for policies that can update Permissions for the group
+pub trait PermissionsPolicy: std::fmt::Debug {
+    // Verify relevant metadata is actually changed before evaluating against the MetadataPolicy
+    // See evaluate_metadata_policy
+    fn evaluate(&self, actor: &CommitParticipant, change: &PermissionsChange) -> bool;
+    fn to_proto(&self) -> Result<PermissionsPolicyProto, PolicyError>;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PermissionsBasePolicies {
+    Deny,
+    AllowIfActorAdminOrSuperAdmin,
+    AllowIfActorSuperAdmin,
+}
+
+impl PermissionsPolicy for &PermissionsBasePolicies {
+    fn evaluate(&self, _actor: &CommitParticipant, _change: &PermissionsChange) -> bool {
+        match self {
+            PermissionsBasePolicies::Deny => false,
+            PermissionsBasePolicies::AllowIfActorAdminOrSuperAdmin => true, // TODO fix this
+            PermissionsBasePolicies::AllowIfActorSuperAdmin => true,        // TODO fix this
+        }
+    }
+
+    fn to_proto(&self) -> Result<PermissionsPolicyProto, PolicyError> {
+        let inner = match self {
+            PermissionsBasePolicies::Deny => PermissionsBasePolicyProto::Deny as i32,
+            PermissionsBasePolicies::AllowIfActorAdminOrSuperAdmin => {
+                PermissionsBasePolicyProto::AllowIfAdmin as i32
+            }
+            PermissionsBasePolicies::AllowIfActorSuperAdmin => {
+                PermissionsBasePolicyProto::AllowIfSuperAdmin as i32
+            }
+        };
+
+        Ok(PermissionsPolicyProto {
+            kind: Some(PermissionsPolicyKindProto::Base(inner)),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
+pub enum PermissionsPolicies {
+    Standard(PermissionsBasePolicies),
+    AndCondition(PermissionsAndCondition),
+    AnyCondition(PermissionsAnyCondition),
+}
+
+impl PermissionsPolicies {
+    pub fn deny() -> Self {
+        PermissionsPolicies::Standard(PermissionsBasePolicies::Deny)
+    }
+
+    #[allow(dead_code)]
+    pub fn allow_if_actor_admin() -> Self {
+        PermissionsPolicies::Standard(PermissionsBasePolicies::AllowIfActorAdminOrSuperAdmin)
+    }
+
+    #[allow(dead_code)]
+    pub fn allow_if_actor_super_admin() -> Self {
+        PermissionsPolicies::Standard(PermissionsBasePolicies::AllowIfActorSuperAdmin)
+    }
+
+    pub fn and(policies: Vec<PermissionsPolicies>) -> Self {
+        PermissionsPolicies::AndCondition(PermissionsAndCondition::new(policies))
+    }
+
+    pub fn any(policies: Vec<PermissionsPolicies>) -> Self {
+        PermissionsPolicies::AnyCondition(PermissionsAnyCondition::new(policies))
+    }
+}
+
+// Information for Metadata Update used for validation
+#[derive(Clone, Debug)]
+pub struct PermissionsChange {
+    #[allow(dead_code)]
+    pub(crate) old_value: GroupMutablePermissions,
+    #[allow(dead_code)]
+    pub(crate) new_value: GroupMutablePermissions,
+}
+
+impl PermissionsChange {
+    #[cfg(test)]
+    fn empty_for_testing() -> Self {
+        todo!();
+        // Self {
+        //     old_value: GroupMutablePermissions::new_default("empty".to_string()),
+        //     new_value: GroupMutablePermissions::new_default("empty".to_string()),
+        // }
+    }
+}
+
+impl TryFrom<PermissionsPolicyProto> for PermissionsPolicies {
+    type Error = PolicyError;
+
+    fn try_from(proto: PermissionsPolicyProto) -> Result<Self, Self::Error> {
+        match proto.kind {
+            Some(PermissionsPolicyKindProto::Base(inner)) => match inner {
+                1 => Ok(PermissionsPolicies::deny()),
+                2 => Ok(PermissionsPolicies::allow_if_actor_admin()),
+                3 => Ok(PermissionsPolicies::allow_if_actor_super_admin()),
+                _ => Err(PolicyError::InvalidPolicy),
+            },
+            Some(PermissionsPolicyKindProto::AndCondition(inner)) => {
+                if inner.policies.is_empty() {
+                    return Err(PolicyError::InvalidPolicy);
+                }
+                let policies = inner
+                    .policies
+                    .into_iter()
+                    .map(|policy| policy.try_into())
+                    .collect::<Result<Vec<PermissionsPolicies>, PolicyError>>()?;
+
+                Ok(PermissionsPolicies::and(policies))
+            }
+            Some(PermissionsPolicyKindProto::AnyCondition(inner)) => {
+                if inner.policies.is_empty() {
+                    return Err(PolicyError::InvalidPolicy);
+                }
+
+                let policies = inner
+                    .policies
+                    .into_iter()
+                    .map(|policy| policy.try_into())
+                    .collect::<Result<Vec<PermissionsPolicies>, PolicyError>>()?;
+
+                Ok(PermissionsPolicies::any(policies))
+            }
+            None => Err(PolicyError::InvalidPolicy),
+        }
+    }
+}
+
+impl PermissionsPolicy for PermissionsPolicies {
+    fn evaluate(&self, actor: &CommitParticipant, change: &PermissionsChange) -> bool {
+        match self {
+            PermissionsPolicies::Standard(policy) => policy.evaluate(actor, change),
+            PermissionsPolicies::AndCondition(policy) => policy.evaluate(actor, change),
+            PermissionsPolicies::AnyCondition(policy) => policy.evaluate(actor, change),
+        }
+    }
+
+    fn to_proto(&self) -> Result<PermissionsPolicyProto, PolicyError> {
+        Ok(match self {
+            PermissionsPolicies::Standard(policy) => policy.to_proto()?,
+            PermissionsPolicies::AndCondition(policy) => policy.to_proto()?,
+            PermissionsPolicies::AnyCondition(policy) => policy.to_proto()?,
+        })
+    }
+}
+
+// An AndCondition evaluates to true if all the policies it contains evaluate to true
+#[derive(Clone, Debug, PartialEq)]
+pub struct PermissionsAndCondition {
+    policies: Vec<PermissionsPolicies>,
+}
+
+impl PermissionsAndCondition {
+    pub(super) fn new(policies: Vec<PermissionsPolicies>) -> Self {
+        Self { policies }
+    }
+}
+
+impl PermissionsPolicy for PermissionsAndCondition {
+    fn evaluate(&self, actor: &CommitParticipant, change: &PermissionsChange) -> bool {
+        self.policies
+            .iter()
+            .all(|policy| policy.evaluate(actor, change))
+    }
+
+    fn to_proto(&self) -> Result<PermissionsPolicyProto, PolicyError> {
+        Ok(PermissionsPolicyProto {
+            kind: Some(PermissionsPolicyKindProto::AndCondition(
+                PermissionsAndConditionProto {
+                    policies: self
+                        .policies
+                        .iter()
+                        .map(|policy| policy.to_proto())
+                        .collect::<Result<Vec<PermissionsPolicyProto>, PolicyError>>()?,
+                },
+            )),
+        })
+    }
+}
+
+// An AnyCondition evaluates to true if any of the contained policies evaluate to true
+#[derive(Clone, Debug, PartialEq)]
+pub struct PermissionsAnyCondition {
+    policies: Vec<PermissionsPolicies>,
+}
+
+#[allow(dead_code)]
+impl PermissionsAnyCondition {
+    pub(super) fn new(policies: Vec<PermissionsPolicies>) -> Self {
+        Self { policies }
+    }
+}
+
+impl PermissionsPolicy for PermissionsAnyCondition {
+    fn evaluate(&self, actor: &CommitParticipant, change: &PermissionsChange) -> bool {
+        self.policies
+            .iter()
+            .any(|policy| policy.evaluate(actor, change))
+    }
+
+    fn to_proto(&self) -> Result<PermissionsPolicyProto, PolicyError> {
+        Ok(PermissionsPolicyProto {
+            kind: Some(PermissionsPolicyKindProto::AnyCondition(
+                PermissionsAnyConditionProto {
+                    policies: self
+                        .policies
+                        .iter()
+                        .map(|policy| policy.to_proto())
+                        .collect::<Result<Vec<PermissionsPolicyProto>, PolicyError>>()?,
+                },
+            )),
+        })
+    }
+}
+
 // A trait for policies that can add/remove members and installations for the group
 pub trait MembershipPolicy: std::fmt::Debug {
     fn evaluate(&self, actor: &CommitParticipant, change: &AggregatedMembershipChange) -> bool;
@@ -271,9 +615,8 @@ pub enum BasePolicies {
     Deny,
     // Allow if the change only applies to subject installations with the same account address as the actor
     AllowSameMember,
-    // Allow the change if the actor is the creator of the group
-    AllowIfActorCreator,
-    // AllowIfActorAdmin, TODO: Enable this once we have admin roles
+    AllowIfAdminOrSuperAdmin,
+    AllowIfSuperAdmin,
 }
 
 impl MembershipPolicy for BasePolicies {
@@ -282,7 +625,8 @@ impl MembershipPolicy for BasePolicies {
             BasePolicies::Allow => true,
             BasePolicies::Deny => false,
             BasePolicies::AllowSameMember => change.account_address == actor.account_address,
-            BasePolicies::AllowIfActorCreator => actor.is_creator,
+            BasePolicies::AllowIfAdminOrSuperAdmin => actor.is_creator, //TODO Fix
+            BasePolicies::AllowIfSuperAdmin => actor.is_creator,        //TODO Fix
         }
     }
 
@@ -291,7 +635,10 @@ impl MembershipPolicy for BasePolicies {
             BasePolicies::Allow => BasePolicyProto::Allow as i32,
             BasePolicies::Deny => BasePolicyProto::Deny as i32,
             BasePolicies::AllowSameMember => return Err(PolicyError::InvalidPolicy), // AllowSameMember is not needed on any of the wire format protos
-            BasePolicies::AllowIfActorCreator => BasePolicyProto::AllowIfActorCreator as i32,
+            BasePolicies::AllowIfAdminOrSuperAdmin => {
+                BasePolicyProto::AllowIfAdminOrSuperAdmin as i32
+            }
+            BasePolicies::AllowIfSuperAdmin => BasePolicyProto::AllowIfSuperAdmin as i32,
         };
 
         Ok(MembershipPolicyProto {
@@ -323,8 +670,13 @@ impl MembershipPolicies {
     }
 
     #[allow(dead_code)]
-    pub fn allow_if_actor_creator() -> Self {
-        MembershipPolicies::Standard(BasePolicies::AllowIfActorCreator)
+    pub fn allow_if_actor_admin() -> Self {
+        MembershipPolicies::Standard(BasePolicies::AllowIfAdminOrSuperAdmin)
+    }
+
+    #[allow(dead_code)]
+    pub fn allow_if_actor_super_admin() -> Self {
+        MembershipPolicies::Standard(BasePolicies::AllowIfSuperAdmin)
     }
 
     pub fn and(policies: Vec<MembershipPolicies>) -> Self {
@@ -344,7 +696,8 @@ impl TryFrom<MembershipPolicyProto> for MembershipPolicies {
             Some(PolicyKindProto::Base(inner)) => match inner {
                 1 => Ok(MembershipPolicies::allow()),
                 2 => Ok(MembershipPolicies::deny()),
-                3 => Ok(MembershipPolicies::allow_if_actor_creator()),
+                3 => Ok(MembershipPolicies::allow_if_actor_admin()),
+                4 => Ok(MembershipPolicies::allow_if_actor_super_admin()),
                 _ => Err(PolicyError::InvalidPolicy),
             },
             Some(PolicyKindProto::AndCondition(inner)) => {
@@ -468,6 +821,9 @@ pub struct PolicySet {
     pub add_installation_policy: MembershipPolicies,
     pub remove_installation_policy: MembershipPolicies,
     pub update_metadata_policy: HashMap<String, MetadataPolicies>,
+    pub add_admin_policy: PermissionsPolicies,
+    pub remove_admin_policy: PermissionsPolicies,
+    pub update_permissions_policy: PermissionsPolicies,
 }
 
 fn extract_field_changed(change: &MetadataChange) -> Result<String, GroupMutableMetadataError> {
@@ -497,6 +853,9 @@ impl PolicySet {
         add_member_policy: MembershipPolicies,
         remove_member_policy: MembershipPolicies,
         update_metadata_policy: HashMap<String, MetadataPolicies>,
+        add_admin_policy: PermissionsPolicies,
+        remove_admin_policy: PermissionsPolicies,
+        update_permissions_policy: PermissionsPolicies,
     ) -> Self {
         Self {
             add_member_policy,
@@ -504,6 +863,9 @@ impl PolicySet {
             add_installation_policy: default_add_installation_policy(),
             remove_installation_policy: default_remove_installation_policy(),
             update_metadata_policy,
+            add_admin_policy,
+            remove_admin_policy,
+            update_permissions_policy,
         }
     }
 
@@ -600,10 +962,16 @@ impl PolicySet {
             let policy_proto = policy.to_proto()?;
             update_metadata_policy.insert(key.clone(), policy_proto);
         }
+        let add_admin_policy = Some(self.add_admin_policy.to_proto()?);
+        let remove_admin_policy = Some(self.remove_admin_policy.to_proto()?);
+        let update_permissions_policy = Some(self.update_permissions_policy.to_proto()?);
         Ok(PolicySetProto {
             add_member_policy,
             remove_member_policy,
             update_metadata_policy,
+            add_admin_policy,
+            remove_admin_policy,
+            update_permissions_policy,
         })
     }
 
@@ -616,6 +984,19 @@ impl PolicySet {
                 .remove_member_policy
                 .ok_or(PolicyError::InvalidPolicy)?,
         )?;
+        let add_admin_policy = PermissionsPolicies::try_from(
+            proto.add_admin_policy.ok_or(PolicyError::InvalidPolicy)?,
+        )?;
+        let remove_admin_policy = PermissionsPolicies::try_from(
+            proto
+                .remove_admin_policy
+                .ok_or(PolicyError::InvalidPolicy)?,
+        )?;
+        let update_permissions_policy = PermissionsPolicies::try_from(
+            proto
+                .update_permissions_policy
+                .ok_or(PolicyError::InvalidPolicy)?,
+        )?;
 
         let mut update_metadata_policy = HashMap::new();
         for (key, policy_proto) in proto.update_metadata_policy {
@@ -626,6 +1007,9 @@ impl PolicySet {
             add_member_policy,
             remove_member_policy,
             update_metadata_policy,
+            add_admin_policy,
+            remove_admin_policy,
+            update_permissions_policy,
         ))
     }
 
@@ -660,6 +1044,9 @@ pub(crate) fn policy_everyone_is_admin() -> PolicySet {
         MembershipPolicies::allow(),
         MembershipPolicies::allow(),
         metadata_policies_map,
+        PermissionsPolicies::allow_if_actor_super_admin(),
+        PermissionsPolicies::allow_if_actor_super_admin(),
+        PermissionsPolicies::allow_if_actor_super_admin(),
     )
 }
 
@@ -669,13 +1056,16 @@ pub(crate) fn policy_group_creator_is_admin() -> PolicySet {
     for field in GroupMutableMetadata::supported_fields() {
         metadata_policies_map.insert(
             field.to_string(),
-            MetadataPolicies::allow_if_actor_creator(),
+            MetadataPolicies::allow_if_actor_super_admin(),
         );
     }
     PolicySet::new(
-        MembershipPolicies::allow_if_actor_creator(),
-        MembershipPolicies::allow_if_actor_creator(),
+        MembershipPolicies::allow_if_actor_super_admin(),
+        MembershipPolicies::allow_if_actor_super_admin(),
         metadata_policies_map,
+        PermissionsPolicies::allow_if_actor_super_admin(),
+        PermissionsPolicies::allow_if_actor_super_admin(),
+        PermissionsPolicies::allow_if_actor_super_admin(),
     )
 }
 
@@ -776,7 +1166,7 @@ mod tests {
             installations_removed: installation_removed
                 .map(build_membership_change)
                 .unwrap_or_default(),
-            group_name_updated: MetadataChange::default(),
+            group_name_updated: MetadataChange::empty_for_testing(),
         }
     }
 
@@ -788,6 +1178,9 @@ mod tests {
             MembershipPolicies::allow(),
             MembershipPolicies::allow(),
             MetadataPolicies::default_map(MetadataPolicies::allow()),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
         let commit = build_validated_commit(Some(true), Some(true), None, None, false);
@@ -800,6 +1193,9 @@ mod tests {
             MembershipPolicies::deny(),
             MembershipPolicies::deny(),
             MetadataPolicies::default_map(MetadataPolicies::deny()),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
         let member_added_commit = build_validated_commit(Some(false), None, None, None, false);
@@ -822,9 +1218,12 @@ mod tests {
     #[test]
     fn test_actor_is_creator() {
         let permissions = PolicySet::new(
-            MembershipPolicies::allow_if_actor_creator(),
-            MembershipPolicies::allow_if_actor_creator(),
+            MembershipPolicies::allow_if_actor_super_admin(),
+            MembershipPolicies::allow_if_actor_super_admin(),
             MetadataPolicies::default_map(MetadataPolicies::deny()),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
         let commit_with_creator = build_validated_commit(Some(true), Some(true), None, None, true);
@@ -841,6 +1240,9 @@ mod tests {
             MembershipPolicies::allow_same_member(),
             MembershipPolicies::deny(),
             MetadataPolicies::default_map(MetadataPolicies::deny()),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
         let commit_with_same_member = build_validated_commit(Some(true), None, None, None, false);
@@ -860,6 +1262,9 @@ mod tests {
             ]),
             MembershipPolicies::allow(),
             MetadataPolicies::default_map(MetadataPolicies::deny()),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
         let member_added_commit = build_validated_commit(Some(true), None, None, None, false);
@@ -875,6 +1280,9 @@ mod tests {
             ]),
             MembershipPolicies::allow(),
             MetadataPolicies::default_map(MetadataPolicies::deny()),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
         let member_added_commit = build_validated_commit(Some(true), None, None, None, false);
@@ -889,10 +1297,13 @@ mod tests {
                 MembershipPolicies::deny(),
             ]),
             MembershipPolicies::and(vec![
-                MembershipPolicies::allow_if_actor_creator(),
+                MembershipPolicies::allow_if_actor_super_admin(),
                 MembershipPolicies::deny(),
             ]),
             MetadataPolicies::default_map(MetadataPolicies::deny()),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
         let proto = permissions.to_proto().unwrap();
@@ -911,9 +1322,30 @@ mod tests {
             MembershipPolicies::allow_same_member(),
             MembershipPolicies::deny(),
             MetadataPolicies::default_map(MetadataPolicies::deny()),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
         let proto_result = permissions.to_proto();
         assert!(proto_result.is_err());
+    }
+
+    #[test]
+    fn test_preconfigured_policy() {
+        let account_address = "account_address";
+        let group_metadata = GroupMutablePermissions::new(policy_everyone_is_admin());
+        assert_eq!(
+            group_metadata.preconfigured_policy().unwrap(),
+            PreconfiguredPolicies::EveryoneIsAdmin
+        );
+
+        let group_metadata_creator_admin =
+            GroupMutablePermissions::new(policy_group_creator_is_admin());
+
+        assert_eq!(
+            group_metadata_creator_admin.preconfigured_policy().unwrap(),
+            PreconfiguredPolicies::GroupCreatorIsAdmin
+        );
     }
 }

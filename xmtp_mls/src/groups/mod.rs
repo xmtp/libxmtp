@@ -56,6 +56,9 @@ use self::{
         extract_group_mutable_metadata, GroupMutableMetadata, GroupMutableMetadataError,
         MetadataField,
     },
+    group_permissions::{
+        extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
+    },
     intents::UpdateMetadataIntentData,
 };
 use self::{
@@ -67,7 +70,9 @@ use self::{
 
 use crate::{
     client::{deserialize_welcome, ClientError, MessageProcessingError},
-    configuration::{CIPHERSUITE, MAX_GROUP_SIZE, MUTABLE_METADATA_EXTENSION_ID},
+    configuration::{
+        CIPHERSUITE, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE, MUTABLE_METADATA_EXTENSION_ID,
+    },
     hpke::{decrypt_welcome, HpkeError},
     identity::v3::{Identity, IdentityError},
     retry::RetryableError,
@@ -133,6 +138,8 @@ pub enum GroupError {
     GroupMetadata(#[from] GroupMetadataError),
     #[error("Mutable Metadata error {0}")]
     GroupMutableMetadata(#[from] GroupMutableMetadataError),
+    #[error("Mutable Permissions error {0}")]
+    GroupMutablePermissions(#[from] GroupMutablePermissionsError),
     #[error("Errors occurred during sync {0:?}")]
     Sync(Vec<GroupError>),
     #[error("Hpke error: {0}")]
@@ -212,12 +219,12 @@ where
     ) -> Result<Self, GroupError> {
         let conn = client.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
-        let protected_metadata = build_protected_metadata_extension(
-            &client.identity,
-            permissions.unwrap_or_default().to_policy_set(),
-        )?;
-        let mutable_metadata = build_mutable_metadata_extension_default()?;
-        let group_config = build_group_config(protected_metadata, mutable_metadata)?;
+        let protected_metadata = build_protected_metadata_extension(&client.identity)?;
+        let mutable_metadata = build_mutable_metadata_extension_default(&client.identity)?;
+        let mutable_permissions =
+            build_mutable_permissions_extension(permissions.unwrap_or_default().to_policy_set())?;
+        let group_config =
+            build_group_config(protected_metadata, mutable_metadata, mutable_permissions)?;
 
         let mut mls_group = OpenMlsGroup::new(
             &provider,
@@ -302,12 +309,12 @@ where
     ) -> Result<MlsGroup<ApiClient>, GroupError> {
         let conn = client.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
-        let protected_metadata = build_protected_metadata_extension(
-            &client.identity,
-            PreconfiguredPolicies::default().to_policy_set(),
-        )?;
-        let mutable_metadata = build_mutable_metadata_extension_default()?;
-        let group_config = build_group_config(protected_metadata, mutable_metadata)?;
+        let protected_metadata = build_protected_metadata_extension(&client.identity)?;
+        let mutable_metadata = build_mutable_metadata_extension_default(&client.identity)?;
+        let mutable_permissions =
+            build_mutable_permissions_extension(PreconfiguredPolicies::default().to_policy_set())?;
+        let group_config =
+            build_group_config(protected_metadata, mutable_metadata, mutable_permissions)?;
         let mut mls_group = OpenMlsGroup::new(
             &provider,
             &client.identity.installation_keys,
@@ -553,6 +560,14 @@ where
 
         Ok(extract_group_mutable_metadata(&mls_group)?)
     }
+
+    pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
+        let conn = &self.client.store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(conn);
+        let mls_group = self.load_mls_group(&provider)?;
+
+        Ok(extract_group_permissions(&mls_group)?)
+    }
 }
 
 fn extract_message_v1(message: GroupMessage) -> Result<GroupMessageV1, MessageProcessingError> {
@@ -584,22 +599,28 @@ fn validate_ed25519_keys(keys: &[Vec<u8>]) -> Result<(), GroupError> {
     Ok(())
 }
 
-fn build_protected_metadata_extension(
-    identity: &Identity,
-    policies: PolicySet,
-) -> Result<Extension, GroupError> {
-    let metadata = GroupMetadata::new(
-        ConversationType::Group,
-        identity.account_address.clone(),
-        policies,
-    );
+fn build_protected_metadata_extension(identity: &Identity) -> Result<Extension, GroupError> {
+    let metadata = GroupMetadata::new(ConversationType::Group, identity.account_address.clone());
     let protected_metadata = Metadata::new(metadata.try_into()?);
 
     Ok(Extension::ImmutableMetadata(protected_metadata))
 }
 
-pub fn build_mutable_metadata_extension_default() -> Result<Extension, GroupError> {
-    let mutable_metadata: Vec<u8> = GroupMutableMetadata::default().try_into()?;
+fn build_mutable_permissions_extension(policies: PolicySet) -> Result<Extension, GroupError> {
+    let permissions: Vec<u8> = GroupMutablePermissions::new(policies).try_into()?;
+    let unknown_gc_extension = UnknownExtension(permissions);
+
+    Ok(Extension::Unknown(
+        GROUP_PERMISSIONS_EXTENSION_ID,
+        unknown_gc_extension,
+    ))
+}
+
+pub fn build_mutable_metadata_extension_default(
+    identity: &Identity,
+) -> Result<Extension, GroupError> {
+    let mutable_metadata: Vec<u8> =
+        GroupMutableMetadata::new_default(identity.account_address.clone()).try_into()?;
     let unknown_gc_extension = UnknownExtension(mutable_metadata);
 
     Ok(Extension::Unknown(
@@ -609,6 +630,7 @@ pub fn build_mutable_metadata_extension_default() -> Result<Extension, GroupErro
 }
 
 pub fn build_mutable_metadata_extensions(
+    identity: &Identity,
     group: &OpenMlsGroup,
     field_name: String,
     field_value: String,
@@ -616,7 +638,12 @@ pub fn build_mutable_metadata_extensions(
     let existing_metadata = extract_group_mutable_metadata(group)?;
     let mut attributes = existing_metadata.attributes.clone();
     attributes.insert(field_name, field_value);
-    let new_mutable_metadata: Vec<u8> = GroupMutableMetadata::new(attributes).try_into()?;
+    let new_mutable_metadata: Vec<u8> = GroupMutableMetadata::new(
+        attributes,
+        vec![identity.account_address.clone()],
+        vec![identity.account_address.clone()],
+    )
+    .try_into()?;
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
     let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
     let mut extensions = group.extensions().clone();
@@ -627,9 +654,11 @@ pub fn build_mutable_metadata_extensions(
 fn build_group_config(
     protected_metadata_extension: Extension,
     mutable_metadata_extension: Extension,
+    mutable_permission_extension: Extension,
 ) -> Result<MlsGroupCreateConfig, GroupError> {
     let required_extension_types = &[
         ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
+        ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
         ExtensionType::ImmutableMetadata,
         ExtensionType::LastResort,
         ExtensionType::ApplicationId,
@@ -656,6 +685,7 @@ fn build_group_config(
     let extensions = Extensions::from_vec(vec![
         protected_metadata_extension,
         mutable_metadata_extension,
+        mutable_permission_extension,
         required_capabilities,
     ])?;
 

@@ -7,7 +7,9 @@ use openmls::{
 use prost::Message;
 use thiserror::Error;
 
-use xmtp_proto::xmtp::mls::message_contents::GroupMutableMetadataV1 as GroupMutableMetadataProto;
+use xmtp_proto::xmtp::mls::message_contents::{
+    GroupMutableMetadataV1 as GroupMutableMetadataProto, Inboxes as InboxesProto,
+};
 
 use crate::configuration::{
     DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_NAME, MUTABLE_METADATA_EXTENSION_ID,
@@ -27,6 +29,8 @@ pub enum GroupMutableMetadataError {
     TooManyUpdates,
     #[error("no changes in this update")]
     NoUpdates,
+    #[error("metadata field is missing")]
+    MissingMetadataField,
 }
 
 // Fields should be added to supported_fields fn for Metadata Update Support
@@ -55,10 +59,24 @@ impl fmt::Display for MetadataField {
 pub struct GroupMutableMetadata {
     // Allow libxmtp to receive attributes from updated versions not yet captured in MetadataField
     pub attributes: HashMap<String, String>,
+    pub admin_list: Vec<String>,
+    pub super_admin_list: Vec<String>,
 }
 
-impl Default for GroupMutableMetadata {
-    fn default() -> Self {
+impl GroupMutableMetadata {
+    pub fn new(
+        attributes: HashMap<String, String>,
+        admin_list: Vec<String>,
+        super_admin_list: Vec<String>,
+    ) -> Self {
+        Self {
+            attributes,
+            admin_list,
+            super_admin_list,
+        }
+    }
+
+    pub fn new_default(creator_account_address: String) -> Self {
         let mut attributes = HashMap::new();
         attributes.insert(
             MetadataField::GroupName.to_string(),
@@ -68,13 +86,13 @@ impl Default for GroupMutableMetadata {
             MetadataField::Description.to_string(),
             DEFAULT_GROUP_DESCRIPTION.to_string(),
         );
-        Self { attributes }
-    }
-}
-
-impl GroupMutableMetadata {
-    pub fn new(attributes: HashMap<String, String>) -> Self {
-        Self { attributes }
+        let admin_list = vec![creator_account_address.clone()];
+        let super_admin_list = vec![creator_account_address.clone()];
+        Self {
+            attributes,
+            admin_list,
+            super_admin_list,
+        }
     }
 
     // These fields will receive default permission policies for new groups
@@ -90,6 +108,12 @@ impl TryFrom<GroupMutableMetadata> for Vec<u8> {
         let mut buf = Vec::new();
         let proto_val = GroupMutableMetadataProto {
             attributes: value.attributes.clone(),
+            admin_list: Some(InboxesProto {
+                inbox_ids: value.admin_list,
+            }),
+            super_admin_list: Some(InboxesProto {
+                inbox_ids: value.super_admin_list,
+            }),
         };
         proto_val.encode(&mut buf)?;
 
@@ -110,7 +134,27 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
     type Error = GroupMutableMetadataError;
 
     fn try_from(value: GroupMutableMetadataProto) -> Result<Self, Self::Error> {
-        Ok(Self::new(value.attributes.clone()))
+        #[allow(unused_mut)]
+        let mut admin_list: Vec<String>;
+        #[allow(unused_mut)]
+        let mut super_admin_list: Vec<String>;
+        match value.admin_list {
+            Some(inboxes) => {
+                admin_list = inboxes.inbox_ids;
+            }
+            None => return Err(GroupMutableMetadataError::MissingMetadataField),
+        }
+        match value.super_admin_list {
+            Some(inboxes) => {
+                super_admin_list = inboxes.inbox_ids;
+            }
+            None => return Err(GroupMutableMetadataError::MissingMetadataField),
+        }
+        Ok(Self::new(
+            value.attributes.clone(),
+            admin_list,
+            super_admin_list,
+        ))
     }
 }
 

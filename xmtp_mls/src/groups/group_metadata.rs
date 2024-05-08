@@ -6,23 +6,14 @@ use xmtp_proto::xmtp::mls::message_contents::{
     ConversationType as ConversationTypeProto, GroupMetadataV1 as GroupMetadataProto,
 };
 
-use super::{
-    group_permissions::{PolicyError, PolicySet},
-    PreconfiguredPolicies,
-};
-
 #[derive(Debug, Error)]
 pub enum GroupMetadataError {
     #[error("serialization: {0}")]
     Serialization(#[from] prost::EncodeError),
     #[error("deserialization: {0}")]
     Deserialization(#[from] prost::DecodeError),
-    #[error("policy error {0}")]
-    Policy(#[from] PolicyError),
     #[error("invalid conversation type")]
     InvalidConversationType,
-    #[error("missing policies")]
-    MissingPolicies,
     #[error("missing extension")]
     MissingExtension,
 }
@@ -31,36 +22,20 @@ pub enum GroupMetadataError {
 pub struct GroupMetadata {
     pub conversation_type: ConversationType,
     pub creator_account_address: String,
-    pub policies: PolicySet,
 }
 
 impl GroupMetadata {
-    pub fn new(
-        conversation_type: ConversationType,
-        creator_account_address: String,
-        policies: PolicySet,
-    ) -> Self {
+    pub fn new(conversation_type: ConversationType, creator_account_address: String) -> Self {
         Self {
             conversation_type,
             creator_account_address,
-            policies,
         }
-    }
-
-    pub fn preconfigured_policy(&self) -> Result<PreconfiguredPolicies, GroupMetadataError> {
-        Ok(PreconfiguredPolicies::from_policy_set(&self.policies)?)
     }
 
     pub(crate) fn from_proto(proto: GroupMetadataProto) -> Result<Self, GroupMetadataError> {
-        if proto.policies.is_none() {
-            return Err(GroupMetadataError::MissingPolicies);
-        }
-        let policies = proto.policies.unwrap();
-
         Ok(Self::new(
             proto.conversation_type.try_into()?,
             proto.creator_account_address.clone(),
-            PolicySet::from_proto(policies)?,
         ))
     }
 
@@ -68,8 +43,8 @@ impl GroupMetadata {
         let conversation_type: ConversationTypeProto = self.conversation_type.clone().into();
         Ok(GroupMetadataProto {
             conversation_type: conversation_type as i32,
+            creator_inbox_id: self.creator_account_address.clone(),
             creator_account_address: self.creator_account_address.clone(),
-            policies: Some(self.policies.to_proto()?),
         })
     }
 }
@@ -138,37 +113,4 @@ pub fn extract_group_metadata(group: &OpenMlsGroup) -> Result<GroupMetadata, Gro
         .ok_or(GroupMetadataError::MissingExtension)?;
 
     extension.metadata().try_into()
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::groups::group_permissions::{
-        policy_everyone_is_admin, policy_group_creator_is_admin,
-    };
-
-    use super::*;
-    #[test]
-    fn test_preconfigured_policy() {
-        let account_address = "account_address";
-        let group_metadata = GroupMetadata::new(
-            ConversationType::Group,
-            account_address.to_string(),
-            policy_everyone_is_admin(),
-        );
-        assert_eq!(
-            group_metadata.preconfigured_policy().unwrap(),
-            PreconfiguredPolicies::EveryoneIsAdmin
-        );
-
-        let group_metadata_creator_admin = GroupMetadata::new(
-            ConversationType::Group,
-            account_address.to_string(),
-            policy_group_creator_is_admin(),
-        );
-
-        assert_eq!(
-            group_metadata_creator_admin.preconfigured_policy().unwrap(),
-            PreconfiguredPolicies::GroupCreatorIsAdmin
-        );
-    }
 }
