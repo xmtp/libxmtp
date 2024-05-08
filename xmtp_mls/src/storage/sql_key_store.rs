@@ -1032,38 +1032,27 @@ mod tests {
         let key_store = SqlKeyStore::new(conn);
 
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
-
+        let public_key = StorageId::from(signature_keys.to_public_vec());
         assert!(key_store
-            .signature_key_pair::<StorageId, SignatureKeyPair>(&StorageId::from(
-                signature_keys.to_public_vec()
-            ))
+            .signature_key_pair::<StorageId, SignatureKeyPair>(&public_key)
             .unwrap()
             .is_none());
 
         key_store
-            .write_signature_key_pair::<StorageId, SignatureKeyPair>(
-                &StorageId::from(signature_keys.to_public_vec()),
-                &signature_keys,
-            )
+            .write_signature_key_pair::<StorageId, SignatureKeyPair>(&public_key, &signature_keys)
             .unwrap();
 
         assert!(key_store
-            .signature_key_pair::<StorageId, SignatureKeyPair>(&StorageId::from(
-                signature_keys.to_public_vec()
-            ))
+            .signature_key_pair::<StorageId, SignatureKeyPair>(&public_key)
             .unwrap()
             .is_some());
 
         key_store
-            .delete_signature_key_pair::<StorageId>(&StorageId::from(
-                signature_keys.to_public_vec(),
-            ))
+            .delete_signature_key_pair::<StorageId>(&public_key)
             .unwrap();
 
         assert!(key_store
-            .signature_key_pair::<StorageId, SignatureKeyPair>(&StorageId::from(
-                signature_keys.to_public_vec()
-            ))
+            .signature_key_pair::<StorageId, SignatureKeyPair>(&public_key)
             .unwrap()
             .is_none());
     }
