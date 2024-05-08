@@ -1,6 +1,7 @@
 use std::array::TryFromSliceError;
 
 use ed25519_dalek::SigningKey;
+use ethers::signers::{LocalWallet, WalletError};
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential},
     prelude::Credential as OpenMlsCredential,
@@ -31,6 +32,7 @@ use xmtp_v2::k256_helper;
 use crate::{
     api::{ApiClientWrapper, WrappedApiError},
     configuration::CIPHERSUITE,
+    InboxOwner,
 };
 
 #[derive(Debug, Error)]
@@ -55,6 +57,10 @@ pub enum IdentityError {
     LegacySignature(String),
     #[error(transparent)]
     Crypto(#[from] CryptoError),
+    #[error("legacy key does not match address")]
+    LegacyKeyMismatch,
+    #[error(transparent)]
+    WalletError(#[from] WalletError),
 }
 
 #[derive(Debug, Clone)]
@@ -120,6 +126,12 @@ impl Identity {
             Ok(identity)
         } else {
             if let Some(legacy_signed_private_key) = legacy_signed_private_key {
+                // sanity check if address matches the one derived from legacy_signed_private_key
+                let legacy_key_address = legacy_key_to_address(legacy_signed_private_key.clone())?;
+                if address != legacy_key_address {
+                    return Err(IdentityError::LegacyKeyMismatch);
+                }
+
                 let nonce = 0;
                 let inbox_id = generate_inbox_id(&address, &nonce);
                 let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
@@ -214,6 +226,20 @@ async fn sign_with_installation_key(
     );
 
     Ok(installation_key_sig)
+}
+
+/// Convert a legacy signed private key(secp256k1) to an address.
+fn legacy_key_to_address(legacy_signed_private_key: Vec<u8>) -> Result<String, IdentityError> {
+    let legacy_signed_private_key_proto =
+        LegacySignedPrivateKeyProto::decode(legacy_signed_private_key.as_slice())?;
+    let signed_private_key::Union::Secp256k1(secp256k1) = legacy_signed_private_key_proto
+        .union
+        .ok_or(IdentityError::MalformedLegacyKey(
+            "Missing secp256k1.union field".to_string(),
+        ))?;
+    let legacy_private_key = secp256k1.bytes;
+    let wallet: LocalWallet = LocalWallet::from_bytes(&legacy_private_key)?;
+    Ok(wallet.get_address())
 }
 
 async fn sign_with_legacy_key(
