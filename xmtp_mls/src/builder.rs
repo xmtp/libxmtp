@@ -38,10 +38,6 @@ pub enum ClientBuilderError {
     #[error("Uncovered Case")]
     UncoveredCase,
 
-    // #[error("Associating an address to account failed")]
-    // AssociationFailed(#[from] AssociationError),
-    // #[error("Error Initializing Store")]
-    // StoreInitialization(#[from] SE),
     #[error("Error initializing identity: {0}")]
     IdentityInitialization(#[from] IdentityError),
 
