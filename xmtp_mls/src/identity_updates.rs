@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use prost::Message;
 use thiserror::Error;
 use xmtp_id::associations::{
@@ -23,8 +25,14 @@ pub enum IdentityUpdateError {
 }
 
 pub struct InstallationDiff {
-    pub added_installations: Vec<Vec<u8>>,
-    pub removed_installations: Vec<Vec<u8>>,
+    pub added_installations: HashSet<Vec<u8>>,
+    pub removed_installations: HashSet<Vec<u8>>,
+}
+
+#[derive(Debug, Error)]
+pub enum InstallationDiffError {
+    #[error(transparent)]
+    Client(#[from] ClientError),
 }
 
 impl<'a, ApiClient> Client<ApiClient>
@@ -37,6 +45,10 @@ where
         conn: &'a DbConnection<'a>,
         inbox_ids: Vec<String>,
     ) -> Result<(), ClientError> {
+        if inbox_ids.is_empty() {
+            return Ok(());
+        }
+
         let existing_sequence_ids = conn.get_latest_sequence_id(&inbox_ids)?;
         let filters: Vec<GetIdentityUpdatesV2Filter> = inbox_ids
             .into_iter()
@@ -239,13 +251,13 @@ where
 
     /// Given two group memberships and the diff, get the list of installations that were added or removed
     /// between the two membership states.
-    pub async fn get_installation_diff(
+    pub async fn get_installation_diff<'diff>(
         &self,
         conn: &'a DbConnection<'a>,
         old_group_membership: &GroupMembership,
         new_group_membership: &GroupMembership,
-        membership_diff: &MembershipDiff<'a>,
-    ) -> Result<InstallationDiff, ClientError> {
+        membership_diff: &MembershipDiff<'diff>,
+    ) -> Result<InstallationDiff, InstallationDiffError> {
         let added_and_updated_members = membership_diff
             .added_inboxes
             .iter()
@@ -265,8 +277,8 @@ where
         self.load_identity_updates(conn, self.filter_inbox_ids_needing_updates(conn, filters)?)
             .await?;
 
-        let mut added_installations: Vec<Vec<u8>> = vec![];
-        let mut removed_installations: Vec<Vec<u8>> = vec![];
+        let mut added_installations: HashSet<Vec<u8>> = HashSet::new();
+        let mut removed_installations: HashSet<Vec<u8>> = HashSet::new();
 
         // TODO: Do all of this in parallel
         for inbox_id in added_and_updated_members {
@@ -548,22 +560,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(installation_diff.added_installations.len(), 1);
-        assert_eq!(
-            installation_diff
-                .added_installations
-                .first()
-                .unwrap()
-                .clone(),
-            client_3_installation_key
-        );
+        assert!(installation_diff
+            .added_installations
+            .contains(&client_3_installation_key),);
         assert_eq!(installation_diff.removed_installations.len(), 1);
-        assert_eq!(
-            installation_diff
-                .removed_installations
-                .first()
-                .unwrap()
-                .clone(),
-            client_2_installation_key
-        );
+        assert!(installation_diff
+            .removed_installations
+            .contains(&client_2_installation_key));
     }
 }

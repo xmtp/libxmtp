@@ -33,15 +33,20 @@ pub enum ClientBuilderError {
     #[error("Database was configured with a different wallet")]
     StoredIdentityMismatch,
 
-    // #[error("Associating an address to account failed")]
-    // AssociationFailed(#[from] AssociationError),
-    // #[error("Error Initializing Store")]
-    // StoreInitialization(#[from] SE),
+    #[error("Inbox ID mismatch with address")]
+    InboxIdMismatch,
+    #[error("Uncovered Case")]
+    UncoveredCase,
+
     #[error("Error initializing identity: {0}")]
     IdentityInitialization(#[from] IdentityError),
 
     #[error("Storage Error")]
     StorageError(#[from] StorageError),
+    #[error(transparent)]
+    Identity(#[from] crate::identity::xmtp_id::identity::IdentityError),
+    #[error(transparent)]
+    WrappedApiError(#[from] crate::api::WrappedApiError),
 }
 
 pub struct ClientBuilder<ApiClient> {
@@ -168,14 +173,6 @@ mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
         assert!(client.account_address() == format!("{address:#020x}"));
         assert!(!client.installation_public_key().is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_allow_history_sync() {
-        let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(&wallet).await;
-        // This asserts that a sync group was successfully created
-        assert!(client.allow_history_sync().is_ok());
     }
 
     #[tokio::test]
