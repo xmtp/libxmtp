@@ -3,8 +3,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use diesel::sql_types::Binary;
 use diesel::{deserialize::QueryableByName, sql_query, RunQueryDsl};
 use log::error;
+use openmls::storage;
+use openmls_traits::storage::traits::{SignatureKeyPair, SignaturePublicKey};
 use openmls_traits::storage::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{from_slice, Value};
 
 use super::encrypted_store::db_connection::DbConnection;
@@ -447,7 +449,13 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         &self,
         public_key: &SignaturePublicKey,
     ) -> Result<Option<SignatureKeyPair>, Self::Error> {
-        Err(MemoryStorageError::UnsupportedMethod)
+        let key =
+            build_key::<CURRENT_VERSION, &SignaturePublicKey>(SIGNATURE_KEY_PAIR_LABEL, public_key);
+
+        match self.read(SIGNATURE_KEY_PAIR_LABEL, &key) {
+            Ok(value) => Ok(value),
+            Err(e) => Err(e),
+        }
     }
 
     fn write_key_package<
@@ -525,12 +533,15 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
     }
 
     fn delete_signature_key_pair<
-        SignaturePublicKeuy: traits::SignaturePublicKey<CURRENT_VERSION>,
+        SignaturePublicKey: traits::SignaturePublicKey<CURRENT_VERSION>,
     >(
         &self,
-        public_key: &SignaturePublicKeuy,
+        public_key: &SignaturePublicKey,
     ) -> Result<(), Self::Error> {
-        Err(MemoryStorageError::UnsupportedMethod)
+        self.delete::<CURRENT_VERSION>(
+            SIGNATURE_KEY_PAIR_LABEL,
+            &serde_json::to_vec(public_key).unwrap(),
+        )
     }
 
     fn delete_encryption_key_pair<EncryptionKey: traits::EncryptionKey<CURRENT_VERSION>>(
@@ -990,7 +1001,7 @@ impl From<serde_json::Error> for MemoryStorageError {
 
 #[cfg(test)]
 mod tests {
-    use openmls_basic_credential::SignatureKeyPair;
+    use openmls_basic_credential::{SignatureKeyPair, StorageId};
     use openmls_traits::storage::StorageProvider;
 
     use super::SqlKeyStore;
@@ -1010,15 +1021,43 @@ mod tests {
         .unwrap();
         let conn = &store.conn().unwrap();
         let key_store = SqlKeyStore::new(conn);
-        let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
-        let index = "index".as_bytes();
-        // assert!(key_store.signature_key_pair(index).is_none());
-        // key_store.write_signature_key_pair(index, &signature_keys).unwrap();
-        // assert!(key_store.signature_key_pair(index).is_some());
-        // key_store.delete_signature_key_pair(index).unwrap();
-        // assert!(key_store.signature_key_pair(index).is_none());
-    }
 
+        let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
+
+        assert!(key_store
+            .signature_key_pair::<StorageId, SignatureKeyPair>(&StorageId::from(
+                signature_keys.to_public_vec()
+            ))
+            .unwrap()
+            .is_none());
+
+        key_store
+            .write_signature_key_pair::<StorageId, SignatureKeyPair>(
+                &StorageId::from(signature_keys.to_public_vec()),
+                &signature_keys,
+            )
+            .unwrap();
+
+        assert!(key_store
+            .signature_key_pair::<StorageId, SignatureKeyPair>(&StorageId::from(
+                signature_keys.to_public_vec()
+            ))
+            .unwrap()
+            .is_some());
+
+        key_store
+            .delete_signature_key_pair::<StorageId>(&StorageId::from(
+                signature_keys.to_public_vec(),
+            ))
+            .unwrap();
+
+        assert!(key_store
+            .signature_key_pair::<StorageId, SignatureKeyPair>(&StorageId::from(
+                signature_keys.to_public_vec()
+            ))
+            .unwrap()
+            .is_none());
+    }
 
     #[test]
     fn list_append_remove() {
@@ -1030,12 +1069,5 @@ mod tests {
         .unwrap();
         let conn = &store.conn().unwrap();
         let key_store = SqlKeyStore::new(conn);
-        let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
-        let index = "index".as_bytes();
-        // assert!(key_store.signature_key_pair(index).is_none());
-        // key_store.write_signature_key_pair(index, &signature_keys).unwrap();
-        // assert!(key_store.signature_key_pair(index).is_some());
-        // key_store.delete_signature_key_pair(index).unwrap();
-        // assert!(key_store.signature_key_pair(index).is_none());
     }
 }

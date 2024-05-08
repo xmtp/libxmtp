@@ -32,10 +32,10 @@ futures-core = "0.3.30"
 hex = "0.4.3"
 jsonrpsee = { version = "0.22", features = ["macros", "server", "client-core"] }
 log = "0.4"
-openmls = { git = "https://github.com/xmtp/openmls", rev = "e6a2553" }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "e6a2553" }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "e6a2553" }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "e6a2553" }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "79aed1a" }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "79aed1a" }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "79aed1a" }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "79aed1a" }
 prost = "^0.12"
 prost-types = "^0.12"
 rand = "0.8.5"
