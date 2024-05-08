@@ -17,14 +17,12 @@ public enum ConversationError: Error, CustomStringConvertible {
 }
 
 public enum GroupError: Error, CustomStringConvertible {
-	case alphaMLSNotEnabled, emptyCreation, memberCannotBeSelf, memberNotRegistered([String]), groupsRequireMessagePassed, notSupportedByGroups
+	case alphaMLSNotEnabled, memberCannotBeSelf, memberNotRegistered([String]), groupsRequireMessagePassed, notSupportedByGroups
 
 	public var description: String {
 		switch self {
 		case .alphaMLSNotEnabled:
 			return "GroupError.alphaMLSNotEnabled"
-		case .emptyCreation:
-			return "GroupError.emptyCreation you cannot create an empty group"
 		case .memberCannotBeSelf:
 			return "GroupError.memberCannotBeSelf you cannot add yourself to a group"
 		case .memberNotRegistered(let array):
@@ -120,9 +118,6 @@ public actor Conversations {
 			throw GroupError.alphaMLSNotEnabled
 		}
 
-		if addresses.isEmpty {
-			throw GroupError.emptyCreation
-		}
 
 		if addresses.first(where: { $0.lowercased() == client.address.lowercased() }) != nil {
 			throw GroupError.memberCannotBeSelf

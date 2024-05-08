@@ -328,12 +328,10 @@ class GroupTests: XCTestCase {
 		)
 	}
 
-	func testCannotStartEmptyGroup() async throws {
+	func testCanStartEmptyGroup() async throws {
 		let fixtures = try await localFixtures()
-
-		await assertThrowsAsyncError(
-			try await fixtures.aliceClient.conversations.newGroup(with: [])
-		)
+		let group = try await fixtures.aliceClient.conversations.newGroup(with: [])
+		XCTAssert(!group.id.isEmpty)
 	}
 
 	func testCannotStartGroupWithNonRegisteredIdentity() async throws {
