@@ -1,6 +1,7 @@
 use std::array::TryFromSliceError;
 
 use ed25519_dalek::SigningKey;
+use ethers::signers::{LocalWallet, WalletError};
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential},
     prelude::Credential as OpenMlsCredential,
@@ -31,6 +32,7 @@ use xmtp_v2::k256_helper;
 use crate::{
     api::{ApiClientWrapper, WrappedApiError},
     configuration::CIPHERSUITE,
+    InboxOwner,
 };
 
 #[derive(Debug, Error)]
@@ -47,6 +49,8 @@ pub enum IdentityError {
     BasicCredential(#[from] BasicCredentialError),
     #[error("Legacy key re-use")]
     LegacyKeyReuse,
+    #[error("legacy key does not match address")]
+    LegacyKeyMismatch,
     #[error("Installation key {0}")]
     InstallationKey(String),
     #[error("Malformed legacy key: {0}")]
@@ -55,6 +59,8 @@ pub enum IdentityError {
     LegacySignature(String),
     #[error(transparent)]
     Crypto(#[from] CryptoError),
+    #[error(transparent)]
+    WalletError(#[from] WalletError),
 }
 
 #[derive(Debug, Clone)]
@@ -96,6 +102,12 @@ impl Identity {
                 return Err(IdentityError::LegacyKeyReuse);
             }
 
+            // sanity check if address matches the one derived from legacy_signed_private_key
+            let legacy_key_address = legacy_key_to_address(legacy_signed_private_key.clone())?;
+            if address != legacy_key_address {
+                return Err(IdentityError::LegacyKeyMismatch);
+            }
+
             // 2. has legacy key, no inbox -> create an inbox and sign the installation key with the legacy key.
             let nonce = 0;
             let inbox_id = generate_inbox_id(&address, &nonce);
@@ -106,22 +118,16 @@ impl Identity {
                 .build();
 
             signature_request
-                .add_signature(Box::new(
-                    sign_with_installation_key(
-                        signature_request.signature_text(),
-                        sized_installation_key(signature_keys.private())?,
-                    )
-                    .await?,
-                ))
+                .add_signature(Box::new(sign_with_installation_key(
+                    signature_request.signature_text(),
+                    sized_installation_key(signature_keys.private())?,
+                )?))
                 .await?;
             signature_request
-                .add_signature(Box::new(
-                    sign_with_legacy_key(
-                        signature_request.signature_text(),
-                        legacy_signed_private_key,
-                    )
-                    .await?,
-                ))
+                .add_signature(Box::new(sign_with_legacy_key(
+                    signature_request.signature_text(),
+                    legacy_signed_private_key,
+                )?))
                 .await?;
             let identity_update = signature_request.build_identity_update()?;
             api_client.publish_identity_update(identity_update).await?;
@@ -155,13 +161,10 @@ impl Identity {
                 .build();
 
             signature_request
-                .add_signature(Box::new(
-                    sign_with_installation_key(
-                        signature_request.signature_text(),
-                        sized_installation_key(signature_keys.private())?,
-                    )
-                    .await?,
-                ))
+                .add_signature(Box::new(sign_with_installation_key(
+                    signature_request.signature_text(),
+                    sized_installation_key(signature_keys.private())?,
+                )?))
                 .await?;
 
             let identity = Self {
@@ -180,7 +183,7 @@ impl Identity {
     }
 }
 
-async fn sign_with_installation_key(
+fn sign_with_installation_key(
     signature_text: String,
     installation_private_key: &[u8; 32],
 ) -> Result<InstallationKeySignature, IdentityError> {
@@ -201,7 +204,21 @@ async fn sign_with_installation_key(
     Ok(installation_key_sig)
 }
 
-async fn sign_with_legacy_key(
+/// Convert a legacy signed private key(secp256k1) to an address.
+fn legacy_key_to_address(legacy_signed_private_key: Vec<u8>) -> Result<String, IdentityError> {
+    let legacy_signed_private_key_proto =
+        LegacySignedPrivateKeyProto::decode(legacy_signed_private_key.as_slice())?;
+    let signed_private_key::Union::Secp256k1(secp256k1) = legacy_signed_private_key_proto
+        .union
+        .ok_or(IdentityError::MalformedLegacyKey(
+            "Missing secp256k1.union field".to_string(),
+        ))?;
+    let legacy_private_key = secp256k1.bytes;
+    let wallet: LocalWallet = LocalWallet::from_bytes(&legacy_private_key)?;
+    Ok(wallet.get_address())
+}
+
+fn sign_with_legacy_key(
     signature_text: String,
     legacy_signed_private_key: Vec<u8>,
 ) -> Result<LegacyDelegatedSignature, IdentityError> {
