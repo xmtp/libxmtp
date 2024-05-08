@@ -276,7 +276,7 @@ where
             self.client.account_address()
         );
         let decrypted_message = openmls_group.process_message(provider, message)?;
-        let (sender_account_address, sender_installation_id) =
+        let (_sender_account_address, sender_installation_id) =
             validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
 
         match decrypted_message.into_content() {
