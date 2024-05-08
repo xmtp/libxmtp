@@ -77,10 +77,6 @@ impl IdentityAction for CreateInbox {
 
         let account_address = self.account_address.clone();
         let recovered_signer = self.initial_address_signature.recover_signer().await?;
-        println!(
-            "RECOVERED: {:?}, ACCOUNT {:?}",
-            recovered_signer, account_address
-        );
         if recovered_signer.ne(&MemberIdentifier::Address(account_address.clone())) {
             return Err(AssociationError::MissingExistingMember);
         }
