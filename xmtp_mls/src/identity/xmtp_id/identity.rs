@@ -73,87 +73,108 @@ impl Identity {
 
     /// Create a new [Identity] instance.
     ///
-    /// If legacy_key is provided
-    ///     1. If `address` is associated with an inbox -> return an LegacyKeyReuse error.
-    ///     2. If `address` is NOT associated with an inbox -> create a new inbox and sign the installation key with the legacy key.
-    /// If legacy_key is NOT provided
-    ///     3. If `address` is associated with an inbox -> sign the installation key with the wallet.
-    ///     4. If `address` is NOT associated with an inbox -> create a new inbox and sign the installation key with the wallet.
+    /// If the address is not associated with an inbox_id, a new inbox_id will be generated.
+    /// Use legacy key to sign if it's present, otherwise users will be required to sign with their wallet.
+    ///
+    /// If the address is already associated with an inbox_id, the existing inbox_id will be used.
+    /// Users will be required to sign with their wallet.
+    ///
     pub(crate) async fn new<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
         address: String,
         legacy_signed_private_key: Option<Vec<u8>>,
         api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<Self, IdentityError> {
+        // check if address is already associated with an inbox_id
         let inbox_ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
-        let associated_inbox_id: Option<&InboxId> = inbox_ids.get(&address);
-        let member_identifier: MemberIdentifier = address.clone().into();
+        let inbox_id = inbox_ids.get(&address);
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
         let installation_public_key = signature_keys.public();
+        let member_identifier: MemberIdentifier = address.clone().into();
 
-        if let Some(legacy_signed_private_key) = legacy_signed_private_key {
-            // 1. has legacy key, has inbox -> LegacyKeyReuse error
-            if associated_inbox_id.is_some() {
-                return Err(IdentityError::LegacyKeyReuse);
-            }
+        // if an inbox is not associated, we will create a new one
+        // and sign the installation key using legacy key or wallet.
+        if inbox_id.is_none() {
+            if let Some(legacy_signed_private_key) = legacy_signed_private_key {
+                // TODO: check if address matches legacy_signed_private_key
+                let nonce = 0;
+                let inbox_id = generate_inbox_id(&address, &nonce);
+                let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
+                builder = builder.create_inbox(member_identifier.clone(), nonce);
+                let mut signature_request = builder
+                    .add_association(installation_public_key.to_vec().into(), member_identifier)
+                    .build();
 
-            // 2. has legacy key, no inbox -> create an inbox and sign the installation key with the legacy key.
-            let nonce = 0;
-            let inbox_id = generate_inbox_id(&address, &nonce);
-            let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
-            builder = builder.create_inbox(member_identifier.clone(), nonce);
-            let mut signature_request = builder
-                .add_association(installation_public_key.to_vec().into(), member_identifier)
-                .build();
+                // We can pre-sign the request with an installation key signature, since we have access to the key
+                signature_request
+                    .add_signature(Box::new(
+                        sign_with_installation_key(
+                            signature_request.signature_text(),
+                            sized_installation_key(signature_keys.private())?,
+                        )
+                        .await?,
+                    ))
+                    .await?;
+                signature_request
+                    .add_signature(Box::new(
+                        sign_with_legacy_key(
+                            signature_request.signature_text(),
+                            legacy_signed_private_key,
+                        )
+                        .await?,
+                    ))
+                    .await?;
+                let identity_update = signature_request.build_identity_update()?;
+                api_client.publish_identity_update(identity_update).await?;
 
-            signature_request
-                .add_signature(Box::new(
-                    sign_with_installation_key(
-                        signature_request.signature_text(),
-                        sized_installation_key(signature_keys.private())?,
-                    )
-                    .await?,
-                ))
-                .await?;
-            signature_request
-                .add_signature(Box::new(
-                    sign_with_legacy_key(
-                        signature_request.signature_text(),
-                        legacy_signed_private_key,
-                    )
-                    .await?,
-                ))
-                .await?;
-            let identity_update = signature_request.build_identity_update()?;
-            api_client.publish_identity_update(identity_update).await?;
+                let identity = Self {
+                    inbox_id: inbox_id.clone(),
+                    installation_keys: signature_keys,
+                    credential: create_credential(inbox_id)?,
+                    signature_request: None,
+                };
 
-            let identity = Self {
-                inbox_id: inbox_id.clone(),
-                installation_keys: signature_keys,
-                credential: create_credential(inbox_id)?,
-                signature_request: None,
-            };
-
-            Ok(identity)
-        } else {
-            let (builder, inbox_id) = if let Some(associated_inbox_id) = associated_inbox_id {
-                // 3. no legacy key, has inbox -> sign the installation key with the wallet.
-                (
-                    SignatureRequestBuilder::new(associated_inbox_id.clone()),
-                    associated_inbox_id.clone(),
-                )
+                Ok(identity)
             } else {
-                // 4. no legacy key, no inbox -> create a new inbox and sign the installation key with the wallet.
                 let nonce = rand::random::<u64>();
-                let new_inbox_id = generate_inbox_id(&address, &nonce);
-                let builder = SignatureRequestBuilder::new(new_inbox_id.clone())
-                    .create_inbox(member_identifier.clone(), nonce);
-                (builder, new_inbox_id.clone())
-            };
+                let inbox_id = generate_inbox_id(&address, &nonce);
+                let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
+                builder = builder.create_inbox(member_identifier.clone(), nonce);
 
+                let mut signature_request = builder
+                    .add_association(installation_public_key.to_vec().into(), member_identifier)
+                    .build();
+
+                // We can pre-sign the request with an installation key signature, since we have access to the key
+                signature_request
+                    .add_signature(Box::new(
+                        sign_with_installation_key(
+                            signature_request.signature_text(),
+                            sized_installation_key(signature_keys.private())?,
+                        )
+                        .await?,
+                    ))
+                    .await?;
+
+                let identity = Self {
+                    inbox_id: inbox_id.clone(),
+                    installation_keys: signature_keys,
+                    credential: create_credential(inbox_id.clone())?,
+                    signature_request: Some(signature_request),
+                };
+
+                Ok(identity)
+            }
+        } else {
+            // If an inbox is associated, we just need to associate the installation key
+            // Only wallet is allowed to sign the installation key, legacy key is not
+            let nonce = rand::random::<u64>();
+            let inbox_id = generate_inbox_id(&address, &nonce);
+            let builder = SignatureRequestBuilder::new(inbox_id.clone());
             let mut signature_request = builder
                 .add_association(installation_public_key.to_vec().into(), member_identifier)
                 .build();
 
+            // We can pre-sign the request with an installation key signature, since we have access to the key
             signature_request
                 .add_signature(Box::new(
                     sign_with_installation_key(
