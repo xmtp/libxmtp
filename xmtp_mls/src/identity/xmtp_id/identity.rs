@@ -124,81 +124,79 @@ impl Identity {
             };
 
             Ok(identity)
-        } else {
-            if let Some(legacy_signed_private_key) = legacy_signed_private_key {
-                // sanity check if address matches the one derived from legacy_signed_private_key
-                let legacy_key_address = legacy_key_to_address(legacy_signed_private_key.clone())?;
-                if address != legacy_key_address {
-                    return Err(IdentityError::LegacyKeyMismatch);
-                }
-
-                let nonce = 0;
-                let inbox_id = generate_inbox_id(&address, &nonce);
-                let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
-                builder = builder.create_inbox(member_identifier.clone(), nonce);
-                let mut signature_request = builder
-                    .add_association(installation_public_key.to_vec().into(), member_identifier)
-                    .build();
-
-                signature_request
-                    .add_signature(Box::new(
-                        sign_with_installation_key(
-                            signature_request.signature_text(),
-                            sized_installation_key(signature_keys.private())?,
-                        )
-                        .await?,
-                    ))
-                    .await?;
-                signature_request
-                    .add_signature(Box::new(
-                        sign_with_legacy_key(
-                            signature_request.signature_text(),
-                            legacy_signed_private_key,
-                        )
-                        .await?,
-                    ))
-                    .await?;
-                let identity_update = signature_request.build_identity_update()?;
-                api_client.publish_identity_update(identity_update).await?;
-
-                let identity = Self {
-                    inbox_id: inbox_id.clone(),
-                    installation_keys: signature_keys,
-                    credential: create_credential(inbox_id)?,
-                    signature_request: None,
-                };
-
-                Ok(identity)
-            } else {
-                let nonce = rand::random::<u64>();
-                let inbox_id = generate_inbox_id(&address, &nonce);
-                let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
-                builder = builder.create_inbox(member_identifier.clone(), nonce);
-
-                let mut signature_request = builder
-                    .add_association(installation_public_key.to_vec().into(), member_identifier)
-                    .build();
-
-                // We can pre-sign the request with an installation key signature, since we have access to the key
-                signature_request
-                    .add_signature(Box::new(
-                        sign_with_installation_key(
-                            signature_request.signature_text(),
-                            sized_installation_key(signature_keys.private())?,
-                        )
-                        .await?,
-                    ))
-                    .await?;
-
-                let identity = Self {
-                    inbox_id: inbox_id.clone(),
-                    installation_keys: signature_keys,
-                    credential: create_credential(inbox_id.clone())?,
-                    signature_request: Some(signature_request),
-                };
-
-                Ok(identity)
+        } else if let Some(legacy_signed_private_key) = legacy_signed_private_key {
+            // sanity check if address matches the one derived from legacy_signed_private_key
+            let legacy_key_address = legacy_key_to_address(legacy_signed_private_key.clone())?;
+            if address != legacy_key_address {
+                return Err(IdentityError::LegacyKeyMismatch);
             }
+
+            let nonce = 0;
+            let inbox_id = generate_inbox_id(&address, &nonce);
+            let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
+            builder = builder.create_inbox(member_identifier.clone(), nonce);
+            let mut signature_request = builder
+                .add_association(installation_public_key.to_vec().into(), member_identifier)
+                .build();
+
+            signature_request
+                .add_signature(Box::new(
+                    sign_with_installation_key(
+                        signature_request.signature_text(),
+                        sized_installation_key(signature_keys.private())?,
+                    )
+                    .await?,
+                ))
+                .await?;
+            signature_request
+                .add_signature(Box::new(
+                    sign_with_legacy_key(
+                        signature_request.signature_text(),
+                        legacy_signed_private_key,
+                    )
+                    .await?,
+                ))
+                .await?;
+            let identity_update = signature_request.build_identity_update()?;
+            api_client.publish_identity_update(identity_update).await?;
+
+            let identity = Self {
+                inbox_id: inbox_id.clone(),
+                installation_keys: signature_keys,
+                credential: create_credential(inbox_id)?,
+                signature_request: None,
+            };
+
+            Ok(identity)
+        } else {
+            let nonce = rand::random::<u64>();
+            let inbox_id = generate_inbox_id(&address, &nonce);
+            let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
+            builder = builder.create_inbox(member_identifier.clone(), nonce);
+
+            let mut signature_request = builder
+                .add_association(installation_public_key.to_vec().into(), member_identifier)
+                .build();
+
+            // We can pre-sign the request with an installation key signature, since we have access to the key
+            signature_request
+                .add_signature(Box::new(
+                    sign_with_installation_key(
+                        signature_request.signature_text(),
+                        sized_installation_key(signature_keys.private())?,
+                    )
+                    .await?,
+                ))
+                .await?;
+
+            let identity = Self {
+                inbox_id: inbox_id.clone(),
+                installation_keys: signature_keys,
+                credential: create_credential(inbox_id.clone())?,
+                signature_request: Some(signature_request),
+            };
+
+            Ok(identity)
         }
     }
 
