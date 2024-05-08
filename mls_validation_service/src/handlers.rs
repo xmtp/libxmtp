@@ -380,7 +380,7 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
 
 #[cfg(test)]
 mod tests {
-    use ed25519_dalek::{SigningKey, VerifyingKey};
+    use ed25519_dalek::SigningKey;
     use ethers::signers::LocalWallet;
     use openmls::{
         extensions::{ApplicationIdExtension, Extension, Extensions},
@@ -393,7 +393,6 @@ mod tests {
     };
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_rust_crypto::OpenMlsRustCrypto;
-    use openmls_traits::signatures::Signer;
     use prost::Message;
     use sha2::{Digest, Sha512};
     use xmtp_id::{
@@ -403,8 +402,7 @@ mod tests {
                 SignatureTextCreator as _, UnsignedAction, UnsignedCreateInbox,
                 UnsignedIdentityUpdate,
             },
-            Action, AddAssociation, CreateInbox, IdentityUpdate, InstallationKeySignature,
-            Signature,
+            Action, CreateInbox, IdentityUpdate, InstallationKeySignature,
         },
         constants::INSTALLATION_KEY_SIGNATURE_CONTEXT,
     };
