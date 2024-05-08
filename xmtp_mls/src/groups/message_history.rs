@@ -21,6 +21,7 @@ use super::GroupError;
 
 use crate::{
     client::ClientError,
+    configuration::DELIMITER,
     groups::{intents::SendMessageIntentData, GroupMessageKind, StoredGroupMessage},
     storage::{
         group::StoredGroup,
@@ -84,7 +85,7 @@ where
 
         // publish the intent
         if let Err(err) = sync_group.publish_intents(conn).await {
-            println!("error publishing sync group intents: {:?}", err);
+            log::error!("error publishing sync group intents: {:?}", err);
         }
 
         Ok(pin_code)
@@ -123,7 +124,7 @@ where
 
         // publish the intent
         if let Err(err) = sync_group.publish_intents(conn).await {
-            println!("error publishing sync group intents: {:?}", err);
+            log::error!("error publishing sync group intents: {:?}", err);
         }
         Ok(())
     }
@@ -147,7 +148,7 @@ where
         )?;
         let request = requests.into_iter().find(|msg| {
             let msg_bytes = &msg.decrypted_message_bytes;
-            match msg_bytes.iter().position(|&idx| idx == b':') {
+            match msg_bytes.iter().position(|&idx| idx == DELIMITER as u8) {
                 Some(index) => {
                     let (_id_part, pin_part) = msg_bytes.split_at(index);
                     let pin = String::from_utf8_lossy(&pin_part[1..]);
@@ -453,21 +454,20 @@ mod tests {
         let pin_challenge_result = amal_a.provide_pin(&pin_code);
         assert_ok!(pin_challenge_result);
 
-        // amal_a sends a message history reply back to amal_b
+        // amal_a builds and sends a message history reply back
+        let history_reply = HistoryReply::new(
+            "test",
+            "https://test.com/abc-123",
+            b"ABC123".into(),
+            HistoryKeyType::new_chacha20_poly1305_key(),
+            HistoryKeyType::new_chacha20_poly1305_key(),
+        );
         amal_a
-            .send_message_history_reply(
-                HistoryReply::new(
-                    "test",
-                    "https://test.com/abc-123",
-                    b"ABC123".into(),
-                    HistoryKeyType::new_chacha20_poly1305_key(),
-                    HistoryKeyType::new_chacha20_poly1305_key(),
-                )
-                .into(),
-            )
+            .send_message_history_reply(history_reply.into())
             .await
             .expect("send reply");
 
+        amal_a_sync_group.sync().await.expect("sync");
         // amal_b should have received the reply
         let amal_b_sync_groups = amal_b.store.conn().unwrap().find_sync_groups().unwrap();
         assert_eq!(amal_b_sync_groups.len(), 1);
@@ -475,7 +475,16 @@ mod tests {
         let amal_b_sync_group = amal_b.group(amal_b_sync_groups[0].id.clone()).unwrap();
         amal_b_sync_group.sync().await.expect("sync");
 
-        assert_eq!(1, 1);
+        let amal_b_conn = amal_b.store.conn().unwrap();
+        let amal_b_messages = amal_b_conn
+            .get_group_messages(amal_b_sync_group.group_id, None, None, None, None, None)
+            .unwrap();
+
+        assert_eq!(amal_b_messages.len(), 1);
+        
+        // for message in amal_b_messages {
+        //     println!("{:?}", String::from_utf8(message.decrypted_message_bytes));
+        // }
     }
 
     #[tokio::test]
