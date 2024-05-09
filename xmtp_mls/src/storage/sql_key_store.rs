@@ -3,10 +3,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use diesel::sql_types::Binary;
 use diesel::{deserialize::QueryableByName, sql_query, RunQueryDsl};
 use log::error;
-use openmls::storage;
-use openmls_traits::storage::traits::{SignatureKeyPair, SignaturePublicKey};
 use openmls_traits::storage::*;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{from_slice, Value};
 
 use super::encrypted_store::db_connection::DbConnection;
@@ -538,10 +536,9 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         &self,
         public_key: &SignaturePublicKey,
     ) -> Result<(), Self::Error> {
-        self.delete::<CURRENT_VERSION>(
-            SIGNATURE_KEY_PAIR_LABEL,
-            &serde_json::to_vec(public_key).unwrap(),
-        )
+        let key =
+            build_key::<CURRENT_VERSION, &SignaturePublicKey>(SIGNATURE_KEY_PAIR_LABEL, public_key);
+        self.delete::<CURRENT_VERSION>(SIGNATURE_KEY_PAIR_LABEL, &key)
     }
 
     fn delete_encryption_key_pair<EncryptionKey: traits::EncryptionKey<CURRENT_VERSION>>(
@@ -1011,7 +1008,6 @@ mod tests {
     use crate::{
         api::test_utils::get_test_api_client,
         api::ApiClientWrapper,
-        builder::ClientBuilder,
         configuration::CIPHERSUITE,
         identity::v3::Identity,
         storage::{EncryptedMessageStore, StorageOption},
