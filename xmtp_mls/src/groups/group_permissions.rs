@@ -387,10 +387,11 @@ pub enum PermissionsBasePolicies {
 
 impl PermissionsPolicy for &PermissionsBasePolicies {
     fn evaluate(&self, _actor: &CommitParticipant, _change: &PermissionsChange) -> bool {
+        // TODO PERMISSIONS: Update this for permission policy updates
         match self {
             PermissionsBasePolicies::Deny => false,
-            PermissionsBasePolicies::AllowIfActorAdminOrSuperAdmin => true, // TODO fix this
-            PermissionsBasePolicies::AllowIfActorSuperAdmin => true,        // TODO fix this
+            PermissionsBasePolicies::AllowIfActorAdminOrSuperAdmin => true,
+            PermissionsBasePolicies::AllowIfActorSuperAdmin => true,
         }
     }
 
