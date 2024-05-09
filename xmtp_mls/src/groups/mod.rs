@@ -1,7 +1,7 @@
 pub mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
-mod group_permissions;
+pub mod group_permissions;
 mod intents;
 mod members;
 mod message_history;
@@ -1207,7 +1207,7 @@ mod tests {
         let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let amal_group = amal
-            .create_group(Some(PreconfiguredPolicies::GroupCreatorIsAdmin))
+            .create_group(Some(PreconfiguredPolicies::AdminsOnly))
             .unwrap();
         // Add bola to the group
         amal_group
@@ -1227,7 +1227,7 @@ mod tests {
     async fn test_max_limit_add() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let amal_group = amal
-            .create_group(Some(PreconfiguredPolicies::GroupCreatorIsAdmin))
+            .create_group(Some(PreconfiguredPolicies::AdminsOnly))
             .unwrap();
         let mut clients = Vec::new();
         for _ in 0..249 {
@@ -1248,7 +1248,7 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and verify it has the default group name
-        let policies = Some(PreconfiguredPolicies::GroupCreatorIsAdmin);
+        let policies = Some(PreconfiguredPolicies::AdminsOnly);
         let amal_group: MlsGroup<_> = amal.create_group(policies).unwrap();
         amal_group.sync().await.unwrap();
 
@@ -1323,7 +1323,7 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and verify it has the default group name
-        let policies = Some(PreconfiguredPolicies::EveryoneIsAdmin);
+        let policies = Some(PreconfiguredPolicies::AllMembers);
         let amal_group: MlsGroup<_> = amal.create_group(policies).unwrap();
         amal_group.sync().await.unwrap();
 

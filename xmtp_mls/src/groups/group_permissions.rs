@@ -1035,7 +1035,7 @@ fn default_remove_installation_policy() -> MembershipPolicies {
 }
 
 /// A policy where any member can add or remove any other member
-pub(crate) fn policy_everyone_is_admin() -> PolicySet {
+pub(crate) fn policy_all_members() -> PolicySet {
     let mut metadata_policies_map: HashMap<String, MetadataPolicies> = HashMap::new();
     for field in GroupMutableMetadata::supported_fields() {
         metadata_policies_map.insert(field.to_string(), MetadataPolicies::allow());
@@ -1050,18 +1050,15 @@ pub(crate) fn policy_everyone_is_admin() -> PolicySet {
     )
 }
 
-/// A policy where only the group creator can add or remove members
-pub(crate) fn policy_group_creator_is_admin() -> PolicySet {
+/// A policy where only the admins can add or remove members
+pub(crate) fn policy_admin_only() -> PolicySet {
     let mut metadata_policies_map: HashMap<String, MetadataPolicies> = HashMap::new();
     for field in GroupMutableMetadata::supported_fields() {
-        metadata_policies_map.insert(
-            field.to_string(),
-            MetadataPolicies::allow_if_actor_super_admin(),
-        );
+        metadata_policies_map.insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
     }
     PolicySet::new(
-        MembershipPolicies::allow_if_actor_super_admin(),
-        MembershipPolicies::allow_if_actor_super_admin(),
+        MembershipPolicies::allow_if_actor_admin(),
+        MembershipPolicies::allow_if_actor_admin(),
         metadata_policies_map,
         PermissionsPolicies::allow_if_actor_super_admin(),
         PermissionsPolicies::allow_if_actor_super_admin(),
@@ -1072,23 +1069,23 @@ pub(crate) fn policy_group_creator_is_admin() -> PolicySet {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum PreconfiguredPolicies {
     #[default]
-    EveryoneIsAdmin,
-    GroupCreatorIsAdmin,
+    AllMembers,
+    AdminsOnly,
 }
 
 impl PreconfiguredPolicies {
     pub fn to_policy_set(&self) -> PolicySet {
         match self {
-            PreconfiguredPolicies::EveryoneIsAdmin => policy_everyone_is_admin(),
-            PreconfiguredPolicies::GroupCreatorIsAdmin => policy_group_creator_is_admin(),
+            PreconfiguredPolicies::AllMembers => policy_all_members(),
+            PreconfiguredPolicies::AdminsOnly => policy_admin_only(),
         }
     }
 
     pub fn from_policy_set(policy_set: &PolicySet) -> Result<Self, PolicyError> {
-        if policy_set.eq(&policy_everyone_is_admin()) {
-            Ok(PreconfiguredPolicies::EveryoneIsAdmin)
-        } else if policy_set.eq(&policy_group_creator_is_admin()) {
-            Ok(PreconfiguredPolicies::GroupCreatorIsAdmin)
+        if policy_set.eq(&policy_all_members()) {
+            Ok(PreconfiguredPolicies::AllMembers)
+        } else if policy_set.eq(&policy_admin_only()) {
+            Ok(PreconfiguredPolicies::AdminsOnly)
         } else {
             Err(PolicyError::InvalidPolicy)
         }
@@ -1333,21 +1330,21 @@ mod tests {
 
     #[test]
     fn test_preconfigured_policy() {
-        let group_permissions = GroupMutablePermissions::new(policy_everyone_is_admin());
+        let group_permissions = GroupMutablePermissions::new(policy_all_members());
 
         assert_eq!(
             group_permissions.preconfigured_policy().unwrap(),
-            PreconfiguredPolicies::EveryoneIsAdmin
+            PreconfiguredPolicies::AllMembers
         );
 
         let group_group_permissions_creator_admin =
-            GroupMutablePermissions::new(policy_group_creator_is_admin());
+            GroupMutablePermissions::new(policy_admin_only());
 
         assert_eq!(
             group_group_permissions_creator_admin
                 .preconfigured_policy()
                 .unwrap(),
-            PreconfiguredPolicies::GroupCreatorIsAdmin
+            PreconfiguredPolicies::AdminsOnly
         );
     }
 }
