@@ -99,9 +99,8 @@ pub struct ValidatedCommit {
 }
 
 impl ValidatedCommit {
-    // Build a ValidatedCommit from a StagedCommit and OpenMlsGroup
-    pub fn from_staged_commit(
-        conn: &DbConnection<'_>,
+    pub async fn from_staged_commit<ApiClient>(
+        conn: &DbConnection,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
         client: &Client<ApiClient>,

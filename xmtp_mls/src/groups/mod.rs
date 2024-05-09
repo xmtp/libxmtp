@@ -201,7 +201,7 @@ impl MlsGroup {
     }
 
     // Load the stored MLS group from the OpenMLS provider's keystore
-    fn load_mls_group(&self, provider: &XmtpOpenMlsProvider) -> Result<OpenMlsGroup, GroupError> {
+    fn load_mls_group(&self, provider: impl OpenMlsProvider) -> Result<OpenMlsGroup, GroupError> {
         let mls_group =
             OpenMlsGroup::load(&GroupId::from_slice(&self.group_id), provider.key_store())
                 .ok_or(GroupError::GroupNotFound)?;
@@ -217,7 +217,7 @@ impl MlsGroup {
         added_by_address: String,
     ) -> Result<Self, GroupError> {
         let conn = client.store.conn()?;
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata = build_protected_metadata_extension(
             &client.identity,
             permissions.unwrap_or_default().to_policy_set(),

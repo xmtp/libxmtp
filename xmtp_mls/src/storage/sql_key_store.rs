@@ -7,16 +7,25 @@ use super::{
     StorageError,
 };
 use crate::{Delete, Fetch};
+use std::borrow::Cow;
 
 /// CRUD Operations for an [`OpenMlsKeyStore`]
-#[derive(Clone, Debug)]
-pub struct SqlKeyStore {
-    conn: DbConnection,
+#[derive(Debug)]
+pub struct SqlKeyStore<'a> {
+    conn: Cow<'a, DbConnection>,
 }
 
-impl SqlKeyStore {
+impl<'a> SqlKeyStore<'a> {
     pub fn new(conn: DbConnection) -> Self {
-        Self { conn }
+        Self {
+            conn: Cow::Owned(conn),
+        }
+    }
+
+    pub fn with_ref(conn: &'a DbConnection) -> Self {
+        Self {
+            conn: Cow::Borrowed(conn),
+        }
     }
 
     pub fn conn(&self) -> &DbConnection {
@@ -24,7 +33,7 @@ impl SqlKeyStore {
     }
 }
 
-impl OpenMlsKeyStore for SqlKeyStore {
+impl OpenMlsKeyStore for SqlKeyStore<'_> {
     /// The error type returned by the [`OpenMlsKeyStore`].
     type Error = StorageError;
 

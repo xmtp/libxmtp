@@ -40,7 +40,7 @@ use crate::{
     },
     types::Address,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    xmtp_openmls_provider::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef},
     Fetch, XmtpApi,
 };
 
@@ -205,11 +205,12 @@ impl XmtpMlsLocalContext {
         self.identity.text_to_sign()
     }
 
-    pub(crate) fn mls_provider<'a, 'b: 'a>(
-        &'a self,
-        conn: &'a DbConnection<'b>,
-    ) -> XmtpOpenMlsProvider<'a, 'b> {
+    pub(crate) fn mls_provider(&self, conn: DbConnection) -> XmtpOpenMlsProvider {
         XmtpOpenMlsProvider::new(conn)
+    }
+
+    pub(crate) fn mls_provider_ref(&self, conn: &DbConnection) -> XmtpOpenMlsProviderRef<'_> {
+        XmtpOpenMlsProviderRef::new(conn)
     }
 }
 
@@ -233,7 +234,7 @@ where
         }
     }
 
-    pub(crate) fn mls_provider(&self, conn: &DbConnection<'_>) -> XmtpOpenMlsProvider<'_, '_> {
+    pub(crate) fn mls_provider(&self, conn: DbConnection) -> XmtpOpenMlsProvider {
         XmtpOpenMlsProvider::new(conn)
     }
 
@@ -322,7 +323,7 @@ where
     ) -> Result<(), ClientError> {
         log::info!("registering identity");
         let connection = self.context.store.conn()?;
-        let provider = self.mls_provider(&connection);
+        let provider = self.mls_provider(connection);
         self.context
             .identity
             .register(&provider, &self.api_client, recoverable_wallet_signature)
@@ -346,7 +347,7 @@ where
         let kp = self
             .context
             .identity
-            .new_key_package(&self.mls_provider(&connection))?;
+            .new_key_package(&self.mls_provider(connection))?;
         let kp_bytes = kp.tls_serialize_detached()?;
         self.api_client.upload_key_package(kp_bytes).await?;
 
@@ -390,7 +391,7 @@ where
     pub(crate) async fn query_group_messages(
         &self,
         group_id: &Vec<u8>,
-        conn: &DbConnection<'_>,
+        conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError> {
         let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
 
@@ -404,7 +405,7 @@ where
 
     pub(crate) async fn query_welcome_messages(
         &self,
-        conn: &DbConnection<'_>,
+        conn: &DbConnection,
     ) -> Result<Vec<WelcomeMessage>, ClientError> {
         let installation_id = self.context.installation_public_key();
         let id_cursor = conn.get_last_cursor_for_id(&installation_id, EntityKind::Welcome)?;
@@ -475,12 +476,10 @@ where
         let key_package_results = self.api_client.fetch_key_packages(installation_ids).await?;
 
         let conn = self.context.store.conn()?;
-
+        let mls_provider = self.mls_provider(conn);
         Ok(key_package_results
             .values()
-            .map(|bytes| {
-                VerifiedKeyPackage::from_bytes(self.mls_provider(&conn).crypto(), bytes.as_slice())
-            })
+            .map(|bytes| VerifiedKeyPackage::from_bytes(mls_provider.crypto(), bytes.as_slice()))
             .collect::<Result<_, _>>()?)
     }
 

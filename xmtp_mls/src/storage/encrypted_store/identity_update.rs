@@ -46,7 +46,7 @@ impl TryFrom<StoredIdentityUpdate> for IdentityUpdate {
 
 impl_store!(StoredIdentityUpdate, identity_updates);
 
-impl DbConnection<'_> {
+impl DbConnection {
     /// Returns all identity updates for the given inbox ID up to the provided sequence_id.
     /// Returns updates greater than `from_sequence_id` and less than _or equal to_ `to_sequence_id`
     pub fn get_identity_updates<InboxId: AsRef<str>>(

@@ -171,11 +171,10 @@ impl EncryptedMessageStore {
         let mut connection = self.raw_conn()?;
         let transaction = AnsiTransactionManager::begin_transaction(&mut *connection);
         let db_connection = DbConnection::new(connection);
-        let mut provider = XmtpOpenMlsProvider::new(&db_connection);
+        let mut provider = XmtpOpenMlsProvider::new(db_connection);
         match fun(&mut provider) {
             Ok(value) => {
-                let value = db_connection
-                    .raw_query(|conn| AnsiTransactionManager::commit_transaction(conn))?;
+                db_connection.raw_query(|conn| AnsiTransactionManager::commit_transaction(conn))?;
                 Ok(value)
             }
             Err(err) => match db_connection
@@ -212,7 +211,7 @@ fn warn_length<T>(list: &[T], str_id: &str, max_length: usize) {
 macro_rules! impl_fetch {
     ($model:ty, $table:ident) => {
         impl $crate::Fetch<$model>
-            for $crate::storage::encrypted_store::db_connection::DbConnection<'_>
+            for $crate::storage::encrypted_store::db_connection::DbConnection
         {
             type Key = ();
             fn fetch(&self, _key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
@@ -224,7 +223,7 @@ macro_rules! impl_fetch {
 
     ($model:ty, $table:ident, $key:ty) => {
         impl $crate::Fetch<$model>
-            for $crate::storage::encrypted_store::db_connection::DbConnection<'_>
+            for $crate::storage::encrypted_store::db_connection::DbConnection
         {
             type Key = $key;
             fn fetch(&self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
@@ -238,12 +237,12 @@ macro_rules! impl_fetch {
 #[macro_export]
 macro_rules! impl_store {
     ($model:ty, $table:ident) => {
-        impl $crate::Store<$crate::storage::encrypted_store::db_connection::DbConnection<'_>>
+        impl $crate::Store<$crate::storage::encrypted_store::db_connection::DbConnection>
             for $model
         {
             fn store(
                 &self,
-                into: &$crate::storage::encrypted_store::db_connection::DbConnection<'_>,
+                into: &$crate::storage::encrypted_store::db_connection::DbConnection,
             ) -> Result<(), $crate::StorageError> {
                 into.raw_query(|conn| {
                     diesel::insert_into($table::table)
@@ -256,11 +255,11 @@ macro_rules! impl_store {
     };
 }
 
-impl<'a, T> Store<DbConnection<'a>> for Vec<T>
+impl<T> Store<DbConnection> for Vec<T>
 where
-    T: Store<DbConnection<'a>>,
+    T: Store<DbConnection>,
 {
-    fn store(&self, into: &DbConnection<'a>) -> Result<(), StorageError> {
+    fn store(&self, into: &DbConnection) -> Result<(), StorageError> {
         for item in self {
             item.store(into)?;
         }
