@@ -3,7 +3,7 @@ pub mod mls;
 #[cfg(test)]
 pub mod test_utils;
 
-use crate::retry::Retry;
+use crate::{retry::Retry, XmtpApi};
 use thiserror::Error;
 use xmtp_id::associations::DeserializationError as AssociationDeserializationError;
 use xmtp_proto::api_client::{Error as ApiError, XmtpIdentityClient, XmtpMlsClient};
@@ -27,7 +27,7 @@ pub struct ApiClientWrapper<ApiClient> {
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
+    ApiClient: XmtpApi,
 {
     pub fn new(api_client: ApiClient, retry_strategy: Retry) -> Self {
         Self {

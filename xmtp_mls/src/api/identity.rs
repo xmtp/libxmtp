@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::types::InboxId;
+use crate::{types::InboxId, XmtpApi};
 
 use super::{ApiClientWrapper, WrappedApiError};
 use xmtp_id::associations::{DeserializationError, IdentityUpdate};
@@ -60,7 +60,7 @@ type AddressToInboxIdMap = HashMap<String, InboxId>;
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
+    ApiClient: XmtpApi,
 {
     pub async fn publish_identity_update(
         &self,

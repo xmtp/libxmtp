@@ -13,6 +13,13 @@ use xmtp_proto::xmtp::mls::message_contents::{
     GroupMembershipChanges, MembershipChange as MembershipChangeProto,
 };
 
+use crate::{
+    configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
+    identity_updates::{InstallationDiff, InstallationDiffError},
+    storage::db_connection::DbConnection,
+    Client, XmtpApi,
+};
+
 use super::{
     group_metadata::{extract_group_metadata, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{
@@ -94,9 +101,14 @@ pub struct ValidatedCommit {
 impl ValidatedCommit {
     // Build a ValidatedCommit from a StagedCommit and OpenMlsGroup
     pub fn from_staged_commit(
+        conn: &DbConnection<'_>,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
-    ) -> Result<Option<Self>, CommitValidationError> {
+        client: &Client<ApiClient>,
+    ) -> Result<Option<Self>, CommitValidationError>
+    where
+        ApiClient: XmtpApi,
+    {
         for cred in staged_commit.credentials_to_verify() {
             if cred.credential_type() != CredentialType::Basic {
                 return Err(CommitValidationError::InvalidActorCredential);

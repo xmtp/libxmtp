@@ -4,6 +4,7 @@ use xmtp_mls::{
     codecs::{text::TextCodec, ContentCodec},
     groups::MlsGroup,
     storage::group_message::StoredGroupMessage,
+    XmtpApi,
 };
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
@@ -23,7 +24,7 @@ pub struct SerializableGroup {
     pub metadata: SerializableGroupMetadata,
 }
 
-impl<A: XmtpMlsClient + XmtpIdentityClient> From<&MlsGroup<'_, A>> for SerializableGroup {
+impl<A: XmtpApi> From<&MlsGroup<'_, A>> for SerializableGroup {
     fn from(group: &MlsGroup<'_, A>) -> Self {
         let group_id = hex::encode(group.group_id.clone());
         let members = group

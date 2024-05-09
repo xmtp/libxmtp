@@ -14,7 +14,7 @@ use crate::{
     identity::v3::{Identity, IdentityError, IdentityStrategy},
     retry::Retry,
     storage::EncryptedMessageStore,
-    StorageError,
+    StorageError, XmtpApi,
 };
 
 #[derive(Error, Debug)]
@@ -59,7 +59,7 @@ pub struct ClientBuilder<ApiClient> {
 
 impl<ApiClient> ClientBuilder<ApiClient>
 where
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
+    ApiClient: XmtpApi,
 {
     pub fn new(strat: IdentityStrategy) -> Self {
         Self {
@@ -158,6 +158,7 @@ mod tests {
                 .await
                 .unwrap();
             let signature: Option<Vec<u8>> = client
+                .context
                 .text_to_sign()
                 .map(|text| owner.sign(&text).unwrap().into());
             client.register_identity(signature).await.unwrap();
