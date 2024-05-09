@@ -25,11 +25,11 @@ use xmtp_proto::{
         },
         GroupMessage, WelcomeMessageInput,
     },
-    xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::Request,
+    xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{Reply, Request},
     xmtp::mls::message_contents::plaintext_envelope::{Content, V1, V2},
     xmtp::mls::message_contents::GroupMembershipChanges,
-    xmtp::mls::message_contents::MessageHistoryRequest,
     xmtp::mls::message_contents::PlaintextEnvelope,
+    xmtp::mls::message_contents::{MessageHistoryReply, MessageHistoryRequest},
 };
 
 use super::{
@@ -46,7 +46,7 @@ use crate::{
     api::IdentityUpdate,
     client::MessageProcessingError,
     codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
-    configuration::{MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
+    configuration::{DELIMITER, MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
     groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
     identity::v3::Identity,
@@ -313,21 +313,13 @@ where
                     Some(Content::V2(V2 {
                         idempotency_key,
                         message_type,
-                    })) => {
-                        debug!(
-                            "Received Message History Request with message_type {:#?}",
-                            message_type
-                        );
-                        if let Some(request) = message_type {
-                            let Request(MessageHistoryRequest {
-                                request_id,
-                                pin_code,
-                            }) = request
-                            else {
-                                return Err(MessageProcessingError::InvalidPayload);
-                            };
-
-                            let contents = format!("{request_id}:{pin_code}").into_bytes();
+                    })) => match message_type {
+                        Some(Request(MessageHistoryRequest {
+                            request_id,
+                            pin_code,
+                        })) => {
+                            let contents =
+                                format!("{request_id}{DELIMITER}{pin_code}").into_bytes();
                             let message_id = calculate_message_id(
                                 &self.group_id,
                                 &contents,
@@ -345,10 +337,41 @@ where
                                 delivery_status: DeliveryStatus::Published,
                             }
                             .store(provider.conn())?
-                        } else {
+                        }
+                        Some(Reply(MessageHistoryReply {
+                            request_id: _,
+                            url,
+                            encryption_key,
+                            signing_key,
+                            bundle_hash,
+                        })) => {
+                            let contents = format!(
+                                "{url}{DELIMITER}{:?}{DELIMITER}{:?}{DELIMITER}{:?}",
+                                encryption_key, signing_key, bundle_hash
+                            )
+                            .into_bytes();
+                            let message_id = calculate_message_id(
+                                &self.group_id,
+                                &contents,
+                                &self.client.account_address(),
+                                &idempotency_key,
+                            );
+                            StoredGroupMessage {
+                                id: message_id,
+                                group_id: self.group_id.clone(),
+                                decrypted_message_bytes: contents,
+                                sent_at_ns: envelope_timestamp_ns as i64,
+                                kind: GroupMessageKind::Application,
+                                sender_installation_id,
+                                sender_account_address,
+                                delivery_status: DeliveryStatus::Published,
+                            }
+                            .store(provider.conn())?
+                        }
+                        _ => {
                             return Err(MessageProcessingError::InvalidPayload);
                         }
-                    }
+                    },
                     None => return Err(MessageProcessingError::InvalidPayload),
                 }
             }
