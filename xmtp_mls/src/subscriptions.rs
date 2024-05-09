@@ -59,7 +59,7 @@ where
     fn process_streamed_welcome(&self, welcome: WelcomeMessage) -> Result<MlsGroup, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
         let conn = self.context.store.conn()?;
-        let provider = self.mls_provider(&conn);
+        let provider = self.mls_provider(conn);
 
         MlsGroup::create_from_encrypted_welcome(
             self.context.clone(),

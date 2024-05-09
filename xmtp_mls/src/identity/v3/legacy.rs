@@ -121,7 +121,7 @@ impl Identity {
 
     pub(crate) async fn register<ApiClient>(
         &self,
-        provider: &XmtpOpenMlsProvider<'_, '_>,
+        provider: &XmtpOpenMlsProvider,
         api_client: &ApiClientWrapper<ApiClient>,
         recoverable_wallet_signature: Option<Vec<u8>>,
     ) -> Result<(), IdentityError>
@@ -317,7 +317,7 @@ mod tests {
     };
 
     pub async fn create_registered_identity<ApiClient>(
-        provider: &XmtpOpenMlsProvider<'_>,
+        provider: &XmtpOpenMlsProvider,
         api_client: &ApiClientWrapper<ApiClient>,
         owner: &impl InboxOwner,
     ) -> Identity

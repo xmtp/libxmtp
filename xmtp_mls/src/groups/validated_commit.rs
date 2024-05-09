@@ -146,7 +146,7 @@ pub(crate) struct ValidatedCommit {
 
 impl ValidatedCommit {
     pub async fn from_staged_commit<ApiClient>(
-        conn: &DbConnection<'_>,
+        conn: &DbConnection,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
         client: &Client<ApiClient>,
@@ -314,7 +314,7 @@ struct ExpectedDiff {
 /// This requires loading the Inbox state from the network.
 /// Satisfies Rule 2
 async fn extract_expected_diff<ApiClient>(
-    conn: &DbConnection<'_>,
+    conn: &DbConnection,
     client: &Client<ApiClient>,
     existing_group_context: &GroupContext,
     new_group_context: &GroupContext,

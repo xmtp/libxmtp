@@ -65,7 +65,7 @@ impl IdentityStrategy {
     {
         info!("Initializing identity");
         let conn = store.conn()?;
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let identity_option: Option<Identity> = provider
             .conn()
             .fetch(&())?

@@ -13,14 +13,22 @@ enum RefOrValue<'a, T> {
 /// Uses a [`Mutex]` internally for interior mutability, so that the connection
 /// and transaction state can be shared between the OpenMLS Provider and
 /// native XMTP operations
+#[derive(Clone)]
 pub struct DbConnection {
-    wrapped_conn: Mutex<RawDbConnection>,
+    // wrapped_conn: Mutex<RefOrValue<'a, RawDbConnection>>,
+    wrapped_conn: Arc<Mutex<RawDbConnection>>,
 }
 
+pub struct DbConnectionRef<'a> {
+    wrapped_conn: Mutex<&'a mut RawDbConnection>,
+}
+
+/// Owned DBConnection Methods
+/// Lifetime is 'static' because we are using [`RefOrValue::Value`] variant.
 impl DbConnection {
     pub(crate) fn new(conn: RawDbConnection) -> Self {
         Self {
-            wrapped_conn: Mutex::new(conn),
+            wrapped_conn: Arc::new(Mutex::new(conn)),
         }
     }
 
@@ -38,7 +46,13 @@ impl DbConnection {
                 err.into_inner()
             },
         );
-        fun(*lock)
+        fun(&mut lock)
+        /*
+        match *lock {
+            RefOrValue::Ref(ref mut conn_ref) => fun(conn_ref),
+            RefOrValue::Value(ref mut conn) => fun(conn),
+        }
+        */
     }
 }
 

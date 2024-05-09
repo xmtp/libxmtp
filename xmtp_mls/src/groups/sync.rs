@@ -76,7 +76,7 @@ impl MlsGroup {
 
     pub(super) async fn sync_with_conn<ApiClient>(
         &self,
-        conn: &DbConnection<'_>,
+        conn: &DbConnection,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
@@ -120,7 +120,7 @@ impl MlsGroup {
      */
     pub(super) async fn sync_until_intent_resolved<ApiClient>(
         &self,
-        conn: &DbConnection<'_>,
+        conn: &DbConnection,
         intent_id: ID,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
@@ -165,7 +165,7 @@ impl MlsGroup {
         &self,
         intent: StoredGroupIntent,
         openmls_group: &mut OpenMlsGroup,
-        provider: XmtpOpenMlsProvider<'_, '_>,
+        provider: XmtpOpenMlsProvider,
         message: ProtocolMessage,
         envelope_timestamp_ns: u64,
         allow_epoch_increment: bool,
@@ -281,7 +281,7 @@ impl MlsGroup {
     async fn process_external_message<Api>(
         &self,
         openmls_group: &mut OpenMlsGroup,
-        provider: &XmtpOpenMlsProvider<'_, '_>,
+        provider: &XmtpOpenMlsProvider,
         message: PrivateMessageIn,
         envelope_timestamp_ns: u64,
         allow_epoch_increment: bool,
@@ -375,7 +375,7 @@ impl MlsGroup {
     pub(super) async fn process_message<ApiClient>(
         &self,
         openmls_group: &mut OpenMlsGroup,
-        provider: XmtpOpenMlsProvider<'_, '_>,
+        provider: XmtpOpenMlsProvider,
         envelope: &GroupMessageV1,
         allow_epoch_increment: bool,
         client: &Client<ApiClient>,
@@ -456,7 +456,7 @@ impl MlsGroup {
     pub fn process_messages<ApiClient>(
         &self,
         messages: Vec<GroupMessage>,
-        conn: &DbConnection<'_>,
+        conn: &DbConnection,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
@@ -486,7 +486,7 @@ impl MlsGroup {
 
     pub(super) async fn receive<ApiClient>(
         &self,
-        conn: &DbConnection<'_>,
+        conn: &DbConnection,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
@@ -548,7 +548,7 @@ impl MlsGroup {
 
     pub(super) async fn publish_intents<ClientApi>(
         &self,
-        conn: &DbConnection<'_>,
+        conn: &DbConnection,
         client: &Client<ClientApi>,
     ) -> Result<(), GroupError>
     where
@@ -614,7 +614,7 @@ impl MlsGroup {
     // Takes a StoredGroupIntent and returns the payload and post commit data as a tuple
     async fn get_publish_intent_data<Api>(
         &self,
-        provider: XmtpOpenMlsProvider<'_, '_>,
+        provider: XmtpOpenMlsProvider,
         client: &Client<Api>,
         openmls_group: &mut OpenMlsGroup,
         intent: &StoredGroupIntent,
@@ -763,7 +763,7 @@ impl MlsGroup {
 
     pub(crate) async fn post_commit<ApiClient>(
         &self,
-        conn: &DbConnection<'_>,
+        conn: &DbConnection,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
@@ -794,7 +794,7 @@ impl MlsGroup {
 
     pub(super) async fn maybe_update_installations<ApiClient>(
         &self,
-        conn: &DbConnection<'_>,
+        conn: &DbConnection,
         update_interval: Option<i64>,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
@@ -811,7 +811,7 @@ impl MlsGroup {
         let last = conn.get_installations_time_checked(self.group_id.clone())?;
         let elapsed = now - last;
         if elapsed > interval {
-            let provider = self.context.mls_provider(conn);
+            let provider = self.context.mls_provider_ref(conn);
             self.add_missing_installations(provider, client).await?;
             conn.update_installations_time_checked(self.group_id.clone())?;
         }
@@ -821,7 +821,7 @@ impl MlsGroup {
 
     pub(super) async fn get_missing_members<ApiClient>(
         &self,
-        provider: &XmtpOpenMlsProvider<'_, '_>,
+        provider: impl OpenMlsProvider,
         client: &Client<ApiClient>,
     ) -> Result<(Vec<Vec<u8>>, Vec<Vec<u8>>), GroupError>
     where
@@ -887,7 +887,7 @@ impl MlsGroup {
 
     pub(super) async fn add_missing_installations<ApiClient>(
         &self,
-        provider: XmtpOpenMlsProvider<'_, '_>,
+        provider: impl OpenMlsProvider,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
