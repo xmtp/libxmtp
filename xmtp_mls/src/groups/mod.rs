@@ -74,6 +74,7 @@ use crate::{
     },
     hpke::{decrypt_welcome, HpkeError},
     identity::v3::{Identity, IdentityError},
+    identity_updates::InstallationDiffError,
     retry::RetryableError,
     retryable,
     storage::{
@@ -153,6 +154,8 @@ pub enum GroupError {
     LeafNodeError(#[from] LibraryError),
     #[error("Message History error: {0}")]
     MessageHistory(#[from] MessageHistoryError),
+    #[error("Installation diff error: {0}")]
+    InstallationDiff(#[from] InstallationDiffError),
 }
 
 impl RetryableError for GroupError {
@@ -459,6 +462,7 @@ where
         self.sync_until_intent_resolved(conn, intent.id).await
     }
 
+    // TODO: Remove this function
     pub async fn add_members_by_installation_id(
         &self,
         installation_ids: Vec<Vec<u8>>,
@@ -531,6 +535,7 @@ where
             })
     }
 
+    // TODO: Remove this method
     // Used in tests
     #[allow(dead_code)]
     pub(crate) async fn remove_members_by_installation_id(
@@ -662,6 +667,10 @@ pub fn build_mutable_metadata_extensions(
 pub fn build_starting_group_membership_extension(inbox_id: String, sequence_id: u64) -> Extension {
     let mut group_membership = GroupMembership::new();
     group_membership.add(inbox_id, sequence_id);
+    build_group_membership_extension(group_membership)
+}
+
+pub fn build_group_membership_extension(group_membership: GroupMembership) -> Extension {
     let unknown_gc_extension = UnknownExtension(group_membership.into());
 
     Extension::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID, unknown_gc_extension)

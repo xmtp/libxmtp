@@ -43,7 +43,7 @@ where
     pub async fn load_identity_updates(
         &self,
         conn: &'a DbConnection<'a>,
-        inbox_ids: Vec<String>,
+        inbox_ids: &[String],
     ) -> Result<(), ClientError> {
         if inbox_ids.is_empty() {
             return Ok(());
@@ -54,10 +54,10 @@ where
             .into_iter()
             .map(|inbox_id| GetIdentityUpdatesV2Filter {
                 sequence_id: existing_sequence_ids
-                    .get(&inbox_id)
+                    .get(inbox_id)
                     .cloned()
                     .map(|i| i as u64),
-                inbox_id,
+                inbox_id: inbox_id.to_string(),
             })
             .collect();
 
@@ -274,7 +274,7 @@ where
             })
             .collect::<Vec<(&String, i64)>>();
 
-        self.load_identity_updates(conn, self.filter_inbox_ids_needing_updates(conn, filters)?)
+        self.load_identity_updates(conn, &self.filter_inbox_ids_needing_updates(conn, filters)?)
             .await?;
 
         let mut added_installations: HashSet<Vec<u8>> = HashSet::new();
@@ -355,7 +355,7 @@ mod tests {
     ) -> AssociationState {
         let conn = client.store.conn().unwrap();
         client
-            .load_identity_updates(&conn, vec![inbox_id.clone()])
+            .load_identity_updates(&conn, &[inbox_id.clone()])
             .await
             .unwrap();
 

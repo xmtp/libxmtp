@@ -301,6 +301,10 @@ impl UpdateGroupMembershipIntentData {
             removed_members,
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.membership_updates.is_empty() && self.removed_members.is_empty()
+    }
 }
 
 impl From<UpdateGroupMembershipIntentData> for Vec<u8> {

@@ -26,6 +26,10 @@ impl GroupMembership {
         self.members.get(inbox_id.as_ref())
     }
 
+    pub fn inbox_ids(&self) -> Vec<String> {
+        self.members.keys().collect()
+    }
+
     pub fn diff<'inbox_id>(
         &'inbox_id self,
         new_group_membership: &'inbox_id Self,
