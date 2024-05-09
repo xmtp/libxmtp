@@ -134,10 +134,26 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
     type Error = GroupMutableMetadataError;
 
     fn try_from(value: GroupMutableMetadataProto) -> Result<Self, Self::Error> {
+        #[allow(unused_mut)]
+        let mut admin_list: Vec<String>;
+        #[allow(unused_mut)]
+        let mut super_admin_list: Vec<String>;
+        match value.admin_list {
+            Some(inboxes) => {
+                admin_list = inboxes.inbox_ids;
+            }
+            None => return Err(GroupMutableMetadataError::MissingMetadataField),
+        }
+        match value.super_admin_list {
+            Some(inboxes) => {
+                super_admin_list = inboxes.inbox_ids;
+            }
+            None => return Err(GroupMutableMetadataError::MissingMetadataField),
+        }
         Ok(Self::new(
             value.attributes.clone(),
-            value.admin_list.ok_or(Err(GroupMutableMetadataError::MissingMetadataField))?,
-            value. super_admin_list.ok_or(Err(GroupMutableMetadataError::MissingMetadataField)),
+            admin_list,
+            super_admin_list,
         ))
     }
 }
