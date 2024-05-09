@@ -29,7 +29,10 @@ use xmtp_proto::{
 
 use crate::{
     api::{ApiClientWrapper, IdentityUpdate},
-    configuration::{CIPHERSUITE, GROUP_PERMISSIONS_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
+    configuration::{
+        CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID,
+        MUTABLE_METADATA_EXTENSION_ID,
+    },
     credential::{AssociationError, Credential, UnsignedGrantMessagingAccessData},
     storage::{identity::StoredIdentity, StorageError},
     types::Address,
@@ -209,6 +212,7 @@ impl Identity {
                 ExtensionType::ApplicationId,
                 ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
                 ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
+                ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
                 ExtensionType::ImmutableMetadata,
             ]),
             Some(&[ProposalType::GroupContextExtensions]),

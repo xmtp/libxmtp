@@ -19,7 +19,7 @@ use super::{
 
 /// The SignatureField is used to map the signatures from a [SignatureRequest] back to the correct
 /// field in an [IdentityUpdate]. It is used in the `pending_signatures` map in a [PendingIdentityAction]
-#[derive(Clone, PartialEq, Hash, Eq)]
+#[derive(Clone, PartialEq, Hash, Eq, Debug)]
 enum SignatureField {
     InitialAddress,
     ExistingMember,
@@ -27,7 +27,7 @@ enum SignatureField {
     RecoveryAddress,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PendingIdentityAction {
     unsigned_action: UnsignedAction,
     pending_signatures: HashMap<SignatureField, MemberIdentifier>,
@@ -165,7 +165,7 @@ pub enum SignatureRequestError {
 /// `xmtp_mls` can add any InstallationKey signatures first, so that the platform SDK does not need to worry about those.
 /// The platform SDK can then fill in any missing signatures and convert it to an IdentityUpdate that is ready to be published
 /// to the network
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SignatureRequest {
     pending_actions: Vec<PendingIdentityAction>,
     signature_text: String,

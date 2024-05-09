@@ -51,6 +51,7 @@ use xmtp_proto::{
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
 use self::{
+    group_membership::GroupMembership,
     group_metadata::extract_group_metadata,
     group_mutable_metadata::{
         extract_group_mutable_metadata, GroupMutableMetadata, GroupMutableMetadataError,
@@ -65,20 +66,22 @@ use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
     group_permissions::PolicySet,
     intents::{AddMembersIntentData, RemoveMembersIntentData},
+    message_history::MessageHistoryError,
     validated_commit::CommitValidationError,
 };
 
 use crate::{
     client::{deserialize_welcome, ClientError, MessageProcessingError},
     configuration::{
-        CIPHERSUITE, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE, MUTABLE_METADATA_EXTENSION_ID,
+        CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
+        MUTABLE_METADATA_EXTENSION_ID,
     },
     hpke::{decrypt_welcome, HpkeError},
     identity::v3::{Identity, IdentityError},
     retry::RetryableError,
     retryable,
     storage::{
-        group::{GroupMembershipState, StoredGroup},
+        group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         StorageError,
@@ -154,6 +157,8 @@ pub enum GroupError {
     CredentialError(#[from] BasicCredentialError),
     #[error("LeafNode error")]
     LeafNodeError(#[from] LibraryError),
+    #[error("Message History error: {0}")]
+    MessageHistory(#[from] MessageHistoryError),
 }
 
 impl RetryableError for GroupError {
@@ -219,12 +224,21 @@ where
     ) -> Result<Self, GroupError> {
         let conn = client.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
-        let protected_metadata = build_protected_metadata_extension(&client.identity)?;
+        let protected_metadata =
+            build_protected_metadata_extension(&client.identity, Purpose::Conversation)?;
         let mutable_metadata = build_mutable_metadata_extension_default(&client.identity)?;
+        let group_membership = build_starting_group_membership_extension(
+            client.inbox_id(),
+            client.inbox_latest_sequence_id(),
+        );
         let mutable_permissions =
             build_mutable_permissions_extension(permissions.unwrap_or_default().to_policy_set())?;
-        let group_config =
-            build_group_config(protected_metadata, mutable_metadata, mutable_permissions)?;
+        let group_config = build_group_config(
+            protected_metadata,
+            mutable_metadata,
+            group_membership,
+            mutable_permissions,
+        )?;
 
         let mut mls_group = OpenMlsGroup::new(
             &provider,
@@ -262,14 +276,24 @@ where
 
         let mut mls_group = mls_welcome.into_group(provider)?;
         mls_group.save(provider.key_store())?;
-
         let group_id = mls_group.group_id().to_vec();
-        let to_store = StoredGroup::new(
-            group_id,
-            now_ns(),
-            GroupMembershipState::Pending,
-            added_by_address.clone(),
-        );
+        let metadata = extract_group_metadata(&mls_group)?;
+        let group_type = metadata.conversation_type;
+
+        let to_store = match group_type {
+            ConversationType::Group | ConversationType::Dm => StoredGroup::new(
+                group_id.clone(),
+                now_ns(),
+                GroupMembershipState::Pending,
+                added_by_address.clone(),
+            ),
+            ConversationType::Sync => StoredGroup::new_sync_group(
+                group_id.clone(),
+                now_ns(),
+                GroupMembershipState::Allowed,
+            ),
+        };
+
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
 
         Ok(Self::new(
@@ -309,12 +333,21 @@ where
     ) -> Result<MlsGroup<ApiClient>, GroupError> {
         let conn = client.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
-        let protected_metadata = build_protected_metadata_extension(&client.identity)?;
+        let protected_metadata =
+            build_protected_metadata_extension(&client.identity, Purpose::Sync)?;
         let mutable_metadata = build_mutable_metadata_extension_default(&client.identity)?;
+        let group_membership = build_starting_group_membership_extension(
+            client.inbox_id(),
+            client.inbox_latest_sequence_id(),
+        );
         let mutable_permissions =
             build_mutable_permissions_extension(PreconfiguredPolicies::default().to_policy_set())?;
-        let group_config =
-            build_group_config(protected_metadata, mutable_metadata, mutable_permissions)?;
+        let group_config = build_group_config(
+            protected_metadata,
+            mutable_metadata,
+            group_membership,
+            mutable_permissions,
+        )?;
         let mut mls_group = OpenMlsGroup::new(
             &provider,
             &client.identity.installation_keys,
@@ -599,8 +632,20 @@ fn validate_ed25519_keys(keys: &[Vec<u8>]) -> Result<(), GroupError> {
     Ok(())
 }
 
-fn build_protected_metadata_extension(identity: &Identity) -> Result<Extension, GroupError> {
-    let metadata = GroupMetadata::new(ConversationType::Group, identity.account_address.clone());
+fn build_protected_metadata_extension(
+    identity: &Identity,
+    group_purpose: Purpose,
+) -> Result<Extension, GroupError> {
+    let group_type = match group_purpose {
+        Purpose::Conversation => ConversationType::Group,
+        Purpose::Sync => ConversationType::Sync,
+    };
+    let metadata = GroupMetadata::new(
+        group_type,
+        identity.account_address.clone(),
+        // TODO: Remove me
+        "inbox_id".to_string(),
+    );
     let protected_metadata = Metadata::new(metadata.try_into()?);
 
     Ok(Extension::ImmutableMetadata(protected_metadata))
@@ -651,12 +696,22 @@ pub fn build_mutable_metadata_extensions(
     Ok(extensions)
 }
 
+pub fn build_starting_group_membership_extension(inbox_id: String, sequence_id: u64) -> Extension {
+    let mut group_membership = GroupMembership::new();
+    group_membership.add(inbox_id, sequence_id);
+    let unknown_gc_extension = UnknownExtension(group_membership.into());
+
+    Extension::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID, unknown_gc_extension)
+}
+
 fn build_group_config(
     protected_metadata_extension: Extension,
     mutable_metadata_extension: Extension,
+    group_membership_extension: Extension,
     mutable_permission_extension: Extension,
 ) -> Result<MlsGroupCreateConfig, GroupError> {
     let required_extension_types = &[
+        ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
         ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
         ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
         ExtensionType::ImmutableMetadata,
@@ -685,6 +740,7 @@ fn build_group_config(
     let extensions = Extensions::from_vec(vec![
         protected_metadata_extension,
         mutable_metadata_extension,
+        group_membership_extension,
         mutable_permission_extension,
         required_capabilities,
     ])?;
@@ -1092,7 +1148,7 @@ mod tests {
         // add a second installation for amal using the same wallet
         let _amal_2nd = ClientBuilder::new_test_client(&amal_wallet).await;
 
-        // test that adding the new installation(s), worked
+        // test if adding the new installation(s) worked
         let new_installations_were_added = group.add_missing_installations(provider).await;
         assert!(new_installations_were_added.is_ok());
     }

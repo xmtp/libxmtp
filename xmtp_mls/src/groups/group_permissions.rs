@@ -1333,18 +1333,20 @@ mod tests {
 
     #[test]
     fn test_preconfigured_policy() {
-        let account_address = "account_address";
-        let group_metadata = GroupMutablePermissions::new(policy_everyone_is_admin());
+        let group_permissions = GroupMutablePermissions::new(policy_everyone_is_admin());
+
         assert_eq!(
-            group_metadata.preconfigured_policy().unwrap(),
+            group_permissions.preconfigured_policy().unwrap(),
             PreconfiguredPolicies::EveryoneIsAdmin
         );
 
-        let group_metadata_creator_admin =
+        let group_group_permissions_creator_admin =
             GroupMutablePermissions::new(policy_group_creator_is_admin());
 
         assert_eq!(
-            group_metadata_creator_admin.preconfigured_policy().unwrap(),
+            group_group_permissions_creator_admin
+                .preconfigured_policy()
+                .unwrap(),
             PreconfiguredPolicies::GroupCreatorIsAdmin
         );
     }

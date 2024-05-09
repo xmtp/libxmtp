@@ -19,6 +19,8 @@ pub const UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NANOSECONDS_IN_HOUR / 2; // 30
 
 pub const MAX_GROUP_SIZE: u8 = 250;
 
+pub const DELIMITER: char = '\x01';
+
 /// MLS Extension Types
 ///
 /// Copied from draft-ietf-mls-protocol-16:
