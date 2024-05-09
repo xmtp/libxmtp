@@ -21,6 +21,12 @@ mod xmtp_openmls_provider;
 pub use client::{Client, Network};
 use storage::StorageError;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
+use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
+
+/// XMTP Api Super Trait
+/// Implements all Trait Network APIs for convenience.
+pub trait XmtpApi: XmtpMlsClient + XmtpIdentityClient {}
+impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient {}
 
 pub trait InboxOwner {
     /// Get address of the wallet.

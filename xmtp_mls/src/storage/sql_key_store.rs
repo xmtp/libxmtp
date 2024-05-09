@@ -10,21 +10,21 @@ use crate::{Delete, Fetch};
 
 /// CRUD Operations for an [`OpenMlsKeyStore`]
 #[derive(Clone, Debug)]
-pub struct SqlKeyStore<'a> {
-    conn: &'a DbConnection<'a>,
+pub struct SqlKeyStore {
+    conn: DbConnection,
 }
 
-impl<'a> SqlKeyStore<'a> {
-    pub fn new(conn: &'a DbConnection<'a>) -> Self {
+impl SqlKeyStore {
+    pub fn new(conn: DbConnection) -> Self {
         Self { conn }
     }
 
-    pub fn conn(&self) -> &DbConnection<'a> {
-        self.conn
+    pub fn conn(&self) -> &DbConnection {
+        &self.conn
     }
 }
 
-impl OpenMlsKeyStore for SqlKeyStore<'_> {
+impl OpenMlsKeyStore for SqlKeyStore {
     /// The error type returned by the [`OpenMlsKeyStore`].
     type Error = StorageError;
 

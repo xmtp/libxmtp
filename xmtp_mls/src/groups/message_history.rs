@@ -16,6 +16,7 @@ use xmtp_proto::{
 
 use super::GroupError;
 
+use crate::XmtpApi;
 use crate::{
     client::ClientError,
     groups::StoredGroupMessage,
@@ -25,12 +26,12 @@ use crate::{
 
 impl<'c, ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
+    ApiClient: XmtpApi,
 {
     pub async fn allow_history_sync(&self) -> Result<(), ClientError> {
         let history_sync_group = self.create_sync_group()?;
         history_sync_group
-            .sync()
+            .sync(self)
             .await
             .map_err(|e| ClientError::Generic(e.to_string()))?;
         Ok(())
@@ -67,7 +68,7 @@ where
     pub(crate) async fn prepare_messages_to_sync(
         &self,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
-        let conn = self.store.conn()?;
+        let conn = self.context.store.conn()?;
         let groups = conn.find_groups(None, None, None, None)?;
         let mut all_messages: Vec<StoredGroupMessage> = vec![];
 

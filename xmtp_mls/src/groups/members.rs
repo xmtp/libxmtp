@@ -14,14 +14,11 @@ pub struct GroupMember {
     pub installation_ids: Vec<Vec<u8>>,
 }
 
-impl<'c, ApiClient> MlsGroup<'c, ApiClient>
-where
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
-{
+impl MlsGroup {
     // Load the member list for the group from the DB, merging together multiple installations into a single entry
     pub fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
-        let conn = self.client.store.conn()?;
-        let provider = self.client.mls_provider(&conn);
+        let conn = self.context.store.conn()?;
+        let provider = self.context.mls_provider(&conn);
         self.members_with_provider(&provider)
     }
 

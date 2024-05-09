@@ -7,42 +7,44 @@ use futures::Stream;
 use super::{extract_message_v1, GroupError, MlsGroup};
 use crate::storage::group_message::StoredGroupMessage;
 use crate::subscriptions::{MessagesStreamInfo, StreamCloser};
+use crate::XmtpApi;
 use crate::{await_helper::await_helper, Client};
 use futures::TryFutureExt;
 use prost::Message;
 use xmtp_proto::api_client::XmtpIdentityClient;
 use xmtp_proto::{api_client::XmtpMlsClient, xmtp::mls::api::v1::GroupMessage};
 
-impl<'c, ApiClient> MlsGroup<'c, ApiClient>
-where
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
-{
-    pub(crate) async fn process_stream_entry(
+impl MlsGroup {
+    pub(crate) async fn process_stream_entry<ApiClient>(
         &self,
         envelope: GroupMessage,
-    ) -> Result<Option<StoredGroupMessage>, GroupError> {
+        client: Arc<Client<ApiClient>>,
+    ) -> Result<Option<StoredGroupMessage>, GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
         let msgv1 = extract_message_v1(envelope)?;
 
-        let process_result = self.client.store.transaction(|provider| {
+        let process_result = self.context.store.transaction(|provider| {
             let mut openmls_group = self.load_mls_group(&provider)?;
 
             // Attempt processing immediately, but fail if the message is not an Application Message
             // Returning an error should roll back the DB tx
             let future = self
-                .process_message(&mut openmls_group, provider.clone(), &msgv1, false)
+                .process_message(&mut openmls_group, provider.clone(), &msgv1, false, &client)
                 .map_err(GroupError::ReceiveError);
-            // let result = await_helper(future)?;
+            let _result = await_helper(future)?;
             Ok(())
         });
 
         if let Some(GroupError::ReceiveError(_)) = process_result.err() {
-            self.sync().await?;
+            self.sync(&client).await?;
         }
 
         // Load the message from the DB to handle cases where it may have been already processed in
         // another thread
         let new_message = self
-            .client
+            .context
             .store
             .conn()?
             .get_group_message_by_timestamp(&self.group_id, msgv1.created_ns as i64)?;
@@ -50,22 +52,29 @@ where
         Ok(new_message)
     }
 
-    pub async fn process_streamed_group_message(
+    pub async fn process_streamed_group_message<ApiClient>(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<StoredGroupMessage, GroupError> {
+        client: Arc<Client<ApiClient>>,
+    ) -> Result<StoredGroupMessage, GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
         let envelope = GroupMessage::decode(envelope_bytes.as_slice())
             .map_err(|e| GroupError::Generic(e.to_string()))?;
 
-        let message = self.process_stream_entry(envelope).await?;
+        let message = self.process_stream_entry(envelope, client).await?;
         Ok(message.unwrap())
     }
 
-    pub async fn stream(
-        &'c self,
-    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + 'c + Send>>, GroupError> {
-        Ok(self
-            .client
+    pub async fn stream<ApiClient>(
+        &self,
+        client: Arc<Client<ApiClient>>,
+    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + Send + '_>>, GroupError>
+    where
+        ApiClient: crate::XmtpApi,
+    {
+        Ok(client
             .stream_messages(HashMap::from([(
                 self.group_id.clone(),
                 MessagesStreamInfo {
@@ -76,12 +85,15 @@ where
             .await?)
     }
 
-    pub async fn stream_with_callback(
+    pub async fn stream_with_callback<ApiClient>(
         client: Arc<Client<ApiClient>>,
         group_id: Vec<u8>,
         created_at_ns: i64,
-        callback: impl FnMut(StoredGroupMessage) + Send + 'c,
-    ) -> Result<StreamCloser, GroupError> {
+        callback: impl FnMut(StoredGroupMessage) + Send + '_,
+    ) -> Result<StreamCloser, GroupError>
+    where
+        ApiClient: crate::XmtpApi,
+    {
         Ok(Client::<ApiClient>::stream_messages_with_callback(
             client,
             HashMap::from([(
@@ -116,7 +128,10 @@ mod tests {
             .await
             .unwrap();
 
-        amal_group.send_message("hello".as_bytes()).await.unwrap();
+        amal_group
+            .send_message("hello".as_bytes(), &amal)
+            .await
+            .unwrap();
         let messages = amal
             .api_client
             .query_group_messages(amal_group.clone().group_id, None)

@@ -23,7 +23,7 @@ pub mod schema;
 use std::borrow::Cow;
 
 use diesel::{
-    connection::SimpleConnection,
+    connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
     result::{DatabaseErrorKind, Error},
@@ -146,7 +146,7 @@ impl EncryptedMessageStore {
 
     pub fn conn(&self) -> Result<DbConnection, StorageError> {
         let conn = self.raw_conn()?;
-        Ok(DbConnection::held(conn))
+        Ok(DbConnection::new(conn))
     }
 
     /// Start a new database transaction with the OpenMLS Provider from XMTP
@@ -164,15 +164,27 @@ impl EncryptedMessageStore {
     /// ```
     pub fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
-        F: FnOnce(XmtpOpenMlsProvider) -> Result<T, E>,
+        F: FnOnce(&mut XmtpOpenMlsProvider) -> Result<T, E>,
         E: From<diesel::result::Error> + From<StorageError>,
     {
         let mut connection = self.raw_conn()?;
-        connection.transaction(|conn| {
-            let db_connection = DbConnection::new(conn);
-            let provider = XmtpOpenMlsProvider::new(&db_connection);
-            fun(provider)
-        })
+        let transaction = AnsiTransactionManager::begin_transaction(&mut *connection);
+        let db_connection = DbConnection::new(connection);
+        let mut provider = XmtpOpenMlsProvider::new(&db_connection);
+        match fun(&mut provider) {
+            Ok(value) => {
+                let value = db_connection
+                    .raw_query(|conn| AnsiTransactionManager::commit_transaction(conn))?;
+                Ok(value)
+            }
+            Err(err) => match db_connection
+                .raw_query(|conn| AnsiTransactionManager::rollback_transaction(conn))
+            {
+                Ok(()) => Err(err),
+                Err(Error::BrokenTransactionManager) => Err(err),
+            },
+            Err(rollback) => Err(rollback.into()),
+        }
     }
 
     /// Start a new database transaction with the OpenMLS Provider from XMTP

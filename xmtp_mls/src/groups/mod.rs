@@ -46,6 +46,8 @@ use xmtp_proto::{
     },
 };
 
+use std::sync::Arc;
+
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
 use self::{
@@ -65,7 +67,8 @@ use self::{
 };
 
 use crate::{
-    client::{deserialize_welcome, ClientError, MessageProcessingError},
+    api::ApiClientWrapper,
+    client::{deserialize_welcome, ClientError, MessageProcessingError, XmtpMlsLocalContext},
     configuration::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MAX_GROUP_SIZE, MUTABLE_METADATA_EXTENSION_ID,
     },
@@ -81,7 +84,7 @@ use crate::{
     },
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Client, Store,
+    Client, Store, XmtpApi,
 };
 
 #[derive(Debug, Error)]
@@ -166,30 +169,27 @@ impl RetryableError for GroupError {
     }
 }
 
-pub struct MlsGroup<'c, ApiClient> {
+pub struct MlsGroup {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
-    client: &'c Client<ApiClient>,
+    context: Arc<XmtpMlsLocalContext>,
 }
 
-impl<'c, ApiClient> Clone for MlsGroup<'c, ApiClient> {
+impl Clone for MlsGroup {
     fn clone(&self) -> Self {
         Self {
-            client: self.client,
+            context: self.context.clone(),
             group_id: self.group_id.clone(),
             created_at_ns: self.created_at_ns,
         }
     }
 }
 
-impl<'c, ApiClient> MlsGroup<'c, ApiClient>
-where
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
-{
+impl MlsGroup {
     // Creates a new group instance. Does not validate that the group exists in the DB
-    pub fn new(client: &'c Client<ApiClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+    pub fn new(context: Arc<XmtpMlsLocalContext>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
         Self {
-            client,
+            context,
             group_id,
             created_at_ns,
         }
@@ -206,7 +206,7 @@ where
 
     // Create a new group and save it to the DB
     pub fn create_and_insert(
-        client: &'c Client<ApiClient>,
+        client: Arc<XmtpMlsLocalContext>,
         membership_state: GroupMembershipState,
         permissions: Option<PreconfiguredPolicies>,
         added_by_address: String,
@@ -246,13 +246,17 @@ where
         );
 
         stored_group.store(provider.conn())?;
-        Ok(Self::new(client, group_id, stored_group.created_at_ns))
+        Ok(Self::new(
+            client.clone(),
+            group_id,
+            stored_group.created_at_ns,
+        ))
     }
 
     // Create a group from a decrypted and decoded welcome message
     // If the group already exists in the store, overwrite the MLS state and do not update the group entry
     fn create_from_welcome(
-        client: &'c Client<ApiClient>,
+        context: Arc<XmtpMlsLocalContext>,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
         added_by_address: String,
@@ -283,7 +287,7 @@ where
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
 
         Ok(Self::new(
-            client,
+            context,
             stored_group.id,
             stored_group.created_at_ns,
         ))
@@ -291,7 +295,7 @@ where
 
     // Decrypt a welcome message using HPKE and then create and save a group from the stored message
     pub fn create_from_encrypted_welcome(
-        client: &'c Client<ApiClient>,
+        context: Arc<XmtpMlsLocalContext>,
         provider: &XmtpOpenMlsProvider,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: Vec<u8>,
@@ -311,12 +315,12 @@ where
         let account_address =
             Identity::get_validated_account_address(added_by_credential.identity(), pub_key_bytes)?;
 
-        Self::create_from_welcome(client, provider, welcome, account_address)
+        Self::create_from_welcome(context, provider, welcome, account_address)
     }
 
     pub(crate) fn create_and_insert_sync_group(
-        client: &'c Client<ApiClient>,
-    ) -> Result<MlsGroup<ApiClient>, GroupError> {
+        client: Arc<XmtpMlsLocalContext>,
+    ) -> Result<MlsGroup, GroupError> {
         let conn = client.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
         let protected_metadata = build_protected_metadata_extension(
@@ -348,17 +352,24 @@ where
 
         stored_group.store(provider.conn())?;
         Ok(Self::new(
-            client,
+            client.clone(),
             stored_group.id,
             stored_group.created_at_ns,
         ))
     }
 
-    pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
-        let conn = &mut self.client.store.conn()?;
+    pub async fn send_message<Api>(
+        &self,
+        message: &[u8],
+        api: &Client<Api>,
+    ) -> Result<Vec<u8>, GroupError>
+    where
+        Api: XmtpApi,
+    {
+        let conn = &mut self.context.store.conn()?;
 
         let update_interval = Some(5_000_000); // 5 seconds in nanoseconds
-        self.maybe_update_installations(conn, update_interval)
+        self.maybe_update_installations(conn, update_interval, api)
             .await?;
 
         let now = now_ns();
@@ -377,7 +388,7 @@ where
         let message_id = calculate_message_id(
             &self.group_id,
             message,
-            &self.client.account_address(),
+            &self.context.account_address(),
             &now.to_string(),
         );
         let group_message = StoredGroupMessage {
@@ -386,14 +397,14 @@ where
             decrypted_message_bytes: message.to_vec(),
             sent_at_ns: now,
             kind: GroupMessageKind::Application,
-            sender_installation_id: self.client.installation_public_key(),
-            sender_account_address: self.client.account_address(),
+            sender_installation_id: self.context.installation_public_key(),
+            sender_account_address: self.context.account_address(),
             delivery_status: DeliveryStatus::Unpublished,
         };
         group_message.store(conn)?;
 
         // Skipping a full sync here and instead just firing and forgetting
-        if let Err(err) = self.publish_intents(conn).await {
+        if let Err(err) = self.publish_intents(conn, api).await {
             println!("error publishing intents: {:?}", err);
         }
         Ok(message_id)
@@ -418,7 +429,7 @@ where
         delivery_status: Option<DeliveryStatus>,
         limit: Option<i64>,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
-        let conn = self.client.store.conn()?;
+        let conn = self.context.store.conn()?;
         let messages = conn.get_group_messages(
             &self.group_id,
             sent_after_ns,
@@ -431,10 +442,14 @@ where
         Ok(messages)
     }
 
-    pub async fn add_members(
+    pub async fn add_members<ApiClient>(
         &self,
         account_addresses_to_add: Vec<String>,
-    ) -> Result<(), GroupError> {
+        client: &Client<ApiClient>,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_add)?;
         // get current number of users in group
         let member_count = self.members()?.len();
@@ -442,7 +457,7 @@ where
             return Err(GroupError::UserLimitExceeded);
         }
 
-        let conn = &mut self.client.store.conn()?;
+        let conn = &mut self.context.store.conn()?;
         let intent_data: Vec<u8> =
             AddMembersIntentData::new(account_addresses.into()).try_into()?;
         let intent = conn.insert_group_intent(NewGroupIntent::new(
@@ -451,15 +466,20 @@ where
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id).await
+        self.sync_until_intent_resolved(conn, intent.id, client)
+            .await
     }
 
-    pub async fn add_members_by_installation_id(
+    pub async fn add_members_by_installation_id<ApiClient>(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<(), GroupError> {
+        client: &Client<ApiClient>,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
         validate_ed25519_keys(&installation_ids)?;
-        let conn = &mut self.client.store.conn()?;
+        let conn = &mut self.context.store.conn()?;
         let intent_data: Vec<u8> = AddMembersIntentData::new(installation_ids.into()).try_into()?;
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::AddMembers,
@@ -467,15 +487,20 @@ where
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id).await
+        self.sync_until_intent_resolved(conn, intent.id, client)
+            .await
     }
 
-    pub async fn remove_members(
+    pub async fn remove_members<ApiClient>(
         &self,
         account_addresses_to_remove: Vec<String>,
-    ) -> Result<(), GroupError> {
+        client: &Client<ApiClient>,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_remove)?;
-        let conn = &mut self.client.store.conn()?;
+        let conn = &mut self.context.store.conn()?;
         let intent_data: Vec<u8> = RemoveMembersIntentData::new(account_addresses.into()).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::RemoveMembers,
@@ -483,11 +508,19 @@ where
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id).await
+        self.sync_until_intent_resolved(conn, intent.id, client)
+            .await
     }
 
-    pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
-        let conn = &mut self.client.store.conn()?;
+    pub async fn update_group_name<ApiClient>(
+        &self,
+        group_name: String,
+        client: &Client<ApiClient>,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let conn = &mut self.context.store.conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
@@ -496,7 +529,8 @@ where
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id).await
+        self.sync_until_intent_resolved(conn, intent.id, client)
+            .await
     }
 
     // Query the database for stored messages. Optionally filtered by time, kind, delivery_status
@@ -516,7 +550,7 @@ where
 
     // Find the wallet address of the group member who added the member to the group
     pub fn added_by_address(&self) -> Result<String, GroupError> {
-        let conn = self.client.store.conn()?;
+        let conn = self.context.store.conn()?;
         conn.find_group(self.group_id.clone())
             .map_err(GroupError::from)
             .and_then(|fetch_result| {
@@ -528,12 +562,16 @@ where
 
     // Used in tests
     #[allow(dead_code)]
-    pub(crate) async fn remove_members_by_installation_id(
+    pub(crate) async fn remove_members_by_installation_id<ApiClient>(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<(), GroupError> {
+        client: &Client<ApiClient>,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
         validate_ed25519_keys(&installation_ids)?;
-        let conn = &mut self.client.store.conn()?;
+        let conn = &mut self.context.store.conn()?;
         let intent_data: Vec<u8> = RemoveMembersIntentData::new(installation_ids.into()).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::RemoveMembers,
@@ -541,20 +579,24 @@ where
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id).await
+        self.sync_until_intent_resolved(conn, intent.id, client)
+            .await
     }
 
     // Update this installation's leaf key in the group by creating a key update commit
-    pub async fn key_update(&self) -> Result<(), GroupError> {
-        let conn = &mut self.client.store.conn()?;
+    pub async fn key_update<ApiClient>(&self, client: &Client<ApiClient>) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let conn = &mut self.context.store.conn()?;
         let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
         intent.store(conn)?;
 
-        self.sync_with_conn(conn).await
+        self.sync_with_conn(conn, client).await
     }
 
     pub fn is_active(&self) -> Result<bool, GroupError> {
-        let conn = &self.client.store.conn()?;
+        let conn = &self.context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let mls_group = self.load_mls_group(&provider)?;
 
@@ -562,7 +604,7 @@ where
     }
 
     pub fn metadata(&self) -> Result<GroupMetadata, GroupError> {
-        let conn = &self.client.store.conn()?;
+        let conn = &self.context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let mls_group = self.load_mls_group(&provider)?;
 
@@ -570,7 +612,7 @@ where
     }
 
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
-        let conn = &self.client.store.conn()?;
+        let conn = &self.context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let mls_group = self.load_mls_group(&provider)?;
 
@@ -742,9 +784,9 @@ mod tests {
 
     use super::MlsGroup;
 
-    async fn receive_group_invite<ApiClient>(client: &Client<ApiClient>) -> MlsGroup<ApiClient>
+    async fn receive_group_invite<ApiClient>(client: &Client<ApiClient>) -> MlsGroup
     where
-        ApiClient: XmtpMlsClient + XmtpIdentityClient,
+        ApiClient: XmtpApi,
     {
         client.sync_welcomes().await.unwrap();
         let mut groups = client.find_groups(None, None, None, None).unwrap();
@@ -752,7 +794,7 @@ mod tests {
         groups.remove(0)
     }
 
-    async fn get_latest_message<'c>(group: &MlsGroup<'c, GrpcClient>) -> StoredGroupMessage {
+    async fn get_latest_message<'c>(group: &MlsGroup) -> StoredGroupMessage {
         group.sync().await.unwrap();
         let mut messages = group.find_messages(None, None, None, None, None).unwrap();
 
@@ -1204,7 +1246,7 @@ mod tests {
 
         // Create a group and verify it has the default group name
         let policies = Some(PreconfiguredPolicies::GroupCreatorIsAdmin);
-        let amal_group: MlsGroup<_> = amal.create_group(policies).unwrap();
+        let amal_group: MlsGroup = amal.create_group(policies).unwrap();
         amal_group.sync().await.unwrap();
 
         let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
@@ -1279,7 +1321,7 @@ mod tests {
 
         // Create a group and verify it has the default group name
         let policies = Some(PreconfiguredPolicies::EveryoneIsAdmin);
-        let amal_group: MlsGroup<_> = amal.create_group(policies).unwrap();
+        let amal_group: MlsGroup = amal.create_group(policies).unwrap();
         amal_group.sync().await.unwrap();
 
         let group_mutable_metadata = amal_group.mutable_metadata().unwrap();

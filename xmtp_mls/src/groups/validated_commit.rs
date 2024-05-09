@@ -22,7 +22,7 @@ use crate::{
     configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
     identity_updates::{InstallationDiff, InstallationDiffError},
     storage::db_connection::DbConnection,
-    Client,
+    Client, XmtpApi,
 };
 
 use super::{
@@ -145,12 +145,15 @@ pub(crate) struct ValidatedCommit {
 }
 
 impl ValidatedCommit {
-    pub async fn from_staged_commit<'client, ApiClient: XmtpMlsClient + XmtpIdentityClient>(
-        conn: &'client DbConnection<'client>,
+    pub async fn from_staged_commit<ApiClient>(
+        conn: &DbConnection<'_>,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
-        client: &'client Client<ApiClient>,
-    ) -> Result<Self, CommitValidationError> {
+        client: &Client<ApiClient>,
+    ) -> Result<Self, CommitValidationError>
+    where
+        ApiClient: XmtpApi,
+    {
         // Get the group metadata
         let group_metadata = extract_group_metadata(openmls_group)?;
         // Get the actor who created the commit.
@@ -310,18 +313,16 @@ struct ExpectedDiff {
 /// [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`].
 /// This requires loading the Inbox state from the network.
 /// Satisfies Rule 2
-async fn extract_expected_diff<
-    'conn,
-    'client,
-    'diff,
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
->(
-    conn: &'conn DbConnection<'conn>,
-    client: &'client Client<ApiClient>,
+async fn extract_expected_diff<ApiClient>(
+    conn: &DbConnection<'_>,
+    client: &Client<ApiClient>,
     existing_group_context: &GroupContext,
     new_group_context: &GroupContext,
     group_metadata: &GroupMetadata,
-) -> Result<ExpectedDiff, CommitValidationError> {
+) -> Result<ExpectedDiff, CommitValidationError>
+where
+    ApiClient: XmtpApi,
+{
     let old_group_membership = extract_group_membership(existing_group_context)?;
     let new_group_membership = extract_group_membership(new_group_context)?;
     let membership_diff = old_group_membership.diff(&new_group_membership);

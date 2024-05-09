@@ -143,6 +143,7 @@ pub type WelcomeMessageStream = Pin<Box<dyn Stream<Item = Result<WelcomeMessage,
 // Wasm futures don't have `Send` or `Sync` bounds.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+// TODO INSIPX: do we need this 'static bond?
 pub trait XmtpMlsClient: Send + Sync + 'static {
     async fn register_installation(
         &self,

@@ -35,7 +35,7 @@ use crate::{
     types::Address,
     utils::time::now_ns,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Fetch, Store,
+    Fetch, Store, XmtpApi,
 };
 
 #[derive(Debug, Error)]
@@ -119,12 +119,15 @@ impl Identity {
         })
     }
 
-    pub(crate) async fn register<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+    pub(crate) async fn register<ApiClient>(
         &self,
-        provider: &XmtpOpenMlsProvider<'_>,
+        provider: &XmtpOpenMlsProvider<'_, '_>,
         api_client: &ApiClientWrapper<ApiClient>,
         recoverable_wallet_signature: Option<Vec<u8>>,
-    ) -> Result<(), IdentityError> {
+    ) -> Result<(), IdentityError>
+    where
+        ApiClient: XmtpApi,
+    {
         // Do not re-register if already registered
         let stored_identity: Option<StoredIdentity> = provider.conn().fetch(&())?;
         if stored_identity.is_some() {
@@ -253,12 +256,13 @@ impl Identity {
         self.account_address.as_bytes().to_vec()
     }
 
-    pub(crate) async fn has_existing_legacy_credential<
-        ApiClient: XmtpMlsClient + XmtpIdentityClient,
-    >(
+    pub(crate) async fn has_existing_legacy_credential<ApiClient>(
         api_client: &ApiClientWrapper<ApiClient>,
         account_address: &str,
-    ) -> Result<bool, IdentityError> {
+    ) -> Result<bool, IdentityError>
+    where
+        ApiClient: XmtpApi,
+    {
         let identity_updates = api_client
             .get_identity_updates(0 /*start_time_ns*/, vec![account_address.to_string()])
             .await?;
@@ -309,14 +313,17 @@ mod tests {
         api::{test_utils::get_test_api_client, ApiClientWrapper},
         storage::EncryptedMessageStore,
         xmtp_openmls_provider::XmtpOpenMlsProvider,
-        InboxOwner,
+        InboxOwner, XmtpApi,
     };
 
-    pub async fn create_registered_identity<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+    pub async fn create_registered_identity<ApiClient>(
         provider: &XmtpOpenMlsProvider<'_>,
         api_client: &ApiClientWrapper<ApiClient>,
         owner: &impl InboxOwner,
-    ) -> Identity {
+    ) -> Identity
+    where
+        ApiClient: XmtpApi,
+    {
         let identity = Identity::create_to_be_signed(owner.get_address()).unwrap();
         let signature: Option<Vec<u8>> = identity
             .text_to_sign()
