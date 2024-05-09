@@ -4,6 +4,7 @@ use crate::storage::identity_inbox::StoredIdentity;
 use crate::{api::ApiClientWrapper, builder::ClientBuilderError, storage::EncryptedMessageStore};
 use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Fetch};
 pub use identity::Identity;
+pub use identity::IdentityError;
 use log::debug;
 use log::info;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};

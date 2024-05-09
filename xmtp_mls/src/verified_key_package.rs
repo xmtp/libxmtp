@@ -170,7 +170,7 @@ mod tests {
                 &provider,
                 &client.identity.installation_keys,
                 CredentialWithKey {
-                    credential: client.identity.credential().unwrap(),
+                    credential: client.identity.credential(),
                     signature_key: client.identity.installation_keys.to_public_vec().into(),
                 },
             )
@@ -181,7 +181,7 @@ mod tests {
         assert_eq!(
             KeyPackageVerificationError::ApplicationIdCredentialMismatch(
                 String::from_utf8(invalid_application_id.to_vec()).unwrap(),
-                client.account_address()
+                client.get_inbox_id()
             )
             .to_string(),
             verified_kp_result.err().unwrap().to_string()

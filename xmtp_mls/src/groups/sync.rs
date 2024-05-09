@@ -170,7 +170,7 @@ where
         }
         debug!(
             "[{}] processing own message for intent {} / {:?}",
-            self.client.account_address(),
+            self.client.get_inbox_id(),
             intent.id,
             intent.kind
         );
@@ -203,7 +203,7 @@ where
                     openmls_group,
                 )?;
 
-                debug!("[{}] merging pending commit", self.client.account_address());
+                debug!("[{}] merging pending commit", self.client.get_inbox_id());
                 if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
                     openmls_group.merge_pending_commit(provider)
                 {
@@ -235,7 +235,7 @@ where
                         let message_id = calculate_message_id(
                             group_id,
                             &content,
-                            &self.client.account_address(),
+                            self.client.get_inbox_id(),
                             &idempotency_key,
                         );
 
@@ -273,7 +273,7 @@ where
     ) -> Result<(), MessageProcessingError> {
         debug!(
             "[{}] processing private message",
-            self.client.account_address()
+            self.client.get_inbox_id()
         );
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_account_address, sender_installation_id) =
@@ -295,7 +295,7 @@ where
                         let message_id = calculate_message_id(
                             &self.group_id,
                             &content,
-                            &self.client.account_address(),
+                            self.client.get_inbox_id(),
                             &idempotency_key,
                         );
                         StoredGroupMessage {
@@ -331,7 +331,7 @@ where
                             let message_id = calculate_message_id(
                                 &self.group_id,
                                 &contents,
-                                &self.client.account_address(),
+                                self.client.get_inbox_id(),
                                 &idempotency_key,
                             );
                             StoredGroupMessage {
@@ -364,7 +364,7 @@ where
                 }
                 debug!(
                     "[{}] received staged commit. Merging and clearing any pending commits",
-                    self.client.account_address()
+                    self.client.get_inbox_id()
                 );
 
                 let sc = *staged_commit;
@@ -500,7 +500,7 @@ where
             }
             log::info!(
                 "{}: Storing a transcript message with {} members added and {} members removed",
-                self.client.account_address(),
+                self.client.get_inbox_id(),
                 validated_commit.members_added.len(),
                 validated_commit.members_removed.len()
             );
@@ -514,7 +514,7 @@ where
             let message_id = calculate_message_id(
                 group_id,
                 encoded_payload_bytes.as_slice(),
-                &sender_account_address,
+                sender_account_address.clone(),
                 &timestamp_ns.to_string(),
             );
 

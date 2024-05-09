@@ -10,10 +10,12 @@ use std::sync::{
 };
 use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::PreconfiguredPolicies;
-use xmtp_mls::identity::v3::{IdentityStrategy, LegacyIdentity};
+use xmtp_mls::identity::xmtp_id::IdentityStrategy;
+use xmtp_mls::types::InboxId;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -90,13 +92,14 @@ pub async fn create_client(
     log::info!("Creating XMTP client");
     let legacy_key_result =
         legacy_signed_private_key_proto.ok_or("No legacy key provided".to_string());
-    let legacy_identity = match legacy_identity_source {
-        LegacyIdentitySource::None => LegacyIdentity::None,
-        LegacyIdentitySource::Static => LegacyIdentity::Static(legacy_key_result?),
-        LegacyIdentitySource::Network => LegacyIdentity::Network(legacy_key_result?),
-        LegacyIdentitySource::KeyGenerator => LegacyIdentity::KeyGenerator(legacy_key_result?),
-    };
-    let identity_strategy = IdentityStrategy::CreateIfNotFound(account_address, legacy_identity);
+    // TODO: uncomment
+    // let legacy_identity = match legacy_identity_source {
+    //     LegacyIdentitySource::None => LegacyIdentity::None,
+    //     LegacyIdentitySource::Static => LegacyIdentity::Static(legacy_key_result?),
+    //     LegacyIdentitySource::Network => LegacyIdentity::Network(legacy_key_result?),
+    //     LegacyIdentitySource::KeyGenerator => LegacyIdentity::KeyGenerator(legacy_key_result?),
+    // };
+    let identity_strategy = IdentityStrategy::CreateIfNotFound(account_address, None);
     let xmtp_client: RustXmtpClient = ClientBuilder::new(identity_strategy)
         .api_client(api_client)
         .store(store)
@@ -104,8 +107,8 @@ pub async fn create_client(
         .await?;
 
     log::info!(
-        "Created XMTP client for address: {}",
-        xmtp_client.account_address()
+        "Created XMTP client for inbox_id: {}",
+        xmtp_client.get_inbox_id()
     );
     Ok(Arc::new(FfiXmtpClient {
         inner_client: Arc::new(xmtp_client),
@@ -119,8 +122,8 @@ pub struct FfiXmtpClient {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
-    pub fn account_address(&self) -> Address {
-        self.inner_client.account_address()
+    pub fn get_inbox_id(&self) -> InboxId {
+        self.inner_client.get_inbox_id()
     }
 
     pub fn conversations(&self) -> Arc<FfiConversations> {
@@ -147,17 +150,12 @@ impl FfiXmtpClient {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
-    pub fn text_to_sign(&self) -> Option<String> {
-        self.inner_client.text_to_sign()
+    pub fn get_siganture_request(&self) -> Option<SignatureRequest> {
+        self.inner_client.get_signature_request()
     }
 
-    pub async fn register_identity(
-        &self,
-        recoverable_wallet_signature: Option<Vec<u8>>,
-    ) -> Result<(), GenericError> {
-        self.inner_client
-            .register_identity(recoverable_wallet_signature)
-            .await?;
+    pub async fn register_identity(&self) -> Result<(), GenericError> {
+        self.inner_client.register_identity().await?;
 
         Ok(())
     }

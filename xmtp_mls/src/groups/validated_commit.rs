@@ -497,7 +497,7 @@ mod tests {
         assert_eq!(message.members_added.len(), 1);
         assert_eq!(
             message.members_added[0].account_address,
-            bola.account_address()
+            bola.get_inbox_id()
         );
         // Amal is the creator of the group and the actor
         assert!(message.actor.is_creator);

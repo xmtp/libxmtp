@@ -34,6 +34,7 @@ use thiserror::Error;
 use xmtp_cryptography::signature::{
     is_valid_ed25519_public_key, sanitize_evm_addresses, AddressValidationError,
 };
+use xmtp_id::InboxId;
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::{
@@ -73,7 +74,7 @@ use crate::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MAX_GROUP_SIZE, MUTABLE_METADATA_EXTENSION_ID,
     },
     hpke::{decrypt_welcome, HpkeError},
-    identity::v3::{Identity, IdentityError},
+    identity::xmtp_id::{Identity, IdentityError},
     retry::RetryableError,
     retryable,
     storage::{
@@ -214,7 +215,7 @@ where
         client: &'c Client<ApiClient>,
         membership_state: GroupMembershipState,
         permissions: Option<PreconfiguredPolicies>,
-        added_by_address: String,
+        added_by_address: &InboxId,
     ) -> Result<Self, GroupError> {
         let conn = client.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
@@ -225,7 +226,7 @@ where
         )?;
         let mutable_metadata = build_mutable_metadata_extension_default()?;
         let group_membership = build_starting_group_membership_extension(
-            client.inbox_id(),
+            client.get_inbox_id(),
             client.inbox_latest_sequence_id(),
         );
         let group_config =
@@ -236,7 +237,7 @@ where
             &client.identity.installation_keys,
             &group_config,
             CredentialWithKey {
-                credential: client.identity.credential()?,
+                credential: client.identity.credential(),
                 signature_key: client.identity.installation_keys.to_public_vec().into(),
             },
         )?;
@@ -331,7 +332,7 @@ where
         )?;
         let mutable_metadata = build_mutable_metadata_extension_default()?;
         let group_membership = build_starting_group_membership_extension(
-            client.inbox_id(),
+            client.get_inbox_id(),
             client.inbox_latest_sequence_id(),
         );
         let group_config =
@@ -341,7 +342,7 @@ where
             &client.identity.installation_keys,
             &group_config,
             CredentialWithKey {
-                credential: client.identity.credential()?,
+                credential: client.identity.credential(),
                 signature_key: client.identity.installation_keys.to_public_vec().into(),
             },
         )?;
@@ -382,7 +383,7 @@ where
         let message_id = calculate_message_id(
             &self.group_id,
             message,
-            &self.client.account_address(),
+            self.client.get_inbox_id(),
             &now.to_string(),
         );
         let group_message = StoredGroupMessage {
@@ -392,7 +393,7 @@ where
             sent_at_ns: now,
             kind: GroupMessageKind::Application,
             sender_installation_id: self.client.installation_public_key(),
-            sender_account_address: self.client.account_address(),
+            sender_account_address: self.client.get_inbox_id(),
             delivery_status: DeliveryStatus::Unpublished,
         };
         group_message.store(conn)?;
@@ -623,7 +624,7 @@ fn build_protected_metadata_extension(
     };
     let metadata = GroupMetadata::new(
         group_type,
-        identity.account_address.clone(),
+        identity.get_inbox_id().clone(),
         // TODO: Remove me
         "inbox_id".to_string(),
         policies,
@@ -953,7 +954,7 @@ mod tests {
 
         let group = client.create_group(None).expect("create group");
         group
-            .add_members(vec![bola_client.account_address()])
+            .add_members(vec![bola_client.get_inbox_id()])
             .await
             .unwrap();
 
@@ -1013,7 +1014,7 @@ mod tests {
 
         let group = amal.create_group(None).unwrap();
         group
-            .add_members(vec![bola.account_address(), charlie.account_address()])
+            .add_members(vec![bola.get_inbox_id(), charlie.get_inbox_id()])
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 3);
@@ -1029,7 +1030,7 @@ mod tests {
         assert_eq!(members_changed_codec.installations_removed.len(), 0);
 
         group
-            .remove_members(vec![bola.account_address()])
+            .remove_members(vec![bola.get_inbox_id()])
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 2);
@@ -1057,10 +1058,7 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let group = amal.create_group(None).unwrap();
-        group
-            .add_members(vec![bola.account_address()])
-            .await
-            .unwrap();
+        group.add_members(vec![bola.get_inbox_id()]).await.unwrap();
         assert_eq!(group.members().unwrap().len(), 2);
 
         let conn = &amal.store.conn().unwrap();
@@ -1095,10 +1093,7 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let group = amal.create_group(None).unwrap();
-        group
-            .add_members(vec![bola.account_address()])
-            .await
-            .unwrap();
+        group.add_members(vec![bola.get_inbox_id()]).await.unwrap();
         assert_eq!(group.members().unwrap().len(), 2);
 
         let conn = &amal.store.conn().unwrap();
@@ -1122,7 +1117,7 @@ mod tests {
         let amal_group = amal.create_group(None).unwrap();
         // Add bola to the group
         amal_group
-            .add_members(vec![bola.account_address()])
+            .add_members(vec![bola.get_inbox_id()])
             .await
             .unwrap();
 
@@ -1130,12 +1125,12 @@ mod tests {
         bola_group.sync().await.unwrap();
         // Both Amal and Bola are up to date on the group state. Now each of them want to add someone else
         amal_group
-            .add_members(vec![charlie.account_address()])
+            .add_members(vec![charlie.get_inbox_id()])
             .await
             .unwrap();
 
         bola_group
-            .add_members(vec![dave.account_address()])
+            .add_members(vec![dave.get_inbox_id()])
             .await
             .unwrap();
 
@@ -1171,14 +1166,14 @@ mod tests {
             .unwrap();
         // Add bola to the group
         amal_group
-            .add_members(vec![bola.account_address()])
+            .add_members(vec![bola.get_inbox_id()])
             .await
             .unwrap();
 
         let bola_group = receive_group_invite(&bola).await;
         bola_group.sync().await.unwrap();
         assert!(bola_group
-            .add_members(vec![charlie.account_address()])
+            .add_members(vec![charlie.get_inbox_id()])
             .await
             .is_err(),);
     }
@@ -1192,12 +1187,12 @@ mod tests {
         let mut clients = Vec::new();
         for _ in 0..249 {
             let client: Client<_> = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-            clients.push(client.account_address());
+            clients.push(client.get_inbox_id());
         }
         amal_group.add_members(clients).await.unwrap();
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         assert!(amal_group
-            .add_members(vec![bola.account_address()])
+            .add_members(vec![bola.get_inbox_id()])
             .await
             .is_err(),);
     }
@@ -1222,7 +1217,7 @@ mod tests {
 
         // Add bola to the group
         amal_group
-            .add_members(vec![bola.account_address()])
+            .add_members(vec![bola.get_inbox_id()])
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
@@ -1296,7 +1291,7 @@ mod tests {
 
         // Add bola to the group
         amal_group
-            .add_members(vec![bola.account_address()])
+            .add_members(vec![bola.get_inbox_id()])
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
@@ -1383,7 +1378,7 @@ mod tests {
 
         // Verify the welcome host_credential is equal to Amal's
         assert_eq!(
-            amal.account_address(),
+            amal.get_inbox_id(),
             added_by_address,
             "The Inviter and added_by_address do not match!"
         );

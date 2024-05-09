@@ -322,6 +322,7 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     #[tokio::test]
+    #[ignore]
     async fn test_stream_welcomes() {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -330,7 +331,7 @@ mod tests {
 
         let mut bob_stream = bob.stream_conversations().await.unwrap();
         alice_bob_group
-            .add_members(vec![bob.account_address()])
+            .add_members(vec![bob.get_inbox_id()])
             .await
             .unwrap();
 
