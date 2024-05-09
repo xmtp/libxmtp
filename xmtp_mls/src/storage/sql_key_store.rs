@@ -14,7 +14,7 @@ use super::encrypted_store::db_connection::DbConnection;
 struct StorageData {
     #[column_name = "value_bytes"]
     #[sql_type = "Binary"]
-    data: Vec<u8>,
+    value_bytes: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -81,7 +81,7 @@ impl<'a> SqlKeyStore<'a> {
         match current_data {
             Ok(data) => {
                 if let Some(entry) = data.into_iter().next() {
-                    match from_slice::<Value>(&entry.data) {
+                    match from_slice::<Value>(&entry.value_bytes) {
                         Ok(mut deserialized) => {
                             // Assuming value is JSON and needs to be added to an array
                             if let Value::Array(ref mut arr) = deserialized {
@@ -148,7 +148,7 @@ impl<'a> SqlKeyStore<'a> {
         match results {
             Ok(data) => {
                 if let Some(entry) = data.into_iter().next() {
-                    match serde_json::from_slice::<V>(&entry.data) {
+                    match serde_json::from_slice::<V>(&entry.value_bytes) {
                         Ok(deserialized) => Ok(Some(deserialized)),
                         Err(e) => Err(MemoryStorageError::SerializationError),
                     }
@@ -177,9 +177,13 @@ impl<'a> SqlKeyStore<'a> {
             Ok(results) => {
                 let mut deserialized_results = Vec::new();
                 for entry in results {
-                    match serde_json::from_slice::<V>(&entry.data) {
+                    eprintln!("Raw data: {:?}", entry.value_bytes);
+                    match serde_json::from_slice::<V>(&entry.value_bytes) {
                         Ok(deserialized) => deserialized_results.push(deserialized),
-                        Err(e) => return Err(MemoryStorageError::SerializationError),
+                        Err(e) => {
+                            eprintln!("Error occurred: {}", e); 
+                            return Err(MemoryStorageError::SerializationError)
+                        },
                     }
                 }
                 Ok(deserialized_results)
@@ -1048,6 +1052,7 @@ mod tests {
         xmtp_openmls_provider::XmtpOpenMlsProvider,
         InboxOwner,
     };
+    use serde_json::json;
 
     #[test]
     fn store_read_delete() {
@@ -1098,11 +1103,12 @@ mod tests {
         let key_store = SqlKeyStore::new(conn);
         let provider = XmtpOpenMlsProvider::new(&conn);
         let group_id = GroupId::random(provider.rand());
+        let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
 
         assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
 
         key_store
-            .write_aad::<GroupId>(&group_id, "aad".as_bytes())
+            .write_aad::<GroupId>(&group_id, &signature_keys.to_public_vec())
             .unwrap();
 
         assert!(!key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
