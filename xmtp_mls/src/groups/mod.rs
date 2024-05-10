@@ -261,7 +261,7 @@ where
         client: &'c Client<ApiClient>,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
-        added_by_address: String,
+        added_by_address: String, // TODO: This should be Inbox ID.
     ) -> Result<Self, GroupError> {
         let mls_welcome =
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
@@ -515,6 +515,7 @@ where
         }
     }
 
+    // TODO: This should be `added_by_inbox_id`
     // Find the wallet address of the group member who added the member to the group
     pub fn added_by_address(&self) -> Result<String, GroupError> {
         let conn = self.client.store.conn()?;

@@ -11,11 +11,11 @@ use std::sync::{
 use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
+use xmtp_id::InboxId;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::PreconfiguredPolicies;
 use xmtp_mls::identity::IdentityStrategy;
-use xmtp_mls::types::InboxId;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -108,7 +108,7 @@ pub async fn create_client(
 
     log::info!(
         "Created XMTP client for inbox_id: {}",
-        xmtp_client.get_inbox_id()
+        xmtp_client.inbox_id()
     );
     Ok(Arc::new(FfiXmtpClient {
         inner_client: Arc::new(xmtp_client),
@@ -123,7 +123,7 @@ pub struct FfiXmtpClient {
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
     pub fn get_inbox_id(&self) -> InboxId {
-        self.inner_client.get_inbox_id()
+        self.inner_client.inbox_id()
     }
 
     pub fn conversations(&self) -> Arc<FfiConversations> {
@@ -499,6 +499,7 @@ impl FfiGroup {
         Ok(group.is_active()?)
     }
 
+    // TODO: This should be `added_by_inbox_id`
     pub fn added_by_address(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.as_ref(),
