@@ -19,10 +19,6 @@ pub struct DbConnection {
     wrapped_conn: Arc<Mutex<RawDbConnection>>,
 }
 
-pub struct DbConnectionRef<'a> {
-    wrapped_conn: Mutex<&'a mut RawDbConnection>,
-}
-
 /// Owned DBConnection Methods
 /// Lifetime is 'static' because we are using [`RefOrValue::Value`] variant.
 impl DbConnection {

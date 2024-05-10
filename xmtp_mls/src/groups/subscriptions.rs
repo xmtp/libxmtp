@@ -7,12 +7,10 @@ use futures::Stream;
 use super::{extract_message_v1, GroupError, MlsGroup};
 use crate::storage::group_message::StoredGroupMessage;
 use crate::subscriptions::{MessagesStreamInfo, StreamCloser};
+use crate::Client;
 use crate::XmtpApi;
-use crate::{await_helper::await_helper, Client};
-use futures::TryFutureExt;
 use prost::Message;
-use xmtp_proto::api_client::XmtpIdentityClient;
-use xmtp_proto::{api_client::XmtpMlsClient, xmtp::mls::api::v1::GroupMessage};
+use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
 impl MlsGroup {
     pub(crate) async fn process_stream_entry<ApiClient>(
@@ -26,15 +24,12 @@ impl MlsGroup {
         let msgv1 = extract_message_v1(envelope)?;
 
         let process_result = self.context.store.transaction(|provider| {
-            let mut openmls_group = self.load_mls_group(&provider)?;
+            let mut openmls_group = self.load_mls_group(provider)?;
 
             // Attempt processing immediately, but fail if the message is not an Application Message
             // Returning an error should roll back the DB tx
-            let future = self
-                .process_message(&mut openmls_group, provider.clone(), &msgv1, false, &client)
-                .map_err(GroupError::ReceiveError);
-            let _result = await_helper(future)?;
-            Ok(())
+            self.process_message(&mut openmls_group, &provider, &msgv1, false)
+                .map_err(GroupError::ReceiveError)
         });
 
         if let Some(GroupError::ReceiveError(_)) = process_result.err() {

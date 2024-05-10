@@ -10,10 +10,7 @@ use std::{
 use futures::{Stream, StreamExt};
 use prost::Message;
 use tokio::sync::oneshot::{self, Sender};
-use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::mls::api::v1::WelcomeMessage,
-};
+use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
 use crate::{
     api::GroupFilter,

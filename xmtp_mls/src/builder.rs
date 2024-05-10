@@ -6,7 +6,6 @@ use log::debug;
 use thiserror::Error;
 
 use xmtp_cryptography::signature::AddressValidationError;
-use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use crate::{
     api::ApiClientWrapper,
@@ -172,8 +171,8 @@ mod tests {
         let wallet = generate_local_wallet();
         let address = wallet.address();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        assert!(client.account_address() == format!("{address:#020x}"));
-        assert!(!client.installation_public_key().is_empty());
+        assert!(client.context.account_address() == format!("{address:#020x}"));
+        assert!(!client.context.installation_public_key().is_empty());
     }
 
     #[tokio::test]
@@ -242,6 +241,6 @@ mod tests {
             .build()
             .await
             .unwrap();
-        assert_eq!(client_d.installation_public_key(), keybytes_a);
+        assert_eq!(client_d.w;nstallation_public_key(), keybytes_a);
     }
 }

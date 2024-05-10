@@ -51,7 +51,6 @@ use crate::{
     identity::v3::Identity,
     retry,
     retry::Retry,
-    retry_async, retry_sync,
     storage::{
         db_connection::DbConnection,
         group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
@@ -69,16 +68,17 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = &mut self.context.store.conn()?;
+        let conn = self.context.store.conn()?;
 
-        self.maybe_update_installations(conn, None, client).await?;
+        self.maybe_update_installations(conn.clone(), None, client)
+            .await?;
 
         self.sync_with_conn(conn, client).await
     }
 
     pub(super) async fn sync_with_conn<ApiClient>(
         &self,
-        conn: &DbConnection,
+        conn: DbConnection,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
@@ -87,20 +87,20 @@ impl MlsGroup {
         let mut errors: Vec<GroupError> = vec![];
 
         // Even if publish fails, continue to receiving
-        if let Err(publish_error) = self.publish_intents(conn, client).await {
+        if let Err(publish_error) = self.publish_intents(conn.clone(), client).await {
             log::error!("error publishing intents {:?}", publish_error);
             errors.push(publish_error);
         }
 
         // Even if receiving fails, continue to post_commit
-        if let Err(receive_error) = self.receive(conn, client).await {
+        if let Err(receive_error) = self.receive(&conn, client).await {
             log::error!("receive error {:?}", receive_error);
             // We don't return an error if receive fails, because it's possible this is caused
             // by malicious data sent over the network, or messages from before the user was
             // added to the group
         }
 
-        if let Err(post_commit_err) = self.post_commit(conn, client).await {
+        if let Err(post_commit_err) = self.post_commit(&conn, client).await {
             log::error!("post commit error {:?}", post_commit_err);
             errors.push(post_commit_err);
         }
@@ -122,18 +122,19 @@ impl MlsGroup {
      */
     pub(super) async fn sync_until_intent_resolved<ApiClient>(
         &self,
-        conn: &DbConnection,
+        conn: DbConnection,
         intent_id: ID,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
+        // TODO:insipx take a closer look at use of conn.clone here
         let mut num_attempts = 0;
         // Return the last error to the caller if we fail to sync
         let mut last_err: Option<GroupError> = None;
         while num_attempts < crate::configuration::MAX_GROUP_SYNC_RETRIES {
-            if let Err(err) = self.sync_with_conn(conn, client).await {
+            if let Err(err) = self.sync_with_conn(conn.clone(), client).await {
                 log::error!("error syncing group {:?}", err);
                 last_err = Some(err);
             }
@@ -163,19 +164,15 @@ impl MlsGroup {
         Err(last_err.unwrap_or(GroupError::Generic("failed to wait for intent".to_string())))
     }
 
-    async fn process_own_message<ApiClient>(
+    fn process_own_message(
         &self,
         intent: StoredGroupIntent,
         openmls_group: &mut OpenMlsGroup,
-        provider: XmtpOpenMlsProvider,
+        provider: &XmtpOpenMlsProvider,
         message: ProtocolMessage,
         envelope_timestamp_ns: u64,
         allow_epoch_increment: bool,
-        api: &Client<ApiClient>,
-    ) -> Result<(), MessageProcessingError>
-    where
-        ApiClient: XmtpApi,
-    {
+    ) -> Result<(), MessageProcessingError> {
         if intent.state == IntentState::Committed {
             return Ok(());
         }
@@ -212,9 +209,7 @@ impl MlsGroup {
                 let maybe_validated_commit = ValidatedCommit::from_staged_commit(
                     maybe_pending_commit.expect("already checked"),
                     openmls_group,
-                    api,
-                )
-                .await?;
+                )?;
 
                 debug!(
                     "[{}] merging pending commit",
@@ -229,7 +224,7 @@ impl MlsGroup {
                 } else {
                     // If no error committing the change, write a transcript message
                     self.save_transcript_message(
-                        conn,
+                        &conn,
                         maybe_validated_commit,
                         envelope_timestamp_ns,
                     )?;
@@ -279,18 +274,14 @@ impl MlsGroup {
         Ok(())
     }
 
-    async fn process_external_message<Api>(
+    fn process_external_message(
         &self,
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
         message: PrivateMessageIn,
         envelope_timestamp_ns: u64,
         allow_epoch_increment: bool,
-        client: &Client<Api>,
-    ) -> Result<(), MessageProcessingError>
-    where
-        Api: XmtpApi,
-    {
+    ) -> Result<(), MessageProcessingError> {
         debug!(
             "[{}] processing private message",
             self.context.account_address()
@@ -328,7 +319,7 @@ impl MlsGroup {
                             sender_account_address,
                             delivery_status: DeliveryStatus::Published,
                         }
-                        .store(provider.conn())?
+                        .store(provider.conn_ref())?
                     }
                     Some(Content::V2(V2 {
                         idempotency_key,
@@ -343,7 +334,7 @@ impl MlsGroup {
                             let message_id = calculate_message_id(
                                 &self.group_id,
                                 &contents,
-                                &self.client.account_address(),
+                                &self.context.account_address(),
                                 &idempotency_key,
                             );
                             StoredGroupMessage {
@@ -356,7 +347,7 @@ impl MlsGroup {
                                 sender_account_address,
                                 delivery_status: DeliveryStatus::Published,
                             }
-                            .store(provider.conn())?
+                            .store(provider.conn_ref())?
                         }
                         Some(Reply(MessageHistoryReply {
                             request_id: _,
@@ -373,7 +364,7 @@ impl MlsGroup {
                             let message_id = calculate_message_id(
                                 &self.group_id,
                                 &contents,
-                                &self.client.account_address(),
+                                &self.context.account_address(),
                                 &idempotency_key,
                             );
                             StoredGroupMessage {
@@ -386,7 +377,7 @@ impl MlsGroup {
                                 sender_account_address,
                                 delivery_status: DeliveryStatus::Published,
                             }
-                            .store(provider.conn())?
+                            .store(provider.conn_ref())?
                         }
                         _ => {
                             return Err(MessageProcessingError::InvalidPayload);
@@ -412,11 +403,10 @@ impl MlsGroup {
 
                 let sc = *staged_commit;
                 // Validate the commit
-                let validated_commit =
-                    ValidatedCommit::from_staged_commit(conn, &sc, openmls_group, client).await?;
+                let validated_commit = ValidatedCommit::from_staged_commit(&sc, openmls_group)?;
                 openmls_group.merge_staged_commit(provider, sc)?;
                 self.save_transcript_message(
-                    provider.conn(),
+                    provider.conn_ref(),
                     validated_commit,
                     envelope_timestamp_ns,
                 )?;
@@ -426,17 +416,13 @@ impl MlsGroup {
         Ok(())
     }
 
-    pub(super) async fn process_message<ApiClient>(
+    pub(super) fn process_message(
         &self,
         openmls_group: &mut OpenMlsGroup,
-        provider: XmtpOpenMlsProvider,
+        provider: &XmtpOpenMlsProvider,
         envelope: &GroupMessageV1,
         allow_epoch_increment: bool,
-        client: &Client<ApiClient>,
-    ) -> Result<(), MessageProcessingError>
-    where
-        ApiClient: XmtpApi,
-    {
+    ) -> Result<(), MessageProcessingError> {
         let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
 
         let message = match mls_message_in.extract() {
@@ -452,30 +438,22 @@ impl MlsGroup {
 
         match intent {
             // Intent with the payload hash matches
-            Ok(Some(intent)) => {
-                self.process_own_message(
-                    intent,
-                    openmls_group,
-                    provider,
-                    message.into(),
-                    envelope.created_ns,
-                    allow_epoch_increment,
-                    client,
-                )
-                .await
-            }
+            Ok(Some(intent)) => self.process_own_message(
+                intent,
+                openmls_group,
+                &provider,
+                message.into(),
+                envelope.created_ns,
+                allow_epoch_increment,
+            ),
             // No matching intent found
-            Ok(None) => {
-                self.process_external_message(
-                    openmls_group,
-                    &provider,
-                    message,
-                    envelope.created_ns,
-                    allow_epoch_increment,
-                    client,
-                )
-                .await
-            }
+            Ok(None) => self.process_external_message(
+                openmls_group,
+                &provider,
+                message,
+                envelope.created_ns,
+                allow_epoch_increment,
+            ),
             Err(err) => Err(MessageProcessingError::Storage(err)),
         }
     }
@@ -499,7 +477,7 @@ impl MlsGroup {
             EntityKind::Group,
             msgv1.id,
             |provider| -> Result<(), MessageProcessingError> {
-                self.process_message(openmls_group, &provider, msgv1, true, client)?;
+                self.process_message(openmls_group, &provider, msgv1, true)?;
                 openmls_group.save(provider.key_store())?;
                 Ok(())
             },
@@ -510,7 +488,7 @@ impl MlsGroup {
     pub fn process_messages<ApiClient>(
         &self,
         messages: Vec<GroupMessage>,
-        conn: &DbConnection,
+        conn: DbConnection,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
@@ -548,7 +526,7 @@ impl MlsGroup {
     {
         let messages = client.query_group_messages(&self.group_id, conn).await?;
 
-        self.process_messages(messages, conn, client)?;
+        self.process_messages(messages, conn.clone(), client)?;
 
         Ok(())
     }
@@ -569,7 +547,7 @@ impl MlsGroup {
             }
             log::info!(
                 "{}: Storing a transcript message with {} members added and {} members removed",
-                self.client.account_address(),
+                &self.context.account_address(),
                 validated_commit.members_added.len(),
                 validated_commit.members_removed.len()
             );
@@ -607,7 +585,7 @@ impl MlsGroup {
 
     pub(super) async fn publish_intents<ClientApi>(
         &self,
-        conn: &DbConnection,
+        conn: DbConnection,
         client: &Client<ClientApi>,
     ) -> Result<(), GroupError>
     where
@@ -632,7 +610,7 @@ impl MlsGroup {
             //     })
             // );
             let result = self
-                .get_publish_intent_data(provider.clone(), client, &mut openmls_group, &intent)
+                .get_publish_intent_data(&provider, client, &mut openmls_group, &intent)
                 .await;
 
             if let Err(err) = result {
@@ -640,9 +618,11 @@ impl MlsGroup {
                 if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
                     log::error!("intent {} has reached max publish attempts", intent.id);
                     // TODO: Eventually clean up errored attempts
-                    conn.set_group_intent_error(intent.id)?;
+                    provider.conn().set_group_intent_error(intent.id)?;
                 } else {
-                    conn.increment_intent_publish_attempt_count(intent.id)?;
+                    provider
+                        .conn()
+                        .increment_intent_publish_attempt_count(intent.id)?;
                 }
 
                 return Err(err);
@@ -671,15 +651,15 @@ impl MlsGroup {
     }
 
     // Takes a StoredGroupIntent and returns the payload and post commit data as a tuple
-    async fn get_publish_intent_data<Api>(
+    async fn get_publish_intent_data<ApiClient>(
         &self,
-        provider: XmtpOpenMlsProvider,
-        client: &Client<Api>,
+        provider: &XmtpOpenMlsProvider,
+        client: &Client<ApiClient>,
         openmls_group: &mut OpenMlsGroup,
         intent: &StoredGroupIntent,
     ) -> Result<(Vec<u8>, Option<Vec<u8>>), GroupError>
     where
-        Api: XmtpApi,
+        ApiClient: XmtpApi,
     {
         match intent.kind {
             IntentKind::SendMessage => {
@@ -835,7 +815,7 @@ impl MlsGroup {
 
     pub(super) async fn maybe_update_installations<ApiClient>(
         &self,
-        conn: &DbConnection,
+        conn: DbConnection,
         update_interval: Option<i64>,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
@@ -852,7 +832,7 @@ impl MlsGroup {
         let last = conn.get_installations_time_checked(self.group_id.clone())?;
         let elapsed = now - last;
         if elapsed > interval {
-            let provider = self.context.mls_provider_ref(conn);
+            let provider = self.context.mls_provider_ref(&conn);
             self.add_missing_installations(provider, client).await?;
             conn.update_installations_time_checked(self.group_id.clone())?;
         }
@@ -934,7 +914,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let (missing_members, _) = self.get_missing_members(&provider, client).await?;
+        let (missing_members, _) = self.get_missing_members(provider, client).await?;
         if missing_members.is_empty() {
             return Ok(());
         }

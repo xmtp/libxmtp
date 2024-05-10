@@ -250,7 +250,7 @@ impl MlsGroup {
             added_by_address.clone(),
         );
 
-        stored_group.store(provider.conn())?;
+        stored_group.store(&provider.conn())?;
         Ok(Self::new(
             client.clone(),
             group_id,
@@ -327,7 +327,7 @@ impl MlsGroup {
         client: Arc<XmtpMlsLocalContext>,
     ) -> Result<MlsGroup, GroupError> {
         let conn = client.store.conn()?;
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata = build_protected_metadata_extension(
             &client.identity,
             PreconfiguredPolicies::default().to_policy_set(),
@@ -355,7 +355,7 @@ impl MlsGroup {
         let stored_group =
             StoredGroup::new_sync_group(group_id.clone(), now_ns(), GroupMembershipState::Allowed);
 
-        stored_group.store(provider.conn())?;
+        stored_group.store(&provider.conn())?;
         Ok(Self::new(
             client.clone(),
             stored_group.id,
@@ -371,10 +371,10 @@ impl MlsGroup {
     where
         Api: XmtpApi,
     {
-        let conn = &mut self.context.store.conn()?;
+        let conn = self.context.store.conn()?;
 
         let update_interval = Some(5_000_000); // 5 seconds in nanoseconds
-        self.maybe_update_installations(conn, update_interval, api)
+        self.maybe_update_installations(conn.clone(), update_interval, api)
             .await?;
 
         let now = now_ns();
@@ -387,7 +387,7 @@ impl MlsGroup {
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         let intent =
             NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
-        intent.store(conn)?;
+        intent.store(&conn)?;
 
         // store this unpublished message locally before sending
         let message_id = calculate_message_id(
@@ -406,7 +406,7 @@ impl MlsGroup {
             sender_account_address: self.context.account_address(),
             delivery_status: DeliveryStatus::Unpublished,
         };
-        group_message.store(conn)?;
+        group_message.store(&conn)?;
 
         // Skipping a full sync here and instead just firing and forgetting
         if let Err(err) = self.publish_intents(conn, api).await {
@@ -462,7 +462,7 @@ impl MlsGroup {
             return Err(GroupError::UserLimitExceeded);
         }
 
-        let conn = &mut self.context.store.conn()?;
+        let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> =
             AddMembersIntentData::new(account_addresses.into()).try_into()?;
         let intent = conn.insert_group_intent(NewGroupIntent::new(
@@ -484,7 +484,7 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         validate_ed25519_keys(&installation_ids)?;
-        let conn = &mut self.context.store.conn()?;
+        let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> = AddMembersIntentData::new(installation_ids.into()).try_into()?;
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::AddMembers,
@@ -505,7 +505,7 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_remove)?;
-        let conn = &mut self.context.store.conn()?;
+        let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> = RemoveMembersIntentData::new(account_addresses.into()).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::RemoveMembers,
@@ -525,7 +525,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = &mut self.context.store.conn()?;
+        let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
@@ -576,7 +576,7 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         validate_ed25519_keys(&installation_ids)?;
-        let conn = &mut self.context.store.conn()?;
+        let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> = RemoveMembersIntentData::new(installation_ids.into()).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::RemoveMembers,
@@ -593,15 +593,15 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = &mut self.context.store.conn()?;
+        let conn = self.context.store.conn()?;
         let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
-        intent.store(conn)?;
+        intent.store(&conn)?;
 
         self.sync_with_conn(conn, client).await
     }
 
     pub fn is_active(&self) -> Result<bool, GroupError> {
-        let conn = &self.context.store.conn()?;
+        let conn = self.context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let mls_group = self.load_mls_group(&provider)?;
 
@@ -609,7 +609,7 @@ impl MlsGroup {
     }
 
     pub fn metadata(&self) -> Result<GroupMetadata, GroupError> {
-        let conn = &self.context.store.conn()?;
+        let conn = self.context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let mls_group = self.load_mls_group(&provider)?;
 
@@ -617,7 +617,7 @@ impl MlsGroup {
     }
 
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
-        let conn = &self.context.store.conn()?;
+        let conn = self.context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let mls_group = self.load_mls_group(&provider)?;
 
@@ -784,7 +784,7 @@ mod tests {
             group_intent::IntentState,
             group_message::{GroupMessageKind, StoredGroupMessage},
         },
-        Client, InboxOwner,
+        Client, InboxOwner, XmtpApi,
     };
 
     use super::MlsGroup;
@@ -799,8 +799,14 @@ mod tests {
         groups.remove(0)
     }
 
-    async fn get_latest_message<'c>(group: &MlsGroup) -> StoredGroupMessage {
-        group.sync().await.unwrap();
+    async fn get_latest_message<ApiClient>(
+        group: &MlsGroup,
+        client: &Client<ApiClient>,
+    ) -> StoredGroupMessage
+    where
+        ApiClient: XmtpApi,
+    {
+        group.sync(client).await.unwrap();
         let mut messages = group.find_messages(None, None, None, None, None).unwrap();
 
         messages.pop().unwrap()

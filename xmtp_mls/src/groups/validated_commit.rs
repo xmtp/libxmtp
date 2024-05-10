@@ -99,15 +99,10 @@ pub struct ValidatedCommit {
 }
 
 impl ValidatedCommit {
-    pub async fn from_staged_commit<ApiClient>(
-        conn: &DbConnection,
+    pub fn from_staged_commit(
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
-        client: &Client<ApiClient>,
-    ) -> Result<Option<Self>, CommitValidationError>
-    where
-        ApiClient: XmtpApi,
-    {
+    ) -> Result<Option<Self>, CommitValidationError> {
         for cred in staged_commit.credentials_to_verify() {
             if cred.credential_type() != CredentialType::Basic {
                 return Err(CommitValidationError::InvalidActorCredential);
@@ -474,6 +469,7 @@ mod tests {
 
     fn get_key_package(client: &Client<GrpcClient>) -> KeyPackage {
         client
+            .context
             .identity
             .new_key_package(&client.mls_provider(&client.store.conn().unwrap()))
             .unwrap()

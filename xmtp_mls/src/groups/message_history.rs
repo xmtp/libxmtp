@@ -56,7 +56,7 @@ where
     #[allow(dead_code)]
     pub(crate) async fn send_message_history_request(&self) -> Result<String, GroupError> {
         // find the sync group
-        let conn = &mut self.store.conn()?;
+        let conn = self.context.store.conn()?;
         let sync_group_id = conn
             .find_sync_groups()?
             .pop()
@@ -82,10 +82,10 @@ where
             .map_err(GroupError::EncodeError)?;
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         let intent = NewGroupIntent::new(IntentKind::SendMessage, sync_group_id, intent_data);
-        intent.store(conn)?;
+        intent.store(&conn)?;
 
         // publish the intent
-        if let Err(err) = sync_group.publish_intents(conn).await {
+        if let Err(err) = sync_group.publish_intents(conn, self).await {
             log::error!("error publishing sync group intents: {:?}", err);
         }
 
@@ -98,7 +98,7 @@ where
         contents: MessageHistoryReply,
     ) -> Result<(), GroupError> {
         // find the sync group
-        let conn = &mut self.store.conn()?;
+        let conn = self.context.store.conn()?;
         let sync_group_id = conn
             .find_sync_groups()?
             .pop()
@@ -121,10 +121,10 @@ where
             .map_err(GroupError::EncodeError)?;
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         let intent = NewGroupIntent::new(IntentKind::SendMessage, sync_group_id, intent_data);
-        intent.store(conn)?;
+        intent.store(&conn)?;
 
         // publish the intent
-        if let Err(err) = sync_group.publish_intents(conn).await {
+        if let Err(err) = sync_group.publish_intents(conn, self).await {
             log::error!("error publishing sync group intents: {:?}", err);
         }
         Ok(())
@@ -132,7 +132,7 @@ where
 
     #[allow(dead_code)]
     pub(crate) fn provide_pin(&self, pin_challenge: &str) -> Result<(), GroupError> {
-        let conn = self.store.conn()?;
+        let conn = self.context.store.conn()?;
         let sync_group_id = conn
             .find_sync_groups()?
             .pop()

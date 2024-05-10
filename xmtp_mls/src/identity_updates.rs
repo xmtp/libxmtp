@@ -8,7 +8,6 @@ use xmtp_id::associations::{
     generate_inbox_id, get_state, AssociationError, AssociationState, AssociationStateDiff,
     IdentityUpdate, InstallationKeySignature, MemberIdentifier,
 };
-use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use crate::{
     api::GetIdentityUpdatesV2Filter,

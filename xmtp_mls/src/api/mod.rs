@@ -6,7 +6,7 @@ pub mod test_utils;
 use crate::{retry::Retry, XmtpApi};
 use thiserror::Error;
 use xmtp_id::associations::DeserializationError as AssociationDeserializationError;
-use xmtp_proto::api_client::{Error as ApiError, XmtpIdentityClient, XmtpMlsClient};
+use xmtp_proto::api_client::Error as ApiError;
 
 pub use identity::*;
 pub use mls::*;

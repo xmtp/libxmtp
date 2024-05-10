@@ -165,14 +165,14 @@ impl EncryptedMessageStore {
     /// ```
     pub fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
-        F: FnOnce(&mut XmtpOpenMlsProvider) -> Result<T, E>,
+        F: FnOnce(&XmtpOpenMlsProvider) -> Result<T, E>,
         E: From<diesel::result::Error> + From<StorageError>,
     {
         let mut connection = self.raw_conn()?;
         let transaction = AnsiTransactionManager::begin_transaction(&mut *connection);
         let db_connection = DbConnection::new(connection);
         let mut provider = XmtpOpenMlsProvider::new(db_connection);
-        match fun(&mut provider) {
+        match fun(&provider) {
             Ok(value) => {
                 db_connection.raw_query(|conn| AnsiTransactionManager::commit_transaction(conn))?;
                 Ok(value)

@@ -16,12 +16,9 @@ use xmtp_id::associations::{builder::SignatureRequestError, AssociationError};
 #[cfg(feature = "xmtp-id")]
 use xmtp_id::InboxId;
 
-use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::mls::api::v1::{
-        welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
-        GroupMessage, WelcomeMessage,
-    },
+use xmtp_proto::xmtp::mls::api::v1::{
+    welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
+    GroupMessage, WelcomeMessage,
 };
 
 use crate::{
@@ -209,7 +206,10 @@ impl XmtpMlsLocalContext {
         XmtpOpenMlsProvider::new(conn)
     }
 
-    pub(crate) fn mls_provider_ref(&self, conn: &DbConnection) -> XmtpOpenMlsProviderRef<'_> {
+    pub(crate) fn mls_provider_ref<'a>(
+        &'a self,
+        conn: &'a DbConnection,
+    ) -> XmtpOpenMlsProviderRef<'a> {
         XmtpOpenMlsProviderRef::new(conn)
     }
 }
@@ -426,7 +426,7 @@ where
         process_envelope: ProcessingFn,
     ) -> Result<ReturnValue, MessageProcessingError>
     where
-        ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Result<ReturnValue, MessageProcessingError>,
+        ProcessingFn: FnOnce(&XmtpOpenMlsProvider) -> Result<ReturnValue, MessageProcessingError>,
     {
         self.context.store.transaction(|provider| {
             let is_updated =

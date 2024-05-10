@@ -15,11 +15,15 @@ pub struct XmtpOpenMlsProviderRef<'a> {
 }
 
 impl<'a> XmtpOpenMlsProviderRef<'a> {
-    pub fn new(conn: &DbConnection) -> Self {
+    pub fn new(conn: &'a DbConnection) -> Self {
         Self {
             crypto: RustCrypto::default(),
             key_store: SqlKeyStore::with_ref(conn),
         }
+    }
+
+    pub(crate) fn conn(&'a self) -> &'a DbConnection {
+        &self.key_store.conn()
     }
 }
 
@@ -42,12 +46,35 @@ impl XmtpOpenMlsProvider {
         }
     }
 
-    pub(crate) fn conn(&self) -> &DbConnection {
+    pub(crate) fn conn(&self) -> DbConnection {
         self.key_store.conn()
+    }
+
+    //TODO:insipx prob a better way to accomplish this
+    pub(crate) fn conn_ref(&self) -> &DbConnection {
+        self.key_store.conn_ref()
     }
 }
 
 impl OpenMlsProvider for XmtpOpenMlsProvider {
+    type CryptoProvider = RustCrypto;
+    type RandProvider = RustCrypto;
+    type KeyStoreProvider = SqlKeyStore<'static>;
+
+    fn crypto(&self) -> &Self::CryptoProvider {
+        &self.crypto
+    }
+
+    fn rand(&self) -> &Self::RandProvider {
+        &self.crypto
+    }
+
+    fn key_store(&self) -> &Self::KeyStoreProvider {
+        &self.key_store
+    }
+}
+
+impl<'a> OpenMlsProvider for &'a XmtpOpenMlsProvider {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
     type KeyStoreProvider = SqlKeyStore<'static>;
@@ -79,6 +106,24 @@ impl<'a> OpenMlsProvider for XmtpOpenMlsProviderRef<'a> {
     }
 
     fn key_store(&self) -> &Self::KeyStoreProvider {
+        &self.key_store
+    }
+}
+
+impl<'a, 'b: 'a> OpenMlsProvider for &'b XmtpOpenMlsProviderRef<'a> {
+    type CryptoProvider = RustCrypto;
+    type RandProvider = RustCrypto;
+    type KeyStoreProvider = SqlKeyStore<'a>;
+
+    fn crypto(&self) -> &'b Self::CryptoProvider {
+        &self.crypto
+    }
+
+    fn rand(&self) -> &'b Self::RandProvider {
+        &self.crypto
+    }
+
+    fn key_store(&self) -> &'b Self::KeyStoreProvider {
         &self.key_store
     }
 }

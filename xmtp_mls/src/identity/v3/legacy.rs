@@ -22,10 +22,7 @@ use sha2::{Digest, Sha512};
 use thiserror::Error;
 use xmtp_cryptography::signature::SignatureError;
 use xmtp_id::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
-use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::mls::message_contents::MlsCredential as CredentialProto,
-};
+use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
 
 use crate::{
     api::{ApiClientWrapper, IdentityUpdate},
@@ -161,7 +158,7 @@ impl Identity {
 
         // Only persist the installation keys if the registration was successful
         self.installation_keys.store(provider.key_store())?;
-        StoredIdentity::from(self).store(provider.conn())?;
+        StoredIdentity::from(self).store(provider.conn_ref())?;
 
         Ok(())
     }

@@ -28,8 +28,18 @@ impl<'a> SqlKeyStore<'a> {
         }
     }
 
-    pub fn conn(&self) -> &DbConnection {
-        &self.conn
+    pub fn conn(&self) -> DbConnection {
+        match self.conn {
+            Cow::Owned(ref c) => c.clone(),
+            Cow::Borrowed(c) => c.clone(),
+        }
+    }
+
+    pub fn conn_ref(&'a self) -> &'a DbConnection {
+        match &self.conn {
+            Cow::Borrowed(ref conn) => conn,
+            c @ Cow::Owned(_) => c.as_ref(),
+        }
     }
 }
 
@@ -72,7 +82,7 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
     /// Interface is unclear on expected behavior when item is already deleted -
     /// we choose to not surface an error if this is the case.
     fn delete<V: MlsEntity>(&self, k: &[u8]) -> Result<(), Self::Error> {
-        let conn: &dyn Delete<StoredKeyStoreEntry, Key = Vec<u8>> = self.conn();
+        let conn: &dyn Delete<StoredKeyStoreEntry, Key = Vec<u8>> = &self.conn();
         let num_deleted = conn.delete(k.to_vec())?;
         if num_deleted == 0 {
             debug!("No entry to delete for key {:?}", k);
