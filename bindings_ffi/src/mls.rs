@@ -10,7 +10,6 @@ use std::sync::{
 };
 use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::InboxId;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
@@ -24,7 +23,6 @@ use xmtp_mls::{
         group_message::DeliveryStatus, group_message::GroupMessageKind,
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
     },
-    types::Address,
 };
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
@@ -150,12 +148,13 @@ impl FfiXmtpClient {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
-    pub fn siganture_request(&self) -> Option<SignatureRequest> {
-        self.inner_client.signature_request()
+    pub fn siganture_request(&self) -> Option<String> {
+        Some("signature_request".to_string())
     }
 
-    pub async fn register_identity(&self, request: SignatureRequest) -> Result<(), GenericError> {
-        self.inner_client.register_identity(request).await?;
+    pub async fn register_identity(&self, _signature_request: String) -> Result<(), GenericError> {
+        // TODO: use proper type for signature_request and uncomment this
+        // self.inner_client.register_identity(request).await?;
 
         Ok(())
     }
@@ -672,10 +671,7 @@ mod tests {
         self,
         distributions::{Alphanumeric, DistString},
     };
-    use xmtp_cryptography::{
-        signature::{self, RecoverableSignature},
-        utils::rng,
-    };
+    use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_mls::{storage::EncryptionKey, InboxOwner};
 
     #[derive(Clone)]
@@ -822,7 +818,7 @@ mod tests {
             .register_identity(client.siganture_request().unwrap())
             .await
             .unwrap();
-        assert_eq!(client.siganture_request().unwrap().inbox_id(), inbox_id);
+        assert_eq!(client.siganture_request().unwrap(), inbox_id);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -924,7 +920,7 @@ mod tests {
 
         let group = amal
             .conversations()
-            .create_group(vec![bola.siganture_request().unwrap().inbox_id()], None)
+            .create_group(vec![bola.siganture_request().unwrap()], None)
             .await
             .unwrap();
 
@@ -1036,7 +1032,7 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         amal.conversations()
-            .create_group(vec![bola.siganture_request().unwrap().inbox_id()], None)
+            .create_group(vec![bola.siganture_request().unwrap()], None)
             .await
             .unwrap();
 
@@ -1045,7 +1041,7 @@ mod tests {
         assert_eq!(stream_callback.message_count(), 1);
         // Create another group and add bola
         amal.conversations()
-            .create_group(vec![bola.siganture_request().unwrap().inbox_id()], None)
+            .create_group(vec![bola.siganture_request().unwrap()], None)
             .await
             .unwrap();
 
@@ -1065,7 +1061,7 @@ mod tests {
 
         let alix_group = alix
             .conversations()
-            .create_group(vec![caro.siganture_request().unwrap().inbox_id()], None)
+            .create_group(vec![caro.siganture_request().unwrap()], None)
             .await
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -1082,7 +1078,7 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let bo_group = bo
             .conversations()
-            .create_group(vec![caro.siganture_request().unwrap().inbox_id()], None)
+            .create_group(vec![caro.siganture_request().unwrap()], None)
             .await
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
@@ -1106,7 +1102,7 @@ mod tests {
 
         let group = amal
             .conversations()
-            .create_group(vec![bola.siganture_request().unwrap().inbox_id()], None)
+            .create_group(vec![bola.siganture_request().unwrap()], None)
             .await
             .unwrap();
 
@@ -1136,13 +1132,13 @@ mod tests {
         let bola = new_test_client().await;
         log::info!(
             "Created Inbox IDs {} and {}",
-            amal.siganture_request().unwrap().inbox_id(),
-            bola.siganture_request().unwrap().inbox_id()
+            amal.siganture_request().unwrap(),
+            bola.siganture_request().unwrap()
         );
 
         let amal_group = amal
             .conversations()
-            .create_group(vec![bola.siganture_request().unwrap().inbox_id()], None)
+            .create_group(vec![bola.siganture_request().unwrap()], None)
             .await
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -1164,7 +1160,7 @@ mod tests {
         assert!(!stream_closer.is_closed());
 
         amal_group
-            .remove_members(vec![bola.siganture_request().unwrap().inbox_id()])
+            .remove_members(vec![bola.siganture_request().unwrap()])
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
@@ -1177,7 +1173,7 @@ mod tests {
 
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         amal_group
-            .add_members(vec![bola.siganture_request().unwrap().inbox_id()])
+            .add_members(vec![bola.siganture_request().unwrap()])
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -1201,7 +1197,7 @@ mod tests {
 
         // Amal creates a group and adds Bola to the group
         amal.conversations()
-            .create_group(vec![bola.siganture_request().unwrap().inbox_id()], None)
+            .create_group(vec![bola.siganture_request().unwrap()], None)
             .await
             .unwrap();
 
@@ -1228,7 +1224,7 @@ mod tests {
 
         // // Verify the welcome host_credential is equal to Amal's
         assert_eq!(
-            amal.siganture_request().unwrap().inbox_id(),
+            amal.siganture_request().unwrap(),
             added_by_address,
             "The Inviter and added_by_address do not match!"
         );
