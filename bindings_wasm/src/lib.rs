@@ -1,5 +1,3 @@
-// use std::collectioashMap;
-
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use xmtp_api_grpc_gateway::XmtpGrpcGatewayClient;
 
@@ -23,13 +21,4 @@ impl WasmXmtpClient {
             api: XmtpGrpcGatewayClient::new(host_url),
         })
     }
-
-    // #[wasm_bindgen]
-    // pub async fn can_message(
-    //     &self,
-    //     _account_addresses: Vec<String>,
-    // ) -> Result<HashMap<String, bool>, JsError> {
-    //     let allowed = HashMap::new();
-    //     Ok(allowed)
-    // }
 }
