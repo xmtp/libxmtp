@@ -380,12 +380,7 @@ where
         intent.store(conn)?;
 
         // store this unpublished message locally before sending
-        let message_id = calculate_message_id(
-            &self.group_id,
-            message,
-            self.client.inbox_id(),
-            &now.to_string(),
-        );
+        let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
         let group_message = StoredGroupMessage {
             id: message_id.clone(),
             group_id: self.group_id.clone(),

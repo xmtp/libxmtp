@@ -232,12 +232,7 @@ where
                         idempotency_key,
                         content,
                     })) => {
-                        let message_id = calculate_message_id(
-                            group_id,
-                            &content,
-                            self.client.inbox_id(),
-                            &idempotency_key,
-                        );
+                        let message_id = calculate_message_id(group_id, &content, &idempotency_key);
 
                         conn.set_delivery_status_to_published(&message_id, envelope_timestamp_ns)?;
                     }
@@ -289,12 +284,8 @@ where
                         idempotency_key,
                         content,
                     })) => {
-                        let message_id = calculate_message_id(
-                            &self.group_id,
-                            &content,
-                            self.client.inbox_id(),
-                            &idempotency_key,
-                        );
+                        let message_id =
+                            calculate_message_id(&self.group_id, &content, &idempotency_key);
                         StoredGroupMessage {
                             id: message_id,
                             group_id: self.group_id.clone(),
@@ -325,12 +316,8 @@ where
                             };
 
                             let contents = format!("{request_id}:{pin_code}").into_bytes();
-                            let message_id = calculate_message_id(
-                                &self.group_id,
-                                &contents,
-                                self.client.inbox_id(),
-                                &idempotency_key,
-                            );
+                            let message_id =
+                                calculate_message_id(&self.group_id, &contents, &idempotency_key);
                             StoredGroupMessage {
                                 id: message_id,
                                 group_id: self.group_id.clone(),
@@ -511,7 +498,6 @@ where
             let message_id = calculate_message_id(
                 group_id,
                 encoded_payload_bytes.as_slice(),
-                sender_account_address.clone(),
                 &timestamp_ns.to_string(),
             );
 
