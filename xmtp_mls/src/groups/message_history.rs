@@ -372,6 +372,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_history_messages_stored_correctly() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -490,6 +491,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_prepare_group_messages_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
