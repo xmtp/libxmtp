@@ -118,9 +118,6 @@ where
 
 #[cfg(test)]
 mod tests {
-
-    use ethers::signers::Signer;
-
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -172,7 +169,6 @@ mod tests {
     #[tokio::test]
     async fn builder_test() {
         let wallet = generate_local_wallet();
-        let address = wallet.address();
         let client = ClientBuilder::new_test_client(&wallet).await;
         assert!(!client.installation_public_key().is_empty());
     }

@@ -183,7 +183,7 @@ async fn main() {
                 .await
                 .unwrap();
             let installation_id = hex::encode(client.installation_public_key());
-            info!("identity info", { command_output: true, account_address: client.get_inbox_id(), installation_id: installation_id });
+            info!("identity info", { command_output: true, account_address: client.inbox_id(), installation_id: installation_id });
         }
         Commands::ListGroups {} => {
             info!("List Groups");
@@ -221,7 +221,7 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
-            info!("Inbox ID is: {}", client.get_inbox_id());
+            info!("Inbox ID is: {}", client.inbox_id());
             let group = get_group(&client, hex::decode(group_id).expect("group id decode"))
                 .await
                 .expect("failed to get group");
@@ -246,8 +246,8 @@ async fn main() {
                     .collect::<Vec<_>>();
                 info!("messages", { command_output: true, messages: make_value(&json_serializable_messages), group_id: group_id });
             } else {
-                let messages = format_messages(messages, client.get_inbox_id())
-                    .expect("failed to get messages");
+                let messages =
+                    format_messages(messages, client.inbox_id()).expect("failed to get messages");
                 info!(
                     "====== Group {} ======\n{}",
                     hex::encode(group.group_id),
@@ -384,7 +384,7 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
         error!("Initialization Failed: {}", e.to_string());
         panic!("Could not init");
     };
-    info!("Registered identity", {account_address: client.get_inbox_id(), installation_id: hex::encode(client.installation_public_key()), command_output: true});
+    info!("Registered identity", {account_address: client.inbox_id(), installation_id: hex::encode(client.installation_public_key()), command_output: true});
 
     Ok(())
 }

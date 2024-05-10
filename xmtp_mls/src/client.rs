@@ -201,7 +201,7 @@ where
     }
 
     /// Get the account address of the blockchain account associated with this client
-    pub fn get_inbox_id(&self) -> InboxId {
+    pub fn inbox_id(&self) -> InboxId {
         self.identity.get_inbox_id().clone()
     }
 

@@ -181,7 +181,7 @@ mod tests {
         assert_eq!(
             KeyPackageVerificationError::ApplicationIdCredentialMismatch(
                 String::from_utf8(invalid_application_id.to_vec()).unwrap(),
-                client.get_inbox_id()
+                client.inbox_id()
             )
             .to_string(),
             verified_kp_result.err().unwrap().to_string()
