@@ -263,7 +263,7 @@ mod tests {
     use crate::{
         storage::identity::StoredIdentity,
         utils::test::{rand_vec, tmp_path},
-        Fetch,
+        Fetch, Store,
     };
 
     /// Test harness that loads an Ephemeral store.
@@ -301,13 +301,13 @@ mod tests {
         .unwrap();
         let conn = &store.conn().unwrap();
 
-        let account_address = "address";
-        StoredIdentity::new(account_address.to_string(), rand_vec(), rand_vec())
+        let inbox_id = "inbox_id";
+        StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
             .store(conn)
             .unwrap();
 
         let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
-        assert_eq!(fetched_identity.account_address, account_address);
+        assert_eq!(fetched_identity.inbox_id, inbox_id);
     }
 
     #[test]
@@ -322,13 +322,13 @@ mod tests {
             .unwrap();
             let conn = &store.conn().unwrap();
 
-            let account_address = "address";
-            StoredIdentity::new(account_address.to_string(), rand_vec(), rand_vec())
+            let inbox_id = "inbox_id";
+            StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
                 .store(conn)
                 .unwrap();
 
             let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
-            assert_eq!(fetched_identity.account_address, account_address);
+            assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
 
         fs::remove_file(db_path).unwrap();
@@ -372,14 +372,14 @@ mod tests {
         .unwrap();
 
         let conn1 = &store.conn().unwrap();
-        let account_address = "address";
-        StoredIdentity::new(account_address.to_string(), rand_vec(), rand_vec())
+        let inbox_id = "inbox_id";
+        StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
             .store(conn1)
             .unwrap();
 
         let conn2 = &store.conn().unwrap();
         let fetched_identity: StoredIdentity = conn2.fetch(&()).unwrap().unwrap();
-        assert_eq!(fetched_identity.account_address, account_address);
+        assert_eq!(fetched_identity.inbox_id, inbox_id);
     }
 
     #[test]
