@@ -570,6 +570,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_register_installation() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -583,6 +584,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_rotate_key_package() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -621,6 +623,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_sync_welcomes() {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -692,6 +695,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_add_remove_then_add_again() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;

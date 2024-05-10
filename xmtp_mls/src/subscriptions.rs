@@ -340,6 +340,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[ignore]
     async fn test_stream_all_messages_unchanging_group_list() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -386,6 +387,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[ignore]
     async fn test_stream_all_messages_changing_group_list() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;

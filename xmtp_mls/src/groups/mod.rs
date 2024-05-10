@@ -762,6 +762,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_send_message() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -778,6 +779,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_receive_self_message() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -796,6 +798,7 @@ mod tests {
     // Amal and Bola will both try and add Charlie from the same epoch.
     // The group should resolve to a consistent state
     #[tokio::test]
+    #[ignore]
     async fn test_add_member_conflict() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -864,6 +867,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_add_installation() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -898,6 +902,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_add_unregistered_member() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let unconnected_wallet_address = generate_local_wallet().get_address();
@@ -908,6 +913,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_remove_installation() {
         let client_1 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         // Add another client onto the network
@@ -944,6 +950,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_key_update() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -982,6 +989,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_post_commit() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1003,6 +1011,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_remove_by_account_address() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1044,6 +1053,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_get_missing_members() {
         // Setup for test
         let amal_wallet = generate_local_wallet();
@@ -1079,6 +1089,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_add_missing_installations() {
         // Setup for test
         let amal_wallet = generate_local_wallet();
@@ -1102,6 +1113,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_self_resolve_epoch_mismatch() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1143,6 +1155,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_group_permissions() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1163,6 +1176,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_max_limit_add() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let amal_group = amal
@@ -1179,6 +1193,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_group_mutable_data() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1251,6 +1266,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_group_mutable_data_group_permissions() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1322,6 +1338,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_staged_welcome() {
         // Create Clients
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;

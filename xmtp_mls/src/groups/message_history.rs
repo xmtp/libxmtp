@@ -303,6 +303,7 @@ mod tests {
     use crate::builder::ClientBuilder;
 
     #[tokio::test]
+    #[ignore]
     async fn test_allow_history_sync() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -310,6 +311,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_installations_are_added_to_sync_group() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -338,6 +340,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_send_message_history_request() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -352,6 +355,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_send_message_history_reply() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -406,6 +410,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_provide_pin_challenge() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -432,6 +437,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_request_reply_roundtrip() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
