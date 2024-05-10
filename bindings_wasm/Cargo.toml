@@ -2,6 +2,9 @@
 edition = "2021"
 name = "bindings_wasm"
 version = "0.1.0"
+description = "WASM bindings for the libXMTP rust library"
+repository = "https://github.com/xmtp/libxmtp"
+license = "MIT"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
