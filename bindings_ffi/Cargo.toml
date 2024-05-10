@@ -19,6 +19,7 @@ xmtp_mls = { path = "../xmtp_mls", features = ["grpc", "native"] }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
 xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 xmtp_v2 = { path = "../xmtp_v2" }
+xmtp_id = { path = "../xmtp_id" }
 
 # NOTE: A regression in openssl-sys exists where libatomic is dynamically linked 
 # for i686-linux-android targets. https://github.com/sfackler/rust-openssl/issues/2163

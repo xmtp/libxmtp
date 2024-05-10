@@ -191,7 +191,6 @@ where
         signature_request
             .add_signature(Box::new(InstallationKeySignature::new(
                 signature_request.signature_text(),
-                // TODO: Move this to a method on the new identity
                 self.identity.sign(signature_request.signature_text())?,
                 self.installation_public_key(),
             )))

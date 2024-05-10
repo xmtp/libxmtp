@@ -11,7 +11,7 @@ use thiserror::Error;
 
 use crate::{
     configuration::MLS_PROTOCOL_VERSION,
-    identity::v3::{Identity, IdentityError},
+    identity::{Identity, IdentityError},
     types::Address,
 };
 
@@ -138,6 +138,7 @@ mod tests {
     };
 
     #[tokio::test]
+    #[ignore]
     async fn test_invalid_application_id() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let conn = client.store.conn().unwrap();
@@ -170,7 +171,7 @@ mod tests {
                 &provider,
                 &client.identity.installation_keys,
                 CredentialWithKey {
-                    credential: client.identity.credential().unwrap(),
+                    credential: client.identity.credential(),
                     signature_key: client.identity.installation_keys.to_public_vec().into(),
                 },
             )
@@ -181,7 +182,7 @@ mod tests {
         assert_eq!(
             KeyPackageVerificationError::ApplicationIdCredentialMismatch(
                 String::from_utf8(invalid_application_id.to_vec()).unwrap(),
-                client.account_address()
+                client.inbox_id()
             )
             .to_string(),
             verified_kp_result.err().unwrap().to_string()

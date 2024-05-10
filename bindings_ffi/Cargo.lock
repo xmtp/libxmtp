@@ -5536,6 +5536,7 @@ dependencies = [
  "uniffi_macros",
  "xmtp_api_grpc",
  "xmtp_cryptography",
+ "xmtp_id",
  "xmtp_mls",
  "xmtp_proto",
  "xmtp_user_preferences",
