@@ -110,20 +110,20 @@ impl<'a> OpenMlsProvider for XmtpOpenMlsProviderRef<'a> {
     }
 }
 
-impl<'a, 'b: 'a> OpenMlsProvider for &'b XmtpOpenMlsProviderRef<'a> {
+impl<'a, 'b: 'a> OpenMlsProvider for &'a XmtpOpenMlsProviderRef<'b> {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
     type KeyStoreProvider = SqlKeyStore<'a>;
 
-    fn crypto(&self) -> &'b Self::CryptoProvider {
+    fn crypto(&self) -> &'a Self::CryptoProvider {
         &self.crypto
     }
 
-    fn rand(&self) -> &'b Self::RandProvider {
+    fn rand(&self) -> &'a Self::RandProvider {
         &self.crypto
     }
 
-    fn key_store(&self) -> &'b Self::KeyStoreProvider {
+    fn key_store(&self) -> &'a Self::KeyStoreProvider {
         &self.key_store
     }
 }
