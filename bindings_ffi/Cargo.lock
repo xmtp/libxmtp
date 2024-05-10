@@ -5436,6 +5436,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "url",
  "xmtp_cryptography",
  "xmtp_proto",
 ]
@@ -5482,6 +5483,8 @@ dependencies = [
  "async-trait",
  "futures",
  "futures-core",
+ "openmls",
+ "openmls_basic_credential",
  "pbjson 0.6.0",
  "pbjson-types 0.6.0",
  "prost 0.12.3",
