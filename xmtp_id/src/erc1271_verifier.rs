@@ -94,7 +94,7 @@ mod tests {
             Bytes::from(H256::from(owner0.address()).0.to_vec()),
             Bytes::from(H256::from(owner1.address()).0.to_vec()),
         ];
-        let nonce = U256::from(0); // needed when creating a smart wallet
+
         let provider = Provider::<Http>::try_from(anvil.endpoint()).unwrap();
         let client = Arc::new(SignerMiddleware::new(
             provider.clone(),
@@ -118,6 +118,7 @@ mod tests {
             .await
             .unwrap();
 
+        let nonce = U256::from(0); // needed when creating a smart wallet
         let smart_wallet_address = factory.get_address(owners.clone(), nonce).await.unwrap();
         let tx = factory.create_account(owners.clone(), nonce);
         let pending_tx = tx.send().await.unwrap();
