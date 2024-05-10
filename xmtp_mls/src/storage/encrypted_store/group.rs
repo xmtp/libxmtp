@@ -35,7 +35,7 @@ pub struct StoredGroup {
     /// Enum, [`Purpose`] signifies the group purpose which extends to who can access it.
     pub purpose: Purpose,
     /// The wallet address of who added the user to a group.
-    pub added_by_address: String,
+    pub added_by_address: String, // TODO: This should be Inbox ID.
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);

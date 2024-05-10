@@ -3,8 +3,16 @@ use std::array::TryFromSliceError;
 use ed25519_dalek::SigningKey;
 use ethers::signers::{LocalWallet, WalletError};
 use openmls::{
-    credentials::{errors::BasicCredentialError, BasicCredential},
-    prelude::Credential as OpenMlsCredential,
+    credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
+    extensions::{
+        ApplicationIdExtension, Extension, ExtensionType, Extensions, LastResortExtension,
+    },
+    group::config::CryptoConfig,
+    key_packages::Lifetime,
+    messages::proposals::ProposalType,
+    prelude::{Capabilities, Credential as OpenMlsCredential},
+    prelude_test::KeyPackage,
+    versions::ProtocolVersion,
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::types::CryptoError;
@@ -31,9 +39,61 @@ use xmtp_v2::k256_helper;
 
 use crate::{
     api::{ApiClientWrapper, WrappedApiError},
-    configuration::CIPHERSUITE,
+    configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
+    storage::StorageError,
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
     InboxOwner,
 };
+
+use crate::storage::identity::StoredIdentity;
+use crate::Fetch;
+use crate::{builder::ClientBuilderError, storage::EncryptedMessageStore};
+use log::debug;
+use log::info;
+
+pub enum IdentityStrategy {
+    /// Tries to get an identity from the disk store. If not found, getting one from backend.
+    CreateIfNotFound(String, Option<Vec<u8>>), // (address, legacy_signed_private_key)
+    /// Identity that is already in the disk store
+    CachedOnly,
+    /// An already-built Identity for testing purposes
+    #[cfg(test)]
+    ExternalIdentity(Identity),
+}
+
+#[allow(dead_code)]
+impl IdentityStrategy {
+    pub(crate) async fn initialize_identity<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+        self,
+        api_client: &ApiClientWrapper<ApiClient>,
+        store: &EncryptedMessageStore,
+    ) -> Result<Identity, ClientBuilderError> {
+        info!("Initializing identity");
+        let conn = store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(&conn);
+        let stored_identity: Option<Identity> = provider
+            .conn()
+            .fetch(&())?
+            .map(|i: StoredIdentity| i.into());
+        debug!("Existing identity in store: {:?}", stored_identity);
+        match self {
+            IdentityStrategy::CachedOnly => {
+                stored_identity.ok_or(ClientBuilderError::RequiredIdentityNotFound)
+            }
+            IdentityStrategy::CreateIfNotFound(address, legacy_signed_private_key) => {
+                if let Some(identity) = stored_identity {
+                    Ok(identity)
+                } else {
+                    Identity::new(address, legacy_signed_private_key, api_client)
+                        .await
+                        .map_err(ClientBuilderError::from)
+                }
+            }
+            #[cfg(test)]
+            IdentityStrategy::ExternalIdentity(identity) => Ok(identity),
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum IdentityError {
@@ -61,6 +121,14 @@ pub enum IdentityError {
     LegacyKeyMismatch,
     #[error(transparent)]
     WalletError(#[from] WalletError),
+    #[error(transparent)]
+    StorageError(#[from] crate::storage::StorageError),
+    #[error(transparent)]
+    KeyPackageGenerationError(
+        #[from] openmls::key_packages::errors::KeyPackageNewError<StorageError>,
+    ),
+    #[error(transparent)]
+    ED25519Error(#[from] ed25519_dalek::ed25519::Error),
 }
 
 #[derive(Debug, Clone)]
@@ -73,10 +141,6 @@ pub struct Identity {
 
 #[allow(dead_code)]
 impl Identity {
-    fn is_ready(&self) -> bool {
-        self.signature_request.is_none()
-    }
-
     /// Create a new [Identity] instance.
     ///
     /// If the address is already associated with an inbox_id, the existing inbox_id will be used.
@@ -200,8 +264,89 @@ impl Identity {
         }
     }
 
+    pub fn get_inbox_id(&self) -> &InboxId {
+        &self.inbox_id
+    }
+
+    fn is_ready(&self) -> bool {
+        self.signature_request.is_none()
+    }
+
+    pub fn get_signature_request(&self) -> Option<SignatureRequest> {
+        self.signature_request.clone()
+    }
+
     pub fn credential(&self) -> OpenMlsCredential {
         self.credential.clone()
+    }
+
+    pub(crate) fn sign<Text: AsRef<str>>(&self, text: Text) -> Result<Vec<u8>, IdentityError> {
+        let mut prehashed = Sha512::new();
+        prehashed.update(text.as_ref());
+        let k = ed25519_dalek::SigningKey::try_from(self.installation_keys.private())
+            .expect("signing key is invalid");
+        let signature = k.sign_prehashed(prehashed, Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))?;
+        Ok(signature.to_vec())
+    }
+
+    pub(crate) fn new_key_package(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<KeyPackage, IdentityError> {
+        let last_resort = Extension::LastResort(LastResortExtension::default());
+        let key_package_extensions = Extensions::single(last_resort);
+
+        let application_id =
+            Extension::ApplicationId(ApplicationIdExtension::new(self.get_inbox_id().as_bytes()));
+        let leaf_node_extensions = Extensions::single(application_id);
+
+        let capabilities = Capabilities::new(
+            None,
+            Some(&[CIPHERSUITE]),
+            Some(&[
+                ExtensionType::LastResort,
+                ExtensionType::ApplicationId,
+                ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
+                ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
+                ExtensionType::ImmutableMetadata,
+            ]),
+            Some(&[ProposalType::GroupContextExtensions]),
+            None,
+        );
+        let kp = KeyPackage::builder()
+            .leaf_node_capabilities(capabilities)
+            .leaf_node_extensions(leaf_node_extensions)
+            .key_package_extensions(key_package_extensions)
+            .key_package_lifetime(Lifetime::new(6 * 30 * 86400))
+            .build(
+                CryptoConfig {
+                    ciphersuite: CIPHERSUITE,
+                    version: ProtocolVersion::default(),
+                },
+                provider,
+                &self.installation_keys,
+                CredentialWithKey {
+                    credential: self.credential(),
+                    signature_key: self.installation_keys.to_public_vec().into(),
+                },
+            )?;
+
+        Ok(kp)
+    }
+
+    pub(crate) async fn register<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+        &self,
+        _provider: &XmtpOpenMlsProvider<'_>,
+        _api_client: &ApiClientWrapper<ApiClient>,
+    ) -> Result<(), IdentityError> {
+        todo!()
+    }
+
+    pub fn get_validated_account_address(
+        _credential: &[u8],
+        _installation_public_key: &[u8],
+    ) -> Result<String, IdentityError> {
+        todo!("this fn might not be needed as we are using inbox id over address. Putting here just for complier")
     }
 }
 

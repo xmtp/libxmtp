@@ -48,7 +48,7 @@ use crate::{
     configuration::{DELIMITER, MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
     groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
-    identity::v3::Identity,
+    identity::Identity,
     retry,
     retry::Retry,
     retry_async,
@@ -178,7 +178,7 @@ impl MlsGroup {
         }
         debug!(
             "[{}] processing own message for intent {} / {:?}",
-            self.context.account_address(),
+            self.client.inbox_id(),
             intent.id,
             intent.kind
         );
@@ -211,10 +211,7 @@ impl MlsGroup {
                     openmls_group,
                 )?;
 
-                debug!(
-                    "[{}] merging pending commit",
-                    self.context.account_address()
-                );
+                debug!("[{}] merging pending commit", self.client.inbox_id());
                 if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
                     openmls_group.merge_pending_commit(&provider)
                 {
@@ -243,12 +240,7 @@ impl MlsGroup {
                         idempotency_key,
                         content,
                     })) => {
-                        let message_id = calculate_message_id(
-                            group_id,
-                            &content,
-                            &self.context.account_address(),
-                            &idempotency_key,
-                        );
+                        let message_id = calculate_message_id(group_id, &content, &idempotency_key);
 
                         conn.set_delivery_status_to_published(&message_id, envelope_timestamp_ns)?;
                     }
@@ -282,10 +274,7 @@ impl MlsGroup {
         envelope_timestamp_ns: u64,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
-        debug!(
-            "[{}] processing private message",
-            self.context.account_address()
-        );
+        debug!("[{}] processing private message", self.client.inbox_id());
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_account_address, sender_installation_id) =
             validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
@@ -303,12 +292,8 @@ impl MlsGroup {
                         idempotency_key,
                         content,
                     })) => {
-                        let message_id = calculate_message_id(
-                            &self.group_id,
-                            &content,
-                            &self.context.account_address(),
-                            &idempotency_key,
-                        );
+                        let message_id =
+                            calculate_message_id(&self.group_id, &content, &idempotency_key);
                         StoredGroupMessage {
                             id: message_id,
                             group_id: self.group_id.clone(),
@@ -331,12 +316,8 @@ impl MlsGroup {
                         })) => {
                             let contents =
                                 format!("{request_id}{DELIMITER}{pin_code}").into_bytes();
-                            let message_id = calculate_message_id(
-                                &self.group_id,
-                                &contents,
-                                &self.context.account_address(),
-                                &idempotency_key,
-                            );
+                            let message_id =
+                                calculate_message_id(&self.group_id, &contents, &idempotency_key);
                             StoredGroupMessage {
                                 id: message_id,
                                 group_id: self.group_id.clone(),
@@ -361,12 +342,8 @@ impl MlsGroup {
                                 encryption_key, signing_key, bundle_hash
                             )
                             .into_bytes();
-                            let message_id = calculate_message_id(
-                                &self.group_id,
-                                &contents,
-                                &self.context.account_address(),
-                                &idempotency_key,
-                            );
+                            let message_id =
+                                calculate_message_id(&self.group_id, &contents, &idempotency_key);
                             StoredGroupMessage {
                                 id: message_id,
                                 group_id: self.group_id.clone(),
@@ -398,7 +375,7 @@ impl MlsGroup {
                 }
                 debug!(
                     "[{}] received staged commit. Merging and clearing any pending commits",
-                    self.context.account_address()
+                    self.client.inbox_id()
                 );
 
                 let sc = *staged_commit;
@@ -547,7 +524,7 @@ impl MlsGroup {
             }
             log::info!(
                 "{}: Storing a transcript message with {} members added and {} members removed",
-                &self.context.account_address(),
+                self.client.inbox_id(),
                 validated_commit.members_added.len(),
                 validated_commit.members_removed.len()
             );
@@ -561,7 +538,6 @@ impl MlsGroup {
             let message_id = calculate_message_id(
                 group_id,
                 encoded_payload_bytes.as_slice(),
-                &sender_account_address,
                 &timestamp_ns.to_string(),
             );
 
