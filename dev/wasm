@@ -1,0 +1,12 @@
+#!/bin/bash
+set -eou pipefail
+
+if [[ "${OSTYPE}" == "darwin"* ]]; then
+    if ! wasm-pack --version &>/dev/null; then cargo install wasm-pack; fi
+fi
+
+pushd bindings_wasm/ > /dev/null
+
+wasm-pack build --target nodejs --out-dir pkg # pkg is the default
+
+popd > /dev/null
