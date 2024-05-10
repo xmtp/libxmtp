@@ -34,7 +34,7 @@ use crate::{
         validated_commit::CommitValidationError, AddressesOrInstallationIds, IntentError, MlsGroup,
         PreconfiguredPolicies,
     },
-    identity::xmtp_id::Identity,
+    identity::Identity,
     identity_updates::IdentityUpdateError,
     storage::{
         db_connection::DbConnection,
@@ -71,7 +71,7 @@ pub enum ClientError {
     #[error("API error: {0}")]
     Api(#[from] crate::api::WrappedApiError),
     #[error("identity error: {0}")]
-    Identity(#[from] crate::identity::xmtp_id::IdentityError),
+    Identity(#[from] crate::identity::IdentityError),
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
     #[error("key package verification: {0}")]

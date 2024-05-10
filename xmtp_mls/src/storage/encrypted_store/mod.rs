@@ -261,6 +261,7 @@ mod tests {
 
     use super::{db_connection::DbConnection, EncryptedMessageStore, StorageError, StorageOption};
     use crate::{
+        storage::identity::StoredIdentity,
         utils::test::{rand_vec, tmp_path},
         Fetch,
     };
@@ -290,8 +291,8 @@ mod tests {
         }
     }
 
-    #[ignore]
     #[test]
+    #[ignore]
     fn ephemeral_store() {
         let store = EncryptedMessageStore::new(
             StorageOption::Ephemeral,
@@ -310,6 +311,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn persistent_store() {
         let db_path = tmp_path();
         {

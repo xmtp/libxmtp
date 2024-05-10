@@ -3,7 +3,7 @@ use diesel::prelude::*;
 use xmtp_id::InboxId;
 
 use crate::{
-    identity::xmtp_id::Identity,
+    identity::Identity,
     impl_fetch, impl_store,
     storage::serialization::{db_deserialize, db_serialize},
 };

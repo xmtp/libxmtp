@@ -49,7 +49,7 @@ use crate::{
     configuration::{MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
     groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
-    identity::xmtp_id::Identity,
+    identity::Identity,
     retry,
     retry::Retry,
     retry_async,

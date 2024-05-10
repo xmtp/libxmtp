@@ -11,7 +11,7 @@ use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 use crate::{
     api::ApiClientWrapper,
     client::{Client, Network},
-    identity::xmtp_id::{Identity, IdentityStrategy},
+    identity::{Identity, IdentityStrategy},
     retry::Retry,
     storage::EncryptedMessageStore,
     StorageError,
@@ -40,7 +40,7 @@ pub enum ClientBuilderError {
     #[error("Storage Error")]
     StorageError(#[from] StorageError),
     #[error(transparent)]
-    Identity(#[from] crate::identity::xmtp_id::identity::IdentityError),
+    Identity(#[from] crate::identity::IdentityError),
     #[error(transparent)]
     WrappedApiError(#[from] crate::api::WrappedApiError),
 }

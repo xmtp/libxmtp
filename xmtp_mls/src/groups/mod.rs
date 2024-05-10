@@ -74,7 +74,7 @@ use crate::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MAX_GROUP_SIZE, MUTABLE_METADATA_EXTENSION_ID,
     },
     hpke::{decrypt_welcome, HpkeError},
-    identity::xmtp_id::{Identity, IdentityError},
+    identity::{Identity, IdentityError},
     retry::RetryableError,
     retryable,
     storage::{
@@ -1029,10 +1029,7 @@ mod tests {
         assert_eq!(members_changed_codec.installations_added.len(), 0);
         assert_eq!(members_changed_codec.installations_removed.len(), 0);
 
-        group
-            .remove_members(vec![bola.inbox_id()])
-            .await
-            .unwrap();
+        group.remove_members(vec![bola.inbox_id()]).await.unwrap();
         assert_eq!(group.members().unwrap().len(), 2);
         let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 2);
@@ -1116,10 +1113,7 @@ mod tests {
         let dave = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let amal_group = amal.create_group(None).unwrap();
         // Add bola to the group
-        amal_group
-            .add_members(vec![bola.inbox_id()])
-            .await
-            .unwrap();
+        amal_group.add_members(vec![bola.inbox_id()]).await.unwrap();
 
         let bola_group = receive_group_invite(&bola).await;
         bola_group.sync().await.unwrap();
@@ -1129,10 +1123,7 @@ mod tests {
             .await
             .unwrap();
 
-        bola_group
-            .add_members(vec![dave.inbox_id()])
-            .await
-            .unwrap();
+        bola_group.add_members(vec![dave.inbox_id()]).await.unwrap();
 
         // Send a message to the group, now that everyone is invited
         amal_group.sync().await.unwrap();
@@ -1165,10 +1156,7 @@ mod tests {
             .create_group(Some(PreconfiguredPolicies::GroupCreatorIsAdmin))
             .unwrap();
         // Add bola to the group
-        amal_group
-            .add_members(vec![bola.inbox_id()])
-            .await
-            .unwrap();
+        amal_group.add_members(vec![bola.inbox_id()]).await.unwrap();
 
         let bola_group = receive_group_invite(&bola).await;
         bola_group.sync().await.unwrap();
@@ -1191,10 +1179,7 @@ mod tests {
         }
         amal_group.add_members(clients).await.unwrap();
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        assert!(amal_group
-            .add_members(vec![bola.inbox_id()])
-            .await
-            .is_err(),);
+        assert!(amal_group.add_members(vec![bola.inbox_id()]).await.is_err(),);
     }
 
     #[tokio::test]
@@ -1216,10 +1201,7 @@ mod tests {
             .eq("New Group"));
 
         // Add bola to the group
-        amal_group
-            .add_members(vec![bola.inbox_id()])
-            .await
-            .unwrap();
+        amal_group.add_members(vec![bola.inbox_id()]).await.unwrap();
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(None, None, None, None).unwrap();
         assert_eq!(bola_groups.len(), 1);
@@ -1290,10 +1272,7 @@ mod tests {
             .eq("New Group"));
 
         // Add bola to the group
-        amal_group
-            .add_members(vec![bola.inbox_id()])
-            .await
-            .unwrap();
+        amal_group.add_members(vec![bola.inbox_id()]).await.unwrap();
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(None, None, None, None).unwrap();
         assert_eq!(bola_groups.len(), 1);

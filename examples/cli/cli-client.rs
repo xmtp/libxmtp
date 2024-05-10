@@ -32,7 +32,7 @@ use xmtp_mls::{
     client::ClientError,
     codecs::{text::TextCodec, ContentCodec},
     groups::MlsGroup,
-    identity::xmtp_id::IdentityStrategy,
+    identity::IdentityStrategy,
     storage::{
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
         StorageOption,
