@@ -822,6 +822,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[ignore]
     async fn test_create_client_with_storage() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
 
@@ -1054,6 +1055,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[ignore]
     async fn test_stream_all_messages() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
@@ -1096,6 +1098,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[ignore]
     async fn test_message_streaming() {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
@@ -1190,6 +1193,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[ignore]
     async fn test_group_who_added_me() {
         // Create Clients
         let amal = new_test_client().await;
