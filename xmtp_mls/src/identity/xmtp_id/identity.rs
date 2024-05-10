@@ -286,11 +286,10 @@ impl Identity {
 
     pub(crate) async fn register<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
         &self,
-        provider: &XmtpOpenMlsProvider<'_>,
-        api_client: &ApiClientWrapper<ApiClient>,
+        _provider: &XmtpOpenMlsProvider<'_>,
+        _api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
-        todo!();
-        Ok(())
+        todo!()
     }
 
     pub fn get_validated_account_address(

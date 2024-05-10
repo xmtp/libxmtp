@@ -11,7 +11,7 @@ use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 use crate::{
     api::ApiClientWrapper,
     client::{Client, Network},
-    identity::xmtp_id::{Identity, IdentityError, IdentityStrategy},
+    identity::xmtp_id::{Identity, IdentityStrategy},
     retry::Retry,
     storage::EncryptedMessageStore,
     StorageError,
@@ -37,10 +37,6 @@ pub enum ClientBuilderError {
     InboxIdMismatch,
     #[error("Uncovered Case")]
     UncoveredCase,
-
-    #[error("Error initializing identity: {0}")]
-    IdentityInitialization(#[from] crate::identity::v3::IdentityError),
-
     #[error("Storage Error")]
     StorageError(#[from] StorageError),
     #[error(transparent)]

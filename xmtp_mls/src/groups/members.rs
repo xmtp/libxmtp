@@ -6,7 +6,7 @@ use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use super::{GroupError, MlsGroup};
 
-use crate::{identity::v3::Identity, xmtp_openmls_provider::XmtpOpenMlsProvider};
+use crate::{identity::xmtp_id::Identity, xmtp_openmls_provider::XmtpOpenMlsProvider};
 
 #[derive(Debug, Clone)]
 pub struct GroupMember {

@@ -42,7 +42,6 @@ use crate::{
         refresh_state::EntityKind,
         EncryptedMessageStore, StorageError,
     },
-    types::Address,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch,
@@ -212,7 +211,7 @@ where
 
     /// Integrators should always check the `get_signature_request` return value of this function before calling [`register_identity`](Self::register_identity).
     /// If `get_signature_request` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
-    pub fn get_signature_request(&self) -> Option<SignatureRequest> {
+    pub fn signature_request(&self) -> Option<SignatureRequest> {
         self.identity.get_signature_request()
     }
 
@@ -288,10 +287,14 @@ where
     /// If `text_to_sign` returns `None`, then the wallet signature is not required and this function can be called with `None`.
     ///
     /// If `text_to_sign` returns `Some`, then the caller should sign the text with their wallet and pass the signature to this function.
-    pub async fn register_identity(&self) -> Result<(), ClientError> {
+    pub async fn register_identity(
+        &self,
+        signature_request: SignatureRequest,
+    ) -> Result<(), ClientError> {
         log::info!("registering identity");
         let connection = self.store.conn()?;
         let provider = self.mls_provider(&connection);
+        self.apply_signature_request(signature_request).await?;
         self.identity.register(&provider, &self.api_client).await?;
         Ok(())
     }

@@ -1,6 +1,6 @@
 pub mod identity;
 
-use crate::storage::identity_inbox::StoredIdentity;
+use crate::storage::identity::StoredIdentity;
 use crate::{api::ApiClientWrapper, builder::ClientBuilderError, storage::EncryptedMessageStore};
 use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Fetch};
 pub use identity::Identity;

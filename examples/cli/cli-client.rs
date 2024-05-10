@@ -377,10 +377,10 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
         IdentityStrategy::CreateIfNotFound(w.get_address(), None),
     )
     .await?;
-    // TODO: uncomment
-    // let signature: Option<Vec<u8>> = client.text_to_sign().map(|t| w.sign(&t).unwrap().into());
-
-    if let Err(e) = client.register_identity().await {
+    if let Err(e) = client
+        .register_identity(client.signature_request().unwrap()) // TODO: remove `.unwrap()`. What should [Identity::request_signature()] return?
+        .await
+    {
         error!("Initialization Failed: {}", e.to_string());
         panic!("Could not init");
     };
