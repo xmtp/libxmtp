@@ -82,7 +82,7 @@ mod tests {
     );
 
     #[tokio::test]
-    async fn test_is_smart_wallet() {
+    async fn test_is_smart_contract() {
         let anvil = Anvil::new().args(vec!["--base-fee", "100"]).spawn();
         let deployer: LocalWallet = anvil.keys()[1].clone().into();
         let provider = Provider::<Http>::try_from(anvil.endpoint()).unwrap();
