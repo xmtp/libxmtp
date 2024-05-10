@@ -215,7 +215,7 @@ where
         client: &'c Client<ApiClient>,
         membership_state: GroupMembershipState,
         permissions: Option<PreconfiguredPolicies>,
-        added_by_address: &InboxId,
+        inbox_id: &InboxId,
     ) -> Result<Self, GroupError> {
         let conn = client.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
@@ -248,7 +248,7 @@ where
             group_id.clone(),
             now_ns(),
             membership_state,
-            added_by_address.clone(),
+            inbox_id.clone(),
         );
 
         stored_group.store(provider.conn())?;

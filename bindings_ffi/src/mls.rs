@@ -14,7 +14,7 @@ use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::PreconfiguredPolicies;
-use xmtp_mls::identity::xmtp_id::IdentityStrategy;
+use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::types::InboxId;
 use xmtp_mls::{
     builder::ClientBuilder,

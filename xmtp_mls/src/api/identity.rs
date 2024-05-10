@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
-use crate::types::InboxId;
-
 use super::{ApiClientWrapper, WrappedApiError};
-use xmtp_id::associations::{DeserializationError, IdentityUpdate};
+use xmtp_id::{
+    associations::{DeserializationError, IdentityUpdate},
+    InboxId,
+};
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::identity::api::v1::{
