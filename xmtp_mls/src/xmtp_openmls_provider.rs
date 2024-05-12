@@ -1,4 +1,4 @@
-use std::sync::MutexGuard;
+use std::sync::{Arc, Mutex};
 
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
@@ -19,7 +19,7 @@ impl<'a> XmtpOpenMlsProvider<'a> {
         }
     }
 
-    pub(crate) fn conn(&self) -> MutexGuard<&'a DbConnection<'a>> {
+    pub(crate) fn conn(&self) -> Arc<Mutex<&'a DbConnection<'a>>> {
         self.key_store.conn()
     }
 }

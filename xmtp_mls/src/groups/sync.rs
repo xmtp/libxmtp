@@ -193,7 +193,7 @@ where
                         "no pending commit to merge. Group epoch: {}. Message epoch: {}",
                         group_epoch, message_epoch
                     );
-                    conn.set_group_intent_to_publish(intent.id)?;
+                    conn.lock().unwrap().set_group_intent_to_publish(intent.id)?;
 
                     // Return OK here, because an error will roll back the transaction
                     return Ok(());
@@ -209,11 +209,11 @@ where
                 {
                     log::error!("error merging commit: {}", err);
                     openmls_group.clear_pending_commit(provider.storage());
-                    conn.set_group_intent_to_publish(intent.id)?;
+                    conn.lock().unwrap().set_group_intent_to_publish(intent.id)?;
                 } else {
                     // If no error committing the change, write a transcript message
                     self.save_transcript_message(
-                        &*conn,
+                        &*conn.lock().unwrap(),
                         maybe_validated_commit,
                         envelope_timestamp_ns,
                     )?;
@@ -239,7 +239,7 @@ where
                             &idempotency_key,
                         );
 
-                        conn.set_delivery_status_to_published(&message_id, envelope_timestamp_ns)?;
+                        conn.lock().unwrap().set_delivery_status_to_published(&message_id, envelope_timestamp_ns)?;
                     }
                     Some(Content::V2(V2 {
                         idempotency_key: _,
@@ -258,7 +258,7 @@ where
             }
         };
 
-        conn.set_group_intent_committed(intent.id)?;
+        conn.lock().unwrap().set_group_intent_committed(intent.id)?;
 
         Ok(())
     }
@@ -299,6 +299,7 @@ where
                             &idempotency_key,
                         );
                         let conn = provider.conn();
+                        let conn_ref = conn.lock().unwrap();
                         StoredGroupMessage {
                             id: message_id,
                             group_id: self.group_id.clone(),
@@ -309,7 +310,7 @@ where
                             sender_account_address,
                             delivery_status: DeliveryStatus::Published,
                         }
-                        .store(&*conn)?
+                        .store(&*conn_ref)?
                     }
                     Some(Content::V2(V2 {
                         idempotency_key,
@@ -328,6 +329,7 @@ where
                                 &idempotency_key,
                             );
                             let conn = provider.conn();
+                            let conn_ref = conn.lock().unwrap();
                             StoredGroupMessage {
                                 id: message_id,
                                 group_id: self.group_id.clone(),
@@ -338,7 +340,7 @@ where
                                 sender_account_address,
                                 delivery_status: DeliveryStatus::Published,
                             }
-                            .store(&*conn)?
+                            .store(&*conn_ref)?
                         }
                         Some(Reply(MessageHistoryReply {
                             request_id: _,
@@ -359,6 +361,7 @@ where
                                 &idempotency_key,
                             );
                             let conn = provider.conn();
+                            let conn_ref = conn.lock().unwrap();
                             StoredGroupMessage {
                                 id: message_id,
                                 group_id: self.group_id.clone(),
@@ -369,7 +372,7 @@ where
                                 sender_account_address,
                                 delivery_status: DeliveryStatus::Published,
                             }
-                            .store(&*conn)?
+                            .store(&*conn_ref)?
                         }
                         _ => {
                             return Err(MessageProcessingError::InvalidPayload);
@@ -398,7 +401,7 @@ where
                 let validated_commit = ValidatedCommit::from_staged_commit(&sc, openmls_group)?;
                 openmls_group.merge_staged_commit(provider, sc)?;
                 let conn = provider.conn();
-                self.save_transcript_message(&*conn, validated_commit, envelope_timestamp_ns)?;
+                self.save_transcript_message(&*conn.lock().unwrap(), validated_commit, envelope_timestamp_ns)?;
             }
         };
 
@@ -422,7 +425,7 @@ where
         }?;
 
         let intent = provider
-            .conn()
+            .conn().lock().unwrap()
             .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
         match intent {
             // Intent with the payload hash matches
@@ -565,7 +568,7 @@ where
         let provider = self.client.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
 
-        let intents = provider.conn().find_group_intents(
+        let intents = provider.conn().lock().unwrap().find_group_intents(
             self.group_id.clone(),
             Some(vec![IntentState::ToPublish]),
             None,
@@ -602,7 +605,7 @@ where
                 .send_group_messages(vec![payload_slice])
                 .await?;
 
-            provider.conn().set_group_intent_published(
+            provider.conn().lock().unwrap().set_group_intent_published(
                 intent.id,
                 sha256(payload_slice),
                 post_commit_data,

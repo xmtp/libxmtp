@@ -127,7 +127,7 @@ impl Identity {
     ) -> Result<(), IdentityError> {
         // Do not re-register if already registered
         let conn = provider.conn();
-        let stored_identity: Option<StoredIdentity> = conn.fetch(&())?;
+        let stored_identity: Option<StoredIdentity> = conn.lock().unwrap().fetch(&())?;
         if stored_identity.is_some() {
             info!("Identity already registered, skipping registration");
             return Ok(());
@@ -159,7 +159,7 @@ impl Identity {
 
         // Only persist the installation keys if the registration was successful
         self.installation_keys.store(provider.storage());
-        StoredIdentity::from(self).store(&*conn)?; // Use the `conn_ref` to ensure proper lifetime
+        StoredIdentity::from(self).store(&*conn.lock().unwrap())?; // Use the `conn_ref` to ensure proper lifetime
 
         Ok(())
     }

@@ -405,7 +405,7 @@ where
         self.store.transaction(|provider| {
             let is_updated =
                 provider
-                    .conn()
+                    .conn().lock().unwrap()
                     .update_cursor(entity_id, entity_kind, cursor as i64)?;
             if !is_updated {
                 return Err(MessageProcessingError::AlreadyProcessed(cursor));

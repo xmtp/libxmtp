@@ -30,8 +30,8 @@ impl<'a> SqlKeyStore<'a> {
         }
     }
 
-    pub fn conn(&self) -> MutexGuard<&'a DbConnection<'a>> {
-        self.conn.lock().unwrap()
+    pub fn conn(&self) -> Arc<Mutex<&'a DbConnection<'a>>> {
+        Arc::clone(&self.conn)
     }
 
     pub fn write<const VERSION: u16>(

@@ -254,7 +254,8 @@ where
         );
 
         let conn = provider.conn();
-        stored_group.store(&*conn)?;
+        let conn_ref = conn.lock().unwrap();
+        stored_group.store(&*conn_ref)?;
         Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
 
@@ -288,7 +289,7 @@ where
             ),
         };
 
-        let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
+        let stored_group = provider.conn().lock().unwrap().insert_or_ignore_group(to_store)?;
 
         Ok(Self::new(
             client,
@@ -354,7 +355,7 @@ where
             StoredGroup::new_sync_group(group_id.clone(), now_ns(), GroupMembershipState::Allowed);
 
         let conn = provider.conn();
-        stored_group.store(&*conn)?;
+        stored_group.store(&*conn.lock().unwrap())?;
         Ok(Self::new(
             client,
             stored_group.id,

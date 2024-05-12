@@ -64,7 +64,7 @@ impl IdentityStrategy {
         let conn = store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
         let identity_option: Option<Identity> = provider
-            .conn()
+            .conn().lock().unwrap()
             .fetch(&())?
             .map(|i: StoredIdentity| i.into());
         debug!("Existing identity in store: {:?}", identity_option);
