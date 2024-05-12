@@ -9,9 +9,7 @@ use openmls::prelude::tls_codec::{Deserialize, Error as TlsCodecError, Serialize
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::types::HpkeCiphertext;
 use openmls_traits::OpenMlsProvider;
-use openmls_traits::{storage::StorageProvider, types::HpkePrivateKey};
 use thiserror::Error;
-use xmtp_proto::xmtp::message_contents::private_key;
 
 #[derive(Debug, Error)]
 pub enum HpkeError {
@@ -51,13 +49,13 @@ pub fn decrypt_welcome(
         .read_list(WELCOME_HPKE_LABEL.as_bytes(), hpke_public_key)
     {
         Ok(private_key) => Ok(decrypt_with_label(
-            serde_json::from_slice::<&[u8]>(&private_key).map_err(|e| HpkeError::KeyNotFound)?,
+            serde_json::from_slice::<&[u8]>(&private_key).map_err(|_e| HpkeError::KeyNotFound)?,
             WELCOME_HPKE_LABEL,
             &[],
             &ciphertext,
             CIPHERSUITE,
             &RustCrypto::default(),
         )?),
-        Err(e) => Err(HpkeError::KeyNotFound),
+        Err(_e) => Err(HpkeError::KeyNotFound),
     }
 }

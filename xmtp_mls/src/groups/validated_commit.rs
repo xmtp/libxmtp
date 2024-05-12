@@ -446,7 +446,6 @@ mod tests {
         messages::proposals::ProposalType,
         prelude::Capabilities,
         prelude_test::KeyPackage,
-        versions::ProtocolVersion,
     };
     use xmtp_api_grpc::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;

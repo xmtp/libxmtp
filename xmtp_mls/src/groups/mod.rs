@@ -79,7 +79,7 @@ use crate::{
         group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-        sql_key_store, StorageError,
+        sql_key_store,
     },
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -205,7 +205,7 @@ where
     fn load_mls_group(&self, provider: &XmtpOpenMlsProvider) -> Result<OpenMlsGroup, GroupError> {
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
-                .map_err(|e| GroupError::GroupNotFound)?;
+                .map_err(|_e| GroupError::GroupNotFound)?;
 
         match mls_group {
             Some(group) => Ok(group),
@@ -235,7 +235,7 @@ where
         let group_config =
             build_group_config(protected_metadata, mutable_metadata, group_membership)?;
 
-        let mut mls_group = OpenMlsGroup::new(
+        let mls_group = OpenMlsGroup::new(
             &provider,
             &client.identity.installation_keys,
             &group_config,
@@ -255,7 +255,7 @@ where
 
         let conn = provider.conn();
         let conn_ref = conn.lock().unwrap();
-        stored_group.store(&*conn_ref)?;
+        stored_group.store(*conn_ref)?;
         Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
 
@@ -270,7 +270,7 @@ where
         let mls_welcome =
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
 
-        let mut mls_group = mls_welcome.into_group(provider)?;
+        let mls_group = mls_welcome.into_group(provider)?;
         let group_id = mls_group.group_id().to_vec();
         let metadata = extract_group_metadata(&mls_group)?;
         let group_type = metadata.conversation_type;
@@ -344,7 +344,7 @@ where
         );
         let group_config =
             build_group_config(protected_metadata, mutable_metadata, group_membership)?;
-        let mut mls_group = OpenMlsGroup::new(
+        let mls_group = OpenMlsGroup::new(
             &provider,
             &client.identity.installation_keys,
             &group_config,
@@ -359,7 +359,7 @@ where
             StoredGroup::new_sync_group(group_id.clone(), now_ns(), GroupMembershipState::Allowed);
 
         let conn = provider.conn();
-        stored_group.store(&*conn.lock().unwrap())?;
+        stored_group.store(*conn.lock().unwrap())?;
         Ok(Self::new(
             client,
             stored_group.id,

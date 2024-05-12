@@ -56,10 +56,7 @@ impl RetryableError for openmls::group::CreateCommitError<StorageError> {
 
 impl RetryableError for openmls::key_packages::errors::KeyPackageNewError {
     fn is_retryable(&self) -> bool {
-        match self {
-            Self::StorageError => true,
-            _ => false,
-        }
+        matches!(self, Self::StorageError)
     }
 }
 

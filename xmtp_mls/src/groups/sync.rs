@@ -210,14 +210,14 @@ where
                     openmls_group.merge_pending_commit(provider)
                 {
                     log::error!("error merging commit: {}", err);
-                    openmls_group.clear_pending_commit(provider.storage());
+                    let _ = openmls_group.clear_pending_commit(provider.storage());
                     conn.lock()
                         .unwrap()
                         .set_group_intent_to_publish(intent.id)?;
                 } else {
                     // If no error committing the change, write a transcript message
                     self.save_transcript_message(
-                        &*conn.lock().unwrap(),
+                        *conn.lock().unwrap(),
                         maybe_validated_commit,
                         envelope_timestamp_ns,
                     )?;
@@ -316,7 +316,7 @@ where
                             sender_account_address,
                             delivery_status: DeliveryStatus::Published,
                         }
-                        .store(&*conn_ref)?
+                        .store(*conn_ref)?
                     }
                     Some(Content::V2(V2 {
                         idempotency_key,
@@ -346,7 +346,7 @@ where
                                 sender_account_address,
                                 delivery_status: DeliveryStatus::Published,
                             }
-                            .store(&*conn_ref)?
+                            .store(*conn_ref)?
                         }
                         Some(Reply(MessageHistoryReply {
                             request_id: _,
@@ -378,7 +378,7 @@ where
                                 sender_account_address,
                                 delivery_status: DeliveryStatus::Published,
                             }
-                            .store(&*conn_ref)?
+                            .store(*conn_ref)?
                         }
                         _ => {
                             return Err(MessageProcessingError::InvalidPayload);
@@ -408,7 +408,7 @@ where
                 openmls_group.merge_staged_commit(provider, sc)?;
                 let conn = provider.conn();
                 self.save_transcript_message(
-                    &*conn.lock().unwrap(),
+                    *conn.lock().unwrap(),
                     validated_commit,
                     envelope_timestamp_ns,
                 )?;
@@ -585,7 +585,7 @@ where
             Some(vec![IntentState::ToPublish]),
             None,
         )?;
-        let num_intents = intents.len();
+        let _num_intents = intents.len();
 
         for intent in intents {
             let result = retry_async!(

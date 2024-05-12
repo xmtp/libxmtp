@@ -126,7 +126,6 @@ mod tests {
         },
         prelude::Capabilities,
         prelude_test::KeyPackage,
-        versions::ProtocolVersion,
     };
     use xmtp_cryptography::utils::generate_local_wallet;
 

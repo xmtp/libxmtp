@@ -13,7 +13,6 @@ use openmls::{
         Capabilities, Credential as OpenMlsCredential, CredentialWithKey, Extension, ExtensionType,
         Extensions, KeyPackage, KeyPackageNewError, Lifetime,
     },
-    versions::ProtocolVersion,
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::{types::CryptoError, OpenMlsProvider};
@@ -158,8 +157,8 @@ impl Identity {
         api_client.register_installation(kp_bytes).await?;
 
         // Only persist the installation keys if the registration was successful
-        self.installation_keys.store(provider.storage());
-        StoredIdentity::from(self).store(&*conn.lock().unwrap())?; // Use the `conn_ref` to ensure proper lifetime
+        let _ = self.installation_keys.store(provider.storage());
+        StoredIdentity::from(self).store(*conn.lock().unwrap())?; // Use the `conn_ref` to ensure proper lifetime
 
         Ok(())
     }

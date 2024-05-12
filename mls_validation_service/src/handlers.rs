@@ -389,7 +389,6 @@ mod tests {
             tls_codec::Serialize, Ciphersuite, Credential as OpenMlsCredential, CredentialWithKey,
         },
         prelude_test::KeyPackage,
-        versions::ProtocolVersion,
     };
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_rust_crypto::OpenMlsRustCrypto;
