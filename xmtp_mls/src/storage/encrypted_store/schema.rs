@@ -47,6 +47,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    identity_inbox (rowid) {
+        inbox_id -> Text,
+        installation_keys -> Binary,
+        credential_bytes -> Binary,
+        rowid -> Nullable<Integer>,
+    }
+}
+
+diesel::table! {
     identity_updates (inbox_id, sequence_id) {
         inbox_id -> Text,
         sequence_id -> BigInt,
@@ -86,6 +95,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     group_messages,
     groups,
     identity,
+    identity_inbox,
     identity_updates,
     openmls_key_store,
     openmls_key_value,

@@ -62,6 +62,7 @@ use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
     group_permissions::PolicySet,
     intents::{AddMembersIntentData, RemoveMembersIntentData},
+    message_history::MessageHistoryError,
     validated_commit::CommitValidationError,
 };
 
@@ -151,6 +152,8 @@ pub enum GroupError {
     CredentialError(#[from] BasicCredentialError),
     #[error("LeafNode error")]
     LeafNodeError(#[from] LibraryError),
+    #[error("Message History error: {0}")]
+    MessageHistory(#[from] MessageHistoryError),
 }
 
 impl RetryableError for GroupError {

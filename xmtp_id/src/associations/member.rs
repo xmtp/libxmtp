@@ -27,6 +27,26 @@ impl MemberIdentifier {
             MemberIdentifier::Installation(_) => MemberKind::Installation,
         }
     }
+
+    /// Get the value for [`MemberIdentifier::Installation`] variant.
+    /// Returns `None` if the type is not the correct variant.
+    pub fn installation(&self) -> Option<&[u8]> {
+        if let Self::Installation(ref installation) = self {
+            Some(installation)
+        } else {
+            None
+        }
+    }
+
+    /// Get the value for [`MemberIdentifier::Address`] variant.
+    /// Returns `None` if the type is not the correct variant.
+    pub fn address(&self) -> Option<&str> {
+        if let Self::Address(ref address) = self {
+            Some(address)
+        } else {
+            None
+        }
+    }
 }
 
 impl std::fmt::Display for MemberIdentifier {

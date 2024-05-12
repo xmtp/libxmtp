@@ -29,7 +29,7 @@ pub enum SignatureError {
     ECDSAError(#[from] ethers::types::SignatureError),
     #[error(transparent)]
     VerifierError(#[from] crate::erc1271_verifier::VerifierError),
-    #[error(transparent)]
+    #[error("ed25519 Signature failed {0}")]
     Ed25519Error(#[from] ed25519_dalek::SignatureError),
     #[error(transparent)]
     TryFromSliceError(#[from] TryFromSliceError),

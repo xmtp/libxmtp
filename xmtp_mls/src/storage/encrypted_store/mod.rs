@@ -15,6 +15,7 @@ pub mod group;
 pub mod group_intent;
 pub mod group_message;
 pub mod identity;
+pub mod identity_inbox;
 pub mod identity_update;
 pub mod key_store_entry;
 pub mod refresh_state;
