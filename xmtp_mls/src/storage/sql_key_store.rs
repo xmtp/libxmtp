@@ -44,8 +44,8 @@ impl<'a> SqlKeyStore<'a> {
         let query =
             "REPLACE INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (?, ?, ?)";
 
-        let mut conn = self.conn.lock().unwrap();
-        conn.raw_query(|conn| {
+        let conn = self.conn.lock().unwrap();
+        let _ = conn.raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -90,7 +90,7 @@ impl<'a> SqlKeyStore<'a> {
                             let modified_data = serde_json::to_string(&deserialized)
                                 .map_err(|_| MemoryStorageError::SerializationError)?;
 
-                            conn.raw_query(|conn| {
+                            let _ = conn.raw_query(|conn| {
                                 sql_query(update_query)
                                     .bind::<diesel::sql_types::Text, _>(&modified_data)
                                     .bind::<diesel::sql_types::Binary, _>(&storage_key)
@@ -99,7 +99,7 @@ impl<'a> SqlKeyStore<'a> {
                             });
                             Ok(())
                         }
-                        Err(e) => Err(MemoryStorageError::SerializationError),
+                        Err(_e) => Err(MemoryStorageError::SerializationError),
                     }
                 } else {
                     Ok(())
@@ -117,8 +117,8 @@ impl<'a> SqlKeyStore<'a> {
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "UPDATE openmls_key_value SET value_bytes = json_set(value_bytes, '$.path_to_remove', null) WHERE key_bytes = ? AND version = ?";
-        let mut conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
-        conn.raw_query(|conn| {
+        let conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
+        let _ = conn.raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&value)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
@@ -136,7 +136,7 @@ impl<'a> SqlKeyStore<'a> {
     ) -> Result<Option<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
-        let mut conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
+        let conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
 
         let results: Result<Vec<StorageData>, diesel::result::Error> = conn.raw_query(|conn| {
             sql_query(query)
@@ -159,7 +159,7 @@ impl<'a> SqlKeyStore<'a> {
                     Ok(None)
                 }
             }
-            Err(e) => Err(MemoryStorageError::None),
+            Err(_e) => Err(MemoryStorageError::None),
         }
     }
 
@@ -170,7 +170,7 @@ impl<'a> SqlKeyStore<'a> {
     ) -> Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
-        let mut conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
+        let conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
         match conn.raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
@@ -191,7 +191,7 @@ impl<'a> SqlKeyStore<'a> {
                 }
                 Ok(deserialized_results)
             }
-            Err(e) => Err(MemoryStorageError::None),
+            Err(_e) => Err(MemoryStorageError::None),
         }
     }
 
@@ -202,8 +202,8 @@ impl<'a> SqlKeyStore<'a> {
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "DELETE FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
-        let mut conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
-        conn.raw_query(|conn| {
+        let conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
+        let _ = conn.raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -227,7 +227,6 @@ pub enum MemoryStorageError {
 }
 
 const KEY_PACKAGE_LABEL: &[u8] = b"KeyPackage";
-const PSK_LABEL: &[u8] = b"Psk";
 const ENCRYPTION_KEY_PAIR_LABEL: &[u8] = b"EncryptionKeyPair";
 const SIGNATURE_KEY_PAIR_LABEL: &[u8] = b"SignatureKeyPair";
 const EPOCH_KEY_PAIRS_LABEL: &[u8] = b"EpochKeyPairs";
@@ -241,7 +240,6 @@ const CONFIRMATION_TAG_LABEL: &[u8] = b"ConfirmationTag";
 // related to CoreGroup
 const OWN_LEAF_NODE_INDEX_LABEL: &[u8] = b"OwnLeafNodeIndex";
 const EPOCH_SECRETS_LABEL: &[u8] = b"EpochSecrets";
-const RESUMPTION_PSK_STORE_LABEL: &[u8] = b"ResumptionPsk";
 const MESSAGE_SECRETS_LABEL: &[u8] = b"MessageSecrets";
 const USE_RATCHET_TREE_LABEL: &[u8] = b"UseRatchetTree";
 
@@ -482,8 +480,8 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         PskBundle: traits::PskBundle<CURRENT_VERSION>,
     >(
         &self,
-        psk_id: &PskId,
-        psk: &PskBundle,
+        _psk_id: &PskId,
+        _psk: &PskBundle,
     ) -> Result<(), Self::Error> {
         Err(MemoryStorageError::UnsupportedMethod)
     }
@@ -518,7 +516,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
 
     fn psk<PskBundle: traits::PskBundle<CURRENT_VERSION>, PskId: traits::PskId<CURRENT_VERSION>>(
         &self,
-        psk_id: &PskId,
+        _psk_id: &PskId,
     ) -> Result<Option<PskBundle>, Self::Error> {
         Err(MemoryStorageError::UnsupportedMethod)
     }
@@ -565,7 +563,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
 
     fn delete_psk<PskKey: traits::PskId<CURRENT_VERSION>>(
         &self,
-        psk_id: &PskKey,
+        _psk_id: &PskKey,
     ) -> Result<(), Self::Error> {
         Err(MemoryStorageError::UnsupportedMethod)
     }
@@ -641,7 +639,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         ResumptionPskStore: traits::ResumptionPskStore<CURRENT_VERSION>,
     >(
         &self,
-        group_id: &GroupId,
+        _group_id: &GroupId,
     ) -> Result<Option<ResumptionPskStore>, Self::Error> {
         Err(MemoryStorageError::UnsupportedMethod)
     }
@@ -651,15 +649,15 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         ResumptionPskStore: traits::ResumptionPskStore<CURRENT_VERSION>,
     >(
         &self,
-        group_id: &GroupId,
-        resumption_psk_store: &ResumptionPskStore,
+        _group_id: &GroupId,
+        _resumption_psk_store: &ResumptionPskStore,
     ) -> Result<(), Self::Error> {
         Err(MemoryStorageError::UnsupportedMethod)
     }
 
     fn delete_all_resumption_psk_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
-        group_id: &GroupId,
+        _group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         Err(MemoryStorageError::UnsupportedMethod)
     }
@@ -801,7 +799,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
                 #[cfg(feature = "test-utils")]
                 log::debug!("  value: {}", hex::encode(&data));
                 serde_json::from_slice::<Vec<HpkeKeyPair>>(&data)
-                    .map_err(|e| MemoryStorageError::SerializationError)
+                    .map_err(|_e| MemoryStorageError::SerializationError)
             }
             Err(e) => {
                 log::error!("Failed to read from storage: {}", e);
@@ -1025,7 +1023,7 @@ impl From<serde_json::Error> for MemoryStorageError {
 
 #[cfg(test)]
 mod tests {
-    use openmls::group::{GroupId, QueuedProposal};
+    use openmls::group::GroupId;
     use openmls_basic_credential::{SignatureKeyPair, StorageId};
     use openmls_traits::{
         storage::{traits, Entity, Key, StorageProvider, CURRENT_VERSION},
@@ -1078,134 +1076,116 @@ mod tests {
             .is_none());
     }
 
-    // #[test]
-    // fn list_write_remove() {
-    //     let db_path = tmp_path();
-    //     let store = EncryptedMessageStore::new(
-    //         StorageOption::Persistent(db_path),
-    //         EncryptedMessageStore::generate_enc_key(),
-    //     )
-    //     .unwrap();
-    //     let conn = &store.conn().unwrap();
-    //     let key_store = SqlKeyStore::new(conn);
-    //     let provider = XmtpOpenMlsProvider::new(&conn);
-    //     let group_id = GroupId::random(provider.rand());
+    #[test]
+    fn list_write_remove() {
+        let db_path = tmp_path();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(db_path),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+        let conn = &store.conn().unwrap();
+        let key_store = SqlKeyStore::new(conn);
+        let provider = XmtpOpenMlsProvider::new(&conn);
+        let group_id = GroupId::random(provider.rand());
 
-    //     assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
-    //     // let json_str = r#"{"data": "aad"}"#;
-    //     // let json_obj: serde_json::Value = serde_json::from_str(json_str).unwrap();
-    //     // let stringified_json = serde_json::to_string(&json_obj).unwrap();
+        assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
+        // let json_str = r#"{"data": "aad"}"#;
+        // let json_obj: serde_json::Value = serde_json::from_str(json_str).unwrap();
+        // let stringified_json = serde_json::to_string(&json_obj).unwrap();
 
-    //     key_store
-    //         .write_aad::<GroupId>(&group_id, &"test".as_bytes())
-    //         .unwrap();
+        key_store
+            .write_aad::<GroupId>(&group_id, &"test".as_bytes())
+            .unwrap();
 
-    //     assert!(!key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
+        assert!(!key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
 
-    //     key_store.delete_aad::<GroupId>(&group_id).unwrap();
+        key_store.delete_aad::<GroupId>(&group_id).unwrap();
 
-    //     assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
-    // }
+        assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
+    }
 
-    // #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
-    // struct Proposal(Vec<u8>);
-    // impl traits::QueuedProposal<CURRENT_VERSION> for Proposal {}
-    // impl Entity<CURRENT_VERSION> for Proposal {}
+    #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+    struct Proposal(Vec<u8>);
+    impl traits::QueuedProposal<CURRENT_VERSION> for Proposal {}
+    impl Entity<CURRENT_VERSION> for Proposal {}
 
-    // #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
-    // struct ProposalRef(usize);
-    // impl traits::ProposalRef<CURRENT_VERSION> for ProposalRef {}
-    // impl Key<CURRENT_VERSION> for ProposalRef {}
-    // impl Entity<CURRENT_VERSION> for ProposalRef {}
+    #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
+    struct ProposalRef(usize);
+    impl traits::ProposalRef<CURRENT_VERSION> for ProposalRef {}
+    impl Key<CURRENT_VERSION> for ProposalRef {}
+    impl Entity<CURRENT_VERSION> for ProposalRef {}
 
-    // #[tokio::test]
-    // async fn list_append_remove() {
-    //     let db_path = tmp_path();
-    //     let store = EncryptedMessageStore::new(
-    //         StorageOption::Persistent(db_path),
-    //         EncryptedMessageStore::generate_enc_key(),
-    //     )
-    //     .unwrap();
-    //     let conn = &store.conn().unwrap();
-    //     let key_store = SqlKeyStore::new(conn);
-    //     let provider = XmtpOpenMlsProvider::new(&conn);
-    //     let group_id = GroupId::random(provider.rand());
-    //     let proposals = (0..10)
-    //         .map(|i| Proposal(format!("TestProposal{i}").as_bytes().to_vec()))
-    //         .collect::<Vec<_>>();
+    #[tokio::test]
+    async fn list_append_remove() {
+        let db_path = tmp_path();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(db_path),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+        let conn = &store.conn().unwrap();
+        let key_store = SqlKeyStore::new(conn);
+        let provider = XmtpOpenMlsProvider::new(&conn);
+        let group_id = GroupId::random(provider.rand());
+        let proposals = (0..10)
+            .map(|i| Proposal(format!("TestProposal{i}").as_bytes().to_vec()))
+            .collect::<Vec<_>>();
 
-    //     // Store proposals
-    //     for (i, proposal) in proposals.iter().enumerate() {
-    //         key_store
-    //             .queue_proposal::<GroupId, ProposalRef, QueuedProposal>(&group_id, &ProposalRef(i), proposal)
-    //             .unwrap();
-    //     }
+        // Store proposals
+        // for (i, proposal) in proposals.iter().enumerate() {
+        //     key_store
+        //         .queue_proposal::<GroupId, ProposalRef, QueuedProposal>(&group_id, &ProposalRef(i), proposal)
+        //         .unwrap();
+        // }
 
-    //     // Read proposal refs
-    //     let proposal_refs_read: Vec<ProposalRef> = key_store.queued_proposal_refs(&group_id).unwrap();
-    //     assert_eq!(
-    //         (0..10).map(|i| ProposalRef(i)).collect::<Vec<_>>(),
-    //         proposal_refs_read
-    //     );
+        // Read proposal refs
+        let proposal_refs_read: Vec<ProposalRef> =
+            key_store.queued_proposal_refs(&group_id).unwrap();
+        assert_eq!(
+            (0..10).map(|i| ProposalRef(i)).collect::<Vec<_>>(),
+            proposal_refs_read
+        );
 
-    //     // Read proposals
-    //     let proposals_read: Vec<(ProposalRef, Proposal)> =
-    //         key_store.queued_proposals(&group_id).unwrap();
-    //     let proposals_expected: Vec<(ProposalRef, Proposal)> = (0..10)
-    //         .map(|i| ProposalRef(i))
-    //         .zip(proposals.clone().into_iter())
-    //         .collect();
-    //     assert_eq!(proposals_expected, proposals_read);
+        // Read proposals
+        let proposals_read: Vec<(ProposalRef, Proposal)> =
+            key_store.queued_proposals(&group_id).unwrap();
+        let proposals_expected: Vec<(ProposalRef, Proposal)> = (0..10)
+            .map(|i| ProposalRef(i))
+            .zip(proposals.clone().into_iter())
+            .collect();
+        assert_eq!(proposals_expected, proposals_read);
 
-    //     // Remove proposal 5
-    //     key_store.remove_proposal(&group_id, &ProposalRef(5)).unwrap();
+        // Remove proposal 5
+        key_store
+            .remove_proposal(&group_id, &ProposalRef(5))
+            .unwrap();
 
-    //     let proposal_refs_read: Vec<ProposalRef> = key_store.queued_proposal_refs(&group_id).unwrap();
-    //     let mut expected = (0..10).map(|i| ProposalRef(i)).collect::<Vec<_>>();
-    //     expected.remove(5);
-    //     assert_eq!(expected, proposal_refs_read);
+        let proposal_refs_read: Vec<ProposalRef> =
+            key_store.queued_proposal_refs(&group_id).unwrap();
+        let mut expected = (0..10).map(|i| ProposalRef(i)).collect::<Vec<_>>();
+        expected.remove(5);
+        assert_eq!(expected, proposal_refs_read);
 
-    //     let proposals_read: Vec<(ProposalRef, Proposal)> =
-    //         key_store.queued_proposals(&group_id).unwrap();
-    //     let mut proposals_expected: Vec<(ProposalRef, Proposal)> = (0..10)
-    //         .map(|i| ProposalRef(i))
-    //         .zip(proposals.clone().into_iter())
-    //         .collect();
-    //     proposals_expected.remove(5);
-    //     assert_eq!(proposals_expected, proposals_read);
+        let proposals_read: Vec<(ProposalRef, Proposal)> =
+            key_store.queued_proposals(&group_id).unwrap();
+        let mut proposals_expected: Vec<(ProposalRef, Proposal)> = (0..10)
+            .map(|i| ProposalRef(i))
+            .zip(proposals.clone().into_iter())
+            .collect();
+        proposals_expected.remove(5);
+        assert_eq!(proposals_expected, proposals_read);
 
-    //     // Clear all proposals
-    //     key_store
-    //         .clear_proposal_queue::<GroupId, ProposalRef>(&group_id)
-    //         .unwrap();
-    //     let proposal_refs_read: Vec<ProposalRef> = key_store.queued_proposal_refs(&group_id).unwrap();
-    //     assert!(proposal_refs_read.is_empty());
+        // Clear all proposals
+        key_store
+            .clear_proposal_queue::<GroupId, ProposalRef>(&group_id)
+            .unwrap();
+        let proposal_refs_read: Vec<ProposalRef> =
+            key_store.queued_proposal_refs(&group_id).unwrap();
+        assert!(proposal_refs_read.is_empty());
 
-    //     let proposals_read: Vec<(ProposalRef, Proposal)> =
-    //         key_store.queued_proposals(&group_id).unwrap();
-    //     assert!(proposals_read.is_empty());
-
-    //     // assert!(key_store
-    //     //     .own_leaf_nodes::<GroupId, LeafNode>(&group_id)
-    //     //     .unwrap()
-    //     //     .is_empty());
-
-    //     // key_store
-    //     //     .append_own_leaf_node::<GroupId, LeafNode>(&group_id, &new_key_package.leaf_node())
-    //     //     .unwrap();
-
-    //     // assert!(!key_store
-    //     //     .own_leaf_nodes::<GroupId, LeafNode>(&group_id)
-    //     //     .unwrap()
-    //     //     .is_empty());
-
-    //     // key_store
-    //     //     .clear_own_leaf_nodes::<GroupId>(&group_id)
-    //     //     .unwrap();
-
-    //     // assert!(key_store
-    //     //     .own_leaf_nodes::<GroupId, LeafNode>(&group_id)
-    //     //     .unwrap()
-    //     //     .is_empty());
-    // }
+        let proposals_read: Vec<(ProposalRef, Proposal)> =
+            key_store.queued_proposals(&group_id).unwrap();
+        assert!(proposals_read.is_empty());
+    }
 }
