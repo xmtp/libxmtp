@@ -181,9 +181,9 @@ impl<'a> SqlKeyStore<'a> {
                     match serde_json::from_slice::<V>(&entry.value_bytes) {
                         Ok(deserialized) => deserialized_results.push(deserialized),
                         Err(e) => {
-                            eprintln!("Error occurred: {}", e); 
-                            return Err(MemoryStorageError::SerializationError)
-                        },
+                            eprintln!("Error occurred: {}", e);
+                            return Err(MemoryStorageError::SerializationError);
+                        }
                     }
                 }
                 Ok(deserialized_results)
@@ -285,11 +285,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         tree: &TreeSync,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(TREE_LABEL, group_id);
-        self.write::<CURRENT_VERSION>(
-            TREE_LABEL,
-            &key,
-            &serde_json::to_vec(&tree).unwrap(),
-        )
+        self.write::<CURRENT_VERSION>(TREE_LABEL, &key, &serde_json::to_vec(&tree).unwrap())
     }
 
     fn write_interim_transcript_hash<
@@ -373,8 +369,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         group_id: &GroupId,
     ) -> Result<Vec<(ProposalRef, QueuedProposal)>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(PROPOSAL_QUEUE_REFS_LABEL, group_id);
-        let refs: Vec<ProposalRef> =
-            self.read_list(PROPOSAL_QUEUE_REFS_LABEL, &key)?;
+        let refs: Vec<ProposalRef> = self.read_list(PROPOSAL_QUEUE_REFS_LABEL, &key)?;
 
         refs.into_iter()
             .map(|proposal_ref| -> Result<_, _> {
@@ -498,7 +493,8 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         public_key: &EncryptionKey,
         key_pair: &HpkeKeyPair,
     ) -> Result<(), Self::Error> {
-        let key = build_key::<CURRENT_VERSION, &EncryptionKey>(ENCRYPTION_KEY_PAIR_LABEL, public_key);
+        let key =
+            build_key::<CURRENT_VERSION, &EncryptionKey>(ENCRYPTION_KEY_PAIR_LABEL, public_key);
         self.write::<CURRENT_VERSION>(
             ENCRYPTION_KEY_PAIR_LABEL,
             &key,
@@ -531,11 +527,9 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         &self,
         public_key: &EncryptionKey,
     ) -> Result<Option<HpkeKeyPair>, Self::Error> {
-        let key = build_key::<CURRENT_VERSION, &EncryptionKey>(ENCRYPTION_KEY_PAIR_LABEL, public_key);
-        self.read(
-            ENCRYPTION_KEY_PAIR_LABEL,
-            &key,
-        )
+        let key =
+            build_key::<CURRENT_VERSION, &EncryptionKey>(ENCRYPTION_KEY_PAIR_LABEL, public_key);
+        self.read(ENCRYPTION_KEY_PAIR_LABEL, &key)
     }
 
     fn delete_signature_key_pair<
@@ -555,18 +549,14 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
     ) -> Result<(), Self::Error> {
         let key =
             build_key::<CURRENT_VERSION, &EncryptionKey>(ENCRYPTION_KEY_PAIR_LABEL, public_key);
-        self.delete::<CURRENT_VERSION>(
-            ENCRYPTION_KEY_PAIR_LABEL,
-            &key,
-        )
+        self.delete::<CURRENT_VERSION>(ENCRYPTION_KEY_PAIR_LABEL, &key)
     }
 
     fn delete_key_package<HashReference: traits::HashReference<CURRENT_VERSION>>(
         &self,
         hash_ref: &HashReference,
     ) -> Result<(), Self::Error> {
-        let key =
-            build_key::<CURRENT_VERSION, &HashReference>(KEY_PACKAGE_LABEL, hash_ref);
+        let key = build_key::<CURRENT_VERSION, &HashReference>(KEY_PACKAGE_LABEL, hash_ref);
         self.delete::<CURRENT_VERSION>(KEY_PACKAGE_LABEL, &key)
     }
 
@@ -597,11 +587,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         group_state: &GroupState,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(GROUP_STATE_LABEL, group_id);
-        self.write::<CURRENT_VERSION>(
-            GROUP_STATE_LABEL,
-            &key,
-            &serde_json::to_vec(group_state)?,
-        )
+        self.write::<CURRENT_VERSION>(GROUP_STATE_LABEL, &key, &serde_json::to_vec(group_state)?)
     }
 
     fn delete_group_state<GroupId: traits::GroupId<CURRENT_VERSION>>(
@@ -724,11 +710,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         value: bool,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(USE_RATCHET_TREE_LABEL, group_id);
-        self.write::<CURRENT_VERSION>(
-            USE_RATCHET_TREE_LABEL,
-            &key,
-            &serde_json::to_vec(&value)?,
-        )
+        self.write::<CURRENT_VERSION>(USE_RATCHET_TREE_LABEL, &key, &serde_json::to_vec(&value)?)
     }
 
     fn delete_use_ratchet_tree_extension<GroupId: traits::GroupId<CURRENT_VERSION>>(
@@ -838,13 +820,19 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         self.delete::<CURRENT_VERSION>(EPOCH_KEY_PAIRS_LABEL, &key)
     }
 
-    fn clear_proposal_queue<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    fn clear_proposal_queue<GroupId: traits::GroupId<CURRENT_VERSION>, ProposalRef: traits::ProposalRef<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
-        // I think this key is incorrect and should be let key = serde_json::to_vec(&(group_id, &proposal_ref))?;
-        let key = build_key::<CURRENT_VERSION, &GroupId>(QUEUED_PROPOSAL_LABEL, group_id);
-        let _ = self.delete::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key);
+        let proposal_refs: Vec<ProposalRef> =
+        self.read_list(PROPOSAL_QUEUE_REFS_LABEL, &serde_json::to_vec(group_id)?)?;
+        for proposal_ref in proposal_refs {
+            let key = serde_json::to_vec(&(group_id, proposal_ref))?;
+            let _ = self.delete::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key);
+        }
+        
+        let key = build_key::<CURRENT_VERSION, &GroupId>(PROPOSAL_QUEUE_REFS_LABEL, group_id);
+        let _ = self.delete::<CURRENT_VERSION>(PROPOSAL_QUEUE_REFS_LABEL, &key);
 
         Ok(())
     }
@@ -911,7 +899,10 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         group_id: &GroupId,
     ) -> Result<Vec<u8>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(AAD_LABEL, group_id);
-        self.read_list(AAD_LABEL, &key)
+        self.read::<CURRENT_VERSION, Vec<u8>>(AAD_LABEL, &key)
+            .map(|v| {
+                v.unwrap_or_default()
+            })
     }
 
     fn write_aad<GroupId: traits::GroupId<CURRENT_VERSION>>(
@@ -960,10 +951,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(CONFIRMATION_TAG_LABEL, group_id);
-        self.delete::<CURRENT_VERSION>(
-            CONFIRMATION_TAG_LABEL,
-            &key,
-        )
+        self.delete::<CURRENT_VERSION>(CONFIRMATION_TAG_LABEL, &key)
     }
 
     fn delete_context<GroupId: traits::GroupId<CURRENT_VERSION>>(
@@ -979,10 +967,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(INTERIM_TRANSCRIPT_HASH_LABEL, group_id);
-        self.delete::<CURRENT_VERSION>(
-            INTERIM_TRANSCRIPT_HASH_LABEL,
-            &key,
-        )
+        self.delete::<CURRENT_VERSION>(INTERIM_TRANSCRIPT_HASH_LABEL, &key)
     }
 
     fn remove_proposal<
@@ -1052,7 +1037,6 @@ mod tests {
         xmtp_openmls_provider::XmtpOpenMlsProvider,
         InboxOwner,
     };
-    use serde_json::json;
 
     #[test]
     fn store_read_delete() {
