@@ -327,6 +327,7 @@ where
                                 &self.client.account_address(),
                                 &idempotency_key,
                             );
+                            let conn = provider.conn();
                             StoredGroupMessage {
                                 id: message_id,
                                 group_id: self.group_id.clone(),
@@ -337,7 +338,7 @@ where
                                 sender_account_address,
                                 delivery_status: DeliveryStatus::Published,
                             }
-                            .store(provider.conn())?
+                            .store(&*conn)?
                         }
                         Some(Reply(MessageHistoryReply {
                             request_id: _,
@@ -357,6 +358,7 @@ where
                                 &self.client.account_address(),
                                 &idempotency_key,
                             );
+                            let conn = provider.conn();
                             StoredGroupMessage {
                                 id: message_id,
                                 group_id: self.group_id.clone(),
@@ -367,7 +369,7 @@ where
                                 sender_account_address,
                                 delivery_status: DeliveryStatus::Published,
                             }
-                            .store(provider.conn())?
+                            .store(&*conn)?
                         }
                         _ => {
                             return Err(MessageProcessingError::InvalidPayload);

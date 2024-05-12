@@ -12,7 +12,7 @@ mod inbox_id {
 
         fn try_from(proto: MlsCredential) -> Result<OpenMlsCredential, Self::Error> {
             let bytes = proto.encode_to_vec();
-            Ok(BasicCredential::new(bytes)?.into())
+            Ok(BasicCredential::new(bytes).into())
         }
     }
 }
