@@ -153,7 +153,7 @@ impl<'a> SqlKeyStore<'a> {
                         Err(e) => {
                             eprintln!("Error occurred: {}", e);
                             Err(MemoryStorageError::SerializationError)
-                        },
+                        }
                     }
                 } else {
                     Ok(None)
@@ -1025,11 +1025,12 @@ impl From<serde_json::Error> for MemoryStorageError {
 
 #[cfg(test)]
 mod tests {
-    use openmls::{
-        group::{GroupId, QueuedProposal},
-    };
+    use openmls::group::{GroupId, QueuedProposal};
     use openmls_basic_credential::{SignatureKeyPair, StorageId};
-    use openmls_traits::{storage::{traits, Entity, Key, StorageProvider, CURRENT_VERSION}, OpenMlsProvider};
+    use openmls_traits::{
+        storage::{traits, Entity, Key, StorageProvider, CURRENT_VERSION},
+        OpenMlsProvider,
+    };
     use serde::{Deserialize, Serialize};
 
     use super::SqlKeyStore;
@@ -1106,7 +1107,7 @@ mod tests {
     //     assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
     // }
 
-    // #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]    
+    // #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
     // struct Proposal(Vec<u8>);
     // impl traits::QueuedProposal<CURRENT_VERSION> for Proposal {}
     // impl Entity<CURRENT_VERSION> for Proposal {}

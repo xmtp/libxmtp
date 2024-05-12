@@ -403,10 +403,11 @@ where
         ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Result<ReturnValue, MessageProcessingError>,
     {
         self.store.transaction(|provider| {
-            let is_updated =
-                provider
-                    .conn().lock().unwrap()
-                    .update_cursor(entity_id, entity_kind, cursor as i64)?;
+            let is_updated = provider.conn().lock().unwrap().update_cursor(
+                entity_id,
+                entity_kind,
+                cursor as i64,
+            )?;
             if !is_updated {
                 return Err(MessageProcessingError::AlreadyProcessed(cursor));
             }

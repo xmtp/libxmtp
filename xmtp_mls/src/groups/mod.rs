@@ -289,7 +289,11 @@ where
             ),
         };
 
-        let stored_group = provider.conn().lock().unwrap().insert_or_ignore_group(to_store)?;
+        let stored_group = provider
+            .conn()
+            .lock()
+            .unwrap()
+            .insert_or_ignore_group(to_store)?;
 
         Ok(Self::new(
             client,

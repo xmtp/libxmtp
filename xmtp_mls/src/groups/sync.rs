@@ -193,7 +193,9 @@ where
                         "no pending commit to merge. Group epoch: {}. Message epoch: {}",
                         group_epoch, message_epoch
                     );
-                    conn.lock().unwrap().set_group_intent_to_publish(intent.id)?;
+                    conn.lock()
+                        .unwrap()
+                        .set_group_intent_to_publish(intent.id)?;
 
                     // Return OK here, because an error will roll back the transaction
                     return Ok(());
@@ -209,7 +211,9 @@ where
                 {
                     log::error!("error merging commit: {}", err);
                     openmls_group.clear_pending_commit(provider.storage());
-                    conn.lock().unwrap().set_group_intent_to_publish(intent.id)?;
+                    conn.lock()
+                        .unwrap()
+                        .set_group_intent_to_publish(intent.id)?;
                 } else {
                     // If no error committing the change, write a transcript message
                     self.save_transcript_message(
@@ -239,7 +243,9 @@ where
                             &idempotency_key,
                         );
 
-                        conn.lock().unwrap().set_delivery_status_to_published(&message_id, envelope_timestamp_ns)?;
+                        conn.lock()
+                            .unwrap()
+                            .set_delivery_status_to_published(&message_id, envelope_timestamp_ns)?;
                     }
                     Some(Content::V2(V2 {
                         idempotency_key: _,
@@ -401,7 +407,11 @@ where
                 let validated_commit = ValidatedCommit::from_staged_commit(&sc, openmls_group)?;
                 openmls_group.merge_staged_commit(provider, sc)?;
                 let conn = provider.conn();
-                self.save_transcript_message(&*conn.lock().unwrap(), validated_commit, envelope_timestamp_ns)?;
+                self.save_transcript_message(
+                    &*conn.lock().unwrap(),
+                    validated_commit,
+                    envelope_timestamp_ns,
+                )?;
             }
         };
 
@@ -425,7 +435,9 @@ where
         }?;
 
         let intent = provider
-            .conn().lock().unwrap()
+            .conn()
+            .lock()
+            .unwrap()
             .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
         match intent {
             // Intent with the payload hash matches
