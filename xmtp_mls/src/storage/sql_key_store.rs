@@ -5,7 +5,7 @@ use diesel::{deserialize::QueryableByName, sql_query, RunQueryDsl};
 use log::error;
 use openmls_traits::storage::*;
 use serde::Serialize;
-use serde_json::{from_slice, Value};
+use serde_json::{from_slice, from_value, Value};
 
 use super::encrypted_store::db_connection::DbConnection;
 
@@ -93,13 +93,13 @@ impl<'a> SqlKeyStore<'a> {
                                 serde_json::to_string(&deserialized).unwrap()
                             );
                             // arr.push(value);
-                            let modified_data = serde_json::to_string(&deserialized)
+                            let modified_data = serde_json::to_vec(&deserialized)
                                 .map_err(|_| MemoryStorageError::SerializationError)?;
                             // eprintln!("  modified_data: {modified_data}");
 
                             let _ = conn.raw_query(|conn| {
                                 sql_query(update_query)
-                                    .bind::<diesel::sql_types::Text, _>(&modified_data)
+                                    .bind::<diesel::sql_types::Binary, _>(&modified_data)
                                     .bind::<diesel::sql_types::Binary, _>(&storage_key)
                                     .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                                     .execute(conn)
@@ -136,17 +136,68 @@ impl<'a> SqlKeyStore<'a> {
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        let query = "UPDATE openmls_key_value SET value_bytes = json_set(value_bytes, '$.path_to_remove', null) WHERE key_bytes = ? AND version = ?";
+        let select_query =
+            "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
+        let update_query =
+            "UPDATE openmls_key_value SET value_bytes = ? WHERE key_bytes = ? AND version = ?";
         let conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
-        let _ = conn.raw_query(|conn| {
-            sql_query(query)
-                .bind::<diesel::sql_types::Binary, _>(&value)
-                .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                .execute(conn)
-        });
 
-        Ok(())
+        let current_data: Result<Vec<StorageData>, diesel::result::Error> =
+            conn.raw_query(|conn| {
+                sql_query(select_query)
+                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                    .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
+                    .load(conn)
+            });
+
+        match current_data {
+            Ok(data) => {
+                if let Some(entry) = data.into_iter().next() {
+                    // The value in the storage is an array of array of bytes, encoded as json.
+                    match from_slice::<Value>(&entry.value_bytes) {
+                        Ok(mut deserialized) => {
+                            if let Value::Array(ref mut arr) = deserialized {
+                                // Find and remove the valu.
+                                let vpos = arr.iter().position(|v| {
+                                    from_value::<Vec<u8>>(v.clone()).unwrap() == value
+                                });
+                                if let Some(pos) = vpos {
+                                    arr.remove(pos);
+                                }
+                            }
+                            let modified_data = serde_json::to_vec(&deserialized)
+                                .map_err(|_| MemoryStorageError::SerializationError)?;
+
+                            let _ = conn.raw_query(|conn| {
+                                sql_query(update_query)
+                                    .bind::<diesel::sql_types::Binary, _>(&modified_data)
+                                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                                    .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
+                                    .execute(conn)
+                            });
+                            Ok(())
+                        }
+                        Err(_e) => Err(MemoryStorageError::SerializationError),
+                    }
+                } else {
+                    eprintln!("  first entry ...");
+                    // Add a first entry
+                    let query = "REPLACE INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (?, ?, ?)";
+                    let _ = conn.raw_query(|conn| {
+                        sql_query(query)
+                            .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                            .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
+                            .bind::<diesel::sql_types::Binary, _>(
+                                &serde_json::to_vec(&[value]).unwrap(),
+                            )
+                            .execute(conn)
+                    });
+
+                    Ok(())
+                }
+            }
+            Err(_) => Err(MemoryStorageError::None),
+        }
     }
 
     pub fn read<const VERSION: u16, V: Entity<VERSION>>(
@@ -198,8 +249,6 @@ impl<'a> SqlKeyStore<'a> {
                 .load::<StorageData>(conn)
         }) {
             Ok(results) => {
-                // There should be only one value in here.
-                debug_assert!(results.len() == 1);
                 if let Some(entry) = results.into_iter().next() {
                     eprintln!(
                         "  got raw value: {:?}",
@@ -1007,11 +1056,12 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         group_id: &GroupId,
         proposal_ref: &ProposalRef,
     ) -> Result<(), Self::Error> {
+        // Delete the proposal ref
         let key = build_key::<CURRENT_VERSION, &GroupId>(PROPOSAL_QUEUE_REFS_LABEL, group_id);
         let value = serde_json::to_vec(proposal_ref)?;
-
         self.remove_item::<CURRENT_VERSION>(PROPOSAL_QUEUE_REFS_LABEL, &key, &value)?;
 
+        // Delete the proposal
         let key = serde_json::to_vec(&(group_id, proposal_ref))?;
         self.delete::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key)
     }
