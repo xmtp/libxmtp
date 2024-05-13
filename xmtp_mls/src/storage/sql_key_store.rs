@@ -88,10 +88,10 @@ impl<'a> SqlKeyStore<'a> {
                             if let Value::Array(ref mut arr) = deserialized {
                                 arr.push(Value::from(value));
                             }
-                            eprintln!(
-                                "  got the value: {}",
-                                serde_json::to_string(&deserialized).unwrap()
-                            );
+                            // eprintln!(
+                            //     "  got the value: {}",
+                            //     serde_json::to_string(&deserialized).unwrap()
+                            // );
                             // arr.push(value);
                             let modified_data = serde_json::to_vec(&deserialized)
                                 .map_err(|_| MemoryStorageError::SerializationError)?;
@@ -250,10 +250,10 @@ impl<'a> SqlKeyStore<'a> {
         }) {
             Ok(results) => {
                 if let Some(entry) = results.into_iter().next() {
-                    eprintln!(
-                        "  got raw value: {:?}",
-                        String::from_utf8(entry.value_bytes.clone()).unwrap()
-                    );
+                    // eprintln!(
+                    //     "  got raw value: {:?}",
+                    //     String::from_utf8(entry.value_bytes.clone()).unwrap()
+                    // );
                     // The value has to be an array.
                     // This is always an array of bytes right now.
                     let list = from_slice::<Vec<Vec<u8>>>(&entry.value_bytes).unwrap();
@@ -903,8 +903,9 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
-        let proposal_refs: Vec<ProposalRef> =
-            self.read_list(PROPOSAL_QUEUE_REFS_LABEL, &serde_json::to_vec(group_id)?)?;
+        let key = build_key::<CURRENT_VERSION, &GroupId>(PROPOSAL_QUEUE_REFS_LABEL, group_id);
+        let proposal_refs: Vec<ProposalRef> = self.read_list(PROPOSAL_QUEUE_REFS_LABEL, &key)?;
+
         for proposal_ref in proposal_refs {
             let key = serde_json::to_vec(&(group_id, proposal_ref))?;
             let _ = self.delete::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key);
@@ -1110,7 +1111,7 @@ mod tests {
     use super::SqlKeyStore;
     use crate::{
         configuration::CIPHERSUITE,
-        storage::{EncryptedMessageStore, StorageOption},
+        storage::{sql_key_store::MemoryStorageError, EncryptedMessageStore, StorageOption},
         utils::test::tmp_path,
         xmtp_openmls_provider::XmtpOpenMlsProvider,
     };
@@ -1260,12 +1261,18 @@ mod tests {
         key_store
             .clear_proposal_queue::<GroupId, ProposalRef>(&group_id)
             .unwrap();
-        let proposal_refs_read: Vec<ProposalRef> =
-            key_store.queued_proposal_refs(&group_id).unwrap();
-        assert!(proposal_refs_read.is_empty());
+        let proposal_refs_read: Result<Vec<ProposalRef>, MemoryStorageError> =
+            key_store.queued_proposal_refs(&group_id);
+        assert!(matches!(
+            proposal_refs_read.err(),
+            Some(MemoryStorageError::None)
+        ));
 
-        let proposals_read: Vec<(ProposalRef, Proposal)> =
-            key_store.queued_proposals(&group_id).unwrap();
-        assert!(proposals_read.is_empty());
+        let proposals_read: Result<Vec<(ProposalRef, Proposal)>, MemoryStorageError> =
+            key_store.queued_proposals(&group_id);
+        assert!(matches!(
+            proposals_read.err(),
+            Some(MemoryStorageError::None)
+        ));
     }
 }
