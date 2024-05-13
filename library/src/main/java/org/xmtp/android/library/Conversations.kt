@@ -108,16 +108,14 @@ data class Conversations(
         accountAddresses: List<String>,
         permissions: GroupPermissions = GroupPermissions.EVERYONE_IS_ADMIN,
     ): Group {
-        if (accountAddresses.isEmpty()) {
-            throw XMTPException("Cannot start an empty group chat.")
-        }
         if (accountAddresses.size == 1 &&
             accountAddresses.first().lowercase() == client.address.lowercase()
         ) {
             throw XMTPException("Recipient is sender")
         }
         val falseAddresses =
-            client.canMessageV3(accountAddresses).filter { !it.value }.map { it.key }
+            if (accountAddresses.isNotEmpty()) client.canMessageV3(accountAddresses)
+                .filter { !it.value }.map { it.key } else emptyList()
         if (falseAddresses.isNotEmpty()) {
             throw XMTPException("${falseAddresses.joinToString()} not on network")
         }
@@ -150,7 +148,10 @@ data class Conversations(
         } ?: emptyList()
     }
 
-    private suspend fun handleConsentProof(consentProof: Invitation.ConsentProofPayload, peerAddress: String) {
+    private suspend fun handleConsentProof(
+        consentProof: Invitation.ConsentProofPayload,
+        peerAddress: String,
+    ) {
         val signature = consentProof.signature
         val timestamp = consentProof.timestamp
 

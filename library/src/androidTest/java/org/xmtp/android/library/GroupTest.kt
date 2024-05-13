@@ -327,10 +327,9 @@ class GroupTest {
     }
 
     @Test
-    fun testCannotStartEmptyGroupChat() {
-        assertThrows("Cannot start an empty group chat.", XMTPException::class.java) {
-            runBlocking { boClient.conversations.newGroup(listOf()) }
-        }
+    fun testCanStartEmptyGroupChat() {
+        val group = runBlocking { boClient.conversations.newGroup(listOf()) }
+        assert(group.id.isNotEmpty())
     }
 
     @Test
