@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::{storage::association_state::StoredAssociationState, Fetch, Store, StoreOrIgnore};
 use prost::Message;
 use thiserror::Error;
 use xmtp_id::associations::{
@@ -9,6 +10,7 @@ use xmtp_id::associations::{
     IdentityUpdate, InstallationKeySignature, MemberIdentifier,
 };
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
+use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
 use crate::{
     api::GetIdentityUpdatesV2Filter,
@@ -115,28 +117,40 @@ where
         inbox_id: InboxId,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
-        // TODO: Check against a local cache before talking to the network
-
+        let inbox_id = inbox_id.as_ref();
         let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
-        let last_update = updates.last();
-        if last_update.is_none() {
+        let last_sequence_id = updates
+            .last()
+            .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
+            .sequence_id;
+        if to_sequence_id.is_some() && to_sequence_id != Some(last_sequence_id) {
+            // Is this right?
             return Err(AssociationError::MissingIdentityUpdate.into());
         }
-        if let Some(sequence_id) = to_sequence_id {
-            if last_update
-                .expect("already checked")
-                .sequence_id
-                .ne(&sequence_id)
-            {
-                return Err(AssociationError::MissingIdentityUpdate.into());
-            }
+
+        // Fetch cached state if available
+        let stored_state: Option<StoredAssociationState> =
+            conn.fetch(&(inbox_id.to_string(), last_sequence_id))?;
+        if let Some(stored_state) = stored_state {
+            return Ok(AssociationStateProto::decode(stored_state.state.as_slice())?.try_into()?);
         }
+
         let updates = updates
             .into_iter()
             .map(IdentityUpdate::try_from)
             .collect::<Result<Vec<IdentityUpdate>, AssociationError>>()?;
+        let association_state = get_state(updates).await?;
 
-        Ok(get_state(updates).await?)
+        // Cache the state for future use
+        let state_proto: AssociationStateProto = association_state.clone().into();
+        StoredAssociationState {
+            inbox_id: inbox_id.to_string(),
+            sequence_id: last_sequence_id,
+            state: state_proto.encode_to_vec(),
+        }
+        .store_or_ignore(conn)?;
+
+        Ok(association_state)
     }
 
     pub(crate) async fn get_association_state_diff<InboxId: AsRef<str>>(
