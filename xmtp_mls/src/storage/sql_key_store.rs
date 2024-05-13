@@ -264,7 +264,7 @@ impl<'a> SqlKeyStore<'a> {
                         .map(|v| serde_json::from_slice(&v).unwrap())
                         .collect::<Vec<V>>());
                 }
-                return Err(MemoryStorageError::None);
+                Err(MemoryStorageError::None)
             }
             Err(_e) => Err(MemoryStorageError::None),
         }
