@@ -9,7 +9,7 @@ use serde_json::{from_slice, Value};
 
 use super::encrypted_store::db_connection::DbConnection;
 
-#[derive(QueryableByName)]
+#[derive(QueryableByName, Debug)]
 #[table_name = "openmls_key_value"]
 struct StorageData {
     #[column_name = "value_bytes"]
@@ -81,14 +81,21 @@ impl<'a> SqlKeyStore<'a> {
         match current_data {
             Ok(data) => {
                 if let Some(entry) = data.into_iter().next() {
+                    // The value in the storage is an array of array of bytes, encoded as json.
                     match from_slice::<Value>(&entry.value_bytes) {
                         Ok(mut deserialized) => {
                             // Assuming value is JSON and needs to be added to an array
                             if let Value::Array(ref mut arr) = deserialized {
-                                arr.push(Value::from(String::from_utf8_lossy(value)));
+                                arr.push(Value::from(value));
                             }
+                            eprintln!(
+                                "  got the value: {}",
+                                serde_json::to_string(&deserialized).unwrap()
+                            );
+                            // arr.push(value);
                             let modified_data = serde_json::to_string(&deserialized)
                                 .map_err(|_| MemoryStorageError::SerializationError)?;
+                            // eprintln!("  modified_data: {modified_data}");
 
                             let _ = conn.raw_query(|conn| {
                                 sql_query(update_query)
@@ -102,6 +109,19 @@ impl<'a> SqlKeyStore<'a> {
                         Err(_e) => Err(MemoryStorageError::SerializationError),
                     }
                 } else {
+                    eprintln!("  first entry ...");
+                    // Add a first entry
+                    let query = "REPLACE INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (?, ?, ?)";
+                    let _ = conn.raw_query(|conn| {
+                        sql_query(query)
+                            .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                            .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
+                            .bind::<diesel::sql_types::Binary, _>(
+                                &serde_json::to_vec(&[value]).unwrap(),
+                            )
+                            .execute(conn)
+                    });
+
                     Ok(())
                 }
             }
@@ -178,18 +198,24 @@ impl<'a> SqlKeyStore<'a> {
                 .load::<StorageData>(conn)
         }) {
             Ok(results) => {
-                let mut deserialized_results = Vec::new();
-                for entry in results {
-                    eprintln!("Raw data: {:?}", entry.value_bytes);
-                    match serde_json::from_slice::<V>(&entry.value_bytes) {
-                        Ok(deserialized) => deserialized_results.push(deserialized),
-                        Err(e) => {
-                            eprintln!("Error occurred: {}", e);
-                            return Err(MemoryStorageError::SerializationError);
-                        }
-                    }
+                // There should be only one value in here.
+                debug_assert!(results.len() == 1);
+                if let Some(entry) = results.into_iter().next() {
+                    eprintln!(
+                        "  got raw value: {:?}",
+                        String::from_utf8(entry.value_bytes.clone()).unwrap()
+                    );
+                    // The value has to be an array.
+                    // This is always an array of bytes right now.
+                    let list = from_slice::<Vec<Vec<u8>>>(&entry.value_bytes).unwrap();
+
+                    // Read the values from the bytes in the list
+                    return Ok(list
+                        .into_iter()
+                        .map(|v| serde_json::from_slice(&v).unwrap())
+                        .collect::<Vec<V>>());
                 }
-                Ok(deserialized_results)
+                return Err(MemoryStorageError::None);
             }
             Err(_e) => Err(MemoryStorageError::None),
         }
@@ -1133,11 +1159,15 @@ mod tests {
             .collect::<Vec<_>>();
 
         // Store proposals
-        // for (i, proposal) in proposals.iter().enumerate() {
-        //     key_store
-        //         .queue_proposal::<GroupId, ProposalRef, QueuedProposal>(&group_id, &ProposalRef(i), proposal)
-        //         .unwrap();
-        // }
+        for (i, proposal) in proposals.iter().enumerate() {
+            key_store
+                .queue_proposal::<GroupId, ProposalRef, Proposal>(
+                    &group_id,
+                    &ProposalRef(i),
+                    proposal,
+                )
+                .unwrap();
+        }
 
         // Read proposal refs
         let proposal_refs_read: Vec<ProposalRef> =
