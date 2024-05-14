@@ -1,5 +1,6 @@
-// TODO proper error handling
-#[derive(Debug, thiserror::Error)]
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Serialize, Deserialize, thiserror::Error)]
 pub enum SigningError {
     #[error("This is a generic error")]
     Generic,
