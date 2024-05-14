@@ -5436,6 +5436,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "url",
  "xmtp_cryptography",
  "xmtp_proto",
 ]
