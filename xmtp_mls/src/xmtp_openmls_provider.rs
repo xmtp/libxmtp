@@ -30,7 +30,6 @@ impl XmtpOpenMlsProvider {
         self.key_store.conn()
     }
 
-    //TODO:insipx prob a better way to accomplish this
     pub(crate) fn conn_ref(&self) -> &DbConnection {
         self.key_store.conn_ref()
     }

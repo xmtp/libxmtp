@@ -130,7 +130,6 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        // TODO:insipx take a closer look at use of conn.clone here
         let mut num_attempts = 0;
         // Return the last error to the caller if we fail to sync
         let mut last_err: Option<GroupError> = None;
