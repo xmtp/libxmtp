@@ -3,12 +3,6 @@ use std::{fmt, sync::Mutex};
 
 use crate::storage::RawDbConnection;
 
-// Re-implementation of Cow without ToOwned requirement
-enum RefOrValue<'a, T> {
-    Ref(&'a mut T),
-    Value(T),
-}
-
 /// A wrapper for RawDbConnection that houses all XMTP DB operations.
 /// Uses a [`Mutex]` internally for interior mutability, so that the connection
 /// and transaction state can be shared between the OpenMLS Provider and
@@ -42,12 +36,6 @@ impl DbConnection {
             },
         );
         fun(&mut lock)
-        /*
-        match *lock {
-            RefOrValue::Ref(ref mut conn_ref) => fun(conn_ref),
-            RefOrValue::Value(ref mut conn) => fun(conn),
-        }
-        */
     }
 }
 

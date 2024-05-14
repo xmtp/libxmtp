@@ -51,6 +51,7 @@ use crate::{
     identity::v3::Identity,
     retry,
     retry::Retry,
+    retry_async,
     storage::{
         db_connection::DbConnection,
         group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
@@ -602,16 +603,13 @@ impl MlsGroup {
         let num_intents = intents.len();
 
         for intent in intents {
-            // let result = retry_async!(
-            //     Retry::default(),
-            //     (async {
-            //         self.get_publish_intent_data(&provider, &mut openmls_group, &intent)
-            //             .await
-            //     })
-            // );
-            let result = self
-                .get_publish_intent_data(&provider, client, &mut openmls_group, &intent)
-                .await;
+            let result = retry_async!(
+                Retry::default(),
+                (async {
+                    self.get_publish_intent_data(&provider, client, &mut openmls_group, &intent)
+                        .await
+                })
+            );
 
             if let Err(err) = result {
                 log::error!("error getting publish intent data {:?}", err);

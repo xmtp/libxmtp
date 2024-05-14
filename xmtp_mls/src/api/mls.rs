@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::ApiClientWrapper;
 use crate::{retry_async, XmtpApi};
 use xmtp_proto::api_client::{
-    Error as ApiError, ErrorKind, GroupMessageStream, WelcomeMessageStream, XmtpMlsClient,
+    Error as ApiError, ErrorKind, GroupMessageStream, WelcomeMessageStream,
 };
 use xmtp_proto::xmtp::mls::api::v1::{
     get_identity_updates_response::update::Kind as UpdateKind,

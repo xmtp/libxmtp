@@ -278,7 +278,7 @@ mod tests {
         db_connection::DbConnection, identity::StoredIdentity, EncryptedMessageStore, StorageError,
         StorageOption,
     };
-    use diesel::{prelude::*, result::Error as DieselError};
+    use diesel::result::Error as DieselError;
     use std::sync::Barrier;
 
     use crate::{
@@ -500,6 +500,7 @@ mod tests {
         ));
 
         let conn = store.conn().unwrap();
+
         // this group should not exist because of the rollback
         let groups = conn.find_group(b"wrong".to_vec()).unwrap();
         assert_eq!(groups, None);

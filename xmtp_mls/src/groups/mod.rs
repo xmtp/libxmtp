@@ -207,33 +207,33 @@ impl MlsGroup {
 
     // Create a new group and save it to the DB
     pub fn create_and_insert(
-        client: Arc<XmtpMlsLocalContext>,
+        context: Arc<XmtpMlsLocalContext>,
         membership_state: GroupMembershipState,
         permissions: Option<PreconfiguredPolicies>,
         added_by_address: String,
     ) -> Result<Self, GroupError> {
-        let conn = client.store.conn()?;
+        let conn = context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata = build_protected_metadata_extension(
-            &client.identity,
+            &context.identity,
             permissions.unwrap_or_default().to_policy_set(),
             Purpose::Conversation,
         )?;
         let mutable_metadata = build_mutable_metadata_extension_default()?;
         let group_membership = build_starting_group_membership_extension(
-            client.inbox_id(),
-            client.inbox_latest_sequence_id(),
+            context.inbox_id(),
+            context.inbox_latest_sequence_id(),
         );
         let group_config =
             build_group_config(protected_metadata, mutable_metadata, group_membership)?;
 
         let mut mls_group = OpenMlsGroup::new(
             &provider,
-            &client.identity.installation_keys,
+            &context.identity.installation_keys,
             &group_config,
             CredentialWithKey {
-                credential: client.identity.credential()?,
-                signature_key: client.identity.installation_keys.to_public_vec().into(),
+                credential: context.identity.credential()?,
+                signature_key: context.identity.installation_keys.to_public_vec().into(),
             },
         )?;
         mls_group.save(provider.key_store())?;
@@ -248,7 +248,7 @@ impl MlsGroup {
 
         stored_group.store(&provider.conn())?;
         Ok(Self::new(
-            client.clone(),
+            context.clone(),
             group_id,
             stored_group.created_at_ns,
         ))
@@ -320,29 +320,29 @@ impl MlsGroup {
     }
 
     pub(crate) fn create_and_insert_sync_group(
-        client: Arc<XmtpMlsLocalContext>,
+        context: Arc<XmtpMlsLocalContext>,
     ) -> Result<MlsGroup, GroupError> {
-        let conn = client.store.conn()?;
+        let conn = context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata = build_protected_metadata_extension(
-            &client.identity,
+            &context.identity,
             PreconfiguredPolicies::default().to_policy_set(),
             Purpose::Sync,
         )?;
         let mutable_metadata = build_mutable_metadata_extension_default()?;
         let group_membership = build_starting_group_membership_extension(
-            client.inbox_id(),
-            client.inbox_latest_sequence_id(),
+            context.inbox_id(),
+            context.inbox_latest_sequence_id(),
         );
         let group_config =
             build_group_config(protected_metadata, mutable_metadata, group_membership)?;
         let mut mls_group = OpenMlsGroup::new(
             &provider,
-            &client.identity.installation_keys,
+            &context.identity.installation_keys,
             &group_config,
             CredentialWithKey {
-                credential: client.identity.credential()?,
-                signature_key: client.identity.installation_keys.to_public_vec().into(),
+                credential: context.identity.credential()?,
+                signature_key: context.identity.installation_keys.to_public_vec().into(),
             },
         )?;
         mls_group.save(provider.key_store())?;
@@ -353,24 +353,24 @@ impl MlsGroup {
 
         stored_group.store(&provider.conn())?;
         Ok(Self::new(
-            client.clone(),
+            context.clone(),
             stored_group.id,
             stored_group.created_at_ns,
         ))
     }
 
-    pub async fn send_message<Api>(
+    pub async fn send_message<ApiClient>(
         &self,
         message: &[u8],
-        api: &Client<Api>,
+        client: &Client<ApiClient>,
     ) -> Result<Vec<u8>, GroupError>
     where
-        Api: XmtpApi,
+        ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
 
         let update_interval = Some(5_000_000); // 5 seconds in nanoseconds
-        self.maybe_update_installations(conn.clone(), update_interval, api)
+        self.maybe_update_installations(conn.clone(), update_interval, client)
             .await?;
 
         let now = now_ns();
@@ -405,7 +405,7 @@ impl MlsGroup {
         group_message.store(&conn)?;
 
         // Skipping a full sync here and instead just firing and forgetting
-        if let Err(err) = self.publish_intents(conn, api).await {
+        if let Err(err) = self.publish_intents(conn, client).await {
             println!("error publishing intents: {:?}", err);
         }
         Ok(message_id)

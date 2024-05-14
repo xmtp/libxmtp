@@ -303,7 +303,6 @@ mod tests {
     use openmls::prelude::ExtensionType;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
     use super::Identity;
     use crate::{
