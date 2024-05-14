@@ -989,8 +989,9 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         aad: &[u8],
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(AAD_LABEL, group_id);
+        let value = serde_json::to_vec(&aad).unwrap();
 
-        self.write::<CURRENT_VERSION>(AAD_LABEL, &key, aad)
+        self.write::<CURRENT_VERSION>(AAD_LABEL, &key, &value)
     }
 
     fn delete_aad<GroupId: traits::GroupId<CURRENT_VERSION>>(
