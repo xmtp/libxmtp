@@ -165,7 +165,10 @@ pub struct Client<ApiClient> {
     pub(crate) context: Arc<XmtpMlsLocalContext>,
 }
 
-/// The local context a XMTP MLS needs to function.
+/// The local context a XMTP MLS needs to function:
+/// - Sqlite Database
+/// - Identity for the User
+///
 #[derive(Debug)]
 pub struct XmtpMlsLocalContext {
     /// XMTP Identity
@@ -260,6 +263,10 @@ where
 
     pub(crate) fn mls_provider(&self, conn: DbConnection) -> XmtpOpenMlsProvider {
         XmtpOpenMlsProvider::new(conn)
+    }
+
+    pub fn context(&self) -> &Arc<XmtpMlsLocalContext> {
+        &self.context
     }
 
     /// Create a new group with the default settings

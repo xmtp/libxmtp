@@ -1045,7 +1045,7 @@ mod tests {
         let group = client.create_group(None).expect("create group");
 
         group
-            .add_members_by_installation_id(vec![client_2.installation_public_key()], &client_2)
+            .add_members_by_installation_id(vec![client_2.installation_public_key()], &client)
             .await
             .unwrap();
 

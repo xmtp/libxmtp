@@ -214,7 +214,9 @@ impl FfiConversations {
 
         let convo = self.inner_client.create_group(group_permissions)?;
         if !account_addresses.is_empty() {
-            convo.add_members(account_addresses).await?;
+            convo
+                .add_members(account_addresses, &self.inner_client)
+                .await?;
         }
         let out = Arc::new(FfiGroup {
             inner_client: self.inner_client.clone(),
@@ -335,24 +337,26 @@ pub struct FfiListMessagesOptions {
 impl FfiGroup {
     pub async fn send(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        let message_id = group.send_message(content_bytes.as_slice()).await?;
+        let message_id = group
+            .send_message(content_bytes.as_slice(), &self.inner_client)
+            .await?;
 
         Ok(message_id)
     }
 
     pub async fn sync(&self) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group.sync().await?;
+        group.sync(&self.inner_client).await?;
 
         Ok(())
     }
@@ -362,7 +366,7 @@ impl FfiGroup {
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<FfiMessage>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -389,11 +393,13 @@ impl FfiGroup {
         envelope_bytes: Vec<u8>,
     ) -> Result<FfiMessage, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
-        let message = group.process_streamed_group_message(envelope_bytes).await?;
+        let message = group
+            .process_streamed_group_message(envelope_bytes, self.inner_client.clone())
+            .await?;
         let ffi_message = message.into();
 
         Ok(ffi_message)
@@ -401,7 +407,7 @@ impl FfiGroup {
 
     pub fn list_members(&self) -> Result<Vec<FfiGroupMember>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -422,43 +428,49 @@ impl FfiGroup {
         log::info!("adding members: {}", account_addresses.join(","));
 
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group.add_members(account_addresses).await?;
+        group
+            .add_members(account_addresses, &self.inner_client)
+            .await?;
 
         Ok(())
     }
 
     pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group.remove_members(account_addresses).await?;
+        group
+            .remove_members(account_addresses, &self.inner_client)
+            .await?;
 
         Ok(())
     }
 
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group.update_group_name(group_name).await?;
+        group
+            .update_group_name(group_name, &self.inner_client)
+            .await?;
 
         Ok(())
     }
 
     pub fn group_name(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -493,7 +505,7 @@ impl FfiGroup {
 
     pub fn is_active(&self) -> Result<bool, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -503,7 +515,7 @@ impl FfiGroup {
 
     pub fn added_by_address(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -513,7 +525,7 @@ impl FfiGroup {
 
     pub fn group_metadata(&self) -> Result<Arc<FfiGroupMetadata>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -775,7 +787,7 @@ mod tests {
         let signature = ffi_inbox_owner.sign(text_to_sign).unwrap();
 
         client.register_identity(Some(signature)).await.unwrap();
-        return client;
+        client
     }
 
     // Try a query on a test topic, and make sure we get a response
@@ -1008,7 +1020,7 @@ mod tests {
         assert!(
             can_message_result2
                 .get(&bola.get_address().to_string())
-                .map(|&value| value)
+                .copied()
                 .unwrap_or(false),
             "Expected the can_message result to be true for the address"
         );
