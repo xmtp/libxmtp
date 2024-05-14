@@ -1,16 +1,15 @@
 pub mod inbox_owner;
-pub mod logger;
+// pub mod logger;
 pub mod mls;
-pub mod v2;
 
 pub use crate::inbox_owner::SigningError;
 use inbox_owner::WasmInboxOwner;
-use logger::WasmLogger;
+// use logger::WasmLogger;
 pub use mls::*;
 use std::error::Error;
+use wasm_bindgen::prelude::wasm_bindgen;
 
-
-#[wasm_bindgen]
+#[derive(thiserror::Error, Debug)]
 pub enum GenericError {
     #[error("Client error: {0}")]
     Client(#[from] xmtp_mls::client::ClientError),

@@ -1,12 +1,12 @@
-use wasm_bindgen::prelude::{wasm_bindgen, JsError};
+use wasm_bindgen::prelude::{wasm_bindgen, JsValue};
 pub use crate::inbox_owner::SigningError;
-use crate::logger::init_logger;
-use crate::logger::WasmLogger;
+// use crate::logger::init_logger;
+// use crate::logger::WasmLoggerT;
 use crate::GenericError;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    // atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
 use tokio::sync::oneshot::Sender;
@@ -25,10 +25,7 @@ use xmtp_mls::{
     },
     types::Address,
 };
-#[wasm_bindgen]
-pub enum SigningError {
-    Generic,
-}
+use js_sys::{Promise};
 
 #[wasm_bindgen]
 pub struct WasmInboxOwner {
@@ -46,21 +43,10 @@ impl WasmInboxOwner {
         self.address.clone()
     }
 
-    pub fn sign(&self, text: String) -> Result<Vec<u8>, SigningError> {
+    pub fn sign(&self, text: String) -> Result<Vec<u8>, JsValue> {
         // Implement signing logic here.
         // Example: Returning error
-        Err(SigningError::Generic)
-    }
-}
-
-#[wasm_bindgen]
-pub struct WasmLogger;
-
-#[wasm_bindgen]
-impl WasmLogger {
-    pub fn log(level: u32, level_label: &str, message: &str) {
-        // JavaScript console logging could be used directly or mapped here.
-        log(&format!("{}: {} - {}", level, level_label, message));
+        Err(JsValue::from("WIP"))
     }
 }
 
@@ -122,7 +108,7 @@ impl WasmXmtpClient {
     #[allow(unused)]
     #[wasm_bindgen(constructor)]
     pub async fn create_client(
-        logger: Box<dyn WasmLogger>,
+        // logger: Box<dyn WasmLoggerT>,
         host: String,
         is_secure: bool,
         db: Option<String>,
@@ -131,7 +117,7 @@ impl WasmXmtpClient {
         legacy_identity_source: LegacyIdentitySource,
         legacy_signed_private_key_proto: Option<Vec<u8>>,
     ) -> Result<Arc<WasmXmtpClient>, GenericError> {
-        init_logger(logger);
+        // init_logger(logger);
 
         log::info!(
             "Creating API client for host: {}, isSecure: {}",
@@ -190,14 +176,16 @@ impl WasmXmtpClient {
         self.inner_client.text_to_sign()
     }
 
-    pub fn register_identity(&self, recoverable_wallet_signature: Option<Uint8Array>) -> Promise {
-        let signature_vec = recoverable_wallet_signature.map(|u8_array| u8_array.to_vec());
-        future_to_promise(async move {
-            match self.inner_client.register_identity(signature_vec).await {
-                Ok(_) => Ok(JsValue::UNDEFINED),
-                Err(e) => Err(JsValue::from_str(&e.to_string())), // Assuming GenericError implements Display
-            }
-        })
+    #[wasm_bindgen]
+    pub async fn register_identity(
+        &self,
+        recoverable_wallet_signature: Option<Vec<u8>>,
+    ) -> Promise {
+        let result = self.inner_client
+            .register_identity(recoverable_wallet_signature)
+            .await;
+
+        Promise::resolve(&JsValue::from(result))
     }
 }
 
@@ -205,7 +193,8 @@ impl WasmXmtpClient {
 #[cfg(test)]
 mod tests {
     use crate::{
-        inbox_owner::SigningError, logger::WasmLogger,
+        inbox_owner::SigningError,
+        // logger::WasmLoggerT,
         LegacyIdentitySource,
     };
     use std::{
@@ -226,13 +215,13 @@ mod tests {
         wallet: xmtp_cryptography::utils::LocalWallet,
     }
 
-    pub struct MockLogger {}
+    // pub struct MockLogger {}
 
-    impl WasmLogger for MockLogger {
-        fn log(&self, _level: u32, level_label: String, message: String) {
-            println!("{}: {}", level_label, message)
-        }
-    }
+    // impl WasmLoggerT for MockLogger {
+    //     fn log(&self, _level: u32, level_label: String, message: String) {
+    //         println!("{}: {}", level_label, message)
+    //     }
+    // }
 
     pub fn rand_string() -> String {
         Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
@@ -273,7 +262,7 @@ mod tests {
         let wasm_inbox_owner = LocalWalletInboxOwner::new();
 
         let client = create_client(
-            Box::new(MockLogger {}),
+            // Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(tmp_path()),
