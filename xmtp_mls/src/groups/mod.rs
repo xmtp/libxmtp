@@ -11,6 +11,8 @@ pub mod validated_commit;
 #[allow(dead_code)]
 mod validated_commit_v2;
 
+use std::collections::HashMap;
+
 use intents::SendMessageIntentData;
 use openmls::{
     credentials::{BasicCredential, CredentialType},
@@ -34,6 +36,7 @@ use thiserror::Error;
 use xmtp_cryptography::signature::{
     is_valid_ed25519_public_key, sanitize_evm_addresses, AddressValidationError,
 };
+use xmtp_id::InboxId;
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::{
@@ -57,7 +60,8 @@ use self::{
         extract_group_mutable_metadata, GroupMutableMetadata, GroupMutableMetadataError,
         MetadataField,
     },
-    intents::UpdateMetadataIntentData,
+    intents::{UpdateGroupMembershipIntentData, UpdateMetadataIntentData},
+    validated_commit_v2::extract_group_membership,
 };
 use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
@@ -78,6 +82,7 @@ use crate::{
     retry::RetryableError,
     retryable,
     storage::{
+        db_connection::DbConnection,
         group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -444,52 +449,66 @@ where
         account_addresses_to_add: Vec<String>,
     ) -> Result<(), GroupError> {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_add)?;
+        let inbox_id_map = self
+            .client
+            .api_client
+            .get_inbox_ids(account_addresses)
+            .await?;
         // get current number of users in group
         let member_count = self.members()?.len();
-        if member_count + account_addresses.len() > MAX_GROUP_SIZE as usize {
+        if member_count + inbox_id_map.len() > MAX_GROUP_SIZE as usize {
             return Err(GroupError::UserLimitExceeded);
         }
 
-        let conn = &mut self.client.store.conn()?;
-        let intent_data: Vec<u8> =
-            AddMembersIntentData::new(account_addresses.into()).try_into()?;
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::AddMembers,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
-
-        self.sync_until_intent_resolved(conn, intent.id).await
+        self.add_members_by_inbox_id(inbox_id_map.into_values().collect())
+            .await
     }
 
-    // TODO: Remove this function
-    pub async fn add_members_by_installation_id(
-        &self,
-        installation_ids: Vec<Vec<u8>>,
-    ) -> Result<(), GroupError> {
-        validate_ed25519_keys(&installation_ids)?;
-        let conn = &mut self.client.store.conn()?;
-        let intent_data: Vec<u8> = AddMembersIntentData::new(installation_ids.into()).try_into()?;
+    pub async fn add_members_by_inbox_id(&self, inbox_ids: Vec<String>) -> Result<(), GroupError> {
+        let conn = self.client.store.conn()?;
+        let provider = self.client.mls_provider(&conn);
+        let intent_data = self
+            .get_membership_update_intent(provider, inbox_ids, vec![])
+            .await?;
+
         let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::AddMembers,
+            IntentKind::UpdateGroupMembership,
             self.group_id.clone(),
-            intent_data,
+            intent_data.try_into()?,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id).await
+        self.sync_until_intent_resolved(&conn, intent.id).await
     }
 
     pub async fn remove_members(
         &self,
-        account_addresses_to_remove: Vec<String>,
+        account_addresses_to_remove: Vec<InboxId>,
     ) -> Result<(), GroupError> {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_remove)?;
+        let inbox_id_map = self
+            .client
+            .api_client
+            .get_inbox_ids(account_addresses)
+            .await?;
+
+        self.remove_members_by_inbox_id(inbox_id_map.into_values().collect())
+            .await
+    }
+
+    pub async fn remove_members_by_inbox_id(
+        &self,
+        inbox_ids: Vec<InboxId>,
+    ) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
-        let intent_data: Vec<u8> = RemoveMembersIntentData::new(account_addresses.into()).into();
+        let provider = self.client.mls_provider(conn);
+        let intent_data = self
+            .get_membership_update_intent(provider, vec![], inbox_ids)
+            .await?;
+
         let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::RemoveMembers,
+            IntentKind::UpdateGroupMembership,
             self.group_id.clone(),
-            intent_data,
+            intent_data.try_into()?,
         ))?;
 
         self.sync_until_intent_resolved(conn, intent.id).await
@@ -533,25 +552,6 @@ where
                     .map(|group| group.added_by_address.clone())
                     .ok_or_else(|| GroupError::GroupNotFound)
             })
-    }
-
-    // TODO: Remove this method
-    // Used in tests
-    #[allow(dead_code)]
-    pub(crate) async fn remove_members_by_installation_id(
-        &self,
-        installation_ids: Vec<Vec<u8>>,
-    ) -> Result<(), GroupError> {
-        validate_ed25519_keys(&installation_ids)?;
-        let conn = &mut self.client.store.conn()?;
-        let intent_data: Vec<u8> = RemoveMembersIntentData::new(installation_ids.into()).into();
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::RemoveMembers,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
-
-        self.sync_until_intent_resolved(conn, intent.id).await
     }
 
     // Update this installation's leaf key in the group by creating a key update commit

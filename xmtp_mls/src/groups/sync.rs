@@ -17,6 +17,7 @@ use openmls_traits::OpenMlsProvider;
 use prost::bytes::Bytes;
 use prost::Message;
 
+use xmtp_id::InboxId;
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::api::v1::{
@@ -42,25 +43,13 @@ use super::{
 };
 
 use crate::{
-    api::IdentityUpdate,
-    client::MessageProcessingError,
-    codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
-    configuration::{MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
-    groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
-    hpke::{encrypt_welcome, HpkeError},
-    identity::v3::Identity,
-    retry::{self, Retry},
-    retry_async,
-    storage::{
+    client::MessageProcessingError, codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec}, configuration::{MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS}, groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit}, hpke::{encrypt_welcome, HpkeError}, identity::v3::Identity, retry::Retry, retry_async, retry_sync, storage::{
         db_connection::DbConnection,
         group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent, ID},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         refresh_state::EntityKind,
         StorageError,
-    },
-    utils::{hash::sha256, id::calculate_message_id},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Delete, Fetch, Store,
+    }, utils::{hash::sha256, id::calculate_message_id}, verified_key_package::VerifiedKeyPackage, xmtp_openmls_provider::XmtpOpenMlsProvider, Delete, Fetch, Store
 };
 
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
@@ -456,7 +445,7 @@ where
         let receive_errors: Vec<MessageProcessingError> = messages
             .into_iter()
             .map(|envelope| -> Result<(), MessageProcessingError> {
-                retry!(
+                retry_sync!(
                     Retry::default(),
                     (|| self.consume_message(&envelope, &mut openmls_group))
                 )
@@ -607,6 +596,7 @@ where
                 let old_group_membership =
                     extract_group_membership(group_context)?;
                 let mut new_group_membership = old_group_membership.clone();
+                let signer = &self.client.identity.installation_keys;
                 for inbox_id in intent_data.removed_members {
                     new_group_membership.remove(inbox_id)
                 }
@@ -614,6 +604,7 @@ where
                     new_group_membership.add(inbox_id, sequence_id);
                 }
                 let membership_diff = old_group_membership.diff(&new_group_membership);
+                let mut new_key_packages: Vec<VerifiedKeyPackage> = vec![];
                 let installation_diff = self
                     .client
                     .get_installation_diff(
@@ -633,9 +624,10 @@ where
                     for key_package in key_packages {
                         openmls_group.propose_add_member(
                             provider,
-                            &self.client.identity.installation_keys,
+                            signer,
                             &key_package.inner,
                         );
+                        new_key_packages.push(key_package);
                     }
                 }
                 if !installation_diff.removed_installations.is_empty() {
@@ -651,7 +643,7 @@ where
                     for leaf_node in leaf_nodes {
                         openmls_group.propose_remove_member(
                             provider,
-                            &self.client.identity.installation_keys,
+                            signer,
                             leaf_node,
                         );
                     }
@@ -660,7 +652,14 @@ where
                 extensions.add_or_replace(build_group_membership_extension(new_group_membership));
                 openmls_group.propose_group_context_extensions(provider, *extensions, &self.client.identity.installation_keys);
 
-                Err(GroupError::Generic("TODO: Fix me".to_string()))
+                // TODO: At least do validation on permissions, even if we don't need to generate the whole ValidatedCommit
+
+                let (commit, welcome_message, _) = openmls_group.commit_to_pending_proposals(provider, signer)?;
+                let post_commit_data =
+                    // TODO: Remove unwrap
+                    Some(PostCommitAction::from_welcome(welcome_message.unwrap(), new_key_packages.iter().map(Installation::from_verified_key_package).collect())?.to_bytes());
+
+                Ok((commit.tls_serialize_detached()?, post_commit_data))
             }
             IntentKind::SendMessage => {
                 // We can safely assume all SendMessage intents have data
@@ -836,7 +835,7 @@ where
         &self,
         provider: XmtpOpenMlsProvider<'conn>,
     ) -> Result<(), GroupError> {
-        let update = self.get_member_updates(provider).await?;
+        let update = self.get_membership_update_intent(provider, vec![], vec![]).await?;
         if update.is_empty() {
             return Ok(());
         }
@@ -851,13 +850,17 @@ where
         self.sync_until_intent_resolved(conn, intent.id).await
     }
 
-    async fn get_member_updates(
+    pub(super) async fn get_membership_update_intent(
         &self,
         provider: XmtpOpenMlsProvider<'_>,
+        inbox_ids_to_add: Vec<InboxId>,
+        inbox_ids_to_remove: Vec<InboxId>,
     ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
         let mls_group = self.load_mls_group(&provider)?;
         let existing_group_membership = extract_group_membership(mls_group.export_group_context())?;
-        let inbox_ids = existing_group_membership.inbox_ids();
+        
+        let mut inbox_ids = existing_group_membership.inbox_ids();
+        inbox_ids.extend(inbox_ids_to_add);
         let conn = provider.conn();
         // Load any missing updates from the network
         self.client.load_identity_updates(conn, &inbox_ids).await?;
@@ -875,10 +878,11 @@ where
                             updates.insert(inbox_id.to_string(), latest_sequence_id_u64);
                         }
                     }
-                    (None, _) => {
-                        log::warn!("Could not find latest sequence ID for inbox {}", inbox_id);
+                    (Some(latest_sequence_id), _) => {
+                        // This is the case for net new members to the group
+                        updates.insert(inbox_id.to_string(), *latest_sequence_id as u64);
                     }
-                    (_, None) => {
+                    (_, _) => {
                         log::warn!("Could not find existing sequence ID for inbox {}", inbox_id);
                     }
                 }
@@ -888,7 +892,7 @@ where
 
         Ok(UpdateGroupMembershipIntentData::new(
             changed_inbox_ids,
-            vec![],
+            inbox_ids_to_remove,
         ))
     }
 
