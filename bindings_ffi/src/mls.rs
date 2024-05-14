@@ -345,7 +345,6 @@ impl FfiGroup {
         let message_id = group
             .send_message(content_bytes.as_slice(), &self.inner_client)
             .await?;
-        log::info!("Sending third message");
         Ok(message_id)
     }
 
@@ -747,8 +746,7 @@ mod tests {
         fn on_message(&self, message: FfiMessage) {
             let message = String::from_utf8(message.content).unwrap_or("<not UTF8>".to_string());
             log::info!("Received: {}", message);
-            let old = self.num_messages.fetch_add(1, Ordering::SeqCst);
-            log::info!("old message count {}", old);
+            let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
         }
     }
 
@@ -1082,6 +1080,7 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let stream_callback = RustStreamCallback::new();
+
         let stream = caro
             .conversations()
             .stream_all_messages(Box::new(stream_callback.clone()))
@@ -1102,7 +1101,7 @@ mod tests {
         alix_group.send("third".as_bytes().to_vec()).await.unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         bo_group.send("fourth".as_bytes().to_vec()).await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
 
         assert_eq!(stream_callback.message_count(), 4);
         stream.end();

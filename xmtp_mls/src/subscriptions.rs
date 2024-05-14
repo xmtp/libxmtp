@@ -298,13 +298,7 @@ where
                 *messages_stream_closer = Self::stream_messages_with_callback(
                     client.clone(),
                     group_id_to_info.clone(),
-                    move |message| {
-                        log::info!(
-                            "Outside of Callback Mutex Lock: {}",
-                            String::from_utf8_lossy(&message.decrypted_message_bytes)
-                        );
-                        callback_clone.lock().unwrap()(message)
-                    }, // TODO fix unwrap
+                    move |message| callback_clone.lock().unwrap()(message), // TODO fix unwrap
                 )
                 .unwrap(); // TODO fix unwrap
             },
