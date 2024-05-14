@@ -15,7 +15,7 @@ use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationErro
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestError},
-        AssociationError, DeserializationError,
+        AssociationError,
     },
     InboxId,
 };
@@ -86,10 +86,6 @@ pub enum ClientError {
     IdentityUpdate(#[from] IdentityUpdateError),
     #[error(transparent)]
     SignatureRequest(#[from] SignatureRequestError),
-    #[error(transparent)]
-    Decode(#[from] prost::DecodeError),
-    #[error(transparent)]
-    Deserialization(#[from] DeserializationError),
     #[error("generic:{0}")]
     Generic(String),
 }

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{storage::association_state::StoredAssociationState, Fetch, Store, StoreOrIgnore};
+use crate::storage::association_state::StoredAssociationState;
 use prost::Message;
 use thiserror::Error;
 use xmtp_id::associations::{
@@ -10,7 +10,6 @@ use xmtp_id::associations::{
     IdentityUpdate, InstallationKeySignature, MemberIdentifier,
 };
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
-use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
 use crate::{
     api::GetIdentityUpdatesV2Filter,
@@ -128,11 +127,10 @@ where
             return Err(AssociationError::MissingIdentityUpdate.into());
         }
 
-        // Fetch cached state if available
-        let stored_state: Option<StoredAssociationState> =
-            conn.fetch(&(inbox_id.to_string(), last_sequence_id))?;
-        if let Some(stored_state) = stored_state {
-            return Ok(AssociationStateProto::decode(stored_state.state.as_slice())?.try_into()?);
+        if let Some(association_state) =
+            StoredAssociationState::read_from_cache(conn, inbox_id.to_string(), last_sequence_id)?
+        {
+            return Ok(association_state);
         }
 
         let updates = updates
@@ -141,14 +139,12 @@ where
             .collect::<Result<Vec<IdentityUpdate>, AssociationError>>()?;
         let association_state = get_state(updates).await?;
 
-        // Cache the state for future use
-        let state_proto: AssociationStateProto = association_state.clone().into();
-        StoredAssociationState {
-            inbox_id: inbox_id.to_string(),
-            sequence_id: last_sequence_id,
-            state: state_proto.encode_to_vec(),
-        }
-        .store_or_ignore(conn)?;
+        StoredAssociationState::write_to_cache(
+            conn,
+            inbox_id.to_string(),
+            last_sequence_id,
+            association_state.clone(),
+        )?;
 
         Ok(association_state)
     }
