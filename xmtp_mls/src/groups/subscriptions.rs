@@ -4,41 +4,42 @@ use std::sync::Arc;
 
 use futures::Stream;
 
-use prost::Message;
-use xmtp_proto::api_client::XmtpIdentityClient;
-use xmtp_proto::{api_client::XmtpMlsClient, xmtp::mls::api::v1::GroupMessage};
-
 use super::{extract_message_v1, GroupError, MlsGroup};
 use crate::storage::group_message::StoredGroupMessage;
 use crate::subscriptions::{MessagesStreamInfo, StreamCloser};
 use crate::Client;
+use crate::XmtpApi;
+use prost::Message;
+use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
-impl<'c, ApiClient> MlsGroup<'c, ApiClient>
-where
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
-{
-    pub(crate) async fn process_stream_entry(
+impl MlsGroup {
+    pub(crate) async fn process_stream_entry<ApiClient>(
         &self,
         envelope: GroupMessage,
-    ) -> Result<Option<StoredGroupMessage>, GroupError> {
+        client: Arc<Client<ApiClient>>,
+    ) -> Result<Option<StoredGroupMessage>, GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
         let msgv1 = extract_message_v1(envelope)?;
 
-        let process_result = self.client.store.transaction(|provider| {
-            let mut openmls_group = self.load_mls_group(&provider)?;
+        let process_result = self.context.store.transaction(|provider| {
+            let mut openmls_group = self.load_mls_group(provider)?;
+
             // Attempt processing immediately, but fail if the message is not an Application Message
             // Returning an error should roll back the DB tx
-            self.process_message(&mut openmls_group, &provider, &msgv1, false)
+            self.process_message(&mut openmls_group, provider, &msgv1, false)
                 .map_err(GroupError::ReceiveError)
         });
 
         if let Some(GroupError::ReceiveError(_)) = process_result.err() {
-            self.sync().await?;
+            self.sync(&client).await?;
         }
 
         // Load the message from the DB to handle cases where it may have been already processed in
         // another thread
         let new_message = self
-            .client
+            .context
             .store
             .conn()?
             .get_group_message_by_timestamp(&self.group_id, msgv1.created_ns as i64)?;
@@ -46,22 +47,29 @@ where
         Ok(new_message)
     }
 
-    pub async fn process_streamed_group_message(
+    pub async fn process_streamed_group_message<ApiClient>(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<StoredGroupMessage, GroupError> {
+        client: Arc<Client<ApiClient>>,
+    ) -> Result<StoredGroupMessage, GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
         let envelope = GroupMessage::decode(envelope_bytes.as_slice())
             .map_err(|e| GroupError::Generic(e.to_string()))?;
 
-        let message = self.process_stream_entry(envelope).await?;
+        let message = self.process_stream_entry(envelope, client).await?;
         Ok(message.unwrap())
     }
 
-    pub async fn stream(
-        &'c self,
-    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + 'c + Send>>, GroupError> {
-        Ok(self
-            .client
+    pub async fn stream<ApiClient>(
+        &self,
+        client: Arc<Client<ApiClient>>,
+    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + Send + '_>>, GroupError>
+    where
+        ApiClient: crate::XmtpApi,
+    {
+        Ok(client
             .stream_messages(HashMap::from([(
                 self.group_id.clone(),
                 MessagesStreamInfo {
@@ -72,12 +80,15 @@ where
             .await?)
     }
 
-    pub async fn stream_with_callback(
+    pub async fn stream_with_callback<ApiClient>(
         client: Arc<Client<ApiClient>>,
         group_id: Vec<u8>,
         created_at_ns: i64,
         callback: impl FnMut(StoredGroupMessage) + Send + 'static,
-    ) -> Result<StreamCloser, GroupError> {
+    ) -> Result<StreamCloser, GroupError>
+    where
+        ApiClient: crate::XmtpApi,
+    {
         Ok(Client::<ApiClient>::stream_messages_with_callback(
             client,
             HashMap::from([(
@@ -95,6 +106,7 @@ where
 #[cfg(test)]
 mod tests {
     use prost::Message;
+    use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{builder::ClientBuilder, storage::group_message::GroupMessageKind};
@@ -109,11 +121,14 @@ mod tests {
         let amal_group = amal.create_group(None).unwrap();
         // Add bola
         amal_group
-            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .add_members_by_installation_id(vec![bola.installation_public_key()], &amal)
             .await
             .unwrap();
 
-        amal_group.send_message("hello".as_bytes()).await.unwrap();
+        amal_group
+            .send_message("hello".as_bytes(), &amal)
+            .await
+            .unwrap();
         let messages = amal
             .api_client
             .query_group_messages(amal_group.clone().group_id, None)
@@ -123,7 +138,7 @@ mod tests {
         let mut message_bytes: Vec<u8> = Vec::new();
         message.encode(&mut message_bytes).unwrap();
         let message_again = amal_group
-            .process_streamed_group_message(message_bytes)
+            .process_streamed_group_message(message_bytes, Arc::new(amal))
             .await;
 
         if let Ok(message) = message_again {
@@ -142,7 +157,7 @@ mod tests {
         let amal_group = amal.create_group(None).unwrap();
         // Add bola
         amal_group
-            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .add_members_by_installation_id(vec![bola.installation_public_key()], &amal)
             .await
             .unwrap();
 
@@ -150,14 +165,20 @@ mod tests {
         let bola_groups = bola.sync_welcomes().await.unwrap();
         let bola_group = bola_groups.first().unwrap();
 
-        let mut stream = bola_group.stream().await.unwrap();
+        let mut stream = bola_group.stream(Arc::new(bola)).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        amal_group.send_message("hello".as_bytes()).await.unwrap();
+        amal_group
+            .send_message("hello".as_bytes(), &amal)
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let first_val = stream.next().await.unwrap();
         assert_eq!(first_val.decrypted_message_bytes, "hello".as_bytes());
 
-        amal_group.send_message("goodbye".as_bytes()).await.unwrap();
+        amal_group
+            .send_message("goodbye".as_bytes(), &amal)
+            .await
+            .unwrap();
 
         let second_val = stream.next().await.unwrap();
         assert_eq!(second_val.decrypted_message_bytes, "goodbye".as_bytes());
@@ -166,16 +187,16 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     #[ignore]
     async fn test_subscribe_multiple() {
-        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let group = amal.create_group(None).unwrap();
 
-        let stream = group.stream().await.unwrap();
+        let stream = group.stream(amal.clone()).await.unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         for i in 0..10 {
             group
-                .send_message(format!("hello {}", i).as_bytes())
+                .send_message(format!("hello {}", i).as_bytes(), &amal)
                 .await
                 .unwrap();
         }
@@ -194,16 +215,16 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     #[ignore]
     async fn test_subscribe_membership_changes() {
-        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let amal_group = amal.create_group(None).unwrap();
 
-        let mut stream = amal_group.stream().await.unwrap();
+        let mut stream = amal_group.stream(amal.clone()).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         amal_group
-            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .add_members_by_installation_id(vec![bola.installation_public_key()], &amal)
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -211,7 +232,10 @@ mod tests {
         let first_val = stream.next().await.unwrap();
         assert_eq!(first_val.kind, GroupMessageKind::MembershipChange);
 
-        amal_group.send_message("hello".as_bytes()).await.unwrap();
+        amal_group
+            .send_message("hello".as_bytes(), &amal)
+            .await
+            .unwrap();
         let second_val = stream.next().await.unwrap();
         assert_eq!(second_val.decrypted_message_bytes, "hello".as_bytes());
     }

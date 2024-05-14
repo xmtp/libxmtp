@@ -6,7 +6,6 @@ use log::debug;
 use thiserror::Error;
 
 use xmtp_cryptography::signature::AddressValidationError;
-use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use crate::{
     api::ApiClientWrapper,
@@ -14,7 +13,7 @@ use crate::{
     identity::{Identity, IdentityStrategy},
     retry::Retry,
     storage::EncryptedMessageStore,
-    StorageError,
+    StorageError, XmtpApi,
 };
 
 #[derive(Error, Debug)]
@@ -55,7 +54,7 @@ pub struct ClientBuilder<ApiClient> {
 
 impl<ApiClient> ClientBuilder<ApiClient>
 where
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
+    ApiClient: XmtpApi,
 {
     pub fn new(strat: IdentityStrategy) -> Self {
         Self {
@@ -143,20 +142,18 @@ mod tests {
         }
 
         pub async fn new_test_client(owner: &impl InboxOwner) -> Client<GrpcClient> {
-            let client = Self::new(IdentityStrategy::CreateIfNotFound(
-                owner.get_address(),
-                None,
-            ))
-            .temp_store()
-            .local_grpc()
-            .await
-            .build()
-            .await
-            .unwrap();
-            // TODO: Add signature
-            // let signature: Option<Vec<u8>> =
-            //     client.get_signature_request().unwrap().add_signature();
-            // client.register_identity(signature).await.unwrap();
+            let client = Self::new(owner.into())
+                .temp_store()
+                .local_grpc()
+                .await
+                .build()
+                .await
+                .unwrap();
+            let signature: Option<Vec<u8>> = client
+                .context
+                .text_to_sign()
+                .map(|text| owner.sign(&text).unwrap().into());
+            client.register_identity(signature).await.unwrap();
 
             client
         }

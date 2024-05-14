@@ -15,8 +15,7 @@ wasm_bindgen_test_configure!(run_in_browser);
 
 #[wasm_bindgen]
 extern "C" {
-    // Use `js_namespace` here to bind `console.log(..)` instead of just
-    // `log(..)`
+    // Use `js_namespace` here to bind `console.log(..)` instead of just `log(..)`
     #[wasm_bindgen(js_namespace = console)]
     fn log(s: &str);
 }
@@ -24,7 +23,9 @@ extern "C" {
 #[wasm_bindgen_test]
 pub async fn test_client_raw_requests() {
     let xmtp_url: String = "http://localhost:5555".to_string();
-    let client = WasmXmtpClient::new(xmtp_url).unwrap_or_else(|_error| {
+    let client = WasmXmtpClient::create_client(xmtp_url).unwrap_or_else(|error| {
+        let error_str = format!("{:?}", JsValue::from(error));
+        log(&error_str);
         panic!("client should be constructed");
     });
     let api = client.api();
@@ -52,8 +53,7 @@ pub fn test_xmtp_proto_in_wasm() {
         content_topic: "abc123".to_string(),
         message: vec![65],
     };
-    let mut buf = Vec::new();
-    buf.reserve(env1.encoded_len());
+    let mut buf = Vec::with_capacity(env1.encoded_len());
     env1.encode(&mut buf).unwrap();
     let env2 = Envelope::decode(buf.as_slice()).unwrap();
     assert_eq!(12345, env2.timestamp_ns);

@@ -1,23 +1,20 @@
 use std::collections::HashMap;
 
 use super::ApiClientWrapper;
-use crate::retry_async;
-use xmtp_proto::{
-    api_client::{
-        Error as ApiError, ErrorKind, GroupMessageStream, WelcomeMessageStream, XmtpIdentityClient,
-        XmtpMlsClient,
-    },
-    xmtp::mls::api::v1::{
-        get_identity_updates_response::update::Kind as UpdateKind,
-        group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
-        subscribe_group_messages_request::Filter as GroupFilterProto,
-        subscribe_welcome_messages_request::Filter as WelcomeFilterProto,
-        FetchKeyPackagesRequest, GetIdentityUpdatesRequest, GroupMessage, GroupMessageInput,
-        KeyPackageUpload, PagingInfo, QueryGroupMessagesRequest, QueryWelcomeMessagesRequest,
-        RegisterInstallationRequest, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
-        SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-        UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
-    },
+use crate::{retry_async, XmtpApi};
+use xmtp_proto::api_client::{
+    Error as ApiError, ErrorKind, GroupMessageStream, WelcomeMessageStream,
+};
+use xmtp_proto::xmtp::mls::api::v1::{
+    get_identity_updates_response::update::Kind as UpdateKind,
+    group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
+    subscribe_group_messages_request::Filter as GroupFilterProto,
+    subscribe_welcome_messages_request::Filter as WelcomeFilterProto,
+    FetchKeyPackagesRequest, GetIdentityUpdatesRequest, GroupMessage, GroupMessageInput,
+    KeyPackageUpload, PagingInfo, QueryGroupMessagesRequest, QueryWelcomeMessagesRequest,
+    RegisterInstallationRequest, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
+    SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
+    UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
 
 /// A filter for querying group messages
@@ -70,7 +67,7 @@ type IdentityUpdatesMap = HashMap<String, Vec<IdentityUpdate>>;
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
+    ApiClient: XmtpApi,
 {
     pub async fn query_group_messages(
         &self,

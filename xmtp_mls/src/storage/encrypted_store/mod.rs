@@ -23,9 +23,9 @@ pub mod schema;
 use std::borrow::Cow;
 
 use diesel::{
-    connection::SimpleConnection,
+    connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
     prelude::*,
-    r2d2::{ConnectionManager, Pool, PooledConnection},
+    r2d2::{ConnectionManager, Pool, PoolTransactionManager, PooledConnection},
     result::{DatabaseErrorKind, Error},
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
@@ -146,7 +146,7 @@ impl EncryptedMessageStore {
 
     pub fn conn(&self) -> Result<DbConnection, StorageError> {
         let conn = self.raw_conn()?;
-        Ok(DbConnection::held(conn))
+        Ok(DbConnection::new(conn))
     }
 
     /// Start a new database transaction with the OpenMLS Provider from XMTP
@@ -164,15 +164,31 @@ impl EncryptedMessageStore {
     /// ```
     pub fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
-        F: FnOnce(XmtpOpenMlsProvider) -> Result<T, E>,
+        F: FnOnce(&XmtpOpenMlsProvider) -> Result<T, E>,
         E: From<diesel::result::Error> + From<StorageError>,
     {
         let mut connection = self.raw_conn()?;
-        connection.transaction(|conn| {
-            let db_connection = DbConnection::new(conn);
-            let provider = XmtpOpenMlsProvider::new(&db_connection);
-            fun(provider)
-        })
+        AnsiTransactionManager::begin_transaction(&mut *connection)?;
+
+        let db_connection = DbConnection::new(connection);
+        let provider = XmtpOpenMlsProvider::new(db_connection);
+        let conn = provider.conn_ref();
+
+        match fun(&provider) {
+            Ok(value) => {
+                conn.raw_query(|conn| {
+                    PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
+                })?;
+                Ok(value)
+            }
+            Err(err) => match conn.raw_query(|conn| {
+                PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(&mut *conn)
+            }) {
+                Ok(()) => Err(err),
+                Err(Error::BrokenTransactionManager) => Err(err),
+                Err(rollback) => Err(rollback.into()),
+            },
+        }
     }
 
     pub fn generate_enc_key() -> EncryptionKey {
@@ -199,7 +215,7 @@ fn warn_length<T>(list: &[T], str_id: &str, max_length: usize) {
 macro_rules! impl_fetch {
     ($model:ty, $table:ident) => {
         impl $crate::Fetch<$model>
-            for $crate::storage::encrypted_store::db_connection::DbConnection<'_>
+            for $crate::storage::encrypted_store::db_connection::DbConnection
         {
             type Key = ();
             fn fetch(&self, _key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
@@ -211,7 +227,7 @@ macro_rules! impl_fetch {
 
     ($model:ty, $table:ident, $key:ty) => {
         impl $crate::Fetch<$model>
-            for $crate::storage::encrypted_store::db_connection::DbConnection<'_>
+            for $crate::storage::encrypted_store::db_connection::DbConnection
         {
             type Key = $key;
             fn fetch(&self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
@@ -225,12 +241,12 @@ macro_rules! impl_fetch {
 #[macro_export]
 macro_rules! impl_store {
     ($model:ty, $table:ident) => {
-        impl $crate::Store<$crate::storage::encrypted_store::db_connection::DbConnection<'_>>
+        impl $crate::Store<$crate::storage::encrypted_store::db_connection::DbConnection>
             for $model
         {
             fn store(
                 &self,
-                into: &$crate::storage::encrypted_store::db_connection::DbConnection<'_>,
+                into: &$crate::storage::encrypted_store::db_connection::DbConnection,
             ) -> Result<(), $crate::StorageError> {
                 into.raw_query(|conn| {
                     diesel::insert_into($table::table)
@@ -243,11 +259,11 @@ macro_rules! impl_store {
     };
 }
 
-impl<'a, T> Store<DbConnection<'a>> for Vec<T>
+impl<T> Store<DbConnection> for Vec<T>
 where
-    T: Store<DbConnection<'a>>,
+    T: Store<DbConnection>,
 {
-    fn store(&self, into: &DbConnection<'a>) -> Result<(), StorageError> {
+    fn store(&self, into: &DbConnection) -> Result<(), StorageError> {
         for item in self {
             item.store(into)?;
         }
@@ -257,14 +273,19 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use super::{
+        db_connection::DbConnection, identity::StoredIdentity, EncryptedMessageStore, StorageError,
+        StorageOption,
+    };
+    use diesel::result::Error as DieselError;
+    use std::sync::Barrier;
 
-    use super::{db_connection::DbConnection, EncryptedMessageStore, StorageError, StorageOption};
     use crate::{
-        storage::identity::StoredIdentity,
+        storage::group::{GroupMembershipState, StoredGroup},
         utils::test::{rand_vec, tmp_path},
         Fetch, Store,
     };
+    use std::{fs, sync::Arc};
 
     /// Test harness that loads an Ephemeral store.
     pub fn with_connection<F, R>(fun: F) -> R
@@ -422,5 +443,70 @@ mod tests {
             super::ignore_unique_violation(result).is_err(),
             "Expected Err when given a non-database error"
         );
+    }
+
+    // get two connections
+    // start a transaction
+    // try to write with second connection
+    // write should fail & rollback
+    // first thread succeeds
+    #[test]
+    fn test_transaction_rollback() {
+        let db_path = tmp_path();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(db_path.clone()),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+
+        let barrier = Arc::new(Barrier::new(2));
+
+        let store_pointer = store.clone();
+        let barrier_pointer = barrier.clone();
+        let handle = std::thread::spawn(move || {
+            store_pointer.transaction(|provider| {
+                let conn1 = provider.conn();
+                barrier_pointer.wait();
+                StoredIdentity::new("correct".to_string(), rand_vec(), rand_vec())
+                    .store(&conn1)
+                    .unwrap();
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                Ok::<_, StorageError>(())
+            })
+        });
+
+        let store_pointer = store.clone();
+        let handle2 = std::thread::spawn(move || {
+            barrier.wait();
+            store_pointer.transaction(|provider| {
+                let connection = provider.conn();
+                let _ = connection.insert_or_ignore_group(StoredGroup::new(
+                    b"wrong".to_vec(),
+                    0,
+                    GroupMembershipState::Allowed,
+                    "wrong".into(),
+                ));
+                StoredIdentity::new("wrong".to_string(), rand_vec(), rand_vec())
+                    .store(&connection)?;
+                Ok::<_, StorageError>(())
+            })
+        });
+
+        let result = handle.join().unwrap();
+        assert!(result.is_ok());
+
+        let result = handle2.join().unwrap();
+
+        // handle 2 errored because the first transaction has precedence
+        assert!(matches!(
+            result,
+            Err(StorageError::DieselResult(DieselError::DatabaseError(_, _)))
+        ));
+
+        let conn = store.conn().unwrap();
+
+        // this group should not exist because of the rollback
+        let groups = conn.find_group(b"wrong".to_vec()).unwrap();
+        assert_eq!(groups, None);
     }
 }

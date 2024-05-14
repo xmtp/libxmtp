@@ -14,7 +14,7 @@ pub struct StoredKeyStoreEntry {
 impl_fetch!(StoredKeyStoreEntry, openmls_key_store, Vec<u8>);
 impl_store!(StoredKeyStoreEntry, openmls_key_store);
 
-impl Delete<StoredKeyStoreEntry> for DbConnection<'_> {
+impl Delete<StoredKeyStoreEntry> for DbConnection {
     type Key = Vec<u8>;
     fn delete(&self, key: Vec<u8>) -> Result<usize, StorageError> where {
         use super::schema::openmls_key_store::dsl::*;
@@ -24,7 +24,7 @@ impl Delete<StoredKeyStoreEntry> for DbConnection<'_> {
     }
 }
 
-impl DbConnection<'_> {
+impl DbConnection {
     pub fn insert_or_update_key_store_entry(
         &self,
         key: Vec<u8>,
