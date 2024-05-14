@@ -22,7 +22,7 @@ impl TryFrom<StoredAssociationState> for AssociationState {
     type Error = DeserializationError;
 
     fn try_from(stored_state: StoredAssociationState) -> Result<Self, Self::Error> {
-        return Ok(AssociationStateProto::decode(stored_state.state.as_slice())?.try_into()?);
+        AssociationStateProto::decode(stored_state.state.as_slice())?.try_into()
     }
 }
 
@@ -50,7 +50,7 @@ impl StoredAssociationState {
         let stored_state: Option<StoredAssociationState> =
             conn.fetch(&(inbox_id.to_string(), sequence_id))?;
 
-        return stored_state
+        stored_state
             .map(|stored_state| {
                 stored_state
                     .try_into()
@@ -60,6 +60,6 @@ impl StoredAssociationState {
                         ))
                     })
             })
-            .transpose();
+            .transpose()
     }
 }

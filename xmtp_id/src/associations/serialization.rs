@@ -406,7 +406,7 @@ impl TryFrom<AssociationStateProto> for AssociationState {
             inbox_id: proto.inbox_id,
             members,
             recovery_address: proto.recovery_address,
-            seen_signatures: HashSet::from_iter(proto.seen_signatures.into_iter()),
+            seen_signatures: HashSet::from_iter(proto.seen_signatures),
         })
     }
 }
@@ -555,8 +555,8 @@ mod tests {
 
         let identity_update = IdentityUpdate::new(
             vec![Action::CreateInbox(CreateInbox {
-                nonce: nonce,
-                account_address: account_address,
+                nonce,
+                account_address,
                 initial_address_signature: Box::new(RecoverableEcdsaSignature::new(
                     "foo".to_string(),
                     vec![1, 2, 3],
