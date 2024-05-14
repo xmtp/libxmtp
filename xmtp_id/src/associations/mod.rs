@@ -541,7 +541,6 @@ mod tests {
                 SignatureKind::Erc191,
                 None,
             ),
-            ..Default::default()
         });
 
         let revoke_second_wallet = Action::RevokeAssociation(RevokeAssociation {
@@ -552,7 +551,6 @@ mod tests {
                 None,
             ),
             revoked_member: second_wallet_address.clone(),
-            ..Default::default()
         });
 
         let state_after_remove = apply_update(
