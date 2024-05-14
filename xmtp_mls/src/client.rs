@@ -241,6 +241,8 @@ where
         .map_err(|e| {
             ClientError::Storage(StorageError::Store(format!("group create error {}", e)))
         })?;
+        log::debug!("  created group with id {:?}", &group.group_id);
+        log::debug!("  storage {:?}", self.store.conn().unwrap());
 
         Ok(group)
     }

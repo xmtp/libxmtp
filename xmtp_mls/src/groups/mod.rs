@@ -203,6 +203,8 @@ where
 
     // Load the stored MLS group from the OpenMLS provider's keystore
     fn load_mls_group(&self, provider: &XmtpOpenMlsProvider) -> Result<OpenMlsGroup, GroupError> {
+        log::debug!("load_mls_group");
+        log::debug!("  {:?}", self.group_id);
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
                 .map_err(|_e| GroupError::GroupNotFound)?;
@@ -220,7 +222,9 @@ where
         permissions: Option<PreconfiguredPolicies>,
         added_by_address: String,
     ) -> Result<Self, GroupError> {
+        log::info!("create_and_insert");
         let conn = client.store.conn()?;
+        log::debug!("    got db connection");
         let provider = XmtpOpenMlsProvider::new(&conn);
         let protected_metadata = build_protected_metadata_extension(
             &client.identity,
@@ -235,6 +239,7 @@ where
         let group_config =
             build_group_config(protected_metadata, mutable_metadata, group_membership)?;
 
+        log::debug!("    created group config");
         let mls_group = OpenMlsGroup::new(
             &provider,
             &client.identity.installation_keys,
@@ -244,6 +249,7 @@ where
                 signature_key: client.identity.installation_keys.to_public_vec().into(),
             },
         )?;
+        log::debug!("    created group");
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::new(

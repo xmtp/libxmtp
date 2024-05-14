@@ -40,6 +40,8 @@ impl<'a> SqlKeyStore<'a> {
         key: &[u8],
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
+        log::debug!("write {}", String::from_utf8_lossy(label));
+
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query =
             "REPLACE INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (?, ?, ?)";
@@ -62,6 +64,8 @@ impl<'a> SqlKeyStore<'a> {
         key: &[u8],
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
+        log::debug!("append {}", String::from_utf8_lossy(label));
+
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let select_query =
             "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
@@ -135,6 +139,8 @@ impl<'a> SqlKeyStore<'a> {
         key: &[u8],
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
+        log::debug!("remove_item {}", String::from_utf8_lossy(label));
+
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let select_query =
             "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
@@ -205,6 +211,8 @@ impl<'a> SqlKeyStore<'a> {
         label: &[u8],
         key: &[u8],
     ) -> Result<Option<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
+        log::debug!("read {}", String::from_utf8_lossy(label));
+
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
         let conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
@@ -239,6 +247,8 @@ impl<'a> SqlKeyStore<'a> {
         label: &[u8],
         key: &[u8],
     ) -> Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
+        log::debug!("read_list {}", String::from_utf8_lossy(label));
+
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
         let conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
@@ -264,7 +274,7 @@ impl<'a> SqlKeyStore<'a> {
                         .map(|v| serde_json::from_slice(&v).unwrap())
                         .collect::<Vec<V>>());
                 }
-                Err(MemoryStorageError::None)
+                Ok(vec![])
             }
             Err(_e) => Err(MemoryStorageError::None),
         }
@@ -716,7 +726,8 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         &self,
         _group_id: &GroupId,
     ) -> Result<Option<ResumptionPskStore>, Self::Error> {
-        Err(MemoryStorageError::UnsupportedMethod)
+        // Err(MemoryStorageError::UnsupportedMethod)
+        Ok(None)
     }
 
     fn write_resumption_psk_store<
@@ -727,14 +738,17 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         _group_id: &GroupId,
         _resumption_psk_store: &ResumptionPskStore,
     ) -> Result<(), Self::Error> {
-        Err(MemoryStorageError::UnsupportedMethod)
+        // log::debug!("write_resumption_psk_store");
+        // Err(MemoryStorageError::UnsupportedMethod)
+        Ok(())
     }
 
     fn delete_all_resumption_psk_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         _group_id: &GroupId,
     ) -> Result<(), Self::Error> {
-        Err(MemoryStorageError::UnsupportedMethod)
+        // Err(MemoryStorageError::UnsupportedMethod)
+        Ok(())
     }
 
     fn own_leaf_index<
@@ -949,6 +963,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<LeafNode>, Self::Error> {
+        log::debug!("own_leaf_nodes");
         let key = build_key::<CURRENT_VERSION, &GroupId>(OWN_LEAF_NODES_LABEL, group_id);
         self.read_list(OWN_LEAF_NODES_LABEL, &key)
     }
@@ -1264,16 +1279,10 @@ mod tests {
             .unwrap();
         let proposal_refs_read: Result<Vec<ProposalRef>, MemoryStorageError> =
             key_store.queued_proposal_refs(&group_id);
-        assert!(matches!(
-            proposal_refs_read.err(),
-            Some(MemoryStorageError::None)
-        ));
+        assert!(proposal_refs_read.unwrap().is_empty());
 
         let proposals_read: Result<Vec<(ProposalRef, Proposal)>, MemoryStorageError> =
             key_store.queued_proposals(&group_id);
-        assert!(matches!(
-            proposals_read.err(),
-            Some(MemoryStorageError::None)
-        ));
+        assert!(proposals_read.unwrap().is_empty());
     }
 }

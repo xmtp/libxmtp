@@ -577,8 +577,11 @@ where
         &self,
         conn: &'a DbConnection<'a>,
     ) -> Result<(), GroupError> {
+        log::debug!("publish_intents");
         let provider = self.client.mls_provider(conn);
+        log::debug!("  loading mls group ...");
         let mut openmls_group = self.load_mls_group(&provider)?;
+        log::debug!("  loaded mls group");
 
         let intents = provider.conn().lock().unwrap().find_group_intents(
             self.group_id.clone(),
