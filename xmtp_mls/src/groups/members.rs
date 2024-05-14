@@ -6,7 +6,7 @@ use openmls_traits::OpenMlsProvider;
 
 use super::{GroupError, MlsGroup};
 
-use crate::{identity::Identity, xmtp_openmls_provider::XmtpOpenMlsProvider};
+use crate::identity::Identity;
 
 #[derive(Debug, Clone)]
 pub struct GroupMember {
