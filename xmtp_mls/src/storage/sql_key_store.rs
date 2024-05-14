@@ -10,7 +10,7 @@ use crate::{Delete, Fetch};
 use std::borrow::Cow;
 
 /// CRUD Operations for an [`OpenMlsKeyStore`]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SqlKeyStore<'a> {
     conn: Cow<'a, DbConnection>,
 }
@@ -112,7 +112,7 @@ mod tests {
         )
         .unwrap();
         let conn = &store.conn().unwrap();
-        let key_store = SqlKeyStore::new(conn);
+        let key_store = SqlKeyStore::new(conn.clone());
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
         let index = "index".as_bytes();
         assert!(key_store.read::<SignatureKeyPair>(index).is_none());

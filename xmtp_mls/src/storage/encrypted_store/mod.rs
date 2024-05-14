@@ -26,7 +26,7 @@ use std::borrow::Cow;
 use diesel::{
     connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
     prelude::*,
-    r2d2::{ConnectionManager, Pool, PooledConnection},
+    r2d2::{ConnectionManager, Pool, PoolTransactionManager, PooledConnection},
     result::{DatabaseErrorKind, Error},
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
@@ -169,21 +169,26 @@ impl EncryptedMessageStore {
         E: From<diesel::result::Error> + From<StorageError>,
     {
         let mut connection = self.raw_conn()?;
-        let transaction = AnsiTransactionManager::begin_transaction(&mut *connection);
+        AnsiTransactionManager::begin_transaction(&mut *connection)?;
+
         let db_connection = DbConnection::new(connection);
-        let mut provider = XmtpOpenMlsProvider::new(db_connection);
+        let provider = XmtpOpenMlsProvider::new(db_connection);
+        let conn = provider.conn_ref();
+
         match fun(&provider) {
             Ok(value) => {
-                db_connection.raw_query(|conn| AnsiTransactionManager::commit_transaction(conn))?;
+                conn.raw_query(|conn| {
+                    PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
+                })?;
                 Ok(value)
             }
-            Err(err) => match db_connection
-                .raw_query(|conn| AnsiTransactionManager::rollback_transaction(conn))
-            {
+            Err(err) => match conn.raw_query(|conn| {
+                PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(&mut *conn)
+            }) {
                 Ok(()) => Err(err),
                 Err(Error::BrokenTransactionManager) => Err(err),
+                Err(rollback) => Err(rollback.into()),
             },
-            Err(rollback) => Err(rollback.into()),
         }
     }
 
@@ -269,16 +274,19 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
     use super::{
         db_connection::DbConnection, identity::StoredIdentity, EncryptedMessageStore, StorageError,
         StorageOption,
     };
+    use diesel::{prelude::*, result::Error as DieselError};
+    use std::sync::Barrier;
+
     use crate::{
+        storage::group::{GroupMembershipState, StoredGroup},
         utils::test::{rand_vec, tmp_path},
         Fetch, Store,
     };
+    use std::{fs, sync::Arc};
 
     /// Test harness that loads an Ephemeral store.
     pub fn with_connection<F, R>(fun: F) -> R
@@ -432,5 +440,68 @@ mod tests {
             super::ignore_unique_violation(result).is_err(),
             "Expected Err when given a non-database error"
         );
+    }
+
+    // get two connections
+    // start a transaction
+    // try to write with second connection
+    // it should fail
+    #[test]
+    fn test_transaction_rollback() {
+        let db_path = tmp_path();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(db_path.clone()),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+
+        let barrier = Arc::new(Barrier::new(2));
+
+        let store_pointer = store.clone();
+        let barrier_pointer = barrier.clone();
+        let handle = std::thread::spawn(move || {
+            store_pointer.transaction(|provider| {
+                let conn1 = provider.conn();
+                barrier_pointer.wait();
+                StoredIdentity::new("correct".to_string(), rand_vec(), rand_vec())
+                    .store(&conn1)
+                    .unwrap();
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                Ok::<_, StorageError>(())
+            })
+        });
+
+        let store_pointer = store.clone();
+        let handle2 = std::thread::spawn(move || {
+            barrier.wait();
+            store_pointer.transaction(|provider| {
+                let connection = provider.conn();
+                let _ = connection.insert_or_ignore_group(StoredGroup::new(
+                    b"wrong".to_vec(),
+                    0,
+                    GroupMembershipState::Allowed,
+                    "wrong".into(),
+                ));
+                StoredIdentity::new("wrong".to_string(), rand_vec(), rand_vec())
+                    .store(&connection)?;
+                Ok::<_, StorageError>(())
+            })
+        });
+
+        let result = handle.join().unwrap();
+        assert!(result.is_ok());
+
+        let result = handle2.join().unwrap();
+
+        // handle 2 errored because the first transaction has precedence
+        assert!(matches!(
+            result,
+            Err(StorageError::DieselResult(DieselError::DatabaseError(_, _)))
+        ));
+
+        let conn = store.conn().unwrap();
+        // this group should not exist because of the rollback
+        let groups = conn.find_group(b"wrong".to_vec()).unwrap();
+        assert_eq!(groups, None);
     }
 }

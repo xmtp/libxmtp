@@ -15,7 +15,6 @@ enum RefOrValue<'a, T> {
 /// native XMTP operations
 #[derive(Clone)]
 pub struct DbConnection {
-    // wrapped_conn: Mutex<RefOrValue<'a, RawDbConnection>>,
     wrapped_conn: Arc<Mutex<RawDbConnection>>,
 }
 

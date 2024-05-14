@@ -12,10 +12,7 @@ use prost::Message;
 use thiserror::Error;
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
-use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::identity::MlsCredential,
-};
+use xmtp_proto::xmtp::identity::MlsCredential;
 
 use crate::{
     configuration::GROUP_MEMBERSHIP_EXTENSION_ID,

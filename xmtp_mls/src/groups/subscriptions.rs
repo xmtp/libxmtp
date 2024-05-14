@@ -28,7 +28,7 @@ impl MlsGroup {
 
             // Attempt processing immediately, but fail if the message is not an Application Message
             // Returning an error should roll back the DB tx
-            self.process_message(&mut openmls_group, &provider, &msgv1, false)
+            self.process_message(&mut openmls_group, provider, &msgv1, false)
                 .map_err(GroupError::ReceiveError)
         });
 
@@ -84,7 +84,7 @@ impl MlsGroup {
         client: Arc<Client<ApiClient>>,
         group_id: Vec<u8>,
         created_at_ns: i64,
-        callback: impl FnMut(StoredGroupMessage) + Send + '_,
+        callback: impl FnMut(StoredGroupMessage) + Send + 'static,
     ) -> Result<StreamCloser, GroupError>
     where
         ApiClient: crate::XmtpApi,
@@ -106,6 +106,7 @@ impl MlsGroup {
 #[cfg(test)]
 mod tests {
     use prost::Message;
+    use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{builder::ClientBuilder, storage::group_message::GroupMessageKind};
@@ -119,7 +120,7 @@ mod tests {
         let amal_group = amal.create_group(None).unwrap();
         // Add bola
         amal_group
-            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .add_members_by_installation_id(vec![bola.installation_public_key()], &amal)
             .await
             .unwrap();
 
@@ -136,7 +137,7 @@ mod tests {
         let mut message_bytes: Vec<u8> = Vec::new();
         message.encode(&mut message_bytes).unwrap();
         let message_again = amal_group
-            .process_streamed_group_message(message_bytes)
+            .process_streamed_group_message(message_bytes, Arc::new(amal))
             .await;
 
         if let Ok(message) = message_again {
@@ -154,7 +155,7 @@ mod tests {
         let amal_group = amal.create_group(None).unwrap();
         // Add bola
         amal_group
-            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .add_members_by_installation_id(vec![bola.installation_public_key()], &amal)
             .await
             .unwrap();
 
@@ -162,14 +163,20 @@ mod tests {
         let bola_groups = bola.sync_welcomes().await.unwrap();
         let bola_group = bola_groups.first().unwrap();
 
-        let mut stream = bola_group.stream().await.unwrap();
+        let mut stream = bola_group.stream(Arc::new(bola)).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        amal_group.send_message("hello".as_bytes()).await.unwrap();
+        amal_group
+            .send_message("hello".as_bytes(), &amal)
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let first_val = stream.next().await.unwrap();
         assert_eq!(first_val.decrypted_message_bytes, "hello".as_bytes());
 
-        amal_group.send_message("goodbye".as_bytes()).await.unwrap();
+        amal_group
+            .send_message("goodbye".as_bytes(), &amal)
+            .await
+            .unwrap();
 
         let second_val = stream.next().await.unwrap();
         assert_eq!(second_val.decrypted_message_bytes, "goodbye".as_bytes());
@@ -177,16 +184,16 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_multiple() {
-        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let group = amal.create_group(None).unwrap();
 
-        let stream = group.stream().await.unwrap();
+        let stream = group.stream(amal.clone()).await.unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         for i in 0..10 {
             group
-                .send_message(format!("hello {}", i).as_bytes())
+                .send_message(format!("hello {}", i).as_bytes(), &amal)
                 .await
                 .unwrap();
         }
@@ -204,16 +211,16 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_membership_changes() {
-        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let amal_group = amal.create_group(None).unwrap();
 
-        let mut stream = amal_group.stream().await.unwrap();
+        let mut stream = amal_group.stream(amal.clone()).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         amal_group
-            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .add_members_by_installation_id(vec![bola.installation_public_key()], &amal)
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -221,7 +228,10 @@ mod tests {
         let first_val = stream.next().await.unwrap();
         assert_eq!(first_val.kind, GroupMessageKind::MembershipChange);
 
-        amal_group.send_message("hello".as_bytes()).await.unwrap();
+        amal_group
+            .send_message("hello".as_bytes(), &amal)
+            .await
+            .unwrap();
         let second_val = stream.next().await.unwrap();
         assert_eq!(second_val.decrypted_message_bytes, "hello".as_bytes());
     }

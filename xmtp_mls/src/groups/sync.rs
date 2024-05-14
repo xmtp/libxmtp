@@ -60,7 +60,7 @@ use crate::{
     },
     utils::{hash::sha256, id::calculate_message_id},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Client, Delete, Fetch, Store, XmtpApi, XmtpMlsClient,
+    Client, Delete, Fetch, Store, XmtpApi,
 };
 
 impl MlsGroup {
@@ -441,7 +441,7 @@ impl MlsGroup {
             Ok(Some(intent)) => self.process_own_message(
                 intent,
                 openmls_group,
-                &provider,
+                provider,
                 message.into(),
                 envelope.created_ns,
                 allow_epoch_increment,
@@ -449,7 +449,7 @@ impl MlsGroup {
             // No matching intent found
             Ok(None) => self.process_external_message(
                 openmls_group,
-                &provider,
+                provider,
                 message,
                 envelope.created_ns,
                 allow_epoch_increment,
@@ -477,7 +477,7 @@ impl MlsGroup {
             EntityKind::Group,
             msgv1.id,
             |provider| -> Result<(), MessageProcessingError> {
-                self.process_message(openmls_group, &provider, msgv1, true)?;
+                self.process_message(openmls_group, provider, msgv1, true)?;
                 openmls_group.save(provider.key_store())?;
                 Ok(())
             },
@@ -832,7 +832,7 @@ impl MlsGroup {
         let last = conn.get_installations_time_checked(self.group_id.clone())?;
         let elapsed = now - last;
         if elapsed > interval {
-            let provider = self.context.mls_provider_ref(&conn);
+            let provider = self.context.mls_provider(conn.clone());
             self.add_missing_installations(provider, client).await?;
             conn.update_installations_time_checked(self.group_id.clone())?;
         }

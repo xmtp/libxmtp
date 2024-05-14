@@ -7,7 +7,6 @@ use thiserror::Error;
 
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{Reply, Request},
     xmtp::mls::message_contents::plaintext_envelope::{Content, V2},
     xmtp::mls::message_contents::PlaintextEnvelope,
@@ -56,7 +55,7 @@ where
     #[allow(dead_code)]
     pub(crate) async fn send_message_history_request(&self) -> Result<String, GroupError> {
         // find the sync group
-        let conn = self.context.store.conn()?;
+        let conn = self.store().conn()?;
         let sync_group_id = conn
             .find_sync_groups()?
             .pop()
@@ -98,7 +97,7 @@ where
         contents: MessageHistoryReply,
     ) -> Result<(), GroupError> {
         // find the sync group
-        let conn = self.context.store.conn()?;
+        let conn = self.store().conn()?;
         let sync_group_id = conn
             .find_sync_groups()?
             .pop()
@@ -132,7 +131,7 @@ where
 
     #[allow(dead_code)]
     pub(crate) fn provide_pin(&self, pin_challenge: &str) -> Result<(), GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.store().conn()?;
         let sync_group_id = conn
             .find_sync_groups()?
             .pop()
@@ -169,7 +168,7 @@ where
     pub(crate) async fn prepare_messages_to_sync(
         &self,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.store().conn()?;
         let groups = conn.find_groups(None, None, None, None)?;
         let mut all_messages: Vec<StoredGroupMessage> = vec![];
 
@@ -321,13 +320,13 @@ mod tests {
         amal_a.sync_welcomes().await.expect("sync_welcomes");
         amal_b.sync_welcomes().await.expect("sync_welcomes");
 
-        let conn_a = amal_a.store.conn().unwrap();
+        let conn_a = amal_a.store().conn().unwrap();
         let amal_a_sync_groups = conn_a.find_sync_groups().unwrap();
 
-        let conn_b = amal_b.store.conn().unwrap();
+        let conn_b = amal_b.store().conn().unwrap();
         let amal_b_sync_groups = conn_b.find_sync_groups().unwrap();
 
-        let conn_c = amal_c.store.conn().unwrap();
+        let conn_c = amal_c.store().conn().unwrap();
         let amal_c_sync_groups = conn_c.find_sync_groups().unwrap();
 
         assert_eq!(amal_a_sync_groups.len(), 1);
@@ -383,23 +382,23 @@ mod tests {
             .expect("history request");
 
         // find the sync group
-        let amal_a_sync_groups = amal_a.store.conn().unwrap().find_sync_groups().unwrap();
+        let amal_a_sync_groups = amal_a.store().conn().unwrap().find_sync_groups().unwrap();
         assert_eq!(amal_a_sync_groups.len(), 1);
         // get the first sync group
         let amal_a_sync_group = amal_a.group(amal_a_sync_groups[0].id.clone()).unwrap();
-        amal_a_sync_group.sync().await.expect("sync");
+        amal_a_sync_group.sync(&amal_a).await.expect("sync");
 
         // find the sync group (it should be the same as amal_a's sync group)
-        let amal_b_sync_groups = amal_b.store.conn().unwrap().find_sync_groups().unwrap();
+        let amal_b_sync_groups = amal_b.store().conn().unwrap().find_sync_groups().unwrap();
         assert_eq!(amal_b_sync_groups.len(), 1);
         // get the first sync group
         let amal_b_sync_group = amal_b.group(amal_b_sync_groups[0].id.clone()).unwrap();
-        amal_b_sync_group.sync().await.expect("sync");
+        amal_b_sync_group.sync(&amal_b).await.expect("sync");
 
         // make sure they are the same group
         assert_eq!(amal_a_sync_group.group_id, amal_b_sync_group.group_id);
 
-        let amal_a_conn = amal_a.store.conn().unwrap();
+        let amal_a_conn = amal_a.store().conn().unwrap();
         let amal_a_messages = amal_a_conn
             .get_group_messages(amal_a_sync_group.group_id, None, None, None, None, None)
             .unwrap();
@@ -420,11 +419,11 @@ mod tests {
             .await
             .expect("history request");
 
-        let amal_a_sync_groups = amal_a.store.conn().unwrap().find_sync_groups().unwrap();
+        let amal_a_sync_groups = amal_a.store().conn().unwrap().find_sync_groups().unwrap();
         assert_eq!(amal_a_sync_groups.len(), 1);
         // get the first sync group
         let amal_a_sync_group = amal_a.group(amal_a_sync_groups[0].id.clone()).unwrap();
-        amal_a_sync_group.sync().await.expect("sync");
+        amal_a_sync_group.sync(&amal_a).await.expect("sync");
         let pin_challenge_result = amal_a.provide_pin(&pin_code);
         assert_ok!(pin_challenge_result);
 
@@ -447,11 +446,11 @@ mod tests {
             .await
             .expect("history request");
 
-        let amal_a_sync_groups = amal_a.store.conn().unwrap().find_sync_groups().unwrap();
+        let amal_a_sync_groups = amal_a.store().conn().unwrap().find_sync_groups().unwrap();
         assert_eq!(amal_a_sync_groups.len(), 1);
         // get the first sync group
         let amal_a_sync_group = amal_a.group(amal_a_sync_groups[0].id.clone()).unwrap();
-        amal_a_sync_group.sync().await.expect("sync");
+        amal_a_sync_group.sync(&amal_a).await.expect("sync");
         let pin_challenge_result = amal_a.provide_pin(&pin_code);
         assert_ok!(pin_challenge_result);
 
@@ -468,15 +467,15 @@ mod tests {
             .await
             .expect("send reply");
 
-        amal_a_sync_group.sync().await.expect("sync");
+        amal_a_sync_group.sync(&amal_a).await.expect("sync");
         // amal_b should have received the reply
-        let amal_b_sync_groups = amal_b.store.conn().unwrap().find_sync_groups().unwrap();
+        let amal_b_sync_groups = amal_b.store().conn().unwrap().find_sync_groups().unwrap();
         assert_eq!(amal_b_sync_groups.len(), 1);
 
         let amal_b_sync_group = amal_b.group(amal_b_sync_groups[0].id.clone()).unwrap();
-        amal_b_sync_group.sync().await.expect("sync");
+        amal_b_sync_group.sync(&amal_b).await.expect("sync");
 
-        let amal_b_conn = amal_b.store.conn().unwrap();
+        let amal_b_conn = amal_b.store().conn().unwrap();
         let amal_b_messages = amal_b_conn
             .get_group_messages(amal_b_sync_group.group_id, None, None, None, None, None)
             .unwrap();
@@ -490,8 +489,14 @@ mod tests {
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
         let group = amal_a.create_group(None).expect("create group");
 
-        group.send_message(b"hello").await.expect("send message");
-        group.send_message(b"hello x2").await.expect("send message");
+        group
+            .send_message(b"hello", &amal_a)
+            .await
+            .expect("send message");
+        group
+            .send_message(b"hello x2", &amal_a)
+            .await
+            .expect("send message");
         let messages_result = amal_a.prepare_messages_to_sync().await;
         assert_ok!(messages_result);
     }

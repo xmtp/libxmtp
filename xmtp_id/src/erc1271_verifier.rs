@@ -212,6 +212,6 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(res, true);
+        assert!(res);
     }
 }

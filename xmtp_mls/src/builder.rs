@@ -171,8 +171,8 @@ mod tests {
         let wallet = generate_local_wallet();
         let address = wallet.address();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        assert!(client.context.account_address() == format!("{address:#020x}"));
-        assert!(!client.context.installation_public_key().is_empty());
+        assert!(client.account_address() == format!("{address:#020x}"));
+        assert!(!client.installation_public_key().is_empty());
     }
 
     #[tokio::test]
@@ -241,6 +241,6 @@ mod tests {
             .build()
             .await
             .unwrap();
-        assert_eq!(client_d.w;nstallation_public_key(), keybytes_a);
+        assert_eq!(client_d.installation_public_key(), keybytes_a);
     }
 }

@@ -55,7 +55,7 @@ where
 {
     fn process_streamed_welcome(&self, welcome: WelcomeMessage) -> Result<MlsGroup, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
-        let conn = self.context.store.conn()?;
+        let conn = self.store().conn()?;
         let provider = self.mls_provider(conn);
 
         MlsGroup::create_from_encrypted_welcome(
@@ -81,7 +81,7 @@ where
     pub async fn stream_conversations(
         &self,
     ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup> + Send + '_>>, ClientError> {
-        let installation_key = self.context.installation_public_key();
+        let installation_key = self.installation_public_key();
         let id_cursor = 0;
 
         let subscription = self
@@ -204,7 +204,7 @@ where
     pub(crate) fn stream_messages_with_callback(
         client: Arc<Client<ApiClient>>,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
-        mut callback: impl FnMut(StoredGroupMessage) + Send,
+        mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
     ) -> Result<StreamCloser, ClientError> {
         let (close_sender, close_receiver) = oneshot::channel::<()>();
         let is_closed = Arc::new(AtomicBool::new(false));
@@ -246,8 +246,7 @@ where
 
         client.sync_welcomes().await?; // TODO pipe cursor from welcomes sync into groups_stream
         let mut group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo> = client
-            .context
-            .store
+            .store()
             .conn()?
             .find_groups(None, None, None, None)?
             .into_iter()
@@ -329,7 +328,7 @@ mod tests {
 
         let mut bob_stream = bob.stream_conversations().await.unwrap();
         alice_bob_group
-            .add_members(vec![bob.account_address()])
+            .add_members(vec![bob.account_address()], &alice)
             .await
             .unwrap();
 
@@ -345,13 +344,13 @@ mod tests {
 
         let alix_group = alix.create_group(None).unwrap();
         alix_group
-            .add_members_by_installation_id(vec![caro.installation_public_key()])
+            .add_members_by_installation_id(vec![caro.installation_public_key()], &alix)
             .await
             .unwrap();
 
         let bo_group = bo.create_group(None).unwrap();
         bo_group
-            .add_members_by_installation_id(vec![caro.installation_public_key()])
+            .add_members_by_installation_id(vec![caro.installation_public_key()], &bo)
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -368,10 +367,22 @@ mod tests {
         .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        alix_group.send_message("first".as_bytes()).await.unwrap();
-        bo_group.send_message("second".as_bytes()).await.unwrap();
-        alix_group.send_message("third".as_bytes()).await.unwrap();
-        bo_group.send_message("fourth".as_bytes()).await.unwrap();
+        alix_group
+            .send_message("first".as_bytes(), &alix)
+            .await
+            .unwrap();
+        bo_group
+            .send_message("second".as_bytes(), &bo)
+            .await
+            .unwrap();
+        alix_group
+            .send_message("third".as_bytes(), &alix)
+            .await
+            .unwrap();
+        bo_group
+            .send_message("fourth".as_bytes(), &bo)
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
         let messages = messages.lock().unwrap();
@@ -391,7 +402,7 @@ mod tests {
 
         let alix_group = alix.create_group(None).unwrap();
         alix_group
-            .add_members_by_installation_id(vec![caro.installation_public_key()])
+            .add_members_by_installation_id(vec![caro.installation_public_key()], &alix)
             .await
             .unwrap();
 
@@ -411,32 +422,47 @@ mod tests {
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        alix_group.send_message("first".as_bytes()).await.unwrap();
+        alix_group
+            .send_message("first".as_bytes(), &alix)
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         let bo_group = bo.create_group(None).unwrap();
         bo_group
-            .add_members_by_installation_id(vec![caro.installation_public_key()])
+            .add_members_by_installation_id(vec![caro.installation_public_key()], &bo)
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
-        bo_group.send_message("second".as_bytes()).await.unwrap();
+        bo_group
+            .send_message("second".as_bytes(), &bo)
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-        alix_group.send_message("third".as_bytes()).await.unwrap();
+        alix_group
+            .send_message("third".as_bytes(), &alix)
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         let alix_group_2 = alix.create_group(None).unwrap();
         alix_group_2
-            .add_members_by_installation_id(vec![caro.installation_public_key()])
+            .add_members_by_installation_id(vec![caro.installation_public_key()], &alix)
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
-        alix_group.send_message("fourth".as_bytes()).await.unwrap();
+        alix_group
+            .send_message("fourth".as_bytes(), &alix)
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        alix_group_2.send_message("fifth".as_bytes()).await.unwrap();
+        alix_group_2
+            .send_message("fifth".as_bytes(), &alix)
+            .await
+            .unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
@@ -447,7 +473,10 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(stream.is_closed());
 
-        alix_group.send_message("first".as_bytes()).await.unwrap();
+        alix_group
+            .send_message("first".as_bytes(), &alix)
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         assert_eq!(messages.len(), 5);

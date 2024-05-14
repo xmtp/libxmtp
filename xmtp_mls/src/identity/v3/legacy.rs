@@ -342,7 +342,7 @@ mod tests {
     async fn does_not_error() {
         let (store, api_client) = get_test_resources().await;
         let conn = store.conn().unwrap();
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let provider = XmtpOpenMlsProvider::new(conn.clone());
         let _identity =
             create_registered_identity(&provider, &api_client, &generate_local_wallet()).await;
     }
@@ -351,7 +351,7 @@ mod tests {
     async fn test_key_package_extensions() {
         let (store, api_client) = get_test_resources().await;
         let conn = store.conn().unwrap();
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let identity =
             create_registered_identity(&provider, &api_client, &generate_local_wallet()).await;
 
@@ -366,7 +366,7 @@ mod tests {
     async fn test_duplicate_registration() {
         let (store, api_client) = get_test_resources().await;
         let conn = store.conn().unwrap();
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let identity =
             create_registered_identity(&provider, &api_client, &generate_local_wallet()).await;
         identity
@@ -393,7 +393,7 @@ mod tests {
         ];
         let (store, api_client) = get_test_resources().await;
         let conn = store.conn().unwrap();
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let identity = Identity::create_from_legacy(
             legacy_address.to_string(),
             legacy_signed_private_key_proto,
@@ -411,7 +411,7 @@ mod tests {
     async fn test_invalid_external_signature() {
         let (store, api_client) = get_test_resources().await;
         let conn = store.conn().unwrap();
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let wallet = generate_local_wallet();
         let identity = Identity::create_to_be_signed(wallet.get_address()).unwrap();
         let text_to_sign = identity.text_to_sign().unwrap();

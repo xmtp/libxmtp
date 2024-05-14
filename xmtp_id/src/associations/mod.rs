@@ -176,7 +176,6 @@ mod tests {
                 SignatureKind::Erc191,
                 None,
             ),
-            ..Default::default()
         });
 
         let new_state = apply_update(
@@ -212,7 +211,6 @@ mod tests {
                 None,
             ),
             new_member_identifier: new_member_identifier.clone(),
-            ..Default::default()
         };
         let identity_update = IdentityUpdate::new_test(
             vec![
@@ -296,7 +294,6 @@ mod tests {
                 SignatureKind::InstallationKey,
                 None,
             ),
-            ..Default::default()
         });
 
         let new_state = apply_update(
@@ -423,7 +420,6 @@ mod tests {
                 SignatureKind::InstallationKey,
                 None,
             ),
-            ..Default::default()
         });
 
         let update_result = apply_update(
@@ -458,7 +454,6 @@ mod tests {
                 None,
             ),
             revoked_member: installation_id.clone(),
-            ..Default::default()
         });
 
         let new_state = apply_update(
@@ -507,7 +502,6 @@ mod tests {
                 None,
             ),
             revoked_member: wallet_address.clone(),
-            ..Default::default()
         });
 
         // With this revocation the original wallet + both installations should be gone

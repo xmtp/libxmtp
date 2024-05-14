@@ -177,7 +177,7 @@ where
     ) -> Result<SignatureRequest, ClientError> {
         let nonce = maybe_nonce.unwrap_or(0);
         let inbox_id = generate_inbox_id(&wallet_address, &nonce);
-        let installation_public_key = self.context.identity.installation_keys.public();
+        let installation_public_key = self.identity().installation_keys.public();
         let member_identifier: MemberIdentifier = wallet_address.into();
 
         let builder = SignatureRequestBuilder::new(inbox_id);
@@ -191,10 +191,8 @@ where
             .add_signature(Box::new(InstallationKeySignature::new(
                 signature_request.signature_text(),
                 // TODO: Move this to a method on the new identity
-                self.context
-                    .identity
-                    .sign(signature_request.signature_text())?,
-                self.context.installation_public_key(),
+                self.identity().sign(signature_request.signature_text())?,
+                self.installation_public_key(),
             )))
             .await?;
 
@@ -221,7 +219,7 @@ where
         wallet_to_revoke: String,
     ) -> Result<SignatureRequest, ClientError> {
         let current_state = self
-            .get_association_state(&self.context.store.conn()?, &inbox_id, None)
+            .get_association_state(&self.store().conn()?, &inbox_id, None)
             .await?;
         let builder = SignatureRequestBuilder::new(inbox_id);
 
@@ -325,7 +323,6 @@ mod tests {
         associations::{builder::SignatureRequest, AssociationState, RecoverableEcdsaSignature},
         InboxOwner,
     };
-    use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
     use crate::{
         builder::ClientBuilder,
@@ -357,7 +354,7 @@ mod tests {
     where
         ApiClient: XmtpApi,
     {
-        let conn = client.context.store.conn().unwrap();
+        let conn = client.store().conn().unwrap();
         client
             .load_identity_updates(&conn, vec![inbox_id.clone()])
             .await
@@ -451,7 +448,7 @@ mod tests {
     async fn load_identity_updates_if_needed() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        let conn = client.store.conn().unwrap();
+        let conn = client.store().conn().unwrap();
 
         insert_identity_update(&conn, "inbox_1", 1);
         insert_identity_update(&conn, "inbox_2", 2);
@@ -513,7 +510,7 @@ mod tests {
 
         // Create a new client to test group operations with
         let other_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let other_conn = other_client.store.conn().unwrap();
+        let other_conn = other_client.store().conn().unwrap();
         // Load all the identity updates for the new inboxes
         other_client
             .load_identity_updates(&other_conn, inbox_ids.clone())

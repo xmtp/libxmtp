@@ -34,17 +34,14 @@ use thiserror::Error;
 use xmtp_cryptography::signature::{
     is_valid_ed25519_public_key, sanitize_evm_addresses, AddressValidationError,
 };
-use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::mls::{
-        api::v1::{
-            group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-            GroupMessage,
-        },
-        message_contents::{
-            plaintext_envelope::{Content, V1},
-            PlaintextEnvelope,
-        },
+use xmtp_proto::xmtp::mls::{
+    api::v1::{
+        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
+        GroupMessage,
+    },
+    message_contents::{
+        plaintext_envelope::{Content, V1},
+        PlaintextEnvelope,
     },
 };
 
@@ -70,7 +67,6 @@ use self::{
 };
 
 use crate::{
-    api::ApiClientWrapper,
     client::{deserialize_welcome, ClientError, MessageProcessingError, XmtpMlsLocalContext},
     configuration::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MAX_GROUP_SIZE, MUTABLE_METADATA_EXTENSION_ID,
@@ -769,12 +765,8 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 mod tests {
     use openmls::prelude::Member;
     use prost::Message;
-    use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::{
-        api_client::{XmtpIdentityClient, XmtpMlsClient},
-        xmtp::mls::message_contents::EncodedContent,
-    };
+    use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     use crate::{
         builder::ClientBuilder,
@@ -817,7 +809,10 @@ mod tests {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
         let group = client.create_group(None).expect("create group");
-        group.send_message(b"hello").await.expect("send message");
+        group
+            .send_message(b"hello", &client)
+            .await
+            .expect("send message");
 
         let messages = client
             .api_client
@@ -834,9 +829,15 @@ mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
         let group = client.create_group(None).expect("create group");
         let msg = b"hello";
-        group.send_message(msg).await.expect("send message");
+        group
+            .send_message(msg, &client)
+            .await
+            .expect("send message");
 
-        group.receive(&client.store.conn().unwrap()).await.unwrap();
+        group
+            .receive(&client.store().conn().unwrap(), &client)
+            .await
+            .unwrap();
         // Check for messages
         // println!("HERE: {:#?}", messages);
         let messages = group.find_messages(None, None, None, None, None).unwrap();
@@ -855,7 +856,7 @@ mod tests {
         let amal_group = amal.create_group(None).unwrap();
         // Add bola
         amal_group
-            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .add_members_by_installation_id(vec![bola.installation_public_key()], &amal)
             .await
             .unwrap();
 
@@ -865,31 +866,31 @@ mod tests {
 
         // Have amal and bola both invite charlie.
         amal_group
-            .add_members_by_installation_id(vec![charlie.installation_public_key()])
+            .add_members_by_installation_id(vec![charlie.installation_public_key()], &amal)
             .await
             .expect("failed to add charlie");
         bola_group
-            .add_members_by_installation_id(vec![charlie.installation_public_key()])
+            .add_members_by_installation_id(vec![charlie.installation_public_key()], &bola)
             .await
             .expect_err("expected err");
 
         amal_group
-            .receive(&amal.store.conn().unwrap())
+            .receive(&amal.store().conn().unwrap(), &amal)
             .await
             .expect_err("expected error");
 
         // Check Amal's MLS group state.
-        let amal_db = amal.store.conn().unwrap();
+        let amal_db = amal.context.store.conn().unwrap();
         let amal_mls_group = amal_group
-            .load_mls_group(&amal.mls_provider(&amal_db))
+            .load_mls_group(&amal.mls_provider(amal_db.clone()))
             .unwrap();
         let amal_members: Vec<Member> = amal_mls_group.members().collect();
         assert_eq!(amal_members.len(), 3);
 
         // Check Bola's MLS group state.
-        let bola_db = bola.store.conn().unwrap();
+        let bola_db = bola.context.store.conn().unwrap();
         let bola_mls_group = bola_group
-            .load_mls_group(&bola.mls_provider(&bola_db))
+            .load_mls_group(&bola.mls_provider(bola_db.clone()))
             .unwrap();
         let bola_members: Vec<Member> = bola_mls_group.members().collect();
         assert_eq!(bola_members.len(), 3);
@@ -921,7 +922,7 @@ mod tests {
         let group = client.create_group(None).expect("create group");
 
         group
-            .add_members_by_installation_id(vec![client_2.installation_public_key()])
+            .add_members_by_installation_id(vec![client_2.installation_public_key()], &client)
             .await
             .unwrap();
 
@@ -942,7 +943,7 @@ mod tests {
         let group = client.create_group(None).expect("create group");
 
         let result = group
-            .add_members_by_installation_id(vec![b"1234".to_vec()])
+            .add_members_by_installation_id(vec![b"1234".to_vec()], &client)
             .await;
 
         assert!(result.is_err());
@@ -953,7 +954,9 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let unconnected_wallet_address = generate_local_wallet().get_address();
         let group = amal.create_group(None).unwrap();
-        let result = group.add_members(vec![unconnected_wallet_address]).await;
+        let result = group
+            .add_members(vec![unconnected_wallet_address], &amal)
+            .await;
 
         assert!(result.is_err());
     }
@@ -966,7 +969,7 @@ mod tests {
 
         let group = client_1.create_group(None).expect("create group");
         group
-            .add_members_by_installation_id(vec![client_2.installation_public_key()])
+            .add_members_by_installation_id(vec![client_2.installation_public_key()], &client_1)
             .await
             .expect("group create failure");
 
@@ -975,7 +978,7 @@ mod tests {
 
         // Try and add another member without merging the pending commit
         group
-            .remove_members_by_installation_id(vec![client_2.installation_public_key()])
+            .remove_members_by_installation_id(vec![client_2.installation_public_key()], &client_1)
             .await
             .expect("group create failure");
 
@@ -1001,11 +1004,11 @@ mod tests {
 
         let group = client.create_group(None).expect("create group");
         group
-            .add_members(vec![bola_client.account_address()])
+            .add_members(vec![bola_client.account_address()], &client)
             .await
             .unwrap();
 
-        group.key_update().await.unwrap();
+        group.key_update(&client).await.unwrap();
 
         let messages = client
             .api_client
@@ -1014,18 +1017,21 @@ mod tests {
             .unwrap();
         assert_eq!(messages.len(), 2);
 
-        let conn = &client.store.conn().unwrap();
-        let provider = super::XmtpOpenMlsProvider::new(conn);
+        let conn = &client.context.store.conn().unwrap();
+        let provider = super::XmtpOpenMlsProvider::new(conn.clone());
         let mls_group = group.load_mls_group(&provider).unwrap();
         let pending_commit = mls_group.pending_commit();
         assert!(pending_commit.is_none());
 
-        group.send_message(b"hello").await.expect("send message");
+        group
+            .send_message(b"hello", &client)
+            .await
+            .expect("send message");
 
         bola_client.sync_welcomes().await.unwrap();
         let bola_groups = bola_client.find_groups(None, None, None, None).unwrap();
         let bola_group = bola_groups.first().unwrap();
-        bola_group.sync().await.unwrap();
+        bola_group.sync(&bola_client).await.unwrap();
         let bola_messages = bola_group
             .find_messages(None, None, None, None, None)
             .unwrap();
@@ -1039,7 +1045,7 @@ mod tests {
         let group = client.create_group(None).expect("create group");
 
         group
-            .add_members_by_installation_id(vec![client_2.installation_public_key()])
+            .add_members_by_installation_id(vec![client_2.installation_public_key()], &client_2)
             .await
             .unwrap();
 
@@ -1061,7 +1067,10 @@ mod tests {
 
         let group = amal.create_group(None).unwrap();
         group
-            .add_members(vec![bola.account_address(), charlie.account_address()])
+            .add_members(
+                vec![bola.account_address(), charlie.account_address()],
+                &amal,
+            )
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 3);
@@ -1077,7 +1086,7 @@ mod tests {
         assert_eq!(members_changed_codec.installations_removed.len(), 0);
 
         group
-            .remove_members(vec![bola.account_address()])
+            .remove_members(vec![bola.account_address()], &amal)
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 2);
@@ -1093,7 +1102,7 @@ mod tests {
         assert_eq!(members_changed_codec.installations_removed.len(), 0);
 
         let bola_group = receive_group_invite(&bola).await;
-        bola_group.sync().await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
         assert!(!bola_group.is_active().unwrap())
     }
 
@@ -1106,16 +1115,17 @@ mod tests {
 
         let group = amal.create_group(None).unwrap();
         group
-            .add_members(vec![bola.account_address()])
+            .add_members(vec![bola.account_address()], &amal)
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 2);
 
-        let conn = &amal.store.conn().unwrap();
-        let provider = super::XmtpOpenMlsProvider::new(conn);
+        let conn = &amal.context.store.conn().unwrap();
+        let provider = super::XmtpOpenMlsProvider::new(conn.clone());
         // Finished with setup
 
-        let (noone_to_add, _placeholder) = group.get_missing_members(&provider).await.unwrap();
+        let (noone_to_add, _placeholder) =
+            group.get_missing_members(&provider, &amal).await.unwrap();
         assert_eq!(noone_to_add.len(), 0);
         assert_eq!(_placeholder.len(), 0);
 
@@ -1123,14 +1133,18 @@ mod tests {
         let _amal_2nd = ClientBuilder::new_test_client(&amal_wallet).await;
 
         // Here we should find a new installation
-        let (missing_members, _placeholder) = group.get_missing_members(&provider).await.unwrap();
+        let (missing_members, _placeholder) =
+            group.get_missing_members(&provider, &amal).await.unwrap();
         assert_eq!(missing_members.len(), 1);
         assert_eq!(_placeholder.len(), 0);
 
-        let _result = group.add_members_by_installation_id(missing_members).await;
+        let _result = group
+            .add_members_by_installation_id(missing_members, &amal)
+            .await;
 
         // After we added the new installation the list should again be empty
-        let (missing_members, _placeholder) = group.get_missing_members(&provider).await.unwrap();
+        let (missing_members, _placeholder) =
+            group.get_missing_members(&provider, &amal).await.unwrap();
         assert_eq!(missing_members.len(), 0);
         assert_eq!(_placeholder.len(), 0);
     }
@@ -1144,20 +1158,20 @@ mod tests {
 
         let group = amal.create_group(None).unwrap();
         group
-            .add_members(vec![bola.account_address()])
+            .add_members(vec![bola.account_address()], &amal)
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 2);
 
-        let conn = &amal.store.conn().unwrap();
-        let provider = super::XmtpOpenMlsProvider::new(conn);
+        let conn = &amal.context.store.conn().unwrap();
+        let provider = super::XmtpOpenMlsProvider::new(conn.clone());
         // Finished with setup
 
         // add a second installation for amal using the same wallet
         let _amal_2nd = ClientBuilder::new_test_client(&amal_wallet).await;
 
         // test if adding the new installation(s) worked
-        let new_installations_were_added = group.add_missing_installations(provider).await;
+        let new_installations_were_added = group.add_missing_installations(provider, &amal).await;
         assert!(new_installations_were_added.is_ok());
     }
 
@@ -1170,35 +1184,35 @@ mod tests {
         let amal_group = amal.create_group(None).unwrap();
         // Add bola to the group
         amal_group
-            .add_members(vec![bola.account_address()])
+            .add_members(vec![bola.account_address()], &amal)
             .await
             .unwrap();
 
         let bola_group = receive_group_invite(&bola).await;
-        bola_group.sync().await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
         // Both Amal and Bola are up to date on the group state. Now each of them want to add someone else
         amal_group
-            .add_members(vec![charlie.account_address()])
+            .add_members(vec![charlie.account_address()], &amal)
             .await
             .unwrap();
 
         bola_group
-            .add_members(vec![dave.account_address()])
+            .add_members(vec![dave.account_address()], &bola)
             .await
             .unwrap();
 
         // Send a message to the group, now that everyone is invited
-        amal_group.sync().await.unwrap();
-        amal_group.send_message(b"hello").await.unwrap();
+        amal_group.sync(&amal).await.unwrap();
+        amal_group.send_message(b"hello", &amal).await.unwrap();
 
         let charlie_group = receive_group_invite(&charlie).await;
         let dave_group = receive_group_invite(&dave).await;
 
         let (amal_latest_message, bola_latest_message, charlie_latest_message, dave_latest_message) = tokio::join!(
-            get_latest_message(&amal_group),
-            get_latest_message(&bola_group),
-            get_latest_message(&charlie_group),
-            get_latest_message(&dave_group)
+            get_latest_message(&amal_group, &amal),
+            get_latest_message(&bola_group, &bola),
+            get_latest_message(&charlie_group, &charlie),
+            get_latest_message(&dave_group, &dave)
         );
 
         let expected_latest_message = b"hello".to_vec();
@@ -1219,14 +1233,14 @@ mod tests {
             .unwrap();
         // Add bola to the group
         amal_group
-            .add_members(vec![bola.account_address()])
+            .add_members(vec![bola.account_address()], &amal)
             .await
             .unwrap();
 
         let bola_group = receive_group_invite(&bola).await;
-        bola_group.sync().await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
         assert!(bola_group
-            .add_members(vec![charlie.account_address()])
+            .add_members(vec![charlie.account_address()], &bola)
             .await
             .is_err(),);
     }
@@ -1242,10 +1256,10 @@ mod tests {
             let client: Client<_> = ClientBuilder::new_test_client(&generate_local_wallet()).await;
             clients.push(client.account_address());
         }
-        amal_group.add_members(clients).await.unwrap();
+        amal_group.add_members(clients, &amal).await.unwrap();
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         assert!(amal_group
-            .add_members(vec![bola.account_address()])
+            .add_members(vec![bola.account_address()], &amal)
             .await
             .is_err(),);
     }
@@ -1258,7 +1272,7 @@ mod tests {
         // Create a group and verify it has the default group name
         let policies = Some(PreconfiguredPolicies::GroupCreatorIsAdmin);
         let amal_group: MlsGroup = amal.create_group(policies).unwrap();
-        amal_group.sync().await.unwrap();
+        amal_group.sync(&amal).await.unwrap();
 
         let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
         assert!(group_mutable_metadata.attributes.len().eq(&2));
@@ -1270,14 +1284,14 @@ mod tests {
 
         // Add bola to the group
         amal_group
-            .add_members(vec![bola.account_address()])
+            .add_members(vec![bola.account_address()], &amal)
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(None, None, None, None).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
-        bola_group.sync().await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
         let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
         assert!(group_mutable_metadata
             .attributes
@@ -1287,12 +1301,12 @@ mod tests {
 
         // Update group name
         amal_group
-            .update_group_name("New Group Name 1".to_string())
+            .update_group_name("New Group Name 1".to_string(), &amal)
             .await
             .unwrap();
 
         // Verify amal group sees update
-        amal_group.sync().await.unwrap();
+        amal_group.sync(&amal).await.unwrap();
         let binding = amal_group.mutable_metadata().expect("msg");
         let amal_group_name: &String = binding
             .attributes
@@ -1301,7 +1315,7 @@ mod tests {
         assert_eq!(amal_group_name, "New Group Name 1");
 
         // Verify bola group sees update
-        bola_group.sync().await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
         let binding = bola_group.mutable_metadata().expect("msg");
         let bola_group_name: &String = binding
             .attributes
@@ -1311,12 +1325,12 @@ mod tests {
 
         // Verify that bola can not update the group name since they are not the creator
         bola_group
-            .update_group_name("New Group Name 2".to_string())
+            .update_group_name("New Group Name 2".to_string(), &bola)
             .await
             .expect_err("expected err");
 
         // Verify bola group does not see an update
-        bola_group.sync().await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
         let binding = bola_group.mutable_metadata().expect("msg");
         let bola_group_name: &String = binding
             .attributes
@@ -1333,7 +1347,7 @@ mod tests {
         // Create a group and verify it has the default group name
         let policies = Some(PreconfiguredPolicies::EveryoneIsAdmin);
         let amal_group: MlsGroup = amal.create_group(policies).unwrap();
-        amal_group.sync().await.unwrap();
+        amal_group.sync(&amal).await.unwrap();
 
         let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
         assert!(group_mutable_metadata
@@ -1344,14 +1358,14 @@ mod tests {
 
         // Add bola to the group
         amal_group
-            .add_members(vec![bola.account_address()])
+            .add_members(vec![bola.account_address()], &amal)
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(None, None, None, None).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
-        bola_group.sync().await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
         let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
         assert!(group_mutable_metadata
             .attributes
@@ -1361,12 +1375,12 @@ mod tests {
 
         // Update group name
         amal_group
-            .update_group_name("New Group Name 1".to_string())
+            .update_group_name("New Group Name 1".to_string(), &amal)
             .await
             .unwrap();
 
         // Verify amal group sees update
-        amal_group.sync().await.unwrap();
+        amal_group.sync(&amal).await.unwrap();
         let binding = amal_group.mutable_metadata().unwrap();
         let amal_group_name: &String = binding
             .attributes
@@ -1375,7 +1389,7 @@ mod tests {
         assert_eq!(amal_group_name, "New Group Name 1");
 
         // Verify bola group sees update
-        bola_group.sync().await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
         let binding = bola_group.mutable_metadata().expect("msg");
         let bola_group_name: &String = binding
             .attributes
@@ -1385,12 +1399,12 @@ mod tests {
 
         // Verify that bola CAN update the group name since everyone is admin for this group
         bola_group
-            .update_group_name("New Group Name 2".to_string())
+            .update_group_name("New Group Name 2".to_string(), &bola)
             .await
             .expect("non creator failed to udpate group name");
 
         // Verify amal group sees an update
-        amal_group.sync().await.unwrap();
+        amal_group.sync(&amal).await.unwrap();
         let binding = amal_group.mutable_metadata().expect("msg");
         let amal_group_name: &String = binding
             .attributes
@@ -1410,7 +1424,7 @@ mod tests {
 
         // Amal adds Bola to the group
         amal_group
-            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .add_members_by_installation_id(vec![bola.installation_public_key()], &amal)
             .await
             .unwrap();
 
