@@ -1,33 +1,21 @@
-pub use crate::inbox_owner::SigningError;
-use wasm_bindgen::prelude::{wasm_bindgen, JsValue};
-// use crate::logger::init_logger;
-// use crate::logger::WasmLoggerT;
-use crate::GenericError;
-use js_sys::Promise;
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::sync::{
-    // atomic::{AtomicBool, Ordering},
-    Arc,
-    Mutex,
-};
+use std::sync::Arc;
+
+use wasm_bindgen::prelude::{wasm_bindgen, JsValue};
 use serde_wasm_bindgen::to_value;
-use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_mls::groups::group_metadata::ConversationType;
-use xmtp_mls::groups::group_metadata::GroupMetadata;
-use xmtp_mls::groups::PreconfiguredPolicies;
 use xmtp_mls::identity::v3::{IdentityStrategy, LegacyIdentity};
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
-    groups::MlsGroup,
     storage::{
-        group_message::DeliveryStatus, group_message::GroupMessageKind,
-        group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
+         EncryptedMessageStore, EncryptionKey, StorageOption,
     },
     types::Address,
 };
+
+pub use crate::inbox_owner::SigningError;
 
 #[wasm_bindgen]
 pub struct WasmInboxOwner {
