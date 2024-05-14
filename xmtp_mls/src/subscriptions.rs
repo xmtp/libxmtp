@@ -329,7 +329,7 @@ mod tests {
 
         let mut bob_stream = bob.stream_conversations().await.unwrap();
         alice_bob_group
-            .add_members(vec![bob.account_address()], &alice)
+            .add_members(vec![bob.inbox_id()], &alice)
             .await
             .unwrap();
 

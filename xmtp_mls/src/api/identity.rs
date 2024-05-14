@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use super::{ApiClientWrapper, WrappedApiError};
-use crate::{types::InboxId, XmtpApi};
+use crate::XmtpApi;
 use xmtp_id::associations::{DeserializationError, IdentityUpdate};
+use xmtp_id::InboxId;
 use xmtp_proto::xmtp::identity::api::v1::{
     get_identity_updates_request::Request as GetIdentityUpdatesV2RequestProto,
     get_identity_updates_response::IdentityUpdateLog,

@@ -181,10 +181,6 @@ pub struct XmtpMlsLocalContext {
 }
 
 impl XmtpMlsLocalContext {
-    pub fn account_address(&self) -> Address {
-        self.identity.account_address.clone()
-    }
-
     /// The installation public key is the primary identifier for an installation
     pub fn installation_public_key(&self) -> Vec<u8> {
         self.identity.installation_keys.to_public_vec()
@@ -231,10 +227,6 @@ where
         }
     }
 
-    pub fn account_address(&self) -> Address {
-        self.context.account_address()
-    }
-
     pub fn installation_public_key(&self) -> Vec<u8> {
         self.context.installation_public_key()
     }
@@ -253,13 +245,6 @@ where
 
     pub fn identity(&self) -> &Identity {
         &self.context.identity
-    }
-
-    //  In some cases, the client may need a signature from the wallet to call [`register_identity`](Self::register_identity).
-    /// Integrators should always check the `text_to_sign` return value of this function before calling [`register_identity`](Self::register_identity).
-    /// If `text_to_sign` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
-    pub fn text_to_sign(&self) -> Option<String> {
-        self.context.text_to_sign()
     }
 
     pub(crate) fn mls_provider(&self, conn: DbConnection) -> XmtpOpenMlsProvider {
@@ -281,7 +266,7 @@ where
             self.context.clone(),
             GroupMembershipState::Allowed,
             permissions,
-            self.identity.get_inbox_id(),
+            self.identity().get_inbox_id(),
         )
         .map_err(|e| {
             ClientError::Storage(StorageError::Store(format!("group create error {}", e)))
@@ -353,10 +338,11 @@ where
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
         log::info!("registering identity");
-        let connection = self.store.conn()?;
-        let provider = self.mls_provider(&connection);
+        let provider = self.mls_provider(self.store().conn()?);
         self.apply_signature_request(signature_request).await?;
-        self.identity.register(&provider, &self.api_client).await?;
+        self.identity()
+            .register(&provider, &self.api_client)
+            .await?;
         Ok(())
     }
 

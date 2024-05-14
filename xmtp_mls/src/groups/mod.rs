@@ -34,6 +34,7 @@ use thiserror::Error;
 use xmtp_cryptography::signature::{
     is_valid_ed25519_public_key, sanitize_evm_addresses, AddressValidationError,
 };
+use xmtp_id::InboxId;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
@@ -232,7 +233,7 @@ impl MlsGroup {
             &context.identity.installation_keys,
             &group_config,
             CredentialWithKey {
-                credential: context.identity.credential()?,
+                credential: context.identity.credential(),
                 signature_key: context.identity.installation_keys.to_public_vec().into(),
             },
         )?;
@@ -341,7 +342,7 @@ impl MlsGroup {
             &context.identity.installation_keys,
             &group_config,
             CredentialWithKey {
-                credential: context.identity.credential()?,
+                credential: context.identity.credential(),
                 signature_key: context.identity.installation_keys.to_public_vec().into(),
             },
         )?;
@@ -394,7 +395,8 @@ impl MlsGroup {
             sent_at_ns: now,
             kind: GroupMessageKind::Application,
             sender_installation_id: self.context.installation_public_key(),
-            sender_account_address: self.context.account_address(),
+            // TODO: Replace with inbox ID
+            sender_account_address: self.context.inbox_id(),
             delivery_status: DeliveryStatus::Unpublished,
         };
         group_message.store(&conn)?;
@@ -1007,7 +1009,7 @@ mod tests {
 
         let group = client.create_group(None).expect("create group");
         group
-            .add_members(vec![bola_client.account_address()], &client)
+            .add_members(vec![bola_client.inbox_id()], &client)
             .await
             .unwrap();
 
@@ -1072,10 +1074,7 @@ mod tests {
 
         let group = amal.create_group(None).unwrap();
         group
-            .add_members(
-                vec![bola.account_address(), charlie.account_address()],
-                &amal,
-            )
+            .add_members(vec![bola.inbox_id(), charlie.inbox_id()], &amal)
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 3);
@@ -1091,7 +1090,7 @@ mod tests {
         assert_eq!(members_changed_codec.installations_removed.len(), 0);
 
         group
-            .remove_members(vec![bola.account_address()], &amal)
+            .remove_members(vec![bola.inbox_id()], &amal)
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 2);
@@ -1121,7 +1120,7 @@ mod tests {
 
         let group = amal.create_group(None).unwrap();
         group
-            .add_members(vec![bola.account_address()], &amal)
+            .add_members(vec![bola.inbox_id()], &amal)
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 2);
@@ -1165,7 +1164,7 @@ mod tests {
 
         let group = amal.create_group(None).unwrap();
         group
-            .add_members(vec![bola.account_address()], &amal)
+            .add_members(vec![bola.inbox_id()], &amal)
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 2);
@@ -1192,7 +1191,7 @@ mod tests {
         let amal_group = amal.create_group(None).unwrap();
         // Add bola to the group
         amal_group
-            .add_members(vec![bola.account_address()], &amal)
+            .add_members(vec![bola.inbox_id()], &amal)
             .await
             .unwrap();
 
@@ -1200,12 +1199,12 @@ mod tests {
         bola_group.sync(&bola).await.unwrap();
         // Both Amal and Bola are up to date on the group state. Now each of them want to add someone else
         amal_group
-            .add_members(vec![charlie.account_address()], &amal)
+            .add_members(vec![charlie.inbox_id()], &amal)
             .await
             .unwrap();
 
         bola_group
-            .add_members(vec![dave.account_address()], &bola)
+            .add_members(vec![dave.inbox_id()], &bola)
             .await
             .unwrap();
 
@@ -1242,14 +1241,14 @@ mod tests {
             .unwrap();
         // Add bola to the group
         amal_group
-            .add_members(vec![bola.account_address()], &amal)
+            .add_members(vec![bola.inbox_id()], &amal)
             .await
             .unwrap();
 
         let bola_group = receive_group_invite(&bola).await;
         bola_group.sync(&bola).await.unwrap();
         assert!(bola_group
-            .add_members(vec![charlie.account_address()], &bola)
+            .add_members(vec![charlie.inbox_id()], &bola)
             .await
             .is_err(),);
     }
@@ -1269,7 +1268,7 @@ mod tests {
         amal_group.add_members(clients, &amal).await.unwrap();
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         assert!(amal_group
-            .add_members(vec![bola.account_address()], &amal)
+            .add_members(vec![bola.inbox_id()], &amal)
             .await
             .is_err(),);
     }
@@ -1295,7 +1294,7 @@ mod tests {
 
         // Add bola to the group
         amal_group
-            .add_members(vec![bola.account_address()], &amal)
+            .add_members(vec![bola.inbox_id()], &amal)
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
@@ -1370,7 +1369,7 @@ mod tests {
 
         // Add bola to the group
         amal_group
-            .add_members(vec![bola.account_address()], &amal)
+            .add_members(vec![bola.inbox_id()], &amal)
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();

@@ -142,18 +142,18 @@ mod tests {
         }
 
         pub async fn new_test_client(owner: &impl InboxOwner) -> Client<GrpcClient> {
-            let client = Self::new(owner.into())
-                .temp_store()
-                .local_grpc()
-                .await
-                .build()
-                .await
-                .unwrap();
-            let signature: Option<Vec<u8>> = client
-                .context
-                .text_to_sign()
-                .map(|text| owner.sign(&text).unwrap().into());
-            client.register_identity(signature).await.unwrap();
+            let client = Self::new(IdentityStrategy::CreateIfNotFound(
+                owner.get_address(),
+                None,
+            ))
+            .temp_store()
+            .local_grpc()
+            .await
+            .build()
+            .await
+            .unwrap();
+
+            // TODO: Sign signature_request
 
             client
         }
