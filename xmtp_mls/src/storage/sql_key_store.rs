@@ -37,7 +37,7 @@ impl<'a> SqlKeyStore<'a> {
 
     pub fn conn_ref(&'a self) -> &'a DbConnection {
         match &self.conn {
-            Cow::Borrowed(ref conn) => conn,
+            Cow::Borrowed(conn) => conn,
             c @ Cow::Owned(_) => c.as_ref(),
         }
     }
