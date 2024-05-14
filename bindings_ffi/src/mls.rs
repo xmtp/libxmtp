@@ -677,7 +677,10 @@ mod tests {
     };
     use std::{
         env,
-        sync::{Arc, Mutex},
+        sync::{
+            atomic::{AtomicU32, Ordering},
+            Arc,
+        },
     };
 
     use super::{create_client, FfiMessage, FfiMessageCallback, FfiXmtpClient};
@@ -725,18 +728,18 @@ mod tests {
 
     #[derive(Clone)]
     struct RustStreamCallback {
-        num_messages: Arc<Mutex<u32>>,
+        num_messages: Arc<AtomicU32>,
     }
 
     impl RustStreamCallback {
         pub fn new() -> Self {
             Self {
-                num_messages: Arc::new(Mutex::new(0)),
+                num_messages: Arc::new(AtomicU32::new(0)),
             }
         }
 
         pub fn message_count(&self) -> u32 {
-            *self.num_messages.lock().unwrap()
+            self.num_messages.load(Ordering::SeqCst)
         }
     }
 
@@ -744,13 +747,14 @@ mod tests {
         fn on_message(&self, message: FfiMessage) {
             let message = String::from_utf8(message.content).unwrap_or("<not UTF8>".to_string());
             log::info!("Received: {}", message);
-            *self.num_messages.lock().unwrap() += 1;
+            let old = self.num_messages.fetch_add(1, Ordering::SeqCst);
+            log::info!("old message count {}", old);
         }
     }
 
     impl FfiConversationCallback for RustStreamCallback {
         fn on_conversation(&self, _: Arc<super::FfiGroup>) {
-            *self.num_messages.lock().unwrap() += 1;
+            let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
         }
     }
 
