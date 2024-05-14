@@ -345,7 +345,7 @@ impl FfiGroup {
         let message_id = group
             .send_message(content_bytes.as_slice(), &self.inner_client)
             .await?;
-
+        log::info!("Sending third message");
         Ok(message_id)
     }
 

@@ -408,6 +408,7 @@ impl MlsGroup {
         if let Err(err) = self.publish_intents(conn, client).await {
             println!("error publishing intents: {:?}", err);
         }
+        log::info!("SENDING MESSAGE {}", String::from_utf8_lossy(message));
         Ok(message_id)
     }
 
