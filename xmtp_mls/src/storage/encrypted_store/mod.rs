@@ -445,7 +445,8 @@ mod tests {
     // get two connections
     // start a transaction
     // try to write with second connection
-    // it should fail
+    // write should fail & rollback
+    // first thread succeeds
     #[test]
     fn test_transaction_rollback() {
         let db_path = tmp_path();
