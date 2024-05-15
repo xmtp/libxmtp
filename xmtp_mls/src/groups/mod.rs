@@ -333,10 +333,8 @@ impl MlsGroup {
     ) -> Result<MlsGroup, GroupError> {
         let conn = context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
-        let protected_metadata = build_protected_metadata_extension(
-            &context.identity,
-            Purpose::Sync,
-        )?;
+        let protected_metadata =
+            build_protected_metadata_extension(&context.identity, Purpose::Sync)?;
         let mutable_metadata = build_mutable_metadata_extension_default(&context.identity)?;
         let group_membership = build_starting_group_membership_extension(
             context.inbox_id(),
