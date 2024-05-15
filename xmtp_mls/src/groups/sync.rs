@@ -178,7 +178,7 @@ impl MlsGroup {
         }
         debug!(
             "[{}] processing own message for intent {} / {:?}",
-            self.client.inbox_id(),
+            self.context.inbox_id(),
             intent.id,
             intent.kind
         );
@@ -211,7 +211,7 @@ impl MlsGroup {
                     openmls_group,
                 )?;
 
-                debug!("[{}] merging pending commit", self.client.inbox_id());
+                debug!("[{}] merging pending commit", self.context.inbox_id());
                 if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
                     openmls_group.merge_pending_commit(&provider)
                 {
@@ -274,7 +274,7 @@ impl MlsGroup {
         envelope_timestamp_ns: u64,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
-        debug!("[{}] processing private message", self.client.inbox_id());
+        debug!("[{}] processing private message", self.context.inbox_id());
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_account_address, sender_installation_id) =
             validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
@@ -375,7 +375,7 @@ impl MlsGroup {
                 }
                 debug!(
                     "[{}] received staged commit. Merging and clearing any pending commits",
-                    self.client.inbox_id()
+                    self.context.inbox_id()
                 );
 
                 let sc = *staged_commit;
@@ -524,7 +524,7 @@ impl MlsGroup {
             }
             log::info!(
                 "{}: Storing a transcript message with {} members added and {} members removed",
-                self.client.inbox_id(),
+                self.context.inbox_id(),
                 validated_commit.members_added.len(),
                 validated_commit.members_removed.len()
             );

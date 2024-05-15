@@ -15,7 +15,7 @@ use openmls::{
     versions::ProtocolVersion,
 };
 use openmls_basic_credential::SignatureKeyPair;
-use openmls_traits::types::CryptoError;
+use openmls_traits::{types::CryptoError, OpenMlsProvider};
 use prost::Message;
 use sha2::{Digest, Sha512};
 use thiserror::Error;
@@ -42,7 +42,7 @@ use crate::{
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
     storage::StorageError,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    InboxOwner,
+    InboxOwner, XmtpApi,
 };
 
 use crate::storage::identity::StoredIdentity;
@@ -70,7 +70,7 @@ impl IdentityStrategy {
     ) -> Result<Identity, ClientBuilderError> {
         info!("Initializing identity");
         let conn = store.conn()?;
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let stored_identity: Option<Identity> = provider
             .conn()
             .fetch(&())?
@@ -334,9 +334,9 @@ impl Identity {
         Ok(kp)
     }
 
-    pub(crate) async fn register<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+    pub(crate) async fn register<ApiClient: XmtpApi>(
         &self,
-        _provider: &XmtpOpenMlsProvider<'_>,
+        _provider: impl OpenMlsProvider,
         _api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
         todo!()
