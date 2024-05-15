@@ -4,7 +4,7 @@ CREATE TABLE openmls_key_store(
     value_bytes BLOB NOT NULL
 );
 
-CREATE TABLE identity_inbox(
+CREATE TABLE "identity"(
     "inbox_id" text NOT NULL,
     "installation_keys" BLOB NOT NULL,
     "credential_bytes" BLOB NOT NULL,

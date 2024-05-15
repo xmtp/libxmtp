@@ -1,4 +1,4 @@
-use crate::storage::encrypted_store::schema::identity_inbox;
+use crate::storage::encrypted_store::schema::identity;
 use diesel::prelude::*;
 use xmtp_id::InboxId;
 
@@ -11,7 +11,7 @@ use crate::{
 /// Identity of this installation
 /// There can only be one.
 #[derive(Insertable, Queryable, Debug, Clone)]
-#[diesel(table_name = identity_inbox)]
+#[diesel(table_name = identity)]
 pub struct StoredIdentity {
     pub inbox_id: InboxId,
     pub installation_keys: Vec<u8>,
@@ -19,8 +19,8 @@ pub struct StoredIdentity {
     rowid: Option<i32>,
 }
 
-impl_fetch!(StoredIdentity, identity_inbox);
-impl_store!(StoredIdentity, identity_inbox);
+impl_fetch!(StoredIdentity, identity);
+impl_store!(StoredIdentity, identity);
 
 impl StoredIdentity {
     pub fn new(inbox_id: InboxId, installation_keys: Vec<u8>, credential_bytes: Vec<u8>) -> Self {

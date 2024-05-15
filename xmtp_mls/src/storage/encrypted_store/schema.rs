@@ -38,7 +38,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    identity_inbox (rowid) {
+    identity (rowid) {
         inbox_id -> Text,
         installation_keys -> Binary,
         credential_bytes -> Binary,
@@ -77,7 +77,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     group_intents,
     group_messages,
     groups,
-    identity_inbox,
+    identity,
     identity_updates,
     openmls_key_store,
     refresh_state,
