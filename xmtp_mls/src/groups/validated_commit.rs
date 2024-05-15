@@ -31,6 +31,7 @@ use super::{
     group_mutable_metadata::{
         find_mutable_metadata_extension, GroupMutableMetadata, GroupMutableMetadataError,
     },
+    group_permissions::GroupMutablePermissionsError,
 };
 
 #[derive(Debug, Error)]
@@ -158,12 +159,14 @@ impl ValidatedCommit {
     ) -> Result<Self, CommitValidationError> {
         // Get the group metadata
         let group_metadata = extract_group_metadata(openmls_group)?;
-        // Get the actor who created the commit.
-        // Because we don't allow for multiple actors in a commit, this will error if two proposals come from different authors.
-        let actor = extract_actor(staged_commit, openmls_group, &group_metadata)?;
 
         let existing_group_context = openmls_group.export_group_context();
         let new_group_context = staged_commit.group_context();
+
+        let metadata_changes = extract_metadata_changes(existing_group_context, new_group_context)?;
+        // Get the actor who created the commit.
+        // Because we don't allow for multiple actors in a commit, this will error if two proposals come from different authors.
+        let actor = extract_actor(staged_commit, openmls_group, &group_metadata)?;
 
         // Get the expected diff of installations added and removed based on the difference between the current
         // group membership and the new group membership.
@@ -225,8 +228,6 @@ impl ValidatedCommit {
                 ));
             }
         }
-
-        let metadata_changes = extract_metadata_changes(existing_group_context, new_group_context)?;
 
         let verified_commit = Self {
             actor,
@@ -468,7 +469,18 @@ fn extract_group_membership(
     Err(CommitValidationError::MissingGroupMembership)
 }
 
+#[derive(Debug, Clone)]
+struct MutableMetadataChanges {
+    metadata_changes: Vec<MetadataChange>,
+    admins_removed: Vec<Inbox>,
+    admins_added: Vec<Inbox>,
+    super_admins_removed: Vec<Inbox>,
+    super_admins_added: Vec<Inbox>,
+}
+
 fn extract_metadata_changes(
+    // We already have the old mutable metadata, so save parsing it a second time
+    old_mutable_metadata: GroupMutableMetadata,
     old_group_context: &GroupContext,
     new_group_context: &GroupContext,
 ) -> Result<Vec<MetadataChange>, CommitValidationError> {
@@ -483,7 +495,6 @@ fn extract_metadata_changes(
         return Ok(vec![]);
     }
 
-    let old_mutable_metadata: GroupMutableMetadata = old_mutable_metadata_ext.try_into()?;
     let new_mutable_metadata: GroupMutableMetadata = new_mutable_metadata_ext.try_into()?;
 
     Ok(mutable_metadata_diff(
@@ -522,6 +533,7 @@ fn mutable_metadata_diff(
         })
         .collect()
 }
+
 fn inbox_id_from_credential(
     credential: &OpenMlsCredential,
 ) -> Result<String, CommitValidationError> {

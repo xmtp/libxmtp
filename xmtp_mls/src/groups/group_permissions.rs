@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use openmls::{
-    extensions::{Extension, UnknownExtension},
+    extensions::{Extension, Extensions, UnknownExtension},
     group::MlsGroup as OpenMlsGroup,
 };
 use prost::Message;
@@ -114,18 +114,26 @@ impl TryFrom<GroupMutablePermissionsProto> for GroupMutablePermissions {
     }
 }
 
+impl TryFrom<&Extensions> for GroupMutablePermissions {
+    type Error = GroupMutablePermissionsError;
+
+    fn try_from(value: &Extensions) -> Result<Self, Self::Error> {
+        for extension in value.iter() {
+            if let Extension::Unknown(GROUP_PERMISSIONS_EXTENSION_ID, UnknownExtension(metadata)) =
+                extension
+            {
+                return GroupMutablePermissions::try_from(metadata);
+            }
+        }
+        Err(GroupMutablePermissionsError::MissingExtension)
+    }
+}
+
 pub fn extract_group_permissions(
     group: &OpenMlsGroup,
 ) -> Result<GroupMutablePermissions, GroupMutablePermissionsError> {
     let extensions = group.export_group_context().extensions();
-    for extension in extensions.iter() {
-        if let Extension::Unknown(GROUP_PERMISSIONS_EXTENSION_ID, UnknownExtension(metadata)) =
-            extension
-        {
-            return GroupMutablePermissions::try_from(metadata);
-        }
-    }
-    Err(GroupMutablePermissionsError::MissingExtension)
+    extensions.try_into()
 }
 
 // A trait for policies that can update Metadata for the group
@@ -1252,6 +1260,9 @@ mod tests {
             MembershipPolicies::allow(),
             MembershipPolicies::allow(),
             MetadataPolicies::default_map(MetadataPolicies::deny()),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
         assert!(!deny_permissions.evaluate_commit(&member_added_commit));
