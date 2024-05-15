@@ -1,7 +1,19 @@
 use std::array::TryFromSliceError;
 
+use crate::storage::identity::StoredIdentity;
+use crate::Fetch;
+use crate::{
+    api::{ApiClientWrapper, WrappedApiError},
+    configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
+    storage::StorageError,
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    InboxOwner, XmtpApi,
+};
+use crate::{builder::ClientBuilderError, storage::EncryptedMessageStore};
 use ed25519_dalek::SigningKey;
 use ethers::signers::{LocalWallet, WalletError};
+use log::debug;
+use log::info;
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
     extensions::{
@@ -15,7 +27,7 @@ use openmls::{
     versions::ProtocolVersion,
 };
 use openmls_basic_credential::SignatureKeyPair;
-use openmls_traits::types::CryptoError;
+use openmls_traits::{types::CryptoError, OpenMlsProvider};
 use prost::Message;
 use sha2::{Digest, Sha512};
 use thiserror::Error;
@@ -37,20 +49,6 @@ use xmtp_proto::{
 };
 use xmtp_v2::k256_helper;
 
-use crate::{
-    api::{ApiClientWrapper, WrappedApiError},
-    configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
-    storage::StorageError,
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
-    InboxOwner,
-};
-
-use crate::storage::identity::StoredIdentity;
-use crate::Fetch;
-use crate::{builder::ClientBuilderError, storage::EncryptedMessageStore};
-use log::debug;
-use log::info;
-
 pub enum IdentityStrategy {
     /// Tries to get an identity from the disk store. If not found, getting one from backend.
     CreateIfNotFound(String, Option<Vec<u8>>), // (address, legacy_signed_private_key)
@@ -70,7 +68,7 @@ impl IdentityStrategy {
     ) -> Result<Identity, ClientBuilderError> {
         info!("Initializing identity");
         let conn = store.conn()?;
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let stored_identity: Option<Identity> = provider
             .conn()
             .fetch(&())?
@@ -334,9 +332,9 @@ impl Identity {
         Ok(kp)
     }
 
-    pub(crate) async fn register<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+    pub(crate) async fn register<ApiClient: XmtpApi>(
         &self,
-        _provider: &XmtpOpenMlsProvider<'_>,
+        _provider: impl OpenMlsProvider,
         _api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
         todo!()

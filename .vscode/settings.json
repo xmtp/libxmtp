@@ -1,9 +1,25 @@
 {
-  "rust-analyzer.linkedProjects": [
-    "bindings_ffi/Cargo.toml",
-    "examples/cli/Cargo.toml",
-    "xmtp_api_grpc_gateway/Cargo.toml"
-  ],
+  "rust-analyzer": {
+    "cargo": {
+      "sysroot": "discover"
+    },
+    "linkedProjects": [
+      "bindings_ffi/Cargo.toml",
+      "examples/cli/Cargo.toml",
+      "xmtp_api_grpc_gateway/Cargo.toml"
+    ],
+    "procMacro" : {
+      "enable": true,
+      "attributes.enable": true,
+      "ignored": {
+        "async-trait": [ "async_trait" ],
+        "napi-derive": [ "napi" ],
+        "async-recursion": [ "async_recursion" ],
+        "ctor": [ "ctor" ],
+        "tokio": [ "test" ]
+      }
+    }
+  },
   "[toml]": {
     "editor.defaultFormatter": "tamasfe.even-better-toml"
   }

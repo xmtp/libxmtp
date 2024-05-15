@@ -16,10 +16,9 @@ impl WasmXmtpClient {
 #[wasm_bindgen]
 impl WasmXmtpClient {
     #[wasm_bindgen(constructor)]
-    pub fn new(url: String) -> Result<WasmXmtpClient, JsError> {
-        // TODO
+    pub fn create_client(host_url: String) -> Result<WasmXmtpClient, JsError> {
         Ok(WasmXmtpClient {
-            api: XmtpGrpcGatewayClient::new(url),
+            api: XmtpGrpcGatewayClient::new(host_url),
         })
     }
 }

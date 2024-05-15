@@ -1,19 +1,17 @@
 use std::collections::HashMap;
 
 use super::{ApiClientWrapper, WrappedApiError};
+use crate::XmtpApi;
 use xmtp_id::{
     associations::{DeserializationError, IdentityUpdate},
     InboxId,
 };
-use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::identity::api::v1::{
-        get_identity_updates_request::Request as GetIdentityUpdatesV2RequestProto,
-        get_identity_updates_response::IdentityUpdateLog,
-        get_inbox_ids_request::Request as GetInboxIdsRequestProto,
-        GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetInboxIdsRequest,
-        PublishIdentityUpdateRequest,
-    },
+use xmtp_proto::xmtp::identity::api::v1::{
+    get_identity_updates_request::Request as GetIdentityUpdatesV2RequestProto,
+    get_identity_updates_response::IdentityUpdateLog,
+    get_inbox_ids_request::Request as GetInboxIdsRequestProto,
+    GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetInboxIdsRequest,
+    PublishIdentityUpdateRequest,
 };
 
 /// A filter for querying identity updates. `sequence_id` is the starting sequence, and only later updates will be returned.
@@ -61,7 +59,7 @@ type AddressToInboxIdMap = HashMap<String, InboxId>;
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
+    ApiClient: XmtpApi,
 {
     pub async fn publish_identity_update(
         &self,

@@ -1,0 +1,54 @@
+{
+  "name": "@xmtp/client-bindings-wasm",
+  "version": "0.0.0",
+  "license": "MIT",
+  "description": "WASM bindings for the libXMTP rust library",
+  "keywords": [
+    "xmtp",
+    "messaging",
+    "web3",
+    "js",
+    "javascript",
+    "node",
+    "nodejs",
+    "wasm"
+  ],
+  "homepage": "https://github.com/xmtp/libxmtp",
+  "bugs": {
+    "url": "https://github.com/xmtp/libxmtp/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https:git@github.com:xmtp/libxmtp.git",
+    "directory": "bindings_wasm"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run build:node && npm run clean:gitignore",
+    "build:node": "wasm-pack build --target nodejs --no-pack --release --out-dir ./dist/node",
+    "clean": "rm -rf ./dist",
+    "clean:gitignore": "rm -f ./dist/**/.gitignore",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "./dist/**/*"
+  ],
+  "main": "dist/node/bindings_wasm.js",
+  "types": "dist/node/bindings_wasm.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/node/bindings_wasm.d.ts",
+      "default": "./dist/node/bindings_wasm.js"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
+  "devDependencies": {
+    "wasm-pack": "^0.12.1"
+  }
+}
