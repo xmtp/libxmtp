@@ -419,13 +419,13 @@ async fn extract_expected_diff<'diff, ApiClient: XmtpMlsClient + XmtpIdentityCli
     let added_inboxes = membership_diff
         .added_inboxes
         .iter()
-        .map(|inbox_id| build_inbox(inbox_id, &immutable_metadata, &mutable_metadata))
+        .map(|inbox_id| build_inbox(inbox_id, immutable_metadata, mutable_metadata))
         .collect::<Vec<Inbox>>();
 
     let removed_inboxes = membership_diff
         .removed_inboxes
         .iter()
-        .map(|inbox_id| build_inbox(inbox_id, &immutable_metadata, &mutable_metadata))
+        .map(|inbox_id| build_inbox(inbox_id, immutable_metadata, mutable_metadata))
         .collect::<Vec<Inbox>>();
 
     let expected_installation_diff = client
@@ -590,8 +590,8 @@ fn extract_metadata_changes(
 }
 
 fn get_added_members(
-    old: &Vec<String>,
-    new: &Vec<String>,
+    old: &[String],
+    new: &[String],
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
 ) -> Vec<Inbox> {
@@ -602,8 +602,8 @@ fn get_added_members(
 }
 
 fn get_removed_members(
-    old: &Vec<String>,
-    new: &Vec<String>,
+    old: &[String],
+    new: &[String],
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
 ) -> Vec<Inbox> {
