@@ -2,13 +2,17 @@ use crate::{
     configuration::{CIPHERSUITE, WELCOME_HPKE_LABEL},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
-use openmls::ciphersuite::hpke::{
-    decrypt_with_label, encrypt_with_label, Error as OpenmlsHpkeError,
+use openmls::{
+    ciphersuite::hash_ref::KeyPackageRef,
+    prelude::tls_codec::{Deserialize, Error as TlsCodecError, Serialize},
 };
-use openmls::prelude::tls_codec::{Deserialize, Error as TlsCodecError, Serialize};
+use openmls::{
+    ciphersuite::hpke::{decrypt_with_label, encrypt_with_label, Error as OpenmlsHpkeError},
+    key_packages::KeyPackageBundle,
+};
 use openmls_rust_crypto::RustCrypto;
-use openmls_traits::types::HpkeCiphertext;
 use openmls_traits::OpenMlsProvider;
+use openmls_traits::{storage::StorageProvider, types::HpkeCiphertext};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -42,20 +46,32 @@ pub fn decrypt_welcome(
     hpke_public_key: &[u8],
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, HpkeError> {
+    log::debug!("decrypt_welcome");
     let ciphertext = HpkeCiphertext::tls_deserialize_exact(ciphertext)?;
 
-    match provider
+    let hash_ref: Option<KeyPackageRef> = provider
         .storage()
-        .read_list(WELCOME_HPKE_LABEL.as_bytes(), hpke_public_key)
-    {
-        Ok(private_key) => Ok(decrypt_with_label(
-            serde_json::from_slice::<&[u8]>(&private_key).map_err(|_e| HpkeError::KeyNotFound)?,
-            WELCOME_HPKE_LABEL,
-            &[],
-            &ciphertext,
-            CIPHERSUITE,
-            &RustCrypto::default(),
-        )?),
-        Err(_e) => Err(HpkeError::KeyNotFound),
+        .read(
+            b"KeyPackageReferences",
+            &hpke_public_key.tls_serialize_detached().unwrap(),
+        )
+        .unwrap();
+    if let Some(hash_ref) = hash_ref {
+        // With the hash reference we can read the key package.
+        let key_package: Option<KeyPackageBundle> =
+            provider.storage().key_package(&hash_ref).unwrap();
+        if let Some(kp) = key_package {
+            return Ok(decrypt_with_label(
+                kp.init_private_key(),
+                WELCOME_HPKE_LABEL,
+                &[],
+                &ciphertext,
+                CIPHERSUITE,
+                &RustCrypto::default(),
+            )?);
+        }
     }
+
+    log::error!("decrypt_welcome failed");
+    Err(HpkeError::KeyNotFound)
 }

@@ -205,6 +205,7 @@ where
     fn load_mls_group(&self, provider: &XmtpOpenMlsProvider) -> Result<OpenMlsGroup, GroupError> {
         log::debug!("load_mls_group");
         log::debug!("  {:?}", self.group_id);
+
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
                 .map_err(|_e| GroupError::GroupNotFound)?;
@@ -315,6 +316,7 @@ where
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: Vec<u8>,
     ) -> Result<Self, GroupError> {
+        log::debug!("create_from_encrypted_welcome");
         let welcome_bytes = decrypt_welcome(provider, hpke_public_key, &encrypted_welcome_bytes)?;
 
         let welcome = deserialize_welcome(&welcome_bytes)?;

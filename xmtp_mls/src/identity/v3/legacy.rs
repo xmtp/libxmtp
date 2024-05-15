@@ -229,6 +229,21 @@ impl Identity {
                 },
             )?;
 
+        // Store the hash reference, keyed with the public init key.
+        // This is needed to get to the private key when decrypting welcome messages.
+        provider
+            .storage()
+            .write::<{ openmls_traits::storage::CURRENT_VERSION }>(
+                b"KeyPackageReferences",
+                &kp.key_package()
+                    .hpke_init_key()
+                    .tls_serialize_detached()
+                    .unwrap(),
+                &serde_json::to_vec(&kp.key_package().hash_ref(provider.crypto()).unwrap())
+                    .unwrap(),
+            )
+            .unwrap();
+
         Ok(kp.key_package().clone())
     }
 

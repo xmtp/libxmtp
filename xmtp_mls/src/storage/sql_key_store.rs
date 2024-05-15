@@ -555,6 +555,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         let key = build_key::<CURRENT_VERSION, &HashReference>(KEY_PACKAGE_LABEL, hash_ref);
         let value = serde_json::to_vec(&key_package).unwrap();
 
+        // Store the key package
         self.write::<CURRENT_VERSION>(KEY_PACKAGE_LABEL, &key, &value)
             .unwrap();
 

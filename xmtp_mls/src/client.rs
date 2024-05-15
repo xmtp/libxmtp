@@ -369,6 +369,7 @@ where
         group_id: &Vec<u8>,
         conn: &'a DbConnection<'a>,
     ) -> Result<Vec<GroupMessage>, ClientError> {
+        log::debug!("query_group_messages");
         let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
 
         let welcomes = self

@@ -488,8 +488,10 @@ where
         messages: Vec<GroupMessage>,
         conn: &'a DbConnection<'a>,
     ) -> Result<(), GroupError> {
+        log::debug!("process_messages");
         let provider = self.client.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
+        log::debug!("  loaded openmls group");
 
         let receive_errors: Vec<MessageProcessingError> = messages
             .into_iter()
@@ -511,12 +513,15 @@ where
     }
 
     pub(super) async fn receive<'a>(&self, conn: &'a DbConnection<'a>) -> Result<(), GroupError> {
+        log::debug!("receive");
         let messages = self
             .client
             .query_group_messages(&self.group_id, conn)
             .await?;
+        log::debug!("  got messages");
 
         self.process_messages(messages, conn)?;
+        log::debug!("  process_messages messages");
 
         Ok(())
     }
