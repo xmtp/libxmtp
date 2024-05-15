@@ -480,6 +480,30 @@ impl FfiGroup {
         Ok(group_name)
     }
 
+    pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let admin_list = group.admin_list()?;
+
+        Ok(admin_list)
+    }
+
+    pub fn super_admin_list(&self) -> Result<Vec<String>, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let super_admin_list = group.super_admin_list()?;
+
+        Ok(super_admin_list)
+    }
+
     pub async fn stream(
         &self,
         message_callback: Box<dyn FfiMessageCallback>,
