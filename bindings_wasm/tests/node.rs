@@ -1,3 +1,5 @@
+#![cfg(target_arch = "wasm32")]
+
 extern crate bindings_wasm;
 extern crate wasm_bindgen_test;
 

@@ -1,4 +1,5 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
 #[derive(Debug, Serialize, Deserialize, thiserror::Error)]
 pub enum SigningError {
@@ -6,13 +7,7 @@ pub enum SigningError {
     Generic,
 }
 
-// impl From<uniffi::UnexpectedUniFFICallbackError> for SigningError {
-//     fn from(_: uniffi::UnexpectedUniFFICallbackError) -> Self {
-//         Self::Generic
-//     }
-// }
-
-// A simplified InboxOwner passed to Rust across the FFI boundary
+// A simplified InboxOwner passed to Rust across the WASM boundary
 pub trait WasmInboxOwner: Send + Sync {
     fn get_address(&self) -> String;
     fn sign(&self, text: String) -> Result<Vec<u8>, SigningError>;
@@ -33,17 +28,11 @@ impl xmtp_mls::InboxOwner for RustInboxOwner {
         self.wasm_inbox_owner.get_address().to_lowercase()
     }
 
-    fn sign(
-        &self,
-        text: &str,
-    ) -> Result<
-        xmtp_cryptography::signature::RecoverableSignature,
-        xmtp_cryptography::signature::SignatureError,
-    > {
+    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
         let bytes = self
             .wasm_inbox_owner
             .sign(text.to_string())
-            .map_err(|_flat_err| xmtp_cryptography::signature::SignatureError::Unknown)?;
-        Ok(xmtp_cryptography::signature::RecoverableSignature::Eip191Signature(bytes))
+            .map_err(|_flat_err| SignatureError::Unknown)?;
+        Ok(RecoverableSignature::Eip191Signature(bytes))
     }
 }

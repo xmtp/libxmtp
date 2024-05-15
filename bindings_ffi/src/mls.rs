@@ -143,10 +143,7 @@ impl FfiXmtpClient {
     pub fn installation_id(&self) -> Vec<u8> {
         self.inner_client.installation_public_key()
     }
-}
-
-#[uniffi::export(async_runtime = "tokio")]
-impl FfiXmtpClient {
+    
     pub fn text_to_sign(&self) -> Option<String> {
         self.inner_client.text_to_sign()
     }

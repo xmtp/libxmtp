@@ -2,12 +2,9 @@ pub mod inbox_owner;
 // pub mod logger;
 pub mod mls;
 
-pub use crate::inbox_owner::SigningError;
-use inbox_owner::WasmInboxOwner;
-// use logger::WasmLogger;
-pub use mls::*;
 use std::error::Error;
-use wasm_bindgen::prelude::wasm_bindgen;
+
+pub use crate::inbox_owner::SigningError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum GenericError {
@@ -43,7 +40,6 @@ impl GenericError {
     }
 }
 
-// TODO Use non-string errors across Uniffi interface
 fn stringify_error_chain<T: Error>(error: &T) -> String {
     let mut result = format!("Error: {}\n", error);
 

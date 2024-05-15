@@ -2,16 +2,15 @@ use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::Arc;
 
-use wasm_bindgen::prelude::{wasm_bindgen, JsValue};
 use serde_wasm_bindgen::to_value;
-use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use tonic_web_wasm_client::Client as TonicApiClient;
+use wasm_bindgen::prelude::{wasm_bindgen, JsValue};
+// use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_mls::identity::v3::{IdentityStrategy, LegacyIdentity};
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
-    storage::{
-         EncryptedMessageStore, EncryptionKey, StorageOption,
-    },
+    storage::{EncryptedMessageStore, EncryptionKey, StorageOption},
     types::Address,
 };
 
@@ -40,12 +39,16 @@ impl WasmInboxOwner {
     }
 }
 
+// use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
+// pub trait XmtpWebWasmClient: XmtpMlsClient + XmtpIdentityClient {}
+// impl<T> XmtpWebWasmClient for T where T: XmtpMlsClient + XmtpIdentityClient {}
+
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
 #[wasm_bindgen]
 pub struct WasmXmtpClient {
-        inner_client: Arc<RustXmtpClient>
-    }
+    inner_client: Arc<RustXmtpClient>,
+}
 
 /// XMTP SDK's may embed libxmtp (v3) alongside existing v2 protocol logic
 /// for backwards-compatibility purposes. In this case, the client may already
@@ -80,13 +83,15 @@ impl WasmXmtpClient {
     pub async fn can_message(
         &self,
         account_addresses: Vec<String>,
-    // ) -> Result<HashMap<String, bool>, JsValue> {
+        // ) -> Result<HashMap<String, bool>, JsValue> {
     ) -> JsValue {
         let inner = &self.inner_client;
 
-        let results: HashMap<String, bool> = inner.can_message(account_addresses).await.map_err(|e| {
-            JsValue::from_str(&format!("{:?}", e))
-        }).unwrap_or_default();
+        let results: HashMap<String, bool> = inner
+            .can_message(account_addresses)
+            .await
+            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))
+            .unwrap_or_default();
 
         match to_value(&results) {
             Ok(value) => value,
@@ -121,10 +126,12 @@ impl WasmXmtpClient {
             host,
             is_secure
         );
-        let api_client = TonicApiClient::create(host.clone(), is_secure).await.map_err(|e| {
-            JsValue::from_str(&format!("Failed to create API client: {:?}", e))
-        })?;
-
+        // let api_client = TonicApiClient::create(host.clone(), is_secure)
+        //     .await
+        //     .map_err(|e| JsValue::from_str(&format!("Failed to create API client: {:?}", e)))?;
+        //
+        let api_client = WebWasmClient::new(host.clone());
+        
         log::info!(
             "Creating message store with path: {:?} and encryption key: {}",
             db,
@@ -145,9 +152,11 @@ impl WasmXmtpClient {
                     JsValue::from_str(&format!("Failed to create message store: {:?}", e))
                 })
             }
-            None => Ok(EncryptedMessageStore::new_unencrypted(storage_option).map_err(|e| {
-                JsValue::from_str(&format!("Failed to create message store: {:?}", e))
-            })?),
+            None => Ok(
+                EncryptedMessageStore::new_unencrypted(storage_option).map_err(|e| {
+                    JsValue::from_str(&format!("Failed to create message store: {:?}", e))
+                })?,
+            ),
         };
 
         log::info!("Creating XMTP client");
@@ -165,7 +174,8 @@ impl WasmXmtpClient {
             .api_client(api_client)
             .store(store?)
             .build()
-            .await.map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+            .await
+            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
         log::info!(
             "Created XMTP client for address: {}",
@@ -185,10 +195,10 @@ impl WasmXmtpClient {
         &self,
         recoverable_wallet_signature: Option<Vec<u8>>,
     ) -> Result<(), JsValue> {
-        self
-            .inner_client
+        self.inner_client
             .register_identity(recoverable_wallet_signature)
-            .await.map_err(|e| JsValue::from_str(&format!("{:?}", e)))
+            .await
+            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))
     }
 }
 
@@ -199,10 +209,7 @@ mod tests {
         // logger::WasmLoggerT,
         LegacyIdentitySource,
     };
-    use std::{
-        env,
-        sync::{Arc, Mutex},
-    };
+    use std::{env, sync::Arc};
 
     use super::{create_client, WasmXmtpClient};
     use ethers_core::rand::{

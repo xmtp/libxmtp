@@ -1,9 +1,13 @@
+#![cfg(target_arch = "wasm32")]
+
 extern crate bindings_wasm;
 extern crate wasm_bindgen_test;
+
 use bindings_wasm::*;
 use prost::Message;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
+
 use xmtp_cryptography::signature::RecoverableSignature;
 use xmtp_proto::api_client::XmtpApiClient;
 use xmtp_proto::xmtp::message_api::v1::{
