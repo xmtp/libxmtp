@@ -1,17 +1,18 @@
-use diesel::sql_types::Binary;
-use diesel::{deserialize::QueryableByName, sql_query, RunQueryDsl};
+use super::encrypted_store::db_connection::DbConnection;
+use diesel::{
+    prelude::*,
+    sql_types::Binary,
+    {sql_query, RunQueryDsl},
+};
 use log::error;
 use openmls_traits::storage::*;
 use serde::Serialize;
 use serde_json::{from_slice, from_value, Value};
 
-use super::encrypted_store::db_connection::DbConnection;
-
-#[derive(QueryableByName, Debug)]
-#[table_name = "openmls_key_value"]
+#[derive(QueryableByName, Debug, Clone, PartialEq, Eq)]
+#[diesel(table_name = openmls_key_value)]
 struct StorageData {
-    #[column_name = "value_bytes"]
-    #[sql_type = "Binary"]
+    #[diesel(sql_type = Binary)]
     value_bytes: Vec<u8>,
 }
 
