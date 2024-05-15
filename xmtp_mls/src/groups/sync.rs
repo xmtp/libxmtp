@@ -549,7 +549,7 @@ impl MlsGroup {
             self.context.inbox_id(),
             validated_commit.added_inboxes.len(),
             validated_commit.removed_inboxes.len(),
-            validated_commit.metadata_changes.len(),
+            validated_commit.metadata_changes.metadata_field_changes.len(),
         );
         let sender_installation_id = validated_commit.actor_installation_id();
         let sender_inbox_id = validated_commit.actor_inbox_id();

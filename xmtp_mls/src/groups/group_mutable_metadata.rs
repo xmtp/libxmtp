@@ -99,6 +99,14 @@ impl GroupMutableMetadata {
     pub fn supported_fields() -> Vec<MetadataField> {
         vec![MetadataField::GroupName, MetadataField::Description]
     }
+
+    pub fn is_admin(&self, inbox_id: &String) -> bool {
+        self.admin_list.contains(inbox_id)
+    }
+
+    pub fn is_super_admin(&self, inbox_id: &String) -> bool {
+        self.super_admin_list.contains(inbox_id)
+    }
 }
 
 impl TryFrom<GroupMutableMetadata> for Vec<u8> {

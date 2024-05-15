@@ -29,8 +29,7 @@ use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 
 use super::{
     group_mutable_metadata::GroupMutableMetadata,
-    // validated_commit::{AggregatedMembershipChange, CommitParticipant, ValidatedCommit},
-    validated_commit::{CommitParticipant, Inbox, MetadataChange, ValidatedCommit},
+    validated_commit::{CommitParticipant, Inbox, MetadataFieldChange, ValidatedCommit},
 };
 
 #[derive(Debug, Error)]
@@ -140,7 +139,7 @@ pub fn extract_group_permissions(
 pub trait MetadataPolicy: std::fmt::Debug {
     // Verify relevant metadata is actually changed before evaluating against the MetadataPolicy
     // See evaluate_metadata_policy
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataChange) -> bool;
+    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataFieldChange) -> bool;
     fn to_proto(&self) -> Result<MetadataPolicyProto, PolicyError>;
 }
 
@@ -153,21 +152,14 @@ pub enum MetadataBasePolicies {
 }
 
 impl MetadataPolicy for &MetadataBasePolicies {
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, _change: &MetadataFieldChange) -> bool {
         match self {
             MetadataBasePolicies::Allow => true,
             MetadataBasePolicies::Deny => false,
             MetadataBasePolicies::AllowIfActorAdminOrSuperAdmin => {
-                change.old_value.admin_list.contains(&actor.account_address)
-                    || change
-                        .old_value
-                        .super_admin_list
-                        .contains(&actor.account_address)
+                actor.is_admin || actor.is_super_admin
             }
-            MetadataBasePolicies::AllowIfActorSuperAdmin => change
-                .old_value
-                .super_admin_list
-                .contains(&actor.account_address),
+            MetadataBasePolicies::AllowIfActorSuperAdmin => actor.is_super_admin,
         }
     }
 
@@ -274,7 +266,7 @@ impl TryFrom<MetadataPolicyProto> for MetadataPolicies {
 }
 
 impl MetadataPolicy for MetadataPolicies {
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataFieldChange) -> bool {
         match self {
             MetadataPolicies::Standard(policy) => policy.evaluate(actor, change),
             MetadataPolicies::AndCondition(policy) => policy.evaluate(actor, change),
@@ -304,7 +296,7 @@ impl MetadataAndCondition {
 }
 
 impl MetadataPolicy for MetadataAndCondition {
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataFieldChange) -> bool {
         self.policies
             .iter()
             .all(|policy| policy.evaluate(actor, change))
@@ -339,7 +331,7 @@ impl MetadataAnyCondition {
 }
 
 impl MetadataPolicy for MetadataAnyCondition {
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataFieldChange) -> bool {
         self.policies
             .iter()
             .any(|policy| policy.evaluate(actor, change))
@@ -616,8 +608,8 @@ impl MembershipPolicy for BasePolicies {
             BasePolicies::Allow => true,
             BasePolicies::Deny => false,
             BasePolicies::AllowSameMember => inbox.inbox_id == actor.inbox_id,
-            BasePolicies::AllowIfAdminOrSuperAdmin => actor.is_creator, //TODO Fix
-            BasePolicies::AllowIfSuperAdmin => actor.is_creator,        //TODO Fix
+            BasePolicies::AllowIfAdminOrSuperAdmin => actor.is_admin || actor.is_super_admin, //TODO Fix
+            BasePolicies::AllowIfSuperAdmin => actor.is_super_admin, //TODO Fix
         }
     }
 
@@ -844,7 +836,7 @@ impl PolicySet {
             &self.remove_member_policy,
             &commit.actor,
         ) && self.evaluate_metadata_policy(
-            commit.metadata_changes.iter(),
+            commit.metadata_changes.metadata_field_changes.iter(),
             &self.update_metadata_policy,
             &commit.actor,
         )
@@ -881,7 +873,7 @@ impl PolicySet {
         actor: &CommitParticipant,
     ) -> bool
     where
-        I: Iterator<Item = &'a MetadataChange>,
+        I: Iterator<Item = &'a MetadataFieldChange>,
     {
         changes.all(|change| {
             if let Some(policy) = policies.get(&change.field_name) {
@@ -1045,28 +1037,33 @@ impl std::fmt::Display for PreconfiguredPolicies {
 #[cfg(test)]
 mod tests {
     use crate::{
-        groups::group_mutable_metadata::MetadataField,
+        groups::{group_mutable_metadata::MetadataField, validated_commit::MutableMetadataChanges},
         utils::test::{rand_string, rand_vec},
     };
 
     use super::*;
 
-    fn build_change(inbox_id: Option<String>, is_creator: bool) -> Inbox {
+    fn build_change(inbox_id: Option<String>, is_admin: bool, is_super_admin: bool) -> Inbox {
         Inbox {
             inbox_id: inbox_id.unwrap_or(rand_string()),
-            is_creator,
+            is_creator: is_super_admin,
+            is_super_admin,
+            is_admin,
         }
     }
 
     fn build_actor(
         inbox_id: Option<String>,
         installation_id: Option<Vec<u8>>,
-        is_creator: bool,
+        is_admin: bool,
+        is_super_admin: bool,
     ) -> CommitParticipant {
         CommitParticipant {
             inbox_id: inbox_id.unwrap_or(rand_string()),
             installation_id: installation_id.unwrap_or_else(rand_vec),
-            is_creator,
+            is_creator: is_super_admin,
+            is_admin,
+            is_super_admin,
         }
     }
 
@@ -1075,16 +1072,26 @@ mod tests {
         member_added: Option<bool>,
         member_removed: Option<bool>,
         metadata_fields_changed: Option<Vec<String>>,
-        actor_is_creator: bool,
+        actor_is_super_admin: bool,
     ) -> ValidatedCommit {
-        let actor = build_actor(None, None, actor_is_creator);
+        let actor = build_actor(None, None, actor_is_super_admin, actor_is_super_admin);
         let build_membership_change = |same_address_as_actor| {
             if same_address_as_actor {
-                vec![build_change(Some(actor.inbox_id.clone()), actor_is_creator)]
+                vec![build_change(
+                    Some(actor.inbox_id.clone()),
+                    actor_is_super_admin,
+                    actor_is_super_admin,
+                )]
             } else {
-                vec![build_change(None, false)]
+                vec![build_change(None, false, false)]
             }
         };
+
+        let field_changes = metadata_fields_changed
+            .unwrap_or(vec![])
+            .into_iter()
+            .map(|field| MetadataFieldChange::new(field, Some(rand_string()), Some(rand_string())))
+            .collect();
 
         ValidatedCommit {
             actor: actor.clone(),
@@ -1094,11 +1101,10 @@ mod tests {
             removed_inboxes: member_removed
                 .map(build_membership_change)
                 .unwrap_or_default(),
-            metadata_changes: metadata_fields_changed
-                .unwrap_or(vec![])
-                .into_iter()
-                .map(|field| MetadataChange::new(field, Some(rand_string()), Some(rand_string())))
-                .collect(),
+            metadata_changes: MutableMetadataChanges {
+                metadata_field_changes: field_changes,
+                ..Default::default()
+            },
         }
     }
 
