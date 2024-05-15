@@ -1,4 +1,4 @@
-use openmls::group::MlsGroup as OpenMlsGroup;
+use openmls::{extensions::Extensions, group::MlsGroup as OpenMlsGroup};
 use prost::Message;
 use thiserror::Error;
 
@@ -84,6 +84,17 @@ impl TryFrom<GroupMetadataProto> for GroupMetadata {
 
     fn try_from(value: GroupMetadataProto) -> Result<Self, Self::Error> {
         Self::from_proto(value)
+    }
+}
+
+impl TryFrom<&Extensions> for GroupMetadata {
+    type Error = GroupMetadataError;
+
+    fn try_from(extensions: &Extensions) -> Result<Self, Self::Error> {
+        let data = extensions
+            .immutable_metadata()
+            .ok_or(GroupMetadataError::MissingExtension)?;
+        data.metadata().try_into()
     }
 }
 

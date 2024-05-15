@@ -8,8 +8,6 @@ mod message_history;
 mod subscriptions;
 mod sync;
 pub mod validated_commit;
-#[allow(dead_code)]
-mod validated_commit_v2;
 
 use intents::SendMessageIntentData;
 use openmls::{
@@ -53,10 +51,7 @@ pub use self::intents::{AddressesOrInstallationIds, IntentError};
 use self::{
     group_membership::GroupMembership,
     group_metadata::extract_group_metadata,
-    group_mutable_metadata::{
-        extract_group_mutable_metadata, GroupMutableMetadata, GroupMutableMetadataError,
-        MetadataField,
-    },
+    group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
     group_permissions::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
@@ -624,9 +619,9 @@ impl MlsGroup {
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
         let conn = self.context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
-        let mls_group = self.load_mls_group(&provider)?;
+        let mls_group = &self.load_mls_group(&provider)?;
 
-        Ok(extract_group_mutable_metadata(&mls_group)?)
+        Ok(mls_group.try_into()?)
     }
 
     pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
@@ -715,7 +710,7 @@ pub fn build_mutable_metadata_extensions(
     field_name: String,
     field_value: String,
 ) -> Result<Extensions, GroupError> {
-    let existing_metadata = extract_group_mutable_metadata(group)?;
+    let existing_metadata: GroupMutableMetadata = group.try_into()?;
     let mut attributes = existing_metadata.attributes.clone();
     attributes.insert(field_name, field_value);
     let new_mutable_metadata: Vec<u8> = GroupMutableMetadata::new(
