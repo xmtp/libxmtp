@@ -674,6 +674,7 @@ mod tests {
         inbox_owner::SigningError, logger::FfiLogger, FfiConversationCallback, FfiInboxOwner,
         LegacyIdentitySource,
     };
+    use async_barrier::Barrier;
     use std::{
         env,
         sync::{
@@ -1121,19 +1122,24 @@ mod tests {
             .unwrap();
 
         let stream_callback = RustStreamCallback::new();
+
         let stream_closer = group
             .stream(Box::new(stream_callback.clone()))
             .await
             .unwrap();
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        tokio::task::yield_now().await;
         group.send("hello".as_bytes().to_vec()).await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::task::yield_now().await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         group.send("goodbye".as_bytes().to_vec()).await.unwrap();
+        tokio::task::yield_now().await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         // Because of the event loop, I need to make the test give control
         // back to the stream before it can process each message. Using sleep to do that.
         // I think this will work fine in practice
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         assert_eq!(stream_callback.message_count(), 2);
 
         stream_closer.end();
