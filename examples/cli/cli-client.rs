@@ -374,7 +374,7 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
     )
     .await?;
     if let Err(e) = client
-        .register_identity(client.signature_request().unwrap()) // TODO: remove `.unwrap()`. What should [Identity::request_signature()] return?
+        .register_identity(client.identity().get_signature_request().unwrap()) // TODO: remove `.unwrap()`. What should [Identity::request_signature()] return?
         .await
     {
         error!("Initialization Failed: {}", e.to_string());
