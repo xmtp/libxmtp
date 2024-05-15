@@ -549,7 +549,7 @@ impl MlsGroup {
             self.context.inbox_id(),
             validated_commit.added_inboxes.len(),
             validated_commit.removed_inboxes.len(),
-            validated_commit.metadata_changes.len(),
+            validated_commit.metadata_changes.metadata_field_changes.len(),
         );
         let sender_installation_id = validated_commit.actor_installation_id();
         let sender_inbox_id = validated_commit.actor_inbox_id();
@@ -747,6 +747,7 @@ impl MlsGroup {
             IntentKind::MetadataUpdate => {
                 let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
                 let mutable_metadata_extensions = build_mutable_metadata_extensions(
+                    &self.context.identity,
                     openmls_group,
                     metadata_intent.field_name,
                     metadata_intent.field_value,

@@ -27,10 +27,11 @@ use crate::{
 
 use super::{
     group_membership::{GroupMembership, MembershipDiff},
-    group_metadata::{extract_group_metadata, GroupMetadata, GroupMetadataError},
+    group_metadata::{GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{
         find_mutable_metadata_extension, GroupMutableMetadata, GroupMutableMetadataError,
     },
+    group_permissions::GroupMutablePermissionsError,
 };
 
 #[derive(Debug, Error)]
@@ -72,6 +73,8 @@ pub enum CommitValidationError {
     ProtoDecode(#[from] prost::DecodeError),
     #[error(transparent)]
     InstallationDiff(#[from] InstallationDiffError),
+    #[error("Failed to parse group mutable permissions: {0}")]
+    GroupMutablePermissions(#[from] GroupMutablePermissionsError),
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -79,22 +82,63 @@ pub struct CommitParticipant {
     pub inbox_id: String,
     pub installation_id: Vec<u8>,
     pub is_creator: bool,
-    // TODO: Add is_admin
+    pub is_admin: bool,
+    pub is_super_admin: bool,
 }
 
 impl CommitParticipant {
+    pub fn build(
+        inbox_id: String,
+        installation_id: Vec<u8>,
+        immutable_metadata: &GroupMetadata,
+        mutable_metadata: &GroupMutableMetadata,
+    ) -> Self {
+        let is_creator = inbox_id == immutable_metadata.creator_inbox_id;
+        let is_admin = mutable_metadata.is_admin(&inbox_id);
+        let is_super_admin = mutable_metadata.is_super_admin(&inbox_id);
+
+        Self {
+            inbox_id,
+            installation_id,
+            is_creator,
+            is_admin,
+            is_super_admin,
+        }
+    }
+
     pub fn from_leaf_node(
         leaf_node: &LeafNode,
-        group_metadata: &GroupMetadata,
+        immutable_metadata: &GroupMetadata,
+        mutable_metadata: &GroupMutableMetadata,
     ) -> Result<Self, CommitValidationError> {
         let inbox_id = inbox_id_from_credential(leaf_node.credential())?;
-        let is_creator = inbox_id == group_metadata.creator_inbox_id;
+        let installation_id = leaf_node.signature_key().as_slice().to_vec();
 
-        Ok(Self {
+        Ok(Self::build(
             inbox_id,
-            installation_id: leaf_node.signature_key().as_slice().to_vec(),
-            is_creator,
-        })
+            installation_id,
+            immutable_metadata,
+            mutable_metadata,
+        ))
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct MutableMetadataChanges {
+    pub metadata_field_changes: Vec<MetadataFieldChange>,
+    pub admins_added: Vec<Inbox>,
+    pub admins_removed: Vec<Inbox>,
+    pub super_admins_added: Vec<Inbox>,
+    pub super_admins_removed: Vec<Inbox>,
+}
+
+impl MutableMetadataChanges {
+    pub fn is_empty(&self) -> bool {
+        self.metadata_field_changes.is_empty()
+            && self.admins_added.is_empty()
+            && self.admins_removed.is_empty()
+            && self.super_admins_added.is_empty()
+            && self.super_admins_removed.is_empty()
     }
 }
 
@@ -103,12 +147,12 @@ pub struct Inbox {
     pub inbox_id: String,
     #[allow(dead_code)]
     pub is_creator: bool,
-    // TODO: add is_admin support
-    // pub is_admin: bool,
+    pub is_admin: bool,
+    pub is_super_admin: bool,
 }
 
 #[derive(Debug, Clone)]
-pub struct MetadataChange {
+pub struct MetadataFieldChange {
     pub field_name: String,
     #[allow(dead_code)]
     pub old_value: Option<String>,
@@ -116,7 +160,7 @@ pub struct MetadataChange {
     pub new_value: Option<String>,
 }
 
-impl MetadataChange {
+impl MetadataFieldChange {
     pub fn new(field_name: String, old_value: Option<String>, new_value: Option<String>) -> Self {
         Self {
             field_name,
@@ -144,7 +188,7 @@ pub struct ValidatedCommit {
     pub actor: CommitParticipant,
     pub added_inboxes: Vec<Inbox>,
     pub removed_inboxes: Vec<Inbox>,
-    pub metadata_changes: Vec<MetadataChange>,
+    pub metadata_changes: MutableMetadataChanges,
 }
 
 impl ValidatedCommit {
@@ -154,14 +198,28 @@ impl ValidatedCommit {
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
     ) -> Result<Self, CommitValidationError> {
-        // Get the group metadata
-        let group_metadata = extract_group_metadata(openmls_group)?;
-        // Get the actor who created the commit.
-        // Because we don't allow for multiple actors in a commit, this will error if two proposals come from different authors.
-        let actor = extract_actor(staged_commit, openmls_group, &group_metadata)?;
+        // Get the immutable and mutable metadata
+        let extensions = openmls_group.extensions();
+        let immutable_metadata: GroupMetadata = extensions.try_into()?;
+        let mutable_metadata: GroupMutableMetadata = extensions.try_into()?;
 
         let existing_group_context = openmls_group.export_group_context();
         let new_group_context = staged_commit.group_context();
+
+        let metadata_changes = extract_metadata_changes(
+            &immutable_metadata,
+            &mutable_metadata,
+            existing_group_context,
+            new_group_context,
+        )?;
+        // Get the actor who created the commit.
+        // Because we don't allow for multiple actors in a commit, this will error if two proposals come from different authors.
+        let actor = extract_actor(
+            staged_commit,
+            openmls_group,
+            &immutable_metadata,
+            &mutable_metadata,
+        )?;
 
         // Get the expected diff of installations added and removed based on the difference between the current
         // group membership and the new group membership.
@@ -176,7 +234,8 @@ impl ValidatedCommit {
             client,
             existing_group_context,
             new_group_context,
-            &group_metadata,
+            &immutable_metadata,
+            &mutable_metadata,
         )
         .await?;
 
@@ -185,7 +244,12 @@ impl ValidatedCommit {
             added_installations,
             removed_installations,
             mut credentials_to_verify,
-        } = get_proposal_changes(staged_commit, openmls_group, &group_metadata)?;
+        } = get_proposal_changes(
+            staged_commit,
+            openmls_group,
+            &immutable_metadata,
+            &mutable_metadata,
+        )?;
 
         // Ensure that the expected diff matches the added/removed installations in the proposals
         expected_diff_matches_commit(
@@ -223,8 +287,6 @@ impl ValidatedCommit {
                 ));
             }
         }
-
-        let metadata_changes = extract_metadata_changes(existing_group_context, new_group_context)?;
 
         let verified_commit = Self {
             actor,
@@ -267,7 +329,8 @@ struct ProposalChanges {
 fn get_proposal_changes(
     staged_commit: &StagedCommit,
     openmls_group: &OpenMlsGroup,
-    group_metadata: &GroupMetadata,
+    immutable_metadata: &GroupMetadata,
+    mutable_metadata: &GroupMutableMetadata,
 ) -> Result<ProposalChanges, CommitValidationError> {
     // The actual installations added and removed via proposals in the commit
     let mut added_installations: HashSet<Vec<u8>> = HashSet::new();
@@ -281,7 +344,8 @@ fn get_proposal_changes(
             Proposal::Update(update_proposal) => {
                 credentials_to_verify.push(CommitParticipant::from_leaf_node(
                     update_proposal.leaf_node(),
-                    group_metadata,
+                    immutable_metadata,
+                    mutable_metadata,
                 )?);
             }
             // For Add Proposals, all we need to do is validate that the installation_id is in the expected diff
@@ -327,7 +391,8 @@ async fn extract_expected_diff<'diff, ApiClient: XmtpMlsClient + XmtpIdentityCli
     client: &Client<ApiClient>,
     existing_group_context: &GroupContext,
     new_group_context: &GroupContext,
-    group_metadata: &GroupMetadata,
+    immutable_metadata: &GroupMetadata,
+    mutable_metadata: &GroupMutableMetadata,
 ) -> Result<ExpectedDiff, CommitValidationError> {
     let old_group_membership = extract_group_membership(existing_group_context)?;
     let new_group_membership = extract_group_membership(new_group_context)?;
@@ -342,19 +407,13 @@ async fn extract_expected_diff<'diff, ApiClient: XmtpMlsClient + XmtpIdentityCli
     let added_inboxes = membership_diff
         .added_inboxes
         .iter()
-        .map(|inbox_id| Inbox {
-            inbox_id: inbox_id.to_string(),
-            is_creator: *inbox_id == &group_metadata.creator_inbox_id,
-        })
+        .map(|inbox_id| build_inbox(inbox_id, immutable_metadata, mutable_metadata))
         .collect::<Vec<Inbox>>();
 
     let removed_inboxes = membership_diff
         .removed_inboxes
         .iter()
-        .map(|inbox_id| Inbox {
-            inbox_id: inbox_id.to_string(),
-            is_creator: *inbox_id == &group_metadata.creator_inbox_id,
-        })
+        .map(|inbox_id| build_inbox(inbox_id, immutable_metadata, mutable_metadata))
         .collect::<Vec<Inbox>>();
 
     let expected_installation_diff = client
@@ -430,18 +489,18 @@ fn validate_membership_diff(
 fn extract_commit_participant(
     leaf_index: &LeafNodeIndex,
     group: &OpenMlsGroup,
-    group_metadata: &GroupMetadata,
+    immutable_metadata: &GroupMetadata,
+    mutable_metadata: &GroupMutableMetadata,
 ) -> Result<CommitParticipant, CommitValidationError> {
     if let Some(leaf_node) = group.member_at(*leaf_index) {
         let installation_id = leaf_node.signature_key.to_vec();
         let inbox_id = inbox_id_from_credential(&leaf_node.credential)?;
-        let is_creator = inbox_id == group_metadata.creator_inbox_id;
-
-        Ok(CommitParticipant {
+        Ok(CommitParticipant::build(
             inbox_id,
             installation_id,
-            is_creator,
-        })
+            immutable_metadata,
+            mutable_metadata,
+        ))
     } else {
         // TODO: Handle external joins/commits
         Err(CommitValidationError::ActorNotMember)
@@ -467,33 +526,98 @@ fn extract_group_membership(
 }
 
 fn extract_metadata_changes(
+    immutable_metadata: &GroupMetadata,
+    // We already have the old mutable metadata, so save parsing it a second time
+    old_mutable_metadata: &GroupMutableMetadata,
     old_group_context: &GroupContext,
     new_group_context: &GroupContext,
-) -> Result<Vec<MetadataChange>, CommitValidationError> {
+) -> Result<MutableMetadataChanges, CommitValidationError> {
     let old_mutable_metadata_ext = find_mutable_metadata_extension(old_group_context.extensions())
         .ok_or(CommitValidationError::MissingMutableMetadata)?;
     let new_mutable_metadata_ext = find_mutable_metadata_extension(new_group_context.extensions())
         .ok_or(CommitValidationError::MissingMutableMetadata)?;
 
-    // Before even decoding the mutable metadata, make sure that something has changed. Otherwise we know there is
+    // Before even decoding the new metadata, make sure that something has changed. Otherwise we know there is
     // nothing to do
     if old_mutable_metadata_ext.eq(new_mutable_metadata_ext) {
-        return Ok(vec![]);
+        return Ok(MutableMetadataChanges::default());
     }
 
-    let old_mutable_metadata: GroupMutableMetadata = old_mutable_metadata_ext.try_into()?;
     let new_mutable_metadata: GroupMutableMetadata = new_mutable_metadata_ext.try_into()?;
 
-    Ok(mutable_metadata_diff(
-        &old_mutable_metadata,
-        &new_mutable_metadata,
-    ))
+    let metadata_field_changes =
+        mutable_metadata_field_changes(old_mutable_metadata, &new_mutable_metadata);
+
+    Ok(MutableMetadataChanges {
+        metadata_field_changes,
+        admins_added: get_added_members(
+            &old_mutable_metadata.admin_list,
+            &new_mutable_metadata.admin_list,
+            immutable_metadata,
+            old_mutable_metadata,
+        ),
+        admins_removed: get_removed_members(
+            &old_mutable_metadata.admin_list,
+            &new_mutable_metadata.admin_list,
+            immutable_metadata,
+            old_mutable_metadata,
+        ),
+        super_admins_added: get_added_members(
+            &old_mutable_metadata.super_admin_list,
+            &new_mutable_metadata.super_admin_list,
+            immutable_metadata,
+            old_mutable_metadata,
+        ),
+        super_admins_removed: get_removed_members(
+            &old_mutable_metadata.super_admin_list,
+            &new_mutable_metadata.super_admin_list,
+            immutable_metadata,
+            old_mutable_metadata,
+        ),
+    })
 }
 
-fn mutable_metadata_diff(
+fn get_added_members(
+    old: &[String],
+    new: &[String],
+    immutable_metadata: &GroupMetadata,
+    mutable_metadata: &GroupMutableMetadata,
+) -> Vec<Inbox> {
+    new.iter()
+        .filter(|new_inbox| !old.contains(new_inbox))
+        .map(|inbox_id| build_inbox(inbox_id, immutable_metadata, mutable_metadata))
+        .collect()
+}
+
+fn get_removed_members(
+    old: &[String],
+    new: &[String],
+    immutable_metadata: &GroupMetadata,
+    mutable_metadata: &GroupMutableMetadata,
+) -> Vec<Inbox> {
+    old.iter()
+        .filter(|old_inbox| !new.contains(old_inbox))
+        .map(|inbox_id| build_inbox(inbox_id, immutable_metadata, mutable_metadata))
+        .collect()
+}
+
+fn build_inbox(
+    inbox_id: &String,
+    immutable_metadata: &GroupMetadata,
+    mutable_metadata: &GroupMutableMetadata,
+) -> Inbox {
+    Inbox {
+        inbox_id: inbox_id.to_string(),
+        is_admin: mutable_metadata.is_admin(inbox_id),
+        is_super_admin: mutable_metadata.is_super_admin(inbox_id),
+        is_creator: immutable_metadata.creator_inbox_id.eq(inbox_id),
+    }
+}
+
+fn mutable_metadata_field_changes(
     old_metadata: &GroupMutableMetadata,
     new_metadata: &GroupMutableMetadata,
-) -> Vec<MetadataChange> {
+) -> Vec<MetadataFieldChange> {
     let all_keys = old_metadata
         .attributes
         .keys()
@@ -509,7 +633,7 @@ fn mutable_metadata_diff(
             let old_val = old_metadata.attributes.get(key);
             let new_val = new_metadata.attributes.get(key);
             if old_val.ne(&new_val) {
-                Some(MetadataChange::new(
+                Some(MetadataFieldChange::new(
                     key.clone(),
                     old_val.cloned(),
                     new_val.cloned(),
@@ -520,6 +644,7 @@ fn mutable_metadata_diff(
         })
         .collect()
 }
+
 fn inbox_id_from_credential(
     credential: &OpenMlsCredential,
 ) -> Result<String, CommitValidationError> {
@@ -537,7 +662,8 @@ fn inbox_id_from_credential(
 fn extract_actor(
     staged_commit: &StagedCommit,
     openmls_group: &OpenMlsGroup,
-    group_metadata: &GroupMetadata,
+    immutable_metadata: &GroupMetadata,
+    mutable_metadata: &GroupMutableMetadata,
 ) -> Result<CommitParticipant, CommitValidationError> {
     // If there was a path update, get the leaf node that was updated
     let path_update_leaf_node: Option<&LeafNode> = staged_commit.update_path_leaf_node();
@@ -582,12 +708,21 @@ fn extract_actor(
 
     // Convert the path update leaf node to a [`CommitParticipant`]
     if let Some(path_update_leaf_node) = path_update_leaf_node {
-        return CommitParticipant::from_leaf_node(path_update_leaf_node, group_metadata);
+        return CommitParticipant::from_leaf_node(
+            path_update_leaf_node,
+            immutable_metadata,
+            mutable_metadata,
+        );
     }
 
     // Convert the proposal author leaf index to a [`CommitParticipant`]
     if let Some(leaf_index) = proposal_author_leaf_index {
-        return extract_commit_participant(leaf_index, openmls_group, group_metadata);
+        return extract_commit_participant(
+            leaf_index,
+            openmls_group,
+            immutable_metadata,
+            mutable_metadata,
+        );
     }
 
     // To get here there must be no path update and no proposals found. This should actually be impossible
