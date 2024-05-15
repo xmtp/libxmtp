@@ -31,13 +31,14 @@ impl<'a> From<&'a MlsGroup> for SerializableGroup {
             .collect::<Vec<String>>();
 
         let metadata = group.metadata().expect("could not load metadata");
+        let permissions = group.permissions().expect("could not load permissions");
 
         Self {
             group_id,
             members,
             metadata: SerializableGroupMetadata {
                 creator_account_address: metadata.creator_account_address.clone(),
-                policy: metadata
+                policy: permissions
                     .preconfigured_policy()
                     .expect("could not get policy")
                     .to_string(),

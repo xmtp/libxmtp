@@ -72,6 +72,8 @@ pub enum CommitValidationError {
     ProtoDecode(#[from] prost::DecodeError),
     #[error(transparent)]
     InstallationDiff(#[from] InstallationDiffError),
+    #[error("Failed to parse group mutable permissions: {0}")]
+    GroupMutablePermissions(#[from] GroupMutablePermissionsError),
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
