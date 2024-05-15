@@ -1,4 +1,5 @@
 pub mod api;
+mod await_helper;
 pub mod builder;
 pub mod client;
 pub mod codecs;
@@ -18,6 +19,7 @@ pub mod verified_key_package;
 pub mod verified_key_package_v2;
 mod xmtp_openmls_provider;
 
+pub use await_helper::await_helper;
 pub use client::{Client, Network};
 use storage::StorageError;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};

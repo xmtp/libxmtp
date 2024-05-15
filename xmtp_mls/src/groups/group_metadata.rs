@@ -52,6 +52,8 @@ impl GroupMetadata {
         }
     }
 
+    #[allow(dead_code)]
+    // TODO:nm decide if we need to remove
     pub fn preconfigured_policy(&self) -> Result<PreconfiguredPolicies, GroupMetadataError> {
         Ok(PreconfiguredPolicies::from_policy_set(&self.policies)?)
     }
