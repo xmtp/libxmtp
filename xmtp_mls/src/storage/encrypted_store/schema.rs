@@ -21,7 +21,7 @@ diesel::table! {
         sent_at_ns -> BigInt,
         kind -> Integer,
         sender_installation_id -> Binary,
-        sender_account_address -> Text,
+        sender_inbox_id -> Text,
         delivery_status -> Integer,
     }
 }
@@ -33,21 +33,12 @@ diesel::table! {
         membership_state -> Integer,
         installations_last_checked -> BigInt,
         purpose -> Integer,
-        added_by_address -> Text,
+        added_by_inbox_id -> Text,
     }
 }
 
 diesel::table! {
     identity (rowid) {
-        account_address -> Text,
-        installation_keys -> Binary,
-        credential_bytes -> Binary,
-        rowid -> Nullable<Integer>,
-    }
-}
-
-diesel::table! {
-    identity_inbox (rowid) {
         inbox_id -> Text,
         installation_keys -> Binary,
         credential_bytes -> Binary,
@@ -87,7 +78,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     group_messages,
     groups,
     identity,
-    identity_inbox,
     identity_updates,
     openmls_key_store,
     refresh_state,

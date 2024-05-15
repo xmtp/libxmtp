@@ -49,7 +49,7 @@ impl<'a> From<&'a MlsGroup> for SerializableGroup {
 
 #[derive(Serialize, Debug, Clone)]
 pub struct SerializableMessage {
-    sender_account_address: String,
+    sender_inbox_id: String,
     sent_at_ns: u64,
     message_text: Option<String>,
     // content_type: String
@@ -59,7 +59,7 @@ impl SerializableMessage {
     pub fn from_stored_message(msg: &StoredGroupMessage) -> Self {
         let maybe_text = maybe_get_text(msg);
         Self {
-            sender_account_address: msg.sender_account_address.clone(),
+            sender_inbox_id: msg.sender_inbox_id.clone(),
             sent_at_ns: msg.sent_at_ns as u64,
             message_text: maybe_text,
         }

@@ -417,10 +417,11 @@ fn format_messages(
         if text.is_none() {
             continue;
         }
-        let sender = if msg.sender_account_address == my_account_address {
+        // TODO:nm use inbox ID
+        let sender = if msg.sender_inbox_id == my_account_address {
             "Me".to_string()
         } else {
-            msg.sender_account_address
+            msg.sender_inbox_id
         };
 
         let msg_line = format!(
