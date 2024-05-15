@@ -395,8 +395,7 @@ impl MlsGroup {
             sent_at_ns: now,
             kind: GroupMessageKind::Application,
             sender_installation_id: self.context.installation_public_key(),
-            // TODO: Remove this hack
-            sender_account_address: self.context.inbox_id(),
+            sender_inbox_id: self.context.inbox_id(),
             delivery_status: DeliveryStatus::Unpublished,
         };
         group_message.store(&conn)?;
@@ -554,7 +553,7 @@ impl MlsGroup {
             .map_err(GroupError::from)
             .and_then(|fetch_result| {
                 fetch_result
-                    .map(|group| group.added_by_address.clone())
+                    .map(|group| group.added_by_inbox_id.clone())
                     .ok_or_else(|| GroupError::GroupNotFound)
             })
     }

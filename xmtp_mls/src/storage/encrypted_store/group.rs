@@ -34,8 +34,8 @@ pub struct StoredGroup {
     pub installations_last_checked: i64,
     /// Enum, [`Purpose`] signifies the group purpose which extends to who can access it.
     pub purpose: Purpose,
-    /// The wallet address of who added the user to a group.
-    pub added_by_address: String, // TODO: This should be Inbox ID.
+    /// The inbox_id of who added the user to a group.
+    pub added_by_inbox_id: String,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -47,7 +47,7 @@ impl StoredGroup {
         id: ID,
         created_at_ns: i64,
         membership_state: GroupMembershipState,
-        added_by_address: String,
+        added_by_inbox_id: String,
     ) -> Self {
         Self {
             id,
@@ -55,11 +55,12 @@ impl StoredGroup {
             membership_state,
             installations_last_checked: 0,
             purpose: Purpose::Conversation,
-            added_by_address,
+            added_by_inbox_id,
         }
     }
 
     /// Create a new [`Purpose::Sync`] group.  This is less common and is used to sync message history.
+    /// TODO: Set added_by_inbox to your own inbox_id
     pub fn new_sync_group(
         id: ID,
         created_at_ns: i64,
@@ -71,7 +72,7 @@ impl StoredGroup {
             membership_state,
             installations_last_checked: 0,
             purpose: Purpose::Sync,
-            added_by_address: "".into(),
+            added_by_inbox_id: "".into(),
         }
     }
 }

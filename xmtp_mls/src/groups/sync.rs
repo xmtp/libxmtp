@@ -276,7 +276,7 @@ impl MlsGroup {
     ) -> Result<(), MessageProcessingError> {
         debug!("[{}] processing private message", self.context.inbox_id());
         let decrypted_message = openmls_group.process_message(provider, message)?;
-        let (sender_account_address, sender_installation_id) =
+        let (_sender_account_address, sender_installation_id) =
             validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
 
         match decrypted_message.into_content() {
@@ -301,7 +301,8 @@ impl MlsGroup {
                             sent_at_ns: envelope_timestamp_ns as i64,
                             kind: GroupMessageKind::Application,
                             sender_installation_id,
-                            sender_account_address,
+                            // TODO:nm Get real inbox ID
+                            sender_inbox_id: "TODO".to_string(),
                             delivery_status: DeliveryStatus::Published,
                         }
                         .store(provider.conn_ref())?
@@ -325,7 +326,8 @@ impl MlsGroup {
                                 sent_at_ns: envelope_timestamp_ns as i64,
                                 kind: GroupMessageKind::Application,
                                 sender_installation_id,
-                                sender_account_address,
+                                // TODO:nm use real inbox ID
+                                sender_inbox_id: "TODO".to_string(),
                                 delivery_status: DeliveryStatus::Published,
                             }
                             .store(provider.conn_ref())?
@@ -351,7 +353,8 @@ impl MlsGroup {
                                 sent_at_ns: envelope_timestamp_ns as i64,
                                 kind: GroupMessageKind::Application,
                                 sender_installation_id,
-                                sender_account_address,
+                                // TODO:nm use real inbox ID
+                                sender_inbox_id: "TODO".to_string(),
                                 delivery_status: DeliveryStatus::Published,
                             }
                             .store(provider.conn_ref())?
@@ -548,7 +551,8 @@ impl MlsGroup {
                 sent_at_ns: timestamp_ns as i64,
                 kind: GroupMessageKind::MembershipChange,
                 sender_installation_id,
-                sender_account_address,
+                // TODO:nm use real inbox ID
+                sender_inbox_id: sender_account_address.clone(),
                 delivery_status: DeliveryStatus::Published,
             };
 
