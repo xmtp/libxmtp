@@ -7,8 +7,8 @@ use futures::Stream;
 use super::{extract_message_v1, GroupError, MlsGroup};
 use crate::storage::group_message::StoredGroupMessage;
 use crate::subscriptions::{MessagesStreamInfo, StreamCloser};
-use crate::Client;
 use crate::XmtpApi;
+use crate::{await_helper, Client};
 use prost::Message;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
@@ -28,8 +28,14 @@ impl MlsGroup {
 
             // Attempt processing immediately, but fail if the message is not an Application Message
             // Returning an error should roll back the DB tx
-            self.process_message(&mut openmls_group, provider, &msgv1, false)
-                .map_err(GroupError::ReceiveError)
+            await_helper(self.process_message(
+                client.as_ref(),
+                &mut openmls_group,
+                provider,
+                &msgv1,
+                false,
+            ))
+            .map_err(GroupError::ReceiveError)
         });
 
         if let Some(GroupError::ReceiveError(_)) = process_result.err() {
