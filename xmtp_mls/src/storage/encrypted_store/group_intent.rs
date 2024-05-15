@@ -54,7 +54,7 @@ pub struct StoredGroupIntent {
 
 impl_fetch!(StoredGroupIntent, group_intents, ID);
 
-impl Delete<StoredGroupIntent> for DbConnection<'_> {
+impl Delete<StoredGroupIntent> for DbConnection {
     type Key = ID;
     fn delete(&self, key: ID) -> Result<usize, StorageError> {
         Ok(self
@@ -84,7 +84,7 @@ impl NewGroupIntent {
     }
 }
 
-impl DbConnection<'_> {
+impl DbConnection {
     pub fn insert_group_intent(
         &self,
         to_save: NewGroupIntent,

@@ -2,11 +2,11 @@ use std::collections::HashMap;
 
 use openmls::{credentials::BasicCredential, group::MlsGroup as OpenMlsGroup};
 
-use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
+use openmls_traits::OpenMlsProvider;
 
 use super::{GroupError, MlsGroup};
 
-use crate::{identity::v3::Identity, xmtp_openmls_provider::XmtpOpenMlsProvider};
+use crate::identity::v3::Identity;
 
 #[derive(Debug, Clone)]
 pub struct GroupMember {
@@ -14,20 +14,17 @@ pub struct GroupMember {
     pub installation_ids: Vec<Vec<u8>>,
 }
 
-impl<'c, ApiClient> MlsGroup<'c, ApiClient>
-where
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
-{
+impl MlsGroup {
     // Load the member list for the group from the DB, merging together multiple installations into a single entry
     pub fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
-        let conn = self.client.store.conn()?;
-        let provider = self.client.mls_provider(&conn);
+        let conn = self.context.store.conn()?;
+        let provider = self.context.mls_provider(conn);
         self.members_with_provider(&provider)
     }
 
     pub fn members_with_provider(
         &self,
-        provider: &XmtpOpenMlsProvider,
+        provider: impl OpenMlsProvider,
     ) -> Result<Vec<GroupMember>, GroupError> {
         let openmls_group = self.load_mls_group(provider)?;
         aggregate_member_list(&openmls_group)
@@ -79,10 +76,13 @@ mod tests {
         let group = amal.create_group(None).unwrap();
         // Add both of Bola's installations to the group
         group
-            .add_members_by_installation_id(vec![
-                bola_a.installation_public_key(),
-                bola_b.installation_public_key(),
-            ])
+            .add_members_by_installation_id(
+                vec![
+                    bola_a.installation_public_key(),
+                    bola_b.installation_public_key(),
+                ],
+                &amal,
+            )
             .await
             .unwrap();
 

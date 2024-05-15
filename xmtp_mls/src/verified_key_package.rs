@@ -138,8 +138,8 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_application_id() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let conn = client.store.conn().unwrap();
-        let provider = client.mls_provider(&conn);
+        let conn = client.store().conn().unwrap();
+        let provider = client.mls_provider(conn);
 
         // Build a key package
         let last_resort = Extension::LastResort(LastResortExtension::default());
@@ -163,10 +163,10 @@ mod tests {
             .build(
                 CIPHERSUITE,
                 &provider,
-                &client.identity.installation_keys,
+                &client.identity().installation_keys,
                 CredentialWithKey {
-                    credential: client.identity.credential().unwrap(),
-                    signature_key: client.identity.installation_keys.to_public_vec().into(),
+                    credential: client.identity().credential().unwrap(),
+                    signature_key: client.identity().installation_keys.to_public_vec().into(),
                 },
             )
             .unwrap();

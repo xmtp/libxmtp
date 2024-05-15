@@ -1,5 +1,3 @@
-use std::sync::{Arc, Mutex, MutexGuard};
-
 use diesel::sql_types::Binary;
 use diesel::{deserialize::QueryableByName, sql_query, RunQueryDsl};
 use log::error;
@@ -17,21 +15,23 @@ struct StorageData {
     value_bytes: Vec<u8>,
 }
 
-#[derive(Debug)]
-pub struct SqlKeyStore<'a> {
+#[derive(Debug, Clone)]
+pub struct SqlKeyStore {
     // Directly wrap the DbConnection which is a SqliteConnection in this case
-    conn: Arc<Mutex<&'a DbConnection<'a>>>,
+    conn: DbConnection,
 }
 
-impl<'a> SqlKeyStore<'a> {
-    pub fn new(conn: &'a DbConnection<'a>) -> Self {
-        Self {
-            conn: Arc::new(Mutex::new(conn)),
-        }
+impl SqlKeyStore {
+    pub fn new(conn: DbConnection) -> Self {
+        Self { conn }
     }
 
-    pub fn conn(&self) -> Arc<Mutex<&'a DbConnection<'a>>> {
-        Arc::clone(&self.conn)
+    pub fn conn(&self) -> DbConnection {
+        self.conn.clone()
+    }
+
+    pub fn conn_ref(&self) -> &DbConnection {
+        &self.conn
     }
 
     pub fn write<const VERSION: u16>(
@@ -46,8 +46,7 @@ impl<'a> SqlKeyStore<'a> {
         let query =
             "REPLACE INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (?, ?, ?)";
 
-        let conn = self.conn.lock().unwrap();
-        let _ = conn.raw_query(|conn| {
+        let _ = self.conn().raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -72,10 +71,8 @@ impl<'a> SqlKeyStore<'a> {
         let update_query =
             "UPDATE openmls_key_value SET value_bytes = ? WHERE key_bytes = ? AND version = ?";
 
-        let conn: MutexGuard<_> = self.conn.lock().unwrap();
-
         let current_data: Result<Vec<StorageData>, diesel::result::Error> =
-            conn.raw_query(|conn| {
+            self.conn().raw_query(|conn| {
                 sql_query(select_query)
                     .bind::<diesel::sql_types::Binary, _>(&storage_key)
                     .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -101,7 +98,7 @@ impl<'a> SqlKeyStore<'a> {
                                 .map_err(|_| MemoryStorageError::SerializationError)?;
                             // eprintln!("  modified_data: {modified_data}");
 
-                            let _ = conn.raw_query(|conn| {
+                            let _ = self.conn().raw_query(|conn| {
                                 sql_query(update_query)
                                     .bind::<diesel::sql_types::Binary, _>(&modified_data)
                                     .bind::<diesel::sql_types::Binary, _>(&storage_key)
@@ -116,7 +113,7 @@ impl<'a> SqlKeyStore<'a> {
                     eprintln!("  first entry ...");
                     // Add a first entry
                     let query = "REPLACE INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (?, ?, ?)";
-                    let _ = conn.raw_query(|conn| {
+                    let _ = self.conn.raw_query(|conn| {
                         sql_query(query)
                             .bind::<diesel::sql_types::Binary, _>(&storage_key)
                             .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -146,10 +143,9 @@ impl<'a> SqlKeyStore<'a> {
             "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
         let update_query =
             "UPDATE openmls_key_value SET value_bytes = ? WHERE key_bytes = ? AND version = ?";
-        let conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
 
         let current_data: Result<Vec<StorageData>, diesel::result::Error> =
-            conn.raw_query(|conn| {
+            self.conn().raw_query(|conn| {
                 sql_query(select_query)
                     .bind::<diesel::sql_types::Binary, _>(&storage_key)
                     .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -174,7 +170,7 @@ impl<'a> SqlKeyStore<'a> {
                             let modified_data = serde_json::to_vec(&deserialized)
                                 .map_err(|_| MemoryStorageError::SerializationError)?;
 
-                            let _ = conn.raw_query(|conn| {
+                            let _ = self.conn().raw_query(|conn| {
                                 sql_query(update_query)
                                     .bind::<diesel::sql_types::Binary, _>(&modified_data)
                                     .bind::<diesel::sql_types::Binary, _>(&storage_key)
@@ -189,7 +185,7 @@ impl<'a> SqlKeyStore<'a> {
                     eprintln!("  first entry ...");
                     // Add a first entry
                     let query = "REPLACE INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (?, ?, ?)";
-                    let _ = conn.raw_query(|conn| {
+                    let _ = self.conn().raw_query(|conn| {
                         sql_query(query)
                             .bind::<diesel::sql_types::Binary, _>(&storage_key)
                             .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -215,14 +211,14 @@ impl<'a> SqlKeyStore<'a> {
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
-        let conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
 
-        let results: Result<Vec<StorageData>, diesel::result::Error> = conn.raw_query(|conn| {
-            sql_query(query)
-                .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                .load(conn)
-        });
+        let results: Result<Vec<StorageData>, diesel::result::Error> =
+            self.conn().raw_query(|conn| {
+                sql_query(query)
+                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                    .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
+                    .load(conn)
+            });
 
         match results {
             Ok(data) => {
@@ -251,8 +247,8 @@ impl<'a> SqlKeyStore<'a> {
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
-        let conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
-        match conn.raw_query(|conn| {
+
+        match self.conn().raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -287,8 +283,8 @@ impl<'a> SqlKeyStore<'a> {
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "DELETE FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
-        let conn: MutexGuard<&DbConnection<'a>> = self.conn.lock().unwrap();
-        let _ = conn.raw_query(|conn| {
+
+        let _ = self.conn().raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -337,7 +333,7 @@ const QUEUED_PROPOSAL_LABEL: &[u8] = b"QueuedProposal";
 const PROPOSAL_QUEUE_REFS_LABEL: &[u8] = b"ProposalQueueRefs";
 const RESUMPTION_PSK_STORE_LABEL: &[u8] = b"ResumptionPskStore";
 
-impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
+impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
     type Error = MemoryStorageError;
 
     fn queue_proposal<
@@ -477,10 +473,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
     ) -> Result<Option<TreeSync>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(TREE_LABEL, group_id);
 
-        match self.read(TREE_LABEL, &key) {
-            Ok(value) => Ok(value),
-            Err(e) => Err(e),
-        }
+        self.read(TREE_LABEL, &key)
     }
 
     fn group_context<
@@ -492,10 +485,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
     ) -> Result<Option<GroupContext>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(GROUP_CONTEXT_LABEL, group_id);
 
-        match self.read(GROUP_CONTEXT_LABEL, &key) {
-            Ok(value) => Ok(value),
-            Err(e) => Err(e),
-        }
+        self.read(GROUP_CONTEXT_LABEL, &key)
     }
 
     fn interim_transcript_hash<
@@ -507,10 +497,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
     ) -> Result<Option<InterimTranscriptHash>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(INTERIM_TRANSCRIPT_HASH_LABEL, group_id);
 
-        match self.read(INTERIM_TRANSCRIPT_HASH_LABEL, &key) {
-            Ok(value) => Ok(value),
-            Err(e) => Err(e),
-        }
+        self.read(INTERIM_TRANSCRIPT_HASH_LABEL, &key)
     }
 
     fn confirmation_tag<
@@ -522,10 +509,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
     ) -> Result<Option<ConfirmationTag>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(CONFIRMATION_TAG_LABEL, group_id);
 
-        match self.read(CONFIRMATION_TAG_LABEL, &key) {
-            Ok(value) => Ok(value),
-            Err(e) => Err(e),
-        }
+        self.read(CONFIRMATION_TAG_LABEL, &key)
     }
 
     fn signature_key_pair<
@@ -538,10 +522,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         let key =
             build_key::<CURRENT_VERSION, &SignaturePublicKey>(SIGNATURE_KEY_PAIR_LABEL, public_key);
 
-        match self.read(SIGNATURE_KEY_PAIR_LABEL, &key) {
-            Ok(value) => Ok(value),
-            Err(e) => Err(e),
-        }
+        self.read(SIGNATURE_KEY_PAIR_LABEL, &key)
     }
 
     fn write_key_package<
@@ -556,8 +537,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         let value = serde_json::to_vec(&key_package).unwrap();
 
         // Store the key package
-        self.write::<CURRENT_VERSION>(KEY_PACKAGE_LABEL, &key, &value)
-            .unwrap();
+        self.write::<CURRENT_VERSION>(KEY_PACKAGE_LABEL, &key, &value)?;
 
         Ok(())
     }
@@ -570,7 +550,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         _psk_id: &PskId,
         _psk: &PskBundle,
     ) -> Result<(), Self::Error> {
-        Err(MemoryStorageError::UnsupportedMethod)
+        Ok(())
     }
 
     fn write_encryption_key_pair<
@@ -586,7 +566,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         self.write::<CURRENT_VERSION>(
             ENCRYPTION_KEY_PAIR_LABEL,
             &key,
-            &serde_json::to_vec(key_pair).unwrap(),
+            &serde_json::to_vec(key_pair)?,
         )
     }
 
@@ -605,7 +585,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         &self,
         _psk_id: &PskId,
     ) -> Result<Option<PskBundle>, Self::Error> {
-        Err(MemoryStorageError::UnsupportedMethod)
+        Ok(None)
     }
 
     fn encryption_key_pair<
@@ -1142,8 +1122,9 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
+
         let conn = &store.conn().unwrap();
-        let key_store = SqlKeyStore::new(conn);
+        let key_store = SqlKeyStore::new(conn.clone());
 
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
         let public_key = StorageId::from(signature_keys.to_public_vec());
@@ -1179,9 +1160,9 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        let conn = &store.conn().unwrap();
-        let key_store = SqlKeyStore::new(conn);
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let conn = store.conn().unwrap();
+        let key_store = SqlKeyStore::new(conn.clone());
+        let provider = XmtpOpenMlsProvider::new(conn);
         let group_id = GroupId::random(provider.rand());
 
         assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
@@ -1219,9 +1200,9 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        let conn = &store.conn().unwrap();
-        let key_store = SqlKeyStore::new(conn);
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let conn = store.conn().unwrap();
+        let key_store = SqlKeyStore::new(conn.clone());
+        let provider = XmtpOpenMlsProvider::new(conn);
         let group_id = GroupId::random(provider.rand());
         let proposals = (0..10)
             .map(|i| Proposal(format!("TestProposal{i}").as_bytes().to_vec()))
@@ -1296,9 +1277,9 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        let conn = &store.conn().unwrap();
-        let key_store = SqlKeyStore::new(conn);
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let conn = store.conn().unwrap();
+        let key_store = SqlKeyStore::new(conn.clone());
+        let provider = XmtpOpenMlsProvider::new(conn);
 
         #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
         struct GroupState(usize);

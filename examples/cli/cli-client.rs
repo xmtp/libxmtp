@@ -38,7 +38,7 @@ use xmtp_mls::{
         StorageOption,
     },
     utils::time::now_ns,
-    InboxOwner, Network,
+    InboxOwner,
 };
 type Client = xmtp_mls::client::Client<ApiClient>;
 type ClientBuilder = xmtp_mls::builder::ClientBuilder<ApiClient>;
@@ -201,11 +201,11 @@ async fn main() {
                 .find_groups(None, None, None, None)
                 .expect("failed to list groups");
             for group in group_list.iter() {
-                group.sync().await.expect("error syncing group");
+                group.sync(&client).await.expect("error syncing group");
             }
             let serializable_group_list = group_list
                 .iter()
-                .map(|g| g.into())
+                .map(Into::into)
                 .collect::<Vec<SerializableGroup>>();
 
             info!(
@@ -225,7 +225,7 @@ async fn main() {
             let group = get_group(&client, hex::decode(group_id).expect("group id decode"))
                 .await
                 .expect("failed to get group");
-            send(group, msg.clone()).await.unwrap();
+            send(group, msg.clone(), &client).await.unwrap();
             info!("sent message", { command_output: true, group_id: group_id, message: msg });
         }
         Commands::ListGroupMessages { group_id } => {
@@ -268,7 +268,7 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .add_members(account_addresses.clone())
+                .add_members(account_addresses.clone(), &client)
                 .await
                 .expect("failed to add member");
 
@@ -290,7 +290,7 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .remove_members(account_addresses.clone())
+                .remove_members(account_addresses.clone(), &client)
                 .await
                 .expect("failed to add member");
 
@@ -301,11 +301,9 @@ async fn main() {
         }
         Commands::CreateGroup { permissions } => {
             let group_permissions = match permissions {
-                Permissions::EveryoneIsAdmin => {
-                    xmtp_mls::groups::PreconfiguredPolicies::EveryoneIsAdmin
-                }
+                Permissions::EveryoneIsAdmin => xmtp_mls::groups::PreconfiguredPolicies::AllMembers,
                 Permissions::GroupCreatorIsAdmin => {
-                    xmtp_mls::groups::PreconfiguredPolicies::GroupCreatorIsAdmin
+                    xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly
                 }
             };
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
@@ -325,7 +323,7 @@ async fn main() {
             let group = &client
                 .group(hex::decode(group_id).expect("bad group id"))
                 .expect("group not found");
-            group.sync().await.unwrap();
+            group.sync(&client).await.unwrap();
             let serializable: SerializableGroup = group.into();
             info!("Group {}", group_id, { command_output: true, group_id: group_id, group_info: make_value(&serializable) })
         }
@@ -341,16 +339,14 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
 
     if cli.local {
         info!("Using local network");
-        builder = builder
-            .network(Network::Local("http://localhost:5556"))
-            .api_client(
-                ApiClient::create("http://localhost:5556".into(), false)
-                    .await
-                    .unwrap(),
-            );
+        builder = builder.api_client(
+            ApiClient::create("http://localhost:5556".into(), false)
+                .await
+                .unwrap(),
+        );
     } else {
         info!("Using dev network");
-        builder = builder.network(Network::Dev).api_client(
+        builder = builder.api_client(
             ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true)
                 .await
                 .unwrap(),
@@ -388,24 +384,24 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
     Ok(())
 }
 
-async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup<ApiClient>, CliError> {
+async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup, CliError> {
     client.sync_welcomes().await?;
     let group = client.group(group_id)?;
     group
-        .sync()
+        .sync(client)
         .await
         .map_err(|_| CliError::Generic("failed to sync group".to_string()))?;
 
     Ok(group)
 }
 
-async fn send(group: MlsGroup<'_, ApiClient>, msg: String) -> Result<(), CliError> {
+async fn send(group: MlsGroup, msg: String, client: &Client) -> Result<(), CliError> {
     let mut buf = Vec::new();
     TextCodec::encode(msg.clone())
         .unwrap()
         .encode(&mut buf)
         .unwrap();
-    group.send_message(buf.as_slice()).await.unwrap();
+    group.send_message(buf.as_slice(), client).await.unwrap();
     Ok(())
 }
 

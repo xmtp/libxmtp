@@ -8,14 +8,13 @@ use xmtp_id::associations::{
     generate_inbox_id, get_state, AssociationError, AssociationState, AssociationStateDiff,
     IdentityUpdate, InstallationKeySignature, MemberIdentifier,
 };
-use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use crate::{
     api::GetIdentityUpdatesV2Filter,
     client::ClientError,
     groups::group_membership::{GroupMembership, MembershipDiff},
     storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
-    Client,
+    Client, XmtpApi,
 };
 
 #[derive(Debug, Error)]
@@ -37,12 +36,12 @@ pub enum InstallationDiffError {
 
 impl<'a, ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
+    ApiClient: XmtpApi,
 {
     /// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id``
     pub async fn load_identity_updates(
         &self,
-        conn: &'a DbConnection<'a>,
+        conn: &DbConnection,
         inbox_ids: Vec<String>,
     ) -> Result<(), ClientError> {
         if inbox_ids.is_empty() {
@@ -82,7 +81,7 @@ where
     /// in the local DB
     fn filter_inbox_ids_needing_updates<InboxId: AsRef<str> + ToString>(
         &self,
-        conn: &'a DbConnection<'a>,
+        conn: &DbConnection,
         filters: Vec<(InboxId, i64)>,
     ) -> Result<Vec<String>, ClientError> {
         let existing_sequence_ids = conn.get_latest_sequence_id(
@@ -111,7 +110,7 @@ where
 
     pub async fn get_association_state<InboxId: AsRef<str>>(
         &self,
-        conn: &'a DbConnection<'a>,
+        conn: &DbConnection,
         inbox_id: InboxId,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
@@ -141,7 +140,7 @@ where
 
     pub(crate) async fn get_association_state_diff<InboxId: AsRef<str>>(
         &self,
-        conn: &'a DbConnection<'a>,
+        conn: &DbConnection,
         inbox_id: InboxId,
         starting_sequence_id: Option<i64>,
         ending_sequence_id: Option<i64>,
@@ -178,7 +177,7 @@ where
     ) -> Result<SignatureRequest, ClientError> {
         let nonce = maybe_nonce.unwrap_or(0);
         let inbox_id = generate_inbox_id(&wallet_address, &nonce);
-        let installation_public_key = self.identity.installation_keys.public();
+        let installation_public_key = self.identity().installation_keys.public();
         let member_identifier: MemberIdentifier = wallet_address.into();
 
         let builder = SignatureRequestBuilder::new(inbox_id);
@@ -192,7 +191,7 @@ where
             .add_signature(Box::new(InstallationKeySignature::new(
                 signature_request.signature_text(),
                 // TODO: Move this to a method on the new identity
-                self.identity.sign(signature_request.signature_text())?,
+                self.identity().sign(signature_request.signature_text())?,
                 self.installation_public_key(),
             )))
             .await?;
@@ -220,7 +219,7 @@ where
         wallet_to_revoke: String,
     ) -> Result<SignatureRequest, ClientError> {
         let current_state = self
-            .get_association_state(&self.store.conn()?, &inbox_id, None)
+            .get_association_state(&self.store().conn()?, &inbox_id, None)
             .await?;
         let builder = SignatureRequestBuilder::new(inbox_id);
 
@@ -251,12 +250,12 @@ where
 
     /// Given two group memberships and the diff, get the list of installations that were added or removed
     /// between the two membership states.
-    pub async fn get_installation_diff<'diff>(
+    pub async fn get_installation_diff(
         &self,
-        conn: &'a DbConnection<'a>,
+        conn: &DbConnection,
         old_group_membership: &GroupMembership,
         new_group_membership: &GroupMembership,
-        membership_diff: &MembershipDiff<'diff>,
+        membership_diff: &MembershipDiff<'_>,
     ) -> Result<InstallationDiff, InstallationDiffError> {
         let added_and_updated_members = membership_diff
             .added_inboxes
@@ -324,14 +323,13 @@ mod tests {
         associations::{builder::SignatureRequest, AssociationState, RecoverableEcdsaSignature},
         InboxOwner,
     };
-    use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
     use crate::{
         builder::ClientBuilder,
         groups::group_membership::GroupMembership,
         storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
         utils::test::rand_vec,
-        Client,
+        Client, XmtpApi,
     };
 
     async fn sign_with_wallet(wallet: &LocalWallet, signature_request: &mut SignatureRequest) {
@@ -349,11 +347,14 @@ mod tests {
             .unwrap();
     }
 
-    async fn get_association_state<ApiClient: XmtpIdentityClient + XmtpMlsClient>(
+    async fn get_association_state<ApiClient>(
         client: &Client<ApiClient>,
         inbox_id: String,
-    ) -> AssociationState {
-        let conn = client.store.conn().unwrap();
+    ) -> AssociationState
+    where
+        ApiClient: XmtpApi,
+    {
+        let conn = client.store().conn().unwrap();
         client
             .load_identity_updates(&conn, vec![inbox_id.clone()])
             .await
@@ -365,7 +366,7 @@ mod tests {
             .unwrap()
     }
 
-    fn insert_identity_update(conn: &DbConnection<'_>, inbox_id: &str, sequence_id: i64) -> () {
+    fn insert_identity_update(conn: &DbConnection, inbox_id: &str, sequence_id: i64) {
         let identity_update =
             StoredIdentityUpdate::new(inbox_id.to_string(), sequence_id, 0, rand_vec());
 
@@ -447,7 +448,7 @@ mod tests {
     async fn load_identity_updates_if_needed() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        let conn = client.store.conn().unwrap();
+        let conn = client.store().conn().unwrap();
 
         insert_identity_update(&conn, "inbox_1", 1);
         insert_identity_update(&conn, "inbox_2", 2);
@@ -509,7 +510,7 @@ mod tests {
 
         // Create a new client to test group operations with
         let other_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let other_conn = other_client.store.conn().unwrap();
+        let other_conn = other_client.store().conn().unwrap();
         // Load all the identity updates for the new inboxes
         other_client
             .load_identity_updates(&other_conn, inbox_ids.clone())
@@ -532,18 +533,18 @@ mod tests {
         original_group_membership.add(inbox_ids[0].clone(), inbox_1_first_sequence_id as u64);
         original_group_membership.add(
             inbox_ids[1].clone(),
-            latest_sequence_ids.get(&inbox_ids[1]).unwrap().clone() as u64,
+            *latest_sequence_ids.get(&inbox_ids[1]).unwrap() as u64,
         );
 
         let mut new_group_membership = original_group_membership.clone();
         // Update the first inbox to have a higher sequence ID, but no new installations
         new_group_membership.add(
             inbox_ids[0].clone(),
-            latest_sequence_ids.get(&inbox_ids[0]).unwrap().clone() as u64,
+            *latest_sequence_ids.get(&inbox_ids[0]).unwrap() as u64,
         );
         new_group_membership.add(
             inbox_ids[2].clone(),
-            latest_sequence_ids.get(&inbox_ids[2]).unwrap().clone() as u64,
+            *latest_sequence_ids.get(&inbox_ids[2]).unwrap() as u64,
         );
         new_group_membership.remove(&inbox_ids[1]);
 

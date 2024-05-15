@@ -12,16 +12,13 @@ use prost::Message;
 use thiserror::Error;
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
-use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::identity::MlsCredential,
-};
+use xmtp_proto::xmtp::identity::MlsCredential;
 
 use crate::{
     configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
     identity_updates::{InstallationDiff, InstallationDiffError},
     storage::db_connection::DbConnection,
-    Client,
+    Client, XmtpApi,
 };
 
 use super::{
@@ -119,11 +116,11 @@ pub struct ValidatedCommit {
 }
 
 impl ValidatedCommit {
-    pub async fn from_staged_commit<'client, ApiClient: XmtpMlsClient + XmtpIdentityClient>(
-        conn: &'client DbConnection<'client>,
+    pub async fn from_staged_commit<ApiClient: XmtpApi>(
+        conn: &DbConnection,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
-        client: &'client Client<ApiClient>,
+        client: &Client<ApiClient>,
     ) -> Result<Self, CommitValidationError> {
         // Get the group metadata
         let group_metadata = extract_group_metadata(openmls_group)?;
@@ -267,14 +264,9 @@ struct ExpectedDiff {
 /// [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`].
 /// This requires loading the Inbox state from the network.
 /// Satisfies Rule 2
-async fn extract_expected_diff<
-    'conn,
-    'client,
-    'diff,
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
->(
-    conn: &'conn DbConnection<'conn>,
-    client: &'client Client<ApiClient>,
+async fn extract_expected_diff<ApiClient: XmtpApi>(
+    conn: &DbConnection,
+    client: &Client<ApiClient>,
     existing_group_context: &GroupContext,
     new_group_context: &GroupContext,
     group_metadata: &GroupMetadata,

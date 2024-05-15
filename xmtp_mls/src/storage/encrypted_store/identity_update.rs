@@ -46,7 +46,7 @@ impl TryFrom<StoredIdentityUpdate> for IdentityUpdate {
 
 impl_store!(StoredIdentityUpdate, identity_updates);
 
-impl DbConnection<'_> {
+impl DbConnection {
     /// Returns all identity updates for the given inbox ID up to the provided sequence_id.
     /// Returns updates greater than `from_sequence_id` and less than _or equal to_ `to_sequence_id`
     pub fn get_identity_updates<InboxId: AsRef<str>>(
@@ -135,8 +135,8 @@ mod tests {
             let update_2 = build_update(inbox_id, 2);
             let update_2_payload = update_2.payload.clone();
 
-            update_1.store(&conn).expect("should store without error");
-            update_2.store(&conn).expect("should store without error");
+            update_1.store(conn).expect("should store without error");
+            update_2.store(conn).expect("should store without error");
 
             let all_updates = conn
                 .get_identity_updates(inbox_id, None, None)
@@ -199,15 +199,15 @@ mod tests {
                 .get_latest_sequence_id(&[inbox_1.to_string(), inbox_2.to_string()])
                 .expect("query should work");
 
-            assert_eq!(latest_sequence_ids.get(&inbox_1.to_string()), Some(&3));
-            assert_eq!(latest_sequence_ids.get(&inbox_2.to_string()), Some(&6));
+            assert_eq!(latest_sequence_ids.get(inbox_1), Some(&3));
+            assert_eq!(latest_sequence_ids.get(inbox_2), Some(&6));
 
             let latest_sequence_ids_with_missing_member = conn
                 .get_latest_sequence_id(&[inbox_1.to_string(), "missing_inbox".to_string()])
                 .expect("should still succeed");
 
             assert_eq!(
-                latest_sequence_ids_with_missing_member.get(&inbox_1.to_string()),
+                latest_sequence_ids_with_missing_member.get(inbox_1),
                 Some(&3)
             );
             assert_eq!(

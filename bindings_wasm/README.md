@@ -1,22 +1,21 @@
-# [Wasm](https://webassembly.org/) bindings for XMTP v3
+# [WASM](https://webassembly.org/) for the libXMTP rust library
 
 # WARNING: DO NOT USE FOR PRODUCTION XMTP CLIENTS
 
 This code is still under development.
 
-## Build for Node.js 
+## Generate bindings for Node.js
 
-    cd bindings_wasm
-    wasm-pack test --node
-    wasm-pack build --target nodejs
+```shell
+cd bindings_wasm
+npm i
+npm run build
+```
 
-## Build for the web
+## Test the WASM bindings from Node.js
 
-    cd bindings_wasm
-    wasm-pack test --headless --chrome
-    wasm-pack build
+Use the steps above to generate the bindings first.
 
-## Test the WASM bindings from Javascript (Node.js)
-
-    cd bindings_wasm
-    node index.js
+```shell
+node test.mjs
+```

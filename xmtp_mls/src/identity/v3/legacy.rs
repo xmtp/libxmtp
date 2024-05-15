@@ -21,20 +21,20 @@ use sha2::{Digest, Sha512};
 use thiserror::Error;
 use xmtp_cryptography::signature::SignatureError;
 use xmtp_id::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
-use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::mls::message_contents::MlsCredential as CredentialProto,
-};
+use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
 
 use crate::{
     api::{ApiClientWrapper, IdentityUpdate},
-    configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
+    configuration::{
+        CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID,
+        MUTABLE_METADATA_EXTENSION_ID,
+    },
     credential::{AssociationError, Credential, UnsignedGrantMessagingAccessData},
-    storage::{identity::StoredIdentity, StorageError},
+    storage::{identity::StoredIdentity, sql_key_store::MemoryStorageError, StorageError},
     types::Address,
     utils::time::now_ns,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Fetch, Store,
+    Fetch, Store, XmtpApi,
 };
 
 #[derive(Debug, Error)]
@@ -67,6 +67,8 @@ pub enum IdentityError {
     BasicCredential(#[from] BasicCredentialError),
     #[error(transparent)]
     Signature(#[from] ed25519_dalek::SignatureError),
+    #[error(transparent)]
+    MemoryStorage(#[from] MemoryStorageError),
 }
 
 #[derive(Debug)]
@@ -118,15 +120,18 @@ impl Identity {
         })
     }
 
-    pub(crate) async fn register<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+    pub(crate) async fn register<ApiClient>(
         &self,
-        provider: &XmtpOpenMlsProvider<'_>,
+        provider: &XmtpOpenMlsProvider,
         api_client: &ApiClientWrapper<ApiClient>,
         recoverable_wallet_signature: Option<Vec<u8>>,
-    ) -> Result<(), IdentityError> {
+    ) -> Result<(), IdentityError>
+    where
+        ApiClient: XmtpApi,
+    {
         // Do not re-register if already registered
         let conn = provider.conn();
-        let stored_identity: Option<StoredIdentity> = conn.lock().unwrap().fetch(&())?;
+        let stored_identity: Option<StoredIdentity> = conn.fetch(&())?;
         if stored_identity.is_some() {
             info!("Identity already registered, skipping registration");
             return Ok(());
@@ -157,8 +162,8 @@ impl Identity {
         api_client.register_installation(kp_bytes).await?;
 
         // Only persist the installation keys if the registration was successful
-        let _ = self.installation_keys.store(provider.storage());
-        StoredIdentity::from(self).store(*conn.lock().unwrap())?; // Use the `conn_ref` to ensure proper lifetime
+        self.installation_keys.store(provider.storage())?;
+        StoredIdentity::from(self).store(provider.conn_ref())?;
 
         Ok(())
     }
@@ -208,6 +213,7 @@ impl Identity {
                 ExtensionType::LastResort,
                 ExtensionType::ApplicationId,
                 ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
+                ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
                 ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
                 ExtensionType::ImmutableMetadata,
             ]),
@@ -265,12 +271,13 @@ impl Identity {
         self.account_address.as_bytes().to_vec()
     }
 
-    pub(crate) async fn has_existing_legacy_credential<
-        ApiClient: XmtpMlsClient + XmtpIdentityClient,
-    >(
+    pub(crate) async fn has_existing_legacy_credential<ApiClient>(
         api_client: &ApiClientWrapper<ApiClient>,
         account_address: &str,
-    ) -> Result<bool, IdentityError> {
+    ) -> Result<bool, IdentityError>
+    where
+        ApiClient: XmtpApi,
+    {
         let identity_updates = api_client
             .get_identity_updates(0 /*start_time_ns*/, vec![account_address.to_string()])
             .await?;
@@ -314,21 +321,23 @@ mod tests {
     use openmls::prelude::ExtensionType;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
     use super::Identity;
     use crate::{
         api::{test_utils::get_test_api_client, ApiClientWrapper},
         storage::EncryptedMessageStore,
         xmtp_openmls_provider::XmtpOpenMlsProvider,
-        InboxOwner,
+        InboxOwner, XmtpApi,
     };
 
-    pub async fn create_registered_identity<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
-        provider: &XmtpOpenMlsProvider<'_>,
+    pub async fn create_registered_identity<ApiClient>(
+        provider: &XmtpOpenMlsProvider,
         api_client: &ApiClientWrapper<ApiClient>,
         owner: &impl InboxOwner,
-    ) -> Identity {
+    ) -> Identity
+    where
+        ApiClient: XmtpApi,
+    {
         let identity = Identity::create_to_be_signed(owner.get_address()).unwrap();
         let signature: Option<Vec<u8>> = identity
             .text_to_sign()
@@ -350,7 +359,7 @@ mod tests {
     async fn does_not_error() {
         let (store, api_client) = get_test_resources().await;
         let conn = store.conn().unwrap();
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let provider = XmtpOpenMlsProvider::new(conn.clone());
         let _identity =
             create_registered_identity(&provider, &api_client, &generate_local_wallet()).await;
     }
@@ -359,7 +368,7 @@ mod tests {
     async fn test_key_package_extensions() {
         let (store, api_client) = get_test_resources().await;
         let conn = store.conn().unwrap();
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let identity =
             create_registered_identity(&provider, &api_client, &generate_local_wallet()).await;
 
@@ -374,7 +383,7 @@ mod tests {
     async fn test_duplicate_registration() {
         let (store, api_client) = get_test_resources().await;
         let conn = store.conn().unwrap();
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let identity =
             create_registered_identity(&provider, &api_client, &generate_local_wallet()).await;
         identity
@@ -401,7 +410,7 @@ mod tests {
         ];
         let (store, api_client) = get_test_resources().await;
         let conn = store.conn().unwrap();
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let identity = Identity::create_from_legacy(
             legacy_address.to_string(),
             legacy_signed_private_key_proto,
@@ -419,7 +428,7 @@ mod tests {
     async fn test_invalid_external_signature() {
         let (store, api_client) = get_test_resources().await;
         let conn = store.conn().unwrap();
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let wallet = generate_local_wallet();
         let identity = Identity::create_to_be_signed(wallet.get_address()).unwrap();
         let text_to_sign = identity.text_to_sign().unwrap();

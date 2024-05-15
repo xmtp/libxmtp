@@ -6,14 +6,13 @@ use log::debug;
 use log::info;
 
 use xmtp_cryptography::signature::sanitize_evm_addresses;
-use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use crate::{
     api::ApiClientWrapper,
     builder::ClientBuilderError,
     storage::{identity::StoredIdentity, EncryptedMessageStore},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Fetch, InboxOwner,
+    Fetch, InboxOwner, XmtpApi,
 };
 
 pub mod legacy;
@@ -55,18 +54,19 @@ pub enum IdentityStrategy {
 }
 
 impl IdentityStrategy {
-    pub(crate) async fn initialize_identity<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+    pub(crate) async fn initialize_identity<ApiClient>(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
         store: &EncryptedMessageStore,
-    ) -> Result<Identity, ClientBuilderError> {
+    ) -> Result<Identity, ClientBuilderError>
+    where
+        ApiClient: XmtpApi,
+    {
         info!("Initializing identity");
         let conn = store.conn()?;
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let identity_option: Option<Identity> = provider
             .conn()
-            .lock()
-            .unwrap()
             .fetch(&())?
             .map(|i: StoredIdentity| i.into());
         debug!("Existing identity in store: {:?}", identity_option);
@@ -93,11 +93,14 @@ impl IdentityStrategy {
         }
     }
 
-    async fn create_identity<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+    async fn create_identity<ApiClient>(
         api_client: &ApiClientWrapper<ApiClient>,
         account_address: String,
         legacy_identity: LegacyIdentity,
-    ) -> Result<Identity, ClientBuilderError> {
+    ) -> Result<Identity, ClientBuilderError>
+    where
+        ApiClient: XmtpApi,
+    {
         info!("Creating identity");
         let identity = match legacy_identity {
             // This is a fresh install, and at most one v2 signature (enable_identity)
