@@ -214,7 +214,9 @@ impl FfiConversations {
 
         let convo = self.inner_client.create_group(group_permissions)?;
         if !account_addresses.is_empty() {
-            convo.add_members(account_addresses).await?;
+            convo
+                .add_members(account_addresses, &self.inner_client)
+                .await?;
         }
         let out = Arc::new(FfiGroup {
             inner_client: self.inner_client.clone(),
@@ -335,24 +337,25 @@ pub struct FfiListMessagesOptions {
 impl FfiGroup {
     pub async fn send(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        let message_id = group.send_message(content_bytes.as_slice()).await?;
-
+        let message_id = group
+            .send_message(content_bytes.as_slice(), &self.inner_client)
+            .await?;
         Ok(message_id)
     }
 
     pub async fn sync(&self) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group.sync().await?;
+        group.sync(&self.inner_client).await?;
 
         Ok(())
     }
@@ -362,7 +365,7 @@ impl FfiGroup {
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<FfiMessage>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -389,11 +392,13 @@ impl FfiGroup {
         envelope_bytes: Vec<u8>,
     ) -> Result<FfiMessage, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
-        let message = group.process_streamed_group_message(envelope_bytes).await?;
+        let message = group
+            .process_streamed_group_message(envelope_bytes, self.inner_client.clone())
+            .await?;
         let ffi_message = message.into();
 
         Ok(ffi_message)
@@ -401,7 +406,7 @@ impl FfiGroup {
 
     pub fn list_members(&self) -> Result<Vec<FfiGroupMember>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -422,43 +427,49 @@ impl FfiGroup {
         log::info!("adding members: {}", account_addresses.join(","));
 
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group.add_members(account_addresses).await?;
+        group
+            .add_members(account_addresses, &self.inner_client)
+            .await?;
 
         Ok(())
     }
 
     pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group.remove_members(account_addresses).await?;
+        group
+            .remove_members(account_addresses, &self.inner_client)
+            .await?;
 
         Ok(())
     }
 
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group.update_group_name(group_name).await?;
+        group
+            .update_group_name(group_name, &self.inner_client)
+            .await?;
 
         Ok(())
     }
 
     pub fn group_name(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -493,7 +504,7 @@ impl FfiGroup {
 
     pub fn is_active(&self) -> Result<bool, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -503,7 +514,7 @@ impl FfiGroup {
 
     pub fn added_by_address(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -513,7 +524,7 @@ impl FfiGroup {
 
     pub fn group_metadata(&self) -> Result<Arc<FfiGroupMetadata>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -665,7 +676,10 @@ mod tests {
     };
     use std::{
         env,
-        sync::{Arc, Mutex},
+        sync::{
+            atomic::{AtomicU32, Ordering},
+            Arc,
+        },
     };
 
     use super::{create_client, FfiMessage, FfiMessageCallback, FfiXmtpClient};
@@ -713,18 +727,18 @@ mod tests {
 
     #[derive(Clone)]
     struct RustStreamCallback {
-        num_messages: Arc<Mutex<u32>>,
+        num_messages: Arc<AtomicU32>,
     }
 
     impl RustStreamCallback {
         pub fn new() -> Self {
             Self {
-                num_messages: Arc::new(Mutex::new(0)),
+                num_messages: Arc::new(AtomicU32::new(0)),
             }
         }
 
         pub fn message_count(&self) -> u32 {
-            *self.num_messages.lock().unwrap()
+            self.num_messages.load(Ordering::SeqCst)
         }
     }
 
@@ -732,13 +746,13 @@ mod tests {
         fn on_message(&self, message: FfiMessage) {
             let message = String::from_utf8(message.content).unwrap_or("<not UTF8>".to_string());
             log::info!("Received: {}", message);
-            *self.num_messages.lock().unwrap() += 1;
+            let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
         }
     }
 
     impl FfiConversationCallback for RustStreamCallback {
         fn on_conversation(&self, _: Arc<super::FfiGroup>) {
-            *self.num_messages.lock().unwrap() += 1;
+            let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
         }
     }
 
@@ -775,7 +789,7 @@ mod tests {
         let signature = ffi_inbox_owner.sign(text_to_sign).unwrap();
 
         client.register_identity(Some(signature)).await.unwrap();
-        return client;
+        client
     }
 
     // Try a query on a test topic, and make sure we get a response
@@ -1008,7 +1022,7 @@ mod tests {
         assert!(
             can_message_result2
                 .get(&bola.get_address().to_string())
-                .map(|&value| value)
+                .copied()
                 .unwrap_or(false),
             "Expected the can_message result to be true for the address"
         );
@@ -1066,6 +1080,7 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let stream_callback = RustStreamCallback::new();
+
         let stream = caro
             .conversations()
             .stream_all_messages(Box::new(stream_callback.clone()))
@@ -1086,7 +1101,7 @@ mod tests {
         alix_group.send("third".as_bytes().to_vec()).await.unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         bo_group.send("fourth".as_bytes().to_vec()).await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
 
         assert_eq!(stream_callback.message_count(), 4);
         stream.end();

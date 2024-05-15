@@ -76,7 +76,7 @@ impl StoredGroup {
     }
 }
 
-impl DbConnection<'_> {
+impl DbConnection {
     /// Return regular [`Purpose::Conversation`] groups with additional optional filters
     pub fn find_groups(
         &self,

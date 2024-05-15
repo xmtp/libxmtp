@@ -322,13 +322,11 @@ mod tests {
 
     #[test]
     fn it_fails_on_three_retries() {
-        let result: Result<(), SomeError> = retry!(
-            Retry::default(),
-            (|| -> Result<(), SomeError> {
-                retry_error_fn()?;
-                Ok(())
-            })
-        );
+        let closure = || -> Result<(), SomeError> {
+            retry_error_fn()?;
+            Ok(())
+        };
+        let result: Result<(), SomeError> = retry!(Retry::default(), (closure));
 
         assert!(result.is_err())
     }

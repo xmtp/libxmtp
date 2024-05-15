@@ -104,7 +104,7 @@ where
 impl_fetch!(StoredGroupMessage, group_messages, Vec<u8>);
 impl_store!(StoredGroupMessage, group_messages);
 
-impl DbConnection<'_> {
+impl DbConnection {
     /// Query for group messages
     pub fn get_group_messages<GroupId: AsRef<[u8]>>(
         &self,
