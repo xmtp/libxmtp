@@ -701,7 +701,7 @@ pub fn build_mutable_metadata_extension_default(
     identity: &Identity,
 ) -> Result<Extension, GroupError> {
     let mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new_default(identity.account_address.clone()).try_into()?;
+        GroupMutableMetadata::new_default(identity.inbox_id.clone()).try_into()?;
     let unknown_gc_extension = UnknownExtension(mutable_metadata);
 
     Ok(Extension::Unknown(
@@ -721,8 +721,8 @@ pub fn build_mutable_metadata_extensions(
     attributes.insert(field_name, field_value);
     let new_mutable_metadata: Vec<u8> = GroupMutableMetadata::new(
         attributes,
-        vec![identity.account_address.clone()],
-        vec![identity.account_address.clone()],
+        vec![identity.inbox_id.clone()],
+        vec![identity.inbox_id.clone()],
     )
     .try_into()?;
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
