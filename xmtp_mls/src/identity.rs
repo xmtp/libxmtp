@@ -1,7 +1,19 @@
 use std::array::TryFromSliceError;
 
+use crate::storage::identity::StoredIdentity;
+use crate::Fetch;
+use crate::{
+    api::{ApiClientWrapper, WrappedApiError},
+    configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
+    storage::StorageError,
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    InboxOwner, XmtpApi,
+};
+use crate::{builder::ClientBuilderError, storage::EncryptedMessageStore};
 use ed25519_dalek::SigningKey;
 use ethers::signers::{LocalWallet, WalletError};
+use log::debug;
+use log::info;
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
     extensions::{
@@ -36,20 +48,6 @@ use xmtp_proto::{
     },
 };
 use xmtp_v2::k256_helper;
-
-use crate::{
-    api::{ApiClientWrapper, WrappedApiError},
-    configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
-    storage::StorageError,
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
-    InboxOwner, XmtpApi,
-};
-
-use crate::storage::identity::StoredIdentity;
-use crate::Fetch;
-use crate::{builder::ClientBuilderError, storage::EncryptedMessageStore};
-use log::debug;
-use log::info;
 
 pub enum IdentityStrategy {
     /// Tries to get an identity from the disk store. If not found, getting one from backend.

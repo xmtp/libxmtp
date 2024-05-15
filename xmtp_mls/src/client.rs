@@ -39,7 +39,6 @@ use crate::{
         refresh_state::EntityKind,
         EncryptedMessageStore, StorageError,
     },
-    types::Address,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, XmtpApi,
