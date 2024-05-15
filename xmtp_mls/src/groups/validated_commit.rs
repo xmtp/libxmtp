@@ -123,25 +123,13 @@ impl CommitParticipant {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MutableMetadataChanges {
     pub metadata_field_changes: Vec<MetadataFieldChange>,
     pub admins_added: Vec<Inbox>,
     pub admins_removed: Vec<Inbox>,
     pub super_admins_added: Vec<Inbox>,
     pub super_admins_removed: Vec<Inbox>,
-}
-
-impl Default for MutableMetadataChanges {
-    fn default() -> Self {
-        Self {
-            metadata_field_changes: vec![],
-            admins_added: vec![],
-            admins_removed: vec![],
-            super_admins_added: vec![],
-            super_admins_removed: vec![],
-        }
-    }
 }
 
 impl MutableMetadataChanges {
