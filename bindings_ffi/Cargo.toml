@@ -42,6 +42,8 @@ ethers-core = "2.0.13"
 tempfile = "3.5.0"
 tokio = { version = "1.28.1", features = ["full"] }
 uniffi = { version = "0.25.3", features = ["bindgen-tests"] }
+async-barrier = "1.1"
+tokio-test = "0.4"
 
 # NOTE: The release profile reduces bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093

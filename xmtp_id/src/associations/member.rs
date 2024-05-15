@@ -112,6 +112,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::derivable_impls)]
     impl Default for Member {
         fn default() -> Self {
             Self {

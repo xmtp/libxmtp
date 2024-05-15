@@ -480,7 +480,7 @@ mod tests {
     #[tokio::test]
     async fn test_serialize_update_metadata() {
         let intent = UpdateMetadataIntentData::new_update_group_name("group name".to_string());
-        let as_bytes: Vec<u8> = intent.clone().try_into().unwrap();
+        let as_bytes: Vec<u8> = intent.clone().into();
         let restored_intent: UpdateMetadataIntentData =
             UpdateMetadataIntentData::try_from(as_bytes).unwrap();
 

@@ -144,7 +144,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(res, true);
+        assert!(res);
         // owner1
         let sig1 = owner1.sign_hash(replay_safe_hash.into()).unwrap();
         let res = verifier
@@ -160,7 +160,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(res, true);
+        assert!(res);
         // owner0 siganture won't be deemed as signed by owner1
         let res = verifier
             .is_valid_signature(
@@ -175,7 +175,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(res, false);
+        assert!(!res);
 
         // get block number before removing
         let block_number = provider.get_block_number().await.unwrap();
@@ -213,6 +213,6 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(res, true);
+        assert!(res);
     }
 }

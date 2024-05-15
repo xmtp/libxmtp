@@ -178,7 +178,7 @@ mod tests {
 
         let identity_update = UnsignedIdentityUpdate {
             inbox_id: inbox_id.clone(),
-            client_timestamp_ns: client_timestamp_ns.clone(),
+            client_timestamp_ns,
             actions: vec![
                 UnsignedAction::CreateInbox(create_inbox.clone()),
                 UnsignedAction::AddAssociation(add_address.clone()),

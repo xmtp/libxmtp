@@ -1,4 +1,4 @@
-use std::{collections::HashMap, collections::HashSet, mem::Discriminant};
+use std::{collections::HashMap, collections::HashSet, mem::Discriminant, sync::Arc};
 
 use openmls::{
     credentials::errors::BasicCredentialError,
@@ -16,12 +16,9 @@ use xmtp_id::associations::{builder::SignatureRequestError, AssociationError};
 #[cfg(feature = "xmtp-id")]
 use xmtp_id::InboxId;
 
-use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::mls::api::v1::{
-        welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
-        GroupMessage, WelcomeMessage,
-    },
+use xmtp_proto::xmtp::mls::api::v1::{
+    welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
+    GroupMessage, WelcomeMessage,
 };
 
 use crate::{
@@ -41,7 +38,7 @@ use crate::{
     types::Address,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Fetch,
+    Fetch, XmtpApi,
 };
 
 /// Which network the Client is connected to
@@ -165,33 +162,22 @@ impl From<&str> for ClientError {
 #[derive(Debug)]
 pub struct Client<ApiClient> {
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
-    pub(crate) _network: Network,
+    pub(crate) context: Arc<XmtpMlsLocalContext>,
+}
+
+/// The local context a XMTP MLS needs to function:
+/// - Sqlite Database
+/// - Identity for the User
+///
+#[derive(Debug)]
+pub struct XmtpMlsLocalContext {
+    /// XMTP Identity
     pub(crate) identity: Identity,
+    /// XMTP Local Storage
     pub(crate) store: EncryptedMessageStore,
 }
 
-impl<'a, ApiClient> Client<ApiClient>
-where
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
-{
-    /// Create a new client with the given network, identity, and store.
-    /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating
-    /// a client directly.
-    pub fn new(
-        api_client: ApiClientWrapper<ApiClient>,
-        network: Network,
-        identity: Identity,
-        store: EncryptedMessageStore,
-    ) -> Self {
-        Self {
-            api_client,
-            _network: network,
-            identity,
-            store,
-        }
-    }
-
-    /// Get the account address of the blockchain account associated with this client
+impl XmtpMlsLocalContext {
     pub fn account_address(&self) -> Address {
         self.identity.account_address.clone()
     }
@@ -212,26 +198,85 @@ where
         0
     }
 
-    /// In some cases, the client may need a signature from the wallet to call [`register_identity`](Self::register_identity).
-    /// Integrators should always check the `text_to_sign` return value of this function before calling [`register_identity`](Self::register_identity).
-    /// If `text_to_sign` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
+    // In some cases, the client may need a signature from the wallet to call [`register_identity`](Self::register_identity).
+    // Integrators should always check the `text_to_sign` return value of this function before calling [`register_identity`](Self::register_identity).
+    // If `text_to_sign` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
     pub fn text_to_sign(&self) -> Option<String> {
         self.identity.text_to_sign()
     }
 
-    pub(crate) fn mls_provider(&self, conn: &'a DbConnection<'a>) -> XmtpOpenMlsProvider<'a> {
-        XmtpOpenMlsProvider::<'a>::new(conn)
+    pub(crate) fn mls_provider(&self, conn: DbConnection) -> XmtpOpenMlsProvider {
+        XmtpOpenMlsProvider::new(conn)
+    }
+}
+
+impl<ApiClient> Client<ApiClient>
+where
+    ApiClient: XmtpApi,
+{
+    /// Create a new client with the given network, identity, and store.
+    /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating
+    /// a client directly.
+    pub fn new(
+        api_client: ApiClientWrapper<ApiClient>,
+        identity: Identity,
+        store: EncryptedMessageStore,
+    ) -> Self {
+        let context = XmtpMlsLocalContext { identity, store };
+        Self {
+            api_client,
+            context: Arc::new(context),
+        }
+    }
+
+    pub fn account_address(&self) -> Address {
+        self.context.account_address()
+    }
+
+    pub fn installation_public_key(&self) -> Vec<u8> {
+        self.context.installation_public_key()
+    }
+
+    pub fn inbox_id(&self) -> String {
+        self.context.inbox_id()
+    }
+
+    pub fn inbox_latest_sequence_id(&self) -> u64 {
+        self.context.inbox_latest_sequence_id()
+    }
+
+    pub fn store(&self) -> &EncryptedMessageStore {
+        &self.context.store
+    }
+
+    pub fn identity(&self) -> &Identity {
+        &self.context.identity
+    }
+
+    //  In some cases, the client may need a signature from the wallet to call [`register_identity`](Self::register_identity).
+    /// Integrators should always check the `text_to_sign` return value of this function before calling [`register_identity`](Self::register_identity).
+    /// If `text_to_sign` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
+    pub fn text_to_sign(&self) -> Option<String> {
+        self.context.text_to_sign()
+    }
+
+    pub(crate) fn mls_provider(&self, conn: DbConnection) -> XmtpOpenMlsProvider {
+        XmtpOpenMlsProvider::new(conn)
+    }
+
+    pub fn context(&self) -> &Arc<XmtpMlsLocalContext> {
+        &self.context
     }
 
     /// Create a new group with the default settings
     pub fn create_group(
         &self,
         permissions: Option<PreconfiguredPolicies>,
-    ) -> Result<MlsGroup<ApiClient>, ClientError> {
+    ) -> Result<MlsGroup, ClientError> {
         log::info!("creating group");
 
         let group = MlsGroup::create_and_insert(
-            self,
+            self.context.clone(),
             GroupMembershipState::Allowed,
             permissions,
             self.account_address(),
@@ -243,9 +288,9 @@ where
         Ok(group)
     }
 
-    pub(crate) fn create_sync_group(&self) -> Result<MlsGroup<ApiClient>, StorageError> {
+    pub(crate) fn create_sync_group(&self) -> Result<MlsGroup, StorageError> {
         log::info!("creating sync group");
-        let sync_group = MlsGroup::create_and_insert_sync_group(self)
+        let sync_group = MlsGroup::create_and_insert_sync_group(self.context.clone())
             .map_err(|e| StorageError::Store(format!("sync group create error {}", e)))?;
 
         Ok(sync_group)
@@ -253,11 +298,15 @@ where
 
     /// Look up a group by its ID
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
-    pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<ApiClient>, ClientError> {
-        let conn = &mut self.store.conn()?;
+    pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup, ClientError> {
+        let conn = &mut self.store().conn()?;
         let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
         match stored_group {
-            Some(group) => Ok(MlsGroup::new(self, group.id, group.created_at_ns)),
+            Some(group) => Ok(MlsGroup::new(
+                self.context.clone(),
+                group.id,
+                group.created_at_ns,
+            )),
             None => Err(ClientError::Storage(StorageError::NotFound)),
         }
     }
@@ -275,13 +324,19 @@ where
         created_after_ns: Option<i64>,
         created_before_ns: Option<i64>,
         limit: Option<i64>,
-    ) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
+    ) -> Result<Vec<MlsGroup>, ClientError> {
         Ok(self
-            .store
+            .store()
             .conn()?
             .find_groups(allowed_states, created_after_ns, created_before_ns, limit)?
             .into_iter()
-            .map(|stored_group| MlsGroup::new(self, stored_group.id, stored_group.created_at_ns))
+            .map(|stored_group| {
+                MlsGroup::new(
+                    self.context.clone(),
+                    stored_group.id,
+                    stored_group.created_at_ns,
+                )
+            })
             .collect())
     }
 
@@ -296,9 +351,9 @@ where
         recoverable_wallet_signature: Option<Vec<u8>>,
     ) -> Result<(), ClientError> {
         log::info!("registering identity");
-        let connection = self.store.conn()?;
-        let provider = self.mls_provider(&connection);
-        self.identity
+        let connection = self.store().conn()?;
+        let provider = self.mls_provider(connection);
+        self.identity()
             .register(&provider, &self.api_client, recoverable_wallet_signature)
             .await?;
         Ok(())
@@ -316,10 +371,10 @@ where
     /// Upload a new key package to the network replacing an existing key package
     /// This is expected to be run any time the client receives new Welcome messages
     pub async fn rotate_key_package(&self) -> Result<(), ClientError> {
-        let connection = self.store.conn()?;
+        let connection = self.store().conn()?;
         let kp = self
-            .identity
-            .new_key_package(&self.mls_provider(&connection))?;
+            .identity()
+            .new_key_package(&self.mls_provider(connection))?;
         let kp_bytes = kp.tls_serialize_detached()?;
         self.api_client.upload_key_package(kp_bytes).await?;
 
@@ -363,7 +418,7 @@ where
     pub(crate) async fn query_group_messages(
         &self,
         group_id: &Vec<u8>,
-        conn: &'a DbConnection<'a>,
+        conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError> {
         let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
 
@@ -377,7 +432,7 @@ where
 
     pub(crate) async fn query_welcome_messages(
         &self,
-        conn: &'a DbConnection<'a>,
+        conn: &DbConnection,
     ) -> Result<Vec<WelcomeMessage>, ClientError> {
         let installation_id = self.installation_public_key();
         let id_cursor = conn.get_last_cursor_for_id(&installation_id, EntityKind::Welcome)?;
@@ -398,9 +453,9 @@ where
         process_envelope: ProcessingFn,
     ) -> Result<ReturnValue, MessageProcessingError>
     where
-        ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Result<ReturnValue, MessageProcessingError>,
+        ProcessingFn: FnOnce(&XmtpOpenMlsProvider) -> Result<ReturnValue, MessageProcessingError>,
     {
-        self.store.transaction(|provider| {
+        self.store().transaction(|provider| {
             let is_updated =
                 provider
                     .conn()
@@ -447,22 +502,20 @@ where
     ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
         let key_package_results = self.api_client.fetch_key_packages(installation_ids).await?;
 
-        let conn = self.store.conn()?;
-
+        let conn = self.store().conn()?;
+        let mls_provider = self.mls_provider(conn);
         Ok(key_package_results
             .values()
-            .map(|bytes| {
-                VerifiedKeyPackage::from_bytes(self.mls_provider(&conn).crypto(), bytes.as_slice())
-            })
+            .map(|bytes| VerifiedKeyPackage::from_bytes(mls_provider.crypto(), bytes.as_slice()))
             .collect::<Result<_, _>>()?)
     }
 
     /// Download all unread welcome messages and convert to groups.
     /// Returns any new groups created in the operation
-    pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
-        let envelopes = self.query_welcome_messages(&self.store.conn()?).await?;
+    pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup>, ClientError> {
+        let envelopes = self.query_welcome_messages(&self.store().conn()?).await?;
         let id = self.installation_public_key();
-        let groups: Vec<MlsGroup<ApiClient>> = envelopes
+        let groups: Vec<MlsGroup> = envelopes
             .into_iter()
             .filter_map(|envelope: WelcomeMessage| {
                 let welcome_v1 = match extract_welcome_message(envelope) {
@@ -476,8 +529,8 @@ where
                 self.process_for_id(&id, EntityKind::Welcome, welcome_v1.id, |provider| {
                     // TODO: Abort if error is retryable
                     match MlsGroup::create_from_encrypted_welcome(
-                        self,
-                        &provider,
+                        self.context.clone(),
+                        provider,
                         welcome_v1.hpke_public_key.as_slice(),
                         welcome_v1.data,
                     ) {
@@ -641,7 +694,7 @@ mod tests {
 
         let alice_bob_group = alice.create_group(None).unwrap();
         alice_bob_group
-            .add_members_by_installation_id(vec![bob.installation_public_key()])
+            .add_members_by_installation_id(vec![bob.installation_public_key()], &alice)
             .await
             .unwrap();
 
@@ -690,10 +743,10 @@ mod tests {
     #[tokio::test]
     async fn test_welcome_encryption() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let conn = client.store.conn().unwrap();
-        let provider = client.mls_provider(&conn);
+        let conn = client.store().conn().unwrap();
+        let provider = client.mls_provider(conn);
 
-        let kp = client.identity.new_key_package(&provider).unwrap();
+        let kp = client.identity().new_key_package(&provider).unwrap();
         let hpke_public_key = kp.hpke_init_key().as_slice();
         let to_encrypt = vec![1, 2, 3];
 
@@ -713,14 +766,14 @@ mod tests {
         // Create a group and invite bola
         let amal_group = amal.create_group(None).unwrap();
         amal_group
-            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .add_members_by_installation_id(vec![bola.installation_public_key()], &amal)
             .await
             .unwrap();
         assert_eq!(amal_group.members().unwrap().len(), 2);
 
         // Now remove bola
         amal_group
-            .remove_members_by_installation_id(vec![bola.installation_public_key()])
+            .remove_members_by_installation_id(vec![bola.installation_public_key()], &amal)
             .await
             .unwrap();
         assert_eq!(amal_group.members().unwrap().len(), 1);
@@ -730,7 +783,7 @@ mod tests {
         let bola_groups = bola.find_groups(None, None, None, None).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
-        bola_group.sync().await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
 
         // Bola should have one readable message (them being added to the group)
         let mut bola_messages = bola_group
@@ -740,19 +793,19 @@ mod tests {
 
         // Add Bola back to the group
         amal_group
-            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .add_members_by_installation_id(vec![bola.installation_public_key()], &amal)
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
 
         // Send a message from Amal, now that Bola is back in the group
         amal_group
-            .send_message(vec![1, 2, 3].as_slice())
+            .send_message(vec![1, 2, 3].as_slice(), &amal)
             .await
             .unwrap();
 
         // Sync Bola's state to get the latest
-        bola_group.sync().await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
         // Find Bola's updated list of messages
         bola_messages = bola_group
             .find_messages(None, None, None, None, None)
