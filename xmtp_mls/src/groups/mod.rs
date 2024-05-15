@@ -35,17 +35,14 @@ use xmtp_cryptography::signature::{
     is_valid_ed25519_public_key, sanitize_evm_addresses, AddressValidationError,
 };
 use xmtp_id::InboxId;
-use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::mls::{
-        api::v1::{
-            group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-            GroupMessage,
-        },
-        message_contents::{
-            plaintext_envelope::{Content, V1},
-            PlaintextEnvelope,
-        },
+use xmtp_proto::xmtp::mls::{
+    api::v1::{
+        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
+        GroupMessage,
+    },
+    message_contents::{
+        plaintext_envelope::{Content, V1},
+        PlaintextEnvelope,
     },
 };
 
@@ -236,7 +233,7 @@ impl MlsGroup {
             &context.identity.installation_keys,
             &group_config,
             CredentialWithKey {
-                credential: context.identity.credential()?,
+                credential: context.identity.credential(),
                 signature_key: context.identity.installation_keys.to_public_vec().into(),
             },
         )?;
@@ -345,7 +342,7 @@ impl MlsGroup {
             &context.identity.installation_keys,
             &group_config,
             CredentialWithKey {
-                credential: context.identity.credential()?,
+                credential: context.identity.credential(),
                 signature_key: context.identity.installation_keys.to_public_vec().into(),
             },
         )?;
@@ -398,7 +395,8 @@ impl MlsGroup {
             sent_at_ns: now,
             kind: GroupMessageKind::Application,
             sender_installation_id: self.context.installation_public_key(),
-            sender_account_address: self.context.account_address(),
+            // TODO: Remove this hack
+            sender_account_address: self.context.inbox_id(),
             delivery_status: DeliveryStatus::Unpublished,
         };
         group_message.store(&conn)?;
@@ -1011,7 +1009,8 @@ mod tests {
 
         let group = client.create_group(None).expect("create group");
         group
-            .add_members(vec![bola_client.inbox_id()])
+            // TODO: Make work with either account address or inbox_id
+            .add_members(vec![bola_client.inbox_id()], &client)
             .await
             .unwrap();
 

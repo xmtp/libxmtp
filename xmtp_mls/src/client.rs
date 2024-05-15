@@ -39,6 +39,7 @@ use crate::{
         refresh_state::EntityKind,
         EncryptedMessageStore, StorageError,
     },
+    types::Address,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, XmtpApi,
@@ -226,8 +227,9 @@ where
         }
     }
 
-    pub fn account_address(&self) -> Address {
-        self.context.account_address()
+    pub fn account_address(&self) -> String {
+        // TODO:nm Remove this hack
+        self.inbox_id()
     }
 
     pub fn installation_public_key(&self) -> Vec<u8> {
@@ -250,13 +252,6 @@ where
         &self.context.identity
     }
 
-    //  In some cases, the client may need a signature from the wallet to call [`register_identity`](Self::register_identity).
-    /// Integrators should always check the `text_to_sign` return value of this function before calling [`register_identity`](Self::register_identity).
-    /// If `text_to_sign` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
-    pub fn text_to_sign(&self) -> Option<String> {
-        self.context.text_to_sign()
-    }
-
     pub(crate) fn mls_provider(&self, conn: DbConnection) -> XmtpOpenMlsProvider {
         XmtpOpenMlsProvider::new(conn)
     }
@@ -276,7 +271,7 @@ where
             self.context.clone(),
             GroupMembershipState::Allowed,
             permissions,
-            self.identity.get_inbox_id(),
+            &self.context.inbox_id(),
         )
         .map_err(|e| {
             ClientError::Storage(StorageError::Store(format!("group create error {}", e)))
@@ -351,7 +346,9 @@ where
         let connection = self.store().conn()?;
         let provider = self.mls_provider(connection);
         self.apply_signature_request(signature_request).await?;
-        self.identity.register(&provider, &self.api_client).await?;
+        self.identity()
+            .register(&provider, &self.api_client)
+            .await?;
         Ok(())
     }
 
