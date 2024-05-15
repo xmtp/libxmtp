@@ -1,7 +1,7 @@
 pub mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
-mod group_permissions;
+pub mod group_permissions;
 mod intents;
 mod members;
 mod message_history;
@@ -56,6 +56,9 @@ use self::{
         extract_group_mutable_metadata, GroupMutableMetadata, GroupMutableMetadataError,
         MetadataField,
     },
+    group_permissions::{
+        extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
+    },
     intents::UpdateMetadataIntentData,
 };
 use self::{
@@ -69,7 +72,8 @@ use self::{
 use crate::{
     client::{deserialize_welcome, ClientError, MessageProcessingError, XmtpMlsLocalContext},
     configuration::{
-        CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MAX_GROUP_SIZE, MUTABLE_METADATA_EXTENSION_ID,
+        CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
+        MUTABLE_METADATA_EXTENSION_ID,
     },
     hpke::{decrypt_welcome, HpkeError},
     identity::v3::{Identity, IdentityError},
@@ -136,6 +140,8 @@ pub enum GroupError {
     GroupMetadata(#[from] GroupMetadataError),
     #[error("Mutable Metadata error {0}")]
     GroupMutableMetadata(#[from] GroupMutableMetadataError),
+    #[error("Mutable Permissions error {0}")]
+    GroupMutablePermissions(#[from] GroupMutablePermissionsError),
     #[error("Errors occurred during sync {0:?}")]
     Sync(Vec<GroupError>),
     #[error("Hpke error: {0}")]
@@ -214,18 +220,21 @@ impl MlsGroup {
     ) -> Result<Self, GroupError> {
         let conn = context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
-        let protected_metadata = build_protected_metadata_extension(
-            &context.identity,
-            permissions.unwrap_or_default().to_policy_set(),
-            Purpose::Conversation,
-        )?;
-        let mutable_metadata = build_mutable_metadata_extension_default()?;
+        let protected_metadata =
+            build_protected_metadata_extension(&context.identity, Purpose::Conversation)?;
+        let mutable_metadata = build_mutable_metadata_extension_default(&context.identity)?;
         let group_membership = build_starting_group_membership_extension(
             context.inbox_id(),
             context.inbox_latest_sequence_id(),
         );
-        let group_config =
-            build_group_config(protected_metadata, mutable_metadata, group_membership)?;
+        let mutable_permissions =
+            build_mutable_permissions_extension(permissions.unwrap_or_default().to_policy_set())?;
+        let group_config = build_group_config(
+            protected_metadata,
+            mutable_metadata,
+            group_membership,
+            mutable_permissions,
+        )?;
 
         let mut mls_group = OpenMlsGroup::new(
             &provider,
@@ -324,18 +333,21 @@ impl MlsGroup {
     ) -> Result<MlsGroup, GroupError> {
         let conn = context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
-        let protected_metadata = build_protected_metadata_extension(
-            &context.identity,
-            PreconfiguredPolicies::default().to_policy_set(),
-            Purpose::Sync,
-        )?;
-        let mutable_metadata = build_mutable_metadata_extension_default()?;
+        let protected_metadata =
+            build_protected_metadata_extension(&context.identity, Purpose::Sync)?;
+        let mutable_metadata = build_mutable_metadata_extension_default(&context.identity)?;
         let group_membership = build_starting_group_membership_extension(
             context.inbox_id(),
             context.inbox_latest_sequence_id(),
         );
-        let group_config =
-            build_group_config(protected_metadata, mutable_metadata, group_membership)?;
+        let mutable_permissions =
+            build_mutable_permissions_extension(PreconfiguredPolicies::default().to_policy_set())?;
+        let group_config = build_group_config(
+            protected_metadata,
+            mutable_metadata,
+            group_membership,
+            mutable_permissions,
+        )?;
         let mut mls_group = OpenMlsGroup::new(
             &provider,
             &context.identity.installation_keys,
@@ -619,6 +631,14 @@ impl MlsGroup {
 
         Ok(extract_group_mutable_metadata(&mls_group)?)
     }
+
+    pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
+        let conn = self.context.store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(conn);
+        let mls_group = self.load_mls_group(&provider)?;
+
+        Ok(extract_group_permissions(&mls_group)?)
+    }
 }
 
 fn extract_message_v1(message: GroupMessage) -> Result<GroupMessageV1, MessageProcessingError> {
@@ -652,7 +672,6 @@ fn validate_ed25519_keys(keys: &[Vec<u8>]) -> Result<(), GroupError> {
 
 fn build_protected_metadata_extension(
     identity: &Identity,
-    policies: PolicySet,
     group_purpose: Purpose,
 ) -> Result<Extension, GroupError> {
     let group_type = match group_purpose {
@@ -664,15 +683,27 @@ fn build_protected_metadata_extension(
         identity.account_address.clone(),
         // TODO: Remove me
         "inbox_id".to_string(),
-        policies,
     );
     let protected_metadata = Metadata::new(metadata.try_into()?);
 
     Ok(Extension::ImmutableMetadata(protected_metadata))
 }
 
-pub fn build_mutable_metadata_extension_default() -> Result<Extension, GroupError> {
-    let mutable_metadata: Vec<u8> = GroupMutableMetadata::default().try_into()?;
+fn build_mutable_permissions_extension(policies: PolicySet) -> Result<Extension, GroupError> {
+    let permissions: Vec<u8> = GroupMutablePermissions::new(policies).try_into()?;
+    let unknown_gc_extension = UnknownExtension(permissions);
+
+    Ok(Extension::Unknown(
+        GROUP_PERMISSIONS_EXTENSION_ID,
+        unknown_gc_extension,
+    ))
+}
+
+pub fn build_mutable_metadata_extension_default(
+    identity: &Identity,
+) -> Result<Extension, GroupError> {
+    let mutable_metadata: Vec<u8> =
+        GroupMutableMetadata::new_default(identity.account_address.clone()).try_into()?;
     let unknown_gc_extension = UnknownExtension(mutable_metadata);
 
     Ok(Extension::Unknown(
@@ -682,6 +713,7 @@ pub fn build_mutable_metadata_extension_default() -> Result<Extension, GroupErro
 }
 
 pub fn build_mutable_metadata_extensions(
+    identity: &Identity,
     group: &OpenMlsGroup,
     field_name: String,
     field_value: String,
@@ -689,7 +721,12 @@ pub fn build_mutable_metadata_extensions(
     let existing_metadata = extract_group_mutable_metadata(group)?;
     let mut attributes = existing_metadata.attributes.clone();
     attributes.insert(field_name, field_value);
-    let new_mutable_metadata: Vec<u8> = GroupMutableMetadata::new(attributes).try_into()?;
+    let new_mutable_metadata: Vec<u8> = GroupMutableMetadata::new(
+        attributes,
+        vec![identity.account_address.clone()],
+        vec![identity.account_address.clone()],
+    )
+    .try_into()?;
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
     let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
     let mut extensions = group.extensions().clone();
@@ -709,10 +746,12 @@ fn build_group_config(
     protected_metadata_extension: Extension,
     mutable_metadata_extension: Extension,
     group_membership_extension: Extension,
+    mutable_permission_extension: Extension,
 ) -> Result<MlsGroupCreateConfig, GroupError> {
     let required_extension_types = &[
         ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
         ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
+        ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
         ExtensionType::ImmutableMetadata,
         ExtensionType::LastResort,
         ExtensionType::ApplicationId,
@@ -740,6 +779,7 @@ fn build_group_config(
         protected_metadata_extension,
         mutable_metadata_extension,
         group_membership_extension,
+        mutable_permission_extension,
         required_capabilities,
     ])?;
 
@@ -1229,7 +1269,7 @@ mod tests {
         let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let amal_group = amal
-            .create_group(Some(PreconfiguredPolicies::GroupCreatorIsAdmin))
+            .create_group(Some(PreconfiguredPolicies::AdminsOnly))
             .unwrap();
         // Add bola to the group
         amal_group
@@ -1249,7 +1289,7 @@ mod tests {
     async fn test_max_limit_add() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let amal_group = amal
-            .create_group(Some(PreconfiguredPolicies::GroupCreatorIsAdmin))
+            .create_group(Some(PreconfiguredPolicies::AdminsOnly))
             .unwrap();
         let mut clients = Vec::new();
         for _ in 0..249 {
@@ -1270,7 +1310,7 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and verify it has the default group name
-        let policies = Some(PreconfiguredPolicies::GroupCreatorIsAdmin);
+        let policies = Some(PreconfiguredPolicies::AdminsOnly);
         let amal_group: MlsGroup = amal.create_group(policies).unwrap();
         amal_group.sync(&amal).await.unwrap();
 
@@ -1345,7 +1385,7 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and verify it has the default group name
-        let policies = Some(PreconfiguredPolicies::EveryoneIsAdmin);
+        let policies = Some(PreconfiguredPolicies::AllMembers);
         let amal_group: MlsGroup = amal.create_group(policies).unwrap();
         amal_group.sync(&amal).await.unwrap();
 

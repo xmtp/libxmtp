@@ -12,6 +12,7 @@ use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
+use xmtp_mls::groups::group_permissions::GroupMutablePermissions;
 use xmtp_mls::groups::PreconfiguredPolicies;
 use xmtp_mls::identity::v3::{IdentityStrategy, LegacyIdentity};
 use xmtp_mls::{
@@ -184,8 +185,8 @@ pub enum GroupPermissions {
 impl From<PreconfiguredPolicies> for GroupPermissions {
     fn from(policy: PreconfiguredPolicies) -> Self {
         match policy {
-            PreconfiguredPolicies::EveryoneIsAdmin => GroupPermissions::EveryoneIsAdmin,
-            PreconfiguredPolicies::GroupCreatorIsAdmin => GroupPermissions::GroupCreatorIsAdmin,
+            PreconfiguredPolicies::AllMembers => GroupPermissions::EveryoneIsAdmin,
+            PreconfiguredPolicies::AdminsOnly => GroupPermissions::GroupCreatorIsAdmin,
         }
     }
 }
@@ -204,10 +205,10 @@ impl FfiConversations {
 
         let group_permissions = match permissions {
             Some(GroupPermissions::EveryoneIsAdmin) => {
-                Some(xmtp_mls::groups::PreconfiguredPolicies::EveryoneIsAdmin)
+                Some(xmtp_mls::groups::PreconfiguredPolicies::AllMembers)
             }
             Some(GroupPermissions::GroupCreatorIsAdmin) => {
-                Some(xmtp_mls::groups::PreconfiguredPolicies::GroupCreatorIsAdmin)
+                Some(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly)
             }
             _ => None,
         };
@@ -662,6 +663,16 @@ impl FfiGroupMetadata {
             ConversationType::Sync => "sync".to_string(),
         }
     }
+}
+
+
+#[derive(uniffi::Object)]
+pub struct FfiGroupPermissions {
+    inner: Arc<GroupMutablePermissions>,
+}
+
+#[uniffi::export]
+impl FfiGroupPermissions {
 
     pub fn policy_type(&self) -> Result<GroupPermissions, GenericError> {
         Ok(self.inner.preconfigured_policy()?.into())

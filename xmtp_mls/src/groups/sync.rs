@@ -757,6 +757,7 @@ impl MlsGroup {
             IntentKind::MetadataUpdate => {
                 let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
                 let mutable_metadata_extensions = build_mutable_metadata_extensions(
+                    &self.context.identity,
                     openmls_group,
                     metadata_intent.field_name,
                     metadata_intent.field_value,

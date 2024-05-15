@@ -36,6 +36,7 @@ pub const DELIMITER: char = '\x01';
 /// | 0xff00  - 0xffff | Reserved for Private Use | N/A        | N/A         | RFC XXXX  |
 pub const MUTABLE_METADATA_EXTENSION_ID: u16 = 0xff00;
 pub const GROUP_MEMBERSHIP_EXTENSION_ID: u16 = 0xff01;
+pub const GROUP_PERMISSIONS_EXTENSION_ID: u16 = 0xff02;
 
 pub const DEFAULT_GROUP_NAME: &str = "New Group";
 pub const DEFAULT_GROUP_DESCRIPTION: &str = "New Group Description";

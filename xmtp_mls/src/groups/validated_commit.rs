@@ -18,7 +18,7 @@ use super::{
     group_mutable_metadata::{
         extract_group_mutable_metadata, GroupMutableMetadata, GroupMutableMetadataError,
     },
-    group_permissions::MetadataChange,
+    group_permissions::{extract_group_permissions, GroupMutablePermissionsError, MetadataChange},
     members::aggregate_member_list,
 };
 
@@ -61,6 +61,8 @@ pub enum CommitValidationError {
     CredentialError(#[from] BasicCredentialError),
     #[error("Failed to parse group mutable metadata: {0}")]
     GroupMutableMetadata(#[from] GroupMutableMetadataError),
+    #[error("Failed to parse group mutable permissions: {0}")]
+    GroupMutablePermissions(#[from] GroupMutablePermissionsError),
 }
 
 // A participant in a commit. Could be the actor or the subject of a proposal
@@ -111,6 +113,7 @@ impl ValidatedCommit {
             return Ok(None);
         }
         let group_metadata = extract_group_metadata(openmls_group)?;
+        let group_permissions = extract_group_permissions(openmls_group)?;
         let actor = extract_actor(
             leaf_index.expect("already checked"),
             openmls_group,
@@ -151,7 +154,10 @@ impl ValidatedCommit {
             group_name_updated,
         };
 
-        if !group_metadata.policies.evaluate_commit(&validated_commit) {
+        if !group_permissions
+            .policies
+            .evaluate_commit(&validated_commit)
+        {
             return Err(CommitValidationError::InsufficientPermissions);
         }
 
@@ -380,7 +386,7 @@ fn get_group_name_updated(
             }
         }
     }
-    let metadata_policies = extract_group_metadata(openmls_group)?
+    let metadata_policies = extract_group_permissions(openmls_group)?
         .policies
         .update_metadata_policy;
     Ok(MetadataChange {
@@ -455,7 +461,8 @@ mod tests {
     use crate::{
         builder::ClientBuilder,
         configuration::{
-            CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID,
+            CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID,
+            MUTABLE_METADATA_EXTENSION_ID,
         },
         Client,
     };
@@ -592,6 +599,7 @@ mod tests {
                 ExtensionType::LastResort,
                 ExtensionType::ApplicationId,
                 ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
+                ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
                 ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
                 ExtensionType::ImmutableMetadata,
             ]),

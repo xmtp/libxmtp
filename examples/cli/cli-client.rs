@@ -301,11 +301,9 @@ async fn main() {
         }
         Commands::CreateGroup { permissions } => {
             let group_permissions = match permissions {
-                Permissions::EveryoneIsAdmin => {
-                    xmtp_mls::groups::PreconfiguredPolicies::EveryoneIsAdmin
-                }
+                Permissions::EveryoneIsAdmin => xmtp_mls::groups::PreconfiguredPolicies::AllMembers,
                 Permissions::GroupCreatorIsAdmin => {
-                    xmtp_mls::groups::PreconfiguredPolicies::GroupCreatorIsAdmin
+                    xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly
                 }
             };
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
