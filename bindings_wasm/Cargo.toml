@@ -9,9 +9,6 @@ version = "0.1.0"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[build]
-target = "wasm32-unknown-unknown"
-
 [dependencies]
 # async-trait = "0.1.68"
 getrandom = { version = "0.2", features = ["js"] }
