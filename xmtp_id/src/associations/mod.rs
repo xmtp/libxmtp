@@ -578,7 +578,6 @@ mod tests {
                 SignatureKind::Erc191,
                 None,
             ),
-            ..Default::default()
         });
 
         let state_after_re_add = apply_update(
@@ -623,7 +622,6 @@ mod tests {
                 None,
             ),
             revoked_member: initial_recovery_address.clone(),
-            ..Default::default()
         });
 
         let revoke_result = apply_update(

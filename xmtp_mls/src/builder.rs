@@ -9,7 +9,7 @@ use xmtp_cryptography::signature::AddressValidationError;
 
 use crate::{
     api::ApiClientWrapper,
-    client::{Client, Network},
+    client::Client,
     identity::v3::{Identity, IdentityError, IdentityStrategy},
     retry::Retry,
     storage::EncryptedMessageStore,
@@ -50,7 +50,6 @@ pub enum ClientBuilderError {
 
 pub struct ClientBuilder<ApiClient> {
     api_client: Option<ApiClient>,
-    network: Network,
     identity: Option<Identity>,
     store: Option<EncryptedMessageStore>,
     identity_strategy: IdentityStrategy,
@@ -63,7 +62,6 @@ where
     pub fn new(strat: IdentityStrategy) -> Self {
         Self {
             api_client: None,
-            network: Network::Dev,
             identity: None,
             store: None,
             identity_strategy: strat,
@@ -72,11 +70,6 @@ where
 
     pub fn api_client(mut self, api_client: ApiClient) -> Self {
         self.api_client = Some(api_client);
-        self
-    }
-
-    pub fn network(mut self, network: Network) -> Self {
-        self.network = network;
         self
     }
 
@@ -99,7 +92,6 @@ where
                 parameter: "api_client",
             })?;
         let api_client_wrapper = ApiClientWrapper::new(api_client, Retry::default());
-        let network = self.network;
         let store = self
             .store
             .take()
@@ -109,7 +101,7 @@ where
             .identity_strategy
             .initialize_identity(&api_client_wrapper, &store)
             .await?;
-        let new_client = Client::new(api_client_wrapper, network, identity, store);
+        let new_client = Client::new(api_client_wrapper, identity, store);
 
         Ok(new_client)
     }

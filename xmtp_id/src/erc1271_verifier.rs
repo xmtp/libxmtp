@@ -175,7 +175,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(res, false);
+        assert!(!res);
 
         // get block number before removing
         let block_number = provider.get_block_number().await.unwrap();

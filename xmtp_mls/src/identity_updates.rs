@@ -533,18 +533,18 @@ mod tests {
         original_group_membership.add(inbox_ids[0].clone(), inbox_1_first_sequence_id as u64);
         original_group_membership.add(
             inbox_ids[1].clone(),
-            latest_sequence_ids.get(&inbox_ids[1]).unwrap().clone() as u64,
+            *latest_sequence_ids.get(&inbox_ids[1]).unwrap() as u64,
         );
 
         let mut new_group_membership = original_group_membership.clone();
         // Update the first inbox to have a higher sequence ID, but no new installations
         new_group_membership.add(
             inbox_ids[0].clone(),
-            latest_sequence_ids.get(&inbox_ids[0]).unwrap().clone() as u64,
+            *latest_sequence_ids.get(&inbox_ids[0]).unwrap() as u64,
         );
         new_group_membership.add(
             inbox_ids[2].clone(),
-            latest_sequence_ids.get(&inbox_ids[2]).unwrap().clone() as u64,
+            *latest_sequence_ids.get(&inbox_ids[2]).unwrap() as u64,
         );
         new_group_membership.remove(&inbox_ids[1]);
 

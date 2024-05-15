@@ -466,6 +466,7 @@ mod tests {
 
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
+        // FIXME: This mutex is held accross `.await` which might cause issues
         let messages = messages.lock().unwrap();
         assert_eq!(messages.len(), 5);
 

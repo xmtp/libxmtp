@@ -219,7 +219,6 @@ where
     /// a client directly.
     pub fn new(
         api_client: ApiClientWrapper<ApiClient>,
-        _network: Network,
         identity: Identity,
         store: EncryptedMessageStore,
     ) -> Self {

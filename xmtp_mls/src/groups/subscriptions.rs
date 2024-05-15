@@ -143,7 +143,7 @@ mod tests {
         if let Ok(message) = message_again {
             assert_eq!(message.group_id, amal_group.clone().group_id)
         } else {
-            assert!(false)
+            panic!("failed, message needs to equal message_again");
         }
     }
 

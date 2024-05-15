@@ -38,7 +38,7 @@ use xmtp_mls::{
         StorageOption,
     },
     utils::time::now_ns,
-    InboxOwner, Network,
+    InboxOwner,
 };
 type Client = xmtp_mls::client::Client<ApiClient>;
 type ClientBuilder = xmtp_mls::builder::ClientBuilder<ApiClient>;
@@ -341,16 +341,14 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
 
     if cli.local {
         info!("Using local network");
-        builder = builder
-            .network(Network::Local("http://localhost:5556"))
-            .api_client(
-                ApiClient::create("http://localhost:5556".into(), false)
-                    .await
-                    .unwrap(),
-            );
+        builder = builder.api_client(
+            ApiClient::create("http://localhost:5556".into(), false)
+                .await
+                .unwrap(),
+        );
     } else {
         info!("Using dev network");
-        builder = builder.network(Network::Dev).api_client(
+        builder = builder.api_client(
             ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true)
                 .await
                 .unwrap(),

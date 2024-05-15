@@ -6,7 +6,7 @@ use crate::storage::{db_connection::DbConnection, sql_key_store::SqlKeyStore};
 #[derive(Debug)]
 pub struct XmtpOpenMlsProvider {
     crypto: RustCrypto,
-    key_store: SqlKeyStore<'static>,
+    key_store: SqlKeyStore,
 }
 
 impl Clone for XmtpOpenMlsProvider {
@@ -38,7 +38,7 @@ impl XmtpOpenMlsProvider {
 impl OpenMlsProvider for XmtpOpenMlsProvider {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
-    type KeyStoreProvider = SqlKeyStore<'static>;
+    type KeyStoreProvider = SqlKeyStore;
 
     fn crypto(&self) -> &Self::CryptoProvider {
         &self.crypto
@@ -56,7 +56,7 @@ impl OpenMlsProvider for XmtpOpenMlsProvider {
 impl<'a> OpenMlsProvider for &'a XmtpOpenMlsProvider {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
-    type KeyStoreProvider = SqlKeyStore<'static>;
+    type KeyStoreProvider = SqlKeyStore;
 
     fn crypto(&self) -> &Self::CryptoProvider {
         &self.crypto
