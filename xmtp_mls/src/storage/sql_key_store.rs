@@ -335,6 +335,7 @@ const AAD_LABEL: &[u8] = b"AAD";
 const GROUP_STATE_LABEL: &[u8] = b"GroupState";
 const QUEUED_PROPOSAL_LABEL: &[u8] = b"QueuedProposal";
 const PROPOSAL_QUEUE_REFS_LABEL: &[u8] = b"ProposalQueueRefs";
+const RESUMPTION_PSK_STORE_LABEL: &[u8] = b"ResumptionPskStore";
 
 impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
     type Error = MemoryStorageError;
@@ -724,10 +725,9 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         ResumptionPskStore: traits::ResumptionPskStore<CURRENT_VERSION>,
     >(
         &self,
-        _group_id: &GroupId,
+        group_id: &GroupId,
     ) -> Result<Option<ResumptionPskStore>, Self::Error> {
-        // Err(MemoryStorageError::UnsupportedMethod)
-        Ok(None)
+        self.read(RESUMPTION_PSK_STORE_LABEL, &serde_json::to_vec(group_id)?)
     }
 
     fn write_resumption_psk_store<
@@ -735,20 +735,21 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore<'_> {
         ResumptionPskStore: traits::ResumptionPskStore<CURRENT_VERSION>,
     >(
         &self,
-        _group_id: &GroupId,
-        _resumption_psk_store: &ResumptionPskStore,
+        group_id: &GroupId,
+        resumption_psk_store: &ResumptionPskStore,
     ) -> Result<(), Self::Error> {
-        // log::debug!("write_resumption_psk_store");
-        // Err(MemoryStorageError::UnsupportedMethod)
-        Ok(())
+        self.write::<CURRENT_VERSION>(
+            RESUMPTION_PSK_STORE_LABEL,
+            &serde_json::to_vec(group_id)?,
+            &serde_json::to_vec(resumption_psk_store)?,
+        )
     }
 
     fn delete_all_resumption_psk_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
-        _group_id: &GroupId,
+        group_id: &GroupId,
     ) -> Result<(), Self::Error> {
-        // Err(MemoryStorageError::UnsupportedMethod)
-        Ok(())
+        self.delete::<CURRENT_VERSION>(RESUMPTION_PSK_STORE_LABEL, &serde_json::to_vec(group_id)?)
     }
 
     fn own_leaf_index<
@@ -1284,5 +1285,34 @@ mod tests {
         let proposals_read: Result<Vec<(ProposalRef, Proposal)>, MemoryStorageError> =
             key_store.queued_proposals(&group_id);
         assert!(proposals_read.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn group_state() {
+        let db_path = tmp_path();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(db_path),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+        let conn = &store.conn().unwrap();
+        let key_store = SqlKeyStore::new(conn);
+        let provider = XmtpOpenMlsProvider::new(&conn);
+
+        #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
+        struct GroupState(usize);
+        impl traits::GroupState<CURRENT_VERSION> for GroupState {}
+        impl Entity<CURRENT_VERSION> for GroupState {}
+
+        let group_id = GroupId::random(provider.rand());
+
+        // Group state
+        key_store
+            .write_group_state(&group_id, &GroupState(77))
+            .unwrap();
+
+        // Read group state
+        let group_state: Option<GroupState> = key_store.group_state(&group_id).unwrap();
+        assert_eq!(GroupState(77), group_state.unwrap());
     }
 }
