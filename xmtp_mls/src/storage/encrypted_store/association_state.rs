@@ -22,7 +22,7 @@ impl TryFrom<StoredAssociationState> for AssociationState {
     type Error = DeserializationError;
 
     fn try_from(stored_state: StoredAssociationState) -> Result<Self, Self::Error> {
-        AssociationStateProto::decode(stored_state.state.as_slice())?.try_into()
+        return AssociationStateProto::decode(stored_state.state.as_slice())?.try_into();
     }
 }
 
