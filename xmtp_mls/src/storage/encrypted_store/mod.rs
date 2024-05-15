@@ -264,8 +264,7 @@ macro_rules! impl_store {
 #[macro_export]
 macro_rules! impl_store_or_ignore {
     ($model:ty, $table:ident) => {
-        impl
-            $crate::StoreOrIgnore<$crate::storage::encrypted_store::db_connection::DbConnection>
+        impl $crate::StoreOrIgnore<$crate::storage::encrypted_store::db_connection::DbConnection>
             for $model
         {
             fn store_or_ignore(
