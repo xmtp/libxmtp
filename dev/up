@@ -19,6 +19,7 @@ if [[ "${OSTYPE}" == "darwin"* ]]; then
         source $HOME/.zshenv
         foundryup
     fi
+    if ! wasm-pack --version &>/dev/null; then cargo install wasm-pack; fi
 fi
 
 rustup update

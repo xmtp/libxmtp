@@ -496,8 +496,8 @@ mod tests {
 
         let identity_update = IdentityUpdate::new(
             vec![Action::CreateInbox(CreateInbox {
-                nonce: nonce,
-                account_address: account_address,
+                nonce,
+                account_address,
                 initial_address_signature: Box::new(RecoverableEcdsaSignature::new(
                     "foo".to_string(),
                     vec![1, 2, 3],

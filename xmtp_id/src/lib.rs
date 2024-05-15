@@ -2,7 +2,12 @@ pub mod associations;
 pub mod constants;
 pub mod erc1271_verifier;
 pub mod utils;
-use ethers::signers::{LocalWallet, Signer};
+use ethers::{
+    middleware::Middleware,
+    providers::{Http, Provider},
+    signers::{LocalWallet, Signer},
+    types::Address,
+};
 use futures::executor;
 use openmls_traits::types::CryptoError;
 use thiserror::Error;
@@ -16,14 +21,24 @@ pub enum IdentityError {
     UninitializedIdentity,
     #[error("protobuf deserialization: {0}")]
     Deserialization(#[from] prost::DecodeError),
+    #[error(transparent)]
+    ProviderError(#[from] ethers::providers::ProviderError),
+    #[error(transparent)]
+    UrlParseError(#[from] url::ParseError),
 }
 
 /// The global InboxID Type.
 pub type InboxId = String;
 
-#[async_trait::async_trait]
-pub trait WalletIdentity {
-    async fn is_smart_wallet(&self, block: Option<u64>) -> Result<bool, IdentityError>;
+// Check if the given address is a smart contract by checking if there is code at the given address.
+pub async fn is_smart_contract(
+    address: Address,
+    url: String,
+    block: Option<u64>,
+) -> Result<bool, IdentityError> {
+    let provider: Provider<Http> = Provider::<Http>::try_from(url)?;
+    let code = provider.get_code(address, block.map(Into::into)).await?;
+    Ok(!code.is_empty())
 }
 
 pub trait InboxOwner {
@@ -43,61 +58,56 @@ impl InboxOwner for LocalWallet {
     }
 }
 
-/// XMTP Identity according to [XIP-46](https://github.com/xmtp/XIPs/pull/53)
-pub struct Identity {
-    #[allow(dead_code)]
-    id: String,
-}
-
-impl Identity {
-    /// Generate a new, empty ID for an account address.
-    /// A nonce is used to ensure uniqueness of the ID.
-    pub fn new(address: String) -> Self {
-        // TODO: how to nonce?
-        let id = associations::generate_inbox_id(&address, &0);
-        Self { id }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use ethers::{
-        middleware::Middleware,
+        contract::abigen,
+        middleware::SignerMiddleware,
         providers::{Http, Provider},
-        types::Address,
+        utils::Anvil,
     };
-    use std::str::FromStr;
-    use xmtp_cryptography::utils::generate_local_wallet;
+    use std::sync::Arc;
 
-    struct EthereumWallet {
-        provider: Provider<Http>,
-        address: String,
-    }
+    abigen!(
+        CoinbaseSmartWallet,
+        "artifact/CoinbaseSmartWallet.json",
+        derives(serde::Serialize, serde::Deserialize)
+    );
 
-    impl EthereumWallet {
-        pub fn new(address: String) -> Self {
-            let provider = Provider::<Http>::try_from("https://eth.llamarpc.com").unwrap();
-            Self { provider, address }
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl WalletIdentity for EthereumWallet {
-        async fn is_smart_wallet(&self, block: Option<u64>) -> Result<bool, IdentityError> {
-            let address = Address::from_str(&self.address).unwrap();
-            let res = self.provider.get_code(address, block.map(Into::into)).await;
-            Ok(!res.unwrap().to_vec().is_empty())
-        }
-    }
+    abigen!(
+        CoinbaseSmartWalletFactory,
+        "artifact/CoinbaseSmartWalletFactory.json",
+        derives(serde::Serialize, serde::Deserialize)
+    );
 
     #[tokio::test]
-    async fn test_is_smart_wallet() {
-        let wallet = generate_local_wallet();
-        let eth = EthereumWallet::new(wallet.get_address());
-        let scw = EthereumWallet::new("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".into());
+    async fn test_is_smart_contract() {
+        let anvil = Anvil::new().args(vec!["--base-fee", "100"]).spawn();
+        let deployer: LocalWallet = anvil.keys()[1].clone().into();
+        let provider = Provider::<Http>::try_from(anvil.endpoint()).unwrap();
+        let client = Arc::new(SignerMiddleware::new(
+            provider.clone(),
+            deployer.clone().with_chain_id(anvil.chain_id()),
+        ));
 
-        assert!(!eth.is_smart_wallet(None).await.unwrap());
-        assert!(scw.is_smart_wallet(None).await.unwrap());
+        // deploy a coinbase smart wallet as the implementation for factory
+        let implementation = CoinbaseSmartWallet::deploy(client.clone(), ())
+            .unwrap()
+            .gas_price(100)
+            .send()
+            .await
+            .unwrap();
+
+        assert!(
+            !is_smart_contract(deployer.address(), anvil.endpoint(), None)
+                .await
+                .unwrap()
+        );
+        assert!(
+            is_smart_contract(implementation.address(), anvil.endpoint(), None)
+                .await
+                .unwrap()
+        );
     }
 }

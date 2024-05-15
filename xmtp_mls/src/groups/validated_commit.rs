@@ -94,7 +94,6 @@ pub struct ValidatedCommit {
 }
 
 impl ValidatedCommit {
-    // Build a ValidatedCommit from a StagedCommit and OpenMlsGroup
     pub fn from_staged_commit(
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
@@ -470,8 +469,8 @@ mod tests {
 
     fn get_key_package(client: &Client<GrpcClient>) -> KeyPackage {
         client
-            .identity
-            .new_key_package(&client.mls_provider(&client.store.conn().unwrap()))
+            .identity()
+            .new_key_package(&client.mls_provider(client.context.store.conn().unwrap()))
             .unwrap()
     }
 
@@ -482,14 +481,14 @@ mod tests {
         let bola_key_package = get_key_package(&bola);
 
         let amal_group = amal.create_group(None).unwrap();
-        let amal_conn = amal.store.conn().unwrap();
-        let amal_provider = amal.mls_provider(&amal_conn);
+        let amal_conn = amal.store().conn().unwrap();
+        let amal_provider = amal.mls_provider(amal_conn);
         let mut mls_group = amal_group.load_mls_group(&amal_provider).unwrap();
         // Create a pending commit to add bola to the group
         mls_group
             .add_members(
                 &amal_provider,
-                &amal.identity.installation_keys,
+                &amal.identity().installation_keys,
                 &[bola_key_package],
             )
             .unwrap();
@@ -519,14 +518,14 @@ mod tests {
             .members()
             .find(|m| {
                 m.signature_key
-                    .eq(&bola.identity.installation_keys.public())
+                    .eq(&bola.identity().installation_keys.public())
             })
             .unwrap()
             .index;
         mls_group
             .remove_members(
                 &amal_provider,
-                &amal.identity.installation_keys,
+                &amal.identity().installation_keys,
                 &[bola_leaf_node],
             )
             .unwrap();
@@ -546,22 +545,22 @@ mod tests {
         let amal_1 = ClientBuilder::new_test_client(&wallet).await;
         let amal_2 = ClientBuilder::new_test_client(&wallet).await;
 
-        let amal_1_conn = amal_1.store.conn().unwrap();
-        let amal_2_conn = amal_2.store.conn().unwrap();
+        let amal_1_conn = amal_1.store().conn().unwrap();
+        let amal_2_conn = amal_2.store().conn().unwrap();
 
-        let amal_1_provider = amal_1.mls_provider(&amal_1_conn);
-        let amal_2_provider = amal_2.mls_provider(&amal_2_conn);
+        let amal_1_provider = amal_1.mls_provider(amal_1_conn.clone());
+        let amal_2_provider = amal_2.mls_provider(amal_2_conn.clone());
 
         let amal_group = amal_1.create_group(None).unwrap();
         let mut amal_mls_group = amal_group.load_mls_group(&amal_1_provider).unwrap();
 
-        let amal_2_kp = amal_2.identity.new_key_package(&amal_2_provider).unwrap();
+        let amal_2_kp = amal_2.identity().new_key_package(&amal_2_provider).unwrap();
 
         // Add Amal's second installation to the existing group
         amal_mls_group
             .add_members(
                 &amal_1_provider,
-                &amal_1.identity.installation_keys,
+                &amal_1.identity().installation_keys,
                 &[amal_2_kp],
             )
             .unwrap();
@@ -584,11 +583,11 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_conn = amal.store.conn().unwrap();
-        let bola_conn = bola.store.conn().unwrap();
+        let amal_conn = amal.store().conn().unwrap();
+        let bola_conn = bola.store().conn().unwrap();
 
-        let amal_provider = amal.mls_provider(&amal_conn);
-        let bola_provider = bola.mls_provider(&bola_conn);
+        let amal_provider = amal.mls_provider(amal_conn);
+        let bola_provider = bola.mls_provider(bola_conn);
 
         let amal_group = amal.create_group(None).unwrap();
         let mut amal_mls_group = amal_group.load_mls_group(&amal_provider).unwrap();
@@ -617,11 +616,11 @@ mod tests {
                     version: ProtocolVersion::default(),
                 },
                 &bola_provider,
-                &bola.identity.installation_keys,
+                &bola.identity().installation_keys,
                 CredentialWithKey {
                     // Broken credential
                     credential: BasicCredential::new(vec![1, 2, 3]).unwrap().into(),
-                    signature_key: bola.identity.installation_keys.to_public_vec().into(),
+                    signature_key: bola.identity().installation_keys.to_public_vec().into(),
                 },
             )
             .unwrap();
@@ -629,7 +628,7 @@ mod tests {
         amal_mls_group
             .add_members(
                 &amal_provider,
-                &amal.identity.installation_keys,
+                &amal.identity().installation_keys,
                 &[bad_key_package],
             )
             .unwrap();

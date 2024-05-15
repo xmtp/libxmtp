@@ -53,7 +53,7 @@ pub struct RefreshState {
 
 impl_store!(RefreshState, refresh_state);
 
-impl DbConnection<'_> {
+impl DbConnection {
     pub fn get_refresh_state<EntityId: AsRef<Vec<u8>>>(
         &self,
         entity_id: EntityId,
