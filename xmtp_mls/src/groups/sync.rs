@@ -33,10 +33,11 @@ use xmtp_proto::{
 };
 
 use super::{
-    build_mutable_metadata_extensions,
+    build_mutable_metadata_extensions, build_mutable_metadata_extensions_for_admin_lists_update,
     intents::{
         AddMembersIntentData, AddressesOrInstallationIds, Installation, PostCommitAction,
         RemoveMembersIntentData, SendMessageIntentData, SendWelcomesAction,
+        UpdateAdminListIntentData,
     },
     members::GroupMember,
     GroupError, MlsGroup,
@@ -180,7 +181,8 @@ where
             IntentKind::AddMembers
             | IntentKind::RemoveMembers
             | IntentKind::KeyUpdate
-            | IntentKind::MetadataUpdate => {
+            | IntentKind::MetadataUpdate
+            | IntentKind::AdminListUpdate => {
                 if !allow_epoch_increment {
                     return Err(MessageProcessingError::EpochIncrementNotAllowed);
                 }
@@ -565,7 +567,6 @@ where
     ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
-
         let intents = provider.conn().find_group_intents(
             self.group_id.clone(),
             Some(vec![IntentState::ToPublish]),
@@ -731,6 +732,29 @@ where
                     metadata_intent.field_name,
                     metadata_intent.field_value,
                 )?;
+
+                let (commit, _, _) = openmls_group.update_group_context_extensions(
+                    provider,
+                    mutable_metadata_extensions,
+                    &self.client.identity.installation_keys,
+                )?;
+
+                if let Some(staged_commit) = openmls_group.pending_commit() {
+                    // Validate the commit, even if it's from yourself
+                    ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
+                }
+                let commit_bytes = commit.tls_serialize_detached()?;
+
+                Ok((commit_bytes, None))
+            }
+            IntentKind::AdminListUpdate => {
+                let admin_list_update_intent =
+                    UpdateAdminListIntentData::try_from(intent.data.clone())?;
+                let mutable_metadata_extensions =
+                    build_mutable_metadata_extensions_for_admin_lists_update(
+                        openmls_group,
+                        admin_list_update_intent,
+                    )?;
 
                 let (commit, _, _) = openmls_group.update_group_context_extensions(
                     provider,

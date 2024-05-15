@@ -18,12 +18,15 @@ use super::{
     group_mutable_metadata::{
         extract_group_mutable_metadata, GroupMutableMetadata, GroupMutableMetadataError,
     },
-    group_permissions::{extract_group_permissions, GroupMutablePermissionsError, MetadataChange},
+    group_permissions::{
+        extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
+        MetadataChange, PermissionsChange,
+    },
     members::aggregate_member_list,
 };
 
 use crate::{
-    configuration::MUTABLE_METADATA_EXTENSION_ID,
+    configuration::{GROUP_PERMISSIONS_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
     identity::v3::{Identity, IdentityError},
     types::Address,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
@@ -90,7 +93,8 @@ pub struct ValidatedCommit {
     pub(crate) members_removed: Vec<AggregatedMembershipChange>,
     pub(crate) installations_added: Vec<AggregatedMembershipChange>,
     pub(crate) installations_removed: Vec<AggregatedMembershipChange>,
-    pub(crate) group_name_updated: MetadataChange,
+    pub(crate) metadata_updated: MetadataChange,
+    pub(crate) permissions_updated: PermissionsChange,
 }
 
 impl ValidatedCommit {
@@ -146,13 +150,16 @@ impl ValidatedCommit {
 
         let group_name_updated = get_group_name_updated(staged_commit, openmls_group)?;
 
+        let permissions_updated = get_permissions_updated(staged_commit, openmls_group)?;
+
         let validated_commit = Self {
             actor,
             members_added,
             members_removed,
             installations_added,
             installations_removed,
-            group_name_updated,
+            metadata_updated: group_name_updated,
+            permissions_updated,
         };
 
         if !group_permissions
@@ -387,13 +394,44 @@ fn get_group_name_updated(
             }
         }
     }
-    let metadata_policies = extract_group_permissions(openmls_group)?
-        .policies
-        .update_metadata_policy;
+    let policy_set = extract_group_permissions(openmls_group)?.policies;
     Ok(MetadataChange {
+        old_value,
+        new_value,
+        policy_set,
+    })
+}
+
+fn get_permissions_updated(
+    staged_commit: &StagedCommit,
+    openmls_group: &OpenMlsGroup,
+) -> Result<PermissionsChange, CommitValidationError> {
+    let old_value = extract_group_permissions(openmls_group)?;
+    let mut new_value = old_value.clone();
+    for proposal in staged_commit.queued_proposals() {
+        if let Proposal::GroupContextExtensions(extension_proposal) = proposal.proposal() {
+            let extensions = extension_proposal.extensions();
+            // Check each MUTABLE_METADATA extension to see if it updates metadata group name
+            for extension in extensions.iter() {
+                if let Extension::Unknown(GROUP_PERMISSIONS_EXTENSION_ID, UnknownExtension(data)) =
+                    extension
+                {
+                    match GroupMutablePermissions::try_from(data) {
+                        Ok(permissions) => {
+                            // Since we iterate through the commit proposal in order from queued proposals
+                            // we overwrite the GroupMutableMetadata for each valid GCE proposal to get the final state
+                            // of the commit
+                            new_value = permissions;
+                        }
+                        Err(e) => return Err(CommitValidationError::from(e)),
+                    }
+                }
+            }
+        }
+    }
+    Ok(PermissionsChange {
         new_value,
         old_value,
-        metadata_policies,
     })
 }
 

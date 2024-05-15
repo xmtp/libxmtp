@@ -76,7 +76,7 @@ impl GroupMutableMetadata {
         }
     }
 
-    pub fn new_default(creator_account_address: String) -> Self {
+    pub fn new_default(creator_account_address: &String) -> Self {
         let mut attributes = HashMap::new();
         attributes.insert(
             MetadataField::GroupName.to_string(),
@@ -134,22 +134,16 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
     type Error = GroupMutableMetadataError;
 
     fn try_from(value: GroupMutableMetadataProto) -> Result<Self, Self::Error> {
-        #[allow(unused_mut)]
-        let mut admin_list: Vec<String>;
-        #[allow(unused_mut)]
-        let mut super_admin_list: Vec<String>;
-        match value.admin_list {
-            Some(inboxes) => {
-                admin_list = inboxes.inbox_ids;
-            }
-            None => return Err(GroupMutableMetadataError::MissingMetadataField),
-        }
-        match value.super_admin_list {
-            Some(inboxes) => {
-                super_admin_list = inboxes.inbox_ids;
-            }
-            None => return Err(GroupMutableMetadataError::MissingMetadataField),
-        }
+        let admin_list = value
+            .admin_list
+            .ok_or_else(|| GroupMutableMetadataError::MissingMetadataField)?
+            .inbox_ids;
+
+        let super_admin_list = value
+            .super_admin_list
+            .ok_or_else(|| GroupMutableMetadataError::MissingMetadataField)?
+            .inbox_ids;
+
         Ok(Self::new(
             value.attributes.clone(),
             admin_list,

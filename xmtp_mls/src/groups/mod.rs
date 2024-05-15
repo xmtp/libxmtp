@@ -60,7 +60,7 @@ use self::{
     group_permissions::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
-    intents::UpdateMetadataIntentData,
+    intents::{AdminListActionType, UpdateAdminListIntentData, UpdateMetadataIntentData},
 };
 use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
@@ -516,8 +516,6 @@ where
         self.sync_until_intent_resolved(conn, intent.id).await
     }
 
-    // Query the database for stored messages. Optionally filtered by time, kind, delivery_status
-    // and limit
     pub fn group_name(&self) -> Result<String, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
         match mutable_metadata
@@ -529,6 +527,30 @@ where
                 GroupMutableMetadataError::MissingExtension,
             )),
         }
+    }
+
+    pub fn admin_list(&self) -> Result<Vec<String>, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        Ok(mutable_metadata.admin_list)
+    }
+
+    pub fn super_admin_list(&self) -> Result<Vec<String>, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        Ok(mutable_metadata.super_admin_list)
+    }
+
+    pub async fn add_admin(&self, admin_address: String) -> Result<(), GroupError> {
+        let conn = &mut self.client.store.conn()?;
+        let intent_data: Vec<u8> =
+            UpdateAdminListIntentData::new(intents::AdminListActionType::AddAdmin, admin_address)
+                .into();
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::AdminListUpdate,
+            self.group_id.clone(),
+            intent_data,
+        ))?;
+
+        self.sync_until_intent_resolved(conn, intent.id).await
     }
 
     // Find the wallet address of the group member who added the member to the group
@@ -665,7 +687,7 @@ pub fn build_mutable_metadata_extension_default(
     identity: &Identity,
 ) -> Result<Extension, GroupError> {
     let mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new_default(identity.account_address.clone()).try_into()?;
+        GroupMutableMetadata::new_default(&identity.account_address).try_into()?;
     let unknown_gc_extension = UnknownExtension(mutable_metadata);
 
     Ok(Extension::Unknown(
@@ -689,6 +711,41 @@ pub fn build_mutable_metadata_extensions(
         vec![identity.account_address.clone()],
     )
     .try_into()?;
+    let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
+    let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
+    let mut extensions = group.extensions().clone();
+    extensions.add_or_replace(extension);
+    Ok(extensions)
+}
+
+pub fn build_mutable_metadata_extensions_for_admin_lists_update(
+    group: &OpenMlsGroup,
+    admin_lists_update: UpdateAdminListIntentData,
+) -> Result<Extensions, GroupError> {
+    let existing_metadata = extract_group_mutable_metadata(group)?;
+    let attributes = existing_metadata.attributes.clone();
+    let mut admin_list = existing_metadata.admin_list;
+    let mut super_admin_list = existing_metadata.super_admin_list;
+    match admin_lists_update.action_type {
+        AdminListActionType::AddAdmin => {
+            if !admin_list.contains(&admin_lists_update.inbox_id) {
+                admin_list.push(admin_lists_update.inbox_id);
+            }
+        }
+        AdminListActionType::RemoveAdmin => {
+            admin_list.retain(|x| x != &admin_lists_update.inbox_id)
+        }
+        AdminListActionType::AddSuperAdmin => {
+            if !super_admin_list.contains(&admin_lists_update.inbox_id) {
+                super_admin_list.push(admin_lists_update.inbox_id);
+            }
+        }
+        AdminListActionType::RemoveSuperAdmin => {
+            admin_list.retain(|x| x != &admin_lists_update.inbox_id)
+        }
+    }
+    let new_mutable_metadata: Vec<u8> =
+        GroupMutableMetadata::new(attributes, admin_list, super_admin_list).try_into()?;
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
     let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
     let mut extensions = group.extensions().clone();
@@ -1321,20 +1378,24 @@ mod tests {
     async fn test_group_mutable_data_group_permissions() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        // Create a group and verify it has the default group name
-        let policies = Some(PreconfiguredPolicies::AllMembers);
+        // Create a group and verify admin list and super admin list both contain creator
+        let policies = Some(PreconfiguredPolicies::AdminsOnly);
         let amal_group: MlsGroup<_> = amal.create_group(policies).unwrap();
         amal_group.sync().await.unwrap();
 
         let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+        assert!(group_mutable_metadata.admin_list.len() == 1);
         assert!(group_mutable_metadata
-            .attributes
-            .get(&MetadataField::GroupName.to_string())
-            .unwrap()
-            .eq("New Group"));
+            .admin_list
+            .contains(&amal.account_address()));
+        assert!(group_mutable_metadata.super_admin_list.len() == 1);
+        assert!(group_mutable_metadata
+            .super_admin_list
+            .contains(&amal.account_address()));
 
-        // Add bola to the group
+        // Add bola to the group, assert they can read admin list
         amal_group
             .add_members(vec![bola.account_address()])
             .await
@@ -1342,53 +1403,59 @@ mod tests {
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(None, None, None, None).unwrap();
         assert_eq!(bola_groups.len(), 1);
-        let bola_group = bola_groups.first().unwrap();
+        let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
-        let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
-        assert!(group_mutable_metadata
-            .attributes
-            .get(&MetadataField::GroupName.to_string())
-            .unwrap()
-            .eq("New Group"));
+        let bola_mutable_metadata = bola_group.mutable_metadata().unwrap();
+        assert!(bola_mutable_metadata.admin_list.len() == 1);
+        assert!(bola_mutable_metadata
+            .admin_list
+            .contains(&amal.account_address()));
+        assert!(bola_mutable_metadata.super_admin_list.len() == 1);
+        assert!(bola_mutable_metadata
+            .super_admin_list
+            .contains(&amal.account_address()));
 
-        // Update group name
-        amal_group
-            .update_group_name("New Group Name 1".to_string())
-            .await
-            .unwrap();
-
-        // Verify amal group sees update
-        amal_group.sync().await.unwrap();
-        let binding = amal_group.mutable_metadata().unwrap();
-        let amal_group_name: &String = binding
-            .attributes
-            .get(&MetadataField::GroupName.to_string())
-            .unwrap();
-        assert_eq!(amal_group_name, "New Group Name 1");
-
-        // Verify bola group sees update
-        bola_group.sync().await.unwrap();
-        let binding = bola_group.mutable_metadata().expect("msg");
-        let bola_group_name: &String = binding
-            .attributes
-            .get(&MetadataField::GroupName.to_string())
-            .unwrap();
-        assert_eq!(bola_group_name, "New Group Name 1");
-
-        // Verify that bola CAN update the group name since everyone is admin for this group
+        // Verify that bola can not add a member because group is admin only
         bola_group
-            .update_group_name("New Group Name 2".to_string())
+            .add_members(vec![caro.account_address()])
             .await
-            .expect("non creator failed to udpate group name");
-
-        // Verify amal group sees an update
+            .expect_err("expected err");
+        bola_group.sync().await.unwrap();
         amal_group.sync().await.unwrap();
-        let binding = amal_group.mutable_metadata().expect("msg");
-        let amal_group_name: &String = binding
-            .attributes
-            .get(&MetadataField::GroupName.to_string())
-            .unwrap();
-        assert_eq!(amal_group_name, "New Group Name 2");
+        assert!(amal_group.members().unwrap().len() == 2);
+        assert!(bola_group.members().unwrap().len() == 2);
+
+        // Verify bola can not add themselves as admin
+        bola_group
+            .add_admin(bola.account_address())
+            .await
+            .expect_err("expected error");
+        bola_group.sync().await.unwrap();
+        let bola_mutable_metadata = bola_group.mutable_metadata().unwrap();
+        assert!(!bola_mutable_metadata
+            .admin_list
+            .contains(&bola.account_address()));
+
+        // Add bola as an admin
+        amal_group
+            .add_admin(bola.account_address())
+            .await
+            .expect("error adding admin");
+        bola_group.sync().await.unwrap();
+        let bola_mutable_metadata = bola_group.mutable_metadata().unwrap();
+        assert!(bola_mutable_metadata
+            .admin_list
+            .contains(&bola.account_address()));
+
+        // Verify that bola can now add members, now that they are an admin
+        bola_group
+            .add_members(vec![caro.account_address()])
+            .await
+            .expect("admin should be able to add members");
+        bola_group.sync().await.unwrap();
+        amal_group.sync().await.unwrap();
+        assert!(amal_group.members().unwrap().len() == 3);
+        assert!(bola_group.members().unwrap().len() == 3);
     }
 
     #[tokio::test]
