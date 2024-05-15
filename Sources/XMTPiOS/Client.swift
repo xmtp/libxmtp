@@ -138,10 +138,7 @@ public final class Client {
 		if options?.mlsAlpha == true, options?.api.env.supportsMLS == true {
 			let dbURL = options?.mlsDbPath ?? URL.documentsDirectory.appendingPathComponent("xmtp-\(options?.api.env.rawValue ?? "")-\(address).db3").path
 
-			var encryptionKey = options?.mlsEncryptionKey
-			if (encryptionKey == nil) {
-				throw ClientError.creationError("No encryption key passed for the database. Please store and provide a secure encryption key.")
-			}
+			let encryptionKey = options?.mlsEncryptionKey
 
 			let v3Client = try await LibXMTP.createClient(
 				logger: XMTPLogger(),

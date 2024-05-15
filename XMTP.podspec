@@ -16,7 +16,7 @@ Pod::Spec.new do |spec|
   #
 
   spec.name         = "XMTP"
-  spec.version      = "0.10.10"
+  spec.version      = "0.10.11"
   spec.summary      = "XMTP SDK Cocoapod"
 
   # This description is used to generate tags and improve search results.
