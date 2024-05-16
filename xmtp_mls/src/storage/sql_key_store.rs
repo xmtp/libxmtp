@@ -842,11 +842,8 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         let key = epoch_key_pairs_id(group_id, epoch, leaf_index)?;
         let value = serde_json::to_vec(key_pairs)?;
         log::debug!("Writing encryption epoch key pairs");
-        #[cfg(feature = "test-utils")]
-        {
-            log::debug!("  key: {}", hex::encode(&key));
-            log::debug!("  value: {}", hex::encode(&value));
-        }
+        log::debug!("  key: {}", hex::encode(&key));
+        log::debug!("  value: {}", hex::encode(&value));
 
         self.write::<CURRENT_VERSION>(EPOCH_KEY_PAIRS_LABEL, &key, &value)
     }
@@ -861,21 +858,37 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         epoch: &EpochKey,
         leaf_index: u32,
     ) -> Result<Vec<HpkeKeyPair>, Self::Error> {
-        let key = epoch_key_pairs_id(group_id, epoch, leaf_index)?;
-        let storage_key = build_key_from_vec::<CURRENT_VERSION>(EPOCH_KEY_PAIRS_LABEL, key);
         log::debug!("Reading encryption epoch key pairs");
 
-        match self.read_list(EPOCH_KEY_PAIRS_LABEL, &storage_key) {
+        let key = epoch_key_pairs_id(group_id, epoch, leaf_index)?;
+        let storage_key = build_key_from_vec::<CURRENT_VERSION>(EPOCH_KEY_PAIRS_LABEL, key);
+        log::debug!("  key: {}", hex::encode(&storage_key));
+
+        let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
+        let conn = self.conn.lock().unwrap();
+
+        let results: Result<Vec<StorageData>, diesel::result::Error> = conn.raw_query(|conn| {
+            sql_query(query)
+                .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
+                .load(conn)
+        });
+
+        match results {
             Ok(data) => {
-                #[cfg(feature = "test-utils")]
-                log::debug!("  value: {}", hex::encode(&data));
-                serde_json::from_slice::<Vec<HpkeKeyPair>>(&data)
-                    .map_err(|_e| MemoryStorageError::SerializationError)
+                if let Some(entry) = data.into_iter().next() {
+                    match serde_json::from_slice::<Vec<HpkeKeyPair>>(&entry.value_bytes) {
+                        Ok(deserialized) => Ok(deserialized),
+                        Err(e) => {
+                            eprintln!("Error occurred: {}", e);
+                            Err(MemoryStorageError::SerializationError)
+                        }
+                    }
+                } else {
+                    Ok(vec![])
+                }
             }
-            Err(e) => {
-                log::error!("Failed to read from storage: {}", e);
-                Err(e)
-            }
+            Err(_e) => Err(MemoryStorageError::None),
         }
     }
 
