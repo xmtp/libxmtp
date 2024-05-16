@@ -345,6 +345,9 @@ where
             .map_err(GroupError::EncodeError)?;
 
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
+        
+        self.pre_intent_hook().await.unwrap();
+        
         let intent =
             NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
         intent.store(conn)?;
@@ -421,6 +424,9 @@ where
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> =
             AddMembersIntentData::new(account_addresses.into()).try_into()?;
+        
+        self.pre_intent_hook().await.unwrap();
+        
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::AddMembers,
             self.group_id.clone(),
@@ -437,6 +443,9 @@ where
         validate_ed25519_keys(&installation_ids)?;
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> = AddMembersIntentData::new(installation_ids.into()).try_into()?;
+        
+        Box::pin(self.pre_intent_hook()).await.unwrap();
+   
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::AddMembers,
             self.group_id.clone(),
@@ -453,6 +462,9 @@ where
         let account_addresses = sanitize_evm_addresses(account_addresses_to_remove)?;
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> = RemoveMembersIntentData::new(account_addresses.into()).into();
+        
+        self.pre_intent_hook().await.unwrap();
+        
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::RemoveMembers,
             self.group_id.clone(),
@@ -466,6 +478,9 @@ where
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
+        
+        self.pre_intent_hook().await.unwrap();
+        
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::MetadataUpdate,
             self.group_id.clone(),
@@ -511,6 +526,9 @@ where
         validate_ed25519_keys(&installation_ids)?;
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> = RemoveMembersIntentData::new(installation_ids.into()).into();
+        
+        self.pre_intent_hook().await.unwrap();
+        
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::RemoveMembers,
             self.group_id.clone(),
@@ -523,6 +541,9 @@ where
     // Update this installation's leaf key in the group by creating a key update commit
     pub async fn key_update(&self) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
+        
+        self.pre_intent_hook().await.unwrap();
+
         let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
         intent.store(conn)?;
 
@@ -532,6 +553,9 @@ where
     // Update the installation's leaf key in a synchronous way.
     pub fn queue_key_update(&self) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
+        
+        self.pre_intent_hook();
+
         let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
         intent.store(conn)?;
         Ok(())
