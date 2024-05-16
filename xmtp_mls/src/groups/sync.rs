@@ -5,18 +5,14 @@ use std::{
 
 use super::{
     build_group_membership_extension, build_mutable_metadata_extensions,
-    group_membership::GroupMembership,
     intents::{
-        AddMembersIntentData, AddressesOrInstallationIds, Installation, PostCommitAction,
-        RemoveMembersIntentData, SendMessageIntentData, SendWelcomesAction,
-        UpdateGroupMembershipIntentData,
+        AddressesOrInstallationIds, Installation, PostCommitAction, SendMessageIntentData,
+        SendWelcomesAction, UpdateGroupMembershipIntentData,
     },
-    members::GroupMember,
-    validated_commit::{extract_group_membership, CommitValidationError},
+    validated_commit::extract_group_membership,
     GroupError, MlsGroup,
 };
 use crate::{
-    api::IdentityUpdate,
     await_helper,
     client::MessageProcessingError,
     codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
@@ -34,7 +30,6 @@ use crate::{
         StorageError,
     },
     utils::{hash::sha256, id::calculate_message_id},
-    verified_key_package::VerifiedKeyPackage,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, Delete, Fetch, Store, XmtpApi,
 };
@@ -43,13 +38,12 @@ use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
     framing::{MlsMessageOut, ProtocolMessage},
-    group::{GroupContext, MergePendingCommitError},
+    group::MergePendingCommitError,
     prelude::{
         tls_codec::{Deserialize, Serialize},
         LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
         ProcessedMessage, ProcessedMessageContent, Sender,
     },
-    prelude_test::KeyPackage,
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::OpenMlsProvider;
@@ -64,7 +58,6 @@ use xmtp_proto::xmtp::mls::{
         },
         GroupMessage, WelcomeMessageInput,
     },
-    database::post_commit_action,
     message_contents::{
         plaintext_envelope::{
             v2::MessageType::{Reply, Request},
@@ -780,6 +773,14 @@ impl MlsGroup {
         Ok(())
     }
 
+    /**
+     * Checks each member of the group for `IdentityUpdates` after their current sequence_id. If updates
+     * are found the method will construct an [`UpdateGroupMembershipIntentData`] and publish a change
+     * to the [`GroupMembership`] that will add any missing installations.
+     *
+     * This is designed to handle cases where existing members have added a new installation to their inbox
+     * and the group has not been updated to include it.
+     */
     pub(super) async fn add_missing_installations<ApiClient>(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -792,6 +793,11 @@ impl MlsGroup {
             .get_membership_update_intent(client, provider, vec![], vec![])
             .await?;
 
+        // If there is nothing to do, stop here
+        if intent_data.is_empty() {
+            return Ok(());
+        }
+
         let conn = provider.conn();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::UpdateGroupMembership,
@@ -803,6 +809,12 @@ impl MlsGroup {
             .await
     }
 
+    /**
+     * get_membership_update_intent will query the network for any new [`IdentityUpdate`]s for any of the existing
+     * group members
+     *
+     * Callers may also include a list of added or removed inboxes
+     */
     pub(super) async fn get_membership_update_intent<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
@@ -813,6 +825,7 @@ impl MlsGroup {
         let mls_group = self.load_mls_group(provider)?;
         let existing_group_membership = extract_group_membership(mls_group.extensions())?;
 
+        // TODO:nm don't bother updating the removed members
         let mut inbox_ids = existing_group_membership.inbox_ids();
         inbox_ids.extend(inbox_ids_to_add);
         let conn = provider.conn_ref();
@@ -829,12 +842,14 @@ impl MlsGroup {
                     latest_sequence_id_map.get(inbox_id),
                     existing_group_membership.get(inbox_id),
                 ) {
+                    // This is an update. We have a new sequence ID and an existing one
                     (Some(latest_sequence_id), Some(current_sequence_id)) => {
                         let latest_sequence_id_u64 = *latest_sequence_id as u64;
                         if latest_sequence_id_u64.gt(current_sequence_id) {
                             updates.insert(inbox_id.to_string(), latest_sequence_id_u64);
                         }
                     }
+                    // This is for new additions to the group
                     (Some(latest_sequence_id), _) => {
                         // This is the case for net new members to the group
                         updates.insert(inbox_id.to_string(), *latest_sequence_id as u64);
@@ -959,7 +974,7 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
 
         for key_package in key_packages {
             // Add a proposal to add the member to the local proposal queue
-            openmls_group.propose_add_member(provider, signer, &key_package.inner);
+            openmls_group.propose_add_member(provider, signer, &key_package.inner)?;
             new_installations.push(Installation::from_verified_key_package(&key_package));
         }
     }
@@ -967,13 +982,13 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
         let leaf_nodes_indexes =
             get_removed_leaf_nodes(openmls_group, &installation_diff.removed_installations);
         for leaf_node_index in leaf_nodes_indexes {
-            openmls_group.propose_remove_member(provider, signer, leaf_node_index);
+            openmls_group.propose_remove_member(provider, signer, leaf_node_index)?;
         }
     }
     // Update the extensions to have the new GroupMembership
     let mut new_extensions = extensions.clone();
     new_extensions.add_or_replace(build_group_membership_extension(new_group_membership));
-    openmls_group.propose_group_context_extensions(provider, new_extensions, signer);
+    openmls_group.propose_group_context_extensions(provider, new_extensions, signer)?;
 
     // Commit to the pending proposals, which will clear the proposal queue
     let (commit, maybe_welcome_message, _) =

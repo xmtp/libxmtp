@@ -8,21 +8,18 @@ use prost::{bytes::Bytes, DecodeError, Message};
 use thiserror::Error;
 
 use xmtp_proto::xmtp::mls::database::{
-    add_members_data::{Version as AddMembersVersion, V1 as AddMembersV1},
     addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
     post_commit_action::{
         Installation as InstallationProto, Kind as PostCommitActionKind,
         SendWelcomes as SendWelcomesProto,
     },
-    remove_members_data::{Version as RemoveMembersVersion, V1 as RemoveMembersV1},
     send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
     update_group_membership_data::{
         Version as UpdateGroupMembershipVersion, V1 as UpdateGroupMembershipV1,
     },
     update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
-    AccountAddresses, AddMembersData,
-    AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper, InstallationIds,
-    PostCommitAction as PostCommitActionProto, RemoveMembersData, SendMessageData,
+    AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
+    InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
     UpdateGroupMembershipData, UpdateMetadataData,
 };
 
@@ -145,93 +142,6 @@ impl From<Vec<Vec<u8>>> for AddressesOrInstallationIds {
 }
 
 #[derive(Debug, Clone)]
-pub struct AddMembersIntentData {
-    pub address_or_id: AddressesOrInstallationIds,
-}
-
-impl AddMembersIntentData {
-    pub fn new(address_or_id: AddressesOrInstallationIds) -> Self {
-        Self { address_or_id }
-    }
-
-    pub(crate) fn to_bytes(&self) -> Result<Vec<u8>, IntentError> {
-        let mut buf = Vec::new();
-        AddMembersData {
-            version: Some(AddMembersVersion::V1(AddMembersV1 {
-                addresses_or_installation_ids: Some(self.address_or_id.clone().into()),
-            })),
-        }
-        .encode(&mut buf)
-        .expect("encode error");
-
-        Ok(buf)
-    }
-
-    pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
-        let msg = AddMembersData::decode(data)?;
-        let address_or_id = match msg.version {
-            Some(AddMembersVersion::V1(v1)) => v1
-                .addresses_or_installation_ids
-                .ok_or(IntentError::Generic("missing payload".to_string()))?,
-            None => return Err(IntentError::Generic("missing payload".to_string())),
-        };
-
-        Ok(Self::new(address_or_id.try_into()?))
-    }
-}
-
-impl TryFrom<AddMembersIntentData> for Vec<u8> {
-    type Error = IntentError;
-
-    fn try_from(intent: AddMembersIntentData) -> Result<Self, Self::Error> {
-        intent.to_bytes()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct RemoveMembersIntentData {
-    pub address_or_id: AddressesOrInstallationIds,
-}
-
-impl RemoveMembersIntentData {
-    pub fn new(address_or_id: AddressesOrInstallationIds) -> Self {
-        Self { address_or_id }
-    }
-
-    pub(crate) fn to_bytes(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-
-        RemoveMembersData {
-            version: Some(RemoveMembersVersion::V1(RemoveMembersV1 {
-                addresses_or_installation_ids: Some(self.address_or_id.clone().into()),
-            })),
-        }
-        .encode(&mut buf)
-        .expect("encode error");
-
-        buf
-    }
-
-    pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
-        let msg = RemoveMembersData::decode(data)?;
-        let address_or_id = match msg.version {
-            Some(RemoveMembersVersion::V1(v1)) => v1
-                .addresses_or_installation_ids
-                .ok_or(IntentError::Generic("missing payload".to_string()))?,
-            None => return Err(IntentError::Generic("missing payload".to_string())),
-        };
-
-        Ok(Self::new(address_or_id.try_into()?))
-    }
-}
-
-impl From<RemoveMembersIntentData> for Vec<u8> {
-    fn from(intent: RemoveMembersIntentData) -> Self {
-        intent.to_bytes()
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct UpdateMetadataIntentData {
     pub field_name: String,
     pub field_value: String,
@@ -289,6 +199,7 @@ impl TryFrom<Vec<u8>> for UpdateMetadataIntentData {
     }
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct UpdateGroupMembershipIntentData {
     pub membership_updates: HashMap<String, u64>,
     pub removed_members: Vec<String>,
@@ -482,10 +393,7 @@ impl From<Vec<u8>> for PostCommitAction {
 
 #[cfg(test)]
 mod tests {
-    use xmtp_cryptography::utils::generate_local_wallet;
-
     use super::*;
-    use crate::InboxOwner;
 
     #[test]
     fn test_serialize_send_message() {
@@ -498,15 +406,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_serialize_add_members() {
-        let wallet = generate_local_wallet();
-        let account_address = wallet.get_address();
+    async fn test_serialize_update_membership() {
+        let mut membership_updates = HashMap::new();
+        membership_updates.insert("foo".to_string(), 123);
 
-        let intent = AddMembersIntentData::new(vec![account_address.clone()].into());
+        let intent =
+            UpdateGroupMembershipIntentData::new(membership_updates, vec!["bar".to_string()]);
+
         let as_bytes: Vec<u8> = intent.clone().try_into().unwrap();
-        let restored_intent = AddMembersIntentData::from_bytes(as_bytes.as_slice()).unwrap();
+        let restored_intent: UpdateGroupMembershipIntentData = as_bytes.try_into().unwrap();
 
-        assert_eq!(intent.address_or_id, restored_intent.address_or_id);
+        assert_eq!(
+            intent.membership_updates,
+            restored_intent.membership_updates
+        );
+
+        assert_eq!(intent.removed_members, restored_intent.removed_members);
     }
 
     #[tokio::test]

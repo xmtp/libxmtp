@@ -47,9 +47,7 @@ use self::{
     validated_commit::CommitValidationError,
 };
 use std::sync::Arc;
-use xmtp_cryptography::signature::{
-    is_valid_ed25519_public_key, sanitize_evm_addresses, AddressValidationError,
-};
+use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::InboxId;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -75,7 +73,6 @@ use crate::{
     retry::RetryableError,
     retryable,
     storage::{
-        db_connection::DbConnection,
         group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -106,10 +103,12 @@ pub enum GroupError {
     TlsError(#[from] TlsCodecError),
     #[error("No changes found in commit")]
     NoChanges,
+    #[error("proposal: {0}")]
+    Proposal(#[from] openmls::prelude::ProposalError<StorageError>),
     #[error("add members: {0}")]
-    AddMembers(#[from] openmls::prelude::AddMembersError<StorageError>),
+    AddMembers(#[from] openmls::prelude::ProposeAddMemberError),
     #[error("remove members: {0}")]
-    RemoveMembers(#[from] openmls::prelude::RemoveMembersError<StorageError>),
+    RemoveMembers(#[from] openmls::prelude::ProposeRemoveMemberError),
     #[error("group create: {0}")]
     GroupCreate(#[from] openmls::prelude::NewGroupError<StorageError>),
     #[error("self update: {0}")]
@@ -638,21 +637,6 @@ pub fn extract_group_id(message: &GroupMessage) -> Result<Vec<u8>, MessageProces
     }
 }
 
-fn validate_ed25519_keys(keys: &[Vec<u8>]) -> Result<(), GroupError> {
-    let mut invalid = keys
-        .iter()
-        .filter(|a| !is_valid_ed25519_public_key(a))
-        .peekable();
-
-    if invalid.peek().is_some() {
-        return Err(GroupError::InvalidPublicKeys(
-            invalid.map(Clone::clone).collect::<Vec<_>>(),
-        ));
-    }
-
-    Ok(())
-}
-
 fn build_protected_metadata_extension(
     identity: &Identity,
     group_purpose: Purpose,
@@ -1101,7 +1085,7 @@ mod tests {
         let bola_wallet = &generate_local_wallet();
         let bola = ClientBuilder::new_test_client(bola_wallet).await;
         let charlie_wallet = &generate_local_wallet();
-        let charlie = ClientBuilder::new_test_client(charlie_wallet).await;
+        let _charlie = ClientBuilder::new_test_client(charlie_wallet).await;
 
         let group = amal.create_group(None).unwrap();
         group
