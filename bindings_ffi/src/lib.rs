@@ -36,6 +36,8 @@ pub enum GenericError {
     Generic { err: String },
     #[error(transparent)]
     SignatureRequestError(#[from] xmtp_id::associations::builder::SignatureRequestError),
+    #[error(transparent)]
+    Erc1271SignatureError(#[from] xmtp_id::associations::signature::SignatureError),
 }
 
 impl From<String> for GenericError {

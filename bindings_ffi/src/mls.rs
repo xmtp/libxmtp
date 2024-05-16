@@ -146,19 +146,16 @@ impl FfiSignatureRequest {
         &self,
         signature_bytes: Vec<u8>,
         address: String,
-        chain_id: String,
         chain_rpc_url: String,
-        block_number: u64,
     ) -> Result<(), GenericError> {
         let mut inner = self.inner.lock().await;
-        let account_id = AccountId::new(chain_id, address);
-        let erc1271_siganture = Erc1271Signature::new(
+        let erc1271_siganture = Erc1271Signature::new_with_rpc(
             inner.signature_text(),
             signature_bytes,
-            account_id,
+            address,
             chain_rpc_url,
-            block_number,
-        );
+        )
+        .await?;
         inner.add_signature(Box::new(erc1271_siganture)).await?;
         Ok(())
     }
