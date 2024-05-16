@@ -1,299 +1,109 @@
-use std::collections::HashMap;
-use std::convert::TryInto;
-use std::sync::Arc;
+use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen::JsValue;
 
-use serde_wasm_bindgen::to_value;
-use tonic_web_wasm_client::Client as TonicApiClient;
-use wasm_bindgen::prelude::{wasm_bindgen, JsValue};
-// use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_mls::identity::v3::{IdentityStrategy, LegacyIdentity};
-use xmtp_mls::{
-    builder::ClientBuilder,
-    client::Client as MlsClient,
-    storage::{EncryptedMessageStore, EncryptionKey, StorageOption},
-    types::Address,
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex}; // TODO switch to async mutexes
+use std::time::Duration;
+
+use futures::stream::{AbortHandle, Abortable};
+use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
+use tokio::sync::oneshot;
+use tonic::transport::ClientTlsConfig;
+use tonic::{async_trait, metadata::MetadataValue, transport::Channel, Request, Streaming};
+
+use serde::{Deserialize, Serialize};
+
+use xmtp_proto::{
+    api_client::{
+        Error, ErrorKind, GroupMessageStream, MutableApiSubscription, WelcomeMessageStream,
+        XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
+    },
+    xmtp::identity::api::v1::identity_api_client::IdentityApiClient as ProtoIdentityApiClient,
+    xmtp::message_api::v1::{
+        message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
+        PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
+    },
+    xmtp::mls::api::v1::{
+        mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
+        FetchKeyPackagesResponse, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
+        QueryGroupMessagesRequest, QueryGroupMessagesResponse, QueryWelcomeMessagesRequest,
+        QueryWelcomeMessagesResponse, RegisterInstallationRequest, RegisterInstallationResponse,
+        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
+        SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
+    },
 };
 
-pub use crate::inbox_owner::SigningError;
-
-#[wasm_bindgen]
-pub struct WasmInboxOwner {
-    address: String,
-}
-
-#[wasm_bindgen]
-impl WasmInboxOwner {
-    #[wasm_bindgen(constructor)]
-    pub fn new(address: String) -> WasmInboxOwner {
-        WasmInboxOwner { address }
-    }
-
-    pub fn get_address(&self) -> String {
-        self.address.clone()
-    }
-
-    pub fn sign(&self, _text: String) -> Result<Vec<u8>, JsValue> {
-        // Implement signing logic here.
-        // Example: Returning error
-        Err(JsValue::from("WIP"))
-    }
-}
-
-// use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
-// pub trait XmtpWebWasmClient: XmtpMlsClient + XmtpIdentityClient {}
-// impl<T> XmtpWebWasmClient for T where T: XmtpMlsClient + XmtpIdentityClient {}
-
-pub type RustXmtpClient = MlsClient<TonicApiClient>;
-
-#[wasm_bindgen]
-pub struct WasmXmtpClient {
-    inner_client: Arc<RustXmtpClient>,
-}
-
-/// XMTP SDK's may embed libxmtp (v3) alongside existing v2 protocol logic
-/// for backwards-compatibility purposes. In this case, the client may already
-/// have a wallet-signed v2 key. Depending on the source of this key,
-/// libxmtp may choose to bootstrap v3 installation keys using the existing
-/// legacy key.
-#[wasm_bindgen]
-pub enum LegacyIdentitySource {
-    // A client with no support for v2 messages
-    None,
-    // A cached v2 key was provided on client initialization
-    Static,
-    // A private bundle exists on the network from which the v2 key was fetched
-    Network,
-    // A new v2 key was generated on client initialization
-    KeyGenerator,
-}
-
-#[wasm_bindgen]
-impl WasmXmtpClient {
-    pub fn account_address(&self) -> Address {
-        self.inner_client.account_address()
-    }
-
-    // pub fn conversations(&self) -> Arc<FfiConversations> {
-    //     Arc::new(FfiConversations {
-    //         inner_client: self.inner_client.clone(),
-    //     })
-    // }
-
-    #[wasm_bindgen]
-    pub async fn can_message(
-        &self,
-        account_addresses: Vec<String>,
-        // ) -> Result<HashMap<String, bool>, JsValue> {
-    ) -> JsValue {
-        let inner = &self.inner_client;
-
-        let results: HashMap<String, bool> = inner
-            .can_message(account_addresses)
-            .await
-            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))
-            .unwrap_or_default();
-
-        match to_value(&results) {
-            Ok(value) => value,
-            Err(e) => JsValue::from_str(&format!("{:?}", e)),
-        }
-    }
-
-    pub fn installation_id(&self) -> Vec<u8> {
-        self.inner_client.installation_public_key()
-    }
-}
-
-#[wasm_bindgen]
-impl WasmXmtpClient {
-    #[allow(clippy::too_many_arguments)]
-    #[allow(unused)]
-    #[wasm_bindgen(constructor)]
-    pub async fn create_client(
-        // logger: Box<dyn WasmLoggerT>,
-        host: String,
-        is_secure: bool,
-        db: Option<String>,
-        encryption_key: Option<Vec<u8>>,
-        account_address: String,
-        legacy_identity_source: LegacyIdentitySource,
-        legacy_signed_private_key_proto: Option<Vec<u8>>,
-    ) -> Result<WasmXmtpClient, JsValue> {
-        // init_logger(logger);
-
-        log::info!(
-            "Creating API client for host: {}, isSecure: {}",
-            host,
-            is_secure
-        );
-        // let api_client = TonicApiClient::create(host.clone(), is_secure)
-        //     .await
-        //     .map_err(|e| JsValue::from_str(&format!("Failed to create API client: {:?}", e)))?;
-        //
-        let api_client = WebWasmClient::new(host.clone());
-        
-        log::info!(
-            "Creating message store with path: {:?} and encryption key: {}",
-            db,
-            encryption_key.is_some()
-        );
-
-        let storage_option = match db {
-            Some(path) => StorageOption::Persistent(path),
-            None => StorageOption::Ephemeral,
-        };
-
-        let store = match encryption_key {
-            Some(key) => {
-                let key: EncryptionKey = key
-                    .try_into()
-                    .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
-                EncryptedMessageStore::new(storage_option, key).map_err(|e| {
-                    JsValue::from_str(&format!("Failed to create message store: {:?}", e))
-                })
-            }
-            None => Ok(
-                EncryptedMessageStore::new_unencrypted(storage_option).map_err(|e| {
-                    JsValue::from_str(&format!("Failed to create message store: {:?}", e))
-                })?,
-            ),
-        };
-
-        log::info!("Creating XMTP client");
-        let legacy_key_result =
-            legacy_signed_private_key_proto.ok_or("No legacy key provided".to_string());
-        let legacy_identity = match legacy_identity_source {
-            LegacyIdentitySource::None => LegacyIdentity::None,
-            LegacyIdentitySource::Static => LegacyIdentity::Static(legacy_key_result?),
-            LegacyIdentitySource::Network => LegacyIdentity::Network(legacy_key_result?),
-            LegacyIdentitySource::KeyGenerator => LegacyIdentity::KeyGenerator(legacy_key_result?),
-        };
-        let identity_strategy =
-            IdentityStrategy::CreateIfNotFound(account_address, legacy_identity);
-        let xmtp_client: RustXmtpClient = ClientBuilder::new(identity_strategy)
-            .api_client(api_client)
-            .store(store?)
-            .build()
-            .await
-            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
-
-        log::info!(
-            "Created XMTP client for address: {}",
-            xmtp_client.account_address()
-        );
-        Ok(WasmXmtpClient {
-            inner_client: Arc::new(xmtp_client),
-        })
-    }
-
-    pub fn text_to_sign(&self) -> Option<String> {
-        self.inner_client.text_to_sign()
-    }
-
-    #[wasm_bindgen]
-    pub async fn register_identity(
-        &self,
-        recoverable_wallet_signature: Option<Vec<u8>>,
-    ) -> Result<(), JsValue> {
-        self.inner_client
-            .register_identity(recoverable_wallet_signature)
-            .await
-            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::{
-        inbox_owner::SigningError,
-        // logger::WasmLoggerT,
-        LegacyIdentitySource,
-    };
-    use std::{env, sync::Arc};
-
-    use super::{create_client, WasmXmtpClient};
-    use ethers_core::rand::{
-        self,
-        distributions::{Alphanumeric, DistString},
-    };
-    use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
-    use xmtp_mls::storage::EncryptionKey;
-
-    #[derive(Clone)]
-    pub struct LocalWalletInboxOwner {
-        wallet: xmtp_cryptography::utils::LocalWallet,
-    }
-
-    // pub struct MockLogger {}
-
-    // impl WasmLoggerT for MockLogger {
-    //     fn log(&self, _level: u32, level_label: String, message: String) {
-    //         println!("{}: {}", level_label, message)
-    //     }
-    // }
-
-    pub fn rand_string() -> String {
-        Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
-    }
-
-    pub fn tmp_path() -> String {
-        let db_name = rand_string();
-        format!("{}/{}.db3", env::temp_dir().to_str().unwrap(), db_name)
-    }
-
-    fn static_enc_key() -> EncryptionKey {
-        [2u8; 32]
-    }
-
-    impl LocalWalletInboxOwner {
-        pub fn new() -> Self {
-            Self {
-                wallet: xmtp_cryptography::utils::LocalWallet::new(&mut rng()),
-            }
-        }
-    }
-
-    impl WasmInboxOwner for LocalWalletInboxOwner {
-        fn get_address(&self) -> String {
-            self.wallet.get_address()
-        }
-
-        fn sign(&self, text: String) -> Result<Vec<u8>, SigningError> {
-            let recoverable_signature =
-                self.wallet.sign(&text).map_err(|_| SigningError::Generic)?;
-            match recoverable_signature {
-                RecoverableSignature::Eip191Signature(signature_bytes) => Ok(signature_bytes),
-            }
-        }
-    }
-
-    async fn new_test_client() -> Arc<WasmXmtpClient> {
-        let wasm_inbox_owner = LocalWalletInboxOwner::new();
-
-        let client = create_client(
-            // Box::new(MockLogger {}),
-            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
-            false,
-            Some(tmp_path()),
-            None,
-            wasm_inbox_owner.get_address(),
-            LegacyIdentitySource::None,
-            None,
-        )
+async fn create_tls_channel(address: String) -> Result<Channel, Error> {
+    let channel = Channel::from_shared(address)
+        .map_err(|e| Error::new(ErrorKind::SetupCreateChannelError).with(e))?
+        // Purpose: This setting controls the size of the initial connection-level flow control window for HTTP/2, which is the underlying protocol for gRPC.
+        // Functionality: Flow control in HTTP/2 manages how much data can be in flight on the network. Setting the initial connection window size to (1 << 31) - 1 (the maximum possible value for a 32-bit integer, which is 2,147,483,647 bytes) essentially allows the client to receive a very large amount of data from the server before needing to acknowledge receipt and permit more data to be sent. This can be particularly useful in high-latency networks or when transferring large amounts of data.
+        // Impact: Increasing the window size can improve throughput by allowing more data to be in transit at a time, but it may also increase memory usage and can potentially lead to inefficient use of bandwidth if the network is unreliable.
+        .initial_connection_window_size(Some((1 << 31) - 1))
+        // Purpose: Configures whether the client should send keep-alive pings to the server when the connection is idle.
+        // Functionality: When set to true, this option ensures that periodic pings are sent on an idle connection to keep it alive and detect if the server is still responsive.
+        // Impact: This helps maintain active connections, particularly through NATs, load balancers, and other middleboxes that might drop idle connections. It helps ensure that the connection is promptly usable when new requests need to be sent.
+        .keep_alive_while_idle(true)
+        // Purpose: Sets the maximum amount of time the client will wait for a connection to be established.
+        // Functionality: If a connection cannot be established within the specified duration, the attempt is aborted and an error is returned.
+        // Impact: This setting prevents the client from waiting indefinitely for a connection to be established, which is crucial in scenarios where rapid failure detection is necessary to maintain responsiveness or to quickly fallback to alternative services or retry logic.
+        .connect_timeout(Duration::from_secs(10))
+        // Purpose: Configures the TCP keep-alive interval for the socket connection.
+        // Functionality: This setting tells the operating system to send TCP keep-alive probes periodically when no data has been transferred over the connection within the specified interval.
+        // Impact: Similar to the gRPC-level keep-alive, this helps keep the connection alive at the TCP layer and detect broken connections. It's particularly useful for detecting half-open connections and ensuring that resources are not wasted on unresponsive peers.
+        .tcp_keepalive(Some(Duration::from_secs(15)))
+        // Purpose: Sets a maximum duration for the client to wait for a response to a request.
+        // Functionality: If a response is not received within the specified timeout, the request is canceled and an error is returned.
+        // Impact: This is critical for bounding the wait time for operations, which can enhance the predictability and reliability of client interactions by avoiding indefinitely hanging requests.
+        .timeout(Duration::from_secs(120))
+        // Purpose: Specifies how long the client will wait for a response to a keep-alive ping before considering the connection dead.
+        // Functionality: If a ping response is not received within this duration, the connection is presumed to be lost and is closed.
+        // Impact: This setting is crucial for quickly detecting unresponsive connections and freeing up resources associated with them. It ensures that the client has up-to-date information on the status of connections and can react accordingly.
+        .keep_alive_timeout(Duration::from_secs(25))
+        .tls_config(ClientTlsConfig::new())
+        .map_err(|e| Error::new(ErrorKind::SetupTLSConfigError).with(e))?
+        .connect()
         .await
-        .unwrap();
+        .map_err(|e| Error::new(ErrorKind::SetupConnectionError).with(e))?;
 
-        let text_to_sign = client.text_to_sign().unwrap();
-        let signature = wasm_inbox_owner.sign(text_to_sign).unwrap();
+    Ok(channel)
+}
 
-        client.register_identity(Some(signature)).await.unwrap();
-        return client;
-    }
+#[wasm_bindgen]
+pub struct WasmClient {
+    mls_client: ProtoMlsApiClient<Channel>,
+    app_version: MetadataValue<tonic::metadata::Ascii>,
+}
 
-    // Try a query on a test topic, and make sure we get a response
-    #[tokio::test]
-    async fn test_client_creation() {
-        let client = new_test_client().await;
-        assert!(!client.account_address().is_empty());
+#[wasm_bindgen]
+impl WasmClient {
+    #[wasm_bindgen(constructor)]
+    pub async fn create(host: String, is_secure: bool) -> Result<WasmClient, JsValue> {
+        let host = host.to_string();
+        let app_version = MetadataValue::try_from(&String::from("0.0.0")).unwrap();
+        if is_secure {
+            let channel = create_tls_channel(host).await?;
+
+            let mls_client = ProtoMlsApiClient::new(channel.clone());
+
+            Ok(Self {
+                mls_client,
+                app_version,
+            })
+        } else {
+            let channel = Channel::from_shared(host)
+                .map_err(|e| Error::new(ErrorKind::SetupCreateChannelError).with(e))?
+                .connect()
+                .await
+                .map_err(|e| Error::new(ErrorKind::SetupConnectionError).with(e))?;
+
+            let mls_client = ProtoMlsApiClient::new(channel.clone());
+
+            Ok(Self {
+                mls_client,
+                app_version,
+            })
+        }
     }
 }
