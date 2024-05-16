@@ -121,7 +121,7 @@ pub async fn create_client(
 
 #[derive(uniffi::Object)]
 pub struct FfiSignatureRequest {
-    // Using `tokio::sync::Mutex`bc MutexGuard cannot be sent between threads.
+    // Using `tokio::sync::Mutex`bc rust MutexGuard cannot be sent between threads.
     inner: Arc<tokio::sync::Mutex<SignatureRequest>>,
 }
 
