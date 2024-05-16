@@ -834,7 +834,7 @@ impl MlsGroup {
 
         let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids)?;
 
-        // Get a list of all inbox IDs that have increased for the group
+        // Get a list of all inbox IDs that have increased sequence_id for the group
         let changed_inbox_ids = inbox_ids
             .iter()
             .fold(HashMap::new(), |mut updates, inbox_id| {
