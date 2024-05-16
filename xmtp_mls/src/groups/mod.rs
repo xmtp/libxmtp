@@ -295,12 +295,7 @@ impl MlsGroup {
         };
 
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
-        let xmtp_group = Self::new(
-            context, 
-            stored_group.id, 
-            stored_group.created_at_ns,
-        );
-        let _ = xmtp_group.queue_key_update();
+        let xmtp_group = Self::new(context, stored_group.id, stored_group.created_at_ns);
         Ok(xmtp_group)
     }
 
@@ -382,9 +377,7 @@ impl MlsGroup {
     {
         let conn = self.context.store.conn()?;
 
-        let update_interval = Some(5_000_000); // 5 seconds in nanoseconds
-        self.maybe_update_installations(conn.clone(), update_interval, client)
-            .await?;
+        self.pre_intent_hook(client).await?;
 
         let now = now_ns();
         let plain_envelope = Self::into_envelope(message, &now.to_string());
@@ -394,9 +387,7 @@ impl MlsGroup {
             .map_err(GroupError::EncodeError)?;
 
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        
-        self.pre_intent_hook().await.unwrap();
-        
+
         let intent =
             NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
         intent.store(&conn)?;
@@ -477,9 +468,9 @@ impl MlsGroup {
         let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> =
             AddMembersIntentData::new(account_addresses.into()).try_into()?;
-        
-        self.pre_intent_hook().await.unwrap();
-        
+
+        self.pre_intent_hook(client).await?;
+
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::AddMembers,
             self.group_id.clone(),
@@ -490,6 +481,7 @@ impl MlsGroup {
             .await
     }
 
+    // Before calling this function, please verify pre_intent_hook has been called.
     pub async fn add_members_by_installation_id<ApiClient>(
         &self,
         installation_ids: Vec<Vec<u8>>,
@@ -501,9 +493,7 @@ impl MlsGroup {
         validate_ed25519_keys(&installation_ids)?;
         let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> = AddMembersIntentData::new(installation_ids.into()).try_into()?;
-        
-        Box::pin(self.pre_intent_hook()).await.unwrap();
-   
+
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::AddMembers,
             self.group_id.clone(),
@@ -525,9 +515,9 @@ impl MlsGroup {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_remove)?;
         let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> = RemoveMembersIntentData::new(account_addresses.into()).into();
-        
-        self.pre_intent_hook().await.unwrap();
-        
+
+        self.pre_intent_hook(client).await?;
+
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::RemoveMembers,
             self.group_id.clone(),
@@ -549,9 +539,9 @@ impl MlsGroup {
         let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
-        
-        self.pre_intent_hook().await.unwrap();
-        
+
+        self.pre_intent_hook(client).await?;
+
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::MetadataUpdate,
             self.group_id.clone(),
@@ -602,9 +592,9 @@ impl MlsGroup {
         validate_ed25519_keys(&installation_ids)?;
         let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> = RemoveMembersIntentData::new(installation_ids.into()).into();
-        
-        self.pre_intent_hook().await.unwrap();
-        
+
+        self.pre_intent_hook(client).await?;
+
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::RemoveMembers,
             self.group_id.clone(),
@@ -616,52 +606,43 @@ impl MlsGroup {
     }
 
     // Update this installation's leaf key in the group by creating a key update commit
-    pub async fn key_update(&self) -> Result<(), GroupError> {
-        let conn = &mut self.client.store.conn()?;
+    pub async fn key_update<ApiClient>(&self, client: &Client<ApiClient>) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let conn = self.context.store.conn()?;
+
         let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
         intent.store(&conn)?;
 
         self.sync_with_conn(conn, client).await
     }
 
-    // Update the installation's leaf key in a synchronous way.
-    pub fn queue_key_update(&self) -> Result<(), GroupError> {
-        let conn = &mut self.client.store.conn()?;
-        
-        self.pre_intent_hook();
+    /// Checking the last key rotation time before rotating the key.
+    pub async fn pre_intent_hook<ApiClient>(
+        &self,
+        client: &Client<ApiClient>,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let conn = self.context.store.conn()?;
+        let last_rotated_time = conn.get_rotated_time_checked(self.group_id.clone())?;
 
-        let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
-        intent.store(conn)?;
-        Ok(())
-    }
-
-    /// Checking the last key rotation time before rotating the key. 
-    pub async fn pre_intent_hook(&self) -> Result<(), GroupError> {
-        let conn = &self.client.store.conn()?;
-        let last_rotated_time = conn.get_rotated_time_checked(self.group_id.clone());
-        
-        match last_rotated_time {
-            Ok(rotated_time) => {
-                if rotated_time == 0 {
-                    let _ = self.queue_key_update();
-                    let update_interval = Some(5_000_000);
-                    self.maybe_update_installations(conn, update_interval).await?;
-                }
-            }
-            Err(err) => {
-                // Handle the error appropriately
-                log::error!("database error fetching rotated time {:?}", err);
-            }
+        if last_rotated_time == 0 {
+            let _ = self.key_update(&client).await?;
         }
+        let update_interval = Some(5_000_000);
+        self.maybe_update_installations(conn.clone(), update_interval, client)
+            .await?;
 
-        self.sync_with_conn(conn).await
+        self.sync_with_conn(conn, client).await
     }
 
     pub fn is_active(&self) -> Result<bool, GroupError> {
         let conn = self.context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let mls_group = self.load_mls_group(&provider)?;
-
         Ok(mls_group.is_active())
     }
 
@@ -1121,44 +1102,6 @@ mod tests {
         let bola_groups = bola_client.find_groups(None, None, None, None).unwrap();
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola_client).await.unwrap();
-        let bola_messages = bola_group
-            .find_messages(None, None, None, None, None)
-            .unwrap();
-        assert_eq!(bola_messages.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_queue_key_update() {
-        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bola_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-
-        let group = client.create_group(None).expect("create group");
-        group
-            .add_members(vec![bola_client.account_address()])
-            .await
-            .unwrap();
-
-        let _ = group.queue_key_update();
-        group.sync().await.unwrap();
-        let messages = client
-            .api_client
-            .query_group_messages(group.group_id.clone(), None)
-            .await
-            .unwrap();
-        assert_eq!(messages.len(), 2);
-
-        let conn = &client.store.conn().unwrap();
-        let provider = super::XmtpOpenMlsProvider::new(conn);
-        let mls_group = group.load_mls_group(&provider).unwrap();
-        let pending_commit = mls_group.pending_commit();
-        assert!(pending_commit.is_none());
-
-        group.send_message(b"hello").await.expect("send message");
-
-        bola_client.sync_welcomes().await.unwrap();
-        let bola_groups = bola_client.find_groups(None, None, None, None).unwrap();
-        let bola_group = bola_groups.first().unwrap();
-        bola_group.sync().await.unwrap();
         let bola_messages = bola_group
             .find_messages(None, None, None, None, None)
             .unwrap();
