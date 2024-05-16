@@ -12,8 +12,7 @@ use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::{
     associations::{
-        builder::SignatureRequest, AccountId, Erc1271Signature, MemberIdentifier,
-        RecoverableEcdsaSignature,
+        builder::SignatureRequest, Erc1271Signature, MemberIdentifier, RecoverableEcdsaSignature,
     },
     InboxId,
 };
