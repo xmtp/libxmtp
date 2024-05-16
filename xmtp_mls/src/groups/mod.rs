@@ -258,7 +258,7 @@ impl MlsGroup {
             added_by_address.clone(),
         );
 
-        stored_group.store(&provider.conn_ref())?;
+        stored_group.store(provider.conn_ref())?;
         Ok(Self::new(
             context.clone(),
             group_id,
@@ -366,7 +366,7 @@ impl MlsGroup {
         let stored_group =
             StoredGroup::new_sync_group(group_id.clone(), now_ns(), GroupMembershipState::Allowed);
 
-        stored_group.store(&provider.conn_ref())?;
+        stored_group.store(provider.conn_ref())?;
 
         Ok(Self::new(
             context.clone(),
