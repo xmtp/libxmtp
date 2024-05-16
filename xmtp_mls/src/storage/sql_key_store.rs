@@ -866,12 +866,13 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
 
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
-        let results: Result<Vec<StorageData>, diesel::result::Error> = self.conn().raw_query(|conn| {
-            sql_query(query)
-                .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
-                .load(conn)
-        });
+        let results: Result<Vec<StorageData>, diesel::result::Error> =
+            self.conn().raw_query(|conn| {
+                sql_query(query)
+                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                    .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
+                    .load(conn)
+            });
 
         match results {
             Ok(data) => {
