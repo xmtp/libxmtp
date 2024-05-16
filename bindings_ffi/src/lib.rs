@@ -28,6 +28,8 @@ pub enum GenericError {
     Signature(#[from] xmtp_cryptography::signature::SignatureError),
     #[error("Group metadata: {0}")]
     GroupMetadata(#[from] xmtp_mls::groups::group_metadata::GroupMetadataError),
+    #[error("Group permissions: {0}")]
+    GroupMutablePermissions(#[from] xmtp_mls::groups::group_permissions::GroupMutablePermissionsError),
     #[error("Generic {err}")]
     Generic { err: String },
 }

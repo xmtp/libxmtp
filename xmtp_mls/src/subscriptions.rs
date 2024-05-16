@@ -10,17 +10,14 @@ use std::{
 use futures::{Stream, StreamExt};
 use prost::Message;
 use tokio::sync::oneshot::{self, Sender};
-use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::mls::api::v1::WelcomeMessage,
-};
+use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
 use crate::{
     api::GroupFilter,
     client::{extract_welcome_message, ClientError},
     groups::{extract_group_id, GroupError, MlsGroup},
     storage::group_message::StoredGroupMessage,
-    Client,
+    Client, XmtpApi,
 };
 
 // TODO simplify FfiStreamCloser + StreamCloser duplication
@@ -52,20 +49,17 @@ pub(crate) struct MessagesStreamInfo {
     pub cursor: u64,
 }
 
-impl<'a, ApiClient> Client<ApiClient>
+impl<ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
+    ApiClient: XmtpApi,
 {
-    fn process_streamed_welcome(
-        &self,
-        welcome: WelcomeMessage,
-    ) -> Result<MlsGroup<ApiClient>, ClientError> {
+    fn process_streamed_welcome(&self, welcome: WelcomeMessage) -> Result<MlsGroup, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
-        let conn = self.store.conn()?;
-        let provider = self.mls_provider(&conn);
+        let conn = self.store().conn()?;
+        let provider = self.mls_provider(conn);
 
         MlsGroup::create_from_encrypted_welcome(
-            self,
+            self.context.clone(),
             &provider,
             welcome_v1.hpke_public_key.as_slice(),
             welcome_v1.data,
@@ -76,7 +70,7 @@ where
     pub fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<MlsGroup<ApiClient>, ClientError> {
+    ) -> Result<MlsGroup, ClientError> {
         let envelope = WelcomeMessage::decode(envelope_bytes.as_slice())
             .map_err(|e| ClientError::Generic(e.to_string()))?;
 
@@ -85,8 +79,8 @@ where
     }
 
     pub async fn stream_conversations(
-        &'a self,
-    ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup<ApiClient>> + Send + 'a>>, ClientError> {
+        &self,
+    ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup> + Send + '_>>, ClientError> {
         let installation_key = self.installation_public_key();
         let id_cursor = 0;
 
@@ -115,16 +109,20 @@ where
     }
 
     pub(crate) async fn stream_messages(
-        &'a self,
+        self: Arc<Self>,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
-    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + Send + 'a>>, ClientError> {
+    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + Send>>, ClientError> {
         let filters: Vec<GroupFilter> = group_id_to_info
             .iter()
             .map(|(group_id, info)| GroupFilter::new(group_id.clone(), Some(info.cursor)))
             .collect();
         let messages_subscription = self.api_client.subscribe_group_messages(filters).await?;
+
         let stream = messages_subscription
             .map(move |res| {
+                let context = self.context.clone();
+                let client = self.clone();
+
                 let group_id_to_info = group_id_to_info.clone();
                 async move {
                     match res {
@@ -137,8 +135,8 @@ where
                                 ),
                             )?;
                             // TODO update cursor
-                            MlsGroup::new(self, group_id, stream_info.convo_created_at_ns)
-                                .process_stream_entry(envelope)
+                            MlsGroup::new(context, group_id, stream_info.convo_created_at_ns)
+                                .process_stream_entry(envelope, client)
                                 .await
                         }
                         Err(err) => Err(GroupError::Api(err)),
@@ -165,11 +163,11 @@ where
 
 impl<ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
+    ApiClient: XmtpApi,
 {
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient>>,
-        mut convo_callback: impl FnMut(MlsGroup<ApiClient>) + Send + 'static,
+        mut convo_callback: impl FnMut(MlsGroup) + Send + 'static,
         mut on_close_callback: impl FnMut() + Send + 'static,
     ) -> Result<StreamCloser, ClientError> {
         let (close_sender, close_receiver) = oneshot::channel::<()>();
@@ -213,7 +211,7 @@ where
 
         let is_closed_clone = is_closed.clone();
         tokio::spawn(async move {
-            let mut stream = Self::stream_messages(client.as_ref(), group_id_to_info)
+            let mut stream = Self::stream_messages(client, group_id_to_info)
                 .await
                 .unwrap();
             let mut close_receiver = close_receiver;
@@ -248,7 +246,7 @@ where
 
         client.sync_welcomes().await?; // TODO pipe cursor from welcomes sync into groups_stream
         let mut group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo> = client
-            .store
+            .store()
             .conn()?
             .find_groups(None, None, None, None)?
             .into_iter()
@@ -330,7 +328,7 @@ mod tests {
 
         let mut bob_stream = bob.stream_conversations().await.unwrap();
         alice_bob_group
-            .add_members(vec![bob.account_address()])
+            .add_members(vec![bob.account_address()], &alice)
             .await
             .unwrap();
 
@@ -346,13 +344,13 @@ mod tests {
 
         let alix_group = alix.create_group(None).unwrap();
         alix_group
-            .add_members_by_installation_id(vec![caro.installation_public_key()])
+            .add_members_by_installation_id(vec![caro.installation_public_key()], &alix)
             .await
             .unwrap();
 
         let bo_group = bo.create_group(None).unwrap();
         bo_group
-            .add_members_by_installation_id(vec![caro.installation_public_key()])
+            .add_members_by_installation_id(vec![caro.installation_public_key()], &bo)
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -369,10 +367,22 @@ mod tests {
         .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        alix_group.send_message("first".as_bytes()).await.unwrap();
-        bo_group.send_message("second".as_bytes()).await.unwrap();
-        alix_group.send_message("third".as_bytes()).await.unwrap();
-        bo_group.send_message("fourth".as_bytes()).await.unwrap();
+        alix_group
+            .send_message("first".as_bytes(), &alix)
+            .await
+            .unwrap();
+        bo_group
+            .send_message("second".as_bytes(), &bo)
+            .await
+            .unwrap();
+        alix_group
+            .send_message("third".as_bytes(), &alix)
+            .await
+            .unwrap();
+        bo_group
+            .send_message("fourth".as_bytes(), &bo)
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
         let messages = messages.lock().unwrap();
@@ -392,7 +402,7 @@ mod tests {
 
         let alix_group = alix.create_group(None).unwrap();
         alix_group
-            .add_members_by_installation_id(vec![caro.installation_public_key()])
+            .add_members_by_installation_id(vec![caro.installation_public_key()], &alix)
             .await
             .unwrap();
 
@@ -412,35 +422,51 @@ mod tests {
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        alix_group.send_message("first".as_bytes()).await.unwrap();
+        alix_group
+            .send_message("first".as_bytes(), &alix)
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         let bo_group = bo.create_group(None).unwrap();
         bo_group
-            .add_members_by_installation_id(vec![caro.installation_public_key()])
+            .add_members_by_installation_id(vec![caro.installation_public_key()], &bo)
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
-        bo_group.send_message("second".as_bytes()).await.unwrap();
+        bo_group
+            .send_message("second".as_bytes(), &bo)
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-        alix_group.send_message("third".as_bytes()).await.unwrap();
+        alix_group
+            .send_message("third".as_bytes(), &alix)
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         let alix_group_2 = alix.create_group(None).unwrap();
         alix_group_2
-            .add_members_by_installation_id(vec![caro.installation_public_key()])
+            .add_members_by_installation_id(vec![caro.installation_public_key()], &alix)
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
-        alix_group.send_message("fourth".as_bytes()).await.unwrap();
+        alix_group
+            .send_message("fourth".as_bytes(), &alix)
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        alix_group_2.send_message("fifth".as_bytes()).await.unwrap();
+        alix_group_2
+            .send_message("fifth".as_bytes(), &alix)
+            .await
+            .unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
+        // FIXME: This mutex is held accross `.await` which might cause issues
         let messages = messages.lock().unwrap();
         assert_eq!(messages.len(), 5);
 
@@ -448,7 +474,10 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(stream.is_closed());
 
-        alix_group.send_message("first".as_bytes()).await.unwrap();
+        alix_group
+            .send_message("first".as_bytes(), &alix)
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         assert_eq!(messages.len(), 5);

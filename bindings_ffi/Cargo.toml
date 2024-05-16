@@ -20,6 +20,15 @@ xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
 xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 xmtp_v2 = { path = "../xmtp_v2" }
 
+# NOTE: A regression in openssl-sys exists where libatomic is dynamically linked 
+# for i686-linux-android targets. https://github.com/sfackler/rust-openssl/issues/2163
+#
+# This is fixed in the openssl-sys fork at
+# https://github.com/xmtp/rust-openssl on the branch clone-v0.9.92, which is pinned
+# to that version. Once this is addressed upstream we can remove the patch.
+[patch.crates-io]
+openssl-sys = { git = "https://github.com/xmtp/rust-openssl.git", branch = "clone-v0.9.92" }
+
 [build-dependencies]
 uniffi = { version = "0.25.3", features = ["build"] }
 
@@ -33,6 +42,8 @@ ethers-core = "2.0.13"
 tempfile = "3.5.0"
 tokio = { version = "1.28.1", features = ["full"] }
 uniffi = { version = "0.25.3", features = ["bindgen-tests"] }
+async-barrier = "1.1"
+tokio-test = "0.4"
 
 # NOTE: The release profile reduces bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093

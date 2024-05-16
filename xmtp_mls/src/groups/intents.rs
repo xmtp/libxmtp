@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use openmls::prelude::{
     tls_codec::{Error as TlsCodecError, Serialize},
     MlsMessageOut,
@@ -14,11 +16,14 @@ use xmtp_proto::xmtp::mls::database::{
     },
     remove_members_data::{Version as RemoveMembersVersion, V1 as RemoveMembersV1},
     send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
+    update_group_membership_data::{
+        Version as UpdateGroupMembershipVersion, V1 as UpdateGroupMembershipV1,
+    },
     update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
     AccountAddresses, AddMembersData,
     AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper, InstallationIds,
     PostCommitAction as PostCommitActionProto, RemoveMembersData, SendMessageData,
-    UpdateMetadataData,
+    UpdateGroupMembershipData, UpdateMetadataData,
 };
 
 use crate::{
@@ -284,6 +289,52 @@ impl TryFrom<Vec<u8>> for UpdateMetadataIntentData {
     }
 }
 
+pub(crate) struct UpdateGroupMembershipIntentData {
+    pub membership_updates: HashMap<String, u64>,
+    pub removed_members: Vec<String>,
+}
+
+impl UpdateGroupMembershipIntentData {
+    pub fn new(membership_updates: HashMap<String, u64>, removed_members: Vec<String>) -> Self {
+        Self {
+            membership_updates,
+            removed_members,
+        }
+    }
+}
+
+impl From<UpdateGroupMembershipIntentData> for Vec<u8> {
+    fn from(intent: UpdateGroupMembershipIntentData) -> Self {
+        let mut buf = Vec::new();
+
+        UpdateGroupMembershipData {
+            version: Some(UpdateGroupMembershipVersion::V1(UpdateGroupMembershipV1 {
+                membership_updates: intent.membership_updates,
+                removed_members: intent.removed_members,
+            })),
+        }
+        .encode(&mut buf)
+        .expect("encode error");
+
+        buf
+    }
+}
+
+impl TryFrom<Vec<u8>> for UpdateGroupMembershipIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
+        if let UpdateGroupMembershipData {
+            version: Some(UpdateGroupMembershipVersion::V1(v1)),
+        } = UpdateGroupMembershipData::decode(data.as_slice())?
+        {
+            Ok(Self::new(v1.membership_updates, v1.removed_members))
+        } else {
+            Err(IntentError::Generic("missing payload".to_string()))
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum PostCommitAction {
     SendWelcomes(SendWelcomesAction),
@@ -429,7 +480,7 @@ mod tests {
     #[tokio::test]
     async fn test_serialize_update_metadata() {
         let intent = UpdateMetadataIntentData::new_update_group_name("group name".to_string());
-        let as_bytes: Vec<u8> = intent.clone().try_into().unwrap();
+        let as_bytes: Vec<u8> = intent.clone().into();
         let restored_intent: UpdateMetadataIntentData =
             UpdateMetadataIntentData::try_from(as_bytes).unwrap();
 

@@ -19,6 +19,8 @@ pub const UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NANOSECONDS_IN_HOUR / 2; // 30
 
 pub const MAX_GROUP_SIZE: u8 = 250;
 
+pub const DELIMITER: char = '\x01';
+
 /// MLS Extension Types
 ///
 /// Copied from draft-ietf-mls-protocol-16:
@@ -33,6 +35,8 @@ pub const MAX_GROUP_SIZE: u8 = 250;
 /// | 0x0005           | external_senders         | GC         | Y           | RFC XXXX  |
 /// | 0xff00  - 0xffff | Reserved for Private Use | N/A        | N/A         | RFC XXXX  |
 pub const MUTABLE_METADATA_EXTENSION_ID: u16 = 0xff00;
+pub const GROUP_MEMBERSHIP_EXTENSION_ID: u16 = 0xff01;
+pub const GROUP_PERMISSIONS_EXTENSION_ID: u16 = 0xff02;
 
 pub const DEFAULT_GROUP_NAME: &str = "New Group";
 pub const DEFAULT_GROUP_DESCRIPTION: &str = "New Group Description";

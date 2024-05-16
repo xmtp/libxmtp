@@ -9,22 +9,26 @@ use super::{
 use crate::{Delete, Fetch};
 
 /// CRUD Operations for an [`OpenMlsKeyStore`]
-#[derive(Debug)]
-pub struct SqlKeyStore<'a> {
-    conn: &'a DbConnection<'a>,
+#[derive(Debug, Clone)]
+pub struct SqlKeyStore {
+    conn: DbConnection,
 }
 
-impl<'a> SqlKeyStore<'a> {
-    pub fn new(conn: &'a DbConnection<'a>) -> Self {
+impl SqlKeyStore {
+    pub fn new(conn: DbConnection) -> Self {
         Self { conn }
     }
 
-    pub fn conn(&self) -> &DbConnection<'a> {
-        self.conn
+    pub fn conn(&self) -> DbConnection {
+        self.conn.clone()
+    }
+
+    pub fn conn_ref(&self) -> &DbConnection {
+        &self.conn
     }
 }
 
-impl OpenMlsKeyStore for SqlKeyStore<'_> {
+impl OpenMlsKeyStore for SqlKeyStore {
     /// The error type returned by the [`OpenMlsKeyStore`].
     type Error = StorageError;
 
@@ -63,7 +67,7 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
     /// Interface is unclear on expected behavior when item is already deleted -
     /// we choose to not surface an error if this is the case.
     fn delete<V: MlsEntity>(&self, k: &[u8]) -> Result<(), Self::Error> {
-        let conn: &dyn Delete<StoredKeyStoreEntry, Key = Vec<u8>> = self.conn();
+        let conn: &dyn Delete<StoredKeyStoreEntry, Key = Vec<u8>> = &self.conn();
         let num_deleted = conn.delete(k.to_vec())?;
         if num_deleted == 0 {
             debug!("No entry to delete for key {:?}", k);
@@ -93,7 +97,7 @@ mod tests {
         )
         .unwrap();
         let conn = &store.conn().unwrap();
-        let key_store = SqlKeyStore::new(conn);
+        let key_store = SqlKeyStore::new(conn.clone());
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
         let index = "index".as_bytes();
         assert!(key_store.read::<SignatureKeyPair>(index).is_none());

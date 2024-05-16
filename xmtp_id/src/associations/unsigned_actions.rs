@@ -11,7 +11,7 @@ pub trait SignatureTextCreator {
     fn signature_text(&self) -> String;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct UnsignedCreateInbox {
     pub nonce: u64,
     pub account_address: String,
@@ -23,7 +23,7 @@ impl SignatureTextCreator for UnsignedCreateInbox {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct UnsignedAddAssociation {
     pub new_member_identifier: MemberIdentifier,
 }
@@ -40,7 +40,7 @@ impl SignatureTextCreator for UnsignedAddAssociation {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct UnsignedRevokeAssociation {
     pub revoked_member: MemberIdentifier,
 }
@@ -57,7 +57,7 @@ impl SignatureTextCreator for UnsignedRevokeAssociation {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct UnsignedChangeRecoveryAddress {
     pub new_recovery_address: String,
 }
@@ -73,7 +73,7 @@ impl SignatureTextCreator for UnsignedChangeRecoveryAddress {
 }
 
 #[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum UnsignedAction {
     CreateInbox(UnsignedCreateInbox),
     AddAssociation(UnsignedAddAssociation),
@@ -178,7 +178,7 @@ mod tests {
 
         let identity_update = UnsignedIdentityUpdate {
             inbox_id: inbox_id.clone(),
-            client_timestamp_ns: client_timestamp_ns.clone(),
+            client_timestamp_ns,
             actions: vec![
                 UnsignedAction::CreateInbox(create_inbox.clone()),
                 UnsignedAction::AddAssociation(add_address.clone()),

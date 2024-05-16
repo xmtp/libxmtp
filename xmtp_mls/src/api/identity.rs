@@ -1,18 +1,15 @@
 use std::collections::HashMap;
 
-use crate::types::InboxId;
+use crate::{types::InboxId, XmtpApi};
 
 use super::{ApiClientWrapper, WrappedApiError};
 use xmtp_id::associations::{DeserializationError, IdentityUpdate};
-use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::identity::api::v1::{
-        get_identity_updates_request::Request as GetIdentityUpdatesV2RequestProto,
-        get_identity_updates_response::IdentityUpdateLog,
-        get_inbox_ids_request::Request as GetInboxIdsRequestProto,
-        GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetInboxIdsRequest,
-        PublishIdentityUpdateRequest,
-    },
+use xmtp_proto::xmtp::identity::api::v1::{
+    get_identity_updates_request::Request as GetIdentityUpdatesV2RequestProto,
+    get_identity_updates_response::IdentityUpdateLog,
+    get_inbox_ids_request::Request as GetInboxIdsRequestProto,
+    GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetInboxIdsRequest,
+    PublishIdentityUpdateRequest,
 };
 
 /// A filter for querying identity updates. `sequence_id` is the starting sequence, and only later updates will be returned.
@@ -56,11 +53,11 @@ impl TryFrom<IdentityUpdateLog> for InboxUpdate {
 type InboxUpdateMap = HashMap<InboxId, Vec<InboxUpdate>>;
 
 /// Maps account addresses to inbox IDs. If no inbox ID found, the value will be None
-type AddressToInboxIdMap = HashMap<String, Option<InboxId>>;
+type AddressToInboxIdMap = HashMap<String, InboxId>;
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
-    ApiClient: XmtpMlsClient + XmtpIdentityClient,
+    ApiClient: XmtpApi,
 {
     pub async fn publish_identity_update(
         &self,
@@ -122,7 +119,8 @@ where
         Ok(result
             .responses
             .into_iter()
-            .map(|inbox_id| (inbox_id.address, inbox_id.inbox_id))
+            .filter(|inbox_id| inbox_id.inbox_id.is_some())
+            .map(|inbox_id| (inbox_id.address, inbox_id.inbox_id.unwrap()))
             .collect())
     }
 }
@@ -237,9 +235,6 @@ mod tests {
             .expect("should work");
 
         assert_eq!(result.len(), 1);
-        assert_eq!(
-            result.get(&address).unwrap().as_ref().unwrap(),
-            &inbox_id_clone_2
-        );
+        assert_eq!(result.get(&address).unwrap(), &inbox_id_clone_2);
     }
 }
