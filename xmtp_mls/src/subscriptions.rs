@@ -329,7 +329,7 @@ mod tests {
 
         let mut bob_stream = bob.stream_conversations().await.unwrap();
         alice_bob_group
-            .add_members(vec![bob.inbox_id()], &alice)
+            .add_members_by_inbox_id(&alice, vec![bob.inbox_id()])
             .await
             .unwrap();
 
@@ -346,13 +346,13 @@ mod tests {
 
         let alix_group = alix.create_group(None).unwrap();
         alix_group
-            .add_members_by_installation_id(vec![caro.installation_public_key()], &alix)
+            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
             .unwrap();
 
         let bo_group = bo.create_group(None).unwrap();
         bo_group
-            .add_members_by_installation_id(vec![caro.installation_public_key()], &bo)
+            .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -405,7 +405,7 @@ mod tests {
 
         let alix_group = alix.create_group(None).unwrap();
         alix_group
-            .add_members_by_installation_id(vec![caro.installation_public_key()], &alix)
+            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
             .unwrap();
 
@@ -433,7 +433,7 @@ mod tests {
 
         let bo_group = bo.create_group(None).unwrap();
         bo_group
-            .add_members_by_installation_id(vec![caro.installation_public_key()], &bo)
+            .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -452,7 +452,7 @@ mod tests {
 
         let alix_group_2 = alix.create_group(None).unwrap();
         alix_group_2
-            .add_members_by_installation_id(vec![caro.installation_public_key()], &alix)
+            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;

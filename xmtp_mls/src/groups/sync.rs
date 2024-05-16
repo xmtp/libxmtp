@@ -1,21 +1,55 @@
-use std::{collections::HashMap, mem::discriminant};
+use std::{
+    collections::{HashMap, HashSet},
+    mem::discriminant,
+};
 
+use super::{
+    build_group_membership_extension, build_mutable_metadata_extensions,
+    intents::{
+        AddressesOrInstallationIds, Installation, PostCommitAction, SendMessageIntentData,
+        SendWelcomesAction, UpdateGroupMembershipIntentData,
+    },
+    validated_commit::extract_group_membership,
+    GroupError, MlsGroup,
+};
+use crate::{
+    await_helper,
+    client::MessageProcessingError,
+    codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
+    configuration::{DELIMITER, MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
+    groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
+    hpke::{encrypt_welcome, HpkeError},
+    identity::Identity,
+    retry::Retry,
+    retry_async, retry_sync,
+    storage::{
+        db_connection::DbConnection,
+        group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent, ID},
+        group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+        refresh_state::EntityKind,
+        StorageError,
+    },
+    utils::{hash::sha256, id::calculate_message_id},
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    Client, Delete, Fetch, Store, XmtpApi,
+};
 use log::debug;
 use openmls::{
     credentials::BasicCredential,
-    framing::ProtocolMessage,
+    extensions::Extensions,
+    framing::{MlsMessageOut, ProtocolMessage},
     group::MergePendingCommitError,
     prelude::{
         tls_codec::{Deserialize, Serialize},
         LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
         ProcessedMessage, ProcessedMessageContent, Sender,
     },
-    prelude_test::KeyPackage,
 };
+use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::OpenMlsProvider;
 use prost::bytes::Bytes;
 use prost::Message;
-
+use xmtp_id::InboxId;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
@@ -31,39 +65,6 @@ use xmtp_proto::xmtp::mls::{
         },
         GroupMembershipChanges, MessageHistoryReply, MessageHistoryRequest, PlaintextEnvelope,
     },
-};
-
-use super::{
-    build_mutable_metadata_extensions,
-    intents::{
-        AddMembersIntentData, AddressesOrInstallationIds, Installation, PostCommitAction,
-        RemoveMembersIntentData, SendMessageIntentData, SendWelcomesAction,
-    },
-    members::GroupMember,
-    GroupError, MlsGroup,
-};
-
-use crate::{
-    api::IdentityUpdate,
-    await_helper,
-    client::MessageProcessingError,
-    codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
-    configuration::{DELIMITER, MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
-    groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
-    hpke::{encrypt_welcome, HpkeError},
-    identity::Identity,
-    retry::Retry,
-    retry_async, retry_sync,
-    storage::{
-        db_connection::DbConnection,
-        group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
-        group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-        refresh_state::EntityKind,
-        StorageError,
-    },
-    utils::{hash::sha256, id::calculate_message_id},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Client, Delete, Fetch, Store, XmtpApi,
 };
 
 impl MlsGroup {
@@ -189,9 +190,8 @@ impl MlsGroup {
 
         let conn = provider.conn();
         match intent.kind {
-            IntentKind::AddMembers
-            | IntentKind::RemoveMembers
-            | IntentKind::KeyUpdate
+            IntentKind::KeyUpdate
+            | IntentKind::UpdateGroupMembership
             | IntentKind::MetadataUpdate => {
                 if !allow_epoch_increment {
                     return Err(MessageProcessingError::EpochIncrementNotAllowed);
@@ -657,6 +657,23 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         match intent.kind {
+            IntentKind::UpdateGroupMembership => {
+                let intent_data = UpdateGroupMembershipIntentData::try_from(&intent.data)?;
+                let signer = &self.context.identity.installation_keys;
+                let (commit, post_commit_action) = apply_update_group_membership_intent(
+                    client,
+                    provider,
+                    openmls_group,
+                    intent_data,
+                    signer,
+                )
+                .await?;
+
+                Ok((
+                    commit.tls_serialize_detached()?,
+                    Some(post_commit_action.to_bytes()),
+                ))
+            }
             IntentKind::SendMessage => {
                 // We can safely assume all SendMessage intents have data
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
@@ -669,74 +686,6 @@ impl MlsGroup {
 
                 let msg_bytes = msg.tls_serialize_detached()?;
                 Ok((msg_bytes, None))
-            }
-            IntentKind::AddMembers => {
-                let intent_data = AddMembersIntentData::from_bytes(intent.data.as_slice())?;
-
-                let key_packages = client.get_key_packages(intent_data.address_or_id).await?;
-
-                let mls_key_packages: Vec<KeyPackage> =
-                    key_packages.iter().map(|kp| kp.inner.clone()).collect();
-
-                let (commit, welcome, _group_info) = openmls_group.add_members(
-                    &provider,
-                    &self.context.identity.installation_keys,
-                    mls_key_packages.as_slice(),
-                )?;
-
-                // TODO:nm Determine if we really need to validate the commit before sending
-
-                let commit_bytes = commit.tls_serialize_detached()?;
-
-                let installations = key_packages
-                    .iter()
-                    .map(Installation::from_verified_key_package)
-                    .collect();
-
-                let post_commit_data =
-                    Some(PostCommitAction::from_welcome(welcome, installations)?.to_bytes());
-
-                Ok((commit_bytes, post_commit_data))
-            }
-            IntentKind::RemoveMembers => {
-                let intent_data = RemoveMembersIntentData::from_bytes(intent.data.as_slice())?;
-
-                let installation_ids = {
-                    match intent_data.address_or_id {
-                        AddressesOrInstallationIds::AccountAddresses(addrs) => {
-                            client.get_all_active_installation_ids(addrs).await?
-                        }
-                        AddressesOrInstallationIds::InstallationIds(ids) => ids,
-                    }
-                };
-
-                let leaf_nodes: Vec<LeafNodeIndex> = openmls_group
-                    .members()
-                    .filter(|member| installation_ids.contains(&member.signature_key))
-                    .map(|member| member.index)
-                    .collect();
-
-                let num_leaf_nodes = leaf_nodes.len();
-
-                if num_leaf_nodes != installation_ids.len() {
-                    return Err(GroupError::Generic(format!(
-                        "expected {} leaf nodes, found {}",
-                        installation_ids.len(),
-                        num_leaf_nodes
-                    )));
-                }
-
-                // The second return value is a Welcome, which is only possible if there
-                // are pending proposals. Ignoring for now
-                let (commit, _, _) = openmls_group.remove_members(
-                    &provider,
-                    &self.context.identity.installation_keys,
-                    leaf_nodes.as_slice(),
-                )?;
-
-                let commit_bytes = commit.tls_serialize_detached()?;
-
-                Ok((commit_bytes, None))
             }
             IntentKind::KeyUpdate => {
                 let (commit, _, _) = openmls_group
@@ -817,95 +766,106 @@ impl MlsGroup {
         let elapsed = now - last;
         if elapsed > interval {
             let provider = self.context.mls_provider(conn.clone());
-            self.add_missing_installations(provider, client).await?;
+            self.add_missing_installations(&provider, client).await?;
             conn.update_installations_time_checked(self.group_id.clone())?;
         }
 
         Ok(())
     }
 
-    pub(super) async fn get_missing_members<ApiClient>(
-        &self,
-        provider: impl OpenMlsProvider,
-        client: &Client<ApiClient>,
-    ) -> Result<(Vec<Vec<u8>>, Vec<Vec<u8>>), GroupError>
-    where
-        ApiClient: XmtpApi,
-    {
-        let current_members = self.members_with_provider(provider)?;
-        let account_addresses = current_members
-            .iter()
-            .map(|m| m.account_address.clone())
-            .collect();
-
-        let current_member_map: HashMap<String, GroupMember> = current_members
-            .into_iter()
-            .map(|m| (m.account_address.clone(), m))
-            .collect();
-
-        let change_list = client
-            .api_client
-            // TODO: Get a real start time from the database
-            .get_identity_updates(0, account_addresses)
-            .await?;
-
-        let to_add: Vec<Vec<u8>> = change_list
-            .into_iter()
-            .filter_map(|(account_address, updates)| {
-                let member_changes: Vec<Vec<u8>> = updates
-                    .into_iter()
-                    .filter_map(|change| match change {
-                        IdentityUpdate::NewInstallation(new_member) => {
-                            let current_member = current_member_map.get(&account_address);
-                            current_member?;
-                            if current_member
-                                .expect("already checked")
-                                .installation_ids
-                                .contains(&new_member.installation_key)
-                            {
-                                return None;
-                            }
-
-                            Some(new_member.installation_key)
-                        }
-                        IdentityUpdate::RevokeInstallation(_) => {
-                            log::warn!("Revocation found. Not handled");
-                            None
-                        }
-                        IdentityUpdate::Invalid => {
-                            log::warn!("Invalid identity update found");
-                            None
-                        }
-                    })
-                    .collect();
-
-                if !member_changes.is_empty() {
-                    return Some(member_changes);
-                }
-                None
-            })
-            .flatten()
-            .collect();
-
-        Ok((to_add, vec![]))
-    }
-
+    /**
+     * Checks each member of the group for `IdentityUpdates` after their current sequence_id. If updates
+     * are found the method will construct an [`UpdateGroupMembershipIntentData`] and publish a change
+     * to the [`GroupMembership`] that will add any missing installations.
+     *
+     * This is designed to handle cases where existing members have added a new installation to their inbox
+     * and the group has not been updated to include it.
+     */
     pub(super) async fn add_missing_installations<ApiClient>(
         &self,
-        provider: impl OpenMlsProvider,
+        provider: &XmtpOpenMlsProvider,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
-        let (missing_members, _) = self.get_missing_members(provider, client).await?;
-        if missing_members.is_empty() {
-            return Ok(());
-        }
-        self.add_members_by_installation_id(missing_members, client)
+        let intent_data = self
+            .get_membership_update_intent(client, provider, vec![], vec![])
             .await?;
 
-        Ok(())
+        // If there is nothing to do, stop here
+        if intent_data.is_empty() {
+            return Ok(());
+        }
+
+        let conn = provider.conn();
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::UpdateGroupMembership,
+            self.group_id.clone(),
+            intent_data.into(),
+        ))?;
+
+        self.sync_until_intent_resolved(conn, intent.id, client)
+            .await
+    }
+
+    /**
+     * get_membership_update_intent will query the network for any new [`IdentityUpdate`]s for any of the existing
+     * group members
+     *
+     * Callers may also include a list of added or removed inboxes
+     */
+    pub(super) async fn get_membership_update_intent<ApiClient: XmtpApi>(
+        &self,
+        client: &Client<ApiClient>,
+        provider: &XmtpOpenMlsProvider,
+        inbox_ids_to_add: Vec<InboxId>,
+        inbox_ids_to_remove: Vec<InboxId>,
+    ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
+        let mls_group = self.load_mls_group(provider)?;
+        let existing_group_membership = extract_group_membership(mls_group.extensions())?;
+
+        // TODO:nm don't bother updating the removed members
+        let mut inbox_ids = existing_group_membership.inbox_ids();
+        inbox_ids.extend(inbox_ids_to_add);
+        let conn = provider.conn_ref();
+        // Load any missing updates from the network
+        client.load_identity_updates(conn, &inbox_ids).await?;
+
+        let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids)?;
+
+        // Get a list of all inbox IDs that have increased sequence_id for the group
+        let changed_inbox_ids = inbox_ids
+            .iter()
+            .fold(HashMap::new(), |mut updates, inbox_id| {
+                match (
+                    latest_sequence_id_map.get(inbox_id),
+                    existing_group_membership.get(inbox_id),
+                ) {
+                    // This is an update. We have a new sequence ID and an existing one
+                    (Some(latest_sequence_id), Some(current_sequence_id)) => {
+                        let latest_sequence_id_u64 = *latest_sequence_id as u64;
+                        if latest_sequence_id_u64.gt(current_sequence_id) {
+                            updates.insert(inbox_id.to_string(), latest_sequence_id_u64);
+                        }
+                    }
+                    // This is for new additions to the group
+                    (Some(latest_sequence_id), _) => {
+                        // This is the case for net new members to the group
+                        updates.insert(inbox_id.to_string(), *latest_sequence_id as u64);
+                    }
+                    (_, _) => {
+                        log::warn!("Could not find existing sequence ID for inbox {}", inbox_id);
+                    }
+                }
+
+                updates
+            });
+
+        Ok(UpdateGroupMembershipIntentData::new(
+            changed_inbox_ids,
+            inbox_ids_to_remove,
+        ))
     }
 
     async fn send_welcomes<ApiClient>(
@@ -974,4 +934,81 @@ fn validate_message_sender(
         sender_account_address.unwrap(),
         sender_installation_id.unwrap(),
     ))
+}
+
+// Takes UpdateGroupMembershipIntentData and applies it to the openmls group
+// returning the commit and post_commit_action
+async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
+    client: &Client<ApiClient>,
+    provider: &XmtpOpenMlsProvider,
+    openmls_group: &mut OpenMlsGroup,
+    intent_data: UpdateGroupMembershipIntentData,
+    signer: &SignatureKeyPair,
+) -> Result<(MlsMessageOut, PostCommitAction), GroupError> {
+    let extensions: Extensions = openmls_group.extensions().clone();
+
+    let old_group_membership = extract_group_membership(&extensions)?;
+    let new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
+
+    // Diff the two membership hashmaps getting a list of inboxes that have been added, removed, or updated
+    let membership_diff = old_group_membership.diff(&new_group_membership);
+    // Construct a diff of the installations that have been added or removed.
+    // This function goes to the network and fills in any missing Identity Updates
+    let installation_diff = client
+        .get_installation_diff(
+            &provider.conn(),
+            &old_group_membership,
+            &new_group_membership,
+            &membership_diff,
+        )
+        .await?;
+
+    let mut new_installations: Vec<Installation> = vec![];
+    if !installation_diff.added_installations.is_empty() {
+        // Go to the network and load the key packages for any new installation
+        let key_packages = client
+            .get_key_packages(AddressesOrInstallationIds::InstallationIds(
+                installation_diff.added_installations.into_iter().collect(),
+            ))
+            .await?;
+
+        for key_package in key_packages {
+            // Add a proposal to add the member to the local proposal queue
+            openmls_group.propose_add_member(provider, signer, &key_package.inner)?;
+            new_installations.push(Installation::from_verified_key_package(&key_package));
+        }
+    }
+    if !installation_diff.removed_installations.is_empty() {
+        let leaf_nodes_indexes =
+            get_removed_leaf_nodes(openmls_group, &installation_diff.removed_installations);
+        for leaf_node_index in leaf_nodes_indexes {
+            openmls_group.propose_remove_member(provider, signer, leaf_node_index)?;
+        }
+    }
+    // Update the extensions to have the new GroupMembership
+    let mut new_extensions = extensions.clone();
+    new_extensions.add_or_replace(build_group_membership_extension(new_group_membership));
+    openmls_group.propose_group_context_extensions(provider, new_extensions, signer)?;
+
+    // Commit to the pending proposals, which will clear the proposal queue
+    let (commit, maybe_welcome_message, _) =
+        openmls_group.commit_to_pending_proposals(provider, signer)?;
+
+    let post_commit_action = PostCommitAction::from_welcome(
+        maybe_welcome_message.ok_or(GroupError::NoChanges)?,
+        new_installations,
+    )?;
+
+    Ok((commit, post_commit_action))
+}
+
+fn get_removed_leaf_nodes(
+    openmls_group: &mut OpenMlsGroup,
+    removed_installations: &HashSet<Vec<u8>>,
+) -> Vec<LeafNodeIndex> {
+    openmls_group
+        .members()
+        .filter(|member| removed_installations.contains(&member.signature_key))
+        .map(|member| member.index)
+        .collect()
 }

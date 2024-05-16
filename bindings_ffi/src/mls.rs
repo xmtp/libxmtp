@@ -213,7 +213,7 @@ impl FfiConversations {
         let convo = self.inner_client.create_group(group_permissions)?;
         if !account_addresses.is_empty() {
             convo
-                .add_members(account_addresses, &self.inner_client)
+                .add_members(&self.inner_client, account_addresses)
                 .await?;
         }
         let out = Arc::new(FfiGroup {
@@ -431,7 +431,7 @@ impl FfiGroup {
         );
 
         group
-            .add_members(account_addresses, &self.inner_client)
+            .add_members(&self.inner_client, account_addresses)
             .await?;
 
         Ok(())
@@ -445,7 +445,7 @@ impl FfiGroup {
         );
 
         group
-            .remove_members(account_addresses, &self.inner_client)
+            .remove_members(&self.inner_client, account_addresses)
             .await?;
 
         Ok(())
@@ -663,7 +663,6 @@ impl FfiGroupMetadata {
     }
 }
 
-
 #[derive(uniffi::Object)]
 pub struct FfiGroupPermissions {
     inner: Arc<GroupMutablePermissions>,
@@ -671,7 +670,6 @@ pub struct FfiGroupPermissions {
 
 #[uniffi::export]
 impl FfiGroupPermissions {
-
     pub fn policy_type(&self) -> Result<GroupPermissions, GenericError> {
         Ok(self.inner.preconfigured_policy()?.into())
     }

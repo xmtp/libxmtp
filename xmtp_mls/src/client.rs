@@ -680,7 +680,7 @@ mod tests {
 
         let alice_bob_group = alice.create_group(None).unwrap();
         alice_bob_group
-            .add_members_by_installation_id(vec![bob.installation_public_key()], &alice)
+            .add_members_by_inbox_id(&alice, vec![bob.inbox_id()])
             .await
             .unwrap();
 
@@ -753,14 +753,14 @@ mod tests {
         // Create a group and invite bola
         let amal_group = amal.create_group(None).unwrap();
         amal_group
-            .add_members_by_installation_id(vec![bola.installation_public_key()], &amal)
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
             .unwrap();
         assert_eq!(amal_group.members().unwrap().len(), 2);
 
         // Now remove bola
         amal_group
-            .remove_members_by_installation_id(vec![bola.installation_public_key()], &amal)
+            .remove_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
             .unwrap();
         assert_eq!(amal_group.members().unwrap().len(), 1);
@@ -780,7 +780,7 @@ mod tests {
 
         // Add Bola back to the group
         amal_group
-            .add_members_by_installation_id(vec![bola.installation_public_key()], &amal)
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();

@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, Credential as OpenMlsCredential},
-    extensions::{Extension, UnknownExtension},
+    extensions::{Extension, Extensions, UnknownExtension},
     group::{GroupContext, MlsGroup as OpenMlsGroup, StagedCommit},
     messages::proposals::Proposal,
     prelude::{LeafNodeIndex, Sender},
@@ -394,8 +394,8 @@ async fn extract_expected_diff<'diff, ApiClient: XmtpMlsClient + XmtpIdentityCli
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
 ) -> Result<ExpectedDiff, CommitValidationError> {
-    let old_group_membership = extract_group_membership(existing_group_context)?;
-    let new_group_membership = extract_group_membership(new_group_context)?;
+    let old_group_membership = extract_group_membership(existing_group_context.extensions())?;
+    let new_group_membership = extract_group_membership(new_group_context.extensions())?;
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
     validate_membership_diff(
@@ -509,10 +509,10 @@ fn extract_commit_participant(
 
 /// Get the [`GroupMembership`] from a [`GroupContext`] struct by iterating through all extensions
 /// until a match is found
-fn extract_group_membership(
-    group_context: &GroupContext,
+pub fn extract_group_membership(
+    extensions: &Extensions,
 ) -> Result<GroupMembership, CommitValidationError> {
-    for extension in group_context.extensions().iter() {
+    for extension in extensions.iter() {
         if let Extension::Unknown(
             GROUP_MEMBERSHIP_EXTENSION_ID,
             UnknownExtension(group_membership),
