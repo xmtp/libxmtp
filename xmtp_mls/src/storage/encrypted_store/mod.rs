@@ -10,6 +10,7 @@
 //! table definitions `schema.rs` must also be updated. To generate the correct schemas you can run
 //! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.
 
+pub mod association_state;
 pub mod db_connection;
 pub mod group;
 pub mod group_intent;
@@ -51,7 +52,6 @@ pub enum StorageOption {
     Persistent(String),
 }
 
-#[allow(dead_code)]
 pub fn ignore_unique_violation<T>(
     result: Result<T, diesel::result::Error>,
 ) -> Result<(), StorageError> {
@@ -232,12 +232,13 @@ macro_rules! impl_fetch {
             type Key = $key;
             fn fetch(&self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
                 use $crate::storage::encrypted_store::schema::$table::dsl::*;
-                Ok(self.raw_query(|conn| $table.find(key).first(conn).optional())?)
+                Ok(self.raw_query(|conn| $table.find(key.clone()).first(conn).optional())?)
             }
         }
     };
 }
 
+// Inserts the model into the database by primary key, erroring if the model already exists
 #[macro_export]
 macro_rules! impl_store {
     ($model:ty, $table:ident) => {
@@ -254,6 +255,28 @@ macro_rules! impl_store {
                         .execute(conn)
                 })?;
                 Ok(())
+            }
+        }
+    };
+}
+
+// Inserts the model into the database by primary key, silently skipping on unique constraints
+#[macro_export]
+macro_rules! impl_store_or_ignore {
+    ($model:ty, $table:ident) => {
+        impl $crate::StoreOrIgnore<$crate::storage::encrypted_store::db_connection::DbConnection>
+            for $model
+        {
+            fn store_or_ignore(
+                &self,
+                into: &$crate::storage::encrypted_store::db_connection::DbConnection,
+            ) -> Result<(), $crate::StorageError> {
+                let result = into.raw_query(|conn| {
+                    diesel::insert_into($table::table)
+                        .values(self)
+                        .execute(conn)
+                });
+                $crate::storage::ignore_unique_violation(result)
             }
         }
     };

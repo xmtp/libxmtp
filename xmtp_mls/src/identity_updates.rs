@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::storage::association_state::StoredAssociationState;
 use prost::Message;
 use thiserror::Error;
 use xmtp_id::associations::{
@@ -114,28 +115,38 @@ where
         inbox_id: InboxId,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
-        // TODO: Check against a local cache before talking to the network
-
+        let inbox_id = inbox_id.as_ref();
         let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
-        let last_update = updates.last();
-        if last_update.is_none() {
+        let last_sequence_id = updates
+            .last()
+            .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
+            .sequence_id;
+        if to_sequence_id.is_some() && to_sequence_id != Some(last_sequence_id) {
             return Err(AssociationError::MissingIdentityUpdate.into());
         }
-        if let Some(sequence_id) = to_sequence_id {
-            if last_update
-                .expect("already checked")
-                .sequence_id
-                .ne(&sequence_id)
-            {
-                return Err(AssociationError::MissingIdentityUpdate.into());
-            }
+
+        if let Some(association_state) =
+            StoredAssociationState::read_from_cache(conn, inbox_id.to_string(), last_sequence_id)?
+        {
+            log::debug!("Loaded association state from cache");
+            return Ok(association_state);
         }
+
         let updates = updates
             .into_iter()
             .map(IdentityUpdate::try_from)
             .collect::<Result<Vec<IdentityUpdate>, AssociationError>>()?;
+        let association_state = get_state(updates).await?;
 
-        Ok(get_state(updates).await?)
+        StoredAssociationState::write_to_cache(
+            conn,
+            inbox_id.to_string(),
+            last_sequence_id,
+            association_state.clone(),
+        )?;
+        log::debug!("Wrote association state to cache");
+
+        Ok(association_state)
     }
 
     pub(crate) async fn get_association_state_diff<InboxId: AsRef<str>>(
@@ -318,6 +329,7 @@ where
 #[cfg(test)]
 mod tests {
     use ethers::signers::LocalWallet;
+    use tracing_test::traced_test;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{
         associations::{builder::SignatureRequest, AssociationState, RecoverableEcdsaSignature},
@@ -325,6 +337,7 @@ mod tests {
     };
 
     use crate::{
+        assert_logged,
         builder::ClientBuilder,
         groups::group_membership::GroupMembership,
         storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
@@ -438,6 +451,75 @@ mod tests {
             .unwrap();
 
         let association_state = get_association_state(&client, inbox_id.clone()).await;
+
+        assert_eq!(association_state.members().len(), 3);
+        assert_eq!(association_state.recovery_address(), &wallet_address);
+        assert!(association_state.get(&wallet_2_address.into()).is_some());
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn cache_association_state() {
+        let wallet = generate_local_wallet();
+        let wallet_2 = generate_local_wallet();
+        let wallet_address = wallet.get_address();
+        let wallet_2_address = wallet_2.get_address();
+        let client = ClientBuilder::new_test_client(&wallet).await;
+
+        let mut signature_request: SignatureRequest = client
+            .create_inbox(wallet_address.clone(), None)
+            .await
+            .unwrap();
+        let inbox_id = signature_request.inbox_id();
+
+        sign_with_wallet(&wallet, &mut signature_request).await;
+
+        client
+            .apply_signature_request(signature_request)
+            .await
+            .unwrap();
+
+        get_association_state(&client, inbox_id.clone()).await;
+
+        assert_logged!("Loaded association", 0);
+        assert_logged!("Wrote association", 1);
+
+        let association_state = get_association_state(&client, inbox_id.clone()).await;
+
+        assert_eq!(association_state.members().len(), 2);
+        assert_eq!(association_state.recovery_address(), &wallet_address);
+        assert!(association_state
+            .get(&wallet_address.clone().into())
+            .is_some());
+
+        assert_logged!("Loaded association", 1);
+        assert_logged!("Wrote association", 1);
+
+        let mut add_association_request = client
+            .associate_wallet(
+                inbox_id.clone(),
+                wallet_address.clone(),
+                wallet_2_address.clone(),
+            )
+            .unwrap();
+
+        sign_with_wallet(&wallet, &mut add_association_request).await;
+        sign_with_wallet(&wallet_2, &mut add_association_request).await;
+
+        client
+            .apply_signature_request(add_association_request)
+            .await
+            .unwrap();
+
+        get_association_state(&client, inbox_id.clone()).await;
+
+        assert_logged!("Loaded association", 1);
+        assert_logged!("Wrote association", 2);
+
+        let association_state = get_association_state(&client, inbox_id.clone()).await;
+
+        assert_logged!("Loaded association", 2);
+        assert_logged!("Wrote association", 2);
 
         assert_eq!(association_state.members().len(), 3);
         assert_eq!(association_state.recovery_address(), &wallet_address);

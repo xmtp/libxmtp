@@ -1,6 +1,14 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
+    association_state (inbox_id, sequence_id) {
+        inbox_id -> Text,
+        sequence_id -> BigInt,
+        state -> Binary,
+    }
+}
+
+diesel::table! {
     group_intents (id) {
         id -> Integer,
         kind -> Integer,
@@ -74,6 +82,7 @@ diesel::joinable!(group_intents -> groups (group_id));
 diesel::joinable!(group_messages -> groups (group_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
+    association_state,
     group_intents,
     group_messages,
     groups,

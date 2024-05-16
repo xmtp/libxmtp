@@ -1,7 +1,3 @@
-#[cfg(test)]
-use std::println as debug;
-
-#[cfg(not(test))]
 use log::debug;
 use thiserror::Error;
 

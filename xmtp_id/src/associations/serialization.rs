@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use super::{
     association_log::{
         Action, AddAssociation, ChangeRecoveryAddress, CreateInbox, RevokeAssociation,
@@ -319,6 +321,20 @@ impl From<Member> for MemberProto {
     }
 }
 
+impl TryFrom<MemberProto> for Member {
+    type Error = DeserializationError;
+
+    fn try_from(proto: MemberProto) -> Result<Self, Self::Error> {
+        Ok(Member {
+            identifier: proto
+                .identifier
+                .ok_or(DeserializationError::MissingMemberIdentifier)?
+                .try_into()?,
+            added_by_entity: proto.added_by_entity.map(TryInto::try_into).transpose()?,
+        })
+    }
+}
+
 impl From<MemberIdentifier> for MemberIdentifierProto {
     fn from(member_identifier: MemberIdentifier) -> MemberIdentifierProto {
         match member_identifier {
@@ -328,6 +344,22 @@ impl From<MemberIdentifier> for MemberIdentifierProto {
             MemberIdentifier::Installation(public_key) => MemberIdentifierProto {
                 kind: Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)),
             },
+        }
+    }
+}
+
+impl TryFrom<MemberIdentifierProto> for MemberIdentifier {
+    type Error = DeserializationError;
+
+    fn try_from(proto: MemberIdentifierProto) -> Result<Self, Self::Error> {
+        match proto.kind {
+            Some(MemberIdentifierKindProto::Address(address)) => {
+                Ok(MemberIdentifier::Address(address))
+            }
+            Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)) => {
+                Ok(MemberIdentifier::Installation(public_key))
+            }
+            None => Err(DeserializationError::MissingMemberIdentifier),
         }
     }
 }
@@ -349,6 +381,33 @@ impl From<AssociationState> for AssociationStateProto {
             recovery_address: state.recovery_address,
             seen_signatures: state.seen_signatures.into_iter().collect(),
         }
+    }
+}
+
+impl TryFrom<AssociationStateProto> for AssociationState {
+    type Error = DeserializationError;
+    fn try_from(proto: AssociationStateProto) -> Result<Self, Self::Error> {
+        let members = proto
+            .members
+            .into_iter()
+            .map(|kv| {
+                let key = kv
+                    .key
+                    .ok_or(DeserializationError::MissingMemberIdentifier)?
+                    .try_into()?;
+                let value = kv
+                    .value
+                    .ok_or(DeserializationError::MissingMember)?
+                    .try_into()?;
+                Ok((key, value))
+            })
+            .collect::<Result<HashMap<MemberIdentifier, Member>, DeserializationError>>()?;
+        Ok(AssociationState {
+            inbox_id: proto.inbox_id,
+            members,
+            recovery_address: proto.recovery_address,
+            seen_signatures: HashSet::from_iter(proto.seen_signatures),
+        })
     }
 }
 
