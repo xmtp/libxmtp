@@ -27,6 +27,9 @@ use xmtp_proto::xmtp::{
         ValidateInboxIdKeyPackagesResponse, ValidateInboxIdsRequest, ValidateInboxIdsResponse,
         ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
     },
+    mls::message_contents::MlsCredential as V3CredentialProto,
+    identity::MlsCredential as InboxIdCredential
+
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -43,6 +46,35 @@ impl From<GrpcServerError> for Status {
     }
 }
 
+/// Temporary Key Package Versioning Scheme
+enum KeyPackageType {
+    XmtpV3(VerifideKeyPackage),
+    InboxId(VerifiedKeyPackageV2),
+}
+
+impl KeyPackageType {
+    fn from_bytes(crypto_provider: &RustCrypto,
+        data: &[u8],
+    ) -> Result<VerifiedKeyPackage, KeyPackageVerificationError> {
+        let kp_in: KeyPackageIn = KeyPackageIn::tls_deserialize_exact(data)?;
+        let kp = kp_in.validate(crypto_provider, MLS_PROTOCOL_VERSION)?;
+        
+        let leaf_node = kp.leaf_node();
+        let basic_credential = BasicCredential::try_from(leaf_node.credential())?;
+        let identity_bytes = basic_credential.identity();
+        
+        let credential = match V3CredentialProto::decode(identity_bytes) {
+            // v3 keypackage format
+            Ok(v3) => v3,
+            // failed to decode into V3 proto, which means possibly a InboxId format
+            Err(KeyPackageVerificationError::Decode(_)) => InboxIdCredential::decode(identity_bytes)?,
+            // unrelated error
+            e => e,
+        };
+ 
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct ValidationService {}
 
@@ -52,35 +84,17 @@ impl ValidationApi for ValidationService {
         &self,
         request: Request<ValidateKeyPackagesRequest>,
     ) -> Result<Response<ValidateKeyPackagesResponse>, Status> {
-        let out: Vec<ValidateKeyPackageValidationResponse> = request
-            .into_inner()
-            .key_packages
-            .into_iter()
-            .map(
-                |kp| match validate_key_package(kp.key_package_bytes_tls_serialized) {
-                    Ok(res) => ValidateKeyPackageValidationResponse {
-                        is_ok: true,
-                        error_message: "".to_string(),
-                        installation_id: res.installation_id,
-                        account_address: res.account_address,
-                        credential_identity_bytes: res.credential_identity_bytes,
-                        expiration: res.expiration,
-                    },
-                    Err(e) => ValidateKeyPackageValidationResponse {
-                        is_ok: false,
-                        error_message: e,
-                        installation_id: vec![],
-                        account_address: "".to_string(),
-                        credential_identity_bytes: vec![],
-                        expiration: 0,
-                    },
-                },
-            )
-            .collect();
+        
 
-        Ok(Response::new(ValidateKeyPackagesResponse {
-            responses: out,
-        }))
+
+
+        // try to TLS deserialize  Credentialproto cred
+        // try to TLS Deserialize inbox id cred
+        // delegate to correct validation
+        // Go Code can needs to change output type
+        // Proto needs to indicate which validation function was used.
+        // - this minimizes amount of API Calls (# API Calls stay the same)
+        // - Client does not need any new code.
     }
 
     async fn validate_group_messages(
@@ -167,6 +181,39 @@ impl ValidationApi for ValidationService {
 
         Ok(Response::new(ValidateInboxIdsResponse { responses }))
     }
+}
+
+fn v3_validate_key_packages(&self, request: Request<ValidateKeyPackagesRequest>) -> Result<Response<ValidateKeyPackagesResponse, Status> {
+    let out: Vec<ValidateKeyPackageValidationResponse> = request
+            .into_inner()
+            .key_packages
+            .into_iter()
+            .map(
+                |kp| match validate_key_package(kp.key_package_bytes_tls_serialized) {
+                    Ok(res) => ValidateKeyPackageValidationResponse {
+                        is_ok: true,
+                        error_message: "".to_string(),
+                        installation_id: res.installation_id,
+                        account_address: res.account_address,
+                        credential_identity_bytes: res.credential_identity_bytes,
+                        expiration: res.expiration,
+                    },
+                    Err(e) => ValidateKeyPackageValidationResponse {
+                        is_ok: false,
+                        error_message: e,
+                        installation_id: vec![],
+                        account_address: "".to_string(),
+                        credential_identity_bytes: vec![],
+                        expiration: 0,
+                    },
+                },
+            )
+            .collect();
+
+        Ok(Response::new(ValidateKeyPackagesResponse {
+            responses: out,
+        }))
+
 }
 
 #[derive(thiserror::Error, Debug)]

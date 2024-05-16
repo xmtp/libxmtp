@@ -7,7 +7,9 @@ use openmls::{
 };
 
 use openmls_rust_crypto::RustCrypto;
+use prost::DecodeError;
 use thiserror::Error;
+use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
 
 use crate::{
     configuration::MLS_PROTOCOL_VERSION,
@@ -33,6 +35,8 @@ pub enum KeyPackageVerificationError {
     InvalidLifetime,
     #[error("generic: {0}")]
     Generic(String),
+    #[error("Proto failed to decode. Wrong type form?")]
+    Decode(#[from] DecodeError),
     #[error("wrong credential type")]
     WrongCredentialType(#[from] BasicCredentialError),
 }
@@ -72,6 +76,22 @@ impl VerifiedKeyPackage {
         }
 
         Ok(Self::new(kp, account_address))
+    }
+
+    pub fn from_known_credential(
+        credential: BasicCredential,
+        proto: CredentialProto,
+    ) -> Result<Self, KeyPackageVerificationError> {
+        let pub_key_bytes = leaf_node.signature_key().as_slice().to_vec();
+        let credential = Credential::from_proto_validated(
+            proto,
+            None, // expected_account_address
+            Some(installation_public_key),
+        )?;
+
+        let account_address = credential.address();
+
+        // re-use some code from `from_key_package`
     }
 
     // Validates starting with a KeyPackageIn as bytes (which is not validated by OpenMLS)
