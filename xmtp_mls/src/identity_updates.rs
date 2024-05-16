@@ -122,7 +122,6 @@ where
             .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
             .sequence_id;
         if to_sequence_id.is_some() && to_sequence_id != Some(last_sequence_id) {
-            // Is this right?
             return Err(AssociationError::MissingIdentityUpdate.into());
         }
 
