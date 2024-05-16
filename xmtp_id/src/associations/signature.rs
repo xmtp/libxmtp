@@ -138,6 +138,12 @@ pub struct AccountId {
 }
 
 impl AccountId {
+    pub fn new(chain_id: String, account_address: String) -> Self {
+        AccountId {
+            chain_id,
+            account_address,
+        }
+    }
     pub fn is_evm_chain(&self) -> bool {
         self.chain_id.starts_with("eip155")
     }
@@ -154,6 +160,8 @@ pub struct Erc1271Signature {
     block_number: u64,
     chain_rpc_url: String,
 }
+
+unsafe impl Send for Erc1271Signature {}
 
 impl Erc1271Signature {
     pub fn new(
