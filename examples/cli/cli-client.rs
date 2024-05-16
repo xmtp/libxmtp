@@ -268,7 +268,7 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .add_members(account_addresses.clone(), &client)
+                .add_members(&client, account_addresses.clone())
                 .await
                 .expect("failed to add member");
 
@@ -290,7 +290,7 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .remove_members(account_addresses.clone(), &client)
+                .remove_members(&client, account_addresses.clone())
                 .await
                 .expect("failed to add member");
 

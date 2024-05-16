@@ -31,7 +31,7 @@ use crate::{
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
 };
 
-use super::group_mutable_metadata::MetadataField;
+use super::{group_membership::GroupMembership, group_mutable_metadata::MetadataField};
 
 #[derive(Debug, Error)]
 pub enum IntentError {
@@ -305,6 +305,19 @@ impl UpdateGroupMembershipIntentData {
     pub fn is_empty(&self) -> bool {
         self.membership_updates.is_empty() && self.removed_members.is_empty()
     }
+
+    pub fn apply_to_group_membership(&self, group_membership: &GroupMembership) -> GroupMembership {
+        let mut new_membership = group_membership.clone();
+
+        for inbox_id in self.removed_members.iter() {
+            new_membership.remove(inbox_id)
+        }
+        for (inbox_id, sequence_id) in self.membership_updates.iter() {
+            new_membership.add(inbox_id.clone(), *sequence_id);
+        }
+
+        new_membership
+    }
 }
 
 impl From<UpdateGroupMembershipIntentData> for Vec<u8> {
@@ -328,6 +341,21 @@ impl TryFrom<Vec<u8>> for UpdateGroupMembershipIntentData {
     type Error = IntentError;
 
     fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
+        if let UpdateGroupMembershipData {
+            version: Some(UpdateGroupMembershipVersion::V1(v1)),
+        } = UpdateGroupMembershipData::decode(data.as_slice())?
+        {
+            Ok(Self::new(v1.membership_updates, v1.removed_members))
+        } else {
+            Err(IntentError::Generic("missing payload".to_string()))
+        }
+    }
+}
+
+impl TryFrom<&Vec<u8>> for UpdateGroupMembershipIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: &Vec<u8>) -> Result<Self, Self::Error> {
         if let UpdateGroupMembershipData {
             version: Some(UpdateGroupMembershipVersion::V1(v1)),
         } = UpdateGroupMembershipData::decode(data.as_slice())?

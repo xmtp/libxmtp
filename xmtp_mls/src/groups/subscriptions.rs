@@ -127,7 +127,7 @@ mod tests {
         let amal_group = amal.create_group(None).unwrap();
         // Add bola
         amal_group
-            .add_members_by_installation_id(vec![bola.installation_public_key()], &amal)
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
             .unwrap();
 
@@ -163,7 +163,7 @@ mod tests {
         let amal_group = amal.create_group(None).unwrap();
         // Add bola
         amal_group
-            .add_members_by_installation_id(vec![bola.installation_public_key()], &amal)
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
             .unwrap();
 
@@ -230,7 +230,7 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         amal_group
-            .add_members_by_installation_id(vec![bola.installation_public_key()], &amal)
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;

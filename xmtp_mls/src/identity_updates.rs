@@ -513,7 +513,7 @@ mod tests {
         let other_conn = other_client.store().conn().unwrap();
         // Load all the identity updates for the new inboxes
         other_client
-            .load_identity_updates(&other_conn, inbox_ids.clone())
+            .load_identity_updates(&other_conn, &inbox_ids)
             .await
             .expect("load should succeed");
 

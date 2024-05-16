@@ -27,7 +27,7 @@ impl GroupMembership {
     }
 
     pub fn inbox_ids(&self) -> Vec<String> {
-        self.members.keys().collect()
+        self.members.keys().cloned().collect()
     }
 
     pub fn diff<'inbox_id>(
