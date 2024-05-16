@@ -453,6 +453,12 @@ impl MlsGroup {
         Ok(messages)
     }
 
+    /**
+     * Add members to the group by account address
+     *
+     * If any existing members have new installations that have not been added, the missing installations
+     * will be added as part of this process as well.
+     */
     pub async fn add_members<ApiClient>(
         &self,
         client: &Client<ApiClient>,

@@ -48,9 +48,9 @@ where
             return Ok(());
         }
 
-        let existing_sequence_ids = conn.get_latest_sequence_id(&inbox_ids)?;
+        let existing_sequence_ids = conn.get_latest_sequence_id(inbox_ids)?;
         let filters: Vec<GetIdentityUpdatesV2Filter> = inbox_ids
-            .into_iter()
+            .iter()
             .map(|inbox_id| GetIdentityUpdatesV2Filter {
                 sequence_id: existing_sequence_ids
                     .get(inbox_id)
