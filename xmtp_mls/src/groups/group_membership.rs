@@ -1,4 +1,3 @@
-use openmls::extensions::Extensions;
 use prost::{DecodeError, Message};
 use std::collections::HashMap;
 use xmtp_proto::xmtp::mls::message_contents::GroupMembership as GroupMembershipProto;
