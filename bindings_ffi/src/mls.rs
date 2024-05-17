@@ -10,19 +10,22 @@ use std::sync::{
 };
 use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_id::InboxId;
-use xmtp_mls::groups::group_metadata::ConversationType;
-use xmtp_mls::groups::group_metadata::GroupMetadata;
-use xmtp_mls::groups::group_permissions::GroupMutablePermissions;
-use xmtp_mls::groups::PreconfiguredPolicies;
-use xmtp_mls::identity::IdentityStrategy;
+use xmtp_id::{
+    associations::{builder::SignatureRequest, Erc1271Signature, RecoverableEcdsaSignature},
+    InboxId,
+};
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
-    groups::MlsGroup,
+    groups::{
+        group_metadata::{ConversationType, GroupMetadata},
+        group_permissions::GroupMutablePermissions,
+        MlsGroup, PreconfiguredPolicies,
+    },
+    identity::IdentityStrategy,
     storage::{
-        group_message::DeliveryStatus, group_message::GroupMessageKind,
-        group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
+        group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+        EncryptedMessageStore, EncryptionKey, StorageOption,
     },
 };
 
@@ -115,6 +118,61 @@ pub async fn create_client(
 }
 
 #[derive(uniffi::Object)]
+pub struct FfiSignatureRequest {
+    // Using `tokio::sync::Mutex`bc rust MutexGuard cannot be sent between threads.
+    inner: Arc<tokio::sync::Mutex<SignatureRequest>>,
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl FfiSignatureRequest {
+    // Signature that's signed by EOA wallet
+    pub async fn add_ecdsa_signature(&self, signature_bytes: Vec<u8>) -> Result<(), GenericError> {
+        let mut inner = self.inner.lock().await;
+        let signature_text = inner.signature_text();
+        inner
+            .add_signature(Box::new(RecoverableEcdsaSignature::new(
+                signature_text,
+                signature_bytes,
+            )))
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn add_erc1271_signature(
+        &self,
+        signature_bytes: Vec<u8>,
+        address: String,
+        chain_rpc_url: String,
+    ) -> Result<(), GenericError> {
+        let mut inner = self.inner.lock().await;
+        let erc1271_siganture = Erc1271Signature::new_with_rpc(
+            inner.signature_text(),
+            signature_bytes,
+            address,
+            chain_rpc_url,
+        )
+        .await?;
+        inner.add_signature(Box::new(erc1271_siganture)).await?;
+        Ok(())
+    }
+
+    pub async fn signature_text(&self) -> Result<String, GenericError> {
+        Ok(self.inner.lock().await.signature_text())
+    }
+
+    /// missing signatures that are from [MemberKind::Address]
+    pub async fn missing_address_signatures(&self) -> Result<Vec<String>, GenericError> {
+        let inner = self.inner.lock().await;
+        Ok(inner
+            .missing_address_signatures()
+            .iter()
+            .map(|member| member.to_string())
+            .collect())
+    }
+}
+
+#[derive(uniffi::Object)]
 pub struct FfiXmtpClient {
     inner_client: Arc<RustXmtpClient>,
 }
@@ -149,13 +207,25 @@ impl FfiXmtpClient {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
-    pub fn siganture_request(&self) -> Option<String> {
-        Some("signature_request".to_string())
+    pub fn signature_request(&self) -> Option<Arc<FfiSignatureRequest>> {
+        self.inner_client
+            .identity()
+            .get_signature_request()
+            .map(|request| {
+                Arc::new(FfiSignatureRequest {
+                    inner: Arc::new(tokio::sync::Mutex::new(request)),
+                })
+            })
     }
 
-    pub async fn register_identity(&self, _signature_request: String) -> Result<(), GenericError> {
-        // TODO: use proper type for signature_request and uncomment this
-        // self.inner_client.register_identity(request).await?;
+    pub async fn register_identity(
+        &self,
+        signature_request: Arc<FfiSignatureRequest>,
+    ) -> Result<(), GenericError> {
+        let signature_request = signature_request.inner.lock().await;
+        self.inner_client
+            .register_identity(signature_request.clone())
+            .await?;
 
         Ok(())
     }
@@ -792,7 +862,7 @@ mod tests {
         .await
         .unwrap();
 
-        let signature_request = client.siganture_request().unwrap();
+        let signature_request = client.signature_request().unwrap();
         client.register_identity(signature_request).await.unwrap();
         return client;
     }
@@ -802,7 +872,7 @@ mod tests {
     #[ignore]
     async fn test_client_creation() {
         let client = new_test_client().await;
-        assert!(!client.siganture_request().is_none());
+        assert!(!client.signature_request().is_none());
     }
 
     #[tokio::test]
@@ -836,12 +906,20 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(client.siganture_request().is_none());
+        assert!(client.signature_request().is_none());
         client
-            .register_identity(client.siganture_request().unwrap())
+            .register_identity(client.signature_request().unwrap())
             .await
             .unwrap();
-        assert_eq!(client.siganture_request().unwrap(), inbox_id);
+        assert_eq!(
+            client
+                .signature_request()
+                .unwrap()
+                .signature_text()
+                .await
+                .unwrap(),
+            inbox_id
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -863,7 +941,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let signature_request = client_a.siganture_request().unwrap();
+        let signature_request = client_a.signature_request().unwrap();
         client_a.register_identity(signature_request).await.unwrap();
 
         let installation_pub_key = client_a.inner_client.installation_public_key();
@@ -938,13 +1016,13 @@ mod tests {
     async fn test_create_group_with_members() {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
-        bola.register_identity(bola.siganture_request().unwrap())
+        bola.register_identity(bola.signature_request().unwrap())
             .await
             .unwrap();
 
         let group = amal
             .conversations()
-            .create_group(vec![bola.siganture_request().unwrap()], None)
+            .create_group(vec![bola.inner_client.account_address()], None)
             .await
             .unwrap();
 
@@ -971,7 +1049,7 @@ mod tests {
         .await
         .unwrap();
 
-        let signature_request = client.siganture_request().unwrap();
+        let signature_request = client.signature_request().unwrap();
         assert!(client.register_identity(signature_request).await.is_err());
     }
 
@@ -1019,7 +1097,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let signature_request = client_bola.siganture_request().unwrap();
+        let signature_request = client_bola.signature_request().unwrap();
         client_bola
             .register_identity(signature_request)
             .await
@@ -1056,7 +1134,7 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         amal.conversations()
-            .create_group(vec![bola.siganture_request().unwrap()], None)
+            .create_group(vec![bola.inner_client.account_address()], None)
             .await
             .unwrap();
 
@@ -1065,7 +1143,7 @@ mod tests {
         assert_eq!(stream_callback.message_count(), 1);
         // Create another group and add bola
         amal.conversations()
-            .create_group(vec![bola.siganture_request().unwrap()], None)
+            .create_group(vec![bola.inner_client.account_address()], None)
             .await
             .unwrap();
 
@@ -1086,7 +1164,7 @@ mod tests {
 
         let alix_group = alix
             .conversations()
-            .create_group(vec![caro.siganture_request().unwrap()], None)
+            .create_group(vec![caro.inner_client.account_address()], None)
             .await
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -1104,7 +1182,7 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let bo_group = bo
             .conversations()
-            .create_group(vec![caro.siganture_request().unwrap()], None)
+            .create_group(vec![caro.inner_client.account_address()], None)
             .await
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
@@ -1129,7 +1207,7 @@ mod tests {
 
         let group = amal
             .conversations()
-            .create_group(vec![bola.siganture_request().unwrap()], None)
+            .create_group(vec![bola.inner_client.account_address()], None)
             .await
             .unwrap();
 
@@ -1159,13 +1237,13 @@ mod tests {
         let bola = new_test_client().await;
         log::info!(
             "Created Inbox IDs {} and {}",
-            amal.siganture_request().unwrap(),
-            bola.siganture_request().unwrap()
+            amal.inner_client.inbox_id(),
+            bola.inner_client.inbox_id()
         );
 
         let amal_group = amal
             .conversations()
-            .create_group(vec![bola.siganture_request().unwrap()], None)
+            .create_group(vec![bola.inner_client.account_address()], None)
             .await
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -1187,7 +1265,7 @@ mod tests {
         assert!(!stream_closer.is_closed());
 
         amal_group
-            .remove_members(vec![bola.siganture_request().unwrap()])
+            .remove_members(vec![bola.inner_client.account_address()])
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
@@ -1200,7 +1278,7 @@ mod tests {
 
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         amal_group
-            .add_members(vec![bola.siganture_request().unwrap()])
+            .add_members(vec![bola.inner_client.account_address()])
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -1225,7 +1303,7 @@ mod tests {
 
         // Amal creates a group and adds Bola to the group
         amal.conversations()
-            .create_group(vec![bola.siganture_request().unwrap()], None)
+            .create_group(vec![bola.inner_client.account_address()], None)
             .await
             .unwrap();
 
@@ -1252,7 +1330,7 @@ mod tests {
 
         // // Verify the welcome host_credential is equal to Amal's
         assert_eq!(
-            amal.siganture_request().unwrap(),
+            amal.inner_client.account_address(),
             added_by_address,
             "The Inviter and added_by_address do not match!"
         );
