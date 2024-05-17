@@ -28,7 +28,7 @@ impl TryFrom<StoredAssociationState> for AssociationState {
     type Error = DeserializationError;
 
     fn try_from(stored_state: StoredAssociationState) -> Result<Self, Self::Error> {
-        Ok(AssociationStateProto::decode(stored_state.state.as_slice())?.try_into()?)
+        AssociationStateProto::decode(stored_state.state.as_slice())?.try_into()
     }
 }
 
@@ -88,11 +88,11 @@ impl StoredAssociationState {
         let association_states =
             conn.raw_query(|query_conn| query.load::<StoredAssociationState>(query_conn))?;
 
-        Ok(association_states
+        association_states
             .into_iter()
             .map(|stored_association_state| stored_association_state.try_into())
             .collect::<Result<Vec<AssociationState>, DeserializationError>>()
-            .map_err(|err| StorageError::Deserialization(err.to_string()))?)
+            .map_err(|err| StorageError::Deserialization(err.to_string()))
     }
 }
 
