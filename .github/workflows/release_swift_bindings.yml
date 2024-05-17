@@ -2,6 +2,9 @@ name: Release Swift Bindings
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - cv/permissions-add-remove-admin
 
 jobs:
   build-macos:
