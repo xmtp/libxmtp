@@ -1,6 +1,6 @@
 pub mod associations;
 pub mod constants;
-pub mod erc1271_verifier;
+pub mod scw_verifiers;
 pub mod utils;
 use ethers::{
     middleware::Middleware,
