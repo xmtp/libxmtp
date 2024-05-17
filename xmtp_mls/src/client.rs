@@ -286,8 +286,6 @@ where
         .map_err(|e| {
             ClientError::Storage(StorageError::Store(format!("group create error {}", e)))
         })?;
-        log::debug!("  created group with id {:?}", &group.group_id);
-        log::debug!("  storage {:?}", self.store().conn().unwrap());
 
         Ok(group)
     }
@@ -424,7 +422,6 @@ where
         group_id: &Vec<u8>,
         conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError> {
-        log::debug!("query_group_messages");
         let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
 
         let welcomes = self

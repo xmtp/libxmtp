@@ -238,7 +238,6 @@ impl MlsGroup {
             mutable_permissions,
         )?;
 
-        log::debug!("    created group config");
         let mls_group = OpenMlsGroup::new(
             &provider,
             &context.identity.installation_keys,
@@ -248,7 +247,6 @@ impl MlsGroup {
                 signature_key: context.identity.installation_keys.to_public_vec().into(),
             },
         )?;
-        log::debug!("    created group");
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::new(
@@ -312,7 +310,6 @@ impl MlsGroup {
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: Vec<u8>,
     ) -> Result<Self, GroupError> {
-        log::debug!("create_from_encrypted_welcome");
         let welcome_bytes = decrypt_welcome(provider, hpke_public_key, &encrypted_welcome_bytes)?;
 
         let welcome = deserialize_welcome(&welcome_bytes)?;

@@ -1,5 +1,6 @@
 use crate::{
     configuration::{CIPHERSUITE, WELCOME_HPKE_LABEL},
+    storage::sql_key_store::KEY_PACKAGE_REFERENCES,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
 use openmls::{
@@ -46,20 +47,29 @@ pub fn decrypt_welcome(
     hpke_public_key: &[u8],
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, HpkeError> {
-    log::debug!("decrypt_welcome");
     let ciphertext = HpkeCiphertext::tls_deserialize_exact(ciphertext)?;
 
-    let hash_ref: Option<KeyPackageRef> = provider
+    let hpke_public_key_serialized = match hpke_public_key.tls_serialize_detached() {
+        Ok(serialized) => serialized,
+        Err(_) => return Err(HpkeError::KeyNotFound),
+    };
+
+    let hash_ref: Option<KeyPackageRef> = match provider
         .storage()
-        .read(
-            b"KeyPackageReferences",
-            &hpke_public_key.tls_serialize_detached().unwrap(),
-        )
-        .unwrap();
+        .read(KEY_PACKAGE_REFERENCES, &hpke_public_key_serialized)
+    {
+        Ok(hash_ref) => hash_ref,
+        Err(_) => return Err(HpkeError::KeyNotFound),
+    };
+
     if let Some(hash_ref) = hash_ref {
         // With the hash reference we can read the key package.
-        let key_package: Option<KeyPackageBundle> =
-            provider.storage().key_package(&hash_ref).unwrap();
+        let key_package: Option<KeyPackageBundle> = match provider.storage().key_package(&hash_ref)
+        {
+            Ok(key_package) => key_package,
+            Err(_) => return Err(HpkeError::KeyNotFound),
+        };
+
         if let Some(kp) = key_package {
             return Ok(decrypt_with_label(
                 kp.init_private_key(),
@@ -72,6 +82,5 @@ pub fn decrypt_welcome(
         }
     }
 
-    log::error!("decrypt_welcome failed");
     Err(HpkeError::KeyNotFound)
 }

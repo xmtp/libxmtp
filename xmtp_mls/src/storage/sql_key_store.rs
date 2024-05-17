@@ -287,6 +287,7 @@ const KEY_PACKAGE_LABEL: &[u8] = b"KeyPackage";
 const ENCRYPTION_KEY_PAIR_LABEL: &[u8] = b"EncryptionKeyPair";
 const SIGNATURE_KEY_PAIR_LABEL: &[u8] = b"SignatureKeyPair";
 const EPOCH_KEY_PAIRS_LABEL: &[u8] = b"EpochKeyPairs";
+pub const KEY_PACKAGE_REFERENCES: &[u8] = b"KeyPackageReferences";
 
 // related to PublicGroup
 const TREE_LABEL: &[u8] = b"Tree";

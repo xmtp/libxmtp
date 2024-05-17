@@ -593,14 +593,12 @@ impl MlsGroup {
     {
         let provider = self.context.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
-        log::debug!("  loaded mls group");
 
         let intents = provider.conn().find_group_intents(
             self.group_id.clone(),
             Some(vec![IntentState::ToPublish]),
             None,
         )?;
-        let _num_intents = intents.len();
 
         for intent in intents {
             let result = retry_async!(
