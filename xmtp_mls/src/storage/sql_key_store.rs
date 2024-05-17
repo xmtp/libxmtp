@@ -90,14 +90,9 @@ impl SqlKeyStore {
                             if let Value::Array(ref mut arr) = deserialized {
                                 arr.push(Value::from(value));
                             }
-                            // eprintln!(
-                            //     "  got the value: {}",
-                            //     serde_json::to_string(&deserialized).unwrap()
-                            // );
-                            // arr.push(value);
+
                             let modified_data = serde_json::to_vec(&deserialized)
                                 .map_err(|_| MemoryStorageError::SerializationError)?;
-                            // eprintln!("  modified_data: {modified_data}");
 
                             let _ = self.conn().raw_query(|conn| {
                                 sql_query(update_query)
@@ -257,13 +252,7 @@ impl SqlKeyStore {
         }) {
             Ok(results) => {
                 if let Some(entry) = results.into_iter().next() {
-                    // eprintln!(
-                    //     "  got raw value: {:?}",
-                    //     String::from_utf8(entry.value_bytes.clone()).unwrap()
-                    // );
-                    // The value has to be an array.
-                    // This is always an array of bytes right now.
-                    let list = from_slice::<Vec<Vec<u8>>>(&entry.value_bytes).unwrap();
+                    let list = from_slice::<Vec<Vec<u8>>>(&entry.value_bytes)?;
 
                     // Read the values from the bytes in the list
                     return Ok(list
@@ -369,7 +358,8 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         tree: &TreeSync,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(TREE_LABEL, group_id);
-        self.write::<CURRENT_VERSION>(TREE_LABEL, &key, &serde_json::to_vec(&tree).unwrap())
+        let value = serde_json::to_vec(&tree)?;
+        self.write::<CURRENT_VERSION>(TREE_LABEL, &key, &value)
     }
 
     fn write_interim_transcript_hash<
@@ -381,8 +371,8 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         interim_transcript_hash: &InterimTranscriptHash,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(INTERIM_TRANSCRIPT_HASH_LABEL, group_id);
-        let value = serde_json::to_vec(&interim_transcript_hash).unwrap();
-        let _ = self.write::<CURRENT_VERSION>(INTERIM_TRANSCRIPT_HASH_LABEL, &key[..], &value[..]);
+        let value = serde_json::to_vec(&interim_transcript_hash)?;
+        let _ = self.write::<CURRENT_VERSION>(INTERIM_TRANSCRIPT_HASH_LABEL, &key, &value);
 
         Ok(())
     }
@@ -396,8 +386,8 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_context: &GroupContext,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(GROUP_CONTEXT_LABEL, group_id);
-        let value = serde_json::to_vec(&group_context).unwrap();
-        let _ = self.write::<CURRENT_VERSION>(GROUP_CONTEXT_LABEL, &key[..], &value[..]);
+        let value = serde_json::to_vec(&group_context)?;
+        let _ = self.write::<CURRENT_VERSION>(GROUP_CONTEXT_LABEL, &key, &value);
 
         Ok(())
     }
@@ -411,8 +401,8 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         confirmation_tag: &ConfirmationTag,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(CONFIRMATION_TAG_LABEL, group_id);
-        let value = serde_json::to_vec(&confirmation_tag).unwrap();
-        let _ = self.write::<CURRENT_VERSION>(CONFIRMATION_TAG_LABEL, &key[..], &value[..]);
+        let value = serde_json::to_vec(&confirmation_tag)?;
+        let _ = self.write::<CURRENT_VERSION>(CONFIRMATION_TAG_LABEL, &key, &value);
 
         Ok(())
     }
@@ -427,8 +417,8 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
     ) -> Result<(), Self::Error> {
         let key =
             build_key::<CURRENT_VERSION, &SignaturePublicKey>(SIGNATURE_KEY_PAIR_LABEL, public_key);
-        let value = serde_json::to_vec(&signature_key_pair).unwrap();
-        let _ = self.write::<CURRENT_VERSION>(SIGNATURE_KEY_PAIR_LABEL, &key[..], &value[..]);
+        let value = serde_json::to_vec(&signature_key_pair)?;
+        let _ = self.write::<CURRENT_VERSION>(SIGNATURE_KEY_PAIR_LABEL, &key, &value);
 
         Ok(())
     }
@@ -535,7 +525,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         key_package: &KeyPackage,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &HashReference>(KEY_PACKAGE_LABEL, hash_ref);
-        let value = serde_json::to_vec(&key_package).unwrap();
+        let value = serde_json::to_vec(&key_package)?;
 
         // Store the key package
         self.write::<CURRENT_VERSION>(KEY_PACKAGE_LABEL, &key, &value)?;
@@ -947,7 +937,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         config: &MlsGroupJoinConfig,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(JOIN_CONFIG_LABEL, group_id);
-        let value = serde_json::to_vec(config).unwrap();
+        let value = serde_json::to_vec(config)?;
 
         self.write::<CURRENT_VERSION>(JOIN_CONFIG_LABEL, &key, &value)
     }
@@ -1000,7 +990,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         aad: &[u8],
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(AAD_LABEL, group_id);
-        let value = serde_json::to_vec(&aad).unwrap();
+        let value = serde_json::to_vec(&aad)?;
 
         self.write::<CURRENT_VERSION>(AAD_LABEL, &key, &value)
     }
@@ -1180,9 +1170,6 @@ mod tests {
         let group_id = GroupId::random(provider.rand());
 
         assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
-        // let json_str = r#"{"data": "aad"}"#;
-        // let json_obj: serde_json::Value = serde_json::from_str(json_str).unwrap();
-        // let stringified_json = serde_json::to_string(&json_obj).unwrap();
 
         key_store
             .write_aad::<GroupId>(&group_id, &"test".as_bytes())
