@@ -243,12 +243,16 @@ impl Identity {
         // This is needed to get to the private key when decrypting welcome messages.
         let public_init_key = kp.key_package().hpke_init_key().tls_serialize_detached()?;
 
+        let key_package_hash_ref = match kp.key_package().hash_ref(provider.crypto()) {
+            Ok(key_package_hash_ref) => key_package_hash_ref,
+            Err(_) => return Err(IdentityError::UninitializedIdentity),
+        };
+
         // Serialize the hash reference
-        let hash_ref =
-            match serde_json::to_vec(&kp.key_package().hash_ref(provider.crypto()).unwrap()) {
-                Ok(hash_ref) => hash_ref,
-                Err(_) => return Err(IdentityError::UninitializedIdentity),
-            };
+        let hash_ref = match serde_json::to_vec(&key_package_hash_ref) {
+            Ok(hash_ref) => hash_ref,
+            Err(_) => return Err(IdentityError::UninitializedIdentity),
+        };
 
         // Store the hash reference, keyed with the public init key
         provider
