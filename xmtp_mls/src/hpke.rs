@@ -49,10 +49,12 @@ pub fn decrypt_welcome(
 ) -> Result<Vec<u8>, HpkeError> {
     let ciphertext = HpkeCiphertext::tls_deserialize_exact(ciphertext)?;
 
-    let hash_ref: Option<KeyPackageRef> = match provider.storage().read(
-        KEY_PACKAGE_REFERENCES,
-        &hpke_public_key.tls_serialize_detached().unwrap(),
-    ) {
+    let serialized_hpke_public_key = hpke_public_key.tls_serialize_detached()?;
+
+    let hash_ref: Option<KeyPackageRef> = match provider
+        .storage()
+        .read(KEY_PACKAGE_REFERENCES, &serialized_hpke_public_key)
+    {
         Ok(hash_ref) => hash_ref,
         Err(_) => return Err(HpkeError::KeyNotFound),
     };
