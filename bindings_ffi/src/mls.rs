@@ -178,15 +178,33 @@ pub struct FfiConversations {
 
 #[derive(uniffi::Enum)]
 pub enum GroupPermissions {
-    EveryoneIsAdmin,
-    GroupCreatorIsAdmin,
+    AllMembers,
+    AdminsOnly,
+}
+
+#[derive(uniffi::Enum)]
+pub enum GroupAction {
+    AddMember,
+    RemoveMember,
+    AddAdmin,
+    RemoveAdmin,
+    AddSuperAdmin,
+    RemoveSuperAdmin,
+    UpdateGroupName,
+}
+
+#[derive(uniffi::Enum)]
+pub enum GroupActionPermission {
+    AllMembers,
+    AdminsOrSuperAdminsOnly,
+    SuperAdminsOnly,
 }
 
 impl From<PreconfiguredPolicies> for GroupPermissions {
     fn from(policy: PreconfiguredPolicies) -> Self {
         match policy {
-            PreconfiguredPolicies::AllMembers => GroupPermissions::EveryoneIsAdmin,
-            PreconfiguredPolicies::AdminsOnly => GroupPermissions::GroupCreatorIsAdmin,
+            PreconfiguredPolicies::AllMembers => GroupPermissions::AllMembers,
+            PreconfiguredPolicies::AdminsOnly => GroupPermissions::AdminsOnly,
         }
     }
 }
@@ -204,10 +222,10 @@ impl FfiConversations {
         );
 
         let group_permissions = match permissions {
-            Some(GroupPermissions::EveryoneIsAdmin) => {
+            Some(GroupPermissions::AllMembers) => {
                 Some(xmtp_mls::groups::PreconfiguredPolicies::AllMembers)
             }
-            Some(GroupPermissions::GroupCreatorIsAdmin) => {
+            Some(GroupPermissions::AdminsOnly) => {
                 Some(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly)
             }
             _ => None,
@@ -502,6 +520,47 @@ impl FfiGroup {
         let super_admin_list = group.super_admin_list()?;
 
         Ok(super_admin_list)
+    }
+
+    pub fn is_admin(&self, account_address: &String) -> Result<bool, GenericError> {
+        let admin_list = self.admin_list()?;
+        Ok(admin_list.contains(account_address))
+    }
+
+    pub fn is_super_admin(&self, account_address: &String) -> Result<bool, GenericError> {
+        let super_admin_list = self.super_admin_list()?;
+        Ok(super_admin_list.contains(account_address))
+    }
+
+    // TODO - CVOELL fix this
+    // pub fn check_permissions(&self, action: GroupAction) -> Result<bool, GenericError> {
+    //     let group = MlsGroup::new(
+    //         self.inner_client.context().clone(),
+    //         self.group_id.clone(),
+    //         self.created_at_ns,
+    //     );
+    // }
+
+    pub async fn add_admin(&self, address: String) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+        group.add_admin(address, &self.inner_client).await?;
+
+        Ok(())
+    }
+
+    pub async fn remove_admin(&self, address: String) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+        group.remove_admin(address, &self.inner_client).await?;
+
+        Ok(())
     }
 
     pub async fn stream(

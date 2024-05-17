@@ -591,6 +591,28 @@ impl MlsGroup {
             .await
     }
 
+    pub async fn remove_admin<ApiClient>(
+        &self,
+        admin_address: String,
+        client: &Client<ApiClient>,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let conn = self.context.store.conn()?;
+        let intent_data: Vec<u8> =
+            UpdateAdminListIntentData::new(intents::AdminListActionType::RemoveAdmin, admin_address)
+                .into();
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::AdminListUpdate,
+            self.group_id.clone(),
+            intent_data,
+        ))?;
+
+        self.sync_until_intent_resolved(conn, intent.id, client)
+            .await
+    }
+
     // Find the wallet address of the group member who added the member to the group
     pub fn added_by_address(&self) -> Result<String, GroupError> {
         let conn = self.context.store.conn()?;
@@ -1449,6 +1471,7 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let dude = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and verify admin list and super admin list both contain creator
         let policies = Some(PreconfiguredPolicies::AdminsOnly);
@@ -1524,6 +1547,27 @@ mod tests {
             .expect("admin should be able to add members");
         bola_group.sync(&bola).await.unwrap();
         amal_group.sync(&amal).await.unwrap();
+        assert!(amal_group.members().unwrap().len() == 3);
+        assert!(bola_group.members().unwrap().len() == 3);
+
+        // Remove bola as an admin
+        amal_group
+            .remove_admin(bola.account_address(), &amal)
+            .await
+            .expect("error removing admin");
+        bola_group.sync(&bola).await.unwrap();
+        let bola_mutable_metadata = bola_group.mutable_metadata().unwrap();
+        assert!(!bola_mutable_metadata
+            .admin_list
+            .contains(&bola.account_address()));
+
+        // Verify that bola can not add a member because group is admin only
+        bola_group
+            .add_members(vec![dude.account_address()], &bola)
+            .await
+            .expect_err("expected err");
+        bola_group.sync(&bola).await.unwrap();
+        amal_group.sync(&bola).await.unwrap();
         assert!(amal_group.members().unwrap().len() == 3);
         assert!(bola_group.members().unwrap().len() == 3);
     }
