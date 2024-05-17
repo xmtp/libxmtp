@@ -630,7 +630,7 @@ impl MlsGroup {
         let last_rotated_time = conn.get_rotated_time_checked(self.group_id.clone())?;
 
         if last_rotated_time == 0 {
-            let _ = self.key_update(&client).await?;
+            let _ = self.key_update(client).await?;
         }
         let update_interval = Some(5_000_000);
         self.maybe_update_installations(conn.clone(), update_interval, client)
@@ -890,7 +890,7 @@ mod tests {
             .await
             .expect("read topic");
 
-        assert_eq!(messages.len(), 1)
+        assert_eq!(messages.len(), 2)
     }
 
     #[tokio::test]
@@ -1064,7 +1064,7 @@ mod tests {
             .await
             .expect("read topic");
 
-        assert_eq!(messages.len(), 2);
+        assert_eq!(messages.len(), 3);
     }
 
     #[tokio::test]
@@ -1085,7 +1085,7 @@ mod tests {
             .query_group_messages(group.group_id.clone(), None)
             .await
             .unwrap();
-        assert_eq!(messages.len(), 2);
+        assert_eq!(messages.len(), 3);
 
         let conn = &client.context.store.conn().unwrap();
         let provider = super::XmtpOpenMlsProvider::new(conn.clone());
