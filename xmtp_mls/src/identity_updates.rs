@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::storage::association_state::StoredAssociationState;
 use prost::Message;
@@ -11,7 +11,7 @@ use xmtp_id::associations::{
 };
 
 use crate::{
-    api::GetIdentityUpdatesV2Filter,
+    api::{ApiClientWrapper, GetIdentityUpdatesV2Filter, InboxUpdate},
     client::ClientError,
     groups::group_membership::{GroupMembership, MembershipDiff},
     storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
@@ -39,45 +39,6 @@ impl<'a, ApiClient> Client<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    /// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id``
-    pub async fn load_identity_updates(
-        &self,
-        conn: &DbConnection,
-        inbox_ids: &[String],
-    ) -> Result<(), ClientError> {
-        if inbox_ids.is_empty() {
-            return Ok(());
-        }
-
-        let existing_sequence_ids = conn.get_latest_sequence_id(inbox_ids)?;
-        let filters: Vec<GetIdentityUpdatesV2Filter> = inbox_ids
-            .iter()
-            .map(|inbox_id| GetIdentityUpdatesV2Filter {
-                sequence_id: existing_sequence_ids
-                    .get(inbox_id)
-                    .cloned()
-                    .map(|i| i as u64),
-                inbox_id: inbox_id.to_string(),
-            })
-            .collect();
-
-        let updates = self.api_client.get_identity_updates_v2(filters).await?;
-
-        let to_store = updates
-            .into_iter()
-            .flat_map(|(inbox_id, updates)| {
-                updates.into_iter().map(move |update| StoredIdentityUpdate {
-                    inbox_id: inbox_id.clone(),
-                    sequence_id: update.sequence_id as i64,
-                    server_timestamp_ns: update.server_timestamp_ns as i64,
-                    payload: update.update.to_proto().encode_to_vec(),
-                })
-            })
-            .collect::<Vec<StoredIdentityUpdate>>();
-
-        Ok(conn.insert_or_ignore_identity_updates(&to_store)?)
-    }
-
     /// Take a list of inbox_id/sequence_id tuples and determine which `inbox_id`s have missing entries
     /// in the local DB
     fn filter_inbox_ids_needing_updates<InboxId: AsRef<str> + ToString>(
@@ -284,8 +245,12 @@ where
             })
             .collect::<Vec<(&String, i64)>>();
 
-        self.load_identity_updates(conn, &self.filter_inbox_ids_needing_updates(conn, filters)?)
-            .await?;
+        load_identity_updates(
+            &self.api_client,
+            conn,
+            self.filter_inbox_ids_needing_updates(conn, filters)?,
+        )
+        .await?;
 
         let mut added_installations: HashSet<Vec<u8>> = HashSet::new();
         let mut removed_installations: HashSet<Vec<u8>> = HashSet::new();
@@ -326,6 +291,47 @@ where
     }
 }
 
+/// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id`, write them in the db, and return the updates
+pub async fn load_identity_updates<ApiClient: XmtpApi>(
+    api_client: &ApiClientWrapper<ApiClient>,
+    conn: &DbConnection,
+    inbox_ids: Vec<String>,
+) -> Result<HashMap<String, Vec<InboxUpdate>>, ClientError> {
+    if inbox_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let existing_sequence_ids = conn.get_latest_sequence_id(&inbox_ids)?;
+    let filters: Vec<GetIdentityUpdatesV2Filter> = inbox_ids
+        .into_iter()
+        .map(|inbox_id| GetIdentityUpdatesV2Filter {
+            sequence_id: existing_sequence_ids
+                .get(&inbox_id)
+                .cloned()
+                .map(|i| i as u64),
+            inbox_id,
+        })
+        .collect();
+
+    let updates = api_client.get_identity_updates_v2(filters).await?;
+
+    let to_store = updates
+        .clone()
+        .into_iter()
+        .flat_map(|(inbox_id, updates)| {
+            updates.into_iter().map(move |update| StoredIdentityUpdate {
+                inbox_id: inbox_id.clone(),
+                sequence_id: update.sequence_id as i64,
+                server_timestamp_ns: update.server_timestamp_ns as i64,
+                payload: update.update.to_proto().encode_to_vec(),
+            })
+        })
+        .collect::<Vec<StoredIdentityUpdate>>();
+
+    conn.insert_or_ignore_identity_updates(&to_store)?;
+    Ok(updates)
+}
+
 #[cfg(test)]
 mod tests {
     use ethers::signers::LocalWallet;
@@ -344,6 +350,8 @@ mod tests {
         utils::test::rand_vec,
         Client, XmtpApi,
     };
+
+    use super::load_identity_updates;
 
     async fn sign_with_wallet(wallet: &LocalWallet, signature_request: &mut SignatureRequest) {
         let wallet_signature: Vec<u8> = wallet
@@ -368,8 +376,7 @@ mod tests {
         ApiClient: XmtpApi,
     {
         let conn = client.store().conn().unwrap();
-        client
-            .load_identity_updates(&conn, &[inbox_id.clone()])
+        load_identity_updates(&client.api_client, &conn, vec![inbox_id.clone()])
             .await
             .unwrap();
 
@@ -594,8 +601,7 @@ mod tests {
         let other_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let other_conn = other_client.store().conn().unwrap();
         // Load all the identity updates for the new inboxes
-        other_client
-            .load_identity_updates(&other_conn, &inbox_ids)
+        load_identity_updates(&other_client.api_client, &other_conn, inbox_ids.clone())
             .await
             .expect("load should succeed");
 

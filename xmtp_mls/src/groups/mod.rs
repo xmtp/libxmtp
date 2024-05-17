@@ -228,7 +228,7 @@ impl MlsGroup {
         let mutable_metadata = build_mutable_metadata_extension_default(&context.identity)?;
         let group_membership = build_starting_group_membership_extension(
             context.inbox_id(),
-            context.inbox_latest_sequence_id(),
+            context.inbox_sequence_id(),
         );
         let mutable_permissions =
             build_mutable_permissions_extension(permissions.unwrap_or_default().to_policy_set())?;
@@ -341,7 +341,7 @@ impl MlsGroup {
         let mutable_metadata = build_mutable_metadata_extension_default(&context.identity)?;
         let group_membership = build_starting_group_membership_extension(
             context.inbox_id(),
-            context.inbox_latest_sequence_id(),
+            context.inbox_sequence_id(),
         );
         let mutable_permissions =
             build_mutable_permissions_extension(PreconfiguredPolicies::default().to_policy_set())?;
@@ -653,7 +653,7 @@ fn build_protected_metadata_extension(
     };
     let metadata = GroupMetadata::new(
         group_type,
-        identity.get_inbox_id().clone(),
+        identity.inbox_id().clone(),
         // TODO: Remove me
         "inbox_id".to_string(),
     );

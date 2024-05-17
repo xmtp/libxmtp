@@ -7,6 +7,7 @@ use crate::{
     api::ApiClientWrapper,
     client::Client,
     identity::{Identity, IdentityStrategy},
+    identity_updates::load_identity_updates,
     retry::Retry,
     storage::EncryptedMessageStore,
     StorageError, XmtpApi,
@@ -19,6 +20,8 @@ pub enum ClientBuilderError {
 
     #[error("Missing parameter: {parameter}")]
     MissingParameter { parameter: &'static str },
+    #[error(transparent)]
+    ClientError(#[from] crate::client::ClientError),
 
     // #[error("Failed to serialize/deserialize state for persistence: {source}")]
     // SerializationError { source: serde_json::Error },
@@ -89,13 +92,25 @@ where
             .take()
             .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
         debug!("Initializing identity");
-        let identity = self
+        let mut identity = self
             .identity_strategy
             .initialize_identity(&api_client_wrapper, &store)
             .await?;
-        let new_client = Client::new(api_client_wrapper, identity, store);
 
-        Ok(new_client)
+        // get sequence_id from identity updates
+        let updates = load_identity_updates(
+            &api_client_wrapper,
+            &store.conn()?,
+            vec![identity.clone().inbox_id],
+        )
+        .await?;
+
+        let sequence_id = updates
+            .get(&identity.inbox_id)
+            .and_then(|updates| updates.last())
+            .map_or(0, |update| update.sequence_id);
+        identity.set_sequence_id(sequence_id);
+        Ok(Client::new(api_client_wrapper, identity, store))
     }
 }
 
