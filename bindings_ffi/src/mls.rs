@@ -482,7 +482,7 @@ impl FfiGroup {
 
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -494,7 +494,7 @@ impl FfiGroup {
 
     pub fn super_admin_list(&self) -> Result<Vec<String>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.as_ref(),
+            self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
