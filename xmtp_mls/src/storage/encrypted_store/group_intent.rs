@@ -103,7 +103,6 @@ impl DbConnection {
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> Result<Vec<StoredGroupIntent>, StorageError> {
-        log::debug!("find_group_intents");
         let mut query = dsl::group_intents
             .into_boxed()
             .filter(dsl::group_id.eq(group_id));

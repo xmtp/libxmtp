@@ -30,7 +30,11 @@ use crate::{
         MUTABLE_METADATA_EXTENSION_ID,
     },
     credential::{AssociationError, Credential, UnsignedGrantMessagingAccessData},
-    storage::{identity::StoredIdentity, sql_key_store::MemoryStorageError, StorageError},
+    storage::{
+        identity::StoredIdentity,
+        sql_key_store::{MemoryStorageError, KEY_PACKAGE_REFERENCES},
+        StorageError,
+    },
     types::Address,
     utils::time::now_ns,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -237,18 +241,23 @@ impl Identity {
 
         // Store the hash reference, keyed with the public init key.
         // This is needed to get to the private key when decrypting welcome messages.
+        let public_init_key = kp.key_package().hpke_init_key().tls_serialize_detached()?;
+
+        // Serialize the hash reference
+        let hash_ref =
+            match serde_json::to_vec(&kp.key_package().hash_ref(provider.crypto()).unwrap()) {
+                Ok(hash_ref) => hash_ref,
+                Err(_) => return Err(IdentityError::UninitializedIdentity),
+            };
+
+        // Store the hash reference, keyed with the public init key
         provider
             .storage()
             .write::<{ openmls_traits::storage::CURRENT_VERSION }>(
-                b"KeyPackageReferences",
-                &kp.key_package()
-                    .hpke_init_key()
-                    .tls_serialize_detached()
-                    .unwrap(),
-                &serde_json::to_vec(&kp.key_package().hash_ref(provider.crypto()).unwrap())
-                    .unwrap(),
-            )
-            .unwrap();
+                KEY_PACKAGE_REFERENCES,
+                &public_init_key,
+                &hash_ref,
+            )?;
 
         Ok(kp.key_package().clone())
     }
