@@ -1,16 +1,15 @@
-use std::collections::HashMap;
+use xmtp_id::InboxId;
 
-use openmls::{credentials::BasicCredential, group::MlsGroup as OpenMlsGroup};
+use super::{validated_commit::extract_group_membership, GroupError, MlsGroup};
 
-use openmls_traits::OpenMlsProvider;
-
-use super::{GroupError, MlsGroup};
-
-use crate::identity::Identity;
+use crate::{
+    storage::association_state::StoredAssociationState, xmtp_openmls_provider::XmtpOpenMlsProvider,
+};
 
 #[derive(Debug, Clone)]
 pub struct GroupMember {
-    pub account_address: String,
+    pub inbox_id: InboxId,
+    pub account_addresses: Vec<String>,
     pub installation_ids: Vec<Vec<u8>>,
 }
 
@@ -24,39 +23,32 @@ impl MlsGroup {
 
     pub fn members_with_provider(
         &self,
-        provider: impl OpenMlsProvider,
+        provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<GroupMember>, GroupError> {
         let openmls_group = self.load_mls_group(provider)?;
-        aggregate_member_list(&openmls_group)
+        // TODO: Replace with try_into from extensions
+        let group_membership = extract_group_membership(openmls_group.extensions())?;
+        let requests = group_membership
+            .members
+            .into_iter()
+            .map(|(inbox_id, sequence_id)| (inbox_id, sequence_id as i64))
+            .collect();
+
+        let conn = provider.conn_ref();
+        let association_state_map = StoredAssociationState::batch_read_from_cache(conn, &requests)?;
+        // TODO: Figure out what to do with missing members from the local DB. Do we go to the network? Load from identity updates?
+        // Right now I am just omitting them
+        let members = association_state_map
+            .into_iter()
+            .map(|association_state| GroupMember {
+                inbox_id: association_state.inbox_id().to_string(),
+                account_addresses: association_state.account_addresses(),
+                installation_ids: association_state.installation_ids(),
+            })
+            .collect::<Vec<GroupMember>>();
+
+        Ok(members)
     }
-}
-
-pub fn aggregate_member_list(openmls_group: &OpenMlsGroup) -> Result<Vec<GroupMember>, GroupError> {
-    let member_map: HashMap<String, GroupMember> = openmls_group
-        .members()
-        .filter_map(|member| {
-            let basic_credential = BasicCredential::try_from(&member.credential).ok()?;
-            Identity::get_validated_account_address(
-                basic_credential.identity(),
-                &member.signature_key,
-            )
-            .ok()
-            .map(|account_address| (account_address, member.signature_key.clone()))
-        })
-        .fold(
-            HashMap::new(),
-            |mut acc, (account_address, signature_key)| {
-                acc.entry(account_address.clone())
-                    .and_modify(|e| e.installation_ids.push(signature_key.clone()))
-                    .or_insert(GroupMember {
-                        account_address,
-                        installation_ids: vec![signature_key],
-                    });
-                acc
-            },
-        );
-
-    Ok(member_map.into_values().collect())
 }
 
 #[cfg(test)]

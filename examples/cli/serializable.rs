@@ -27,7 +27,7 @@ impl<'a> From<&'a MlsGroup> for SerializableGroup {
             .members()
             .expect("could not load members")
             .into_iter()
-            .map(|m| m.account_address)
+            .map(|m| m.inbox_id)
             .collect::<Vec<String>>();
 
         let metadata = group.metadata().expect("could not load metadata");

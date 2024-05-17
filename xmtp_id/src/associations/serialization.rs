@@ -386,6 +386,7 @@ impl From<AssociationState> for AssociationStateProto {
 
 impl TryFrom<AssociationStateProto> for AssociationState {
     type Error = DeserializationError;
+
     fn try_from(proto: AssociationStateProto) -> Result<Self, Self::Error> {
         let members = proto
             .members

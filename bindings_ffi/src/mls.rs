@@ -389,7 +389,8 @@ pub struct FfiGroup {
 
 #[derive(uniffi::Record)]
 pub struct FfiGroupMember {
-    pub account_address: String,
+    pub inbox_id: String,
+    pub account_addresses: Vec<String>,
     pub installation_ids: Vec<Vec<u8>>,
 }
 
@@ -483,7 +484,8 @@ impl FfiGroup {
             .members()?
             .into_iter()
             .map(|member| FfiGroupMember {
-                account_address: member.account_address,
+                inbox_id: member.inbox_id,
+                account_addresses: member.account_addresses,
                 installation_ids: member.installation_ids,
             })
             .collect();
