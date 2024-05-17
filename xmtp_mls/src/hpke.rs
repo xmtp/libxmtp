@@ -49,18 +49,21 @@ pub fn decrypt_welcome(
 ) -> Result<Vec<u8>, HpkeError> {
     let ciphertext = HpkeCiphertext::tls_deserialize_exact(ciphertext)?;
 
-    let hash_ref: Option<KeyPackageRef> = provider
-        .storage()
-        .read(
-            KEY_PACKAGE_REFERENCES,
-            &hpke_public_key.tls_serialize_detached().unwrap(),
-        )
-        .unwrap();
+    let hash_ref: Option<KeyPackageRef> = match provider.storage().read(
+        KEY_PACKAGE_REFERENCES,
+        &hpke_public_key.tls_serialize_detached().unwrap(),
+    ) {
+        Ok(hash_ref) => hash_ref,
+        Err(_) => return Err(HpkeError::KeyNotFound),
+    };
 
     if let Some(hash_ref) = hash_ref {
         // With the hash reference we can read the key package.
-        let key_package: Option<KeyPackageBundle> =
-            provider.storage().key_package(&hash_ref).unwrap();
+        let key_package: Option<KeyPackageBundle> = match provider.storage().key_package(&hash_ref)
+        {
+            Ok(key_package) => key_package,
+            Err(_) => return Err(HpkeError::KeyNotFound),
+        };
 
         if let Some(kp) = key_package {
             return Ok(decrypt_with_label(
