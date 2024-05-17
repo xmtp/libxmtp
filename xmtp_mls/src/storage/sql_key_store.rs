@@ -9,9 +9,12 @@ use openmls_traits::storage::*;
 use serde::Serialize;
 use serde_json::{from_slice, from_value, Value};
 
-const SELECT_QUERY: &str = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
-const REPLACE_QUERY: &str = "REPLACE INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (?, ?, ?)";
-const UPDATE_QUERY: &str = "UPDATE openmls_key_value SET value_bytes = ? WHERE key_bytes = ? AND version = ?";
+const SELECT_QUERY: &str =
+    "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
+const REPLACE_QUERY: &str =
+    "REPLACE INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (?, ?, ?)";
+const UPDATE_QUERY: &str =
+    "UPDATE openmls_key_value SET value_bytes = ? WHERE key_bytes = ? AND version = ?";
 const DELETE_QUERY: &str = "DELETE FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
 #[derive(QueryableByName, Debug, Clone, PartialEq, Eq)]
@@ -105,13 +108,12 @@ impl SqlKeyStore {
                     }
                 } else {
                     // Add a first entry
+                    let value_bytes = &serde_json::to_vec(&[value])?;
                     let _ = self.conn.raw_query(|conn| {
                         sql_query(REPLACE_QUERY)
                             .bind::<diesel::sql_types::Binary, _>(&storage_key)
                             .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                            .bind::<diesel::sql_types::Binary, _>(
-                                &serde_json::to_vec(&[value]).unwrap(),
-                            )
+                            .bind::<diesel::sql_types::Binary, _>(value_bytes)
                             .execute(conn)
                     });
 
@@ -146,10 +148,14 @@ impl SqlKeyStore {
                     match from_slice::<Value>(&entry.value_bytes) {
                         Ok(mut deserialized) => {
                             if let Value::Array(ref mut arr) = deserialized {
-                                // Find and remove the valu.
+                                // Find and remove the value.
                                 let vpos = arr.iter().position(|v| {
-                                    from_value::<Vec<u8>>(v.clone()).unwrap() == value
+                                    match from_value::<Vec<u8>>(v.clone()) {
+                                        Ok(deserialized_value) => deserialized_value == value,
+                                        Err(_) => false,
+                                    }
                                 });
+
                                 if let Some(pos) = vpos {
                                     arr.remove(pos);
                                 }
@@ -166,20 +172,19 @@ impl SqlKeyStore {
                             });
                             Ok(())
                         }
-                        Err(_e) => Err(MemoryStorageError::SerializationError),
+                        Err(_) => Err(MemoryStorageError::SerializationError),
                     }
                 } else {
                     // Add a first entry
+                    let value_bytes = serde_json::to_vec(&[value])
+                        .map_err(|_| MemoryStorageError::SerializationError)?;
                     let _ = self.conn().raw_query(|conn| {
                         sql_query(REPLACE_QUERY)
                             .bind::<diesel::sql_types::Binary, _>(&storage_key)
                             .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                            .bind::<diesel::sql_types::Binary, _>(
-                                &serde_json::to_vec(&[value]).unwrap(),
-                            )
+                            .bind::<diesel::sql_types::Binary, _>(&value_bytes)
                             .execute(conn)
                     });
-
                     Ok(())
                 }
             }
@@ -241,12 +246,17 @@ impl SqlKeyStore {
                     let list = from_slice::<Vec<Vec<u8>>>(&entry.value_bytes)?;
 
                     // Read the values from the bytes in the list
-                    return Ok(list
-                        .into_iter()
-                        .map(|v| serde_json::from_slice(&v).unwrap())
-                        .collect::<Vec<V>>());
+                    let mut deserialized_list = Vec::new();
+                    for v in list {
+                        match serde_json::from_slice(&v) {
+                            Ok(deserialized_value) => deserialized_list.push(deserialized_value),
+                            Err(_) => return Err(MemoryStorageError::SerializationError),
+                        }
+                    }
+                    Ok(deserialized_list)
+                } else {
+                    Ok(vec![])
                 }
-                Ok(vec![])
             }
             Err(_e) => Err(MemoryStorageError::None),
         }
@@ -435,9 +445,10 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         refs.into_iter()
             .map(|proposal_ref| -> Result<_, _> {
                 let key = serde_json::to_vec(&(group_id, &proposal_ref))?;
-
-                let proposal = self.read(QUEUED_PROPOSAL_LABEL, &key)?.unwrap();
-                Ok((proposal_ref, proposal))
+                match self.read(QUEUED_PROPOSAL_LABEL, &key)? {
+                    Some(proposal) => Ok((proposal_ref, proposal)),
+                    None => Err(MemoryStorageError::SerializationError),
+                }
             })
             .collect::<Result<Vec<_>, _>>()
     }
@@ -971,8 +982,11 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Vec<u8>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(AAD_LABEL, group_id)?;
-        self.read::<CURRENT_VERSION, Vec<u8>>(AAD_LABEL, &key)
-            .map(|v| v.unwrap_or_default())
+        match self.read::<CURRENT_VERSION, Vec<u8>>(AAD_LABEL, &key) {
+            Ok(Some(value)) => Ok(value),
+            Ok(None) => Ok(Vec::new()),
+            Err(e) => Err(e),
+        }
     }
 
     fn write_aad<GroupId: traits::GroupId<CURRENT_VERSION>>(
