@@ -43,6 +43,46 @@ impl SqlKeyStore {
         &self.conn
     }
 
+    fn select_query<const VERSION: u16>(
+        &self,
+        storage_key: &Vec<u8>,
+    ) -> Result<Vec<StorageData>, diesel::result::Error> {
+        self.conn().raw_query(|conn| {
+            sql_query(SELECT_QUERY)
+                .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
+                .load(conn)
+        })
+    }
+
+    fn replace_query<const VERSION: u16>(
+        &self,
+        storage_key: &Vec<u8>,
+        value: &[u8],
+    ) -> Result<usize, diesel::result::Error> {
+        self.conn().raw_query(|conn| {
+            sql_query(REPLACE_QUERY)
+                .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
+                .bind::<diesel::sql_types::Binary, _>(&value)
+                .execute(conn)
+        })
+    }
+
+    fn update_query<const VERSION: u16>(
+        &self,
+        storage_key: &Vec<u8>,
+        modified_data: &Vec<u8>,
+    ) -> Result<usize, diesel::result::Error> {
+        self.conn().raw_query(|conn| {
+            sql_query(UPDATE_QUERY)
+                .bind::<diesel::sql_types::Binary, _>(&modified_data)
+                .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
+                .execute(conn)
+        })
+    }
+
     pub fn write<const VERSION: u16>(
         &self,
         label: &[u8],
@@ -53,13 +93,7 @@ impl SqlKeyStore {
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
 
-        let _ = self.conn().raw_query(|conn| {
-            sql_query(REPLACE_QUERY)
-                .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                .bind::<diesel::sql_types::Binary, _>(&value)
-                .execute(conn)
-        });
+        let _ = self.replace_query::<VERSION>(&storage_key, value);
 
         Ok(())
     }
@@ -74,12 +108,7 @@ impl SqlKeyStore {
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let current_data: Result<Vec<StorageData>, diesel::result::Error> =
-            self.conn().raw_query(|conn| {
-                sql_query(SELECT_QUERY)
-                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                    .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                    .load(conn)
-            });
+            self.select_query::<VERSION>(&storage_key);
 
         match current_data {
             Ok(data) => {
@@ -95,13 +124,7 @@ impl SqlKeyStore {
                             let modified_data = serde_json::to_vec(&deserialized)
                                 .map_err(|_| MemoryStorageError::SerializationError)?;
 
-                            let _ = self.conn().raw_query(|conn| {
-                                sql_query(UPDATE_QUERY)
-                                    .bind::<diesel::sql_types::Binary, _>(&modified_data)
-                                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                                    .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                                    .execute(conn)
-                            });
+                            let _ = self.update_query::<VERSION>(&storage_key, &modified_data);
                             Ok(())
                         }
                         Err(_e) => Err(MemoryStorageError::SerializationError),
@@ -109,13 +132,7 @@ impl SqlKeyStore {
                 } else {
                     // Add a first entry
                     let value_bytes = &serde_json::to_vec(&[value])?;
-                    let _ = self.conn.raw_query(|conn| {
-                        sql_query(REPLACE_QUERY)
-                            .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                            .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                            .bind::<diesel::sql_types::Binary, _>(value_bytes)
-                            .execute(conn)
-                    });
+                    let _ = self.replace_query::<VERSION>(&storage_key, &value_bytes);
 
                     Ok(())
                 }
@@ -134,12 +151,7 @@ impl SqlKeyStore {
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let current_data: Result<Vec<StorageData>, diesel::result::Error> =
-            self.conn().raw_query(|conn| {
-                sql_query(SELECT_QUERY)
-                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                    .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                    .load(conn)
-            });
+            self.select_query::<VERSION>(&storage_key);
 
         match current_data {
             Ok(data) => {
@@ -163,13 +175,7 @@ impl SqlKeyStore {
                             let modified_data = serde_json::to_vec(&deserialized)
                                 .map_err(|_| MemoryStorageError::SerializationError)?;
 
-                            let _ = self.conn().raw_query(|conn| {
-                                sql_query(UPDATE_QUERY)
-                                    .bind::<diesel::sql_types::Binary, _>(&modified_data)
-                                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                                    .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                                    .execute(conn)
-                            });
+                            let _ = self.update_query::<VERSION>(&storage_key, &modified_data);
                             Ok(())
                         }
                         Err(_) => Err(MemoryStorageError::SerializationError),
@@ -178,13 +184,7 @@ impl SqlKeyStore {
                     // Add a first entry
                     let value_bytes = serde_json::to_vec(&[value])
                         .map_err(|_| MemoryStorageError::SerializationError)?;
-                    let _ = self.conn().raw_query(|conn| {
-                        sql_query(REPLACE_QUERY)
-                            .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                            .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                            .bind::<diesel::sql_types::Binary, _>(&value_bytes)
-                            .execute(conn)
-                    });
+                    let _ = self.replace_query::<VERSION>(&storage_key, &value_bytes);
                     Ok(())
                 }
             }
@@ -202,12 +202,7 @@ impl SqlKeyStore {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
 
         let results: Result<Vec<StorageData>, diesel::result::Error> =
-            self.conn().raw_query(|conn| {
-                sql_query(SELECT_QUERY)
-                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                    .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                    .load(conn)
-            });
+            self.select_query::<VERSION>(&storage_key);
 
         match results {
             Ok(data) => {
@@ -235,12 +230,8 @@ impl SqlKeyStore {
         log::debug!("read_list {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        match self.conn().raw_query(|conn| {
-            sql_query(SELECT_QUERY)
-                .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                .load::<StorageData>(conn)
-        }) {
+
+        match self.select_query::<VERSION>(&storage_key) {
             Ok(results) => {
                 if let Some(entry) = results.into_iter().next() {
                     let list = from_slice::<Vec<Vec<u8>>>(&entry.value_bytes)?;
