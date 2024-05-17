@@ -11,9 +11,7 @@ use std::sync::{
 use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::{
-    associations::{
-        builder::SignatureRequest, Erc1271Signature, MemberIdentifier, RecoverableEcdsaSignature,
-    },
+    associations::{builder::SignatureRequest, Erc1271Signature, RecoverableEcdsaSignature},
     InboxId,
 };
 use xmtp_mls::{
@@ -164,26 +162,14 @@ impl FfiSignatureRequest {
     }
 
     /// missing signatures that are from [MemberKind::Address]
-    pub async fn missing_address_signatures(
-        &self,
-    ) -> Result<Vec<Arc<FfiMemberIdentifier>>, GenericError> {
+    pub async fn missing_address_signatures(&self) -> Result<Vec<String>, GenericError> {
         let inner = self.inner.lock().await;
         Ok(inner
             .missing_address_signatures()
             .iter()
-            .map(|member| {
-                Arc::new(FfiMemberIdentifier {
-                    inner: Arc::new(member.clone()),
-                })
-            })
+            .map(|member| member.to_string())
             .collect())
     }
-}
-
-#[derive(uniffi::Object)]
-pub struct FfiMemberIdentifier {
-    #[allow(unused)]
-    inner: Arc<MemberIdentifier>,
 }
 
 #[derive(uniffi::Object)]

@@ -197,13 +197,13 @@ impl Erc1271Signature {
         let block_number = provider.get_block_number().await?;
         let chain_id = provider.get_chainid().await?;
         let account_id = AccountId::new(chain_id.to_string(), account_address);
-        Ok(Erc1271Signature {
+        Ok(Erc1271Signature::new(
             signature_text,
             signature_bytes,
             account_id,
             chain_rpc_url,
-            block_number: block_number.as_u64(),
-        })
+            block_number.as_u64(),
+        ))
     }
 }
 
