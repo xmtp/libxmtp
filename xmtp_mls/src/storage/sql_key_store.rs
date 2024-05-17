@@ -132,7 +132,7 @@ impl SqlKeyStore {
                 } else {
                     // Add a first entry
                     let value_bytes = &serde_json::to_vec(&[value])?;
-                    let _ = self.replace_query::<VERSION>(&storage_key, &value_bytes);
+                    let _ = self.replace_query::<VERSION>(&storage_key, value_bytes);
 
                     Ok(())
                 }
