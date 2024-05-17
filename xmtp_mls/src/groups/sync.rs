@@ -219,7 +219,14 @@ impl MlsGroup {
                     openmls_group.merge_pending_commit(&provider)
                 {
                     log::error!("error merging commit: {}", err);
-                    let _ = openmls_group.clear_pending_commit(provider.storage());
+                    match openmls_group.clear_pending_commit(provider.storage()) {
+                        Ok(_) => (),
+                        Err(_) => {
+                            return Err(MessageProcessingError::Generic(
+                                "Error clearing pending commit".to_string(),
+                            ))
+                        }
+                    }
 
                     conn.set_group_intent_to_publish(intent.id)?;
                 } else {
