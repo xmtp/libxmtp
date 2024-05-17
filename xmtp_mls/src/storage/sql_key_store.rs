@@ -9,6 +9,11 @@ use openmls_traits::storage::*;
 use serde::Serialize;
 use serde_json::{from_slice, from_value, Value};
 
+const SELECT_QUERY: &str = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
+const REPLACE_QUERY: &str = "REPLACE INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (?, ?, ?)";
+const UPDATE_QUERY: &str = "UPDATE openmls_key_value SET value_bytes = ? WHERE key_bytes = ? AND version = ?";
+const DELETE_QUERY: &str = "DELETE FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
+
 #[derive(QueryableByName, Debug, Clone, PartialEq, Eq)]
 #[diesel(table_name = openmls_key_value)]
 struct StorageData {
@@ -44,11 +49,9 @@ impl SqlKeyStore {
         log::debug!("write {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        let query =
-            "REPLACE INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (?, ?, ?)";
 
         let _ = self.conn().raw_query(|conn| {
-            sql_query(query)
+            sql_query(REPLACE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                 .bind::<diesel::sql_types::Binary, _>(&value)
@@ -67,14 +70,9 @@ impl SqlKeyStore {
         log::debug!("append {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        let select_query =
-            "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
-        let update_query =
-            "UPDATE openmls_key_value SET value_bytes = ? WHERE key_bytes = ? AND version = ?";
-
         let current_data: Result<Vec<StorageData>, diesel::result::Error> =
             self.conn().raw_query(|conn| {
-                sql_query(select_query)
+                sql_query(SELECT_QUERY)
                     .bind::<diesel::sql_types::Binary, _>(&storage_key)
                     .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                     .load(conn)
@@ -95,7 +93,7 @@ impl SqlKeyStore {
                                 .map_err(|_| MemoryStorageError::SerializationError)?;
 
                             let _ = self.conn().raw_query(|conn| {
-                                sql_query(update_query)
+                                sql_query(UPDATE_QUERY)
                                     .bind::<diesel::sql_types::Binary, _>(&modified_data)
                                     .bind::<diesel::sql_types::Binary, _>(&storage_key)
                                     .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -106,11 +104,9 @@ impl SqlKeyStore {
                         Err(_e) => Err(MemoryStorageError::SerializationError),
                     }
                 } else {
-                    eprintln!("  first entry ...");
                     // Add a first entry
-                    let query = "REPLACE INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (?, ?, ?)";
                     let _ = self.conn.raw_query(|conn| {
-                        sql_query(query)
+                        sql_query(REPLACE_QUERY)
                             .bind::<diesel::sql_types::Binary, _>(&storage_key)
                             .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                             .bind::<diesel::sql_types::Binary, _>(
@@ -135,14 +131,9 @@ impl SqlKeyStore {
         log::debug!("remove_item {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        let select_query =
-            "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
-        let update_query =
-            "UPDATE openmls_key_value SET value_bytes = ? WHERE key_bytes = ? AND version = ?";
-
         let current_data: Result<Vec<StorageData>, diesel::result::Error> =
             self.conn().raw_query(|conn| {
-                sql_query(select_query)
+                sql_query(SELECT_QUERY)
                     .bind::<diesel::sql_types::Binary, _>(&storage_key)
                     .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                     .load(conn)
@@ -167,7 +158,7 @@ impl SqlKeyStore {
                                 .map_err(|_| MemoryStorageError::SerializationError)?;
 
                             let _ = self.conn().raw_query(|conn| {
-                                sql_query(update_query)
+                                sql_query(UPDATE_QUERY)
                                     .bind::<diesel::sql_types::Binary, _>(&modified_data)
                                     .bind::<diesel::sql_types::Binary, _>(&storage_key)
                                     .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -178,11 +169,9 @@ impl SqlKeyStore {
                         Err(_e) => Err(MemoryStorageError::SerializationError),
                     }
                 } else {
-                    eprintln!("  first entry ...");
                     // Add a first entry
-                    let query = "REPLACE INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (?, ?, ?)";
                     let _ = self.conn().raw_query(|conn| {
-                        sql_query(query)
+                        sql_query(REPLACE_QUERY)
                             .bind::<diesel::sql_types::Binary, _>(&storage_key)
                             .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                             .bind::<diesel::sql_types::Binary, _>(
@@ -206,11 +195,10 @@ impl SqlKeyStore {
         log::debug!("read {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
         let results: Result<Vec<StorageData>, diesel::result::Error> =
             self.conn().raw_query(|conn| {
-                sql_query(query)
+                sql_query(SELECT_QUERY)
                     .bind::<diesel::sql_types::Binary, _>(&storage_key)
                     .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                     .load(conn)
@@ -242,10 +230,8 @@ impl SqlKeyStore {
         log::debug!("read_list {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
-
         match self.conn().raw_query(|conn| {
-            sql_query(query)
+            sql_query(SELECT_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                 .load::<StorageData>(conn)
@@ -272,10 +258,9 @@ impl SqlKeyStore {
         key: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        let query = "DELETE FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
         let _ = self.conn().raw_query(|conn| {
-            sql_query(query)
+            sql_query(DELETE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                 .execute(conn)
