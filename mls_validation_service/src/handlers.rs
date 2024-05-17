@@ -368,7 +368,8 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
 
     let credential = verified_key_package.inner.leaf_node().credential();
 
-    let basic_credential = BasicCredential::try_from(credential).map_err(|e| e.to_string())?;
+    let basic_credential =
+        BasicCredential::try_from(credential.clone()).map_err(|e| e.to_string())?;
 
     Ok(ValidateKeyPackageResult {
         installation_id: verified_key_package.installation_id(),
@@ -386,10 +387,8 @@ mod tests {
         extensions::{ApplicationIdExtension, Extension, Extensions},
         prelude::{
             tls_codec::Serialize, Ciphersuite, Credential as OpenMlsCredential, CredentialWithKey,
-            CryptoConfig,
         },
         prelude_test::KeyPackage,
-        versions::ProtocolVersion,
     };
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_rust_crypto::OpenMlsRustCrypto;
@@ -541,17 +540,13 @@ mod tests {
 
         let kp = kp
             .build(
-                CryptoConfig {
-                    ciphersuite: CIPHERSUITE,
-                    version: ProtocolVersion::default(),
-                },
+                CIPHERSUITE,
                 &rust_crypto,
                 keypair,
                 credential_with_key.clone(),
             )
             .unwrap();
-
-        kp.tls_serialize_detached().unwrap()
+        kp.key_package().tls_serialize_detached().unwrap()
     }
 
     fn to_signature_keypair(key: SigningKey) -> SignatureKeyPair {
@@ -569,7 +564,7 @@ mod tests {
     async fn test_validate_key_packages_happy_path() {
         let (identity, keypair, account_address) = generate_identity();
 
-        let credential: OpenMlsCredential = BasicCredential::new(identity).unwrap().into();
+        let credential: OpenMlsCredential = BasicCredential::new(identity).into();
         let credential_with_key = CredentialWithKey {
             credential,
             signature_key: keypair.to_public_vec().into(),
@@ -602,7 +597,7 @@ mod tests {
         let (identity, keypair, account_address) = generate_identity();
         let (_, other_keypair, _) = generate_identity();
 
-        let credential: OpenMlsCredential = BasicCredential::new(identity).unwrap().into();
+        let credential: OpenMlsCredential = BasicCredential::new(identity).into();
         let credential_with_key = CredentialWithKey {
             credential,
             // Use the wrong signature key to make the validation fail

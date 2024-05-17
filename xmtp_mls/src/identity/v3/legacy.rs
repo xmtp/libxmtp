@@ -10,10 +10,9 @@ use openmls::{
     messages::proposals::ProposalType,
     prelude::{
         tls_codec::{Error as TlsCodecError, Serialize},
-        Capabilities, Credential as OpenMlsCredential, CredentialWithKey, CryptoConfig, Extension,
-        ExtensionType, Extensions, KeyPackage, KeyPackageNewError, Lifetime,
+        Capabilities, Credential as OpenMlsCredential, CredentialWithKey, Extension, ExtensionType,
+        Extensions, KeyPackage, KeyPackageNewError, Lifetime,
     },
-    versions::ProtocolVersion,
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::{types::CryptoError, OpenMlsProvider};
@@ -31,7 +30,11 @@ use crate::{
         MUTABLE_METADATA_EXTENSION_ID,
     },
     credential::{AssociationError, Credential, UnsignedGrantMessagingAccessData},
-    storage::{identity::StoredIdentity, StorageError},
+    storage::{
+        identity::StoredIdentity,
+        sql_key_store::{MemoryStorageError, KEY_PACKAGE_REFERENCES},
+        StorageError,
+    },
     types::Address,
     utils::time::now_ns,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -49,7 +52,7 @@ pub enum IdentityError {
     #[error("storage error: {0}")]
     StorageError(#[from] StorageError),
     #[error("generating key package: {0}")]
-    KeyPackageGenerationError(#[from] KeyPackageNewError<StorageError>),
+    KeyPackageGenerationError(#[from] KeyPackageNewError),
     #[error("deserialization: {0}")]
     Deserialization(#[from] prost::DecodeError),
     #[error("invalid extension: {0}")]
@@ -68,6 +71,8 @@ pub enum IdentityError {
     BasicCredential(#[from] BasicCredentialError),
     #[error(transparent)]
     Signature(#[from] ed25519_dalek::SignatureError),
+    #[error(transparent)]
+    MemoryStorage(#[from] MemoryStorageError),
 }
 
 #[derive(Debug)]
@@ -109,7 +114,7 @@ impl Identity {
             Credential::create_from_legacy(&signature_keys, legacy_signed_private_key)?;
         let credential_proto: CredentialProto = credential.into();
         let mls_credential: OpenMlsCredential =
-            BasicCredential::new(credential_proto.encode_to_vec())?.into();
+            BasicCredential::new(credential_proto.encode_to_vec()).into();
         info!("Successfully created identity from legacy key");
         Ok(Self {
             account_address,
@@ -129,7 +134,8 @@ impl Identity {
         ApiClient: XmtpApi,
     {
         // Do not re-register if already registered
-        let stored_identity: Option<StoredIdentity> = provider.conn().fetch(&())?;
+        let conn = provider.conn();
+        let stored_identity: Option<StoredIdentity> = conn.fetch(&())?;
         if stored_identity.is_some() {
             info!("Identity already registered, skipping registration");
             return Ok(());
@@ -150,7 +156,7 @@ impl Identity {
             )?
             .into();
             let credential: OpenMlsCredential =
-                BasicCredential::new(credential_proto.encode_to_vec())?.into();
+                BasicCredential::new(credential_proto.encode_to_vec()).into();
             self.set_credential(credential)?;
         }
 
@@ -160,7 +166,7 @@ impl Identity {
         api_client.register_installation(kp_bytes).await?;
 
         // Only persist the installation keys if the registration was successful
-        self.installation_keys.store(provider.key_store())?;
+        self.installation_keys.store(provider.storage())?;
         StoredIdentity::from(self).store(provider.conn_ref())?;
 
         Ok(())
@@ -224,10 +230,7 @@ impl Identity {
             .key_package_extensions(key_package_extensions)
             .key_package_lifetime(Lifetime::new(6 * 30 * 86400))
             .build(
-                CryptoConfig {
-                    ciphersuite: CIPHERSUITE,
-                    version: ProtocolVersion::default(),
-                },
+                CIPHERSUITE,
                 provider,
                 &self.installation_keys,
                 CredentialWithKey {
@@ -236,7 +239,31 @@ impl Identity {
                 },
             )?;
 
-        Ok(kp)
+        // Store the hash reference, keyed with the public init key.
+        // This is needed to get to the private key when decrypting welcome messages.
+        let public_init_key = kp.key_package().hpke_init_key().tls_serialize_detached()?;
+
+        let key_package_hash_ref = match kp.key_package().hash_ref(provider.crypto()) {
+            Ok(key_package_hash_ref) => key_package_hash_ref,
+            Err(_) => return Err(IdentityError::UninitializedIdentity),
+        };
+
+        // Serialize the hash reference
+        let hash_ref = match serde_json::to_vec(&key_package_hash_ref) {
+            Ok(hash_ref) => hash_ref,
+            Err(_) => return Err(IdentityError::UninitializedIdentity),
+        };
+
+        // Store the hash reference, keyed with the public init key
+        provider
+            .storage()
+            .write::<{ openmls_traits::storage::CURRENT_VERSION }>(
+                KEY_PACKAGE_REFERENCES,
+                &public_init_key,
+                &hash_ref,
+            )?;
+
+        Ok(kp.key_package().clone())
     }
 
     pub(crate) fn get_validated_account_address(

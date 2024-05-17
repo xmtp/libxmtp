@@ -219,7 +219,15 @@ impl MlsGroup {
                     openmls_group.merge_pending_commit(&provider)
                 {
                     log::error!("error merging commit: {}", err);
-                    openmls_group.clear_pending_commit();
+                    match openmls_group.clear_pending_commit(provider.storage()) {
+                        Ok(_) => (),
+                        Err(_) => {
+                            return Err(MessageProcessingError::Generic(
+                                "Error clearing pending commit".to_string(),
+                            ))
+                        }
+                    }
+
                     conn.set_group_intent_to_publish(intent.id)?;
                 } else {
                     // If no error committing the change, write a transcript message
@@ -337,6 +345,7 @@ impl MlsGroup {
                                 &self.context.account_address(),
                                 &idempotency_key,
                             );
+
                             StoredGroupMessage {
                                 id: message_id,
                                 group_id: self.group_id.clone(),
@@ -478,7 +487,6 @@ impl MlsGroup {
             msgv1.id,
             |provider| -> Result<(), MessageProcessingError> {
                 self.process_message(openmls_group, provider, msgv1, true)?;
-                openmls_group.save(provider.key_store())?;
                 Ok(())
             },
         )?;
@@ -496,6 +504,7 @@ impl MlsGroup {
     {
         let provider = self.context.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
+        log::debug!("  loaded openmls group");
 
         let receive_errors: Vec<MessageProcessingError> = messages
             .into_iter()
@@ -525,9 +534,7 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let messages = client.query_group_messages(&self.group_id, conn).await?;
-
         self.process_messages(messages, conn.clone(), client)?;
-
         Ok(())
     }
 
@@ -599,7 +606,6 @@ impl MlsGroup {
             Some(vec![IntentState::ToPublish]),
             None,
         )?;
-        let num_intents = intents.len();
 
         for intent in intents {
             let result = retry_async!(
@@ -638,10 +644,6 @@ impl MlsGroup {
                 sha256(payload_slice),
                 post_commit_data,
             )?;
-        }
-
-        if num_intents > 0 {
-            openmls_group.save(provider.key_store())?;
         }
 
         Ok(())
@@ -966,7 +968,7 @@ fn validate_message_sender(
     if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
         if let Some(member) = openmls_group.member_at(*leaf_node_index) {
             if member.credential.eq(decrypted_message.credential()) {
-                let basic_credential = BasicCredential::try_from(&member.credential)?;
+                let basic_credential = BasicCredential::try_from(member.credential)?;
                 sender_account_address = Identity::get_validated_account_address(
                     basic_credential.identity(),
                     &member.signature_key,
@@ -978,7 +980,7 @@ fn validate_message_sender(
     }
 
     if sender_account_address.is_none() {
-        let basic_credential = BasicCredential::try_from(decrypted_message.credential())?;
+        let basic_credential = BasicCredential::try_from(decrypted_message.credential().clone())?;
         return Err(MessageProcessingError::InvalidSender {
             message_time_ns: message_created_ns,
             credential: basic_credential.identity().to_vec(),

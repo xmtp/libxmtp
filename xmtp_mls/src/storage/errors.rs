@@ -54,12 +54,9 @@ impl RetryableError for openmls::group::CreateCommitError<StorageError> {
     }
 }
 
-impl RetryableError for openmls::key_packages::errors::KeyPackageNewError<StorageError> {
+impl RetryableError for openmls::key_packages::errors::KeyPackageNewError {
     fn is_retryable(&self) -> bool {
-        match self {
-            Self::KeyStoreError(storage) => retryable!(storage),
-            _ => false,
-        }
+        matches!(self, Self::StorageError)
     }
 }
 
@@ -75,7 +72,7 @@ impl RetryableError for openmls::group::RemoveMembersError<StorageError> {
 impl RetryableError for openmls::group::NewGroupError<StorageError> {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::KeyStoreError(storage) => retryable!(storage),
+            Self::StorageError(storage) => retryable!(storage),
             _ => false,
         }
     }
@@ -85,7 +82,7 @@ impl RetryableError for openmls::group::SelfUpdateError<StorageError> {
     fn is_retryable(&self) -> bool {
         match self {
             Self::CreateCommitError(commit) => retryable!(commit),
-            Self::KeyStoreError => true,
+            Self::StorageError(storage) => retryable!(storage),
             _ => false,
         }
     }
@@ -94,7 +91,7 @@ impl RetryableError for openmls::group::SelfUpdateError<StorageError> {
 impl RetryableError for openmls::group::WelcomeError<StorageError> {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::KeyStoreError(storage) => retryable!(storage),
+            Self::StorageError(storage) => retryable!(storage),
             _ => false,
         }
     }
