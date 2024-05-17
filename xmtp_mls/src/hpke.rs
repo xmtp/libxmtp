@@ -52,7 +52,7 @@ pub fn decrypt_welcome(
     let hash_ref: Option<KeyPackageRef> = provider
         .storage()
         .read(
-            b"KeyPackageReferences",
+            KEY_PACKAGE_REFERENCES,
             &hpke_public_key.tls_serialize_detached().unwrap(),
         )
         .unwrap();
