@@ -29,6 +29,7 @@ impl From<GetIdentityUpdatesV2Filter> for GetIdentityUpdatesV2RequestProto {
     }
 }
 
+#[derive(Clone)]
 pub struct InboxUpdate {
     pub sequence_id: u64,
     pub server_timestamp_ns: u64,

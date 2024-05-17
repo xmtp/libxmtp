@@ -132,6 +132,7 @@ pub enum IdentityError {
 #[derive(Debug, Clone)]
 pub struct Identity {
     pub(crate) inbox_id: InboxId,
+    pub(crate) sequence_id: u64,
     pub(crate) installation_keys: SignatureKeyPair,
     pub(crate) credential: OpenMlsCredential,
     pub(crate) signature_request: Option<SignatureRequest>,
@@ -159,6 +160,7 @@ impl Identity {
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
         let installation_public_key = signature_keys.public();
         let member_identifier: MemberIdentifier = address.clone().into();
+        let sequence_id = 0;
 
         if let Some(associated_inbox_id) = associated_inbox_id {
             // If an inbox is associated, we just need to associate the installation key
@@ -180,6 +182,7 @@ impl Identity {
 
             let identity = Self {
                 inbox_id: associated_inbox_id.clone(),
+                sequence_id,
                 installation_keys: signature_keys,
                 credential: create_credential(associated_inbox_id.clone())?,
                 signature_request: Some(signature_request),
@@ -224,6 +227,7 @@ impl Identity {
 
             let identity = Self {
                 inbox_id: inbox_id.clone(),
+                sequence_id,
                 installation_keys: signature_keys,
                 credential: create_credential(inbox_id)?,
                 signature_request: None,
@@ -253,6 +257,7 @@ impl Identity {
 
             let identity = Self {
                 inbox_id: inbox_id.clone(),
+                sequence_id,
                 installation_keys: signature_keys,
                 credential: create_credential(inbox_id.clone())?,
                 signature_request: Some(signature_request),
@@ -262,15 +267,19 @@ impl Identity {
         }
     }
 
-    pub fn get_inbox_id(&self) -> &InboxId {
+    pub fn inbox_id(&self) -> &InboxId {
         &self.inbox_id
+    }
+
+    pub fn set_sequence_id(&mut self, sequence_id: u64) {
+        self.sequence_id = sequence_id;
     }
 
     fn is_ready(&self) -> bool {
         self.signature_request.is_none()
     }
 
-    pub fn get_signature_request(&self) -> Option<SignatureRequest> {
+    pub fn signature_request(&self) -> Option<SignatureRequest> {
         self.signature_request.clone()
     }
 
@@ -295,7 +304,7 @@ impl Identity {
         let key_package_extensions = Extensions::single(last_resort);
 
         let application_id =
-            Extension::ApplicationId(ApplicationIdExtension::new(self.get_inbox_id().as_bytes()));
+            Extension::ApplicationId(ApplicationIdExtension::new(self.inbox_id().as_bytes()));
         let leaf_node_extensions = Extensions::single(application_id);
 
         let capabilities = Capabilities::new(

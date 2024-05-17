@@ -20,6 +20,7 @@ use crate::{
     groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
     identity::Identity,
+    identity_updates::load_identity_updates,
     retry::Retry,
     retry_async, retry_sync,
     storage::{
@@ -830,7 +831,7 @@ impl MlsGroup {
         inbox_ids.extend(inbox_ids_to_add);
         let conn = provider.conn_ref();
         // Load any missing updates from the network
-        client.load_identity_updates(conn, &inbox_ids).await?;
+        load_identity_updates(&client.api_client, conn, inbox_ids.clone()).await?;
 
         let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids)?;
 

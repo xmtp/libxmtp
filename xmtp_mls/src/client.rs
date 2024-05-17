@@ -32,7 +32,7 @@ use crate::{
         PreconfiguredPolicies,
     },
     identity::Identity,
-    identity_updates::IdentityUpdateError,
+    identity_updates::{load_identity_updates, IdentityUpdateError},
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
@@ -188,18 +188,18 @@ impl XmtpMlsLocalContext {
 
     /// Get the account address of the blockchain account associated with this client
     pub fn inbox_id(&self) -> InboxId {
-        self.identity.get_inbox_id().clone()
+        self.identity.inbox_id().clone()
     }
 
-    pub fn inbox_latest_sequence_id(&self) -> u64 {
-        // TODO:@neekolas Replace with value from Identity
-        0
+    /// Get sequence id, may not be consistent with the backend
+    pub fn inbox_sequence_id(&self) -> u64 {
+        self.identity.sequence_id
     }
 
-    /// Integrators should always check the `get_signature_request` return value of this function before calling [`register_identity`](Self::register_identity).
-    /// If `get_signature_request` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
+    /// Integrators should always check the `signature_request` return value of this function before calling [`register_identity`](Self::register_identity).
+    /// If `signature_request` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
     pub fn signature_request(&self) -> Option<SignatureRequest> {
-        self.identity.get_signature_request()
+        self.identity.signature_request()
     }
 
     pub(crate) fn mls_provider(&self, conn: DbConnection) -> XmtpOpenMlsProvider {
@@ -239,8 +239,9 @@ where
         self.context.inbox_id()
     }
 
-    pub fn inbox_latest_sequence_id(&self) -> u64 {
-        self.context.inbox_latest_sequence_id()
+    /// Get sequence id, may not be consistent with the backend
+    pub fn inbox_sequence_id(&self) -> u64 {
+        self.context.inbox_sequence_id()
     }
 
     pub fn store(&self) -> &EncryptedMessageStore {
@@ -343,8 +344,9 @@ where
     ) -> Result<(), ClientError> {
         log::info!("registering identity");
         let connection = self.store().conn()?;
-        let provider = self.mls_provider(connection);
+        let provider = self.mls_provider(connection.clone());
         self.apply_signature_request(signature_request).await?;
+        load_identity_updates(&self.api_client, &connection, vec![self.inbox_id()]).await?;
         self.identity()
             .register(&provider, &self.api_client)
             .await?;
