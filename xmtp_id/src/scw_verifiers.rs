@@ -32,7 +32,7 @@ impl ERC1271Verifier {
         Self { provider }
     }
 
-    /// Verifies an ERC-1271(https://eips.ethereum.org/EIPS/eip-1271) signature.
+    /// Verifies an ERC-1271<https://eips.ethereum.org/EIPS/eip-1271> signature.
     ///
     /// # Arguments
     ///
@@ -60,17 +60,18 @@ impl ERC1271Verifier {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use ethers::{
         abi::{self, Token},
-        providers::Middleware,
-        types::{H256, U256},
-    };
-
-    use ethers::{
+        contract::ContractInstance,
         core::utils::Anvil,
         middleware::SignerMiddleware,
+        providers::Middleware,
         signers::{LocalWallet, Signer as _},
+        types::{H256, U256},
+        utils::AnvilInstance,
     };
 
     abigen!(
@@ -85,7 +86,188 @@ mod tests {
         derives(serde::Serialize, serde::Deserialize)
     );
 
+    // keys for smart contract hashmap
+    pub struct SmartContracts {
+        coinbase_smart_wallet_factory:
+            CoinbaseSmartWalletFactory<SignerMiddleware<Provider<Http>, LocalWallet>>,
+    }
+
+    impl SmartContracts {
+        fn new(
+            coinbase_smart_wallet_factory: CoinbaseSmartWalletFactory<
+                SignerMiddleware<Provider<Http>, LocalWallet>,
+            >,
+        ) -> Self {
+            Self {
+                coinbase_smart_wallet_factory,
+            }
+        }
+
+        fn coinbase_smart_wallet_factory(
+            &self,
+        ) -> &CoinbaseSmartWalletFactory<SignerMiddleware<Provider<Http>, LocalWallet>> {
+            &self.coinbase_smart_wallet_factory
+        }
+    }
+
+    /// Test harness that loads a local anvil node with deployed smart contracts.
+    pub async fn with_smart_contracts<Func, Fut>(fun: Func)
+    where
+        Func: FnOnce(
+            AnvilInstance,
+            Provider<Http>,
+            SignerMiddleware<Provider<Http>, LocalWallet>,
+            SmartContracts,
+        ) -> Fut,
+        Fut: futures::Future<Output = ()>,
+    {
+        let anvil = Anvil::new().args(vec!["--base-fee", "100"]).spawn();
+        let contract_deployer: LocalWallet = anvil.keys()[9].clone().into();
+        let provider = Provider::<Http>::try_from(anvil.endpoint()).unwrap();
+        let client = SignerMiddleware::new(
+            provider.clone(),
+            contract_deployer.clone().with_chain_id(anvil.chain_id()),
+        );
+        // 1. Deploy coinbase smart wallet
+        // implementation for factory
+        let implementation = CoinbaseSmartWallet::deploy(Arc::new(client.clone()), ())
+            .unwrap()
+            .gas_price(100)
+            .send()
+            .await
+            .unwrap();
+        // the factory
+        let factory =
+            CoinbaseSmartWalletFactory::deploy(Arc::new(client.clone()), implementation.address())
+                .unwrap()
+                .gas_price(100)
+                .send()
+                .await
+                .unwrap();
+
+        let smart_contracts = SmartContracts::new(factory);
+        fun(anvil, provider.clone(), client.clone(), smart_contracts).await
+    }
+
     #[tokio::test]
+    async fn test_coinbase_smart_wallet2() {
+        with_smart_contracts(|anvil, provider, client, smart_contracts| {
+            async move {
+                assert!(1 == 2);
+                let owner0: LocalWallet = anvil.keys()[0].clone().into();
+                let owner1: LocalWallet = anvil.keys()[1].clone().into();
+                let owners_addresses = vec![
+                    Bytes::from(H256::from(owner0.address()).0.to_vec()),
+                    Bytes::from(H256::from(owner1.address()).0.to_vec()),
+                ];
+                let factory = smart_contracts.coinbase_smart_wallet_factory();
+                let nonce = U256::from(0); // needed when creating a smart wallet
+                let smart_wallet_address = factory
+                    .get_address(owners_addresses.clone(), nonce)
+                    .await
+                    .unwrap();
+                let tx = factory.create_account(owners_addresses.clone(), nonce);
+                let pending_tx = tx.send().await.unwrap();
+                let _ = pending_tx.await.unwrap();
+
+                // Generate signatures from owners and verify them.
+                let smart_wallet =
+                    CoinbaseSmartWallet::new(smart_wallet_address, Arc::new(client.clone()));
+                let hash: [u8; 32] = H256::random().into();
+                let replay_safe_hash = smart_wallet.replay_safe_hash(hash).call().await.unwrap();
+                let sig0 = owner0.sign_hash(replay_safe_hash.into()).unwrap();
+                let verifier = ERC1271Verifier::new(anvil.endpoint());
+
+                let res = verifier
+                    .is_valid_signature(
+                        smart_wallet_address,
+                        None,
+                        hash,
+                        abi::encode(&[Token::Tuple(vec![
+                            Token::Uint(U256::from(0)),
+                            Token::Bytes(sig0.to_vec()),
+                        ])])
+                        .into(),
+                    )
+                    .await
+                    .unwrap();
+                assert!(res);
+                // owner1
+                let sig1 = owner1.sign_hash(replay_safe_hash.into()).unwrap();
+                let res = verifier
+                    .is_valid_signature(
+                        smart_wallet_address,
+                        None,
+                        hash,
+                        abi::encode(&[Token::Tuple(vec![
+                            Token::Uint(U256::from(1)),
+                            Token::Bytes(sig1.to_vec()),
+                        ])])
+                        .into(),
+                    )
+                    .await
+                    .unwrap();
+                assert!(res);
+                // owner0 siganture won't be deemed as signed by owner1
+                let res = verifier
+                    .is_valid_signature(
+                        smart_wallet_address,
+                        None,
+                        hash,
+                        abi::encode(&[Token::Tuple(vec![
+                            Token::Uint(U256::from(1)),
+                            Token::Bytes(sig0.to_vec()),
+                        ])])
+                        .into(),
+                    )
+                    .await
+                    .unwrap();
+                assert!(!res);
+
+                // get block number before removing
+                let block_number = provider.get_block_number().await.unwrap();
+
+                // remove owner1 and check their signature
+                let tx = smart_wallet.remove_owner_at_index(1.into());
+                let pending_tx = tx.send().await.unwrap();
+                let _ = pending_tx.await.unwrap();
+
+                let res = verifier
+                    .is_valid_signature(
+                        smart_wallet_address,
+                        None,
+                        hash,
+                        abi::encode(&[Token::Tuple(vec![
+                            Token::Uint(U256::from(1)),
+                            Token::Bytes(sig1.to_vec()),
+                        ])])
+                        .into(),
+                    )
+                    .await;
+                assert!(res.is_err()); // when verify a non-existing owner, it errors
+
+                // use pre-removal block number to verify owner1 signature
+                let res = verifier
+                    .is_valid_signature(
+                        smart_wallet_address,
+                        Some(BlockNumber::Number(block_number)),
+                        hash,
+                        abi::encode(&[Token::Tuple(vec![
+                            Token::Uint(U256::from(1)),
+                            Token::Bytes(sig1.to_vec()),
+                        ])])
+                        .into(),
+                    )
+                    .await
+                    .unwrap();
+                assert!(res);
+            }
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    #[ignore]
     async fn test_coinbase_smart_wallet() {
         let anvil = Anvil::new().args(vec!["--base-fee", "100"]).spawn();
         let owner0: LocalWallet = anvil.keys()[1].clone().into();
