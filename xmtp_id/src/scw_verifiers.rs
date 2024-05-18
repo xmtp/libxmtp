@@ -60,14 +60,11 @@ impl ERC1271Verifier {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use super::*;
     use ethers::{
         abi::{self, Token},
-        contract::ContractInstance,
         core::utils::Anvil,
-        middleware::SignerMiddleware,
+        middleware::{MiddlewareBuilder, SignerMiddleware},
         providers::Middleware,
         signers::{LocalWallet, Signer as _},
         types::{H256, U256},
@@ -116,6 +113,7 @@ mod tests {
         Func: FnOnce(
             AnvilInstance,
             Provider<Http>,
+            // when changing owner for client, do update chain id: client.with_signer(signer).with_chain_id(anvil.chain_id())
             SignerMiddleware<Provider<Http>, LocalWallet>,
             SmartContracts,
         ) -> Fut,
@@ -128,15 +126,15 @@ mod tests {
             provider.clone(),
             contract_deployer.clone().with_chain_id(anvil.chain_id()),
         );
-        // 1. Deploy coinbase smart wallet
-        // implementation for factory
+        // 1. coinbase smart wallet
+        // deploy implementation for factory
         let implementation = CoinbaseSmartWallet::deploy(Arc::new(client.clone()), ())
             .unwrap()
             .gas_price(100)
             .send()
             .await
             .unwrap();
-        // the factory
+        // deploy factory
         let factory =
             CoinbaseSmartWalletFactory::deploy(Arc::new(client.clone()), implementation.address())
                 .unwrap()
@@ -150,10 +148,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_coinbase_smart_wallet2() {
+    async fn test_coinbase_smart_wallet() {
         with_smart_contracts(|anvil, provider, client, smart_contracts| {
             async move {
-                assert!(1 == 2);
                 let owner0: LocalWallet = anvil.keys()[0].clone().into();
                 let owner1: LocalWallet = anvil.keys()[1].clone().into();
                 let owners_addresses = vec![
@@ -171,13 +168,16 @@ mod tests {
                 let _ = pending_tx.await.unwrap();
 
                 // Generate signatures from owners and verify them.
-                let smart_wallet =
-                    CoinbaseSmartWallet::new(smart_wallet_address, Arc::new(client.clone()));
+                let smart_wallet = CoinbaseSmartWallet::new(
+                    smart_wallet_address,
+                    Arc::new(client.with_signer(owner0.clone().with_chain_id(anvil.chain_id()))),
+                );
                 let hash: [u8; 32] = H256::random().into();
                 let replay_safe_hash = smart_wallet.replay_safe_hash(hash).call().await.unwrap();
-                let sig0 = owner0.sign_hash(replay_safe_hash.into()).unwrap();
                 let verifier = ERC1271Verifier::new(anvil.endpoint());
 
+                // verify owner0 is a valid owner
+                let sig0 = owner0.sign_hash(replay_safe_hash.into()).unwrap();
                 let res = verifier
                     .is_valid_signature(
                         smart_wallet_address,
@@ -192,7 +192,7 @@ mod tests {
                     .await
                     .unwrap();
                 assert!(res);
-                // owner1
+                // verify owner1 is a valid owner
                 let sig1 = owner1.sign_hash(replay_safe_hash.into()).unwrap();
                 let res = verifier
                     .is_valid_signature(
@@ -208,7 +208,7 @@ mod tests {
                     .await
                     .unwrap();
                 assert!(res);
-                // owner0 siganture won't be deemed as signed by owner1
+                // owner0 siganture must not be used to verify owner1
                 let res = verifier
                     .is_valid_signature(
                         smart_wallet_address,
@@ -224,10 +224,11 @@ mod tests {
                     .unwrap();
                 assert!(!res);
 
-                // get block number before removing
+                // Testing time travel
+                // get block number before removing the owner.
                 let block_number = provider.get_block_number().await.unwrap();
 
-                // remove owner1 and check their signature
+                // remove owner1 and check owner1 is no longer a valid owner
                 let tx = smart_wallet.remove_owner_at_index(1.into());
                 let pending_tx = tx.send().await.unwrap();
                 let _ = pending_tx.await.unwrap();
@@ -246,7 +247,7 @@ mod tests {
                     .await;
                 assert!(res.is_err()); // when verify a non-existing owner, it errors
 
-                // use pre-removal block number to verify owner1 signature
+                // time travel to the pre-removel block number and verify owner1 WAS a valid owner
                 let res = verifier
                     .is_valid_signature(
                         smart_wallet_address,
@@ -268,7 +269,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
-    async fn test_coinbase_smart_wallet() {
+    async fn test_coinbase_smart_wallet2() {
         let anvil = Anvil::new().args(vec!["--base-fee", "100"]).spawn();
         let owner0: LocalWallet = anvil.keys()[1].clone().into();
         let owner1: LocalWallet = anvil.keys()[2].clone().into();
