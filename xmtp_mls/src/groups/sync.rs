@@ -15,7 +15,7 @@ use super::{
 use crate::{
     await_helper,
     client::MessageProcessingError,
-    codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
+    codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{DELIMITER, MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
     groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
@@ -64,7 +64,7 @@ use xmtp_proto::xmtp::mls::{
             v2::MessageType::{Reply, Request},
             Content, V1, V2,
         },
-        GroupMembershipChanges, MessageHistoryReply, MessageHistoryRequest, PlaintextEnvelope,
+        GroupUpdated, MessageHistoryReply, MessageHistoryRequest, PlaintextEnvelope,
     },
 };
 
@@ -552,8 +552,8 @@ impl MlsGroup {
         let sender_installation_id = validated_commit.actor_installation_id();
         let sender_inbox_id = validated_commit.actor_inbox_id();
         // TODO:nm replace with new membership change codec
-        let payload: GroupMembershipChanges = validated_commit.into();
-        let encoded_payload = GroupMembershipChangeCodec::encode(payload)?;
+        let payload: GroupUpdated = validated_commit.into();
+        let encoded_payload = GroupUpdatedCodec::encode(payload)?;
         let mut encoded_payload_bytes = Vec::new();
         encoded_payload.encode(&mut encoded_payload_bytes)?;
 

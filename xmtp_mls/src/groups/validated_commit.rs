@@ -13,14 +13,11 @@ use thiserror::Error;
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
 use xmtp_id::InboxId;
-use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::{
-        identity::MlsCredential,
-        mls::message_contents::{
-            group_updated::{Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto},
-            GroupMembershipChanges, GroupUpdated as GroupUpdatedProto,
-        },
+use xmtp_proto::xmtp::{
+    identity::MlsCredential,
+    mls::message_contents::{
+        group_updated::{Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto},
+        GroupMembershipChanges, GroupUpdated as GroupUpdatedProto,
     },
 };
 
@@ -28,7 +25,7 @@ use crate::{
     configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
     identity_updates::{InstallationDiff, InstallationDiffError},
     storage::db_connection::DbConnection,
-    Client,
+    Client, XmtpApi,
 };
 
 use super::{
@@ -198,7 +195,7 @@ pub struct ValidatedCommit {
 }
 
 impl ValidatedCommit {
-    pub async fn from_staged_commit<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+    pub async fn from_staged_commit<ApiClient: XmtpApi>(
         client: &Client<ApiClient>,
         conn: &DbConnection,
         staged_commit: &StagedCommit,
@@ -398,7 +395,7 @@ struct ExpectedDiff {
 /// [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`].
 /// This requires loading the Inbox state from the network.
 /// Satisfies Rule 2
-async fn extract_expected_diff<'diff, ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+async fn extract_expected_diff<'diff, ApiClient: XmtpApi>(
     conn: &DbConnection,
     client: &Client<ApiClient>,
     existing_group_context: &GroupContext,
