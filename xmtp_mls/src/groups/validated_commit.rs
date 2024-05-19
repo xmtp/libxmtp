@@ -15,7 +15,13 @@ use xmtp_id::associations::AssociationState;
 use xmtp_id::InboxId;
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::{identity::MlsCredential, mls::message_contents::GroupMembershipChanges},
+    xmtp::{
+        identity::MlsCredential,
+        mls::message_contents::{
+            group_updated::{Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto},
+            GroupMembershipChanges, GroupUpdated as GroupUpdatedProto,
+        },
+    },
 };
 
 use crate::{
@@ -727,6 +733,44 @@ fn extract_actor(
 
     // To get here there must be no path update and no proposals found. This should actually be impossible
     Err(CommitValidationError::ActorCouldNotBeFound)
+}
+
+impl From<&MetadataFieldChange> for MetadataFieldChangeProto {
+    fn from(change: &MetadataFieldChange) -> Self {
+        MetadataFieldChangeProto {
+            field_name: change.field_name.clone(),
+            old_value: change.old_value.clone(),
+            new_value: change.new_value.clone(),
+        }
+    }
+}
+
+impl From<&Inbox> for InboxProto {
+    fn from(inbox: &Inbox) -> Self {
+        InboxProto {
+            inbox_id: inbox.inbox_id.clone(),
+        }
+    }
+}
+
+impl From<ValidatedCommit> for GroupUpdatedProto {
+    fn from(commit: ValidatedCommit) -> Self {
+        GroupUpdatedProto {
+            initiated_by_inbox_id: commit.actor.inbox_id.clone(),
+            added_inboxes: commit.added_inboxes.iter().map(InboxProto::from).collect(),
+            removed_inboxes: commit
+                .removed_inboxes
+                .iter()
+                .map(InboxProto::from)
+                .collect(),
+            metadata_field_changes: commit
+                .metadata_changes
+                .metadata_field_changes
+                .iter()
+                .map(MetadataFieldChangeProto::from)
+                .collect(),
+        }
+    }
 }
 
 // TODO:nm bring these tests back in add/remove members PR

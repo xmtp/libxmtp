@@ -3907,6 +3907,12 @@ impl serde::Serialize for PrivatePreferencesAction {
                 private_preferences_action::MessageType::DenyGroup(v) => {
                     struct_ser.serialize_field("denyGroup", v)?;
                 }
+                private_preferences_action::MessageType::AllowInboxId(v) => {
+                    struct_ser.serialize_field("allowInboxId", v)?;
+                }
+                private_preferences_action::MessageType::DenyInboxId(v) => {
+                    struct_ser.serialize_field("denyInboxId", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -3927,6 +3933,10 @@ impl<'de> serde::Deserialize<'de> for PrivatePreferencesAction {
             "allowGroup",
             "deny_group",
             "denyGroup",
+            "allow_inbox_id",
+            "allowInboxId",
+            "deny_inbox_id",
+            "denyInboxId",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3935,6 +3945,8 @@ impl<'de> serde::Deserialize<'de> for PrivatePreferencesAction {
             DenyAddress,
             AllowGroup,
             DenyGroup,
+            AllowInboxId,
+            DenyInboxId,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3960,6 +3972,8 @@ impl<'de> serde::Deserialize<'de> for PrivatePreferencesAction {
                             "denyAddress" | "deny_address" => Ok(GeneratedField::DenyAddress),
                             "allowGroup" | "allow_group" => Ok(GeneratedField::AllowGroup),
                             "denyGroup" | "deny_group" => Ok(GeneratedField::DenyGroup),
+                            "allowInboxId" | "allow_inbox_id" => Ok(GeneratedField::AllowInboxId),
+                            "denyInboxId" | "deny_inbox_id" => Ok(GeneratedField::DenyInboxId),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -4008,6 +4022,20 @@ impl<'de> serde::Deserialize<'de> for PrivatePreferencesAction {
                                 return Err(serde::de::Error::duplicate_field("denyGroup"));
                             }
                             message_type__ = map_.next_value::<::std::option::Option<_>>()?.map(private_preferences_action::MessageType::DenyGroup)
+;
+                        }
+                        GeneratedField::AllowInboxId => {
+                            if message_type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("allowInboxId"));
+                            }
+                            message_type__ = map_.next_value::<::std::option::Option<_>>()?.map(private_preferences_action::MessageType::AllowInboxId)
+;
+                        }
+                        GeneratedField::DenyInboxId => {
+                            if message_type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("denyInboxId"));
+                            }
+                            message_type__ = map_.next_value::<::std::option::Option<_>>()?.map(private_preferences_action::MessageType::DenyInboxId)
 ;
                         }
                     }
@@ -4207,6 +4235,98 @@ impl<'de> serde::Deserialize<'de> for private_preferences_action::AllowGroup {
         deserializer.deserialize_struct("xmtp.message_contents.PrivatePreferencesAction.AllowGroup", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for private_preferences_action::AllowInboxId {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.inbox_ids.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PrivatePreferencesAction.AllowInboxId", len)?;
+        if !self.inbox_ids.is_empty() {
+            struct_ser.serialize_field("inboxIds", &self.inbox_ids)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for private_preferences_action::AllowInboxId {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "inbox_ids",
+            "inboxIds",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            InboxIds,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "inboxIds" | "inbox_ids" => Ok(GeneratedField::InboxIds),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = private_preferences_action::AllowInboxId;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.message_contents.PrivatePreferencesAction.AllowInboxId")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<private_preferences_action::AllowInboxId, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut inbox_ids__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::InboxIds => {
+                            if inbox_ids__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("inboxIds"));
+                            }
+                            inbox_ids__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(private_preferences_action::AllowInboxId {
+                    inbox_ids: inbox_ids__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.message_contents.PrivatePreferencesAction.AllowInboxId", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for private_preferences_action::DenyAddress {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -4392,6 +4512,98 @@ impl<'de> serde::Deserialize<'de> for private_preferences_action::DenyGroup {
             }
         }
         deserializer.deserialize_struct("xmtp.message_contents.PrivatePreferencesAction.DenyGroup", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for private_preferences_action::DenyInboxId {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.inbox_ids.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PrivatePreferencesAction.DenyInboxId", len)?;
+        if !self.inbox_ids.is_empty() {
+            struct_ser.serialize_field("inboxIds", &self.inbox_ids)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for private_preferences_action::DenyInboxId {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "inbox_ids",
+            "inboxIds",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            InboxIds,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "inboxIds" | "inbox_ids" => Ok(GeneratedField::InboxIds),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = private_preferences_action::DenyInboxId;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.message_contents.PrivatePreferencesAction.DenyInboxId")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<private_preferences_action::DenyInboxId, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut inbox_ids__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::InboxIds => {
+                            if inbox_ids__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("inboxIds"));
+                            }
+                            inbox_ids__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(private_preferences_action::DenyInboxId {
+                    inbox_ids: inbox_ids__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.message_contents.PrivatePreferencesAction.DenyInboxId", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for PrivatePreferencesPayload {
