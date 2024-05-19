@@ -316,7 +316,13 @@ impl ValidatedCommit {
 impl From<ValidatedCommit> for GroupMembershipChanges {
     fn from(_commit: ValidatedCommit) -> Self {
         // TODO: Use new GroupMembershipChanges
-        todo!()
+
+        GroupMembershipChanges {
+            members_added: vec![],
+            members_removed: vec![],
+            installations_added: vec![],
+            installations_removed: vec![],
+        }
     }
 }
 

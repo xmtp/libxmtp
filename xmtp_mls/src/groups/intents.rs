@@ -25,7 +25,7 @@ use xmtp_proto::xmtp::mls::database::{
 
 use crate::{
     types::Address,
-    verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
+    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 
 use super::{group_membership::GroupMembership, group_mutable_metadata::MetadataField};
@@ -218,8 +218,8 @@ impl UpdateGroupMembershipIntentData {
     }
 
     pub fn apply_to_group_membership(&self, group_membership: &GroupMembership) -> GroupMembership {
+        log::info!("old group membership: {:?}", group_membership.members);
         let mut new_membership = group_membership.clone();
-
         for (inbox_id, sequence_id) in self.membership_updates.iter() {
             new_membership.add(inbox_id.clone(), *sequence_id);
         }
@@ -227,7 +227,7 @@ impl UpdateGroupMembershipIntentData {
         for inbox_id in self.removed_members.iter() {
             new_membership.remove(inbox_id)
         }
-
+        log::info!("updated group membership: {:?}", new_membership.members);
         new_membership
     }
 }
@@ -291,7 +291,7 @@ pub struct Installation {
 }
 
 impl Installation {
-    pub fn from_verified_key_package(key_package: &VerifiedKeyPackage) -> Self {
+    pub fn from_verified_key_package(key_package: &VerifiedKeyPackageV2) -> Self {
         Self {
             installation_key: key_package.installation_id(),
             hpke_public_key: key_package.hpke_init_key(),

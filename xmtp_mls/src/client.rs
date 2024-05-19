@@ -1,4 +1,8 @@
-use std::{collections::HashMap, collections::HashSet, mem::Discriminant, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    mem::Discriminant,
+    sync::Arc,
+};
 
 use openmls::{
     credentials::errors::BasicCredentialError,
@@ -28,18 +32,17 @@ use xmtp_proto::xmtp::mls::api::v1::{
 use crate::{
     api::{ApiClientWrapper, IdentityUpdate},
     groups::{
-        validated_commit::CommitValidationError, AddressesOrInstallationIds, IntentError, MlsGroup,
-        PreconfiguredPolicies,
+        validated_commit::CommitValidationError, IntentError, MlsGroup, PreconfiguredPolicies,
     },
-    identity::Identity,
-    identity_updates::{load_identity_updates, IdentityUpdateError},
+    identity::{parse_credential, Identity, IdentityError},
+    identity_updates::IdentityUpdateError,
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
         refresh_state::EntityKind,
         EncryptedMessageStore, StorageError,
     },
-    verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
+    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, XmtpApi,
 };
@@ -101,6 +104,8 @@ pub enum MessageProcessingError {
     },
     #[error("invalid payload")]
     InvalidPayload,
+    #[error(transparent)]
+    Identity(#[from] IdentityError),
     #[error("openmls process message error: {0}")]
     OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
     #[error("merge pending commit: {0}")]
@@ -192,8 +197,8 @@ impl XmtpMlsLocalContext {
     }
 
     /// Get sequence id, may not be consistent with the backend
-    pub fn inbox_sequence_id(&self) -> u64 {
-        self.identity.sequence_id
+    pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
+        self.identity.sequence_id(conn)
     }
 
     /// Integrators should always check the `signature_request` return value of this function before calling [`register_identity`](Self::register_identity).
@@ -240,8 +245,8 @@ where
     }
 
     /// Get sequence id, may not be consistent with the backend
-    pub fn inbox_sequence_id(&self) -> u64 {
-        self.context.inbox_sequence_id()
+    pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
+        self.context.inbox_sequence_id(conn)
     }
 
     pub fn store(&self) -> &EncryptedMessageStore {
@@ -271,7 +276,6 @@ where
             self.context.clone(),
             GroupMembershipState::Allowed,
             permissions,
-            &self.context.inbox_id(),
         )
         .map_err(|e| {
             ClientError::Storage(StorageError::Store(format!("group create error {}", e)))
@@ -343,13 +347,13 @@ where
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
         log::info!("registering identity");
-        let connection = self.store().conn()?;
-        let provider = self.mls_provider(connection.clone());
         self.apply_signature_request(signature_request).await?;
-        load_identity_updates(&self.api_client, &connection, vec![self.inbox_id()]).await?;
+        let connection = self.store().conn()?;
+        let provider = self.mls_provider(connection);
         self.identity()
             .register(&provider, &self.api_client)
             .await?;
+
         Ok(())
     }
 
@@ -452,46 +456,17 @@ where
         })
     }
 
-    pub(crate) async fn get_key_packages(
-        &self,
-        address_or_id: AddressesOrInstallationIds,
-    ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
-        match address_or_id {
-            AddressesOrInstallationIds::AccountAddresses(addrs) => {
-                self.get_key_packages_for_account_addresses(addrs).await
-            }
-            AddressesOrInstallationIds::InstallationIds(ids) => {
-                self.get_key_packages_for_installation_ids(ids).await
-            }
-        }
-    }
-
-    // Get a flat list of one key package per installation for all the wallet addresses provided.
-    // Revoked installations will be omitted from the list
-    #[allow(dead_code)]
-    pub(crate) async fn get_key_packages_for_account_addresses(
-        &self,
-        account_addresses: Vec<String>,
-    ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
-        let installation_ids = self
-            .get_all_active_installation_ids(account_addresses)
-            .await?;
-
-        self.get_key_packages_for_installation_ids(installation_ids)
-            .await
-    }
-
     pub(crate) async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
+    ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError> {
         let key_package_results = self.api_client.fetch_key_packages(installation_ids).await?;
 
         let conn = self.store().conn()?;
         let mls_provider = self.mls_provider(conn);
         Ok(key_package_results
             .values()
-            .map(|bytes| VerifiedKeyPackage::from_bytes(mls_provider.crypto(), bytes.as_slice()))
+            .map(|bytes| VerifiedKeyPackageV2::from_bytes(mls_provider.crypto(), bytes.as_slice()))
             .collect::<Result<_, _>>()?)
     }
 
@@ -532,6 +507,29 @@ where
             .collect();
 
         Ok(groups)
+    }
+
+    /**
+     * Validates a credential against the given installation public key
+     *
+     * This will go to the network and get the latest association state for the inbox.
+     * It ensures that the installation_pub_key is in that association state
+     */
+    pub async fn validate_credential_against_network(
+        &self,
+        conn: &DbConnection,
+        credential: &[u8],
+        installation_pub_key: Vec<u8>,
+    ) -> Result<InboxId, ClientError> {
+        let inbox_id = parse_credential(credential)?;
+        let association_state = self.get_latest_association_state(conn, &inbox_id).await?;
+
+        match association_state.get(&installation_pub_key.clone().into()) {
+            Some(_) => {
+                return Ok(inbox_id);
+            }
+            None => return Err(IdentityError::InstallationIdNotFound(inbox_id).into()),
+        }
     }
 
     /// Check whether an account_address has a key package registered on the network

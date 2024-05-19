@@ -6,8 +6,8 @@ use std::{
 use super::{
     build_group_membership_extension, build_mutable_metadata_extensions,
     intents::{
-        AddressesOrInstallationIds, Installation, PostCommitAction, SendMessageIntentData,
-        SendWelcomesAction, UpdateGroupMembershipIntentData,
+        Installation, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
+        UpdateGroupMembershipIntentData,
     },
     validated_commit::extract_group_membership,
     GroupError, MlsGroup,
@@ -19,7 +19,7 @@ use crate::{
     configuration::{DELIMITER, MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
     groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
-    identity::Identity,
+    identity::parse_credential,
     identity_updates::load_identity_updates,
     retry::Retry,
     retry_async, retry_sync,
@@ -285,8 +285,8 @@ impl MlsGroup {
     ) -> Result<(), MessageProcessingError> {
         debug!("[{}] processing private message", self.context.inbox_id());
         let decrypted_message = openmls_group.process_message(provider, message)?;
-        let (_sender_account_address, sender_installation_id) =
-            validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
+        let (sender_inbox_id, sender_installation_id) =
+            extract_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
 
         match decrypted_message.into_content() {
             ProcessedMessageContent::ApplicationMessage(application_message) => {
@@ -310,8 +310,7 @@ impl MlsGroup {
                             sent_at_ns: envelope_timestamp_ns as i64,
                             kind: GroupMessageKind::Application,
                             sender_installation_id,
-                            // TODO:nm Get real inbox ID
-                            sender_inbox_id: "TODO".to_string(),
+                            sender_inbox_id,
                             delivery_status: DeliveryStatus::Published,
                         }
                         .store(provider.conn_ref())?
@@ -335,8 +334,7 @@ impl MlsGroup {
                                 sent_at_ns: envelope_timestamp_ns as i64,
                                 kind: GroupMessageKind::Application,
                                 sender_installation_id,
-                                // TODO:nm use real inbox ID
-                                sender_inbox_id: "TODO".to_string(),
+                                sender_inbox_id,
                                 delivery_status: DeliveryStatus::Published,
                             }
                             .store(provider.conn_ref())?
@@ -362,8 +360,7 @@ impl MlsGroup {
                                 sent_at_ns: envelope_timestamp_ns as i64,
                                 kind: GroupMessageKind::Application,
                                 sender_installation_id,
-                                // TODO:nm use real inbox ID
-                                sender_inbox_id: "TODO".to_string(),
+                                sender_inbox_id,
                                 delivery_status: DeliveryStatus::Published,
                             }
                             .store(provider.conn_ref())?
@@ -672,7 +669,7 @@ impl MlsGroup {
 
                 Ok((
                     commit.tls_serialize_detached()?,
-                    Some(post_commit_action.to_bytes()),
+                    post_commit_action.map(|action| action.to_bytes()),
                 ))
             }
             IntentKind::SendMessage => {
@@ -903,38 +900,28 @@ impl MlsGroup {
     }
 }
 
-fn validate_message_sender(
+// Extracts the message sender, but does not do any validation to ensure that the
+// installation_id is actually part of the inbox.
+fn extract_message_sender(
     openmls_group: &mut OpenMlsGroup,
     decrypted_message: &ProcessedMessage,
     message_created_ns: u64,
-) -> Result<(String, Vec<u8>), MessageProcessingError> {
-    let mut sender_account_address = None;
-    let mut sender_installation_id = None;
+) -> Result<(InboxId, Vec<u8>), MessageProcessingError> {
     if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
         if let Some(member) = openmls_group.member_at(*leaf_node_index) {
             if member.credential.eq(decrypted_message.credential()) {
                 let basic_credential = BasicCredential::try_from(&member.credential)?;
-                sender_account_address = Identity::get_validated_account_address(
-                    basic_credential.identity(),
-                    &member.signature_key,
-                )
-                .ok();
-                sender_installation_id = Some(member.signature_key);
+                let sender_inbox_id = parse_credential(basic_credential.identity())?;
+                return Ok((sender_inbox_id, member.signature_key));
             }
         }
     }
 
-    if sender_account_address.is_none() {
-        let basic_credential = BasicCredential::try_from(decrypted_message.credential())?;
-        return Err(MessageProcessingError::InvalidSender {
-            message_time_ns: message_created_ns,
-            credential: basic_credential.identity().to_vec(),
-        });
-    }
-    Ok((
-        sender_account_address.unwrap(),
-        sender_installation_id.unwrap(),
-    ))
+    let basic_credential = BasicCredential::try_from(decrypted_message.credential())?;
+    return Err(MessageProcessingError::InvalidSender {
+        message_time_ns: message_created_ns,
+        credential: basic_credential.identity().to_vec(),
+    });
 }
 
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
@@ -945,7 +932,7 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateGroupMembershipIntentData,
     signer: &SignatureKeyPair,
-) -> Result<(MlsMessageOut, PostCommitAction), GroupError> {
+) -> Result<(MlsMessageOut, Option<PostCommitAction>), GroupError> {
     let extensions: Extensions = openmls_group.extensions().clone();
 
     let old_group_membership = extract_group_membership(&extensions)?;
@@ -968,9 +955,9 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
     if !installation_diff.added_installations.is_empty() {
         // Go to the network and load the key packages for any new installation
         let key_packages = client
-            .get_key_packages(AddressesOrInstallationIds::InstallationIds(
+            .get_key_packages_for_installation_ids(
                 installation_diff.added_installations.into_iter().collect(),
-            ))
+            )
             .await?;
 
         for key_package in key_packages {
@@ -995,10 +982,13 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
     let (commit, maybe_welcome_message, _) =
         openmls_group.commit_to_pending_proposals(provider, signer)?;
 
-    let post_commit_action = PostCommitAction::from_welcome(
-        maybe_welcome_message.ok_or(GroupError::NoChanges)?,
-        new_installations,
-    )?;
+    let post_commit_action = match maybe_welcome_message {
+        Some(welcome_message) => Some(PostCommitAction::from_welcome(
+            welcome_message,
+            new_installations,
+        )?),
+        None => None,
+    };
 
     Ok((commit, post_commit_action))
 }

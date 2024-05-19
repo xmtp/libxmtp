@@ -48,7 +48,6 @@ impl From<StoredIdentity> for Identity {
     fn from(identity: StoredIdentity) -> Self {
         Identity {
             inbox_id: identity.inbox_id.clone(),
-            sequence_id: 0, // not stored
             installation_keys: db_deserialize(&identity.installation_keys).unwrap(),
             credential: db_deserialize(&identity.credential_bytes).unwrap(),
             signature_request: None,

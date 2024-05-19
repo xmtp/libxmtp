@@ -2,7 +2,7 @@ mod grant_messaging_access_association;
 mod legacy_create_identity_association;
 
 use openmls_basic_credential::SignatureKeyPair;
-use prost::DecodeError;
+use prost::{DecodeError, Message};
 use thiserror::Error;
 
 use xmtp_cryptography::signature::AddressValidationError;
@@ -168,4 +168,18 @@ impl From<Credential> for MlsCredentialProto {
             },
         }
     }
+}
+
+pub fn get_validated_account_address(
+    credential: &[u8],
+    installation_public_key: &[u8],
+) -> Result<String, AssociationError> {
+    let proto = MlsCredentialProto::decode(credential)?;
+    let credential = Credential::from_proto_validated(
+        proto,
+        None, // expected_account_address
+        Some(installation_public_key),
+    )?;
+
+    Ok(credential.address())
 }

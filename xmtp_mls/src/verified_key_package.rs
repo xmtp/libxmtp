@@ -11,7 +11,8 @@ use thiserror::Error;
 
 use crate::{
     configuration::MLS_PROTOCOL_VERSION,
-    identity::{Identity, IdentityError},
+    credential::{get_validated_account_address, AssociationError},
+    identity::IdentityError,
     types::Address,
 };
 
@@ -29,6 +30,8 @@ pub enum KeyPackageVerificationError {
     ApplicationIdCredentialMismatch(String, String),
     #[error("invalid credential")]
     InvalidCredential,
+    #[error(transparent)]
+    Association(#[from] AssociationError),
     #[error("invalid lifetime")]
     InvalidLifetime,
     #[error("generic: {0}")]
@@ -98,7 +101,7 @@ fn identity_to_account_address(
     credential_bytes: &[u8],
     installation_key_bytes: &[u8],
 ) -> Result<String, KeyPackageVerificationError> {
-    Ok(Identity::get_validated_account_address(
+    Ok(get_validated_account_address(
         credential_bytes,
         installation_key_bytes,
     )?)
