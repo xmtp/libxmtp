@@ -1,6 +1,6 @@
 pub mod associations;
 pub mod constants;
-pub mod scw_verifiers;
+pub mod scw_verifier;
 pub mod utils;
 use ethers::{
     middleware::Middleware,
@@ -61,7 +61,7 @@ impl InboxOwner for LocalWallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scw_verifiers::tests::with_smart_contracts;
+    use crate::scw_verifier::tests::with_smart_contracts;
     use ethers::contract::abigen;
 
     abigen!(
