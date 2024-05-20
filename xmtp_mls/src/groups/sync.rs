@@ -39,7 +39,6 @@ use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
     framing::{MlsMessageOut, ProtocolMessage},
-    group::MergePendingCommitError,
     prelude::{
         tls_codec::{Deserialize, Serialize},
         LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
