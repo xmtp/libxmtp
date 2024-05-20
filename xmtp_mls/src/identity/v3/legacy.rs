@@ -163,7 +163,7 @@ impl Identity {
         // Register the installation with the server
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
-        api_client.register_installation(kp_bytes).await?;
+        api_client.register_installation(kp_bytes, false).await?;
 
         // Only persist the installation keys if the registration was successful
         self.installation_keys.store(provider.storage())?;

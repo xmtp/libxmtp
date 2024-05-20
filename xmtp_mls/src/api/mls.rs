@@ -155,7 +155,11 @@ where
         Ok(out)
     }
 
-    pub async fn register_installation(&self, key_package: Vec<u8>) -> Result<Vec<u8>, ApiError> {
+    pub async fn register_installation(
+        &self,
+        key_package: Vec<u8>,
+        is_inbox_id_credential: bool,
+    ) -> Result<Vec<u8>, ApiError> {
         let res = retry_async!(
             self.retry_strategy,
             (async {
@@ -164,6 +168,7 @@ where
                         key_package: Some(KeyPackageUpload {
                             key_package_tls_serialized: key_package.to_vec(),
                         }),
+                        is_inbox_id_credential,
                     })
                     .await
             })
@@ -172,7 +177,11 @@ where
         Ok(res.installation_key)
     }
 
-    pub async fn upload_key_package(&self, key_package: Vec<u8>) -> Result<(), ApiError> {
+    pub async fn upload_key_package(
+        &self,
+        key_package: Vec<u8>,
+        is_inbox_id_credential: bool,
+    ) -> Result<(), ApiError> {
         retry_async!(
             self.retry_strategy,
             (async {
@@ -181,6 +190,7 @@ where
                         key_package: Some(KeyPackageUpload {
                             key_package_tls_serialized: key_package.clone(),
                         }),
+                        is_inbox_id_credential,
                     })
                     .await
             })
@@ -379,7 +389,10 @@ pub mod tests {
             })
         });
         let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
-        let result = wrapper.register_installation(vec![2, 3, 4]).await.unwrap();
+        let result = wrapper
+            .register_installation(vec![2, 3, 4], false)
+            .await
+            .unwrap();
         assert_eq!(result, vec![1, 2, 3]);
     }
 
@@ -400,7 +413,7 @@ pub mod tests {
             })
             .returning(move |_| Ok(()));
         let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
-        let result = wrapper.upload_key_package(key_package_clone).await;
+        let result = wrapper.upload_key_package(key_package_clone, false).await;
         assert!(result.is_ok());
     }
 

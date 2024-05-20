@@ -13,8 +13,6 @@ use thiserror::Error;
 
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::associations::{builder::SignatureRequestError, AssociationError};
-#[cfg(feature = "xmtp-id")]
-use xmtp_id::InboxId;
 
 use xmtp_proto::xmtp::mls::api::v1::{
     welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
@@ -361,15 +359,6 @@ where
         Ok(())
     }
 
-    #[cfg(feature = "xmtp-id")]
-    /// Register an XIP-46 InboxID with the network
-    /// Requires [`IdentityUpdate`]. This can be built from a [`SignatureRequest`]
-    /// externally and passed back in.
-    pub async fn register_inbox_id(&self, _update: IdentityUpdate) -> InboxId {
-        // register the IdentityUpdate with the server
-        todo!()
-    }
-
     /// Upload a new key package to the network replacing an existing key package
     /// This is expected to be run any time the client receives new Welcome messages
     pub async fn rotate_key_package(&self) -> Result<(), ClientError> {
@@ -378,7 +367,7 @@ where
             .identity()
             .new_key_package(&self.mls_provider(connection))?;
         let kp_bytes = kp.tls_serialize_detached()?;
-        self.api_client.upload_key_package(kp_bytes).await?;
+        self.api_client.upload_key_package(kp_bytes, false).await?;
 
         Ok(())
     }
@@ -631,7 +620,10 @@ mod tests {
     #[tokio::test]
     async fn test_mls_error() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let result = client.api_client.register_installation(vec![1, 2, 3]).await;
+        let result = client
+            .api_client
+            .register_installation(vec![1, 2, 3], false)
+            .await;
 
         assert!(result.is_err());
         let error_string = result.err().unwrap().to_string();

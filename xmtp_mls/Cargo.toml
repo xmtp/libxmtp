@@ -13,7 +13,6 @@ default = ["types", "native"]
 grpc = ["xmtp_proto/grpc"]
 native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
 types = []
-xmtp-id = []
 
 [dependencies]
 async-trait.workspace = true

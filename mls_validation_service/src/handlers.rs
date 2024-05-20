@@ -197,6 +197,7 @@ async fn validate_inbox_id_key_package(
         error_message: "".into(),
         credential: Some(kp.credential),
         installation_public_key: kp.installation_public_key,
+        expiration: kp.inner.life_time().not_after(),
     })
 }
 
