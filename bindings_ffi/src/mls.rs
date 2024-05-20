@@ -15,6 +15,7 @@ use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::group_permissions::GroupMutablePermissions;
 use xmtp_mls::groups::PreconfiguredPolicies;
 use xmtp_mls::identity::v3::{IdentityStrategy, LegacyIdentity};
+use xmtp_mls::storage::StorageError;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -111,6 +112,28 @@ pub async fn create_client(
     Ok(Arc::new(FfiXmtpClient {
         inner_client: Arc::new(xmtp_client),
     }))
+}
+
+
+pub async fn release_client_connection(    
+    db: Option<String>,
+    encryption_key: Option<Vec<u8>>
+) -> Result<(), GenericError> {
+            let storage_option = match db {
+        Some(path) => StorageOption::Persistent(path),
+        None => StorageOption::Ephemeral,
+    };
+    let store = match encryption_key {
+        Some(key) => {
+            let key: EncryptionKey = key
+                .try_into()
+                .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
+            EncryptedMessageStore::new(storage_option, key)?
+        }
+        None => EncryptedMessageStore::new_unencrypted(storage_option)?,
+    };
+
+    Ok(store.release_connection()?)
 }
 
 #[derive(uniffi::Object)]
