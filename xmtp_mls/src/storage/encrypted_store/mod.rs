@@ -207,6 +207,26 @@ impl EncryptedMessageStore {
 
         Ok(())
     }
+
+    pub fn reconnect(&mut self) -> Result<(), StorageError> {
+        log::info!("Reconnecting to the database");
+
+        let pool = match self.connect_opt {
+            StorageOption::Ephemeral => Pool::builder()
+                .max_size(1)
+                .build(ConnectionManager::<SqliteConnection>::new(":memory:"))
+                .map_err(|e| StorageError::DbInit(e.to_string()))?,
+            StorageOption::Persistent(ref path) => Pool::builder()
+                .max_size(10)
+                .build(ConnectionManager::<SqliteConnection>::new(path))
+                .map_err(|e| StorageError::DbInit(e.to_string()))?,
+        };
+
+        self.pool = pool;
+
+        self.init_db()?;
+        Ok(())
+    }
 }
 
 #[allow(dead_code)]

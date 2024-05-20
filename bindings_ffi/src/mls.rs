@@ -9,13 +9,13 @@ use std::sync::{
     Arc, Mutex,
 };
 use tokio::sync::oneshot::Sender;
+use uniffi::deps::once_cell::sync::Lazy;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::group_permissions::GroupMutablePermissions;
 use xmtp_mls::groups::PreconfiguredPolicies;
 use xmtp_mls::identity::v3::{IdentityStrategy, LegacyIdentity};
-use xmtp_mls::storage::StorageError;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -28,6 +28,26 @@ use xmtp_mls::{
 };
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
+
+struct StoreManager {
+    store: Option<Arc<Mutex<EncryptedMessageStore>>>,
+}
+
+impl StoreManager {
+    fn new() -> Self {
+        StoreManager { store: None }
+    }
+
+    fn set_store(&mut self, store: EncryptedMessageStore) {
+        self.store = Some(Arc::new(Mutex::new(store)));
+    }
+
+    fn get_store(&self) -> Option<Arc<Mutex<EncryptedMessageStore>>> {
+        self.store.clone()
+    }
+}
+
+static STORE_MANAGER: Lazy<Mutex<StoreManager>> = Lazy::new(|| Mutex::new(StoreManager::new()));
 
 /// XMTP SDK's may embed libxmtp (v3) alongside existing v2 protocol logic
 /// for backwards-compatibility purposes. In this case, the client may already
@@ -89,6 +109,9 @@ pub async fn create_client(
         None => EncryptedMessageStore::new_unencrypted(storage_option)?,
     };
 
+    let store_for_manager = store.clone();
+    STORE_MANAGER.lock().unwrap().set_store(store_for_manager);
+
     log::info!("Creating XMTP client");
     let legacy_key_result =
         legacy_signed_private_key_proto.ok_or("No legacy key provided".to_string());
@@ -112,28 +135,6 @@ pub async fn create_client(
     Ok(Arc::new(FfiXmtpClient {
         inner_client: Arc::new(xmtp_client),
     }))
-}
-
-
-pub async fn release_client_connection(    
-    db: Option<String>,
-    encryption_key: Option<Vec<u8>>
-) -> Result<(), GenericError> {
-            let storage_option = match db {
-        Some(path) => StorageOption::Persistent(path),
-        None => StorageOption::Ephemeral,
-    };
-    let store = match encryption_key {
-        Some(key) => {
-            let key: EncryptionKey = key
-                .try_into()
-                .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
-            EncryptedMessageStore::new(storage_option, key)?
-        }
-        None => EncryptedMessageStore::new_unencrypted(storage_option)?,
-    };
-
-    Ok(store.release_connection()?)
 }
 
 #[derive(uniffi::Object)]
@@ -166,6 +167,25 @@ impl FfiXmtpClient {
 
     pub fn installation_id(&self) -> Vec<u8> {
         self.inner_client.installation_public_key()
+    }
+
+    pub async fn release_db_connection(&self) -> Result<(), GenericError> {
+        if let Some(store) = STORE_MANAGER.lock().unwrap().get_store() {
+            store.lock().unwrap().release_connection()?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn db_reconnect(&self) -> Result<(), GenericError> {
+        if let Some(store) = STORE_MANAGER.lock().unwrap().get_store() {
+            let mut store = store.lock().unwrap();
+            if let Err(e) = store.reconnect() {
+                eprintln!("Failed to reconnect: {:?}", e);
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -688,7 +708,6 @@ impl FfiGroupMetadata {
     }
 }
 
-
 #[derive(uniffi::Object)]
 pub struct FfiGroupPermissions {
     inner: Arc<GroupMutablePermissions>,
@@ -696,7 +715,6 @@ pub struct FfiGroupPermissions {
 
 #[uniffi::export]
 impl FfiGroupPermissions {
-
     pub fn policy_type(&self) -> Result<GroupPermissions, GenericError> {
         Ok(self.inner.preconfigured_policy()?.into())
     }
