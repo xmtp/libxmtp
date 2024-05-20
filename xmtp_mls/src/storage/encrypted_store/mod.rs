@@ -198,6 +198,15 @@ impl EncryptedMessageStore {
         crypto_utils::rng().fill_bytes(&mut key[..]);
         key
     }
+
+    pub fn release_connection(&self) -> Result<(), StorageError> {
+        let conn = self.raw_conn()?;
+
+        // Explicitly drop the connection to release the lock
+        drop(conn);
+
+        Ok(())
+    }
 }
 
 #[allow(dead_code)]
