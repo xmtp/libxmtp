@@ -59,7 +59,7 @@ impl ERC1271Verifier {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use ethers::{
         abi::{self, Token},
@@ -100,7 +100,7 @@ mod tests {
             }
         }
 
-        fn coinbase_smart_wallet_factory(
+        pub fn coinbase_smart_wallet_factory(
             &self,
         ) -> &CoinbaseSmartWalletFactory<SignerMiddleware<Provider<Http>, LocalWallet>> {
             &self.coinbase_smart_wallet_factory
@@ -113,7 +113,6 @@ mod tests {
         Func: FnOnce(
             AnvilInstance,
             Provider<Http>,
-            // when changing owner for client, do update chain id: client.with_signer(signer).with_chain_id(anvil.chain_id())
             SignerMiddleware<Provider<Http>, LocalWallet>,
             SmartContracts,
         ) -> Fut,
