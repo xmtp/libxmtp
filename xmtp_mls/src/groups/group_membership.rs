@@ -88,10 +88,10 @@ impl TryFrom<Vec<u8>> for GroupMembership {
     }
 }
 
-impl From<GroupMembership> for Vec<u8> {
-    fn from(value: GroupMembership) -> Self {
+impl From<&GroupMembership> for Vec<u8> {
+    fn from(value: &GroupMembership) -> Self {
         let membership_proto = GroupMembershipProto {
-            members: value.members,
+            members: value.members.clone(),
         };
 
         membership_proto.encode_to_vec()

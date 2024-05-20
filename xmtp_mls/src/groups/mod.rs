@@ -722,10 +722,10 @@ pub fn build_mutable_metadata_extensions(
 pub fn build_starting_group_membership_extension(inbox_id: String, sequence_id: u64) -> Extension {
     let mut group_membership = GroupMembership::new();
     group_membership.add(inbox_id, sequence_id);
-    build_group_membership_extension(group_membership)
+    build_group_membership_extension(&group_membership)
 }
 
-pub fn build_group_membership_extension(group_membership: GroupMembership) -> Extension {
+pub fn build_group_membership_extension(group_membership: &GroupMembership) -> Extension {
     let unknown_gc_extension = UnknownExtension(group_membership.into());
 
     Extension::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID, unknown_gc_extension)
@@ -833,7 +833,7 @@ mod tests {
         messages.pop().unwrap()
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_send_message() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -872,6 +872,35 @@ mod tests {
         let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_receive_message_from_other() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let alix_group = alix.create_group(None).expect("create group");
+        alix_group
+            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .await
+            .unwrap();
+        let alix_message = b"hello from alix";
+        alix_group
+            .send_message(alix_message, &alix)
+            .await
+            .expect("send message");
+
+        let bo_group = receive_group_invite(&bo).await;
+        let message = get_latest_message(&bo_group, &bo).await;
+        assert_eq!(message.decrypted_message_bytes, alix_message);
+
+        let bo_message = b"hello from bo";
+        bo_group
+            .send_message(bo_message, &bo)
+            .await
+            .expect("send message");
+
+        let message = get_latest_message(&alix_group, &alix).await;
+        assert_eq!(message.decrypted_message_bytes, bo_message);
     }
 
     // Amal and Bola will both try and add Charlie from the same epoch.

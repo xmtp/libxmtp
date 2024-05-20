@@ -947,6 +947,7 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
 
     // Diff the two membership hashmaps getting a list of inboxes that have been added, removed, or updated
     let membership_diff = old_group_membership.diff(&new_group_membership);
+
     // Construct a diff of the installations that have been added or removed.
     // This function goes to the network and fills in any missing Identity Updates
     let installation_diff = client
@@ -980,9 +981,10 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
             openmls_group.propose_remove_member(provider, signer, leaf_node_index)?;
         }
     }
+
     // Update the extensions to have the new GroupMembership
     let mut new_extensions = extensions.clone();
-    new_extensions.add_or_replace(build_group_membership_extension(new_group_membership));
+    new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
     openmls_group.propose_group_context_extensions(provider, new_extensions, signer)?;
 
     // Commit to the pending proposals, which will clear the proposal queue
