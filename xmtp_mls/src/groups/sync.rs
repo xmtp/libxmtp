@@ -221,9 +221,7 @@ impl MlsGroup {
                 .await?;
 
                 debug!("[{}] merging pending commit", self.context.inbox_id());
-                if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
-                    openmls_group.merge_pending_commit(&provider)
-                {
+                if let Err(err) = openmls_group.merge_pending_commit(&provider) {
                     log::error!("error merging commit: {}", err);
                     openmls_group.clear_pending_commit();
                     conn.set_group_intent_to_publish(intent.id)?;
@@ -284,7 +282,7 @@ impl MlsGroup {
         envelope_timestamp_ns: u64,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
-        debug!("[{}] processing private message", self.context.inbox_id());
+        debug!("[{}] processing external message", self.context.inbox_id());
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
@@ -300,7 +298,7 @@ impl MlsGroup {
                 let mut bytes = Bytes::from(message_bytes.clone());
                 let envelope = PlaintextEnvelope::decode(&mut bytes)
                     .map_err(MessageProcessingError::DecodeError)?;
-
+                log::debug!("Decoded plaintext envelope {:?}", envelope);
                 match envelope.content {
                     Some(Content::V1(V1 {
                         idempotency_key,
@@ -508,7 +506,7 @@ impl MlsGroup {
             .map(|envelope| -> Result<(), MessageProcessingError> {
                 retry_sync!(
                     Retry::default(),
-                    (|| self.consume_message(&envelope, &mut openmls_group, client))
+                    (|| { self.consume_message(&envelope, &mut openmls_group, client) })
                 )
             })
             .filter_map(Result::err)

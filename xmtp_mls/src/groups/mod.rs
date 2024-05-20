@@ -924,11 +924,13 @@ mod tests {
         let bola_groups = bola.sync_welcomes().await.unwrap();
         let bola_group = bola_groups.first().unwrap();
 
+        log::info!("Adding charlie from amal");
         // Have amal and bola both invite charlie.
         amal_group
             .add_members_by_inbox_id(&amal, vec![charlie.inbox_id()])
             .await
             .expect("failed to add charlie");
+        log::info!("Adding charlie from bola");
         bola_group
             .add_members_by_inbox_id(&bola, vec![charlie.inbox_id()])
             .await

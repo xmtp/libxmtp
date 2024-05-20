@@ -540,19 +540,6 @@ pub fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientErr
     }
 }
 
-fn has_active_installation(updates: &Vec<IdentityUpdate>) -> bool {
-    let mut active_count = 0;
-    for update in updates {
-        match update {
-            IdentityUpdate::Invalid => {}
-            IdentityUpdate::NewInstallation(_) => active_count += 1,
-            IdentityUpdate::RevokeInstallation(_) => active_count -= 1,
-        }
-    }
-
-    active_count > 0
-}
-
 #[cfg(test)]
 mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -722,6 +709,8 @@ mod tests {
         let bola_group = bola_groups.first().unwrap();
         log::info!("Syncing bolas messages");
         bola_group.sync(&bola).await.unwrap();
+        // TODO: figure out why Bola's status is not updating to be inactive
+        // assert!(!bola_group.is_active().unwrap());
 
         // Bola should have one readable message (them being added to the group)
         let mut bola_messages = bola_group
