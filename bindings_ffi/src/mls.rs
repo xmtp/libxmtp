@@ -10,12 +10,17 @@ use std::sync::{
 };
 use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_id::associations::builder::SignatureRequest;
+use xmtp_id::associations::AccountId;
+use xmtp_id::associations::Erc1271Signature;
+use xmtp_id::associations::RecoverableEcdsaSignature;
 use xmtp_id::InboxId;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::group_permissions::GroupMutablePermissions;
 use xmtp_mls::groups::PreconfiguredPolicies;
 use xmtp_mls::identity::IdentityStrategy;
+use xmtp_mls::types::Address;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -115,6 +120,62 @@ pub async fn create_client(
 }
 
 #[derive(uniffi::Object)]
+pub struct FfiSignatureRequest {
+    // Using `tokio::sync::Mutex`bc rust MutexGuard cannot be sent between threads.
+    inner: Arc<tokio::sync::Mutex<SignatureRequest>>,
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl FfiSignatureRequest {
+    // Signature that's signed by EOA wallet
+    pub async fn add_ecdsa_signature(&self, signature_bytes: Vec<u8>) -> Result<(), GenericError> {
+        let mut inner = self.inner.lock().await;
+        let signature_text = inner.signature_text();
+        inner
+            .add_signature(Box::new(RecoverableEcdsaSignature::new(
+                signature_text,
+                signature_bytes,
+            )))
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn add_erc1271_signature(
+        &self,
+        signature_bytes: Vec<u8>,
+        address: String,
+        chain_rpc_url: String,
+        block_number: u64,
+    ) -> Result<(), GenericError> {
+        let mut inner = self.inner.lock().await;
+        let erc1271_signature = Erc1271Signature::new(
+            inner.signature_text(),
+            signature_bytes,
+            AccountId {},
+            chain_rpc_url,
+            block_number,
+        );
+        inner.add_signature(Box::new(erc1271_signature)).await?;
+        Ok(())
+    }
+
+    pub async fn signature_text(&self) -> Result<String, GenericError> {
+        Ok(self.inner.lock().await.signature_text())
+    }
+
+    /// missing signatures that are from [MemberKind::Address]
+    pub async fn missing_address_signatures(&self) -> Result<Vec<String>, GenericError> {
+        let inner = self.inner.lock().await;
+        Ok(inner
+            .missing_address_signatures()
+            .iter()
+            .map(|member| member.to_string())
+            .collect())
+    }
+}
+
+#[derive(uniffi::Object)]
 pub struct FfiXmtpClient {
     inner_client: Arc<RustXmtpClient>,
 }
@@ -149,13 +210,25 @@ impl FfiXmtpClient {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
-    pub fn siganture_request(&self) -> Option<String> {
-        Some("signature_request".to_string())
+    pub fn signature_request(&self) -> Option<Arc<FfiSignatureRequest>> {
+        self.inner_client
+            .identity()
+            .signature_request()
+            .map(|request| {
+                Arc::new(FfiSignatureRequest {
+                    inner: Arc::new(tokio::sync::Mutex::new(request)),
+                })
+            })
     }
 
-    pub async fn register_identity(&self, _signature_request: String) -> Result<(), GenericError> {
-        // TODO: use proper type for signature_request and uncomment this
-        // self.inner_client.register_identity(request).await?;
+    pub async fn register_identity(
+        &self,
+        signature_request: Arc<FfiSignatureRequest>,
+    ) -> Result<(), GenericError> {
+        let signature_request = signature_request.inner.lock().await;
+        self.inner_client
+            .register_identity(signature_request.clone())
+            .await?;
 
         Ok(())
     }
