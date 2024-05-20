@@ -100,7 +100,6 @@ where
         if let Some(association_state) =
             StoredAssociationState::read_from_cache(conn, inbox_id.to_string(), last_sequence_id)?
         {
-            log::debug!("Loaded association state from cache");
             return Ok(association_state);
         }
 

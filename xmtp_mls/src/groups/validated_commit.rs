@@ -34,7 +34,7 @@ use super::{
     group_mutable_metadata::{
         find_mutable_metadata_extension, GroupMutableMetadata, GroupMutableMetadataError,
     },
-    group_permissions::GroupMutablePermissionsError,
+    group_permissions::{extract_group_permissions, GroupMutablePermissionsError},
 };
 
 #[derive(Debug, Error)]
@@ -297,6 +297,11 @@ impl ValidatedCommit {
             removed_inboxes,
             metadata_changes,
         };
+
+        let policy_set = extract_group_permissions(&openmls_group)?;
+        if !policy_set.policies.evaluate_commit(&verified_commit) {
+            return Err(CommitValidationError::InsufficientPermissions);
+        }
 
         Ok(verified_commit)
     }

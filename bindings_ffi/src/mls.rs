@@ -512,15 +512,14 @@ impl FfiGroup {
         Ok(group.is_active()?)
     }
 
-    // TODO: This should be `added_by_inbox_id`
-    pub fn added_by_address(&self) -> Result<String, GenericError> {
+    pub fn added_by_inbox_id(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        Ok(group.added_by_address()?)
+        Ok(group.added_by_inbox_id()?)
     }
 
     pub fn group_metadata(&self) -> Result<Arc<FfiGroupMetadata>, GenericError> {
@@ -652,8 +651,8 @@ pub struct FfiGroupMetadata {
 
 #[uniffi::export]
 impl FfiGroupMetadata {
-    pub fn creator_account_address(&self) -> String {
-        self.inner.creator_account_address.clone()
+    pub fn creator_inbox_id(&self) -> String {
+        self.inner.creator_inbox_id.clone()
     }
 
     pub fn conversation_type(&self) -> String {
@@ -1249,13 +1248,13 @@ mod tests {
 
         let bola_group = bola_groups.first().unwrap();
 
-        // Check Bola's group for the added_by_address of the inviter
-        let added_by_address = bola_group.added_by_address().unwrap();
+        // Check Bola's group for the added_by_inbox_id of the inviter
+        let added_by_inbox_id = bola_group.added_by_inbox_id().unwrap();
 
         // // Verify the welcome host_credential is equal to Amal's
         assert_eq!(
             amal.siganture_request().unwrap(),
-            added_by_address,
+            added_by_inbox_id,
             "The Inviter and added_by_address do not match!"
         );
     }

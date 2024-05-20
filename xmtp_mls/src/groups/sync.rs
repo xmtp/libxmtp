@@ -211,6 +211,7 @@ impl MlsGroup {
                     // Return OK here, because an error will roll back the transaction
                     return Ok(());
                 }
+                debug!("Has a validated commit");
                 let maybe_validated_commit = ValidatedCommit::from_staged_commit(
                     client,
                     &conn,
@@ -287,7 +288,11 @@ impl MlsGroup {
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
-
+        debug!(
+            "[{}] extracted sender sender inbox id: {}",
+            self.context.inbox_id(),
+            sender_inbox_id
+        );
         match decrypted_message.into_content() {
             ProcessedMessageContent::ApplicationMessage(application_message) => {
                 let message_bytes = application_message.into_bytes();
@@ -796,6 +801,8 @@ impl MlsGroup {
             return Ok(());
         }
 
+        debug!("Adding missing installations {:?}", intent_data);
+
         let conn = provider.conn();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::UpdateGroupMembership,
@@ -823,7 +830,7 @@ impl MlsGroup {
         let mls_group = self.load_mls_group(provider)?;
         let existing_group_membership = extract_group_membership(mls_group.extensions())?;
 
-        // TODO:nm don't bother updating the removed members
+        // TODO:nm prevent querying for updates on members who are being removed
         let mut inbox_ids = existing_group_membership.inbox_ids();
         inbox_ids.extend(inbox_ids_to_add);
         let conn = provider.conn_ref();

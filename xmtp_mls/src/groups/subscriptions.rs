@@ -119,7 +119,6 @@ mod tests {
     use futures::StreamExt;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    #[ignore]
     async fn test_decode_group_message_bytes() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -155,7 +154,6 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
-    #[ignore]
     async fn test_subscribe_messages() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -191,7 +189,6 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
-    #[ignore]
     async fn test_subscribe_multiple() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let group = amal.create_group(None).unwrap();

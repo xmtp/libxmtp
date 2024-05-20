@@ -231,11 +231,6 @@ where
         }
     }
 
-    pub fn account_address(&self) -> String {
-        // TODO:nm Remove this hack
-        self.inbox_id()
-    }
-
     pub fn installation_public_key(&self) -> Vec<u8> {
         self.context.installation_public_key()
     }

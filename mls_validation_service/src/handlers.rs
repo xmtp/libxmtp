@@ -11,6 +11,7 @@ use xmtp_id::associations::{
 };
 use xmtp_mls::{
     utils::id::serialize_group_id,
+    verified_key_package::VerifiedKeyPackage,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use xmtp_proto::xmtp::{
