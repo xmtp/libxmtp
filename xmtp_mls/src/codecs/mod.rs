@@ -1,6 +1,6 @@
+mod group_updated;
 pub mod membership_change;
 pub mod text;
-mod group_updated;
 
 use thiserror::Error;
 
