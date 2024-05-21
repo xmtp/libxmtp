@@ -26,7 +26,6 @@ use openmls::{
     messages::proposals::ProposalType,
     prelude::{Capabilities, Credential as OpenMlsCredential},
     prelude_test::KeyPackage,
-    versions::ProtocolVersion,
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::types::CryptoError;
