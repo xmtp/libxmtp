@@ -28,7 +28,7 @@ pub enum SignatureError {
     #[error(transparent)]
     ECDSAError(#[from] ethers::types::SignatureError),
     #[error(transparent)]
-    VerifierError(#[from] crate::erc1271_verifier::VerifierError),
+    VerifierError(#[from] crate::scw_verifier::VerifierError),
     #[error("ed25519 Signature failed {0}")]
     Ed25519Error(#[from] ed25519_dalek::SignatureError),
     #[error(transparent)]
@@ -176,7 +176,7 @@ impl Erc1271Signature {
 #[async_trait]
 impl Signature for Erc1271Signature {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
-        let verifier = crate::erc1271_verifier::ERC1271Verifier::new(self.chain_rpc_url.clone());
+        let verifier = crate::scw_verifier::ERC1271Verifier::new(self.chain_rpc_url.clone());
         let is_valid = verifier
             .is_valid_signature(
                 self.account_id.get_account_address().parse()?,

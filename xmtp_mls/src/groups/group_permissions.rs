@@ -455,6 +455,7 @@ pub struct PermissionsChange {
 
 impl PermissionsChange {
     #[cfg(test)]
+    #[allow(dead_code)]
     fn empty_for_testing() -> Self {
         todo!();
         // Self {
