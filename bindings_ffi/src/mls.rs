@@ -31,7 +31,6 @@ use xmtp_mls::{
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
     },
 };
-use xmtp_proto::api_client::XmtpIdentityClient;
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
