@@ -32,8 +32,7 @@ jobs:
         uses: actions-rs/cargo@v1
         timeout-minutes: 20
         with:
-          command: test
-          args: --test-threads=4
+          command: test --test-threads=4
 
       - name: Setup Kotlin
         run: |
