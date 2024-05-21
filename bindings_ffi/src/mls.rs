@@ -11,14 +11,17 @@ use std::sync::{
 use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
+use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 use xmtp_id::associations::Erc1271Signature;
 use xmtp_id::associations::RecoverableEcdsaSignature;
 use xmtp_id::InboxId;
+use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::group_permissions::GroupMutablePermissions;
 use xmtp_mls::groups::PreconfiguredPolicies;
 use xmtp_mls::identity::IdentityStrategy;
+use xmtp_mls::retry::Retry;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -116,6 +119,35 @@ pub async fn create_client(
         inner_client: Arc::new(xmtp_client),
         account_address,
     }))
+}
+
+#[allow(unused)]
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn get_inbox_id_for_address(
+    logger: Box<dyn FfiLogger>,
+    host: String,
+    is_secure: bool,
+    account_address: String,
+) -> Result<Option<String>, GenericError> {
+    init_logger(logger);
+
+    let api_client = ApiClientWrapper::new(
+        TonicApiClient::create(host.clone(), is_secure).await?,
+        Retry::default(),
+    );
+
+    let results = api_client
+        .get_inbox_ids(vec![account_address.clone()])
+        .await
+        .map_err(GenericError::from_error)?;
+
+    Ok(results.get(&account_address).cloned())
+}
+
+#[allow(unused)]
+#[uniffi::export]
+pub fn generate_inbox_id(account_address: String, nonce: u64) -> String {
+    xmtp_id_generate_inbox_id(&account_address, &nonce)
 }
 
 #[derive(uniffi::Object)]
@@ -788,8 +820,8 @@ impl FfiGroupPermissions {
 #[cfg(test)]
 mod tests {
     use crate::{
-        inbox_owner::SigningError, logger::FfiLogger, FfiConversationCallback, FfiInboxOwner,
-        LegacyIdentitySource,
+        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
+        FfiConversationCallback, FfiInboxOwner, LegacyIdentitySource,
     };
     use std::{
         env,
@@ -916,6 +948,24 @@ mod tests {
         .unwrap();
         register_client(&ffi_inbox_owner, &client).await;
         return client;
+    }
+
+    #[tokio::test]
+    async fn get_inbox_id() {
+        let client = new_test_client().await;
+        let real_inbox_id = client.inbox_id();
+
+        let from_network = get_inbox_id_for_address(
+            Box::new(MockLogger {}),
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            client.account_address.clone(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(real_inbox_id, from_network);
     }
 
     // Try a query on a test topic, and make sure we get a response
