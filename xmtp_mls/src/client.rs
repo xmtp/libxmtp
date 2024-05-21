@@ -164,14 +164,14 @@ impl From<&str> for ClientError {
 #[derive(Debug)]
 pub struct Client<ApiClient> {
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
-    pub(crate) context: XmtpMlsLocalContext,
+    pub(crate) context: Arc<XmtpMlsLocalContext>,
 }
 
 /// The local context a XMTP MLS needs to function:
 /// - Sqlite Database
 /// - Identity for the User
 ///
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct XmtpMlsLocalContext {
     /// XMTP Identity
     pub(crate) identity: Identity,
@@ -227,7 +227,7 @@ where
         let context = XmtpMlsLocalContext { identity, store };
         Self {
             api_client,
-            context: context,
+            context: Arc::new(context),
         }
     }
 
@@ -252,15 +252,13 @@ where
     }
 
     pub fn release_db_connection(&mut self) {
-        let store = &mut self.context.store;
+        let store = &self.context.store;
         store.release_connection()
     }
 
     pub fn reconnect_db(&mut self) -> Result<(), ClientError> {
-        let store = &mut self.context.store;
-        store
-            .reconnect()
-            .map_err(|e| ClientError::Storage(StorageError::Store(format!("reconnect db {}", e))))
+        let store = &self.context.store;
+        store.reconnect()
     }
 
     pub fn identity(&self) -> &Identity {
@@ -278,7 +276,7 @@ where
         XmtpOpenMlsProvider::new(conn)
     }
 
-    pub fn context(&self) -> &XmtpMlsLocalContext {
+    pub fn context(&self) -> &Arc<XmtpMlsLocalContext> {
         &self.context
     }
 

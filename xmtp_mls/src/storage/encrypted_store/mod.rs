@@ -133,8 +133,7 @@ impl EncryptedMessageStore {
     fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
-        self.pool
-            .as_ref()
+        self.pool.as_ref()
             .map(|pool| {
                 let mut conn = pool
                     .get()

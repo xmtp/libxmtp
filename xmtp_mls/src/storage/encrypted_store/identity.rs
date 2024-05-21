@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
 use diesel::prelude::*;
 
@@ -59,9 +59,7 @@ impl From<StoredIdentity> for Identity {
         Identity {
             account_address: identity.account_address,
             installation_keys: db_deserialize(&identity.installation_keys).unwrap(),
-            credential: Arc::new(RwLock::new(Some(
-                db_deserialize(&identity.credential_bytes).unwrap(),
-            ))),
+            credential: RwLock::new(Some(db_deserialize(&identity.credential_bytes).unwrap())),
             unsigned_association_data: None,
         }
     }

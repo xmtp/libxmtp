@@ -180,7 +180,7 @@ impl RetryableError for GroupError {
 pub struct MlsGroup {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
-    context: XmtpMlsLocalContext,
+    context: Arc<XmtpMlsLocalContext>,
 }
 
 impl Clone for MlsGroup {
@@ -195,7 +195,7 @@ impl Clone for MlsGroup {
 
 impl MlsGroup {
     // Creates a new group instance. Does not validate that the group exists in the DB
-    pub fn new(context: XmtpMlsLocalContext, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+    pub fn new(context: Arc<XmtpMlsLocalContext>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
         Self {
             context,
             group_id,
@@ -215,7 +215,7 @@ impl MlsGroup {
 
     // Create a new group and save it to the DB
     pub fn create_and_insert(
-        context: XmtpMlsLocalContext,
+        context: Arc<XmtpMlsLocalContext>,
         membership_state: GroupMembershipState,
         permissions: Option<PreconfiguredPolicies>,
         added_by_address: String,
@@ -257,13 +257,17 @@ impl MlsGroup {
         );
 
         stored_group.store(provider.conn_ref())?;
-        Ok(Self::new(context, group_id, stored_group.created_at_ns))
+        Ok(Self::new(
+            context.clone(),
+            group_id,
+            stored_group.created_at_ns,
+        ))
     }
 
     // Create a group from a decrypted and decoded welcome message
     // If the group already exists in the store, overwrite the MLS state and do not update the group entry
     fn create_from_welcome(
-        context: XmtpMlsLocalContext,
+        context: Arc<XmtpMlsLocalContext>,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
         added_by_address: String,
@@ -301,7 +305,7 @@ impl MlsGroup {
 
     // Decrypt a welcome message using HPKE and then create and save a group from the stored message
     pub fn create_from_encrypted_welcome(
-        context: XmtpMlsLocalContext,
+        context: Arc<XmtpMlsLocalContext>,
         provider: &XmtpOpenMlsProvider,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: Vec<u8>,
@@ -325,7 +329,7 @@ impl MlsGroup {
     }
 
     pub(crate) fn create_and_insert_sync_group(
-        context: XmtpMlsLocalContext,
+        context: Arc<XmtpMlsLocalContext>,
     ) -> Result<MlsGroup, GroupError> {
         let conn = context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
@@ -362,7 +366,7 @@ impl MlsGroup {
         stored_group.store(provider.conn_ref())?;
 
         Ok(Self::new(
-            context,
+            context.clone(),
             stored_group.id,
             stored_group.created_at_ns,
         ))
