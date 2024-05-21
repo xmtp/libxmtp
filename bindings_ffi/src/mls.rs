@@ -29,26 +29,6 @@ use xmtp_mls::{
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
-struct StoreManager {
-    store: Option<Arc<Mutex<EncryptedMessageStore>>>,
-}
-
-impl StoreManager {
-    fn new() -> Self {
-        StoreManager { store: None }
-    }
-
-    fn set_store(&mut self, store: EncryptedMessageStore) {
-        self.store = Some(Arc::new(Mutex::new(store)));
-    }
-
-    fn get_store(&self) -> Option<Arc<Mutex<EncryptedMessageStore>>> {
-        self.store.clone()
-    }
-}
-
-static STORE_MANAGER: Lazy<Mutex<StoreManager>> = Lazy::new(|| Mutex::new(StoreManager::new()));
-
 /// XMTP SDK's may embed libxmtp (v3) alongside existing v2 protocol logic
 /// for backwards-compatibility purposes. In this case, the client may already
 /// have a wallet-signed v2 key. Depending on the source of this key,
@@ -109,9 +89,6 @@ pub async fn create_client(
         None => EncryptedMessageStore::new_unencrypted(storage_option)?,
     };
 
-    let store_for_manager = store.clone();
-    STORE_MANAGER.lock().unwrap().set_store(store_for_manager);
-
     log::info!("Creating XMTP client");
     let legacy_key_result =
         legacy_signed_private_key_proto.ok_or("No legacy key provided".to_string());
@@ -170,22 +147,14 @@ impl FfiXmtpClient {
     }
 
     pub async fn release_db_connection(&self) -> Result<(), GenericError> {
-        if let Some(store) = STORE_MANAGER.lock().unwrap().get_store() {
-            store.lock().unwrap().release_connection()?;
-        }
-
+        self.inner_client.release_connection();
         Ok(())
     }
 
     pub async fn db_reconnect(&self) -> Result<(), GenericError> {
-        if let Some(store) = STORE_MANAGER.lock().unwrap().get_store() {
-            let mut store = store.lock().unwrap();
-            if let Err(e) = store.reconnect() {
-                eprintln!("Failed to reconnect: {:?}", e);
-            }
-        }
+        let results = self.inner_client.reconnect_db();
 
-        Ok(())
+        Ok(results)
     }
 }
 

@@ -201,18 +201,11 @@ impl EncryptedMessageStore {
         key
     }
 
-    pub fn release_connection(&self) -> Result<(), StorageError> {
-        let conn = self.raw_conn()?;
-
-        // Explicitly drop the connection to release the lock
-        drop(conn);
-
-        Ok(())
+    pub fn release_connection(&mut self) {
+        self.pool.take();
     }
 
     pub fn reconnect(&mut self) -> Result<(), StorageError> {
-        log::info!("Reconnecting to the database");
-
         let pool = match self.connect_opt {
             StorageOption::Ephemeral => Pool::builder()
                 .max_size(1)
@@ -224,9 +217,12 @@ impl EncryptedMessageStore {
                 .map_err(|e| StorageError::DbInit(e.to_string()))?,
         };
 
-        // self.pool = pool;
+        let mut conn = pool.get().unwrap();
+        conn.batch_execute("PRAGMA journal_mode = WAL;")
+            .map_err(|e| StorageError::DbInit(e.to_string()))?;
 
-        self.init_db()?;
+        self.pool = Some(pool);
+
         Ok(())
     }
 }
