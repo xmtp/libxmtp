@@ -182,6 +182,7 @@ impl From<ValidateInboxIdKeyPackageError> for ValidateInboxIdKeyPackageResponse 
             error_message: error.to_string(),
             credential: None,
             installation_public_key: vec![],
+            expiration: 0,
         }
     }
 }
@@ -197,6 +198,7 @@ async fn validate_inbox_id_key_package(
         error_message: "".into(),
         credential: Some(kp.credential),
         installation_public_key: kp.installation_public_key,
+        expiration: kp.inner.life_time().not_after(),
     })
 }
 
@@ -578,6 +580,7 @@ mod tests {
         let request = ValidateKeyPackagesRequest {
             key_packages: vec![KeyPackageProtoWrapper {
                 key_package_bytes_tls_serialized: key_package_bytes,
+                is_inbox_id_credential: false,
             }],
         };
 
@@ -610,6 +613,7 @@ mod tests {
         let request = ValidateKeyPackagesRequest {
             key_packages: vec![KeyPackageProtoWrapper {
                 key_package_bytes_tls_serialized: key_package_bytes,
+                is_inbox_id_credential: false,
             }],
         };
 
@@ -669,6 +673,7 @@ mod tests {
         let request = ValidateKeyPackagesRequest {
             key_packages: vec![KeyPackageProtoWrapper {
                 key_package_bytes_tls_serialized: key_package_bytes,
+                is_inbox_id_credential: false,
             }],
         };
 
@@ -709,6 +714,7 @@ mod tests {
         let request = ValidateKeyPackagesRequest {
             key_packages: vec![KeyPackageProtoWrapper {
                 key_package_bytes_tls_serialized: key_package_bytes,
+                is_inbox_id_credential: false,
             }],
         };
 

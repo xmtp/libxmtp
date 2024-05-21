@@ -2086,9 +2086,15 @@ impl serde::Serialize for RegisterInstallationRequest {
         if self.key_package.is_some() {
             len += 1;
         }
+        if self.is_inbox_id_credential {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.RegisterInstallationRequest", len)?;
         if let Some(v) = self.key_package.as_ref() {
             struct_ser.serialize_field("keyPackage", v)?;
+        }
+        if self.is_inbox_id_credential {
+            struct_ser.serialize_field("isInboxIdCredential", &self.is_inbox_id_credential)?;
         }
         struct_ser.end()
     }
@@ -2102,11 +2108,14 @@ impl<'de> serde::Deserialize<'de> for RegisterInstallationRequest {
         const FIELDS: &[&str] = &[
             "key_package",
             "keyPackage",
+            "is_inbox_id_credential",
+            "isInboxIdCredential",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             KeyPackage,
+            IsInboxIdCredential,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2129,6 +2138,7 @@ impl<'de> serde::Deserialize<'de> for RegisterInstallationRequest {
                     {
                         match value {
                             "keyPackage" | "key_package" => Ok(GeneratedField::KeyPackage),
+                            "isInboxIdCredential" | "is_inbox_id_credential" => Ok(GeneratedField::IsInboxIdCredential),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2149,6 +2159,7 @@ impl<'de> serde::Deserialize<'de> for RegisterInstallationRequest {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut key_package__ = None;
+                let mut is_inbox_id_credential__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::KeyPackage => {
@@ -2157,10 +2168,17 @@ impl<'de> serde::Deserialize<'de> for RegisterInstallationRequest {
                             }
                             key_package__ = map_.next_value()?;
                         }
+                        GeneratedField::IsInboxIdCredential => {
+                            if is_inbox_id_credential__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("isInboxIdCredential"));
+                            }
+                            is_inbox_id_credential__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(RegisterInstallationRequest {
                     key_package: key_package__,
+                    is_inbox_id_credential: is_inbox_id_credential__.unwrap_or_default(),
                 })
             }
         }
@@ -3056,9 +3074,15 @@ impl serde::Serialize for UploadKeyPackageRequest {
         if self.key_package.is_some() {
             len += 1;
         }
+        if self.is_inbox_id_credential {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.UploadKeyPackageRequest", len)?;
         if let Some(v) = self.key_package.as_ref() {
             struct_ser.serialize_field("keyPackage", v)?;
+        }
+        if self.is_inbox_id_credential {
+            struct_ser.serialize_field("isInboxIdCredential", &self.is_inbox_id_credential)?;
         }
         struct_ser.end()
     }
@@ -3072,11 +3096,14 @@ impl<'de> serde::Deserialize<'de> for UploadKeyPackageRequest {
         const FIELDS: &[&str] = &[
             "key_package",
             "keyPackage",
+            "is_inbox_id_credential",
+            "isInboxIdCredential",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             KeyPackage,
+            IsInboxIdCredential,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3099,6 +3126,7 @@ impl<'de> serde::Deserialize<'de> for UploadKeyPackageRequest {
                     {
                         match value {
                             "keyPackage" | "key_package" => Ok(GeneratedField::KeyPackage),
+                            "isInboxIdCredential" | "is_inbox_id_credential" => Ok(GeneratedField::IsInboxIdCredential),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3119,6 +3147,7 @@ impl<'de> serde::Deserialize<'de> for UploadKeyPackageRequest {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut key_package__ = None;
+                let mut is_inbox_id_credential__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::KeyPackage => {
@@ -3127,10 +3156,17 @@ impl<'de> serde::Deserialize<'de> for UploadKeyPackageRequest {
                             }
                             key_package__ = map_.next_value()?;
                         }
+                        GeneratedField::IsInboxIdCredential => {
+                            if is_inbox_id_credential__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("isInboxIdCredential"));
+                            }
+                            is_inbox_id_credential__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(UploadKeyPackageRequest {
                     key_package: key_package__,
+                    is_inbox_id_credential: is_inbox_id_credential__.unwrap_or_default(),
                 })
             }
         }

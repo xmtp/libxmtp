@@ -736,6 +736,9 @@ impl serde::Serialize for validate_inbox_id_key_packages_response::Response {
         if !self.installation_public_key.is_empty() {
             len += 1;
         }
+        if self.expiration != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls_validation.v1.ValidateInboxIdKeyPackagesResponse.Response", len)?;
         if self.is_ok {
             struct_ser.serialize_field("isOk", &self.is_ok)?;
@@ -749,6 +752,10 @@ impl serde::Serialize for validate_inbox_id_key_packages_response::Response {
         if !self.installation_public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("installationPublicKey", pbjson::private::base64::encode(&self.installation_public_key).as_str())?;
+        }
+        if self.expiration != 0 {
+            #[allow(clippy::needless_borrow)]
+            struct_ser.serialize_field("expiration", ToString::to_string(&self.expiration).as_str())?;
         }
         struct_ser.end()
     }
@@ -767,6 +774,7 @@ impl<'de> serde::Deserialize<'de> for validate_inbox_id_key_packages_response::R
             "credential",
             "installation_public_key",
             "installationPublicKey",
+            "expiration",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -775,6 +783,7 @@ impl<'de> serde::Deserialize<'de> for validate_inbox_id_key_packages_response::R
             ErrorMessage,
             Credential,
             InstallationPublicKey,
+            Expiration,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -800,6 +809,7 @@ impl<'de> serde::Deserialize<'de> for validate_inbox_id_key_packages_response::R
                             "errorMessage" | "error_message" => Ok(GeneratedField::ErrorMessage),
                             "credential" => Ok(GeneratedField::Credential),
                             "installationPublicKey" | "installation_public_key" => Ok(GeneratedField::InstallationPublicKey),
+                            "expiration" => Ok(GeneratedField::Expiration),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -823,6 +833,7 @@ impl<'de> serde::Deserialize<'de> for validate_inbox_id_key_packages_response::R
                 let mut error_message__ = None;
                 let mut credential__ = None;
                 let mut installation_public_key__ = None;
+                let mut expiration__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::IsOk => {
@@ -851,6 +862,14 @@ impl<'de> serde::Deserialize<'de> for validate_inbox_id_key_packages_response::R
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Expiration => {
+                            if expiration__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("expiration"));
+                            }
+                            expiration__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(validate_inbox_id_key_packages_response::Response {
@@ -858,6 +877,7 @@ impl<'de> serde::Deserialize<'de> for validate_inbox_id_key_packages_response::R
                     error_message: error_message__.unwrap_or_default(),
                     credential: credential__,
                     installation_public_key: installation_public_key__.unwrap_or_default(),
+                    expiration: expiration__.unwrap_or_default(),
                 })
             }
         }
@@ -1407,10 +1427,16 @@ impl serde::Serialize for validate_key_packages_request::KeyPackage {
         if !self.key_package_bytes_tls_serialized.is_empty() {
             len += 1;
         }
+        if self.is_inbox_id_credential {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls_validation.v1.ValidateKeyPackagesRequest.KeyPackage", len)?;
         if !self.key_package_bytes_tls_serialized.is_empty() {
             #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("keyPackageBytesTlsSerialized", pbjson::private::base64::encode(&self.key_package_bytes_tls_serialized).as_str())?;
+        }
+        if self.is_inbox_id_credential {
+            struct_ser.serialize_field("isInboxIdCredential", &self.is_inbox_id_credential)?;
         }
         struct_ser.end()
     }
@@ -1424,11 +1450,14 @@ impl<'de> serde::Deserialize<'de> for validate_key_packages_request::KeyPackage 
         const FIELDS: &[&str] = &[
             "key_package_bytes_tls_serialized",
             "keyPackageBytesTlsSerialized",
+            "is_inbox_id_credential",
+            "isInboxIdCredential",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             KeyPackageBytesTlsSerialized,
+            IsInboxIdCredential,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1451,6 +1480,7 @@ impl<'de> serde::Deserialize<'de> for validate_key_packages_request::KeyPackage 
                     {
                         match value {
                             "keyPackageBytesTlsSerialized" | "key_package_bytes_tls_serialized" => Ok(GeneratedField::KeyPackageBytesTlsSerialized),
+                            "isInboxIdCredential" | "is_inbox_id_credential" => Ok(GeneratedField::IsInboxIdCredential),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1471,6 +1501,7 @@ impl<'de> serde::Deserialize<'de> for validate_key_packages_request::KeyPackage 
                     V: serde::de::MapAccess<'de>,
             {
                 let mut key_package_bytes_tls_serialized__ = None;
+                let mut is_inbox_id_credential__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::KeyPackageBytesTlsSerialized => {
@@ -1481,10 +1512,17 @@ impl<'de> serde::Deserialize<'de> for validate_key_packages_request::KeyPackage 
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::IsInboxIdCredential => {
+                            if is_inbox_id_credential__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("isInboxIdCredential"));
+                            }
+                            is_inbox_id_credential__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(validate_key_packages_request::KeyPackage {
                     key_package_bytes_tls_serialized: key_package_bytes_tls_serialized__.unwrap_or_default(),
+                    is_inbox_id_credential: is_inbox_id_credential__.unwrap_or_default(),
                 })
             }
         }
