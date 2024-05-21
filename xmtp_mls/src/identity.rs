@@ -22,7 +22,6 @@ use openmls::{
     extensions::{
         ApplicationIdExtension, Extension, ExtensionType, Extensions, LastResortExtension,
     },
-    group::config::CryptoConfig,
     key_packages::Lifetime,
     messages::proposals::ProposalType,
     prelude::{Capabilities, Credential as OpenMlsCredential},
@@ -131,9 +130,7 @@ pub enum IdentityError {
     #[error(transparent)]
     StorageError(#[from] crate::storage::StorageError),
     #[error(transparent)]
-    KeyPackageGenerationError(
-        #[from] openmls::key_packages::errors::KeyPackageNewError<StorageError>,
-    ),
+    KeyPackageGenerationError(#[from] openmls::key_packages::errors::KeyPackageNewError),
     #[error(transparent)]
     ED25519Error(#[from] ed25519_dalek::ed25519::Error),
 }
@@ -303,7 +300,7 @@ impl Identity {
     pub(crate) fn new_key_package(
         &self,
         provider: &XmtpOpenMlsProvider,
-    ) -> Result<KeyPackage, IdentityError> {
+    ) -> Result<&KeyPackage, IdentityError> {
         let last_resort = Extension::LastResort(LastResortExtension::default());
         let key_package_extensions = Extensions::single(last_resort);
 
@@ -331,10 +328,7 @@ impl Identity {
             .key_package_extensions(key_package_extensions)
             .key_package_lifetime(Lifetime::new(6 * 30 * 86400))
             .build(
-                CryptoConfig {
-                    ciphersuite: CIPHERSUITE,
-                    version: ProtocolVersion::default(),
-                },
+                CIPHERSUITE,
                 provider,
                 &self.installation_keys,
                 CredentialWithKey {
@@ -343,7 +337,7 @@ impl Identity {
                 },
             )?;
 
-        Ok(kp)
+        Ok(kp.key_package())
     }
 
     pub(crate) async fn register<ApiClient: XmtpApi>(
@@ -358,7 +352,7 @@ impl Identity {
         }
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
-        api_client.register_installation(kp_bytes).await?;
+        api_client.register_installation(kp_bytes, true).await?;
 
         Ok(StoredIdentity::from(self).store(provider.conn_ref())?)
     }

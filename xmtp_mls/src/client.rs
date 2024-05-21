@@ -358,7 +358,7 @@ where
             .identity()
             .new_key_package(&self.mls_provider(connection))?;
         let kp_bytes = kp.tls_serialize_detached()?;
-        self.api_client.upload_key_package(kp_bytes, false).await?;
+        self.api_client.upload_key_package(kp_bytes, true).await?;
 
         Ok(())
     }
