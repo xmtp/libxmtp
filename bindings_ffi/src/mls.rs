@@ -11,14 +11,17 @@ use std::sync::{
 use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
+use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 use xmtp_id::associations::Erc1271Signature;
 use xmtp_id::associations::RecoverableEcdsaSignature;
 use xmtp_id::InboxId;
+use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::group_permissions::GroupMutablePermissions;
 use xmtp_mls::groups::PreconfiguredPolicies;
 use xmtp_mls::identity::IdentityStrategy;
+use xmtp_mls::retry::Retry;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -28,6 +31,7 @@ use xmtp_mls::{
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
     },
 };
+use xmtp_proto::api_client::XmtpIdentityClient;
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
@@ -116,6 +120,35 @@ pub async fn create_client(
         inner_client: Arc::new(xmtp_client),
         account_address,
     }))
+}
+
+#[allow(unused)]
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn get_inbox_id_for_address(
+    logger: Box<dyn FfiLogger>,
+    host: String,
+    is_secure: bool,
+    account_address: String,
+) -> Result<Option<String>, GenericError> {
+    init_logger(logger);
+
+    let api_client = ApiClientWrapper::new(
+        TonicApiClient::create(host.clone(), is_secure).await?,
+        Retry::default(),
+    );
+
+    let results = api_client
+        .get_inbox_ids(vec![account_address.clone()])
+        .await
+        .map_err(|err| GenericError::from_error(err))?;
+
+    Ok(results.get(&account_address).cloned())
+}
+
+#[allow(unused)]
+#[uniffi::export]
+pub fn generate_inbox_id(account_address: String, nonce: u64) -> String {
+    xmtp_id_generate_inbox_id(&account_address, &nonce)
 }
 
 #[derive(uniffi::Object)]
