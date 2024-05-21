@@ -300,7 +300,7 @@ impl Identity {
     pub(crate) fn new_key_package(
         &self,
         provider: &XmtpOpenMlsProvider,
-    ) -> Result<&KeyPackage, IdentityError> {
+    ) -> Result<KeyPackage, IdentityError> {
         let last_resort = Extension::LastResort(LastResortExtension::default());
         let key_package_extensions = Extensions::single(last_resort);
 
@@ -337,7 +337,7 @@ impl Identity {
                 },
             )?;
 
-        Ok(kp.key_package())
+        Ok(kp.key_package().clone())
     }
 
     pub(crate) async fn register<ApiClient: XmtpApi>(
