@@ -155,6 +155,10 @@ where
         Ok(out)
     }
 
+    /// Register an XMTP KeyPackage with the network.
+    /// New InboxID clients should set `is_inbox_id_credential` to true.
+    /// V3 clients should have `is_inbox_id_credential` to `false`.
+    /// Not indicating your client version will result in validation failure.
     pub async fn register_installation(
         &self,
         key_package: Vec<u8>,
@@ -177,6 +181,10 @@ where
         Ok(res.installation_key)
     }
 
+    /// Upload a KeyPackage to the network
+    /// New InboxID clients should set `is_inbox_id_credential` to true.
+    /// V3 clients should have `is_inbox_id_credential` to `false`.
+    /// Not indicating your client version will result in validation failure.
     pub async fn upload_key_package(
         &self,
         key_package: Vec<u8>,
