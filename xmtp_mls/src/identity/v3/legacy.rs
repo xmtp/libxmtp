@@ -1,4 +1,4 @@
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use log::info;
 use openmls::{
@@ -75,11 +75,11 @@ pub enum IdentityError {
     MemoryStorage(#[from] MemoryStorageError),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Identity {
     pub(crate) account_address: Address,
     pub(crate) installation_keys: SignatureKeyPair,
-    pub(crate) credential: RwLock<Option<OpenMlsCredential>>,
+    pub(crate) credential: Arc<RwLock<Option<OpenMlsCredential>>>,
     pub(crate) unsigned_association_data: Option<UnsignedGrantMessagingAccessData>,
 }
 
@@ -96,7 +96,7 @@ impl Identity {
         let identity = Self {
             account_address,
             installation_keys: signature_keys,
-            credential: RwLock::new(None),
+            credential: Arc::new(RwLock::new(None)),
             unsigned_association_data: Some(unsigned_association_data),
         };
 
@@ -119,7 +119,7 @@ impl Identity {
         Ok(Self {
             account_address,
             installation_keys: signature_keys,
-            credential: RwLock::new(Some(mls_credential)),
+            credential: Arc::new(RwLock::new(Some(mls_credential))),
             unsigned_association_data: None,
         })
     }
