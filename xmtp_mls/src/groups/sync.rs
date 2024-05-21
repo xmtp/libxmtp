@@ -490,7 +490,6 @@ impl MlsGroup {
             msgv1.id,
             |provider| -> Result<(), MessageProcessingError> {
                 await_helper(self.process_message(client, openmls_group, provider, msgv1, true))?;
-                openmls_group.save(provider.key_store())?;
                 Ok(())
             },
         )?;
@@ -922,14 +921,14 @@ fn extract_message_sender(
     if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
         if let Some(member) = openmls_group.member_at(*leaf_node_index) {
             if member.credential.eq(decrypted_message.credential()) {
-                let basic_credential = BasicCredential::try_from(&member.credential)?;
+                let basic_credential = BasicCredential::try_from(member.credential)?;
                 let sender_inbox_id = parse_credential(basic_credential.identity())?;
                 return Ok((sender_inbox_id, member.signature_key));
             }
         }
     }
 
-    let basic_credential = BasicCredential::try_from(decrypted_message.credential())?;
+    let basic_credential = BasicCredential::try_from(decrypted_message.credential().clone())?;
     return Err(MessageProcessingError::InvalidSender {
         message_time_ns: message_created_ns,
         credential: basic_credential.identity().to_vec(),

@@ -104,12 +104,10 @@ pub enum GroupError {
     NoChanges,
     #[error("Addresses not found {0:?}")]
     AddressNotFound(Vec<String>),
-    #[error("proposal: {0}")]
-    Proposal(#[from] openmls::prelude::ProposalError<StorageError>),
     #[error("add members: {0}")]
-    AddMembers(#[from] openmls::prelude::AddMembersError<sql_key_store::MemoryStorageError>),
-    #[error("remove members: {0}")]
-    RemoveMembers(#[from] openmls::prelude::ProposeRemoveMemberError),
+    UpdateGroupMembership(
+        #[from] openmls::prelude::UpdateGroupMembershipError<sql_key_store::MemoryStorageError>,
+    ),
     #[error("group create: {0}")]
     GroupCreate(#[from] openmls::group::NewGroupError<sql_key_store::MemoryStorageError>),
     #[error("self update: {0}")]
@@ -162,8 +160,6 @@ pub enum GroupError {
     MessageHistory(#[from] MessageHistoryError),
     #[error("Installation diff error: {0}")]
     InstallationDiff(#[from] InstallationDiffError),
-    #[error("Commit to pending proposals: {0}")]
-    CommitToPendingProposals(#[from] openmls::group::CommitToPendingProposalsError<StorageError>),
 }
 
 impl RetryableError for GroupError {
@@ -172,8 +168,7 @@ impl RetryableError for GroupError {
             Self::Diesel(diesel) => retryable!(diesel),
             Self::Storage(storage) => retryable!(storage),
             Self::ReceiveError(msg) => retryable!(msg),
-            Self::AddMembers(members) => retryable!(members),
-            Self::RemoveMembers(members) => retryable!(members),
+            Self::UpdateGroupMembership(update) => retryable!(update),
             Self::GroupCreate(group) => retryable!(group),
             Self::SelfUpdate(update) => retryable!(update),
             Self::WelcomeError(welcome) => retryable!(welcome),
@@ -321,7 +316,7 @@ impl MlsGroup {
 
         let added_by_node = staged_welcome.welcome_sender()?;
 
-        let added_by_credential = BasicCredential::try_from(added_by_node.credential())?;
+        let added_by_credential = BasicCredential::try_from(added_by_node.credential().clone())?;
         let inbox_id = parse_credential(added_by_credential.identity())?;
 
         // TODO:nm Validate the initial group membership and that the sender's inbox_id is in it
