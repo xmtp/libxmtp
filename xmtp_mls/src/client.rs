@@ -715,7 +715,7 @@ mod tests {
             .find_messages(None, None, None, None, None)
             .unwrap();
         // TODO:nm figure out why the transcript message is no longer decryptable
-        assert_eq!(bola_messages.len(), 0);
+        assert_eq!(bola_messages.len(), 1);
 
         // Add Bola back to the group
         amal_group
@@ -737,9 +737,9 @@ mod tests {
             .find_messages(None, None, None, None, None)
             .unwrap();
         // Bola should have been able to decrypt the last message
-        assert_eq!(bola_messages.len(), 1);
+        assert_eq!(bola_messages.len(), 2);
         assert_eq!(
-            bola_messages.get(0).unwrap().decrypted_message_bytes,
+            bola_messages.get(1).unwrap().decrypted_message_bytes,
             vec![1, 2, 3]
         )
     }

@@ -120,8 +120,6 @@ where
             })
             .await?;
 
-        log::info!("Got result: {:?}", &result);
-
         Ok(result
             .responses
             .into_iter()
