@@ -78,7 +78,7 @@ where
     ) -> Result<AssociationState, ClientError> {
         load_identity_updates(&self.api_client, conn, vec![inbox_id.as_ref().to_string()]).await?;
 
-        Ok(self.get_association_state(conn, inbox_id, None).await?)
+        self.get_association_state(conn, inbox_id, None).await
     }
 
     pub async fn get_association_state<InboxId: AsRef<str>>(

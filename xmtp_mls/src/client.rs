@@ -482,10 +482,8 @@ where
         let association_state = self.get_latest_association_state(conn, &inbox_id).await?;
 
         match association_state.get(&installation_pub_key.clone().into()) {
-            Some(_) => {
-                return Ok(inbox_id);
-            }
-            None => return Err(IdentityError::InstallationIdNotFound(inbox_id).into()),
+            Some(_) => Ok(inbox_id),
+            None => Err(IdentityError::InstallationIdNotFound(inbox_id).into()),
         }
     }
 

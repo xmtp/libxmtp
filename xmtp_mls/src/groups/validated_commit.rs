@@ -300,7 +300,7 @@ impl ValidatedCommit {
             metadata_changes,
         };
 
-        let policy_set = extract_group_permissions(&openmls_group)?;
+        let policy_set = extract_group_permissions(openmls_group)?;
         if !policy_set.policies.evaluate_commit(&verified_commit) {
             return Err(CommitValidationError::InsufficientPermissions);
         }
