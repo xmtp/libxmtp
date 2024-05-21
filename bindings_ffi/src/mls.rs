@@ -1254,7 +1254,6 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    #[ignore]
     async fn test_message_streaming_when_removed_then_added() {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
