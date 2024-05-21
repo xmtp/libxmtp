@@ -1131,7 +1131,7 @@ mod tests {
             )
             .await
             .unwrap();
-        log::info!("created the group with 2 members");
+        log::info!("created the group with 2 additional members");
         assert_eq!(group.members().unwrap().len(), 3);
         let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 1);
