@@ -68,7 +68,7 @@ pub fn ignore_unique_violation<T>(
 /// Manages a Sqlite db for persisting messages and other objects.
 pub struct EncryptedMessageStore {
     connect_opt: StorageOption,
-    pool: Pool<ConnectionManager<SqliteConnection>>,
+    pool: Option<Pool<ConnectionManager<SqliteConnection>>>,
     enc_key: Option<EncryptionKey>,
 }
 
@@ -109,7 +109,7 @@ impl EncryptedMessageStore {
 
         let mut obj = Self {
             connect_opt: opts,
-            pool,
+            pool: Some(pool),
             enc_key,
         };
 
@@ -133,16 +133,18 @@ impl EncryptedMessageStore {
     fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| StorageError::Pool(e.to_string()))?;
-
-        if let Some(key) = self.enc_key {
-            conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
-        }
-
-        Ok(conn)
+        self.pool.as_ref()
+            .map(|pool| {
+                let mut conn = pool
+                    .get()
+                    .map_err(|e| StorageError::Pool(e.to_string()))
+                    .unwrap();
+                if let Some(key) = self.enc_key {
+                    conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
+                }
+                Ok(conn)
+            })
+            .unwrap()
     }
 
     pub fn conn(&self) -> Result<DbConnection, StorageError> {
@@ -222,7 +224,7 @@ impl EncryptedMessageStore {
                 .map_err(|e| StorageError::DbInit(e.to_string()))?,
         };
 
-        self.pool = pool;
+        // self.pool = pool;
 
         self.init_db()?;
         Ok(())
