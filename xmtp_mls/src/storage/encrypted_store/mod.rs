@@ -336,7 +336,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn ephemeral_store() {
         let store = EncryptedMessageStore::new(
             StorageOption::Ephemeral,
@@ -355,7 +354,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn persistent_store() {
         let db_path = tmp_path();
         {
@@ -379,7 +377,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn mismatched_encryption_key() {
         let mut enc_key = [1u8; 32];
 
@@ -406,7 +403,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn encrypted_db_with_multiple_connections() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
