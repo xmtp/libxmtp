@@ -17,7 +17,7 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
-        
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -33,6 +33,7 @@ jobs:
         timeout-minutes: 20
         with:
           command: test
+          args: --test-threads=4
 
       - name: Setup Kotlin
         run: |
