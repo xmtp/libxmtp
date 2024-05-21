@@ -9,7 +9,6 @@ use std::sync::{
     Arc, Mutex,
 };
 use tokio::sync::oneshot::Sender;
-use uniffi::deps::once_cell::sync::Lazy;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
@@ -146,15 +145,14 @@ impl FfiXmtpClient {
         self.inner_client.installation_public_key()
     }
 
-    pub async fn release_db_connection(&self) -> Result<(), GenericError> {
-        self.inner_client.release_connection();
-        Ok(())
+    pub fn release_db_connection(&self) {
+        self.inner_client.release_db_connection();
     }
 
     pub async fn db_reconnect(&self) -> Result<(), GenericError> {
-        let results = self.inner_client.reconnect_db();
+        let _ = self.inner_client.reconnect_db();
 
-        Ok(results)
+        Ok(())
     }
 }
 
