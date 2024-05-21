@@ -3,6 +3,7 @@ use std::array::TryFromSliceError;
 use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
+use crate::storage::sql_key_store::{MemoryStorageError, KEY_PACKAGE_REFERENCES};
 use crate::{
     api::{ApiClientWrapper, WrappedApiError},
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
@@ -29,6 +30,7 @@ use openmls::{
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::types::CryptoError;
+use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use sha2::{Digest, Sha512};
 use thiserror::Error;
@@ -112,6 +114,8 @@ pub enum IdentityError {
     BasicCredential(#[from] BasicCredentialError),
     #[error("Legacy key re-use")]
     LegacyKeyReuse,
+    #[error("Uninitialized identity")]
+    UninitializedIdentity,
     #[error("Installation key {0}")]
     InstallationKey(String),
     #[error("Malformed legacy key: {0}")]
@@ -128,6 +132,8 @@ pub enum IdentityError {
     OpenMls(#[from] openmls::prelude::Error),
     #[error(transparent)]
     StorageError(#[from] crate::storage::StorageError),
+    #[error(transparent)]
+    OpenMlsStorageError(#[from] MemoryStorageError),
     #[error(transparent)]
     KeyPackageGenerationError(#[from] openmls::key_packages::errors::KeyPackageNewError),
     #[error(transparent)]
@@ -335,7 +341,29 @@ impl Identity {
                     signature_key: self.installation_keys.to_public_vec().into(),
                 },
             )?;
+        // Store the hash reference, keyed with the public init key.
+        // This is needed to get to the private key when decrypting welcome messages.
+        let public_init_key = kp.key_package().hpke_init_key().tls_serialize_detached()?;
 
+        let key_package_hash_ref = match kp.key_package().hash_ref(provider.crypto()) {
+            Ok(key_package_hash_ref) => key_package_hash_ref,
+            Err(_) => return Err(IdentityError::UninitializedIdentity),
+        };
+
+        // Serialize the hash reference
+        let hash_ref = match serde_json::to_vec(&key_package_hash_ref) {
+            Ok(hash_ref) => hash_ref,
+            Err(_) => return Err(IdentityError::UninitializedIdentity),
+        };
+
+        // Store the hash reference, keyed with the public init key
+        provider
+            .storage()
+            .write::<{ openmls_traits::storage::CURRENT_VERSION }>(
+                KEY_PACKAGE_REFERENCES,
+                &public_init_key,
+                &hash_ref,
+            )?;
         Ok(kp.key_package().clone())
     }
 
