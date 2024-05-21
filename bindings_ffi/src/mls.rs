@@ -139,7 +139,7 @@ pub async fn get_inbox_id_for_address(
     let results = api_client
         .get_inbox_ids(vec![account_address.clone()])
         .await
-        .map_err(|err| GenericError::from_error(err))?;
+        .map_err(GenericError::from_error)?;
 
     Ok(results.get(&account_address).cloned())
 }
