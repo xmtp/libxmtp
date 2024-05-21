@@ -33,7 +33,7 @@ jobs:
         timeout-minutes: 20
         with:
           command: test
-          args: -- --test-threads=4
+          args: -- --test-threads=2
 
       - name: Setup Kotlin
         run: |
