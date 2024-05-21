@@ -251,14 +251,16 @@ where
         &self.context.store
     }
 
-    pub fn release_db_connection(&mut self) {
+    pub fn release_db_connection(&self) {
         let store = &self.context.store;
         store.release_connection()
     }
 
-    pub fn reconnect_db(&mut self) -> Result<(), ClientError> {
+    pub fn reconnect_db(&self) -> Result<(), ClientError> {
         let store = &self.context.store;
-        store.reconnect()
+        store.reconnect().map_err(|e| {
+            ClientError::Storage(StorageError::Store(format!("reconnect db error {}", e)))
+        })
     }
 
     pub fn identity(&self) -> &Identity {

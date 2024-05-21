@@ -21,7 +21,10 @@ pub mod key_store_entry;
 pub mod refresh_state;
 pub mod schema;
 
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    sync::{Arc, RwLock},
+};
 
 use diesel::{
     connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
@@ -68,7 +71,7 @@ pub fn ignore_unique_violation<T>(
 /// Manages a Sqlite db for persisting messages and other objects.
 pub struct EncryptedMessageStore {
     connect_opt: StorageOption,
-    pool: Option<Pool<ConnectionManager<SqliteConnection>>>,
+    pool: Arc<RwLock<Pool<ConnectionManager<SqliteConnection>>>>,
     enc_key: Option<EncryptionKey>,
 }
 
@@ -109,7 +112,7 @@ impl EncryptedMessageStore {
 
         let mut obj = Self {
             connect_opt: opts,
-            pool: Some(pool),
+            pool: Arc::new(pool.into()),
             enc_key,
         };
 
@@ -133,18 +136,16 @@ impl EncryptedMessageStore {
     fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
-        self.pool.as_ref()
-            .map(|pool| {
-                let mut conn = pool
-                    .get()
-                    .map_err(|e| StorageError::Pool(e.to_string()))
-                    .unwrap();
-                if let Some(key) = self.enc_key {
-                    conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
-                }
-                Ok(conn)
-            })
-            .unwrap()
+        let pool = self
+            .pool
+            .read()
+            .map_err(|e| StorageError::Pool(e.to_string()))?;
+        let mut conn = pool.get().map_err(|e| StorageError::Pool(e.to_string()))?;
+
+        if let Some(ref key) = self.enc_key {
+            conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
+        }
+        Ok(conn)
     }
 
     pub fn conn(&self) -> Result<DbConnection, StorageError> {
@@ -201,11 +202,16 @@ impl EncryptedMessageStore {
         key
     }
 
-    pub fn release_connection(&mut self) {
-        self.pool.take();
+    pub fn release_connection(&self) {
+        if let Ok(pool) = self.pool.write() {
+            let _conn = pool.get().expect("Failed to get a connection");
+            // Connection will be released when `_conn` goes out of scope
+        } else {
+            eprintln!("Failed to acquire write lock on the connection pool.");
+        }
     }
 
-    pub fn reconnect(&mut self) -> Result<(), StorageError> {
+    pub fn reconnect(&self) -> Result<(), StorageError> {
         let pool = match self.connect_opt {
             StorageOption::Ephemeral => Pool::builder()
                 .max_size(1)
@@ -221,7 +227,11 @@ impl EncryptedMessageStore {
         conn.batch_execute("PRAGMA journal_mode = WAL;")
             .map_err(|e| StorageError::DbInit(e.to_string()))?;
 
-        self.pool = Some(pool);
+        let mut pool_write = self
+            .pool
+            .write()
+            .map_err(|e| StorageError::Pool(e.to_string()))?;
+        *pool_write = pool;
 
         Ok(())
     }
