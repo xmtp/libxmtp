@@ -1,7 +1,8 @@
 use std::array::TryFromSliceError;
 
+use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
+use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
-use crate::Fetch;
 use crate::{
     api::{ApiClientWrapper, WrappedApiError},
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
@@ -10,10 +11,12 @@ use crate::{
     InboxOwner, XmtpApi,
 };
 use crate::{builder::ClientBuilderError, storage::EncryptedMessageStore};
+use crate::{Fetch, Store};
 use ed25519_dalek::SigningKey;
 use ethers::signers::{LocalWallet, WalletError};
 use log::debug;
 use log::info;
+use openmls::prelude::tls_codec::Serialize;
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
     extensions::{
@@ -27,7 +30,7 @@ use openmls::{
     versions::ProtocolVersion,
 };
 use openmls_basic_credential::SignatureKeyPair;
-use openmls_traits::{types::CryptoError, OpenMlsProvider};
+use openmls_traits::types::CryptoError;
 use prost::Message;
 use sha2::{Digest, Sha512};
 use thiserror::Error;
@@ -100,7 +103,11 @@ pub enum IdentityError {
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
-    ApiError(#[from] WrappedApiError),
+    WrappedApi(#[from] WrappedApiError),
+    #[error("installation not found: {0}")]
+    InstallationIdNotFound(String),
+    #[error(transparent)]
+    Api(#[from] xmtp_proto::api_client::Error),
     #[error(transparent)]
     SignatureRequestBuilder(#[from] SignatureRequestError),
     #[error(transparent)]
@@ -120,6 +127,8 @@ pub enum IdentityError {
     #[error(transparent)]
     WalletError(#[from] WalletError),
     #[error(transparent)]
+    OpenMls(#[from] openmls::prelude::Error),
+    #[error(transparent)]
     StorageError(#[from] crate::storage::StorageError),
     #[error(transparent)]
     KeyPackageGenerationError(
@@ -132,7 +141,6 @@ pub enum IdentityError {
 #[derive(Debug, Clone)]
 pub struct Identity {
     pub(crate) inbox_id: InboxId,
-    pub(crate) sequence_id: u64,
     pub(crate) installation_keys: SignatureKeyPair,
     pub(crate) credential: OpenMlsCredential,
     pub(crate) signature_request: Option<SignatureRequest>,
@@ -160,7 +168,6 @@ impl Identity {
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
         let installation_public_key = signature_keys.public();
         let member_identifier: MemberIdentifier = address.clone().into();
-        let sequence_id = 0;
 
         if let Some(associated_inbox_id) = associated_inbox_id {
             // If an inbox is associated, we just need to associate the installation key
@@ -182,7 +189,6 @@ impl Identity {
 
             let identity = Self {
                 inbox_id: associated_inbox_id.clone(),
-                sequence_id,
                 installation_keys: signature_keys,
                 credential: create_credential(associated_inbox_id.clone())?,
                 signature_request: Some(signature_request),
@@ -227,7 +233,6 @@ impl Identity {
 
             let identity = Self {
                 inbox_id: inbox_id.clone(),
-                sequence_id,
                 installation_keys: signature_keys,
                 credential: create_credential(inbox_id)?,
                 signature_request: None,
@@ -257,7 +262,6 @@ impl Identity {
 
             let identity = Self {
                 inbox_id: inbox_id.clone(),
-                sequence_id,
                 installation_keys: signature_keys,
                 credential: create_credential(inbox_id.clone())?,
                 signature_request: Some(signature_request),
@@ -271,8 +275,8 @@ impl Identity {
         &self.inbox_id
     }
 
-    pub fn set_sequence_id(&mut self, sequence_id: u64) {
-        self.sequence_id = sequence_id;
+    pub fn sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
+        conn.get_latest_sequence_id_for_inbox(self.inbox_id.as_str())
     }
 
     fn is_ready(&self) -> bool {
@@ -313,6 +317,7 @@ impl Identity {
             Some(&[
                 ExtensionType::LastResort,
                 ExtensionType::ApplicationId,
+                ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
                 ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
                 ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
                 ExtensionType::ImmutableMetadata,
@@ -343,17 +348,19 @@ impl Identity {
 
     pub(crate) async fn register<ApiClient: XmtpApi>(
         &self,
-        _provider: impl OpenMlsProvider,
-        _api_client: &ApiClientWrapper<ApiClient>,
+        provider: &XmtpOpenMlsProvider,
+        api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
-        todo!()
-    }
+        let stored_identity: Option<StoredIdentity> = provider.conn().fetch(&())?;
+        if stored_identity.is_some() {
+            info!("Identity already registered. skipping key package publishing");
+            return Ok(());
+        }
+        let kp = self.new_key_package(provider)?;
+        let kp_bytes = kp.tls_serialize_detached()?;
+        api_client.register_installation(kp_bytes).await?;
 
-    pub fn get_validated_account_address(
-        _credential: &[u8],
-        _installation_public_key: &[u8],
-    ) -> Result<String, IdentityError> {
-        todo!("this fn might not be needed as we are using inbox id over address. Putting here just for complier")
+        Ok(StoredIdentity::from(self).store(provider.conn_ref())?)
     }
 }
 
@@ -439,4 +446,9 @@ fn create_credential(inbox_id: InboxId) -> Result<OpenMlsCredential, IdentityErr
     let _ = cred.encode(&mut credential_bytes);
 
     Ok(BasicCredential::new(credential_bytes)?.into())
+}
+
+pub fn parse_credential(credential_bytes: &[u8]) -> Result<InboxId, IdentityError> {
+    let cred = MlsCredential::decode(credential_bytes)?;
+    Ok(cred.inbox_id)
 }

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, collections::HashSet, mem::Discriminant, sync::Arc};
+use std::{collections::HashMap, mem::Discriminant, sync::Arc};
 
 use openmls::{
     credentials::errors::BasicCredentialError,
@@ -26,20 +26,19 @@ use xmtp_proto::xmtp::mls::api::v1::{
 };
 
 use crate::{
-    api::{ApiClientWrapper, IdentityUpdate},
+    api::ApiClientWrapper,
     groups::{
-        validated_commit::CommitValidationError, AddressesOrInstallationIds, IntentError, MlsGroup,
-        PreconfiguredPolicies,
+        validated_commit::CommitValidationError, IntentError, MlsGroup, PreconfiguredPolicies,
     },
-    identity::Identity,
-    identity_updates::{load_identity_updates, IdentityUpdateError},
+    identity::{parse_credential, Identity, IdentityError},
+    identity_updates::IdentityUpdateError,
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
         refresh_state::EntityKind,
         EncryptedMessageStore, StorageError,
     },
-    verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
+    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, XmtpApi,
 };
@@ -101,6 +100,8 @@ pub enum MessageProcessingError {
     },
     #[error("invalid payload")]
     InvalidPayload,
+    #[error(transparent)]
+    Identity(#[from] IdentityError),
     #[error("openmls process message error: {0}")]
     OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
     #[error("merge pending commit: {0}")]
@@ -192,8 +193,8 @@ impl XmtpMlsLocalContext {
     }
 
     /// Get sequence id, may not be consistent with the backend
-    pub fn inbox_sequence_id(&self) -> u64 {
-        self.identity.sequence_id
+    pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
+        self.identity.sequence_id(conn)
     }
 
     /// Integrators should always check the `signature_request` return value of this function before calling [`register_identity`](Self::register_identity).
@@ -226,11 +227,6 @@ where
         }
     }
 
-    pub fn account_address(&self) -> String {
-        // TODO:nm Remove this hack
-        self.inbox_id()
-    }
-
     pub fn installation_public_key(&self) -> Vec<u8> {
         self.context.installation_public_key()
     }
@@ -240,8 +236,8 @@ where
     }
 
     /// Get sequence id, may not be consistent with the backend
-    pub fn inbox_sequence_id(&self) -> u64 {
-        self.context.inbox_sequence_id()
+    pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
+        self.context.inbox_sequence_id(conn)
     }
 
     pub fn store(&self) -> &EncryptedMessageStore {
@@ -271,7 +267,6 @@ where
             self.context.clone(),
             GroupMembershipState::Allowed,
             permissions,
-            &self.context.inbox_id(),
         )
         .map_err(|e| {
             ClientError::Storage(StorageError::Store(format!("group create error {}", e)))
@@ -343,13 +338,13 @@ where
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
         log::info!("registering identity");
-        let connection = self.store().conn()?;
-        let provider = self.mls_provider(connection.clone());
         self.apply_signature_request(signature_request).await?;
-        load_identity_updates(&self.api_client, &connection, vec![self.inbox_id()]).await?;
+        let connection = self.store().conn()?;
+        let provider = self.mls_provider(connection);
         self.identity()
             .register(&provider, &self.api_client)
             .await?;
+
         Ok(())
     }
 
@@ -364,40 +359,6 @@ where
         self.api_client.upload_key_package(kp_bytes).await?;
 
         Ok(())
-    }
-
-    /// Get a list of `installation_id`s associated with the given `account_addresses`
-    /// One `account_address` may have multiple `installation_id`s if the account has multiple
-    /// applications or devices on the network
-    pub async fn get_all_active_installation_ids(
-        &self,
-        account_addresses: Vec<String>,
-    ) -> Result<Vec<Vec<u8>>, ClientError> {
-        let update_mapping = self
-            .api_client
-            .get_identity_updates(0, account_addresses)
-            .await?;
-
-        let mut installation_ids: Vec<Vec<u8>> = vec![];
-
-        for (_, updates) in update_mapping {
-            let mut tmp: HashSet<Vec<u8>> = HashSet::new();
-            for update in updates {
-                match update {
-                    IdentityUpdate::Invalid => {}
-                    IdentityUpdate::NewInstallation(new_installation) => {
-                        // TODO: Validate credential
-                        tmp.insert(new_installation.installation_key);
-                    }
-                    IdentityUpdate::RevokeInstallation(revoke_installation) => {
-                        tmp.remove(&revoke_installation.installation_key);
-                    }
-                }
-            }
-            installation_ids.extend(tmp);
-        }
-
-        Ok(installation_ids)
     }
 
     pub(crate) async fn query_group_messages(
@@ -452,46 +413,17 @@ where
         })
     }
 
-    pub(crate) async fn get_key_packages(
-        &self,
-        address_or_id: AddressesOrInstallationIds,
-    ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
-        match address_or_id {
-            AddressesOrInstallationIds::AccountAddresses(addrs) => {
-                self.get_key_packages_for_account_addresses(addrs).await
-            }
-            AddressesOrInstallationIds::InstallationIds(ids) => {
-                self.get_key_packages_for_installation_ids(ids).await
-            }
-        }
-    }
-
-    // Get a flat list of one key package per installation for all the wallet addresses provided.
-    // Revoked installations will be omitted from the list
-    #[allow(dead_code)]
-    pub(crate) async fn get_key_packages_for_account_addresses(
-        &self,
-        account_addresses: Vec<String>,
-    ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
-        let installation_ids = self
-            .get_all_active_installation_ids(account_addresses)
-            .await?;
-
-        self.get_key_packages_for_installation_ids(installation_ids)
-            .await
-    }
-
     pub(crate) async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
+    ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError> {
         let key_package_results = self.api_client.fetch_key_packages(installation_ids).await?;
 
         let conn = self.store().conn()?;
         let mls_provider = self.mls_provider(conn);
         Ok(key_package_results
             .values()
-            .map(|bytes| VerifiedKeyPackage::from_bytes(mls_provider.crypto(), bytes.as_slice()))
+            .map(|bytes| VerifiedKeyPackageV2::from_bytes(mls_provider.crypto(), bytes.as_slice()))
             .collect::<Result<_, _>>()?)
     }
 
@@ -534,6 +466,27 @@ where
         Ok(groups)
     }
 
+    /**
+     * Validates a credential against the given installation public key
+     *
+     * This will go to the network and get the latest association state for the inbox.
+     * It ensures that the installation_pub_key is in that association state
+     */
+    pub async fn validate_credential_against_network(
+        &self,
+        conn: &DbConnection,
+        credential: &[u8],
+        installation_pub_key: Vec<u8>,
+    ) -> Result<InboxId, ClientError> {
+        let inbox_id = parse_credential(credential)?;
+        let association_state = self.get_latest_association_state(conn, &inbox_id).await?;
+
+        match association_state.get(&installation_pub_key.clone().into()) {
+            Some(_) => Ok(inbox_id),
+            None => Err(IdentityError::InstallationIdNotFound(inbox_id).into()),
+        }
+    }
+
     /// Check whether an account_address has a key package registered on the network
     ///
     /// Arguments:
@@ -546,18 +499,15 @@ where
         account_addresses: Vec<String>,
     ) -> Result<HashMap<String, bool>, ClientError> {
         let account_addresses = sanitize_evm_addresses(account_addresses)?;
-        let identity_updates = self
+        let inbox_id_map = self
             .api_client
-            .get_identity_updates(0, account_addresses.clone())
+            .get_inbox_ids(account_addresses.clone())
             .await?;
 
         let results = account_addresses
             .iter()
             .map(|address| {
-                let result = identity_updates
-                    .get(address)
-                    .map(has_active_installation)
-                    .unwrap_or(false);
+                let result = inbox_id_map.get(address).map(|_| true).unwrap_or(false);
                 (address.clone(), result)
             })
             .collect::<HashMap<String, bool>>();
@@ -588,19 +538,6 @@ pub fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientErr
     }
 }
 
-fn has_active_installation(updates: &Vec<IdentityUpdate>) -> bool {
-    let mut active_count = 0;
-    for update in updates {
-        match update {
-            IdentityUpdate::Invalid => {}
-            IdentityUpdate::NewInstallation(_) => active_count += 1,
-            IdentityUpdate::RevokeInstallation(_) => active_count -= 1,
-        }
-    }
-
-    active_count > 0
-}
-
 #[cfg(test)]
 mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -608,7 +545,6 @@ mod tests {
     use crate::{
         builder::ClientBuilder,
         hpke::{decrypt_welcome, encrypt_welcome},
-        InboxOwner,
     };
 
     #[tokio::test]
@@ -622,21 +558,20 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_register_installation() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-
+        let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         // Make sure the installation is actually on the network
-        let installation_ids = client
-            .get_all_active_installation_ids(vec![wallet.get_address()])
+        let association_state = client_2
+            .get_latest_association_state(&client_2.store().conn().unwrap(), client.inbox_id())
             .await
             .unwrap();
-        assert_eq!(installation_ids.len(), 1);
+
+        assert_eq!(association_state.installation_ids().len(), 1);
     }
 
-    #[tokio::test]
-    #[ignore]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_rotate_key_package() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -674,8 +609,7 @@ mod tests {
         assert_eq!(groups[1].group_id, group_2.group_id);
     }
 
-    #[tokio::test]
-    #[ignore]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_sync_welcomes() {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -728,7 +662,7 @@ mod tests {
         // );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_welcome_encryption() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let conn = client.store().conn().unwrap();
@@ -746,8 +680,7 @@ mod tests {
         assert_eq!(decrypted, to_encrypt);
     }
 
-    #[tokio::test]
-    #[ignore]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_add_remove_then_add_again() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -766,18 +699,22 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(amal_group.members().unwrap().len(), 1);
-
+        log::info!("Syncing bolas welcomes");
         // See if Bola can see that they were added to the group
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(None, None, None, None).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
+        log::info!("Syncing bolas messages");
         bola_group.sync(&bola).await.unwrap();
+        // TODO: figure out why Bola's status is not updating to be inactive
+        // assert!(!bola_group.is_active().unwrap());
 
         // Bola should have one readable message (them being added to the group)
         let mut bola_messages = bola_group
             .find_messages(None, None, None, None, None)
             .unwrap();
+        // TODO:nm figure out why the transcript message is no longer decryptable
         assert_eq!(bola_messages.len(), 1);
 
         // Add Bola back to the group

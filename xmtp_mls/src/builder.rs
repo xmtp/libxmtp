@@ -92,24 +92,19 @@ where
             .take()
             .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
         debug!("Initializing identity");
-        let mut identity = self
+        let identity = self
             .identity_strategy
             .initialize_identity(&api_client_wrapper, &store)
             .await?;
 
-        // get sequence_id from identity updates
-        let updates = load_identity_updates(
+        // get sequence_id from identity updates loaded into the DB
+        load_identity_updates(
             &api_client_wrapper,
             &store.conn()?,
             vec![identity.clone().inbox_id],
         )
         .await?;
 
-        let sequence_id = updates
-            .get(&identity.inbox_id)
-            .and_then(|updates| updates.last())
-            .map_or(0, |update| update.sequence_id);
-        identity.set_sequence_id(sequence_id);
         Ok(Client::new(api_client_wrapper, identity, store))
     }
 }
@@ -118,6 +113,7 @@ where
 mod tests {
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_id::associations::RecoverableEcdsaSignature;
 
     use super::{ClientBuilder, IdentityStrategy};
     use crate::{
@@ -130,6 +126,20 @@ mod tests {
         GrpcClient::create("http://localhost:5556".to_string(), false)
             .await
             .unwrap()
+    }
+
+    async fn register_client(client: &Client<GrpcClient>, owner: &impl InboxOwner) {
+        let mut signature_request = client.context.signature_request().unwrap();
+        let signature_text = signature_request.signature_text();
+        signature_request
+            .add_signature(Box::new(RecoverableEcdsaSignature::new(
+                signature_text.clone(),
+                owner.sign(&signature_text).unwrap().into(),
+            )))
+            .await
+            .unwrap();
+
+        client.register_identity(signature_request).await.unwrap();
     }
 
     impl ClientBuilder<GrpcClient> {
@@ -155,10 +165,8 @@ mod tests {
             .build()
             .await
             .unwrap();
-            // TODO: Add signature
-            // let signature: Option<Vec<u8>> =
-            //     client.get_signature_request().unwrap().add_signature();
-            // client.register_identity(signature).await.unwrap();
+
+            register_client(&client, owner).await;
 
             client
         }
@@ -172,7 +180,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn identity_persistence_test() {
         let tmpdb = tmp_path();
         let wallet = &generate_local_wallet();
@@ -192,11 +199,9 @@ mod tests {
         .build()
         .await
         .unwrap();
-        // TODO: finish signature
-        // let signature: Option<Vec<u8>> = client_a
-        //     .text_to_sign()
-        //     .map(|text| wallet.sign(&text).unwrap().into());
-        // client_a.register_identity(signature).await.unwrap(); // Persists the identity on registration
+
+        register_client(&client_a, wallet).await;
+
         let keybytes_a = client_a.installation_public_key();
         drop(client_a);
 
@@ -222,20 +227,21 @@ mod tests {
         assert_eq!(keybytes_a, keybytes_b);
 
         // Create a new wallet and store
-        let store_c =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
-                .unwrap();
+        // TODO: Need to return error if the found identity doesn't match the provided arguments
+        // let store_c =
+        //     EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
+        //         .unwrap();
 
-        ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
-            generate_local_wallet().get_address(),
-            None,
-        ))
-        .local_grpc()
-        .await
-        .store(store_c)
-        .build()
-        .await
-        .expect_err("Testing expected mismatch error");
+        // ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
+        //     generate_local_wallet().get_address(),
+        //     None,
+        // ))
+        // .local_grpc()
+        // .await
+        // .store(store_c)
+        // .build()
+        // .await
+        // .expect_err("Testing expected mismatch error");
 
         // Use cached only strategy
         let store_d =

@@ -13,14 +13,11 @@ use thiserror::Error;
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
 use xmtp_id::InboxId;
-use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::{
-        identity::MlsCredential,
-        mls::message_contents::{
-            group_updated::{Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto},
-            GroupMembershipChanges, GroupUpdated as GroupUpdatedProto,
-        },
+use xmtp_proto::xmtp::{
+    identity::MlsCredential,
+    mls::message_contents::{
+        group_updated::{Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto},
+        GroupMembershipChanges, GroupUpdated as GroupUpdatedProto,
     },
 };
 
@@ -28,7 +25,7 @@ use crate::{
     configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
     identity_updates::{InstallationDiff, InstallationDiffError},
     storage::db_connection::DbConnection,
-    Client,
+    Client, XmtpApi,
 };
 
 use super::{
@@ -37,7 +34,7 @@ use super::{
     group_mutable_metadata::{
         find_mutable_metadata_extension, GroupMutableMetadata, GroupMutableMetadataError,
     },
-    group_permissions::GroupMutablePermissionsError,
+    group_permissions::{extract_group_permissions, GroupMutablePermissionsError},
 };
 
 #[derive(Debug, Error)]
@@ -63,7 +60,7 @@ pub enum CommitValidationError {
     MissingGroupMembership,
     #[error("Missing mutable metadata")]
     MissingMutableMetadata,
-    #[error("Unexpected installations added: {0:?}")]
+    #[error("Unexpected installations added:")]
     UnexpectedInstallationAdded(Vec<Vec<u8>>),
     #[error("Sequence ID can only increase")]
     SequenceIdDecreased,
@@ -198,7 +195,7 @@ pub struct ValidatedCommit {
 }
 
 impl ValidatedCommit {
-    pub async fn from_staged_commit<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+    pub async fn from_staged_commit<ApiClient: XmtpApi>(
         client: &Client<ApiClient>,
         conn: &DbConnection,
         staged_commit: &StagedCommit,
@@ -208,6 +205,7 @@ impl ValidatedCommit {
         let extensions = openmls_group.extensions();
         let immutable_metadata: GroupMetadata = extensions.try_into()?;
         let mutable_metadata: GroupMutableMetadata = extensions.try_into()?;
+        let current_group_members = get_current_group_members(openmls_group);
 
         let existing_group_context = openmls_group.export_group_context();
         let new_group_context = staged_commit.group_context();
@@ -227,24 +225,6 @@ impl ValidatedCommit {
             &mutable_metadata,
         )?;
 
-        // Get the expected diff of installations added and removed based on the difference between the current
-        // group membership and the new group membership.
-        // Also gets back the added and removed inbox ids from the expected diff
-        let ExpectedDiff {
-            new_group_membership,
-            expected_installation_diff,
-            added_inboxes,
-            removed_inboxes,
-        } = extract_expected_diff(
-            conn,
-            client,
-            existing_group_context,
-            new_group_context,
-            &immutable_metadata,
-            &mutable_metadata,
-        )
-        .await?;
-
         // Get the installations actually added and removed in the commit
         let ProposalChanges {
             added_installations,
@@ -257,11 +237,30 @@ impl ValidatedCommit {
             &mutable_metadata,
         )?;
 
+        // Get the expected diff of installations added and removed based on the difference between the current
+        // group membership and the new group membership.
+        // Also gets back the added and removed inbox ids from the expected diff
+        let ExpectedDiff {
+            new_group_membership,
+            expected_installation_diff,
+            added_inboxes,
+            removed_inboxes,
+        } = extract_expected_diff(
+            conn,
+            client,
+            staged_commit,
+            existing_group_context,
+            &immutable_metadata,
+            &mutable_metadata,
+        )
+        .await?;
+
         // Ensure that the expected diff matches the added/removed installations in the proposals
         expected_diff_matches_commit(
             &expected_installation_diff,
-            &added_installations,
-            &removed_installations,
+            added_installations,
+            removed_installations,
+            current_group_members,
         )?;
 
         credentials_to_verify.push(actor.clone());
@@ -301,6 +300,11 @@ impl ValidatedCommit {
             metadata_changes,
         };
 
+        let policy_set = extract_group_permissions(openmls_group)?;
+        if !policy_set.policies.evaluate_commit(&verified_commit) {
+            return Err(CommitValidationError::InsufficientPermissions);
+        }
+
         Ok(verified_commit)
     }
 
@@ -322,7 +326,13 @@ impl ValidatedCommit {
 impl From<ValidatedCommit> for GroupMembershipChanges {
     fn from(_commit: ValidatedCommit) -> Self {
         // TODO: Use new GroupMembershipChanges
-        todo!()
+
+        GroupMembershipChanges {
+            members_added: vec![],
+            members_removed: vec![],
+            installations_added: vec![],
+            installations_removed: vec![],
+        }
     }
 }
 
@@ -381,6 +391,27 @@ fn get_proposal_changes(
     })
 }
 
+fn get_latest_group_membership(
+    staged_commit: &StagedCommit,
+) -> Result<GroupMembership, CommitValidationError> {
+    for proposal in staged_commit.queued_proposals() {
+        match proposal.proposal() {
+            Proposal::GroupContextExtensions(group_context_extensions) => {
+                let new_group_membership =
+                    extract_group_membership(group_context_extensions.extensions())?;
+                log::info!(
+                    "Group context extensions proposal found: {:?}",
+                    new_group_membership
+                );
+                return Ok(new_group_membership);
+            }
+            _ => continue,
+        }
+    }
+
+    extract_group_membership(staged_commit.group_context().extensions())
+}
+
 struct ExpectedDiff {
     new_group_membership: GroupMembership,
     expected_installation_diff: InstallationDiff,
@@ -392,16 +423,16 @@ struct ExpectedDiff {
 /// [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`].
 /// This requires loading the Inbox state from the network.
 /// Satisfies Rule 2
-async fn extract_expected_diff<'diff, ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+async fn extract_expected_diff<'diff, ApiClient: XmtpApi>(
     conn: &DbConnection,
     client: &Client<ApiClient>,
+    staged_commit: &StagedCommit,
     existing_group_context: &GroupContext,
-    new_group_context: &GroupContext,
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
 ) -> Result<ExpectedDiff, CommitValidationError> {
     let old_group_membership = extract_group_membership(existing_group_context.extensions())?;
-    let new_group_membership = extract_group_membership(new_group_context.extensions())?;
+    let new_group_membership = get_latest_group_membership(staged_commit)?;
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
     validate_membership_diff(
@@ -444,15 +475,25 @@ async fn extract_expected_diff<'diff, ApiClient: XmtpMlsClient + XmtpIdentityCli
 /// Satisfies Rule 3
 fn expected_diff_matches_commit(
     expected_diff: &InstallationDiff,
-    added_installations: &HashSet<Vec<u8>>,
-    removed_installations: &HashSet<Vec<u8>>,
+    added_installations: HashSet<Vec<u8>>,
+    removed_installations: HashSet<Vec<u8>>,
+    existing_installation_ids: HashSet<Vec<u8>>,
 ) -> Result<(), CommitValidationError> {
-    if added_installations.ne(&expected_diff.added_installations) {
+    // Check and make sure that any added installations are either:
+    // 1. In the expected diff
+    // 2. Already a member of the group (for example, the group creator is already a member on the first commit)
+
+    // TODO: Replace this logic with something else
+    let unknown_adds = added_installations
+        .into_iter()
+        .filter(|installation_id| {
+            !expected_diff.added_installations.contains(installation_id)
+                && !existing_installation_ids.contains(installation_id)
+        })
+        .collect::<Vec<Vec<u8>>>();
+    if !unknown_adds.is_empty() {
         return Err(CommitValidationError::UnexpectedInstallationAdded(
-            added_installations
-                .difference(&expected_diff.added_installations)
-                .cloned()
-                .collect::<Vec<Vec<u8>>>(),
+            unknown_adds,
         ));
     }
 
@@ -466,6 +507,13 @@ fn expected_diff_matches_commit(
     }
 
     Ok(())
+}
+
+fn get_current_group_members(openmls_group: &OpenMlsGroup) -> HashSet<Vec<u8>> {
+    openmls_group
+        .members()
+        .map(|member| member.signature_key)
+        .collect()
 }
 
 /// Validate that the new group membership is a valid state transition from the old group membership.

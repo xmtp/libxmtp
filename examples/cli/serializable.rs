@@ -9,7 +9,7 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 #[derive(Serialize, Debug)]
 pub struct SerializableGroupMetadata {
-    creator_account_address: String,
+    creator_inbox_id: String,
     policy: String,
 }
 
@@ -37,7 +37,7 @@ impl<'a> From<&'a MlsGroup> for SerializableGroup {
             group_id,
             members,
             metadata: SerializableGroupMetadata {
-                creator_account_address: metadata.creator_account_address.clone(),
+                creator_inbox_id: metadata.creator_inbox_id.clone(),
                 policy: permissions
                     .preconfigured_policy()
                     .expect("could not get policy")

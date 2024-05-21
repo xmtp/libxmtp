@@ -22,20 +22,13 @@ pub enum GroupMetadataError {
 pub struct GroupMetadata {
     pub conversation_type: ConversationType,
     // TODO: Remove this once transition is completed
-    pub creator_account_address: String,
     pub creator_inbox_id: String,
 }
 
 impl GroupMetadata {
-    pub fn new(
-        conversation_type: ConversationType,
-        // TODO: Remove this once transition is completed
-        creator_account_address: String,
-        creator_inbox_id: String,
-    ) -> Self {
+    pub fn new(conversation_type: ConversationType, creator_inbox_id: String) -> Self {
         Self {
             conversation_type,
-            creator_account_address,
             creator_inbox_id,
         }
     }
@@ -44,7 +37,6 @@ impl GroupMetadata {
         Ok(Self::new(
             proto.conversation_type.try_into()?,
             proto.creator_account_address.clone(),
-            proto.creator_inbox_id.clone(),
         ))
     }
 
@@ -53,7 +45,7 @@ impl GroupMetadata {
         Ok(GroupMetadataProto {
             conversation_type: conversation_type as i32,
             creator_inbox_id: self.creator_inbox_id.clone(),
-            creator_account_address: self.creator_account_address.clone(),
+            creator_account_address: "".to_string(), // TODO: remove from proto
         })
     }
 }

@@ -24,6 +24,7 @@ pub enum IdentityUpdateError {
     InvalidSignatureRequest(#[from] SignatureRequestError),
 }
 
+#[derive(Debug)]
 pub struct InstallationDiff {
     pub added_installations: HashSet<Vec<u8>>,
     pub removed_installations: HashSet<Vec<u8>>,
@@ -70,6 +71,16 @@ where
         Ok(needs_update)
     }
 
+    pub async fn get_latest_association_state<InboxId: AsRef<str>>(
+        &self,
+        conn: &DbConnection,
+        inbox_id: InboxId,
+    ) -> Result<AssociationState, ClientError> {
+        load_identity_updates(&self.api_client, conn, vec![inbox_id.as_ref().to_string()]).await?;
+
+        self.get_association_state(conn, inbox_id, None).await
+    }
+
     pub async fn get_association_state<InboxId: AsRef<str>>(
         &self,
         conn: &DbConnection,
@@ -77,6 +88,7 @@ where
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
         let inbox_id = inbox_id.as_ref();
+        // TODO: Refactor this so that we don't have to fetch all the identity updates if the value is in the cache
         let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
         let last_sequence_id = updates
             .last()
@@ -207,6 +219,7 @@ where
         &self,
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
+        let inbox_id = signature_request.inbox_id();
         // If the signature request isn't completed, this will error
         let identity_update = signature_request
             .build_identity_update()
@@ -216,6 +229,9 @@ where
         self.api_client
             .publish_identity_update(identity_update)
             .await?;
+
+        // Load the identity updates for the inbox so that we have a record in our DB
+        load_identity_updates(&self.api_client, &self.store().conn()?, vec![inbox_id]).await?;
 
         Ok(())
     }
@@ -229,6 +245,11 @@ where
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
     ) -> Result<InstallationDiff, InstallationDiffError> {
+        log::info!(
+            "Getting installation diff. Old: {:?}. New {:?}",
+            old_group_membership,
+            new_group_membership
+        );
         let added_and_updated_members = membership_diff
             .added_inboxes
             .iter()
@@ -257,11 +278,16 @@ where
 
         // TODO: Do all of this in parallel
         for inbox_id in added_and_updated_members {
+            let starting_sequence_id = match old_group_membership.get(inbox_id) {
+                Some(0) => None,
+                Some(i) => Some(*i as i64),
+                None => None,
+            };
             let state_diff = self
                 .get_association_state_diff(
                     conn,
                     inbox_id,
-                    old_group_membership.get(inbox_id).map(|i| *i as i64),
+                    starting_sequence_id,
                     new_group_membership.get(inbox_id).map(|i| *i as i64),
                 )
                 .await?;

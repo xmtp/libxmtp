@@ -14,7 +14,7 @@ use super::{
         UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
         UnsignedRevokeAssociation,
     },
-    Action, IdentityUpdate, MemberIdentifier, Signature, SignatureError,
+    Action, IdentityUpdate, MemberIdentifier, MemberKind, Signature, SignatureError,
 };
 
 /// The SignatureField is used to map the signatures from a [SignatureRequest] back to the correct
@@ -206,6 +206,14 @@ impl SignatureRequest {
         let signatures: HashSet<MemberIdentifier> = self.signatures.keys().cloned().collect();
 
         signers.difference(&signatures).cloned().collect()
+    }
+
+    pub fn missing_address_signatures(&self) -> Vec<MemberIdentifier> {
+        self.missing_signatures()
+            .iter()
+            .filter(|member| member.kind() == MemberKind::Address)
+            .cloned()
+            .collect()
     }
 
     pub async fn add_signature(

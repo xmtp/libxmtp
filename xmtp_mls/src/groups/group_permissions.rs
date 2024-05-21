@@ -609,8 +609,8 @@ impl MembershipPolicy for BasePolicies {
             BasePolicies::Allow => true,
             BasePolicies::Deny => false,
             BasePolicies::AllowSameMember => inbox.inbox_id == actor.inbox_id,
-            BasePolicies::AllowIfAdminOrSuperAdmin => actor.is_admin || actor.is_super_admin, //TODO Fix
-            BasePolicies::AllowIfSuperAdmin => actor.is_super_admin, //TODO Fix
+            BasePolicies::AllowIfAdminOrSuperAdmin => actor.is_admin || actor.is_super_admin,
+            BasePolicies::AllowIfSuperAdmin => actor.is_super_admin,
         }
     }
 

@@ -109,6 +109,7 @@ where
         &self,
         account_addresses: Vec<String>,
     ) -> Result<AddressToInboxIdMap, WrappedApiError> {
+        log::info!("Asked for account addresses: {:?}", &account_addresses);
         let result = self
             .api_client
             .get_inbox_ids(GetInboxIdsRequest {
