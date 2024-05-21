@@ -225,24 +225,6 @@ impl ValidatedCommit {
             &mutable_metadata,
         )?;
 
-        // Get the expected diff of installations added and removed based on the difference between the current
-        // group membership and the new group membership.
-        // Also gets back the added and removed inbox ids from the expected diff
-        let ExpectedDiff {
-            new_group_membership,
-            expected_installation_diff,
-            added_inboxes,
-            removed_inboxes,
-        } = extract_expected_diff(
-            conn,
-            client,
-            existing_group_context,
-            new_group_context,
-            &immutable_metadata,
-            &mutable_metadata,
-        )
-        .await?;
-
         // Get the installations actually added and removed in the commit
         let ProposalChanges {
             added_installations,
@@ -254,6 +236,24 @@ impl ValidatedCommit {
             &immutable_metadata,
             &mutable_metadata,
         )?;
+
+        // Get the expected diff of installations added and removed based on the difference between the current
+        // group membership and the new group membership.
+        // Also gets back the added and removed inbox ids from the expected diff
+        let ExpectedDiff {
+            new_group_membership,
+            expected_installation_diff,
+            added_inboxes,
+            removed_inboxes,
+        } = extract_expected_diff(
+            conn,
+            client,
+            staged_commit,
+            existing_group_context,
+            &immutable_metadata,
+            &mutable_metadata,
+        )
+        .await?;
 
         // Ensure that the expected diff matches the added/removed installations in the proposals
         expected_diff_matches_commit(
@@ -391,6 +391,29 @@ fn get_proposal_changes(
     })
 }
 
+fn get_latest_group_membership(
+    staged_commit: &StagedCommit,
+) -> Result<GroupMembership, CommitValidationError> {
+    for proposal in staged_commit.queued_proposals() {
+        match proposal.proposal() {
+            Proposal::GroupContextExtensions(group_context_extensions) => {
+                let new_group_membership =
+                    extract_group_membership(group_context_extensions.extensions())?;
+                log::info!(
+                    "Group context extensions proposal found: {:?}",
+                    new_group_membership
+                );
+                return Ok(new_group_membership);
+            }
+            _ => continue,
+        }
+    }
+
+    Ok(extract_group_membership(
+        staged_commit.group_context().extensions(),
+    )?)
+}
+
 struct ExpectedDiff {
     new_group_membership: GroupMembership,
     expected_installation_diff: InstallationDiff,
@@ -405,13 +428,13 @@ struct ExpectedDiff {
 async fn extract_expected_diff<'diff, ApiClient: XmtpApi>(
     conn: &DbConnection,
     client: &Client<ApiClient>,
+    staged_commit: &StagedCommit,
     existing_group_context: &GroupContext,
-    new_group_context: &GroupContext,
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
 ) -> Result<ExpectedDiff, CommitValidationError> {
     let old_group_membership = extract_group_membership(existing_group_context.extensions())?;
-    let new_group_membership = extract_group_membership(new_group_context.extensions())?;
+    let new_group_membership = get_latest_group_membership(staged_commit)?;
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
     validate_membership_diff(
