@@ -1,17 +1,20 @@
-use openmls::ciphersuite::hpke::{
-    decrypt_with_label, encrypt_with_label, Error as OpenmlsHpkeError,
-};
-use openmls::prelude::tls_codec::{Deserialize, Error as TlsCodecError, Serialize};
-use openmls_rust_crypto::RustCrypto;
-use openmls_traits::types::HpkeCiphertext;
-use openmls_traits::OpenMlsProvider;
-use openmls_traits::{key_store::OpenMlsKeyStore, types::HpkePrivateKey};
-use thiserror::Error;
-
 use crate::{
     configuration::{CIPHERSUITE, WELCOME_HPKE_LABEL},
+    storage::sql_key_store::KEY_PACKAGE_REFERENCES,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
+use openmls::{
+    ciphersuite::hash_ref::KeyPackageRef,
+    prelude::tls_codec::{Deserialize, Error as TlsCodecError, Serialize},
+};
+use openmls::{
+    ciphersuite::hpke::{decrypt_with_label, encrypt_with_label, Error as OpenmlsHpkeError},
+    key_packages::KeyPackageBundle,
+};
+use openmls_rust_crypto::RustCrypto;
+use openmls_traits::OpenMlsProvider;
+use openmls_traits::{storage::StorageProvider, types::HpkeCiphertext};
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum HpkeError {
@@ -44,19 +47,37 @@ pub fn decrypt_welcome(
     hpke_public_key: &[u8],
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, HpkeError> {
-    let private_key = provider
-        .key_store()
-        .read::<HpkePrivateKey>(hpke_public_key)
-        .ok_or(HpkeError::KeyNotFound)?;
-
     let ciphertext = HpkeCiphertext::tls_deserialize_exact(ciphertext)?;
 
-    Ok(decrypt_with_label(
-        private_key.to_vec().as_slice(),
-        WELCOME_HPKE_LABEL,
-        &[],
-        &ciphertext,
-        CIPHERSUITE,
-        &RustCrypto::default(),
-    )?)
+    let serialized_hpke_public_key = hpke_public_key.tls_serialize_detached()?;
+
+    let hash_ref: Option<KeyPackageRef> = match provider
+        .storage()
+        .read(KEY_PACKAGE_REFERENCES, &serialized_hpke_public_key)
+    {
+        Ok(hash_ref) => hash_ref,
+        Err(_) => return Err(HpkeError::KeyNotFound),
+    };
+
+    if let Some(hash_ref) = hash_ref {
+        // With the hash reference we can read the key package.
+        let key_package: Option<KeyPackageBundle> = match provider.storage().key_package(&hash_ref)
+        {
+            Ok(key_package) => key_package,
+            Err(_) => return Err(HpkeError::KeyNotFound),
+        };
+
+        if let Some(kp) = key_package {
+            return Ok(decrypt_with_label(
+                kp.init_private_key(),
+                WELCOME_HPKE_LABEL,
+                &[],
+                &ciphertext,
+                CIPHERSUITE,
+                &RustCrypto::default(),
+            )?);
+        }
+    }
+
+    Err(HpkeError::KeyNotFound)
 }

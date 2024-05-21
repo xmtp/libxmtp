@@ -223,7 +223,15 @@ impl MlsGroup {
                 debug!("[{}] merging pending commit", self.context.inbox_id());
                 if let Err(err) = openmls_group.merge_pending_commit(&provider) {
                     log::error!("error merging commit: {}", err);
-                    openmls_group.clear_pending_commit();
+                    match openmls_group.clear_pending_commit(provider.storage()) {
+                        Ok(_) => (),
+                        Err(_) => {
+                            return Err(MessageProcessingError::Generic(
+                                "Error clearing pending commit".to_string(),
+                            ))
+                        }
+                    }
+
                     conn.set_group_intent_to_publish(intent.id)?;
                 } else {
                     // If no error committing the change, write a transcript message
@@ -500,6 +508,7 @@ impl MlsGroup {
     {
         let provider = self.context.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
+        log::debug!("  loaded openmls group");
 
         let receive_errors: Vec<MessageProcessingError> = messages
             .into_iter()
@@ -529,9 +538,7 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let messages = client.query_group_messages(&self.group_id, conn).await?;
-
         self.process_messages(messages, conn.clone(), client)?;
-
         Ok(())
     }
 
@@ -598,7 +605,6 @@ impl MlsGroup {
             Some(vec![IntentState::ToPublish]),
             None,
         )?;
-        let num_intents = intents.len();
 
         for intent in intents {
             let result = retry_async!(
@@ -637,10 +643,6 @@ impl MlsGroup {
                 sha256(payload_slice),
                 post_commit_data,
             )?;
-        }
-
-        if num_intents > 0 {
-            openmls_group.save(provider.key_store())?;
         }
 
         Ok(())

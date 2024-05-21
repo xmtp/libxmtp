@@ -445,7 +445,7 @@ fn create_credential(inbox_id: InboxId) -> Result<OpenMlsCredential, IdentityErr
     let mut credential_bytes = Vec::new();
     let _ = cred.encode(&mut credential_bytes);
 
-    Ok(BasicCredential::new(credential_bytes)?.into())
+    Ok(BasicCredential::new(credential_bytes).into())
 }
 
 pub fn parse_credential(credential_bytes: &[u8]) -> Result<InboxId, IdentityError> {

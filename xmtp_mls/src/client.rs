@@ -36,7 +36,7 @@ use crate::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
         refresh_state::EntityKind,
-        EncryptedMessageStore, StorageError,
+        sql_key_store, EncryptedMessageStore, StorageError,
     },
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -103,11 +103,13 @@ pub enum MessageProcessingError {
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error("openmls process message error: {0}")]
-    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
+    OpenMlsProcessMessage(
+        #[from] openmls::prelude::ProcessMessageError<sql_key_store::MemoryStorageError>,
+    ),
     #[error("merge pending commit: {0}")]
     MergePendingCommit(#[from] openmls::group::MergePendingCommitError<StorageError>),
     #[error("merge staged commit: {0}")]
-    MergeStagedCommit(#[from] openmls::group::MergeCommitError<StorageError>),
+    MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::MemoryStorageError>),
     #[error(
         "no pending commit to merge. group epoch is {group_epoch:?} and got {message_epoch:?}"
     )]
@@ -356,7 +358,7 @@ where
             .identity()
             .new_key_package(&self.mls_provider(connection))?;
         let kp_bytes = kp.tls_serialize_detached()?;
-        self.api_client.upload_key_package(kp_bytes).await?;
+        self.api_client.upload_key_package(kp_bytes, false).await?;
 
         Ok(())
     }
@@ -550,7 +552,10 @@ mod tests {
     #[tokio::test]
     async fn test_mls_error() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let result = client.api_client.register_installation(vec![1, 2, 3]).await;
+        let result = client
+            .api_client
+            .register_installation(vec![1, 2, 3], false)
+            .await;
 
         assert!(result.is_err());
         let error_string = result.err().unwrap().to_string();

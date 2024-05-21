@@ -20,9 +20,8 @@ use openmls::{
     group::{CreateGroupContextExtProposalError, MlsGroupCreateConfig, MlsGroupJoinConfig},
     messages::proposals::ProposalType,
     prelude::{
-        BasicCredentialError, Capabilities, CredentialWithKey, CryptoConfig,
-        Error as TlsCodecError, GroupId, MlsGroup as OpenMlsGroup, StagedWelcome,
-        Welcome as MlsWelcome, WireFormatPolicy,
+        BasicCredentialError, Capabilities, CredentialWithKey, Error as TlsCodecError, GroupId,
+        MlsGroup as OpenMlsGroup, StagedWelcome, Welcome as MlsWelcome, WireFormatPolicy,
     },
 };
 use openmls_traits::OpenMlsProvider;
@@ -76,7 +75,7 @@ use crate::{
         group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-        StorageError,
+        sql_key_store,
     },
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -98,7 +97,7 @@ pub enum GroupError {
     #[error("intent error: {0}")]
     Intent(#[from] IntentError),
     #[error("create message: {0}")]
-    CreateMessage(#[from] openmls::prelude::CreateMessageError),
+    CreateMessage(#[from] openmls::prelude::CreateMessageError<sql_key_store::MemoryStorageError>),
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
     #[error("No changes found in commit")]
@@ -108,15 +107,15 @@ pub enum GroupError {
     #[error("proposal: {0}")]
     Proposal(#[from] openmls::prelude::ProposalError<StorageError>),
     #[error("add members: {0}")]
-    AddMembers(#[from] openmls::prelude::AddMembersError<StorageError>),
+    AddMembers(#[from] openmls::prelude::AddMembersError<sql_key_store::MemoryStorageError>),
     #[error("remove members: {0}")]
     RemoveMembers(#[from] openmls::prelude::ProposeRemoveMemberError),
     #[error("group create: {0}")]
-    GroupCreate(#[from] openmls::prelude::NewGroupError<StorageError>),
+    GroupCreate(#[from] openmls::group::NewGroupError<sql_key_store::MemoryStorageError>),
     #[error("self update: {0}")]
-    SelfUpdate(#[from] openmls::group::SelfUpdateError<StorageError>),
+    SelfUpdate(#[from] openmls::group::SelfUpdateError<sql_key_store::MemoryStorageError>),
     #[error("welcome error: {0}")]
-    WelcomeError(#[from] openmls::prelude::WelcomeError<StorageError>),
+    WelcomeError(#[from] openmls::prelude::WelcomeError<sql_key_store::MemoryStorageError>),
     #[error("Invalid extension {0}")]
     InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
     #[error("Invalid signature: {0}")]
@@ -152,7 +151,9 @@ pub enum GroupError {
     #[error("serialization error: {0}")]
     EncodeError(#[from] prost::EncodeError),
     #[error("create group context proposal error: {0}")]
-    CreateGroupContextExtProposalError(#[from] CreateGroupContextExtProposalError<StorageError>),
+    CreateGroupContextExtProposalError(
+        #[from] CreateGroupContextExtProposalError<sql_key_store::MemoryStorageError>,
+    ),
     #[error("Credential error")]
     CredentialError(#[from] BasicCredentialError),
     #[error("LeafNode error")]
@@ -210,7 +211,8 @@ impl MlsGroup {
     // Load the stored MLS group from the OpenMLS provider's keystore
     fn load_mls_group(&self, provider: impl OpenMlsProvider) -> Result<OpenMlsGroup, GroupError> {
         let mls_group =
-            OpenMlsGroup::load(&GroupId::from_slice(&self.group_id), provider.key_store())
+            OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
+                .map_err(|_| GroupError::GroupNotFound)?
                 .ok_or(GroupError::GroupNotFound)?;
 
         Ok(mls_group)
@@ -237,7 +239,7 @@ impl MlsGroup {
             mutable_permissions,
         )?;
 
-        let mut mls_group = OpenMlsGroup::new(
+        let mls_group = OpenMlsGroup::new(
             &provider,
             &context.identity.installation_keys,
             &group_config,
@@ -246,7 +248,6 @@ impl MlsGroup {
                 signature_key: context.identity.installation_keys.to_public_vec().into(),
             },
         )?;
-        mls_group.save(provider.key_store())?;
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::new(
@@ -256,7 +257,7 @@ impl MlsGroup {
             context.inbox_id(),
         );
 
-        stored_group.store(&provider.conn())?;
+        stored_group.store(provider.conn_ref())?;
         Ok(Self::new(
             context.clone(),
             group_id,
@@ -275,8 +276,7 @@ impl MlsGroup {
         let mls_welcome =
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
 
-        let mut mls_group = mls_welcome.into_group(provider)?;
-        mls_group.save(provider.key_store())?;
+        let mls_group = mls_welcome.into_group(provider)?;
         let group_id = mls_group.group_id().to_vec();
         let metadata = extract_group_metadata(&mls_group)?;
         let group_type = metadata.conversation_type;
@@ -347,7 +347,7 @@ impl MlsGroup {
             group_membership,
             mutable_permissions,
         )?;
-        let mut mls_group = OpenMlsGroup::new(
+        let mls_group = OpenMlsGroup::new(
             &provider,
             &context.identity.installation_keys,
             &group_config,
@@ -356,13 +356,13 @@ impl MlsGroup {
                 signature_key: context.identity.installation_keys.to_public_vec().into(),
             },
         )?;
-        mls_group.save(provider.key_store())?;
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group =
             StoredGroup::new_sync_group(group_id.clone(), now_ns(), GroupMembershipState::Allowed);
 
-        stored_group.store(&provider.conn())?;
+        stored_group.store(provider.conn_ref())?;
+
         Ok(Self::new(
             context.clone(),
             stored_group.id,
@@ -772,7 +772,7 @@ fn build_group_config(
     Ok(MlsGroupCreateConfig::builder()
         .with_group_context_extensions(extensions)?
         .capabilities(capabilities)
-        .crypto_config(CryptoConfig::with_default_version(CIPHERSUITE))
+        .ciphersuite(CIPHERSUITE)
         .wire_format_policy(WireFormatPolicy::default())
         .max_past_epochs(3) // Trying with 3 max past epochs for now
         .use_ratchet_tree_extension(true)
