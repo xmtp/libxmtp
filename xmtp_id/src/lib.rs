@@ -1,6 +1,6 @@
 pub mod associations;
 pub mod constants;
-pub mod erc1271_verifier;
+pub mod scw_verifier;
 pub mod utils;
 use ethers::{
     middleware::Middleware,
@@ -61,13 +61,8 @@ impl InboxOwner for LocalWallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ethers::{
-        contract::abigen,
-        middleware::SignerMiddleware,
-        providers::{Http, Provider},
-        utils::Anvil,
-    };
-    use std::sync::Arc;
+    use crate::scw_verifier::tests::with_smart_contracts;
+    use ethers::contract::abigen;
 
     abigen!(
         CoinbaseSmartWallet,
@@ -83,31 +78,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_smart_contract() {
-        let anvil = Anvil::new().args(vec!["--base-fee", "100"]).spawn();
-        let deployer: LocalWallet = anvil.keys()[1].clone().into();
-        let provider = Provider::<Http>::try_from(anvil.endpoint()).unwrap();
-        let client = Arc::new(SignerMiddleware::new(
-            provider.clone(),
-            deployer.clone().with_chain_id(anvil.chain_id()),
-        ));
-
-        // deploy a coinbase smart wallet as the implementation for factory
-        let implementation = CoinbaseSmartWallet::deploy(client.clone(), ())
-            .unwrap()
-            .gas_price(100)
-            .send()
-            .await
-            .unwrap();
-
-        assert!(
-            !is_smart_contract(deployer.address(), anvil.endpoint(), None)
+        with_smart_contracts(|anvil, _provider, _client, smart_contracts| async move {
+            let deployer: LocalWallet = anvil.keys()[0].clone().into();
+            let factory = smart_contracts.coinbase_smart_wallet_factory();
+            assert!(
+                !is_smart_contract(deployer.address(), anvil.endpoint(), None)
+                    .await
+                    .unwrap()
+            );
+            assert!(is_smart_contract(factory.address(), anvil.endpoint(), None)
                 .await
-                .unwrap()
-        );
-        assert!(
-            is_smart_contract(implementation.address(), anvil.endpoint(), None)
-                .await
-                .unwrap()
-        );
+                .unwrap());
+        })
+        .await;
     }
 }

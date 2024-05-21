@@ -3,6 +3,7 @@ use std::array::TryFromSliceError;
 use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
+use crate::storage::sql_key_store::{MemoryStorageError, KEY_PACKAGE_REFERENCES};
 use crate::{
     api::{ApiClientWrapper, WrappedApiError},
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
@@ -22,15 +23,14 @@ use openmls::{
     extensions::{
         ApplicationIdExtension, Extension, ExtensionType, Extensions, LastResortExtension,
     },
-    group::config::CryptoConfig,
     key_packages::Lifetime,
     messages::proposals::ProposalType,
     prelude::{Capabilities, Credential as OpenMlsCredential},
     prelude_test::KeyPackage,
-    versions::ProtocolVersion,
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::types::CryptoError;
+use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use sha2::{Digest, Sha512};
 use thiserror::Error;
@@ -114,6 +114,8 @@ pub enum IdentityError {
     BasicCredential(#[from] BasicCredentialError),
     #[error("Legacy key re-use")]
     LegacyKeyReuse,
+    #[error("Uninitialized identity")]
+    UninitializedIdentity,
     #[error("Installation key {0}")]
     InstallationKey(String),
     #[error("Malformed legacy key: {0}")]
@@ -131,9 +133,9 @@ pub enum IdentityError {
     #[error(transparent)]
     StorageError(#[from] crate::storage::StorageError),
     #[error(transparent)]
-    KeyPackageGenerationError(
-        #[from] openmls::key_packages::errors::KeyPackageNewError<StorageError>,
-    ),
+    OpenMlsStorageError(#[from] MemoryStorageError),
+    #[error(transparent)]
+    KeyPackageGenerationError(#[from] openmls::key_packages::errors::KeyPackageNewError),
     #[error(transparent)]
     ED25519Error(#[from] ed25519_dalek::ed25519::Error),
 }
@@ -331,10 +333,7 @@ impl Identity {
             .key_package_extensions(key_package_extensions)
             .key_package_lifetime(Lifetime::new(6 * 30 * 86400))
             .build(
-                CryptoConfig {
-                    ciphersuite: CIPHERSUITE,
-                    version: ProtocolVersion::default(),
-                },
+                CIPHERSUITE,
                 provider,
                 &self.installation_keys,
                 CredentialWithKey {
@@ -342,8 +341,30 @@ impl Identity {
                     signature_key: self.installation_keys.to_public_vec().into(),
                 },
             )?;
+        // Store the hash reference, keyed with the public init key.
+        // This is needed to get to the private key when decrypting welcome messages.
+        let public_init_key = kp.key_package().hpke_init_key().tls_serialize_detached()?;
 
-        Ok(kp)
+        let key_package_hash_ref = match kp.key_package().hash_ref(provider.crypto()) {
+            Ok(key_package_hash_ref) => key_package_hash_ref,
+            Err(_) => return Err(IdentityError::UninitializedIdentity),
+        };
+
+        // Serialize the hash reference
+        let hash_ref = match serde_json::to_vec(&key_package_hash_ref) {
+            Ok(hash_ref) => hash_ref,
+            Err(_) => return Err(IdentityError::UninitializedIdentity),
+        };
+
+        // Store the hash reference, keyed with the public init key
+        provider
+            .storage()
+            .write::<{ openmls_traits::storage::CURRENT_VERSION }>(
+                KEY_PACKAGE_REFERENCES,
+                &public_init_key,
+                &hash_ref,
+            )?;
+        Ok(kp.key_package().clone())
     }
 
     pub(crate) async fn register<ApiClient: XmtpApi>(
@@ -358,7 +379,7 @@ impl Identity {
         }
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
-        api_client.register_installation(kp_bytes).await?;
+        api_client.register_installation(kp_bytes, true).await?;
 
         Ok(StoredIdentity::from(self).store(provider.conn_ref())?)
     }
@@ -445,7 +466,7 @@ fn create_credential(inbox_id: InboxId) -> Result<OpenMlsCredential, IdentityErr
     let mut credential_bytes = Vec::new();
     let _ = cred.encode(&mut credential_bytes);
 
-    Ok(BasicCredential::new(credential_bytes)?.into())
+    Ok(BasicCredential::new(credential_bytes).into())
 }
 
 pub fn parse_credential(credential_bytes: &[u8]) -> Result<InboxId, IdentityError> {
