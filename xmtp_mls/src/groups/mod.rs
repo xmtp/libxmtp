@@ -223,13 +223,11 @@ impl MlsGroup {
         permissions: Option<PreconfiguredPolicies>,
     ) -> Result<Self, GroupError> {
         let conn = context.store.conn()?;
-        let my_sequence_id = context.inbox_sequence_id(&conn)?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata =
             build_protected_metadata_extension(&context.identity, Purpose::Conversation)?;
         let mutable_metadata = build_mutable_metadata_extension_default(&context.identity)?;
-        let group_membership =
-            build_starting_group_membership_extension(context.inbox_id(), my_sequence_id as u64);
+        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
         let mutable_permissions =
             build_mutable_permissions_extension(permissions.unwrap_or_default().to_policy_set())?;
         let group_config = build_group_config(
@@ -335,13 +333,12 @@ impl MlsGroup {
         context: Arc<XmtpMlsLocalContext>,
     ) -> Result<MlsGroup, GroupError> {
         let conn = context.store.conn()?;
-        let my_sequence_id = context.inbox_sequence_id(&conn)?;
+        // let my_sequence_id = context.inbox_sequence_id(&conn)?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata =
             build_protected_metadata_extension(&context.identity, Purpose::Sync)?;
         let mutable_metadata = build_mutable_metadata_extension_default(&context.identity)?;
-        let group_membership =
-            build_starting_group_membership_extension(context.inbox_id(), my_sequence_id as u64);
+        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
         let mutable_permissions =
             build_mutable_permissions_extension(PreconfiguredPolicies::default().to_policy_set())?;
         let group_config = build_group_config(
@@ -848,8 +845,7 @@ mod tests {
             .query_group_messages(group.group_id, None)
             .await
             .expect("read topic");
-
-        assert_eq!(messages.len(), 1)
+        assert_eq!(messages.len(), 2);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

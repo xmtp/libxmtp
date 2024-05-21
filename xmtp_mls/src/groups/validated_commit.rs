@@ -60,7 +60,7 @@ pub enum CommitValidationError {
     MissingGroupMembership,
     #[error("Missing mutable metadata")]
     MissingMutableMetadata,
-    #[error("Unexpected installations added: {0:?}")]
+    #[error("Unexpected installations added:")]
     UnexpectedInstallationAdded(Vec<Vec<u8>>),
     #[error("Sequence ID can only increase")]
     SequenceIdDecreased,
@@ -205,6 +205,7 @@ impl ValidatedCommit {
         let extensions = openmls_group.extensions();
         let immutable_metadata: GroupMetadata = extensions.try_into()?;
         let mutable_metadata: GroupMutableMetadata = extensions.try_into()?;
+        let current_group_members = get_current_group_members(openmls_group);
 
         let existing_group_context = openmls_group.export_group_context();
         let new_group_context = staged_commit.group_context();
@@ -257,8 +258,9 @@ impl ValidatedCommit {
         // Ensure that the expected diff matches the added/removed installations in the proposals
         expected_diff_matches_commit(
             &expected_installation_diff,
-            &added_installations,
-            &removed_installations,
+            added_installations,
+            removed_installations,
+            current_group_members,
         )?;
 
         credentials_to_verify.push(actor.clone());
@@ -452,15 +454,25 @@ async fn extract_expected_diff<'diff, ApiClient: XmtpApi>(
 /// Satisfies Rule 3
 fn expected_diff_matches_commit(
     expected_diff: &InstallationDiff,
-    added_installations: &HashSet<Vec<u8>>,
-    removed_installations: &HashSet<Vec<u8>>,
+    added_installations: HashSet<Vec<u8>>,
+    removed_installations: HashSet<Vec<u8>>,
+    existing_installation_ids: HashSet<Vec<u8>>,
 ) -> Result<(), CommitValidationError> {
-    if added_installations.ne(&expected_diff.added_installations) {
+    // Check and make sure that any added installations are either:
+    // 1. In the expected diff
+    // 2. Already a member of the group (for example, the group creator is already a member on the first commit)
+
+    // TODO: Replace this logic with something else
+    let unknown_adds = added_installations
+        .into_iter()
+        .filter(|installation_id| {
+            !expected_diff.added_installations.contains(installation_id)
+                && !existing_installation_ids.contains(installation_id)
+        })
+        .collect::<Vec<Vec<u8>>>();
+    if !unknown_adds.is_empty() {
         return Err(CommitValidationError::UnexpectedInstallationAdded(
-            added_installations
-                .difference(&expected_diff.added_installations)
-                .cloned()
-                .collect::<Vec<Vec<u8>>>(),
+            unknown_adds,
         ));
     }
 
@@ -474,6 +486,13 @@ fn expected_diff_matches_commit(
     }
 
     Ok(())
+}
+
+fn get_current_group_members(openmls_group: &OpenMlsGroup) -> HashSet<Vec<u8>> {
+    openmls_group
+        .members()
+        .map(|member| member.signature_key)
+        .collect()
 }
 
 /// Validate that the new group membership is a valid state transition from the old group membership.

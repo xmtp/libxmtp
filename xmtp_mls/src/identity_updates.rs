@@ -271,11 +271,16 @@ where
 
         // TODO: Do all of this in parallel
         for inbox_id in added_and_updated_members {
+            let starting_sequence_id = match old_group_membership.get(inbox_id) {
+                Some(0) => None,
+                Some(i) => Some(*i as i64),
+                None => None,
+            };
             let state_diff = self
                 .get_association_state_diff(
                     conn,
                     inbox_id,
-                    old_group_membership.get(inbox_id).map(|i| *i as i64),
+                    starting_sequence_id,
                     new_group_membership.get(inbox_id).map(|i| *i as i64),
                 )
                 .await?;
