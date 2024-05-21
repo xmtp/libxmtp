@@ -2,7 +2,7 @@ use prost::{DecodeError, Message};
 use std::collections::HashMap;
 use xmtp_proto::xmtp::mls::message_contents::GroupMembership as GroupMembershipProto;
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GroupMembership {
     pub(crate) members: HashMap<String, u64>,
 }

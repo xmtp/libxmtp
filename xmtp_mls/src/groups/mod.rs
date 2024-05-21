@@ -108,7 +108,7 @@ pub enum GroupError {
     #[error("proposal: {0}")]
     Proposal(#[from] openmls::prelude::ProposalError<StorageError>),
     #[error("add members: {0}")]
-    AddMembers(#[from] openmls::prelude::ProposeAddMemberError),
+    AddMembers(#[from] openmls::prelude::AddMembersError<StorageError>),
     #[error("remove members: {0}")]
     RemoveMembers(#[from] openmls::prelude::ProposeRemoveMemberError),
     #[error("group create: {0}")]
@@ -902,8 +902,6 @@ mod tests {
     // Amal and Bola will both try and add Charlie from the same epoch.
     // The group should resolve to a consistent state
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    // This is still failing for some reason
-    #[ignore]
     async fn test_add_member_conflict() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1038,7 +1036,7 @@ mod tests {
         group
             .remove_members_by_inbox_id(&client_1, vec![client_2.inbox_id()])
             .await
-            .expect("group create failure");
+            .expect("group remove members failure");
 
         let messages_with_remove = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages_with_remove.len(), 2);
@@ -1118,9 +1116,6 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    // TODO: need to figure out why this test is no longer setting bola to inactive
-    // Previously this worked. Maybe we are not saving the group on error???
-    #[ignore]
     async fn test_remove_by_account_address() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = &generate_local_wallet();
@@ -1201,9 +1196,7 @@ mod tests {
         assert_eq!(num_members, 3);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    // TODO: Figure out why this test is failing
-    #[ignore]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_self_resolve_epoch_mismatch() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1226,7 +1219,7 @@ mod tests {
             .unwrap();
 
         bola_group
-            .add_members_by_inbox_id(&bola, vec![dave_wallet.get_address()])
+            .add_members_by_inbox_id(&bola, vec![dave.inbox_id()])
             .await
             .unwrap();
 
@@ -1391,7 +1384,7 @@ mod tests {
 
         // Add bola to the group
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola_wallet.get_address()])
+            .add_members(&amal, vec![bola_wallet.get_address()])
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();

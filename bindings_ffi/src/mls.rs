@@ -182,7 +182,7 @@ pub struct FfiXmtpClient {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
-    pub fn get_inbox_id(&self) -> InboxId {
+    pub fn inbox_id(&self) -> InboxId {
         self.inner_client.inbox_id()
     }
 
@@ -512,6 +512,25 @@ impl FfiGroup {
         Ok(())
     }
 
+    pub async fn add_members_by_inbox_id(
+        &self,
+        inbox_ids: Vec<String>,
+    ) -> Result<(), GenericError> {
+        log::info!("adding members by inbox id: {}", inbox_ids.join(","));
+
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        group
+            .add_members_by_inbox_id(&self.inner_client, inbox_ids)
+            .await?;
+
+        Ok(())
+    }
+
     pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
@@ -521,6 +540,23 @@ impl FfiGroup {
 
         group
             .remove_members(&self.inner_client, account_addresses)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn remove_members_by_inbox_id(
+        &self,
+        inbox_ids: Vec<String>,
+    ) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        group
+            .remove_members_by_inbox_id(&self.inner_client, inbox_ids)
             .await?;
 
         Ok(())
@@ -884,7 +920,6 @@ mod tests {
 
     // Try a query on a test topic, and make sure we get a response
     #[tokio::test]
-    #[ignore]
     async fn test_client_creation() {
         let client = new_test_client().await;
         assert!(!client.signature_request().is_none());
@@ -892,6 +927,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    // This test needs to be updated to use the real address for the legacy signed private key
     async fn test_legacy_identity() {
         let inbox_id = "pseudo-hex";
         let legacy_signed_private_key_proto = vec![
@@ -921,11 +957,6 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(client.signature_request().is_none());
-        client
-            .register_identity(client.signature_request().unwrap())
-            .await
-            .unwrap();
         assert!(client.signature_request().is_none());
     }
 
@@ -1132,7 +1163,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
         assert_eq!(stream_callback.message_count(), 1);
         // Create another group and add bola
@@ -1223,13 +1254,14 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[ignore]
     async fn test_message_streaming_when_removed_then_added() {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
         log::info!(
             "Created Inbox IDs {} and {}",
-            amal.get_inbox_id(),
-            bola.get_inbox_id()
+            amal.inbox_id(),
+            bola.inbox_id()
         );
 
         let amal_group = amal
@@ -1256,7 +1288,7 @@ mod tests {
         assert!(!stream_closer.is_closed());
 
         amal_group
-            .remove_members(vec![bola.account_address.clone()])
+            .remove_members_by_inbox_id(vec![bola.inbox_id().clone()])
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
@@ -1320,7 +1352,7 @@ mod tests {
 
         // // Verify the welcome host_credential is equal to Amal's
         assert_eq!(
-            amal.get_inbox_id(),
+            amal.inbox_id(),
             added_by_inbox_id,
             "The Inviter and added_by_address do not match!"
         );

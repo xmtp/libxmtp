@@ -44,6 +44,7 @@ use openmls::{
         LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
         ProcessedMessage, ProcessedMessageContent, Sender,
     },
+    prelude_test::KeyPackage,
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::OpenMlsProvider;
@@ -837,32 +838,37 @@ impl MlsGroup {
         let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids)?;
 
         // Get a list of all inbox IDs that have increased sequence_id for the group
-        let changed_inbox_ids = inbox_ids
-            .iter()
-            .fold(HashMap::new(), |mut updates, inbox_id| {
-                match (
-                    latest_sequence_id_map.get(inbox_id),
-                    existing_group_membership.get(inbox_id),
-                ) {
-                    // This is an update. We have a new sequence ID and an existing one
-                    (Some(latest_sequence_id), Some(current_sequence_id)) => {
-                        let latest_sequence_id_u64 = *latest_sequence_id as u64;
-                        if latest_sequence_id_u64.gt(current_sequence_id) {
-                            updates.insert(inbox_id.to_string(), latest_sequence_id_u64);
+        let changed_inbox_ids =
+            inbox_ids
+                .iter()
+                .try_fold(HashMap::new(), |mut updates, inbox_id| {
+                    match (
+                        latest_sequence_id_map.get(inbox_id),
+                        existing_group_membership.get(inbox_id),
+                    ) {
+                        // This is an update. We have a new sequence ID and an existing one
+                        (Some(latest_sequence_id), Some(current_sequence_id)) => {
+                            let latest_sequence_id_u64 = *latest_sequence_id as u64;
+                            if latest_sequence_id_u64.gt(current_sequence_id) {
+                                updates.insert(inbox_id.to_string(), latest_sequence_id_u64);
+                            }
+                        }
+                        // This is for new additions to the group
+                        (Some(latest_sequence_id), _) => {
+                            // This is the case for net new members to the group
+                            updates.insert(inbox_id.to_string(), *latest_sequence_id as u64);
+                        }
+                        (_, _) => {
+                            log::warn!(
+                                "Could not find existing sequence ID for inbox {}",
+                                inbox_id
+                            );
+                            return Err(GroupError::NoChanges);
                         }
                     }
-                    // This is for new additions to the group
-                    (Some(latest_sequence_id), _) => {
-                        // This is the case for net new members to the group
-                        updates.insert(inbox_id.to_string(), *latest_sequence_id as u64);
-                    }
-                    (_, _) => {
-                        log::warn!("Could not find existing sequence ID for inbox {}", inbox_id);
-                    }
-                }
 
-                updates
-            });
+                    Ok(updates)
+                })?;
 
         Ok(UpdateGroupMembershipIntentData::new(
             changed_inbox_ids,
@@ -957,6 +963,8 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
         .await?;
 
     let mut new_installations: Vec<Installation> = vec![];
+    let mut new_key_packages: Vec<KeyPackage> = vec![];
+
     if !installation_diff.added_installations.is_empty() {
         let my_installation_id = &client.installation_public_key();
         // Go to the network and load the key packages for any new installation
@@ -972,26 +980,33 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
 
         for key_package in key_packages {
             // Add a proposal to add the member to the local proposal queue
-            openmls_group.propose_add_member(provider, signer, &key_package.inner)?;
             new_installations.push(Installation::from_verified_key_package(&key_package));
+            new_key_packages.push(key_package.inner);
         }
     }
-    if !installation_diff.removed_installations.is_empty() {
-        let leaf_nodes_indexes =
-            get_removed_leaf_nodes(openmls_group, &installation_diff.removed_installations);
-        for leaf_node_index in leaf_nodes_indexes {
-            openmls_group.propose_remove_member(provider, signer, leaf_node_index)?;
-        }
+
+    let leaf_nodes_to_remove: Vec<LeafNodeIndex> =
+        get_removed_leaf_nodes(openmls_group, &installation_diff.removed_installations);
+
+    if leaf_nodes_to_remove.is_empty()
+        && new_key_packages.is_empty()
+        && membership_diff.updated_inboxes.is_empty()
+    {
+        return Err(GroupError::NoChanges);
     }
 
     // Update the extensions to have the new GroupMembership
     let mut new_extensions = extensions.clone();
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
-    openmls_group.propose_group_context_extensions(provider, new_extensions, signer)?;
 
     // Commit to the pending proposals, which will clear the proposal queue
-    let (commit, maybe_welcome_message, _) =
-        openmls_group.commit_to_pending_proposals(provider, signer)?;
+    let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
+        provider,
+        signer,
+        &new_key_packages,
+        &leaf_nodes_to_remove,
+        new_extensions,
+    )?;
 
     let post_commit_action = match maybe_welcome_message {
         Some(welcome_message) => Some(PostCommitAction::from_welcome(
