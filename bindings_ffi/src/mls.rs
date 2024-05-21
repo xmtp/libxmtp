@@ -821,8 +821,8 @@ impl FfiGroupPermissions {
 #[cfg(test)]
 mod tests {
     use crate::{
-        inbox_owner::SigningError, logger::FfiLogger, FfiConversationCallback, FfiInboxOwner,
-        LegacyIdentitySource,
+        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
+        FfiConversationCallback, FfiInboxOwner, LegacyIdentitySource,
     };
     use std::{
         env,
@@ -949,6 +949,24 @@ mod tests {
         .unwrap();
         register_client(&ffi_inbox_owner, &client).await;
         return client;
+    }
+
+    #[tokio::test]
+    async fn get_inbox_id() {
+        let client = new_test_client().await;
+        let real_inbox_id = client.inbox_id();
+
+        let from_network = get_inbox_id_for_address(
+            Box::new(MockLogger {}),
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            client.account_address.clone(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(real_inbox_id, from_network);
     }
 
     // Try a query on a test topic, and make sure we get a response
