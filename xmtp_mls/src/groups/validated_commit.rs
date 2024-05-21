@@ -409,9 +409,7 @@ fn get_latest_group_membership(
         }
     }
 
-    Ok(extract_group_membership(
-        staged_commit.group_context().extensions(),
-    )?)
+    extract_group_membership(staged_commit.group_context().extensions())
 }
 
 struct ExpectedDiff {
