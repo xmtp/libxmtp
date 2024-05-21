@@ -1,7 +1,7 @@
 services:
   node:
-    image: xmtp/node-go:dev
-    # platform: linux/amd64
+    image: xmtp/node-go@sha256:43d4da94f01cf2da60a8d46770d43c94d9c869bd3d01d94185aac49081851e60
+    platform: linux/amd64
     environment:
       - GOWAKU-NODEKEY=8a30dcb604b0b53627a5adc054dbf434b446628d4bd1eccc681d223f0550ce67
     command:
