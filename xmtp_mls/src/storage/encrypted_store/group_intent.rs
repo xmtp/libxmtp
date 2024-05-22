@@ -25,6 +25,7 @@ pub enum IntentKind {
     KeyUpdate = 2,
     MetadataUpdate = 3,
     UpdateGroupMembership = 4,
+    UpdateAdminList = 5,
 }
 
 #[repr(i32)]
@@ -261,6 +262,7 @@ where
             2 => Ok(IntentKind::KeyUpdate),
             3 => Ok(IntentKind::MetadataUpdate),
             4 => Ok(IntentKind::UpdateGroupMembership),
+            5 => Ok(IntentKind::UpdateAdminList),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

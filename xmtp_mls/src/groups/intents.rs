@@ -14,13 +14,14 @@ use xmtp_proto::xmtp::mls::database::{
         SendWelcomes as SendWelcomesProto,
     },
     send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
+    update_admin_lists_data::{Version as UpdateAdminListsVersion, V1 as UpdateAdminListsV1},
     update_group_membership_data::{
         Version as UpdateGroupMembershipVersion, V1 as UpdateGroupMembershipV1,
     },
     update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
     AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
     InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
-    UpdateGroupMembershipData, UpdateMetadataData,
+    UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData,
 };
 
 use crate::{
@@ -276,6 +277,92 @@ impl TryFrom<&Vec<u8>> for UpdateGroupMembershipIntentData {
         } else {
             Err(IntentError::Generic("missing payload".to_string()))
         }
+    }
+}
+
+#[repr(i32)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum AdminListActionType {
+    Add = 1,         // Matches ADD_ADMIN in Protobuf
+    Remove = 2,      // Matches REMOVE_ADMIN in Protobuf
+    AddSuper = 3,    // Matches ADD_SUPER_ADMIN in Protobuf
+    RemoveSuper = 4, // Matches REMOVE_SUPER_ADMIN in Protobuf
+}
+
+impl TryFrom<i32> for AdminListActionType {
+    type Error = &'static str;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(AdminListActionType::Add),
+            2 => Ok(AdminListActionType::Remove),
+            3 => Ok(AdminListActionType::AddSuper),
+            4 => Ok(AdminListActionType::RemoveSuper),
+            _ => Err("Unknown value for AdminListActionType"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateAdminListIntentData {
+    pub action_type: AdminListActionType,
+    pub inbox_id: String,
+}
+
+impl UpdateAdminListIntentData {
+    pub fn new(action_type: AdminListActionType, inbox_id: String) -> Self {
+        Self {
+            action_type,
+            inbox_id,
+        }
+    }
+}
+
+impl From<UpdateAdminListIntentData> for Vec<u8> {
+    fn from(intent: UpdateAdminListIntentData) -> Self {
+        let mut buf = Vec::new();
+        let action_type = intent.action_type as i32;
+
+        UpdateAdminListsData {
+            version: Some(UpdateAdminListsVersion::V1(UpdateAdminListsV1 {
+                admin_list_update_type: action_type,
+                inbox_id: intent.inbox_id,
+            })),
+        }
+        .encode(&mut buf)
+        .expect("encode error");
+
+        buf
+    }
+}
+
+impl TryFrom<Vec<u8>> for UpdateAdminListIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
+        let msg = UpdateAdminListsData::decode(Bytes::from(data))?;
+
+        let action_type: AdminListActionType = match msg.version {
+            Some(UpdateAdminListsVersion::V1(ref v1)) => {
+                AdminListActionType::try_from(v1.admin_list_update_type)
+                    .map_err(|e| IntentError::Generic(e.to_string()))?
+            }
+            None => {
+                return Err(IntentError::Generic(
+                    "missing update admin version".to_string(),
+                ))
+            }
+        };
+        let inbox_id = match msg.version {
+            Some(UpdateAdminListsVersion::V1(ref v1)) => v1.inbox_id.clone(),
+            None => {
+                return Err(IntentError::Generic(
+                    "missing update admin version".to_string(),
+                ))
+            }
+        };
+
+        Ok(Self::new(action_type, inbox_id))
     }
 }
 

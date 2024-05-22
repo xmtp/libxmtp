@@ -193,6 +193,7 @@ impl MlsGroup {
         match intent.kind {
             IntentKind::KeyUpdate
             | IntentKind::UpdateGroupMembership
+            | IntentKind::UpdateAdminList
             | IntentKind::MetadataUpdate => {
                 if !allow_epoch_increment {
                     return Err(MessageProcessingError::EpochIncrementNotAllowed);
@@ -714,6 +715,7 @@ impl MlsGroup {
 
                 Ok((commit_bytes, None))
             }
+            IntentKind::UpdateAdminList => todo!(),
         }
     }
 
