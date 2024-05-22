@@ -1078,6 +1078,35 @@ mod tests {
         assert_eq!(message.decrypted_message_bytes, bo_message);
     }
 
+    // Test members function from non group creator
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_members_func_from_non_creator() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let amal_group = amal.create_group(None).unwrap();
+        amal_group.add_members_by_inbox_id(&amal, vec![bola.inbox_id()]).await.unwrap();
+
+        // Get bola's version of the same group
+        let bola_groups = bola.sync_welcomes().await.unwrap();
+        let bola_group = bola_groups.first().unwrap();
+
+        // Call sync for both
+        amal_group.sync(&amal).await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
+
+        // Verify bola can see the group name
+        let bola_group_name = bola_group.group_name().unwrap();
+        assert_eq!(bola_group_name, "New Group");
+
+        // Check if both clients can see the members correctly
+        let amal_members = amal_group.members().unwrap();
+        let bola_members = bola_group.members().unwrap();
+
+        assert_eq!(amal_members.len(), 2);
+        assert_eq!(bola_members.len(), 2); // failing here!
+    }
+
     // Amal and Bola will both try and add Charlie from the same epoch.
     // The group should resolve to a consistent state
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
