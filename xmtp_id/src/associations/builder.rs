@@ -206,7 +206,7 @@ impl SignatureRequest {
         let signatures: HashSet<MemberIdentifier> = self.signatures.keys().cloned().collect();
 
         let missing_signatures = signers.difference(&signatures).cloned().collect();
-        log::debug!("missing_signatures: {:?}", missing_signatures);
+        println!("missing_signatures: {:?}", missing_signatures);
         missing_signatures
     }
 
@@ -223,6 +223,7 @@ impl SignatureRequest {
         signature: Box<dyn Signature>,
     ) -> Result<(), SignatureRequestError> {
         let signer_identity = signature.recover_signer().await?;
+        println!("signer_identity: {:?}", signer_identity);
         let missing_signatures = self.missing_signatures();
 
         // Make sure the signer is someone actually in the request
