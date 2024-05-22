@@ -71,7 +71,7 @@ pub fn ignore_unique_violation<T>(
 /// Manages a Sqlite db for persisting messages and other objects.
 pub struct EncryptedMessageStore {
     connect_opt: StorageOption,
-    pool: Arc<RwLock<Pool<ConnectionManager<SqliteConnection>>>>,
+    pool: Arc<RwLock<Option<Pool<ConnectionManager<SqliteConnection>>>>>,
     enc_key: Option<EncryptionKey>,
 }
 
@@ -112,7 +112,7 @@ impl EncryptedMessageStore {
 
         let mut obj = Self {
             connect_opt: opts,
-            pool: Arc::new(pool.into()),
+            pool: Arc::new(Some(pool).into()),
             enc_key,
         };
 
@@ -136,15 +136,22 @@ impl EncryptedMessageStore {
     fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
-        let pool = self
+        let pool_guard = self
             .pool
             .read()
             .map_err(|e| StorageError::Lock(e.to_string().into()))?;
+
+        let pool = pool_guard
+            .as_ref()
+            .ok_or_else(|| StorageError::Pool("No pool available".into()))?;
+
         let mut conn = pool.get().map_err(|e| StorageError::Pool(e.to_string()))?;
 
         if let Some(ref key) = self.enc_key {
-            conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
+            conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))
+                .map_err(|e| StorageError::DieselResult(e))?;
         }
+
         Ok(conn)
     }
 
@@ -203,12 +210,8 @@ impl EncryptedMessageStore {
     }
 
     pub fn release_connection(&self) {
-        if let Ok(pool) = self.pool.write() {
-            let _conn = pool.get().expect("Failed to get a connection");
-            // Connection will be released when `_conn` goes out of scope
-        } else {
-            eprintln!("Failed to acquire write lock on the connection pool.");
-        }
+        let mut pool_guard = self.pool.write().unwrap();
+        pool_guard.take();
     }
 
     pub fn reconnect(&self) -> Result<(), StorageError> {
@@ -231,7 +234,7 @@ impl EncryptedMessageStore {
             .pool
             .write()
             .map_err(|e| StorageError::Pool(e.to_string()))?;
-        *pool_write = pool;
+        *pool_write = Some(pool);
 
         Ok(())
     }
