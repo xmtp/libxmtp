@@ -1,6 +1,6 @@
-use std::array::TryFromSliceError;
-
 use crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
+use std::array::TryFromSliceError;
+use xmtp_v2::k256_helper;
 
 use super::MemberIdentifier;
 use async_trait::async_trait;
@@ -15,14 +15,18 @@ use sha2::{Digest, Sha512};
 use thiserror::Error;
 use xmtp_cryptography::signature::h160addr_to_string;
 use xmtp_cryptography::signature::RecoverableSignature;
-use xmtp_proto::xmtp::identity::associations::{
-    signature::Signature as SignatureKindProto, Erc1271Signature as Erc1271SignatureProto,
-    LegacyDelegatedSignature as LegacyDelegatedSignatureProto,
-    RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
-    RecoverableEd25519Signature as RecoverableEd25519SignatureProto, Signature as SignatureProto,
-};
 use xmtp_proto::xmtp::message_contents::SignedPrivateKey as LegacySignedPrivateKeyProto;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
+use xmtp_proto::xmtp::{
+    identity::associations::{
+        signature::Signature as SignatureKindProto, Erc1271Signature as Erc1271SignatureProto,
+        LegacyDelegatedSignature as LegacyDelegatedSignatureProto,
+        RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
+        RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
+        Signature as SignatureProto,
+    },
+    message_contents::signed_private_key,
+};
 
 #[derive(Debug, Error)]
 pub enum SignatureError {
@@ -305,29 +309,43 @@ impl Signature for InstallationKeySignature {
 
 #[derive(Debug, Clone)]
 pub struct LegacyDelegatedSignature {
-    // legacy_key_signature: RecoverableEcdsaSignature, // signature from the legacy key(delegated)
+    legacy_key_signature: RecoverableEcdsaSignature, // signature from the legacy key(delegated)
     signed_public_key_proto: LegacySignedPublicKeyProto, // signature of the wallet(delegator)
 }
 
 impl LegacyDelegatedSignature {
     pub fn new(
-        // legacy_key_signature: RecoverableEcdsaSignature,
+        legacy_key_signature: RecoverableEcdsaSignature,
         signed_public_key_proto: LegacySignedPublicKeyProto,
     ) -> Self {
         LegacyDelegatedSignature {
-            // legacy_key_signature,
+            legacy_key_signature,
             signed_public_key_proto: signed_public_key_proto,
         }
     }
 
-    pub fn new_with_bytes(signature_bytes: Vec<u8>) -> Self {
+    pub fn new_with_bytes(signature_text: String, signature_bytes: Vec<u8>) -> Self {
         let legacy_signed_private_key_proto =
             LegacySignedPrivateKeyProto::decode(signature_bytes.as_slice()).unwrap();
+
+        let signed_private_key::Union::Secp256k1(secp256k1) =
+            legacy_signed_private_key_proto.union.unwrap();
+        let legacy_private_key = secp256k1.bytes;
+        let (mut delegating_signature, recovery_id) = k256_helper::sign_sha256(
+            &legacy_private_key, // secret_key
+            // TODO: Verify this will create a verifiable signature
+            signature_text.as_bytes(), // message
+        )
+        .unwrap();
+        delegating_signature.push(recovery_id); // TODO: normalize recovery ID if necessary
 
         let legacy_signed_public_key_proto = legacy_signed_private_key_proto.public_key.unwrap();
 
         LegacyDelegatedSignature {
-            // legacy_key_signature,
+            legacy_key_signature: RecoverableEcdsaSignature::new(
+                signature_text,
+                delegating_signature,
+            ),
             signed_public_key_proto: legacy_signed_public_key_proto.try_into().unwrap(),
         }
     }
@@ -356,8 +374,7 @@ impl Signature for LegacyDelegatedSignature {
     }
 
     fn bytes(&self) -> Vec<u8> {
-        // self.legacy_key_signature.bytes()
-        todo!()
+        self.legacy_key_signature.bytes()
     }
 
     fn to_proto(&self) -> SignatureProto {
@@ -568,7 +585,8 @@ mod tests {
         };
 
         // LegacyDelegatedSignature
-        let delegated_signature = LegacyDelegatedSignature::new(signed_public_key.into());
+        let delegated_signature =
+            LegacyDelegatedSignature::new(signature, signed_public_key.into());
         let expected = MemberIdentifier::Address(legacy_key.get_address());
         let actual = delegated_signature.recover_signer().await.unwrap();
         assert_eq!(expected, actual);

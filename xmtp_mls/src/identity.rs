@@ -454,6 +454,7 @@ async fn sign_with_legacy_key(
     let recoverable_sig = RecoverableEcdsaSignature::new(signature_text, delegating_signature);
 
     Ok(LegacyDelegatedSignature::new(
+        recoverable_sig,
         legacy_signed_public_key_proto,
     ))
 }

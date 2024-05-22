@@ -245,7 +245,7 @@ fn from_signature_kind_proto(
                 RecoverableEcdsaSignature::new(signature_text, signature_value.bytes);
 
             Box::new(LegacyDelegatedSignature::new(
-                // recoverable_ecdsa_signature,
+                recoverable_ecdsa_signature,
                 delegated_erc191_signature
                     .delegated_key
                     .ok_or(DeserializationError::Signature)?,
