@@ -1,3 +1,12 @@
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::PathBuf;
+
+use aes_gcm::aead::generic_array::GenericArray;
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm,
+};
 use prost::Message;
 use rand::{
     distributions::{Alphanumeric, DistString},
@@ -31,12 +40,21 @@ use crate::{
     Client, Store,
 };
 
+const ENC_KEY_SIZE: usize = 32; // 256-bit key
+const NONCE_SIZE: usize = 12; // 96-bit nonce
+
 #[derive(Debug, Error)]
 pub enum MessageHistoryError {
     #[error("Pin not found")]
     PinNotFound,
     #[error("Pin does not match the expected value")]
     PinMismatch,
+    #[error("IO error: {0}")]
+    IO(#[from] std::io::Error),
+    #[error("JSON Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+    #[error("AES-GCM Encryption error")]
+    AesGcm(#[from] aes_gcm::Error),
 }
 
 impl<'c, ApiClient> Client<ApiClient>
@@ -181,6 +199,74 @@ where
     }
 }
 
+#[allow(dead_code)]
+fn write_messages_file(messages: Vec<StoredGroupMessage>) -> Result<PathBuf, MessageHistoryError> {
+    let tmp_dir = std::env::temp_dir();
+    let file_path = tmp_dir.join("messages.jsonl");
+    let mut file = std::fs::File::create(&file_path)?;
+    for message in messages {
+        let message_str = serde_json::to_string(&message)?;
+        file.write_all(message_str.as_bytes())?;
+    }
+    Ok(file_path)
+}
+
+#[allow(dead_code)]
+fn encrypt_messages_file(
+    input_path: &str,
+    output_path: &str,
+    key: &[u8; ENC_KEY_SIZE],
+) -> Result<(), MessageHistoryError> {
+    // Read in the messages file content
+    let mut input_file = File::open(input_path)?;
+    let mut buffer = Vec::new();
+    input_file.read_to_end(&mut buffer)?;
+
+    let nonce = generate_nonce();
+
+    // Create a cipher instance
+    let cipher = Aes256Gcm::new(GenericArray::from_slice(key));
+    let nonce_array = GenericArray::from_slice(&nonce);
+
+    // Encrypt the file content
+    let ciphertext = cipher.encrypt(nonce_array, buffer.as_ref())?;
+
+    // Write the nonce and ciphertext to the output file
+    let mut output_file = File::create(output_path)?;
+    output_file.write_all(&nonce)?;
+    output_file.write_all(&ciphertext)?;
+
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn decrypt_messages_file(
+    input_path: &str,
+    output_path: &str,
+    key: &[u8; ENC_KEY_SIZE],
+) -> Result<(), MessageHistoryError> {
+    // Read the file content
+    let mut input_file = File::open(input_path)?;
+    let mut buffer = Vec::new();
+    input_file.read_to_end(&mut buffer)?;
+
+    // Split the nonce and ciphertext
+    let (nonce, ciphertext) = buffer.split_at(NONCE_SIZE);
+
+    // Create a cipher instance
+    let cipher = Aes256Gcm::new(GenericArray::from_slice(key));
+    let nonce_array = GenericArray::from_slice(nonce);
+
+    // Decrypt the ciphertext
+    let plaintext = cipher.decrypt(nonce_array, ciphertext)?;
+
+    // Write the plaintext to the output file
+    let mut output_file = File::create(output_path)?;
+    output_file.write_all(&plaintext)?;
+
+    Ok(())
+}
+
 #[derive(Clone)]
 struct HistoryRequest {
     pin_code: String,
@@ -247,13 +333,13 @@ impl From<HistoryReply> for MessageHistoryReply {
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum HistoryKeyType {
-    Chacha20Poly1305([u8; 32]),
+    Chacha20Poly1305([u8; ENC_KEY_SIZE]),
 }
 
 impl HistoryKeyType {
     #[allow(dead_code)]
     fn new_chacha20_poly1305_key() -> Self {
-        let mut key = [0u8; 32];
+        let mut key = [0u8; 32]; // 256-bit key
         crypto_utils::rng().fill_bytes(&mut key[..]);
         HistoryKeyType::Chacha20Poly1305(key)
     }
@@ -262,6 +348,13 @@ impl HistoryKeyType {
     fn len(&self) -> usize {
         match self {
             HistoryKeyType::Chacha20Poly1305(key) => key.len(),
+        }
+    }
+
+    #[allow(dead_code)]
+    fn as_bytes(&self) -> &[u8; ENC_KEY_SIZE] {
+        match self {
+            HistoryKeyType::Chacha20Poly1305(key) => key,
         }
     }
 }
@@ -278,6 +371,12 @@ impl From<HistoryKeyType> for MessageHistoryKeyType {
 
 fn new_request_id() -> String {
     Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
+}
+
+fn generate_nonce() -> [u8; NONCE_SIZE] {
+    let mut nonce = [0u8; NONCE_SIZE];
+    rand::thread_rng().fill(&mut nonce);
+    nonce
 }
 
 fn new_pin() -> String {
@@ -487,18 +586,60 @@ mod tests {
     async fn test_prepare_group_messages_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let group = amal_a.create_group(None).expect("create group");
+        let group_a = amal_a.create_group(None).expect("create group");
+        let group_b = amal_a.create_group(None).expect("create group");
 
-        group
-            .send_message(b"hello", &amal_a)
+        group_a
+            .send_message(b"hi", &amal_a)
             .await
             .expect("send message");
-        group
-            .send_message(b"hello x2", &amal_a)
+        group_a
+            .send_message(b"hi x2", &amal_a)
             .await
             .expect("send message");
-        let messages_result = amal_a.prepare_messages_to_sync().await;
-        assert_ok!(messages_result);
+        group_b
+            .send_message(b"hi", &amal_a)
+            .await
+            .expect("send message");
+        group_b
+            .send_message(b"hi x2", &amal_a)
+            .await
+            .expect("send message");
+
+        let messages_result = amal_a.prepare_messages_to_sync().await.unwrap();
+        assert_eq!(messages_result.len(), 4);
+    }
+
+    #[test]
+    fn test_encrypt_decrypt_file() {
+        let key = HistoryKeyType::new_chacha20_poly1305_key();
+        let key_bytes = key.as_bytes();
+        let input_content = b"Hello, this is a test message!";
+        let input_path = "test_input.txt";
+        let encrypted_path = "test_encrypted.dat";
+        let decrypted_path = "test_decrypted.txt";
+
+        // Write test input file
+        std::fs::write(input_path, input_content).expect("Unable to write test input file");
+
+        // Encrypt the file
+        encrypt_messages_file(input_path, encrypted_path, &key_bytes).expect("Encryption failed");
+
+        // Decrypt the file
+        decrypt_messages_file(encrypted_path, decrypted_path, &key_bytes)
+            .expect("Decryption failed");
+
+        // Read the decrypted file content
+        let decrypted_content =
+            std::fs::read(decrypted_path).expect("Unable to read decrypted file");
+
+        // Assert the decrypted content is the same as the original input content
+        assert_eq!(decrypted_content, input_content);
+
+        // Clean up test files
+        std::fs::remove_file(input_path).expect("Unable to remove test input file");
+        std::fs::remove_file(encrypted_path).expect("Unable to remove test encrypted file");
+        std::fs::remove_file(decrypted_path).expect("Unable to remove test decrypted file");
     }
 
     #[test]
@@ -514,5 +655,11 @@ mod tests {
         assert_eq!(sig_key.len(), 32);
         // ensure keys are different (seed isn't reused)
         assert_ne!(sig_key, enc_key);
+    }
+
+    #[test]
+    fn test_generate_nonce() {
+        let nonce = generate_nonce();
+        assert_eq!(nonce.len(), NONCE_SIZE);
     }
 }
