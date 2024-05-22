@@ -1381,6 +1381,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_group_mutable_data_group_name_change() {
+        // 1. Register 3 identities
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // 2. Create a group and add 2 other identities
+        let policies = Some(PreconfiguredPolicies::AllMembers);
+        let amal_group: MlsGroup = amal.create_group(policies).unwrap();
+        amal_group.sync(&amal).await.unwrap();
+        amal_group.add_members(vec![bola.account_address(), charlie.account_address()], &amal).await.unwrap();
+        
+
+        // 3. change group name to foo using amal
+        amal_group.update_group_name("foo".to_string(), &amal).await.unwrap();
+
+        // 4.  using bola, sync and list group and check group name
+        bola.sync_welcomes().await.unwrap();
+        let binding = bola.find_groups(None, None, None, None).unwrap();
+        let bola_group: &MlsGroup = binding.first().unwrap();
+        bola_group.sync(&bola).await.unwrap();
+        let bola_group_metadata = bola_group.mutable_metadata().unwrap();
+        let bola_group_name: &String = bola_group_metadata
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap();
+        assert_eq!(bola_group_name, "foo");
+
+        // 5.  using charlie, sync and list group and check group name
+        charlie.sync_welcomes().await.unwrap();
+        let binding = charlie.find_groups(None, None, None, None).unwrap();
+        let charlie_group: &MlsGroup = binding.first().unwrap();
+        charlie_group.sync(&charlie).await.unwrap();
+        let charlie_group_metadata = charlie_group.mutable_metadata().unwrap();
+        let charlie_group_name: &String = charlie_group_metadata
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap();
+        assert_eq!(charlie_group_name, "foo");
+    }
+
+    #[tokio::test]
     async fn test_group_mutable_data_group_permissions() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
