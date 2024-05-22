@@ -334,7 +334,12 @@ impl Signature for LegacyDelegatedSignature {
         //     return Err(SignatureError::Invalid);
         // }
 
-        Ok(legacy_signer)
+        println!("legacy_signer: {}", legacy_signer);
+        println!("signed_public_key: {}", signed_public_key.account_address());
+
+        Ok(MemberIdentifier::Address(
+            signed_public_key.account_address(),
+        ))
     }
 
     fn signature_kind(&self) -> SignatureKind {

@@ -234,16 +234,19 @@ impl Identity {
                     .await?,
                 ))
                 .await?;
+
+            println!("99");
             let identity_update = signature_request.build_identity_update()?;
+            println!("100");
             api_client.publish_identity_update(identity_update).await?;
 
+            println!("101");
             let identity = Self {
                 inbox_id: inbox_id.clone(),
                 installation_keys: signature_keys,
                 credential: create_credential(inbox_id)?,
                 signature_request: None,
             };
-
             Ok(identity)
         } else {
             let nonce = rand::random::<u64>();

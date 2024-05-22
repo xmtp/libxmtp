@@ -223,7 +223,7 @@ impl SignatureRequest {
         signature: Box<dyn Signature>,
     ) -> Result<(), SignatureRequestError> {
         let signer_identity = signature.recover_signer().await?;
-        println!("signer_identity: {:?}", signer_identity);
+        println!("add_signature - signer_identity: {:?}", signer_identity);
         let missing_signatures = self.missing_signatures();
 
         // Make sure the signer is someone actually in the request
