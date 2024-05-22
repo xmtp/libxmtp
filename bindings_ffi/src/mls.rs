@@ -145,14 +145,12 @@ impl FfiXmtpClient {
         self.inner_client.installation_public_key()
     }
 
-    pub fn release_db_connection(&self) {
-        self.inner_client.release_db_connection();
+    pub fn release_db_connection(&self) -> Result<(), GenericError> {
+        Ok(self.inner_client.release_db_connection()?)
     }
 
     pub async fn db_reconnect(&self) -> Result<(), GenericError> {
-        let _ = self.inner_client.reconnect_db();
-
-        Ok(())
+        Ok(self.inner_client.reconnect_db()?)
     }
 }
 
