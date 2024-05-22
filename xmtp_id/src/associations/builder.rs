@@ -205,7 +205,9 @@ impl SignatureRequest {
 
         let signatures: HashSet<MemberIdentifier> = self.signatures.keys().cloned().collect();
 
-        signers.difference(&signatures).cloned().collect()
+        let missing_signatures = signers.difference(&signatures).cloned().collect();
+        log::debug!("missing_signatures: {:?}", missing_signatures);
+        missing_signatures
     }
 
     pub fn missing_address_signatures(&self) -> Vec<MemberIdentifier> {
