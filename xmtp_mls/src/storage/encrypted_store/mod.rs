@@ -398,6 +398,36 @@ mod tests {
     }
 
     #[test]
+    fn releases_db_lock() {
+        let db_path = tmp_path();
+        {
+            let store = EncryptedMessageStore::new(
+                StorageOption::Persistent(db_path.clone()),
+                EncryptedMessageStore::generate_enc_key(),
+            )
+            .unwrap();
+            let conn = &store.conn().unwrap();
+
+            let account_address = "address";
+            StoredIdentity::new(account_address.to_string(), rand_vec(), rand_vec())
+                .store(conn)
+                .unwrap();
+
+            let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+
+            assert_eq!(fetched_identity.account_address, account_address);
+
+            store.release_connection().unwrap();
+            store.reconnect().unwrap();
+            let fetched_identity2: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+
+            assert_eq!(fetched_identity2.account_address, account_address);
+        }
+
+        fs::remove_file(db_path).unwrap();
+    }
+
+    #[test]
     fn mismatched_encryption_key() {
         let mut enc_key = [1u8; 32];
 
