@@ -9,12 +9,12 @@ use crate::{
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
     storage::StorageError,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    InboxOwner, XmtpApi,
+    XmtpApi,
 };
 use crate::{builder::ClientBuilderError, storage::EncryptedMessageStore};
 use crate::{Fetch, Store};
 use ed25519_dalek::SigningKey;
-use ethers::signers::{LocalWallet, WalletError};
+use ethers::signers::WalletError;
 use log::debug;
 use log::info;
 use openmls::prelude::tls_codec::Serialize;
