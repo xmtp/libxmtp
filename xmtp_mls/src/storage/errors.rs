@@ -2,18 +2,18 @@ use thiserror::Error;
 
 use crate::{retry::RetryableError, retryable};
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error)]
 pub enum StorageError {
     #[error("Diesel connection error")]
     DieselConnect(#[from] diesel::ConnectionError),
     #[error("Diesel result error: {0}")]
     DieselResult(#[from] diesel::result::Error),
     #[error("Pool error: {0}")]
-    Pool(String),
+    Pool(#[from] diesel::r2d2::PoolError),
     #[error("Either incorrect encryptionkey or file is not a db: {0}")]
-    DbInit(String),
-    #[error("Store Error")]
-    Store(String),
+    DbInit(#[from] diesel::r2d2::Error),
+    #[error("Error migrating database {0}")]
+    MigrationError(#[from] Box<dyn std::error::Error + Send + Sync>),
     #[error("serialization error")]
     Serialization,
     #[error("deserialization error")]

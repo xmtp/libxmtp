@@ -93,16 +93,15 @@ impl EncryptedMessageStore {
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
         log::info!("Setting up DB connection pool");
-        let pool = match opts {
-            StorageOption::Ephemeral => Pool::builder()
-                .max_size(1)
-                .build(ConnectionManager::<SqliteConnection>::new(":memory:"))
-                .map_err(|e| StorageError::DbInit(e.to_string()))?,
-            StorageOption::Persistent(ref path) => Pool::builder()
-                .max_size(10)
-                .build(ConnectionManager::<SqliteConnection>::new(path))
-                .map_err(|e| StorageError::DbInit(e.to_string()))?,
-        };
+        let pool =
+            match opts {
+                StorageOption::Ephemeral => Pool::builder()
+                    .max_size(1)
+                    .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
+                StorageOption::Persistent(ref path) => Pool::builder()
+                    .max_size(10)
+                    .build(ConnectionManager::<SqliteConnection>::new(path))?,
+            };
 
         // TODO: Validate that sqlite is correctly configured. Bad EncKey is not detected until the
         // migrations run which returns an unhelpful error.
@@ -119,12 +118,10 @@ impl EncryptedMessageStore {
 
     fn init_db(&mut self) -> Result<(), StorageError> {
         let conn = &mut self.raw_conn()?;
-        conn.batch_execute("PRAGMA journal_mode = WAL;")
-            .map_err(|e| StorageError::DbInit(e.to_string()))?;
+        conn.batch_execute("PRAGMA journal_mode = WAL;")?;
 
         log::info!("Running DB migrations");
-        conn.run_pending_migrations(MIGRATIONS)
-            .map_err(|e| StorageError::DbInit(e.to_string()))?;
+        conn.run_pending_migrations(MIGRATIONS)?;
 
         log::info!("Migrations successful");
         Ok(())
@@ -133,10 +130,7 @@ impl EncryptedMessageStore {
     fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| StorageError::Pool(e.to_string()))?;
+        let mut conn = self.pool.get()?;
 
         if let Some(key) = self.enc_key {
             conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
@@ -197,6 +191,38 @@ impl EncryptedMessageStore {
         let mut key = [0u8; 32];
         crypto_utils::rng().fill_bytes(&mut key[..]);
         key
+    }
+
+    pub async fn transaction_async<T, F, E, Fut>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(XmtpOpenMlsProvider) -> Fut,
+        Fut: futures::Future<Output = Result<T, E>>,
+        E: From<diesel::result::Error> + From<StorageError>,
+    {
+        let mut connection = self.raw_conn()?;
+        AnsiTransactionManager::begin_transaction(&mut *connection)?;
+
+        let db_connection = DbConnection::new(connection);
+        let provider = XmtpOpenMlsProvider::new(db_connection);
+        let local_provider = provider.clone();
+        let result = fun(provider).await;
+        let conn_ref = local_provider.conn_ref();
+
+        match result {
+            Ok(value) => {
+                conn_ref.raw_query(|conn| {
+                    PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
+                })?;
+                Ok(value)
+            }
+            Err(err) => match conn_ref.raw_query(|conn| {
+                PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(&mut *conn)
+            }) {
+                Ok(()) => Err(err),
+                Err(Error::BrokenTransactionManager) => Err(err),
+                Err(rollback) => Err(rollback.into()),
+            },
+        }
     }
 }
 
@@ -504,6 +530,49 @@ mod tests {
 
         // this group should not exist because of the rollback
         let groups = conn.find_group(b"wrong".to_vec()).unwrap();
+        assert_eq!(groups, None);
+    }
+
+    #[tokio::test]
+    async fn test_async_transaction() {
+        let db_path = tmp_path();
+
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(db_path.clone()),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+
+        let store_pointer = store.clone();
+
+        let handle = tokio::spawn(async move {
+            store_pointer
+                .transaction_async(|provider| async move {
+                    let conn1 = provider.conn();
+                    StoredIdentity::new("crab".to_string(), rand_vec(), rand_vec())
+                        .store(&conn1)
+                        .unwrap();
+
+                    let group = StoredGroup::new(
+                        b"should not exist".to_vec(),
+                        0,
+                        GroupMembershipState::Allowed,
+                        "goodbye".to_string(),
+                    );
+                    group.store(&conn1).unwrap();
+
+                    anyhow::bail!("Something went wrong")
+                })
+                .await?;
+            Ok::<_, anyhow::Error>(())
+        });
+
+        let result = handle.await.unwrap();
+        assert!(result.is_err());
+
+        let conn = store.conn().unwrap();
+        // this group should not exist because of the rollback
+        let groups = conn.find_group(b"should not exist".to_vec()).unwrap();
         assert_eq!(groups, None);
     }
 }

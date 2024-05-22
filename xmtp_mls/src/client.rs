@@ -22,8 +22,8 @@ use xmtp_proto::xmtp::mls::api::v1::{
 use crate::{
     api::{ApiClientWrapper, IdentityUpdate},
     groups::{
-        validated_commit::CommitValidationError, AddressesOrInstallationIds, IntentError, MlsGroup,
-        PreconfiguredPolicies,
+        validated_commit::CommitValidationError, AddressesOrInstallationIds, GroupError,
+        IntentError, MlsGroup, PreconfiguredPolicies,
     },
     identity::v3::Identity,
     identity_updates::IdentityUpdateError,
@@ -78,6 +78,9 @@ pub enum ClientError {
     IdentityUpdate(#[from] IdentityUpdateError),
     #[error(transparent)]
     SignatureRequest(#[from] SignatureRequestError),
+    // the box is to prevent infinite cycle between client and group errors
+    #[error(transparent)]
+    Group(#[from] Box<GroupError>),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -281,17 +284,15 @@ where
             permissions,
             self.account_address(),
         )
-        .map_err(|e| {
-            ClientError::Storage(StorageError::Store(format!("group create error {}", e)))
-        })?;
+        .map_err(Box::new)?;
 
         Ok(group)
     }
 
-    pub(crate) fn create_sync_group(&self) -> Result<MlsGroup, StorageError> {
+    pub(crate) fn create_sync_group(&self) -> Result<MlsGroup, ClientError> {
         log::info!("creating sync group");
-        let sync_group = MlsGroup::create_and_insert_sync_group(self.context.clone())
-            .map_err(|e| StorageError::Store(format!("sync group create error {}", e)))?;
+        let sync_group =
+            MlsGroup::create_and_insert_sync_group(self.context.clone()).map_err(Box::new)?;
 
         Ok(sync_group)
     }
