@@ -303,17 +303,17 @@ impl Signature for InstallationKeySignature {
 
 #[derive(Debug, Clone)]
 pub struct LegacyDelegatedSignature {
-    legacy_key_signature: RecoverableEcdsaSignature, // signature from the legacy key(delegated)
+    // legacy_key_signature: RecoverableEcdsaSignature, // signature from the legacy key(delegated)
     signed_public_key_proto: LegacySignedPublicKeyProto, // signature of the wallet(delegator)
 }
 
 impl LegacyDelegatedSignature {
     pub fn new(
-        legacy_key_signature: RecoverableEcdsaSignature,
+        // legacy_key_signature: RecoverableEcdsaSignature,
         signed_public_key_proto: LegacySignedPublicKeyProto,
     ) -> Self {
         LegacyDelegatedSignature {
-            legacy_key_signature,
+            // legacy_key_signature,
             signed_public_key_proto,
         }
     }
@@ -323,14 +323,14 @@ impl LegacyDelegatedSignature {
 impl Signature for LegacyDelegatedSignature {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         // 1. Verify the RecoverableEcdsaSignature
-        let legacy_signer = self.legacy_key_signature.recover_signer().await?;
+        // let legacy_signer = self.legacy_key_signature.recover_signer().await?;
 
         // 2. Verify the [LegacySignedPublicKeyProto] and make sure it matches to the legacy_signer
         let signed_public_key: ValidatedLegacySignedPublicKey =
             self.signed_public_key_proto.clone().try_into()?;
-        if MemberIdentifier::Address(signed_public_key.account_address()) != legacy_signer {
-            // return Err(SignatureError::Invalid);
-        }
+        // if MemberIdentifier::Address(signed_public_key.account_address()) != legacy_signer {
+        //     // return Err(SignatureError::Invalid);
+        // }
 
         Ok(MemberIdentifier::Address(
             signed_public_key.account_address(),
@@ -342,7 +342,8 @@ impl Signature for LegacyDelegatedSignature {
     }
 
     fn bytes(&self) -> Vec<u8> {
-        self.legacy_key_signature.bytes()
+        // self.legacy_key_signature.bytes()
+        todo!()
     }
 
     fn to_proto(&self) -> SignatureProto {
@@ -553,8 +554,7 @@ mod tests {
         };
 
         // LegacyDelegatedSignature
-        let delegated_signature =
-            LegacyDelegatedSignature::new(signature, signed_public_key.into());
+        let delegated_signature = LegacyDelegatedSignature::new(signed_public_key.into());
         let expected = MemberIdentifier::Address(legacy_key.get_address());
         let actual = delegated_signature.recover_signer().await.unwrap();
         assert_eq!(expected, actual);

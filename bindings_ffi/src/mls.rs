@@ -13,6 +13,7 @@ use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 use xmtp_id::associations::Erc1271Signature;
+use xmtp_id::associations::LegacyDelegatedSignature;
 use xmtp_id::associations::RecoverableEcdsaSignature;
 use xmtp_id::InboxId;
 use xmtp_mls::api::ApiClientWrapper;
@@ -161,8 +162,7 @@ impl FfiSignatureRequest {
         let mut inner = self.inner.lock().await;
         let signature_text = inner.signature_text();
         inner
-            .add_signature(Box::new(RecoverableEcdsaSignature::new(
-                signature_text,
+            .add_signature(Box::new(LegacyDelegatedSignature::new(
                 signature_bytes,
             )))
             .await?;
