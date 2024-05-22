@@ -139,7 +139,7 @@ impl EncryptedMessageStore {
         let pool = self
             .pool
             .read()
-            .map_err(|e| StorageError::Pool(e.to_string()))?;
+            .map_err(|e| StorageError::Lock(e.to_string().into()))?;
         let mut conn = pool.get().map_err(|e| StorageError::Pool(e.to_string()))?;
 
         if let Some(ref key) = self.enc_key {
