@@ -139,7 +139,7 @@ impl EncryptedMessageStore {
         let pool_guard = self
             .pool
             .read()
-            .map_err(|e| StorageError::Lock(e.to_string().into()))?;
+            .map_err(|e| StorageError::Lock(e.to_string()))?;
 
         let pool = pool_guard
             .as_ref()
@@ -148,8 +148,7 @@ impl EncryptedMessageStore {
         let mut conn = pool.get().map_err(|e| StorageError::Pool(e.to_string()))?;
 
         if let Some(ref key) = self.enc_key {
-            conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))
-                .map_err(|e| StorageError::DieselResult(e))?;
+            conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
         }
 
         Ok(conn)
