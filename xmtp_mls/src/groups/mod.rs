@@ -765,7 +765,6 @@ pub fn build_mutable_metadata_extension_default(
 }
 
 pub fn build_mutable_metadata_extensions(
-    identity: &Identity,
     group: &OpenMlsGroup,
     field_name: String,
     field_value: String,
@@ -775,8 +774,8 @@ pub fn build_mutable_metadata_extensions(
     attributes.insert(field_name, field_value);
     let new_mutable_metadata: Vec<u8> = GroupMutableMetadata::new(
         attributes,
-        vec![identity.account_address.clone()],
-        vec![identity.account_address.clone()],
+        existing_metadata.admin_list.clone(),
+        existing_metadata.super_admin_list.clone(),
     )
     .try_into()?;
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
@@ -1549,6 +1548,16 @@ mod tests {
         amal_group.sync(&amal).await.unwrap();
         assert!(amal_group.members().unwrap().len() == 3);
         assert!(bola_group.members().unwrap().len() == 3);
+
+        // Verify that bola can now update group name, now that they are an admin
+        bola_group
+            .update_group_name("New group name".to_string(), &bola)
+            .await
+            .expect("admin should be able to update metadata group name");
+        bola_group.sync(&bola).await.unwrap();
+        amal_group.sync(&amal).await.unwrap();
+        assert!(amal_group.group_name().unwrap().eq("New group name"));
+        assert!(bola_group.group_name().unwrap().eq("New group name"));
 
         // Remove bola as an admin
         amal_group

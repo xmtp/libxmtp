@@ -618,6 +618,19 @@ impl FfiGroup {
             inner: Arc::new(metadata),
         }))
     }
+
+    pub fn group_permissions(&self) -> Result<Arc<FfiGroupPermissions>, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let permissions = group.permissions()?;
+        Ok(Arc::new(FfiGroupPermissions {
+            inner: Arc::new(permissions),
+        }))
+    }
 }
 
 #[uniffi::export]
