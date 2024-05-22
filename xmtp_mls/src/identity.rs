@@ -234,9 +234,7 @@ impl Identity {
                 ))
                 .await?;
 
-            println!("99");
             let identity_update = signature_request.build_identity_update()?;
-            println!("100");
             api_client.publish_identity_update(identity_update).await?;
 
             let identity = Self {
