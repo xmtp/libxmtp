@@ -208,9 +208,13 @@ impl EncryptedMessageStore {
         key
     }
 
-    pub fn release_connection(&self) {
-        let mut pool_guard = self.pool.write().unwrap();
+    pub fn release_connection(&self) -> Result<(), StorageError> {
+        let mut pool_guard = self
+            .pool
+            .write()
+            .map_err(|e| StorageError::Lock(e.to_string()))?;
         pool_guard.take();
+        Ok(())
     }
 
     pub fn reconnect(&self) -> Result<(), StorageError> {
@@ -225,7 +229,7 @@ impl EncryptedMessageStore {
                 .map_err(|e| StorageError::DbInit(e.to_string()))?,
         };
 
-        let mut conn = pool.get().unwrap();
+        let mut conn = pool.get().map_err(|e| StorageError::Pool(e.to_string()))?;
         conn.batch_execute("PRAGMA journal_mode = WAL;")
             .map_err(|e| StorageError::DbInit(e.to_string()))?;
 

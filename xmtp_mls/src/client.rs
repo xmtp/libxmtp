@@ -251,9 +251,14 @@ where
         &self.context.store
     }
 
-    pub fn release_db_connection(&self) {
+    pub fn release_db_connection(&self) -> Result<(), ClientError> {
         let store = &self.context.store;
-        store.release_connection()
+        store.release_connection().map_err(|e| {
+            ClientError::Storage(StorageError::Store(format!(
+                "releasing db connection error {}",
+                e
+            )))
+        })
     }
 
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
