@@ -162,7 +162,7 @@ impl FfiSignatureRequest {
         let mut inner = self.inner.lock().await;
         let signature_text = inner.signature_text();
         inner
-            .add_signature(Box::new(LegacyDelegatedSignature::new(
+            .add_signature(Box::new(LegacyDelegatedSignature::new_with_bytes(
                 signature_bytes,
             )))
             .await?;

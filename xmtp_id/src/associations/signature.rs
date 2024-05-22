@@ -10,6 +10,7 @@ use ethers::{
     types::{BlockNumber, U64},
     utils::hash_message,
 };
+use prost::Message;
 use sha2::{Digest, Sha512};
 use thiserror::Error;
 use xmtp_cryptography::signature::h160addr_to_string;
@@ -20,6 +21,7 @@ use xmtp_proto::xmtp::identity::associations::{
     RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
     RecoverableEd25519Signature as RecoverableEd25519SignatureProto, Signature as SignatureProto,
 };
+use xmtp_proto::xmtp::message_contents::SignedPrivateKey as LegacySignedPrivateKeyProto;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
 #[derive(Debug, Error)]
@@ -314,7 +316,19 @@ impl LegacyDelegatedSignature {
     ) -> Self {
         LegacyDelegatedSignature {
             // legacy_key_signature,
-            signed_public_key_proto,
+            signed_public_key_proto: signed_public_key_proto,
+        }
+    }
+
+    pub fn new_with_bytes(signature_bytes: Vec<u8>) -> Self {
+        let legacy_signed_private_key_proto =
+            LegacySignedPrivateKeyProto::decode(signature_bytes.as_slice()).unwrap();
+
+        let legacy_signed_public_key_proto = legacy_signed_private_key_proto.public_key.unwrap();
+
+        LegacyDelegatedSignature {
+            // legacy_key_signature,
+            signed_public_key_proto: legacy_signed_public_key_proto.try_into().unwrap(),
         }
     }
 }
