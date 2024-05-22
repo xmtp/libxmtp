@@ -901,7 +901,10 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let amal_group = amal.create_group(None).unwrap();
-        amal_group.add_members_by_inbox_id(&amal, vec![bola.inbox_id()]).await.unwrap();
+        amal_group
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .await
+            .unwrap();
 
         // Get bola's version of the same group
         let bola_groups = bola.sync_welcomes().await.unwrap();
@@ -920,7 +923,7 @@ mod tests {
         let bola_members = bola_group.members().unwrap();
 
         assert_eq!(amal_members.len(), 2);
-        assert_eq!(bola_members.len(), 2); // failing here!
+        assert_eq!(bola_members.len(), 2); // failing here, see len == 0
     }
 
     // Amal and Bola will both try and add Charlie from the same epoch.
