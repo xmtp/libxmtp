@@ -124,7 +124,7 @@ impl SmartContractWalletVerifier {
 
         let res = self
             .provider
-            .call(&tx, block_number.map(|b| BlockId::Number(b)))
+            .call(&tx, block_number.map(BlockId::Number))
             .await?;
 
         Ok(res == Bytes::from_hex("0x01").unwrap())
