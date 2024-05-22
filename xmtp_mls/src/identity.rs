@@ -15,7 +15,6 @@ use crate::{builder::ClientBuilderError, storage::EncryptedMessageStore};
 use crate::{Fetch, Store};
 use ed25519_dalek::SigningKey;
 use ethers::signers::WalletError;
-use ethers::utils::public_key_to_address;
 use log::debug;
 use log::info;
 use openmls::prelude::tls_codec::Serialize;
@@ -240,7 +239,6 @@ impl Identity {
             println!("100");
             api_client.publish_identity_update(identity_update).await?;
 
-            println!("101");
             let identity = Self {
                 inbox_id: inbox_id.clone(),
                 installation_keys: signature_keys,
