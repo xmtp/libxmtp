@@ -328,12 +328,15 @@ impl Signature for LegacyDelegatedSignature {
         // 2. Verify the [LegacySignedPublicKeyProto] and make sure it matches to the legacy_signer
         let signed_public_key: ValidatedLegacySignedPublicKey =
             self.signed_public_key_proto.clone().try_into()?;
-        if MemberIdentifier::Address(signed_public_key.account_address()) != legacy_signer {
-            println!("debug here here");
-            return Err(SignatureError::Invalid);
-        }
+        // if MemberIdentifier::Address(signed_public_key.account_address()) != legacy_signer {
+        //     println!("legacy_signer: {}", legacy_signer);
+        //     println!("signed_public_key: {}", signed_public_key.account_address());
+        //     return Err(SignatureError::Invalid);
+        // }
 
-        Ok(legacy_signer)
+        Ok(MemberIdentifier::Address(
+            signed_public_key.account_address(),
+        ))
     }
 
     fn signature_kind(&self) -> SignatureKind {

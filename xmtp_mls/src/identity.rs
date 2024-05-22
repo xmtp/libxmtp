@@ -15,6 +15,7 @@ use crate::{builder::ClientBuilderError, storage::EncryptedMessageStore};
 use crate::{Fetch, Store};
 use ed25519_dalek::SigningKey;
 use ethers::signers::WalletError;
+use ethers::utils::public_key_to_address;
 use log::debug;
 use log::info;
 use openmls::prelude::tls_codec::Serialize;
