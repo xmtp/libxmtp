@@ -64,8 +64,6 @@ pub async fn create_client(
     legacy_identity_source: LegacyIdentitySource,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
-    init_logger(logger);
-
     log::info!(
         "Creating API client for host: {}, isSecure: {}",
         host,
