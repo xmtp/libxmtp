@@ -30,7 +30,6 @@ tracing.workspace = true
 url.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
-xmtp_v2 = { path = "../xmtp_v2" }
 
 [dev-dependencies]
 ctor = "0.2.5"
