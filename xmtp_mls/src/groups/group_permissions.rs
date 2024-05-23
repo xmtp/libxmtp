@@ -1168,7 +1168,11 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
+        // Can not remove the creator if they are the only super admin
         let commit_with_creator = build_validated_commit(Some(true), Some(true), None, true);
+        assert!(!permissions.evaluate_commit(&commit_with_creator));
+
+        let commit_with_creator = build_validated_commit(Some(true), Some(false), None, true);
         assert!(permissions.evaluate_commit(&commit_with_creator));
 
         let commit_without_creator = build_validated_commit(Some(true), Some(true), None, false);
