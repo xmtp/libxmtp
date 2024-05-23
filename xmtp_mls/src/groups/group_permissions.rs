@@ -842,8 +842,9 @@ impl PolicySet {
             commit.metadata_changes.super_admins_added.is_empty() || commit.actor.is_super_admin;
 
         // Verify that super admin remove policy was not violated
-        let super_admin_remove_valid =
-            commit.metadata_changes.super_admins_removed.is_empty() || commit.actor.is_super_admin;
+        // You can never remove the last super admin
+        let super_admin_remove_valid = commit.metadata_changes.super_admins_removed.is_empty()
+            || (commit.actor.is_super_admin && commit.metadata_changes.num_super_admins > 1);
 
         // TODO Validate permissions updates are valid
         // once we add the user actions for updating permissions
@@ -1122,8 +1123,6 @@ mod tests {
             },
         }
     }
-
-    // TODO CVOELL: add metadata specific test here
 
     #[test]
     fn test_allow_all() {

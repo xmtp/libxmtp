@@ -133,6 +133,7 @@ pub struct MutableMetadataChanges {
     pub admins_removed: Vec<Inbox>,
     pub super_admins_added: Vec<Inbox>,
     pub super_admins_removed: Vec<Inbox>,
+    pub num_super_admins: u32,
 }
 
 impl MutableMetadataChanges {
@@ -627,6 +628,7 @@ fn extract_metadata_changes(
             immutable_metadata,
             old_mutable_metadata,
         ),
+        num_super_admins: old_mutable_metadata.super_admin_list.len() as u32,
     })
 }
 

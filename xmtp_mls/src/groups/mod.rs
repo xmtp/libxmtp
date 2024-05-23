@@ -1592,7 +1592,6 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let policies = Some(PreconfiguredPolicies::AdminsOnly);
         let amal_group = amal.create_group(policies).unwrap();
@@ -1650,17 +1649,23 @@ mod tests {
         assert_eq!(bola_group.admin_list().unwrap().len(), 2);
         assert!(bola_group.admin_list().unwrap().contains(&caro.inbox_id()));
 
-        // Verify that bola can now remove Amal as a super admin
+        // Verify that bola can now remove themself as a super admin
         bola_group
-            .update_admin_list(&bola, AdminListActionType::RemoveSuper, amal.inbox_id())
+            .update_admin_list(&bola, AdminListActionType::RemoveSuper, bola.inbox_id())
             .await
             .unwrap();
         bola_group.sync(&bola).await.unwrap();
-        // assert_eq!(bola_group.super_admin_list().unwrap().len(), 1);
+        assert_eq!(bola_group.super_admin_list().unwrap().len(), 1);
         assert!(!bola_group
             .super_admin_list()
             .unwrap()
-            .contains(&amal.inbox_id()));
+            .contains(&bola.inbox_id()));
+
+        // Verify that amal can NOT remove themself as a super admin because they are the only remaining
+        amal_group
+            .update_admin_list(&amal, AdminListActionType::RemoveSuper, amal.inbox_id())
+            .await
+            .expect_err("expected err");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
