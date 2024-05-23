@@ -249,6 +249,23 @@ where
         &self.context.store
     }
 
+    pub fn release_db_connection(&self) -> Result<(), ClientError> {
+        let store = &self.context.store;
+        store.release_connection().map_err(|e| {
+            ClientError::Storage(StorageError::Store(format!(
+                "releasing db connection error {}",
+                e
+            )))
+        })
+    }
+
+    pub fn reconnect_db(&self) -> Result<(), ClientError> {
+        let store = &self.context.store;
+        store.reconnect().map_err(|e| {
+            ClientError::Storage(StorageError::Store(format!("reconnect db error {}", e)))
+        })
+    }
+
     pub fn identity(&self) -> &Identity {
         &self.context.identity
     }

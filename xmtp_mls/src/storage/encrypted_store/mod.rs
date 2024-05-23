@@ -21,7 +21,10 @@ pub mod key_store_entry;
 pub mod refresh_state;
 pub mod schema;
 
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    sync::{Arc, RwLock},
+};
 
 use diesel::{
     connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
@@ -68,7 +71,7 @@ pub fn ignore_unique_violation<T>(
 /// Manages a Sqlite db for persisting messages and other objects.
 pub struct EncryptedMessageStore {
     connect_opt: StorageOption,
-    pool: Pool<ConnectionManager<SqliteConnection>>,
+    pool: Arc<RwLock<Option<Pool<ConnectionManager<SqliteConnection>>>>>,
     enc_key: Option<EncryptionKey>,
 }
 
@@ -109,7 +112,7 @@ impl EncryptedMessageStore {
 
         let mut obj = Self {
             connect_opt: opts,
-            pool,
+            pool: Arc::new(Some(pool).into()),
             enc_key,
         };
 
@@ -133,12 +136,18 @@ impl EncryptedMessageStore {
     fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
-        let mut conn = self
+        let pool_guard = self
             .pool
-            .get()
-            .map_err(|e| StorageError::Pool(e.to_string()))?;
+            .read()
+            .map_err(|e| StorageError::Lock(e.to_string()))?;
 
-        if let Some(key) = self.enc_key {
+        let pool = pool_guard
+            .as_ref()
+            .ok_or_else(|| StorageError::Pool("No pool available".into()))?;
+
+        let mut conn = pool.get().map_err(|e| StorageError::Pool(e.to_string()))?;
+
+        if let Some(ref key) = self.enc_key {
             conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
         }
 
@@ -197,6 +206,36 @@ impl EncryptedMessageStore {
         let mut key = [0u8; 32];
         crypto_utils::rng().fill_bytes(&mut key[..]);
         key
+    }
+
+    pub fn release_connection(&self) -> Result<(), StorageError> {
+        let mut pool_guard = self
+            .pool
+            .write()
+            .map_err(|e| StorageError::Lock(e.to_string()))?;
+        pool_guard.take();
+        Ok(())
+    }
+
+    pub fn reconnect(&self) -> Result<(), StorageError> {
+        let pool = match self.connect_opt {
+            StorageOption::Ephemeral => Pool::builder()
+                .max_size(1)
+                .build(ConnectionManager::<SqliteConnection>::new(":memory:"))
+                .map_err(|e| StorageError::DbInit(e.to_string()))?,
+            StorageOption::Persistent(ref path) => Pool::builder()
+                .max_size(10)
+                .build(ConnectionManager::<SqliteConnection>::new(path))
+                .map_err(|e| StorageError::DbInit(e.to_string()))?,
+        };
+
+        let mut pool_write = self
+            .pool
+            .write()
+            .map_err(|e| StorageError::Pool(e.to_string()))?;
+        *pool_write = Some(pool);
+
+        Ok(())
     }
 }
 
@@ -349,6 +388,37 @@ mod tests {
 
             let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
             assert_eq!(fetched_identity.account_address, account_address);
+        }
+
+        fs::remove_file(db_path).unwrap();
+    }
+
+    #[test]
+    fn releases_db_lock() {
+        let db_path = tmp_path();
+        {
+            let store = EncryptedMessageStore::new(
+                StorageOption::Persistent(db_path.clone()),
+                EncryptedMessageStore::generate_enc_key(),
+            )
+            .unwrap();
+            let conn = &store.conn().unwrap();
+
+            let account_address = "address";
+            StoredIdentity::new(account_address.to_string(), rand_vec(), rand_vec())
+                .store(conn)
+                .unwrap();
+
+            let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+
+            assert_eq!(fetched_identity.account_address, account_address);
+
+            store.release_connection().unwrap();
+            assert!(store.pool.read().unwrap().is_none());
+            store.reconnect().unwrap();
+            let fetched_identity2: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+
+            assert_eq!(fetched_identity2.account_address, account_address);
         }
 
         fs::remove_file(db_path).unwrap();
