@@ -7,6 +7,7 @@ use diesel::{
     sql_types::Integer,
     sqlite::Sqlite,
 };
+use serde::Serialize;
 
 use super::{
     db_connection::DbConnection,
@@ -14,7 +15,7 @@ use super::{
 };
 use crate::{impl_fetch, impl_store, StorageError};
 
-#[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Insertable, Identifiable, Queryable, Eq, PartialEq)]
 #[diesel(table_name = group_messages)]
 #[diesel(primary_key(id))]
 /// Successfully processed messages to be returned to the User.
@@ -38,7 +39,7 @@ pub struct StoredGroupMessage {
 }
 
 #[repr(i32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow)]
+#[derive(Debug, Copy, Clone, Serialize, Eq, PartialEq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
 pub enum GroupMessageKind {
     Application = 1,
@@ -69,7 +70,7 @@ where
 }
 
 #[repr(i32)]
-#[derive(Debug, Copy, Clone, FromSqlRow, Eq, PartialEq, AsExpression)]
+#[derive(Debug, Copy, Clone, Serialize, Eq, PartialEq, FromSqlRow, AsExpression)]
 #[diesel(sql_type = Integer)]
 pub enum DeliveryStatus {
     Unpublished = 1,

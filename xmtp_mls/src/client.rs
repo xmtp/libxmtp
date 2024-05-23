@@ -252,6 +252,18 @@ where
         &self.context.store
     }
 
+    pub fn release_db_connection(&self) -> Result<(), ClientError> {
+        let store = &self.context.store;
+        store.release_connection()?;
+        Ok(())
+    }
+
+    pub fn reconnect_db(&self) -> Result<(), ClientError> {
+        // let store = &self.context.store;
+        self.context.store.reconnect()?;
+        Ok(())
+    }
+
     pub fn identity(&self) -> &Identity {
         &self.context.identity
     }

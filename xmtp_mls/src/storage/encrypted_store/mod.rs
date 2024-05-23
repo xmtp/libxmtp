@@ -21,7 +21,10 @@ pub mod key_store_entry;
 pub mod refresh_state;
 pub mod schema;
 
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    sync::{Arc, RwLock},
+};
 
 use diesel::{
     connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
@@ -68,7 +71,7 @@ pub fn ignore_unique_violation<T>(
 /// Manages a Sqlite db for persisting messages and other objects.
 pub struct EncryptedMessageStore {
     connect_opt: StorageOption,
-    pool: Pool<ConnectionManager<SqliteConnection>>,
+    pool: Arc<RwLock<Option<Pool<ConnectionManager<SqliteConnection>>>>>,
     enc_key: Option<EncryptionKey>,
 }
 
@@ -108,7 +111,7 @@ impl EncryptedMessageStore {
 
         let mut obj = Self {
             connect_opt: opts,
-            pool,
+            pool: Arc::new(Some(pool).into()),
             enc_key,
         };
 
@@ -132,9 +135,15 @@ impl EncryptedMessageStore {
     fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
-        let mut conn = self.pool.get()?;
+        let pool_guard = self.pool.read()?;
 
-        if let Some(key) = self.enc_key {
+        let pool = pool_guard
+            .as_ref()
+            .ok_or(StorageError::PoolNeedsConnection)?;
+
+        let mut conn = pool.get()?;
+
+        if let Some(ref key) = self.enc_key {
             conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
         }
 
@@ -188,12 +197,20 @@ impl EncryptedMessageStore {
         }
     }
 
-    pub fn generate_enc_key() -> EncryptionKey {
-        // TODO: Handle Key Better/ Zeroize
-        let mut key = [0u8; 32];
-        crypto_utils::rng().fill_bytes(&mut key[..]);
-        key
-    }
+    /// Start a new database transaction with the OpenMLS Provider from XMTP
+    /// # Arguments
+    /// `fun`: Scoped closure providing an [`XmtpOpenMLSProvider`] to carry out the transaction in
+    /// async context.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// store.transaction_async(|provider| async move {
+    ///     // do some operations requiring provider
+    ///     // access the connection with .conn()
+    ///     provider.conn().db_operation()?;
+    /// }).await
+    /// ```
 
     pub async fn transaction_async<T, F, E, Fut>(&self, fun: F) -> Result<T, E>
     where
@@ -210,8 +227,8 @@ impl EncryptedMessageStore {
 
         let result = fun(provider).await;
 
-        // after the closure finishes, `local_provider` will have the only reference ('strong')
-        // to `Provider`.
+        // after the closure finishes, `local_provider` should have the only reference ('strong')
+        // to `XmtpOpenMlsProvider` inner `DbConnection`..
         let conn_ref = local_provider.conn_ref();
         match result {
             Ok(value) => {
@@ -228,6 +245,36 @@ impl EncryptedMessageStore {
                 Err(rollback) => Err(rollback.into()),
             },
         }
+    }
+
+    pub fn generate_enc_key() -> EncryptionKey {
+        // TODO: Handle Key Better/ Zeroize
+        let mut key = [0u8; 32];
+        crypto_utils::rng().fill_bytes(&mut key[..]);
+        key
+    }
+
+    pub fn release_connection(&self) -> Result<(), StorageError> {
+        let mut pool_guard = self.pool.write()?;
+        pool_guard.take();
+        Ok(())
+    }
+
+    pub fn reconnect(&self) -> Result<(), StorageError> {
+        let pool =
+            match self.connect_opt {
+                StorageOption::Ephemeral => Pool::builder()
+                    .max_size(1)
+                    .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
+                StorageOption::Persistent(ref path) => Pool::builder()
+                    .max_size(10)
+                    .build(ConnectionManager::<SqliteConnection>::new(path))?,
+            };
+
+        let mut pool_write = self.pool.write()?;
+        *pool_write = Some(pool);
+
+        Ok(())
     }
 }
 
@@ -379,6 +426,37 @@ mod tests {
 
             let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
             assert_eq!(fetched_identity.account_address, account_address);
+        }
+
+        fs::remove_file(db_path).unwrap();
+    }
+
+    #[test]
+    fn releases_db_lock() {
+        let db_path = tmp_path();
+        {
+            let store = EncryptedMessageStore::new(
+                StorageOption::Persistent(db_path.clone()),
+                EncryptedMessageStore::generate_enc_key(),
+            )
+            .unwrap();
+            let conn = &store.conn().unwrap();
+
+            let account_address = "address";
+            StoredIdentity::new(account_address.to_string(), rand_vec(), rand_vec())
+                .store(conn)
+                .unwrap();
+
+            let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+
+            assert_eq!(fetched_identity.account_address, account_address);
+
+            store.release_connection().unwrap();
+            assert!(store.pool.read().unwrap().is_none());
+            store.reconnect().unwrap();
+            let fetched_identity2: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+
+            assert_eq!(fetched_identity2.account_address, account_address);
         }
 
         fs::remove_file(db_path).unwrap();

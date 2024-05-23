@@ -1,3 +1,5 @@
+use std::sync::PoisonError;
+
 use thiserror::Error;
 
 use crate::{retry::RetryableError, retryable};
@@ -22,6 +24,16 @@ pub enum StorageError {
     Deserialization,
     #[error("not found")]
     NotFound,
+    #[error("lock")]
+    Lock(String),
+    #[error("Pool needs to  reconnect before use")]
+    PoolNeedsConnection,
+}
+
+impl<T> From<PoisonError<T>> for StorageError {
+    fn from(_: PoisonError<T>) -> Self {
+        StorageError::Lock("Lock poisoned".into())
+    }
 }
 
 impl RetryableError for StorageError {
