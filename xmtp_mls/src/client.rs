@@ -27,6 +27,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 
 use crate::{
     api::ApiClientWrapper,
+    await_helper,
     groups::{
         validated_commit::CommitValidationError, IntentError, MlsGroup, PreconfiguredPolicies,
     },
@@ -447,12 +448,12 @@ where
 
                 self.process_for_id(&id, EntityKind::Welcome, welcome_v1.id, |provider| {
                     // TODO: Abort if error is retryable
-                    match MlsGroup::create_from_encrypted_welcome(
-                        self.context.clone(),
+                    match await_helper(MlsGroup::create_from_encrypted_welcome(
+                        self,
                         provider,
                         welcome_v1.hpke_public_key.as_slice(),
                         welcome_v1.data,
-                    ) {
+                    )) {
                         Ok(mls_group) => Ok(Some(mls_group)),
                         Err(err) => {
                             log::error!("failed to create group from welcome: {}", err);
