@@ -241,4 +241,25 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result.get(&address).unwrap(), &inbox_id_clone_2);
     }
+
+    #[tokio::test]
+    async fn test_initialize_identity() {
+        let mut mock_api = MockApiClient::new();
+
+        let address = rand_string();
+        let inbox_id = rand_string();
+        // let stored = StoredIdentity {
+        //
+        // };
+
+        mock_api.expect_get_inbox_ids().returning(move |_| {
+            Ok(GetInboxIdsResponse {
+                responses: vec![GetInboxIdsResponseItem {
+                    address: address.clone(),
+                    inbox_id: inbox_id.clone(),
+                }],
+            })
+        });
+        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+    }
 }
