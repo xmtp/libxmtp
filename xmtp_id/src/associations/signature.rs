@@ -316,16 +316,13 @@ impl LegacyDelegatedSignature {
             signed_public_key_proto,
         }
     }
-
-    // pub fn new_with_bytes(signature_text: String, signature_bytes: Vec<u8>) -> Self {
-    //     let signed_public_key_proto =
-    //         sign_with_legacy_key(signature_text, signature_bytes).unwrap();
-    // }
 }
 
 #[async_trait]
 impl Signature for LegacyDelegatedSignature {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
+        // TODO: Actually verify the private key signature, in addition to extracting the wallet
+        // address from the SignedPublicKey
         // 1. Verify the RecoverableEcdsaSignature
         // let legacy_signer = self.legacy_key_signature.recover_signer().await?;
 
