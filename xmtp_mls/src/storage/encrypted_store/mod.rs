@@ -229,10 +229,6 @@ impl EncryptedMessageStore {
                 .map_err(|e| StorageError::DbInit(e.to_string()))?,
         };
 
-        let mut conn = pool.get().map_err(|e| StorageError::Pool(e.to_string()))?;
-        conn.batch_execute("PRAGMA journal_mode = WAL;")
-            .map_err(|e| StorageError::DbInit(e.to_string()))?;
-
         let mut pool_write = self
             .pool
             .write()
@@ -418,6 +414,7 @@ mod tests {
             assert_eq!(fetched_identity.account_address, account_address);
 
             store.release_connection().unwrap();
+            assert!(store.pool.read().unwrap().is_none());
             store.reconnect().unwrap();
             let fetched_identity2: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
 
