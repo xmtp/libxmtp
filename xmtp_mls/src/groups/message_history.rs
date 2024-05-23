@@ -57,7 +57,7 @@ pub enum MessageHistoryError {
     AesGcm(#[from] aes_gcm::Error),
 }
 
-impl<'c, ApiClient> Client<ApiClient>
+impl<ApiClient> Client<ApiClient>
 where
     ApiClient: XmtpApi,
 {
