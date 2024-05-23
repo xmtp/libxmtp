@@ -324,31 +324,10 @@ impl LegacyDelegatedSignature {
         }
     }
 
-    pub fn new_with_bytes(signature_text: String, signature_bytes: Vec<u8>) -> Self {
-        let legacy_signed_private_key_proto =
-            LegacySignedPrivateKeyProto::decode(signature_bytes.as_slice()).unwrap();
-
-        let signed_private_key::Union::Secp256k1(secp256k1) =
-            legacy_signed_private_key_proto.union.unwrap();
-        let legacy_private_key = secp256k1.bytes;
-        let (mut delegating_signature, recovery_id) = k256_helper::sign_sha256(
-            &legacy_private_key, // secret_key
-            // TODO: Verify this will create a verifiable signature
-            signature_text.as_bytes(), // message
-        )
-        .unwrap();
-        delegating_signature.push(recovery_id); // TODO: normalize recovery ID if necessary
-
-        let legacy_signed_public_key_proto = legacy_signed_private_key_proto.public_key.unwrap();
-
-        LegacyDelegatedSignature {
-            legacy_key_signature: RecoverableEcdsaSignature::new(
-                signature_text,
-                delegating_signature,
-            ),
-            signed_public_key_proto: legacy_signed_public_key_proto.try_into().unwrap(),
-        }
-    }
+    // pub fn new_with_bytes(signature_text: String, signature_bytes: Vec<u8>) -> Self {
+    //     let signed_public_key_proto =
+    //         sign_with_legacy_key(signature_text, signature_bytes).unwrap();
+    // }
 }
 
 #[async_trait]

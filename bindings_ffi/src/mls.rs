@@ -21,6 +21,7 @@ use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::group_permissions::GroupMutablePermissions;
 use xmtp_mls::groups::PreconfiguredPolicies;
+use xmtp_mls::identity::sign_with_legacy_key;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::retry::Retry;
 use xmtp_mls::{
@@ -162,10 +163,11 @@ impl FfiSignatureRequest {
         let mut inner = self.inner.lock().await;
         let signature_text = inner.signature_text();
         inner
-            .add_signature(Box::new(LegacyDelegatedSignature::new_with_bytes(
-                signature_text,
-                signature_bytes,
-            )))
+            .add_signature(Box::new(
+                sign_with_legacy_key(signature_text, signature_bytes)
+                    .await
+                    .unwrap(),
+            ))
             .await?;
 
         Ok(())

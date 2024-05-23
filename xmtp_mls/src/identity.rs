@@ -388,7 +388,7 @@ impl Identity {
     }
 }
 
-async fn sign_with_installation_key(
+pub async fn sign_with_installation_key(
     signature_text: String,
     installation_private_key: &[u8; 32],
 ) -> Result<InstallationKeySignature, IdentityError> {
@@ -424,7 +424,7 @@ fn legacy_key_to_address(legacy_signed_private_key: Vec<u8>) -> Result<String, I
     Ok(validated_legacy_public_key.account_address())
 }
 
-async fn sign_with_legacy_key(
+pub async fn sign_with_legacy_key(
     signature_text: String,
     legacy_signed_private_key: Vec<u8>,
 ) -> Result<LegacyDelegatedSignature, IdentityError> {
