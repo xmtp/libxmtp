@@ -498,8 +498,10 @@ mod tests {
                 StoredIdentity::new("correct".to_string(), rand_vec(), rand_vec())
                     .store(&conn1)
                     .unwrap();
+                // wait for second transaction to start
                 barrier_pointer.wait();
-                std::thread::sleep(std::time::Duration::from_secs(1));
+                // wait for second transaction to finish
+                barrier_pointer.wait();
                 Ok::<_, StorageError>(())
             })
         });
@@ -507,7 +509,7 @@ mod tests {
         let store_pointer = store.clone();
         let handle2 = std::thread::spawn(move || {
             barrier.wait();
-            store_pointer.transaction(|provider| -> Result<(), anyhow::Error> {
+            let result = store_pointer.transaction(|provider| -> Result<(), anyhow::Error> {
                 let connection = provider.conn();
                 let group = StoredGroup::new(
                     b"should not exist".to_vec(),
@@ -515,9 +517,11 @@ mod tests {
                     GroupMembershipState::Allowed,
                     "goodbye".to_string(),
                 );
-                group.store(&connection).unwrap();
-                anyhow::bail!("force a rollback")
-            })
+                group.store(&connection)?;
+                Ok(())
+            });
+            barrier.wait();
+            result
         });
 
         let result = handle.join().unwrap();
@@ -526,7 +530,10 @@ mod tests {
         let result = handle2.join().unwrap();
 
         // handle 2 errored because the first transaction has precedence
-        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Diesel result error: database is locked"
+        );
         let groups = store
             .conn()
             .unwrap()
