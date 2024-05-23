@@ -13,7 +13,6 @@ use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 use xmtp_id::associations::Erc1271Signature;
-use xmtp_id::associations::LegacyDelegatedSignature;
 use xmtp_id::associations::RecoverableEcdsaSignature;
 use xmtp_id::InboxId;
 use xmtp_mls::api::ApiClientWrapper;
@@ -21,7 +20,6 @@ use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::group_permissions::GroupMutablePermissions;
 use xmtp_mls::groups::PreconfiguredPolicies;
-use xmtp_mls::identity::sign_with_legacy_key;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::retry::Retry;
 use xmtp_mls::{
