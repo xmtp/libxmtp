@@ -193,6 +193,14 @@ impl Clone for MlsGroup {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum UpdateAdminListType {
+    Add,
+    Remove,
+    AddSuper,
+    RemoveSuper,
+}
+
 impl MlsGroup {
     // Creates a new group instance. Does not validate that the group exists in the DB
     pub fn new(context: Arc<XmtpMlsLocalContext>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
@@ -592,14 +600,20 @@ impl MlsGroup {
     pub async fn update_admin_list<ApiClient>(
         &self,
         client: &Client<ApiClient>,
-        action_type: intents::AdminListActionType,
+        action_type: UpdateAdminListType,
         inbox_id: String,
     ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
-        let intent_data: Vec<u8> = UpdateAdminListIntentData::new(action_type, inbox_id).into();
+        let intent_action_type = match action_type {
+            UpdateAdminListType::Add => AdminListActionType::Add,
+            UpdateAdminListType::Remove => AdminListActionType::Remove,
+            UpdateAdminListType::AddSuper => AdminListActionType::AddSuper,
+            UpdateAdminListType::RemoveSuper => AdminListActionType::RemoveSuper,
+        };
+        let intent_data: Vec<u8> = UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::UpdateAdminList,
             self.group_id.clone(),
