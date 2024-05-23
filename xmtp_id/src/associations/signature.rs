@@ -313,7 +313,7 @@ impl LegacyDelegatedSignature {
     ) -> Self {
         LegacyDelegatedSignature {
             legacy_key_signature,
-            signed_public_key_proto: signed_public_key_proto,
+            signed_public_key_proto,
         }
     }
 
