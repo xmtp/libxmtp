@@ -609,7 +609,7 @@ impl FfiGroup {
         );
 
         group
-            .update_group_name(group_name, &self.inner_client)
+            .update_group_name(&self.inner_client, group_name)
             .await?;
 
         Ok(())
