@@ -1649,6 +1649,12 @@ mod tests {
         assert_eq!(bola_group.admin_list().unwrap().len(), 2);
         assert!(bola_group.admin_list().unwrap().contains(&caro.inbox_id()));
 
+        // Verify that no one can remove a super admin from a group
+        amal_group
+            .remove_members(&amal, vec![bola.inbox_id()])
+            .await
+            .expect_err("expected err");
+
         // Verify that bola can now remove themself as a super admin
         bola_group
             .update_admin_list(&bola, AdminListActionType::RemoveSuper, bola.inbox_id())
