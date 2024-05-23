@@ -812,7 +812,7 @@ impl PolicySet {
         );
 
         // Verify remove member policy was not violated
-        // A super admin can only be removed by another super admin
+        // Super admin can not be removed from a group
         let removed_inboxes_valid = self.evaluate_policy(
             commit.removed_inboxes.iter(),
             &self.remove_member_policy,
@@ -820,7 +820,7 @@ impl PolicySet {
         ) && !commit
             .removed_inboxes
             .iter()
-            .any(|inbox| inbox.is_super_admin && !commit.actor.is_super_admin);
+            .any(|inbox| inbox.is_super_admin);
 
         // Verify that update metadata policy was not violated
         let metadata_changes_valid = self.evaluate_metadata_policy(
