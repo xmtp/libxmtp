@@ -30,6 +30,13 @@ impl GroupMembership {
         self.members.keys().cloned().collect()
     }
 
+    pub fn to_filters(&self) -> Vec<(String, i64)> {
+        self.members
+            .iter()
+            .map(|(inbox_id, sequence_id)| (inbox_id.clone(), sequence_id.clone() as i64))
+            .collect()
+    }
+
     pub fn diff<'inbox_id>(
         &'inbox_id self,
         new_group_membership: &'inbox_id Self,

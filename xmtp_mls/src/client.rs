@@ -31,6 +31,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 
 use crate::{
     api::ApiClientWrapper,
+    await_helper,
     groups::{
         validated_commit::CommitValidationError, GroupError, IntentError, MlsGroup,
         PreconfiguredPolicies,
@@ -474,7 +475,7 @@ where
                     |provider| async move {
                         // TODO: Abort if error is retryable
                         match MlsGroup::create_from_encrypted_welcome(
-                            self.context.clone(),
+                            self,
                             &provider,
                             welcome_v1.hpke_public_key.as_slice(),
                             welcome_v1.data,

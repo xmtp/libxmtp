@@ -42,7 +42,7 @@ where
 {
     /// Take a list of inbox_id/sequence_id tuples and determine which `inbox_id`s have missing entries
     /// in the local DB
-    fn filter_inbox_ids_needing_updates<InboxId: AsRef<str> + ToString>(
+    pub(crate) fn filter_inbox_ids_needing_updates<InboxId: AsRef<str> + ToString>(
         &self,
         conn: &DbConnection,
         filters: Vec<(InboxId, i64)>,

@@ -38,6 +38,7 @@ use self::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
     intents::UpdateMetadataIntentData,
+    validated_commit::extract_group_membership,
 };
 use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
@@ -68,10 +69,11 @@ use crate::{
     },
     hpke::{decrypt_welcome, HpkeError},
     identity::{parse_credential, Identity, IdentityError},
-    identity_updates::InstallationDiffError,
+    identity_updates::{load_identity_updates, InstallationDiffError},
     retry::RetryableError,
     retryable,
     storage::{
+        db_connection::DbConnection,
         group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -92,6 +94,8 @@ pub enum GroupError {
     Api(#[from] xmtp_proto::api_client::Error),
     #[error("api error: {0}")]
     WrappedApi(#[from] WrappedApiError),
+    #[error("invalid group membership")]
+    InvalidGroupMembership,
     #[error("storage error: {0}")]
     Storage(#[from] crate::storage::StorageError),
     #[error("intent error: {0}")]
@@ -262,8 +266,8 @@ impl MlsGroup {
 
     // Create a group from a decrypted and decoded welcome message
     // If the group already exists in the store, overwrite the MLS state and do not update the group entry
-    fn create_from_welcome(
-        context: Arc<XmtpMlsLocalContext>,
+    async fn create_from_welcome<ApiClient: XmtpApi>(
+        client: &Client<ApiClient>,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
         added_by_inbox: String,
@@ -290,18 +294,20 @@ impl MlsGroup {
             ),
         };
 
+        validate_initial_group_membership(client, provider.conn_ref(), &mls_group).await?;
+
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
 
         Ok(Self::new(
-            context,
+            client.context.clone(),
             stored_group.id,
             stored_group.created_at_ns,
         ))
     }
 
     // Decrypt a welcome message using HPKE and then create and save a group from the stored message
-    pub fn create_from_encrypted_welcome(
-        context: Arc<XmtpMlsLocalContext>,
+    pub async fn create_from_encrypted_welcome<ApiClient: XmtpApi>(
+        client: &Client<ApiClient>,
         provider: &XmtpOpenMlsProvider,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: Vec<u8>,
@@ -319,9 +325,7 @@ impl MlsGroup {
         let added_by_credential = BasicCredential::try_from(added_by_node.credential().clone())?;
         let inbox_id = parse_credential(added_by_credential.identity())?;
 
-        // TODO:nm Validate the initial group membership and that the sender's inbox_id is in it
-
-        Self::create_from_welcome(context, provider, welcome, inbox_id)
+        Self::create_from_welcome(client, provider, welcome, inbox_id).await
     }
 
     pub(crate) fn create_and_insert_sync_group(
@@ -772,6 +776,39 @@ fn build_group_config(
         .max_past_epochs(3) // Trying with 3 max past epochs for now
         .use_ratchet_tree_extension(true)
         .build())
+}
+
+async fn validate_initial_group_membership<ApiClient: XmtpApi>(
+    client: &Client<ApiClient>,
+    conn: &DbConnection,
+    mls_group: &OpenMlsGroup,
+) -> Result<(), GroupError> {
+    let membership = extract_group_membership(mls_group.extensions())?;
+    let needs_update = client.filter_inbox_ids_needing_updates(conn, membership.to_filters())?;
+    if !needs_update.is_empty() {
+        load_identity_updates(&client.api_client, conn, needs_update).await?;
+    }
+
+    let mut expected_installation_ids = HashSet::<Vec<u8>>::new();
+
+    for (inbox_id, sequence_id) in membership.members {
+        let association_state = client
+            .get_association_state(conn, inbox_id, Some(sequence_id as i64))
+            .await?;
+
+        expected_installation_ids.extend(association_state.installation_ids());
+    }
+
+    let actual_installation_ids: HashSet<Vec<u8>> = mls_group
+        .members()
+        .map(|member| member.signature_key)
+        .collect();
+
+    if expected_installation_ids != actual_installation_ids {
+        return Err(GroupError::InvalidGroupMembership);
+    }
+
+    Ok(())
 }
 
 fn build_group_join_config() -> MlsGroupJoinConfig {
