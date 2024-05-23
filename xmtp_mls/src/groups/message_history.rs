@@ -43,7 +43,7 @@ use crate::{
 
 const ENC_KEY_SIZE: usize = 32; // 256-bit key
 const NONCE_SIZE: usize = 12; // 96-bit nonce
-const MESSAGE_HISTORY_SERVER: &str = "http://0.0.0.0:5558";
+const MESSAGE_HISTORY_SERVER_URL: &str = "http://0.0.0.0:5558";
 
 #[derive(Debug, Error)]
 pub enum MessageHistoryError {
@@ -202,7 +202,7 @@ where
         let groups = conn.find_groups(None, None, None, None)?;
         let mut all_messages: Vec<StoredGroupMessage> = vec![];
 
-        for StoredGroup { id, .. } in groups.clone() {
+        for StoredGroup { id, .. } in groups.into_iter() {
             let messages = conn.get_group_messages(id, None, None, None, None, None)?;
             all_messages.extend(messages);
         }
@@ -233,7 +233,7 @@ fn write_messages_file(messages: Vec<StoredGroupMessage>) -> Result<PathBuf, Mes
     Ok(file_path)
 }
 
-fn encrypt_messages_file(
+fn encrypt_history_file(
     input_path: &str,
     output_path: &str,
     key: &[u8; ENC_KEY_SIZE],
@@ -260,9 +260,9 @@ fn encrypt_messages_file(
     Ok(())
 }
 
-fn decrypt_messages_file(
-    input_path: &str,
-    output_path: &str,
+fn decrypt_history_file(
+    input_path: PathBuf,
+    output_path: PathBuf,
     key: &[u8; ENC_KEY_SIZE],
 ) -> Result<(), MessageHistoryError> {
     // Read the file content
@@ -287,7 +287,10 @@ fn decrypt_messages_file(
     Ok(())
 }
 
-async fn upload_message_bundle(file_path: &str, signing_key: &[u8]) -> Result<(), MessageHistoryError> {
+async fn upload_history_bundle(
+    file_path: PathBuf,
+    signing_key: &[u8],
+) -> Result<(), MessageHistoryError> {
     let mut file = File::open(file_path)?;
     let mut file_content = Vec::new();
     file.read_to_end(&mut file_content)?;
@@ -299,7 +302,7 @@ async fn upload_message_bundle(file_path: &str, signing_key: &[u8]) -> Result<()
 
     let client = reqwest::Client::new();
     let response = client
-        .post(format!("{MESSAGE_HISTORY_SERVER}/upload"))
+        .post(format!("{MESSAGE_HISTORY_SERVER_URL}/upload"))
         .header("X-HMAC", hmac_hex)
         .body(file_content)
         .send()
@@ -307,6 +310,43 @@ async fn upload_message_bundle(file_path: &str, signing_key: &[u8]) -> Result<()
 
     println!("Response Status Code: {:?}", response.status().as_u16());
     println!("Response: {:?}", response);
+
+    Ok(())
+}
+
+async fn download_history_bundle(
+    bundle_id: &str,
+    hmac_value: &str,
+    signing_key: &str,
+    aes_key: [u8; ENC_KEY_SIZE],
+) -> Result<(), MessageHistoryError> {
+    let url = format!("{MESSAGE_HISTORY_SERVER_URL}/files/{}", bundle_id);
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(&url)
+        .header("X-HMAC", hmac_value)
+        .header("X-SIGNING-KEY", signing_key)
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        println!("File downloaded successfully.");
+        let file_name = format!("messages_bundle_{}.aes", bundle_id);
+        let mut file = File::create(&file_name)?;
+        let bytes = response.bytes().await?;
+        file.write_all(&bytes)?;
+
+        let output_path = PathBuf::from("/");
+        decrypt_history_file(PathBuf::from(&file_name), output_path, &aes_key)?;
+        println!("Successfully decrypted {}", &file_name);
+    } else {
+        println!(
+            "Failed to download file. Status code: {} Response: {:?}",
+            response.status(),
+            response
+        );
+    }
 
     Ok(())
 }
