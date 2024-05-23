@@ -10,8 +10,10 @@ pub enum StorageError {
     DieselResult(#[from] diesel::result::Error),
     #[error("Pool error: {0}")]
     Pool(#[from] diesel::r2d2::PoolError),
-    #[error("Either incorrect encryptionkey or file is not a db: {0}")]
-    DbInit(#[from] diesel::r2d2::Error),
+    #[error("Error with connection to Sqlite {0}")]
+    DbConnection(#[from] diesel::r2d2::Error),
+    #[error("incorrect encryptionkey or file is not a database: {0}")]
+    DbInit(String),
     #[error("Error migrating database {0}")]
     MigrationError(#[from] Box<dyn std::error::Error + Send + Sync>),
     #[error("serialization error")]

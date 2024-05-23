@@ -118,10 +118,12 @@ impl EncryptedMessageStore {
 
     fn init_db(&mut self) -> Result<(), StorageError> {
         let conn = &mut self.raw_conn()?;
-        conn.batch_execute("PRAGMA journal_mode = WAL;")?;
+        conn.batch_execute("PRAGMA journal_mode = WAL;")
+            .map_err(|e| StorageError::DbInit(e.to_string()))?;
 
         log::info!("Running DB migrations");
-        conn.run_pending_migrations(MIGRATIONS)?;
+        conn.run_pending_migrations(MIGRATIONS)
+            .map_err(|e| StorageError::DbInit(e.to_string()))?;
 
         log::info!("Migrations successful");
         Ok(())
@@ -398,6 +400,8 @@ mod tests {
 
         enc_key[3] = 145; // Alter the enc_key
         let res = EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key);
+
+        println!("{:?}", &res.as_ref().err());
         // Ensure it fails
         assert!(
             matches!(res.err(), Some(StorageError::DbInit(_))),
