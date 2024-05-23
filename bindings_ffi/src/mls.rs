@@ -32,7 +32,6 @@ use xmtp_mls::{
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
     },
 };
-use xmtp_proto::xmtp::mls::database::AdminListUpdateType;
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 

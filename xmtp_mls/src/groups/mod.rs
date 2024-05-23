@@ -613,7 +613,8 @@ impl MlsGroup {
             UpdateAdminListType::AddSuper => AdminListActionType::AddSuper,
             UpdateAdminListType::RemoveSuper => AdminListActionType::RemoveSuper,
         };
-        let intent_data: Vec<u8> = UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
+        let intent_data: Vec<u8> =
+            UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::UpdateAdminList,
             self.group_id.clone(),
@@ -868,8 +869,7 @@ mod tests {
         builder::ClientBuilder,
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
-            group_mutable_metadata::MetadataField, intents::AdminListActionType,
-            PreconfiguredPolicies,
+            group_mutable_metadata::MetadataField, PreconfiguredPolicies, UpdateAdminListType,
         },
         storage::{
             group_intent::IntentState,
@@ -1558,7 +1558,7 @@ mod tests {
 
         // Add bola as an admin
         amal_group
-            .update_admin_list(&amal, AdminListActionType::Add, bola.inbox_id())
+            .update_admin_list(&amal, UpdateAdminListType::Add, bola.inbox_id())
             .await
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
@@ -1575,13 +1575,13 @@ mod tests {
         // Verify that bola can not remove amal as an admin, because
         // Remove admin is super admin only permissions
         bola_group
-            .update_admin_list(&bola, AdminListActionType::Remove, amal.inbox_id())
+            .update_admin_list(&bola, UpdateAdminListType::Remove, amal.inbox_id())
             .await
             .expect_err("expected err");
 
         // Now amal removes bola as an admin
         amal_group
-            .update_admin_list(&amal, AdminListActionType::Remove, bola.inbox_id())
+            .update_admin_list(&amal, UpdateAdminListType::Remove, bola.inbox_id())
             .await
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
@@ -1637,13 +1637,13 @@ mod tests {
         let bola_group: &MlsGroup = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
         bola_group
-            .update_admin_list(&bola, AdminListActionType::Add, caro.inbox_id())
+            .update_admin_list(&bola, UpdateAdminListType::Add, caro.inbox_id())
             .await
             .expect_err("expected err");
 
         // Add bola as a super admin
         amal_group
-            .update_admin_list(&amal, AdminListActionType::AddSuper, bola.inbox_id())
+            .update_admin_list(&amal, UpdateAdminListType::AddSuper, bola.inbox_id())
             .await
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
@@ -1656,7 +1656,7 @@ mod tests {
 
         // Verify that bola can now add caro as an admin
         bola_group
-            .update_admin_list(&bola, AdminListActionType::Add, caro.inbox_id())
+            .update_admin_list(&bola, UpdateAdminListType::Add, caro.inbox_id())
             .await
             .unwrap();
         bola_group.sync(&bola).await.unwrap();
@@ -1671,7 +1671,7 @@ mod tests {
 
         // Verify that bola can now remove themself as a super admin
         bola_group
-            .update_admin_list(&bola, AdminListActionType::RemoveSuper, bola.inbox_id())
+            .update_admin_list(&bola, UpdateAdminListType::RemoveSuper, bola.inbox_id())
             .await
             .unwrap();
         bola_group.sync(&bola).await.unwrap();
@@ -1683,7 +1683,7 @@ mod tests {
 
         // Verify that amal can NOT remove themself as a super admin because they are the only remaining
         amal_group
-            .update_admin_list(&amal, AdminListActionType::RemoveSuper, amal.inbox_id())
+            .update_admin_list(&amal, UpdateAdminListType::RemoveSuper, amal.inbox_id())
             .await
             .expect_err("expected err");
     }
