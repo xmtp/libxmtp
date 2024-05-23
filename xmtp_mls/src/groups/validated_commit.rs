@@ -304,7 +304,6 @@ impl ValidatedCommit {
         if !policy_set.policies.evaluate_commit(&verified_commit) {
             return Err(CommitValidationError::InsufficientPermissions);
         }
-
         Ok(verified_commit)
     }
 
