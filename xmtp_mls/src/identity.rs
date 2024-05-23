@@ -83,6 +83,23 @@ impl IdentityStrategy {
             }
             IdentityStrategy::CreateIfNotFound(address, legacy_signed_private_key) => {
                 if let Some(identity) = stored_identity {
+                    let ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
+                    let inbox_id = ids.get(&address);
+
+                    if inbox_id.is_none() {
+                        return Err(IdentityError::NoAssociatedInboxId(address).into());
+                    };
+                    let inbox_id = inbox_id.expect("Checked for none");
+
+                    if inbox_id != &identity.inbox_id {
+                        return Err(IdentityError::InboxIdMismatch {
+                            id: inbox_id.clone(),
+                            address: address.clone(),
+                            stored: identity.inbox_id,
+                        }
+                        .into());
+                    }
+
                     Ok(identity)
                 } else {
                     Identity::new(address, legacy_signed_private_key, api_client)
@@ -138,6 +155,14 @@ pub enum IdentityError {
     KeyPackageGenerationError(#[from] openmls::key_packages::errors::KeyPackageNewError),
     #[error(transparent)]
     ED25519Error(#[from] ed25519_dalek::ed25519::Error),
+    #[error("The InboxID {id}, associated with the given address, {address} does not match the stored InboxId {stored}.")]
+    InboxIdMismatch {
+        id: InboxId,
+        address: String,
+        stored: InboxId,
+    },
+    #[error("The address {0} has no associated InboxID")]
+    NoAssociatedInboxId(String),
 }
 
 #[derive(Debug, Clone)]
