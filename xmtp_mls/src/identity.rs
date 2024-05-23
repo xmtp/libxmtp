@@ -9,12 +9,12 @@ use crate::{
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
     storage::StorageError,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    InboxOwner, XmtpApi,
+    XmtpApi,
 };
 use crate::{builder::ClientBuilderError, storage::EncryptedMessageStore};
 use crate::{Fetch, Store};
 use ed25519_dalek::SigningKey;
-use ethers::signers::{LocalWallet, WalletError};
+use ethers::signers::WalletError;
 use log::debug;
 use log::info;
 use openmls::prelude::tls_codec::Serialize;
@@ -34,6 +34,7 @@ use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use sha2::{Digest, Sha512};
 use thiserror::Error;
+use xmtp_id::associations::ValidatedLegacySignedPublicKey;
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
@@ -110,6 +111,8 @@ pub enum IdentityError {
     Api(#[from] xmtp_proto::api_client::Error),
     #[error(transparent)]
     SignatureRequestBuilder(#[from] SignatureRequestError),
+    #[error(transparent)]
+    Signature(#[from] xmtp_id::associations::SignatureError),
     #[error(transparent)]
     BasicCredential(#[from] BasicCredentialError),
     #[error("Legacy key re-use")]
@@ -230,6 +233,7 @@ impl Identity {
                     .await?,
                 ))
                 .await?;
+
             let identity_update = signature_request.build_identity_update()?;
             api_client.publish_identity_update(identity_update).await?;
 
@@ -239,7 +243,6 @@ impl Identity {
                 credential: create_credential(inbox_id)?,
                 signature_request: None,
             };
-
             Ok(identity)
         } else {
             let nonce = rand::random::<u64>();
@@ -410,14 +413,15 @@ async fn sign_with_installation_key(
 fn legacy_key_to_address(legacy_signed_private_key: Vec<u8>) -> Result<String, IdentityError> {
     let legacy_signed_private_key_proto =
         LegacySignedPrivateKeyProto::decode(legacy_signed_private_key.as_slice())?;
-    let signed_private_key::Union::Secp256k1(secp256k1) = legacy_signed_private_key_proto
-        .union
-        .ok_or(IdentityError::MalformedLegacyKey(
-            "Missing secp256k1.union field".to_string(),
-        ))?;
-    let legacy_private_key = secp256k1.bytes;
-    let wallet: LocalWallet = LocalWallet::from_bytes(&legacy_private_key)?;
-    Ok(wallet.get_address())
+    let validated_legacy_public_key: ValidatedLegacySignedPublicKey =
+        legacy_signed_private_key_proto
+            .public_key
+            .ok_or(IdentityError::MalformedLegacyKey(
+                "Missing public_key field".to_string(),
+            ))?
+            .try_into()?;
+
+    Ok(validated_legacy_public_key.account_address())
 }
 
 async fn sign_with_legacy_key(
