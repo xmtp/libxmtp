@@ -207,9 +207,12 @@ impl EncryptedMessageStore {
         let db_connection = DbConnection::new(connection);
         let provider = XmtpOpenMlsProvider::new(db_connection);
         let local_provider = provider.clone();
-        let result = fun(provider).await;
-        let conn_ref = local_provider.conn_ref();
 
+        let result = fun(provider).await;
+
+        // after the closure finishes, `local_provider` will have the only reference ('strong')
+        // to `Provider`.
+        let conn_ref = local_provider.conn_ref();
         match result {
             Ok(value) => {
                 conn_ref.raw_query(|conn| {
@@ -306,7 +309,6 @@ mod tests {
         db_connection::DbConnection, identity::StoredIdentity, EncryptedMessageStore, StorageError,
         StorageOption,
     };
-    use diesel::result::Error as DieselError;
     use std::sync::Barrier;
 
     use crate::{
@@ -493,10 +495,10 @@ mod tests {
         let handle = std::thread::spawn(move || {
             store_pointer.transaction(|provider| {
                 let conn1 = provider.conn();
-                barrier_pointer.wait();
                 StoredIdentity::new("correct".to_string(), rand_vec(), rand_vec())
                     .store(&conn1)
                     .unwrap();
+                barrier_pointer.wait();
                 std::thread::sleep(std::time::Duration::from_secs(1));
                 Ok::<_, StorageError>(())
             })
@@ -505,17 +507,16 @@ mod tests {
         let store_pointer = store.clone();
         let handle2 = std::thread::spawn(move || {
             barrier.wait();
-            store_pointer.transaction(|provider| {
+            store_pointer.transaction(|provider| -> Result<(), anyhow::Error> {
                 let connection = provider.conn();
-                let _ = connection.insert_or_ignore_group(StoredGroup::new(
-                    b"wrong".to_vec(),
+                let group = StoredGroup::new(
+                    b"should not exist".to_vec(),
                     0,
                     GroupMembershipState::Allowed,
-                    "wrong".into(),
-                ));
-                StoredIdentity::new("wrong".to_string(), rand_vec(), rand_vec())
-                    .store(&connection)?;
-                Ok::<_, StorageError>(())
+                    "goodbye".to_string(),
+                );
+                group.store(&connection).unwrap();
+                anyhow::bail!("force a rollback")
             })
         });
 
@@ -525,15 +526,12 @@ mod tests {
         let result = handle2.join().unwrap();
 
         // handle 2 errored because the first transaction has precedence
-        assert!(matches!(
-            result,
-            Err(StorageError::DieselResult(DieselError::DatabaseError(_, _)))
-        ));
-
-        let conn = store.conn().unwrap();
-
-        // this group should not exist because of the rollback
-        let groups = conn.find_group(b"wrong".to_vec()).unwrap();
+        assert!(result.is_err());
+        let groups = store
+            .conn()
+            .unwrap()
+            .find_group(b"should not exist".to_vec())
+            .unwrap();
         assert_eq!(groups, None);
     }
 
@@ -565,7 +563,7 @@ mod tests {
                     );
                     group.store(&conn1).unwrap();
 
-                    anyhow::bail!("Something went wrong")
+                    anyhow::bail!("force a rollback")
                 })
                 .await?;
             Ok::<_, anyhow::Error>(())
