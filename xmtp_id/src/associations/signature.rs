@@ -1,6 +1,5 @@
 use crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
 use std::array::TryFromSliceError;
-use xmtp_v2::k256_helper;
 
 use super::MemberIdentifier;
 use async_trait::async_trait;
@@ -10,23 +9,17 @@ use ethers::{
     types::{BlockNumber, U64},
     utils::hash_message,
 };
-use prost::Message;
 use sha2::{Digest, Sha512};
 use thiserror::Error;
 use xmtp_cryptography::signature::h160addr_to_string;
 use xmtp_cryptography::signature::RecoverableSignature;
-use xmtp_proto::xmtp::message_contents::SignedPrivateKey as LegacySignedPrivateKeyProto;
-use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
-use xmtp_proto::xmtp::{
-    identity::associations::{
-        signature::Signature as SignatureKindProto, Erc1271Signature as Erc1271SignatureProto,
-        LegacyDelegatedSignature as LegacyDelegatedSignatureProto,
-        RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
-        RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
-        Signature as SignatureProto,
-    },
-    message_contents::signed_private_key,
+use xmtp_proto::xmtp::identity::associations::{
+    signature::Signature as SignatureKindProto, Erc1271Signature as Erc1271SignatureProto,
+    LegacyDelegatedSignature as LegacyDelegatedSignatureProto,
+    RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
+    RecoverableEd25519Signature as RecoverableEd25519SignatureProto, Signature as SignatureProto,
 };
+use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
 #[derive(Debug, Error)]
 pub enum SignatureError {
