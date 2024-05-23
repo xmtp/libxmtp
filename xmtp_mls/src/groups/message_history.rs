@@ -12,6 +12,7 @@ use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
 };
+use ring::hmac;
 use thiserror::Error;
 
 use xmtp_cryptography::utils as crypto_utils;
@@ -42,19 +43,22 @@ use crate::{
 
 const ENC_KEY_SIZE: usize = 32; // 256-bit key
 const NONCE_SIZE: usize = 12; // 96-bit nonce
+const MESSAGE_HISTORY_SERVER: &str = "http://0.0.0.0:5558";
 
 #[derive(Debug, Error)]
 pub enum MessageHistoryError {
-    #[error("Pin not found")]
+    #[error("pin not found")]
     PinNotFound,
-    #[error("Pin does not match the expected value")]
+    #[error("pin does not match the expected value")]
     PinMismatch,
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),
-    #[error("JSON Serialization error: {0}")]
+    #[error("JSON serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
-    #[error("AES-GCM Encryption error")]
+    #[error("AES-GCM encryption error")]
     AesGcm(#[from] aes_gcm::Error),
+    #[error("Reqwest error: {0}")]
+    Reqwest(#[from] reqwest::Error),
 }
 
 impl<ApiClient> Client<ApiClient>
@@ -70,7 +74,6 @@ where
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub(crate) async fn send_message_history_request(&self) -> Result<String, GroupError> {
         // find the sync group
         let conn = self.store().conn()?;
@@ -109,7 +112,6 @@ where
         Ok(pin_code)
     }
 
-    #[allow(dead_code)]
     pub(crate) async fn send_message_history_reply(
         &self,
         contents: MessageHistoryReply,
@@ -147,7 +149,6 @@ where
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub(crate) fn provide_pin(&self, pin_challenge: &str) -> Result<(), GroupError> {
         let conn = self.store().conn()?;
         let sync_group_id = conn
@@ -182,7 +183,18 @@ where
         Ok(())
     }
 
-    #[allow(dead_code)]
+    pub(crate) async fn prepare_groups_to_sync(&self) -> Result<Vec<StoredGroup>, StorageError> {
+        let conn = self.store().conn()?;
+        let groups = conn.find_groups(None, None, None, None)?;
+        let mut all_groups: Vec<StoredGroup> = vec![];
+
+        for group in groups.into_iter() {
+            all_groups.push(group);
+        }
+
+        Ok(all_groups)
+    }
+
     pub(crate) async fn prepare_messages_to_sync(
         &self,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
@@ -199,7 +211,17 @@ where
     }
 }
 
-#[allow(dead_code)]
+fn write_groups_file(groups: Vec<StoredGroup>) -> Result<PathBuf, MessageHistoryError> {
+    let tmp_dir = std::env::temp_dir();
+    let file_path = tmp_dir.join("groups.jsonl");
+    let mut file = std::fs::File::create(&file_path)?;
+    for group in groups {
+        let group_str = serde_json::to_string(&group)?;
+        file.write_all(group_str.as_bytes())?;
+    }
+    Ok(file_path)
+}
+
 fn write_messages_file(messages: Vec<StoredGroupMessage>) -> Result<PathBuf, MessageHistoryError> {
     let tmp_dir = std::env::temp_dir();
     let file_path = tmp_dir.join("messages.jsonl");
@@ -211,7 +233,6 @@ fn write_messages_file(messages: Vec<StoredGroupMessage>) -> Result<PathBuf, Mes
     Ok(file_path)
 }
 
-#[allow(dead_code)]
 fn encrypt_messages_file(
     input_path: &str,
     output_path: &str,
@@ -239,7 +260,6 @@ fn encrypt_messages_file(
     Ok(())
 }
 
-#[allow(dead_code)]
 fn decrypt_messages_file(
     input_path: &str,
     output_path: &str,
@@ -267,6 +287,30 @@ fn decrypt_messages_file(
     Ok(())
 }
 
+async fn upload_message_bundle(file_path: &str, signing_key: &[u8]) -> Result<(), MessageHistoryError> {
+    let mut file = File::open(file_path)?;
+    let mut file_content = Vec::new();
+    file.read_to_end(&mut file_content)?;
+
+    let key = hmac::Key::new(hmac::HMAC_SHA256, signing_key);
+    let tag = hmac::sign(&key, &file_content);
+    let hmac_hex = hex::encode(tag.as_ref());
+    println!("HMAC: {}", hmac_hex);
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{MESSAGE_HISTORY_SERVER}/upload"))
+        .header("X-HMAC", hmac_hex)
+        .body(file_content)
+        .send()
+        .await?;
+
+    println!("Response Status Code: {:?}", response.status().as_u16());
+    println!("Response: {:?}", response);
+
+    Ok(())
+}
+
 #[derive(Clone)]
 struct HistoryRequest {
     pin_code: String,
@@ -274,7 +318,6 @@ struct HistoryRequest {
 }
 
 impl HistoryRequest {
-    #[allow(dead_code)]
     pub(crate) fn new() -> Self {
         Self {
             pin_code: new_pin(),
@@ -301,7 +344,6 @@ struct HistoryReply {
 }
 
 impl HistoryReply {
-    #[allow(dead_code)]
     pub(crate) fn new(
         id: &str,
         url: &str,
@@ -337,21 +379,18 @@ enum HistoryKeyType {
 }
 
 impl HistoryKeyType {
-    #[allow(dead_code)]
     fn new_chacha20_poly1305_key() -> Self {
         let mut key = [0u8; 32]; // 256-bit key
         crypto_utils::rng().fill_bytes(&mut key[..]);
         HistoryKeyType::Chacha20Poly1305(key)
     }
 
-    #[allow(dead_code)]
     fn len(&self) -> usize {
         match self {
             HistoryKeyType::Chacha20Poly1305(key) => key.len(),
         }
     }
 
-    #[allow(dead_code)]
     fn as_bytes(&self) -> &[u8; ENC_KEY_SIZE] {
         match self {
             HistoryKeyType::Chacha20Poly1305(key) => key,
@@ -370,7 +409,7 @@ impl From<HistoryKeyType> for MessageHistoryKeyType {
 }
 
 fn new_request_id() -> String {
-    Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
+    Alphanumeric.sample_string(&mut rand::thread_rng(), ENC_KEY_SIZE)
 }
 
 fn generate_nonce() -> [u8; NONCE_SIZE] {
@@ -583,6 +622,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_prepare_groups_to_sync() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let _group_a = amal_a.create_group(None).expect("create group");
+        let _group_b = amal_a.create_group(None).expect("create group");
+
+        let result = amal_a.prepare_groups_to_sync().await.unwrap();
+        assert_eq!(result.len(), 2);
+    }
+
+    #[tokio::test]
     async fn test_prepare_group_messages_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -614,19 +664,19 @@ mod tests {
     fn test_encrypt_decrypt_file() {
         let key = HistoryKeyType::new_chacha20_poly1305_key();
         let key_bytes = key.as_bytes();
-        let input_content = b"Hello, this is a test message!";
-        let input_path = "test_input.txt";
+        let input_content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'";
+        let input_path = "test_input.jsonl";
         let encrypted_path = "test_encrypted.dat";
-        let decrypted_path = "test_decrypted.txt";
+        let decrypted_path = "test_decrypted.jsonl";
 
         // Write test input file
         std::fs::write(input_path, input_content).expect("Unable to write test input file");
 
         // Encrypt the file
-        encrypt_messages_file(input_path, encrypted_path, &key_bytes).expect("Encryption failed");
+        encrypt_messages_file(input_path, encrypted_path, key_bytes).expect("Encryption failed");
 
         // Decrypt the file
-        decrypt_messages_file(encrypted_path, decrypted_path, &key_bytes)
+        decrypt_messages_file(encrypted_path, decrypted_path, key_bytes)
             .expect("Decryption failed");
 
         // Read the decrypted file content
@@ -645,6 +695,7 @@ mod tests {
     #[test]
     fn test_new_pin() {
         let pin = new_pin();
+        assert!(pin.chars().all(|c| c.is_numeric()));
         assert_eq!(pin.len(), 4);
     }
 
@@ -652,7 +703,7 @@ mod tests {
     fn test_new_key() {
         let sig_key = HistoryKeyType::new_chacha20_poly1305_key();
         let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
-        assert_eq!(sig_key.len(), 32);
+        assert_eq!(sig_key.len(), ENC_KEY_SIZE);
         // ensure keys are different (seed isn't reused)
         assert_ne!(sig_key, enc_key);
     }
