@@ -508,17 +508,14 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let provider = self.context.mls_provider(conn);
+        let mut openmls_group = self.load_mls_group(provider.clone())?;
+        log::debug!("  loaded openmls group");
 
         let mut receive_errors = vec![];
         for message in messages.into_iter() {
-            let local_provider = provider.clone();
             let result = retry_async!(
                 Retry::default(),
                 (async {
-                    let mut openmls_group = self
-                        .load_mls_group(local_provider.clone())
-                        .map_err(Box::new)?;
-                    log::debug!("  loaded openmls group");
                     self.consume_message(&message, &mut openmls_group, client)
                         .await
                 })
