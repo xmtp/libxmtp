@@ -21,7 +21,7 @@ pub fn rand_string() -> String {
         .map(char::from)
         .collect();
 
-    v
+    v.to_lowercase()
 }
 
 pub fn rand_u64() -> u64 {
