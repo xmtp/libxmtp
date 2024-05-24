@@ -484,7 +484,7 @@ impl MlsGroup {
         };
 
         client
-            .process_for_id_async(
+            .process_for_id(
                 &msgv1.group_id,
                 EntityKind::Group,
                 msgv1.id,
