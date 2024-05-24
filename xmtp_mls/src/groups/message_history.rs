@@ -473,8 +473,7 @@ mod tests {
     use tempfile::NamedTempFile;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::assert_ok;
-    use crate::builder::ClientBuilder;
+    use crate::{assert_ok, builder::ClientBuilder};
 
     #[tokio::test]
     async fn test_allow_history_sync() {

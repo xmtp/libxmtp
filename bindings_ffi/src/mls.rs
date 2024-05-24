@@ -144,6 +144,14 @@ impl FfiXmtpClient {
     pub fn installation_id(&self) -> Vec<u8> {
         self.inner_client.installation_public_key()
     }
+
+    pub fn release_db_connection(&self) -> Result<(), GenericError> {
+        Ok(self.inner_client.release_db_connection()?)
+    }
+
+    pub async fn db_reconnect(&self) -> Result<(), GenericError> {
+        Ok(self.inner_client.reconnect_db()?)
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -665,7 +673,6 @@ impl FfiGroupMetadata {
     }
 }
 
-
 #[derive(uniffi::Object)]
 pub struct FfiGroupPermissions {
     inner: Arc<GroupMutablePermissions>,
@@ -673,7 +680,6 @@ pub struct FfiGroupPermissions {
 
 #[uniffi::export]
 impl FfiGroupPermissions {
-
     pub fn policy_type(&self) -> Result<GroupPermissions, GenericError> {
         Ok(self.inner.preconfigured_policy()?.into())
     }

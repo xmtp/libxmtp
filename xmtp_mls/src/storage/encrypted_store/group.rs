@@ -304,9 +304,8 @@ pub(crate) mod tests {
             })
             .unwrap();
 
-            let fetched_group: Result<Option<StoredGroup>, StorageError> =
-                conn.fetch(&test_group.id);
-            assert_ok!(fetched_group, Some(test_group));
+            let fetched_group: Option<StoredGroup> = conn.fetch(&test_group.id).unwrap();
+            assert_eq!(fetched_group, Some(test_group));
         })
     }
 
@@ -399,10 +398,9 @@ pub(crate) mod tests {
             })
             .unwrap();
 
-            let fetched_group: Result<Option<StoredGroup>, StorageError> =
-                conn.fetch(&test_group.id);
-            assert_ok!(fetched_group, Some(test_group));
-            let purpose = fetched_group.unwrap().unwrap().purpose;
+            let fetched_group: Option<StoredGroup> = conn.fetch(&test_group.id).unwrap();
+            assert_eq!(fetched_group, Some(test_group));
+            let purpose = fetched_group.unwrap().purpose;
             assert_eq!(purpose, Purpose::Conversation);
         })
     }

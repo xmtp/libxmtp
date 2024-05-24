@@ -1173,7 +1173,7 @@ mod tests {
         assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
 
         key_store
-            .write_aad::<GroupId>(&group_id, &"test".as_bytes())
+            .write_aad::<GroupId>(&group_id, "test".as_bytes())
             .unwrap();
 
         assert!(!key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
@@ -1225,7 +1225,7 @@ mod tests {
         let proposal_refs_read: Vec<ProposalRef> =
             key_store.queued_proposal_refs(&group_id).unwrap();
         assert_eq!(
-            (0..10).map(|i| ProposalRef(i)).collect::<Vec<_>>(),
+            (0..10).map(ProposalRef).collect::<Vec<_>>(),
             proposal_refs_read
         );
 
