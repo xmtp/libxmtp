@@ -37,6 +37,8 @@ extension GenericErrorDescribing {
 			let .GroupMetadata(message),
 			let .Generic(message):
 			return message
+		case .GroupMutablePermissions(message: let message):
+			return message
 		}
 	}
 }

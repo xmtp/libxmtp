@@ -194,6 +194,41 @@ class ClientTests: XCTestCase {
 		groupCount = try await boClient.conversations.groups().count
 		XCTAssertEqual(groupCount, 0)
 	}
+	
+	func testCanDropReconnectDatabase() async throws {
+		let bo = try PrivateKey.generate()
+		let alix = try PrivateKey.generate()
+		var boClient = try await Client.create(
+			account: bo,
+			options: .init(
+				api: .init(env: .local, isSecure: false),
+				mlsAlpha: true
+			)
+		)
+	
+		let alixClient = try await Client.create(
+			account: alix,
+			options: .init(
+				api: .init(env: .local, isSecure: false),
+				mlsAlpha: true
+			)
+		)
+
+		_ = try await boClient.conversations.newGroup(with: [alixClient.address])
+		try await boClient.conversations.sync()
+
+		var groupCount = try await boClient.conversations.groups().count
+		XCTAssertEqual(groupCount, 1)
+
+		try boClient.dropLocalDatabaseConnection()
+
+		await assertThrowsAsyncError(try await boClient.conversations.groups())
+
+		try await boClient.reconnectLocalDatabase()
+
+		groupCount = try await boClient.conversations.groups().count
+		XCTAssertEqual(groupCount, 1)
+	}
 
 	func testCanMessage() async throws {
 		let fixtures = await fixtures()

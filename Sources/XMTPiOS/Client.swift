@@ -462,6 +462,21 @@ public final class Client {
 		let fm = FileManager.default
 		try fm.removeItem(atPath: dbPath)
 	}
+	
+	@available(*, deprecated, message: "This function is delicate and should be used with caution. App will error if database not properly reconnected. See: reconnectLocalDatabase()")
+	public func dropLocalDatabaseConnection() throws {
+		guard let client = v3Client else {
+			throw ClientError.noV3Client("Error no V3 client initialized")
+		}
+		try client.releaseDbConnection()
+	}
+	
+	public func reconnectLocalDatabase() async throws {
+		guard let client = v3Client else {
+			throw ClientError.noV3Client("Error no V3 client initialized")
+		}
+		try await client.dbReconnect()
+	}
 
 	func getUserContact(peerAddress: String) async throws -> ContactBundle? {
 		let peerAddress = EthereumAddress(peerAddress).toChecksumAddress()

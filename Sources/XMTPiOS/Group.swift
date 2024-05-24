@@ -71,9 +71,9 @@ public struct Group: Identifiable, Equatable, Hashable {
 		return try metadata().creatorAccountAddress().lowercased() == client.address.lowercased()
 	}
 
-	public func permissionLevel() throws -> GroupPermissions {
-		return try metadata().policyType()
-	}
+//	public func permissionLevel() throws -> GroupPermissions {
+//		return try metadata().policyType()
+//	}
 
 	public func adminAddress() throws -> String {
 		return try metadata().creatorAccountAddress()
