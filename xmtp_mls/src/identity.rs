@@ -172,7 +172,7 @@ impl Identity {
         let associated_inbox_id = inbox_ids.get(&address);
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
         let installation_public_key = signature_keys.public();
-        let member_identifier: MemberIdentifier = address.clone().into();
+        let member_identifier: MemberIdentifier = address.clone().to_lowercase().into();
 
         if let Some(associated_inbox_id) = associated_inbox_id {
             // If an inbox is associated, we just need to associate the installation key

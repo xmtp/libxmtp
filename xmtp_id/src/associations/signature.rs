@@ -220,7 +220,10 @@ impl Signature for Erc1271Signature {
             .await?;
         if is_valid {
             Ok(MemberIdentifier::Address(
-                self.account_id.get_account_address().to_string(),
+                self.account_id
+                    .get_account_address()
+                    .to_string()
+                    .to_lowercase(),
             ))
         } else {
             Err(SignatureError::Invalid)
@@ -334,7 +337,7 @@ impl Signature for LegacyDelegatedSignature {
         // }
 
         Ok(MemberIdentifier::Address(
-            signed_public_key.account_address(),
+            signed_public_key.account_address().to_lowercase(),
         ))
     }
 

@@ -162,7 +162,7 @@ where
         let nonce = maybe_nonce.unwrap_or(0);
         let inbox_id = generate_inbox_id(&wallet_address, &nonce);
         let installation_public_key = self.identity().installation_keys.public();
-        let member_identifier: MemberIdentifier = wallet_address.into();
+        let member_identifier: MemberIdentifier = wallet_address.to_lowercase().into();
 
         let builder = SignatureRequestBuilder::new(inbox_id);
         let mut signature_request = builder

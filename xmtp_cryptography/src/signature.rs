@@ -111,7 +111,7 @@ fn eip_191_prefix(msg: &str) -> String {
 pub fn h160addr_to_string(bytes: H160) -> String {
     let mut s = String::from("0x");
     s.push_str(&hex::encode(bytes));
-    s
+    s.to_lowercase()
 }
 
 // This should ONLY be used for ed25519 keys, not ethereum/secp256k1 keys.
