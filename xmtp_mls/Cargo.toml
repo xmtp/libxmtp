@@ -57,6 +57,7 @@ xmtp_v2 = { path = "../xmtp_v2" }
 ctor.workspace = true
 flume = "0.11"
 mockall = "0.11.4"
+mockito = "1.4.0"
 tempfile = "3.5.0"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }

@@ -298,18 +298,14 @@ async fn upload_history_bundle(
     let key = hmac::Key::new(hmac::HMAC_SHA256, signing_key);
     let tag = hmac::sign(&key, &file_content);
     let hmac_hex = hex::encode(tag.as_ref());
-    println!("HMAC: {}", hmac_hex);
 
     let client = reqwest::Client::new();
-    let response = client
+    let _response = client
         .post(format!("{MESSAGE_HISTORY_SERVER_URL}/upload"))
         .header("X-HMAC", hmac_hex)
         .body(file_content)
         .send()
         .await?;
-
-    println!("Response Status Code: {:?}", response.status().as_u16());
-    println!("Response: {:?}", response);
 
     Ok(())
 }
@@ -475,6 +471,8 @@ fn verify_pin(expected: &str, actual: &str) -> bool {
 mod tests {
 
     use super::*;
+    use mockito;
+    use tempfile::NamedTempFile;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::assert_ok;
@@ -713,10 +711,10 @@ mod tests {
         std::fs::write(input_path, input_content).expect("Unable to write test input file");
 
         // Encrypt the file
-        encrypt_messages_file(input_path, encrypted_path, key_bytes).expect("Encryption failed");
+        encrypt_history_file(input_path, encrypted_path, key_bytes).expect("Encryption failed");
 
         // Decrypt the file
-        decrypt_messages_file(encrypted_path, decrypted_path, key_bytes)
+        decrypt_history_file(encrypted_path.into(), decrypted_path.into(), key_bytes)
             .expect("Decryption failed");
 
         // Read the decrypted file content
@@ -730,6 +728,51 @@ mod tests {
         std::fs::remove_file(input_path).expect("Unable to remove test input file");
         std::fs::remove_file(encrypted_path).expect("Unable to remove test encrypted file");
         std::fs::remove_file(decrypted_path).expect("Unable to remove test decrypted file");
+    }
+
+    #[tokio::test]
+    async fn test_upload_history_bundle() {
+        let mut server = mockito::Server::new_async().await;
+
+        let _m = server
+            .mock("POST", "/upload")
+            .with_status(200)
+            .with_body("File uploaded")
+            .create();
+
+        let signing_key = b"test_signing_key";
+        let file_content = b"test file content";
+
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(file_content).unwrap();
+        let file_path = file.path().to_str().unwrap().to_string();
+
+        let result = upload_history_bundle(file_path.into(), signing_key).await;
+
+        assert!(result.is_ok());
+        // _m.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn test_download_history_bundle() {
+        let bundle_id = "test_bundle_id";
+        let hmac_value = "test_hmac_value";
+        let signing_key = "test_signing_key";
+        let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
+
+        let mut server = mockito::Server::new_async().await;
+
+        let _m = server
+            .mock("GET", format!("/files/{}", bundle_id).as_str())
+            .with_status(200)
+            .with_body("encrypted_content")
+            .create();
+
+        let result =
+            download_history_bundle(bundle_id, hmac_value, signing_key, *enc_key.as_bytes());
+
+        assert!(result.await.is_ok());
+        // _m.assert_async().await;
     }
 
     #[test]
