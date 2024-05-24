@@ -259,7 +259,6 @@ where
     }
 
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
-        // let store = &self.context.store;
         self.context.store.reconnect()?;
         Ok(())
     }

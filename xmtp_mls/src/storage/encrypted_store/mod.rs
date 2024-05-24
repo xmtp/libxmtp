@@ -211,7 +211,6 @@ impl EncryptedMessageStore {
     ///     provider.conn().db_operation()?;
     /// }).await
     /// ```
-
     pub async fn transaction_async<T, F, E, Fut>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(XmtpOpenMlsProvider) -> Fut,
