@@ -77,7 +77,9 @@ impl IdentityAction for CreateInbox {
 
         let account_address = self.account_address.clone();
         let recovered_signer = self.initial_address_signature.recover_signer().await?;
-        if recovered_signer.ne(&MemberIdentifier::Address(account_address.clone())) {
+        if recovered_signer.ne(&MemberIdentifier::Address(
+            account_address.clone().to_lowercase(),
+        )) {
             return Err(AssociationError::MissingExistingMember);
         }
 
@@ -226,7 +228,9 @@ impl IdentityAction for RevokeAssociation {
         let state_recovery_address = existing_state.recovery_address();
 
         // Ensure this message is signed by the recovery address
-        if recovery_signer.ne(&MemberIdentifier::Address(state_recovery_address.clone())) {
+        if recovery_signer.ne(&MemberIdentifier::Address(
+            state_recovery_address.clone().to_lowercase(),
+        )) {
             return Err(AssociationError::MissingExistingMember);
         }
 

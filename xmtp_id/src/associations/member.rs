@@ -14,21 +14,10 @@ impl std::fmt::Display for MemberKind {
 }
 
 /// A MemberIdentifier can be either an Address or an Installation Public Key
-#[derive(Clone, Debug, Eq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum MemberIdentifier {
     Address(String),
     Installation(Vec<u8>),
-}
-
-impl PartialEq<MemberIdentifier> for MemberIdentifier {
-    fn eq(&self, other: &MemberIdentifier) -> bool {
-        self.installation().eq(&other.installation())
-            || self
-                .address()
-                .unwrap()
-                .to_lowercase()
-                .eq(&other.address().unwrap().to_lowercase())
-    }
 }
 
 impl MemberIdentifier {
@@ -73,7 +62,7 @@ impl std::fmt::Display for MemberIdentifier {
 
 impl From<String> for MemberIdentifier {
     fn from(address: String) -> Self {
-        MemberIdentifier::Address(address)
+        MemberIdentifier::Address(address.to_lowercase())
     }
 }
 

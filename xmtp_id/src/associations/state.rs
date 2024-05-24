@@ -60,7 +60,7 @@ impl AssociationState {
 
     pub fn set_recovery_address(&self, recovery_address: String) -> Self {
         let mut new_state = self.clone();
-        new_state.recovery_address = recovery_address;
+        new_state.recovery_address = recovery_address.to_lowercase();
 
         new_state
     }
@@ -171,7 +171,7 @@ impl AssociationState {
                 members
             },
             seen_signatures: HashSet::new(),
-            recovery_address: account_address,
+            recovery_address: account_address.to_lowercase(),
             inbox_id,
         }
     }
