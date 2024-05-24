@@ -1,5 +1,9 @@
 use std::{collections::HashMap, mem::Discriminant, sync::Arc};
 
+use futures::{
+    stream::{self, StreamExt},
+    Future,
+};
 use openmls::{
     credentials::errors::BasicCredentialError,
     framing::{MlsMessageBodyIn, MlsMessageIn},
@@ -143,6 +147,8 @@ pub enum MessageProcessingError {
     WrongCredentialType(#[from] BasicCredentialError),
     #[error("proto decode error: {0}")]
     DecodeError(#[from] prost::DecodeError),
+    #[error(transparent)]
+    Group(#[from] Box<GroupError>),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -406,28 +412,6 @@ where
         Ok(welcomes)
     }
 
-    pub(crate) fn process_for_id<ProcessingFn, ReturnValue>(
-        &self,
-        entity_id: &Vec<u8>,
-        entity_kind: EntityKind,
-        cursor: u64,
-        process_envelope: ProcessingFn,
-    ) -> Result<ReturnValue, MessageProcessingError>
-    where
-        ProcessingFn: FnOnce(&XmtpOpenMlsProvider) -> Result<ReturnValue, MessageProcessingError>,
-    {
-        self.store().transaction(|provider| {
-            let is_updated =
-                provider
-                    .conn()
-                    .update_cursor(entity_id, entity_kind, cursor as i64)?;
-            if !is_updated {
-                return Err(MessageProcessingError::AlreadyProcessed(cursor));
-            }
-            process_envelope(provider)
-        })
-    }
-
     pub(crate) async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
@@ -442,14 +426,39 @@ where
             .collect::<Result<_, _>>()?)
     }
 
+    pub(crate) async fn process_for_id<Fut, ProcessingFn, ReturnValue>(
+        &self,
+        entity_id: &Vec<u8>,
+        entity_kind: EntityKind,
+        cursor: u64,
+        process_envelope: ProcessingFn,
+    ) -> Result<ReturnValue, MessageProcessingError>
+    where
+        Fut: Future<Output = Result<ReturnValue, MessageProcessingError>>,
+        ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Fut + Send,
+    {
+        self.store()
+            .transaction_async(|provider| async move {
+                let is_updated =
+                    provider
+                        .conn()
+                        .update_cursor(entity_id, entity_kind, cursor as i64)?;
+                if !is_updated {
+                    return Err(MessageProcessingError::AlreadyProcessed(cursor));
+                }
+                process_envelope(provider).await
+            })
+            .await
+    }
+
     /// Download all unread welcome messages and convert to groups.
     /// Returns any new groups created in the operation
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup>, ClientError> {
         let envelopes = self.query_welcome_messages(&self.store().conn()?).await?;
         let id = self.installation_public_key();
-        let groups: Vec<MlsGroup> = envelopes
-            .into_iter()
-            .filter_map(|envelope: WelcomeMessage| {
+
+        let groups: Vec<MlsGroup> = stream::iter(envelopes.into_iter())
+            .filter_map(|envelope: WelcomeMessage| async {
                 let welcome_v1 = match extract_welcome_message(envelope) {
                     Ok(inner) => inner,
                     Err(err) => {
@@ -458,25 +467,32 @@ where
                     }
                 };
 
-                self.process_for_id(&id, EntityKind::Welcome, welcome_v1.id, |provider| {
-                    // TODO: Abort if error is retryable
-                    match MlsGroup::create_from_encrypted_welcome(
-                        self.context.clone(),
-                        provider,
-                        welcome_v1.hpke_public_key.as_slice(),
-                        welcome_v1.data,
-                    ) {
-                        Ok(mls_group) => Ok(Some(mls_group)),
-                        Err(err) => {
-                            log::error!("failed to create group from welcome: {}", err);
-                            Err(MessageProcessingError::WelcomeProcessing(err.to_string()))
+                self.process_for_id(
+                    &id,
+                    EntityKind::Welcome,
+                    welcome_v1.id,
+                    |provider| async move {
+                        // TODO: Abort if error is retryable
+                        match MlsGroup::create_from_encrypted_welcome(
+                            self.context.clone(),
+                            &provider,
+                            welcome_v1.hpke_public_key.as_slice(),
+                            welcome_v1.data,
+                        ) {
+                            Ok(mls_group) => Ok(Some(mls_group)),
+                            Err(err) => {
+                                log::error!("failed to create group from welcome: {}", err);
+                                Err(MessageProcessingError::WelcomeProcessing(err.to_string()))
+                            }
                         }
-                    }
-                })
+                    },
+                )
+                .await
                 .ok()
                 .flatten()
             })
-            .collect();
+            .collect()
+            .await;
 
         Ok(groups)
     }
