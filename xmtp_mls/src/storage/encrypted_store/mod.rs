@@ -463,21 +463,21 @@ mod tests {
             .unwrap();
             let conn = &store.conn().unwrap();
 
-            let account_address = "address";
-            StoredIdentity::new(account_address.to_string(), rand_vec(), rand_vec())
+            let inbox_id = "inbox id";
+            StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
                 .store(conn)
                 .unwrap();
 
             let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
 
-            assert_eq!(fetched_identity.account_address, account_address);
+            assert_eq!(fetched_identity.inbox_id, inbox_id);
 
             store.release_connection().unwrap();
             assert!(store.pool.read().unwrap().is_none());
             store.reconnect().unwrap();
             let fetched_identity2: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
 
-            assert_eq!(fetched_identity2.account_address, account_address);
+            assert_eq!(fetched_identity2.inbox_id, inbox_id);
         }
 
         fs::remove_file(db_path).unwrap();

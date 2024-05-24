@@ -1,5 +1,6 @@
 use std::{collections::HashMap, mem::Discriminant, sync::Arc};
 
+use futures::Future;
 use openmls::{
     credentials::errors::BasicCredentialError,
     framing::{MlsMessageBodyIn, MlsMessageIn},
@@ -143,6 +144,8 @@ pub enum MessageProcessingError {
     WrongCredentialType(#[from] BasicCredentialError),
     #[error("proto decode error: {0}")]
     DecodeError(#[from] prost::DecodeError),
+    #[error(transparent)]
+    Group(#[from] Box<GroupError>),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -440,6 +443,31 @@ where
             .values()
             .map(|bytes| VerifiedKeyPackageV2::from_bytes(mls_provider.crypto(), bytes.as_slice()))
             .collect::<Result<_, _>>()?)
+    }
+
+    pub(crate) async fn process_for_id_async<Fut, ProcessingFn, ReturnValue>(
+        &self,
+        entity_id: &Vec<u8>,
+        entity_kind: EntityKind,
+        cursor: u64,
+        process_envelope: ProcessingFn,
+    ) -> Result<ReturnValue, MessageProcessingError>
+    where
+        Fut: Future<Output = Result<ReturnValue, MessageProcessingError>>,
+        ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Fut + Send,
+    {
+        self.store()
+            .transaction_async(|provider| async move {
+                let is_updated =
+                    provider
+                        .conn()
+                        .update_cursor(entity_id, entity_kind, cursor as i64)?;
+                if !is_updated {
+                    return Err(MessageProcessingError::AlreadyProcessed(cursor));
+                }
+                process_envelope(provider).await
+            })
+            .await
     }
 
     /// Download all unread welcome messages and convert to groups.

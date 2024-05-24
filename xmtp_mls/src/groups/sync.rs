@@ -13,7 +13,6 @@ use super::{
     GroupError, MlsGroup,
 };
 use crate::{
-    await_helper,
     client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{DELIMITER, MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
@@ -22,7 +21,7 @@ use crate::{
     identity::parse_credential,
     identity_updates::load_identity_updates,
     retry::Retry,
-    retry_async, retry_sync,
+    retry_async,
     storage::{
         db_connection::DbConnection,
         group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent, ID},
@@ -470,7 +469,7 @@ impl MlsGroup {
         }
     }
 
-    fn consume_message<ApiClient>(
+    async fn consume_message<ApiClient>(
         &self,
         envelope: &GroupMessage,
         openmls_group: &mut OpenMlsGroup,
@@ -484,19 +483,22 @@ impl MlsGroup {
             _ => return Err(MessageProcessingError::InvalidPayload),
         };
 
-        client.process_for_id(
-            &msgv1.group_id,
-            EntityKind::Group,
-            msgv1.id,
-            |provider| -> Result<(), MessageProcessingError> {
-                await_helper(self.process_message(client, openmls_group, provider, msgv1, true))?;
-                Ok(())
-            },
-        )?;
+        client
+            .process_for_id_async(
+                &msgv1.group_id,
+                EntityKind::Group,
+                msgv1.id,
+                |provider| async move {
+                    self.process_message(client, openmls_group, &provider, msgv1, true)
+                        .await?;
+                    Ok(())
+                },
+            )
+            .await?;
         Ok(())
     }
 
-    pub fn process_messages<ApiClient>(
+    pub async fn process_messages<ApiClient>(
         &self,
         messages: Vec<GroupMessage>,
         conn: DbConnection,
@@ -506,19 +508,25 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let provider = self.context.mls_provider(conn);
-        let mut openmls_group = self.load_mls_group(&provider)?;
-        log::debug!("  loaded openmls group");
 
-        let receive_errors: Vec<MessageProcessingError> = messages
-            .into_iter()
-            .map(|envelope| -> Result<(), MessageProcessingError> {
-                retry_sync!(
-                    Retry::default(),
-                    (|| { self.consume_message(&envelope, &mut openmls_group, client) })
-                )
-            })
-            .filter_map(Result::err)
-            .collect();
+        let mut receive_errors = vec![];
+        for message in messages.into_iter() {
+            let local_provider = provider.clone();
+            let result = retry_async!(
+                Retry::default(),
+                (async {
+                    let mut openmls_group = self
+                        .load_mls_group(local_provider.clone())
+                        .map_err(Box::new)?;
+                    log::debug!("  loaded openmls group");
+                    self.consume_message(&message, &mut openmls_group, client)
+                        .await
+                })
+            );
+            if let Err(e) = result {
+                receive_errors.push(e);
+            }
+        }
 
         if receive_errors.is_empty() {
             Ok(())
@@ -537,7 +545,8 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let messages = client.query_group_messages(&self.group_id, conn).await?;
-        self.process_messages(messages, conn.clone(), client)?;
+        self.process_messages(messages, conn.clone(), client)
+            .await?;
         Ok(())
     }
 
