@@ -18,7 +18,6 @@ import uniffi.xmtpv3.FfiGroupMetadata
 import uniffi.xmtpv3.FfiListMessagesOptions
 import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
-import uniffi.xmtpv3.GroupPermissions
 import java.util.Date
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.DurationUnit
@@ -157,9 +156,9 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
         return libXMTPGroup.addedByAddress()
     }
 
-    fun permissionLevel(): GroupPermissions {
-        return metadata.policyType()
-    }
+//    fun permissionLevel(): GroupPermissions {
+//        return metadata.policyType()
+//    }
 
     fun isAdmin(): Boolean {
         return metadata.creatorAccountAddress().lowercase() == client.address.lowercase()

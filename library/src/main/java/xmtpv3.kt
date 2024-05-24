@@ -514,7 +514,11 @@ internal interface _UniFFILib : Library {
         `ptr`: Pointer, _uniffi_out_err: RustCallStatus,
     ): RustBuffer.ByValue
 
-    fun uniffi_xmtpv3_fn_method_ffigroupmetadata_policy_type(
+    fun uniffi_xmtpv3_fn_free_ffigrouppermissions(
+        `ptr`: Pointer, _uniffi_out_err: RustCallStatus,
+    ): Unit
+
+    fun uniffi_xmtpv3_fn_method_ffigrouppermissions_policy_type(
         `ptr`: Pointer, _uniffi_out_err: RustCallStatus,
     ): RustBuffer.ByValue
 
@@ -586,6 +590,10 @@ internal interface _UniFFILib : Library {
         `ptr`: Pointer, _uniffi_out_err: RustCallStatus,
     ): Pointer
 
+    fun uniffi_xmtpv3_fn_method_ffixmtpclient_db_reconnect(
+        `ptr`: Pointer,
+    ): Pointer
+
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_installation_id(
         `ptr`: Pointer, _uniffi_out_err: RustCallStatus,
     ): RustBuffer.ByValue
@@ -593,6 +601,10 @@ internal interface _UniFFILib : Library {
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_register_identity(
         `ptr`: Pointer, `recoverableWalletSignature`: RustBuffer.ByValue,
     ): Pointer
+
+    fun uniffi_xmtpv3_fn_method_ffixmtpclient_release_db_connection(
+        `ptr`: Pointer, _uniffi_out_err: RustCallStatus,
+    ): Unit
 
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_text_to_sign(
         `ptr`: Pointer, _uniffi_out_err: RustCallStatus,
@@ -1034,7 +1046,7 @@ internal interface _UniFFILib : Library {
     fun uniffi_xmtpv3_checksum_method_ffigroupmetadata_creator_account_address(
     ): Short
 
-    fun uniffi_xmtpv3_checksum_method_ffigroupmetadata_policy_type(
+    fun uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_type(
     ): Short
 
     fun uniffi_xmtpv3_checksum_method_ffistreamcloser_end(
@@ -1076,10 +1088,16 @@ internal interface _UniFFILib : Library {
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_conversations(
     ): Short
 
+    fun uniffi_xmtpv3_checksum_method_ffixmtpclient_db_reconnect(
+    ): Short
+
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_installation_id(
     ): Short
 
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_register_identity(
+    ): Short
+
+    fun uniffi_xmtpv3_checksum_method_ffixmtpclient_release_db_connection(
     ): Short
 
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_text_to_sign(
@@ -1228,7 +1246,7 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffigroupmetadata_creator_account_address() != 1906.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_ffigroupmetadata_policy_type() != 22845.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_type() != 43161.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffistreamcloser_end() != 47211.toShort()) {
@@ -1270,10 +1288,16 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_conversations() != 31628.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_db_reconnect() != 33037.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_installation_id() != 62523.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_register_identity() != 64634.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_release_db_connection() != 12677.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_text_to_sign() != 25727.toShort()) {
@@ -2350,9 +2374,6 @@ public interface FfiGroupMetadataInterface {
     fun `conversationType`(): String
     fun `creatorAccountAddress`(): String
 
-    @Throws(GenericException::class)
-    fun `policyType`(): GroupPermissions
-
     companion object
 }
 
@@ -2401,21 +2422,6 @@ class FfiGroupMetadata(
         }
 
 
-    @Throws(GenericException::class)
-    override fun `policyType`(): GroupPermissions =
-        callWithPointer {
-            rustCallWithError(GenericException) { _status ->
-                _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_method_ffigroupmetadata_policy_type(
-                    it,
-
-                    _status
-                )
-            }
-        }.let {
-            FfiConverterTypeGroupPermissions.lift(it)
-        }
-
-
     companion object
 
 }
@@ -2436,6 +2442,74 @@ public object FfiConverterTypeFfiGroupMetadata : FfiConverter<FfiGroupMetadata, 
     override fun allocationSize(value: FfiGroupMetadata) = 8
 
     override fun write(value: FfiGroupMetadata, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+public interface FfiGroupPermissionsInterface {
+    @Throws(GenericException::class)
+    fun `policyType`(): GroupPermissions
+
+    companion object
+}
+
+class FfiGroupPermissions(
+    pointer: Pointer,
+) : FFIObject(pointer), FfiGroupPermissionsInterface {
+
+    /**
+     * Disconnect the object from the underlying Rust object.
+     *
+     * It can be called more than once, but once called, interacting with the object
+     * causes an `IllegalStateException`.
+     *
+     * Clients **must** call this method once done with the object, or cause a memory leak.
+     */
+    override protected fun freeRustArcPtr() {
+        rustCall() { status ->
+            _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_free_ffigrouppermissions(this.pointer, status)
+        }
+    }
+
+
+    @Throws(GenericException::class)
+    override fun `policyType`(): GroupPermissions =
+        callWithPointer {
+            rustCallWithError(GenericException) { _status ->
+                _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_method_ffigrouppermissions_policy_type(
+                    it,
+
+                    _status
+                )
+            }
+        }.let {
+            FfiConverterTypeGroupPermissions.lift(it)
+        }
+
+
+    companion object
+
+}
+
+public object FfiConverterTypeFfiGroupPermissions : FfiConverter<FfiGroupPermissions, Pointer> {
+    override fun lower(value: FfiGroupPermissions): Pointer = value.callWithPointer { it }
+
+    override fun lift(value: Pointer): FfiGroupPermissions {
+        return FfiGroupPermissions(value)
+    }
+
+    override fun read(buf: ByteBuffer): FfiGroupPermissions {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: FfiGroupPermissions) = 8
+
+    override fun write(value: FfiGroupPermissions, buf: ByteBuffer) {
         // The Rust code always expects pointers written as 8 bytes,
         // and will fail to compile if they don't fit.
         buf.putLong(Pointer.nativeValue(lower(value)))
@@ -2878,10 +2952,16 @@ public interface FfiXmtpClientInterface {
     @Throws(GenericException::class)
     suspend fun `canMessage`(`accountAddresses`: List<String>): Map<String, Boolean>
     fun `conversations`(): FfiConversations
+
+    @Throws(GenericException::class)
+    suspend fun `dbReconnect`()
     fun `installationId`(): ByteArray
 
     @Throws(GenericException::class)
     suspend fun `registerIdentity`(`recoverableWalletSignature`: ByteArray?)
+
+    @Throws(GenericException::class)
+    fun `releaseDbConnection`()
     fun `textToSign`(): String?
 
     companion object
@@ -2962,6 +3042,38 @@ class FfiXmtpClient(
             FfiConverterTypeFfiConversations.lift(it)
         }
 
+
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `dbReconnect`() {
+        return uniffiRustCallAsync(
+            callWithPointer { thisPtr ->
+                _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_db_reconnect(
+                    thisPtr,
+
+                    )
+            },
+            { future, continuation ->
+                _UniFFILib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(
+                    future,
+                    continuation
+                )
+            },
+            { future, continuation ->
+                _UniFFILib.INSTANCE.ffi_xmtpv3_rust_future_complete_void(
+                    future,
+                    continuation
+                )
+            },
+            { future -> _UniFFILib.INSTANCE.ffi_xmtpv3_rust_future_free_void(future) },
+            // lift function
+            { Unit },
+
+            // Error FFI converter
+            GenericException.ErrorHandler,
+        )
+    }
+
     override fun `installationId`(): ByteArray =
         callWithPointer {
             rustCall() { _status ->
@@ -3006,6 +3118,19 @@ class FfiXmtpClient(
             GenericException.ErrorHandler,
         )
     }
+
+    @Throws(GenericException::class)
+    override fun `releaseDbConnection`() =
+        callWithPointer {
+            rustCallWithError(GenericException) { _status ->
+                _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_release_db_connection(
+                    it,
+
+                    _status
+                )
+            }
+        }
+
 
     override fun `textToSign`(): String? =
         callWithPointer {
@@ -3522,6 +3647,7 @@ sealed class GenericException(message: String) : Exception(message) {
     class GroupException(message: String) : GenericException(message)
     class Signature(message: String) : GenericException(message)
     class GroupMetadata(message: String) : GenericException(message)
+    class GroupMutablePermissions(message: String) : GenericException(message)
     class Generic(message: String) : GenericException(message)
 
 
@@ -3542,7 +3668,8 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
             5 -> GenericException.GroupException(FfiConverterString.read(buf))
             6 -> GenericException.Signature(FfiConverterString.read(buf))
             7 -> GenericException.GroupMetadata(FfiConverterString.read(buf))
-            8 -> GenericException.Generic(FfiConverterString.read(buf))
+            8 -> GenericException.GroupMutablePermissions(FfiConverterString.read(buf))
+            9 -> GenericException.Generic(FfiConverterString.read(buf))
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
 
@@ -3589,8 +3716,13 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
                 Unit
             }
 
-            is GenericException.Generic -> {
+            is GenericException.GroupMutablePermissions -> {
                 buf.putInt(8)
+                Unit
+            }
+
+            is GenericException.Generic -> {
+                buf.putInt(9)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
