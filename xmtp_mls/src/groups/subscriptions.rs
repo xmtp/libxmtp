@@ -80,7 +80,7 @@ impl MlsGroup {
             .await?)
     }
 
-    pub async fn stream_with_callback<ApiClient>(
+    pub fn stream_with_callback<ApiClient>(
         client: Arc<Client<ApiClient>>,
         group_id: Vec<u8>,
         created_at_ns: i64,
