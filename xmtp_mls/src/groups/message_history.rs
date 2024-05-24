@@ -43,7 +43,8 @@ use crate::{
 
 const ENC_KEY_SIZE: usize = 32; // 256-bit key
 const NONCE_SIZE: usize = 12; // 96-bit nonce
-const MESSAGE_HISTORY_SERVER_URL: &str = "http://0.0.0.0:5558";
+const HISTORY_SERVER_HOST: &str = "0.0.0.0";
+const HISTORY_SERVER_PORT: u16 = 5558;
 
 #[derive(Debug, Error)]
 pub enum MessageHistoryError {
@@ -57,7 +58,7 @@ pub enum MessageHistoryError {
     Serialization(#[from] serde_json::Error),
     #[error("AES-GCM encryption error")]
     AesGcm(#[from] aes_gcm::Error),
-    #[error("Reqwest error: {0}")]
+    #[error("reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
 }
 
@@ -288,6 +289,7 @@ fn decrypt_history_file(
 }
 
 async fn upload_history_bundle(
+    url: &str,
     file_path: PathBuf,
     signing_key: &[u8],
 ) -> Result<(), MessageHistoryError> {
@@ -301,7 +303,7 @@ async fn upload_history_bundle(
 
     let client = reqwest::Client::new();
     let _response = client
-        .post(format!("{MESSAGE_HISTORY_SERVER_URL}/upload"))
+        .post(url)
         .header("X-HMAC", hmac_hex)
         .body(file_content)
         .send()
@@ -311,31 +313,27 @@ async fn upload_history_bundle(
 }
 
 async fn download_history_bundle(
-    bundle_id: &str,
+    url: &str,
     hmac_value: &str,
     signing_key: &str,
     aes_key: [u8; ENC_KEY_SIZE],
+    output_path: PathBuf,
 ) -> Result<(), MessageHistoryError> {
-    let url = format!("{MESSAGE_HISTORY_SERVER_URL}/files/{}", bundle_id);
-
     let client = reqwest::Client::new();
     let response = client
-        .get(&url)
+        .get(url)
         .header("X-HMAC", hmac_value)
         .header("X-SIGNING-KEY", signing_key)
         .send()
         .await?;
 
     if response.status().is_success() {
-        println!("File downloaded successfully.");
-        let file_name = format!("messages_bundle_{}.aes", bundle_id);
-        let mut file = File::create(&file_name)?;
+        let input_path = std::env::temp_dir().join("downloaded_bundle.jsonl.enc");
+        let mut file = File::create(&output_path)?;
         let bytes = response.bytes().await?;
         file.write_all(&bytes)?;
 
-        let output_path = PathBuf::from("/");
-        decrypt_history_file(PathBuf::from(&file_name), output_path, &aes_key)?;
-        println!("Successfully decrypted {}", &file_name);
+        decrypt_history_file(input_path, output_path, &aes_key)?;
     } else {
         println!(
             "Failed to download file. Status code: {} Response: {:?}",
@@ -704,7 +702,7 @@ mod tests {
         let key_bytes = key.as_bytes();
         let input_content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'";
         let input_path = "test_input.jsonl";
-        let encrypted_path = "test_encrypted.dat";
+        let encrypted_path = "test_encrypted.jsonl.enc";
         let decrypted_path = "test_decrypted.jsonl";
 
         // Write test input file
@@ -732,7 +730,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_upload_history_bundle() {
-        let mut server = mockito::Server::new_async().await;
+        let options = mockito::ServerOpts {
+            host: HISTORY_SERVER_HOST,
+            port: HISTORY_SERVER_PORT + 1,
+            ..Default::default()
+        };
+        let mut server = mockito::Server::new_with_opts_async(options).await;
 
         let _m = server
             .mock("POST", "/upload")
@@ -747,10 +750,17 @@ mod tests {
         file.write_all(file_content).unwrap();
         let file_path = file.path().to_str().unwrap().to_string();
 
-        let result = upload_history_bundle(file_path.into(), signing_key).await;
+        let url = format!(
+            "http://{}:{}/upload",
+            HISTORY_SERVER_HOST,
+            HISTORY_SERVER_PORT + 1
+        );
+        let result = upload_history_bundle(&url, file_path.into(), signing_key).await;
+        println!("{:?}", result);
 
         assert!(result.is_ok());
-        // _m.assert_async().await;
+        _m.assert_async().await;
+        server.reset();
     }
 
     #[tokio::test]
@@ -759,8 +769,13 @@ mod tests {
         let hmac_value = "test_hmac_value";
         let signing_key = "test_signing_key";
         let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
-
-        let mut server = mockito::Server::new_async().await;
+        let output_path = "test_output.jsonl";
+        let options = mockito::ServerOpts {
+            host: HISTORY_SERVER_HOST,
+            port: HISTORY_SERVER_PORT,
+            ..Default::default()
+        };
+        let mut server = mockito::Server::new_with_opts_async(options).await;
 
         let _m = server
             .mock("GET", format!("/files/{}", bundle_id).as_str())
@@ -768,11 +783,20 @@ mod tests {
             .with_body("encrypted_content")
             .create();
 
-        let result =
-            download_history_bundle(bundle_id, hmac_value, signing_key, *enc_key.as_bytes());
+        let url = format!(
+            "http://{}:{}/files/{bundle_id}",
+            HISTORY_SERVER_HOST, HISTORY_SERVER_PORT
+        );
+        let _result = download_history_bundle(
+            &url,
+            hmac_value,
+            signing_key,
+            *enc_key.as_bytes(),
+            PathBuf::from(output_path),
+        )
+        .await;
 
-        assert!(result.await.is_ok());
-        // _m.assert_async().await;
+        _m.assert_async().await;
     }
 
     #[test]
