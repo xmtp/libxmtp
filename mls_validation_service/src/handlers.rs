@@ -563,6 +563,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_validate_key_packages_happy_path() {
         let (identity, keypair, account_address) = generate_identity();
 

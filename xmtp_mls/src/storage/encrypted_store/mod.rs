@@ -10,12 +10,12 @@
 //! table definitions `schema.rs` must also be updated. To generate the correct schemas you can run
 //! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.
 
+pub mod association_state;
 pub mod db_connection;
 pub mod group;
 pub mod group_intent;
 pub mod group_message;
 pub mod identity;
-pub mod identity_inbox;
 pub mod identity_update;
 pub mod key_store_entry;
 pub mod refresh_state;
@@ -55,7 +55,6 @@ pub enum StorageOption {
     Persistent(String),
 }
 
-#[allow(dead_code)]
 pub fn ignore_unique_violation<T>(
     result: Result<T, diesel::result::Error>,
 ) -> Result<(), StorageError> {
@@ -310,12 +309,13 @@ macro_rules! impl_fetch {
             type Key = $key;
             fn fetch(&self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
                 use $crate::storage::encrypted_store::schema::$table::dsl::*;
-                Ok(self.raw_query(|conn| $table.find(key).first(conn).optional())?)
+                Ok(self.raw_query(|conn| $table.find(key.clone()).first(conn).optional())?)
             }
         }
     };
 }
 
+// Inserts the model into the database by primary key, erroring if the model already exists
 #[macro_export]
 macro_rules! impl_store {
     ($model:ty, $table:ident) => {
@@ -332,6 +332,28 @@ macro_rules! impl_store {
                         .execute(conn)
                 })?;
                 Ok(())
+            }
+        }
+    };
+}
+
+// Inserts the model into the database by primary key, silently skipping on unique constraints
+#[macro_export]
+macro_rules! impl_store_or_ignore {
+    ($model:ty, $table:ident) => {
+        impl $crate::StoreOrIgnore<$crate::storage::encrypted_store::db_connection::DbConnection>
+            for $model
+        {
+            fn store_or_ignore(
+                &self,
+                into: &$crate::storage::encrypted_store::db_connection::DbConnection,
+            ) -> Result<(), $crate::StorageError> {
+                let result = into.raw_query(|conn| {
+                    diesel::insert_into($table::table)
+                        .values(self)
+                        .execute(conn)
+                });
+                $crate::storage::ignore_unique_violation(result)
             }
         }
     };
@@ -398,13 +420,13 @@ mod tests {
         .unwrap();
         let conn = &store.conn().unwrap();
 
-        let account_address = "address";
-        StoredIdentity::new(account_address.to_string(), rand_vec(), rand_vec())
+        let inbox_id = "inbox_id";
+        StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
             .store(conn)
             .unwrap();
 
         let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
-        assert_eq!(fetched_identity.account_address, account_address);
+        assert_eq!(fetched_identity.inbox_id, inbox_id);
     }
 
     #[test]
@@ -418,13 +440,13 @@ mod tests {
             .unwrap();
             let conn = &store.conn().unwrap();
 
-            let account_address = "address";
-            StoredIdentity::new(account_address.to_string(), rand_vec(), rand_vec())
+            let inbox_id = "inbox_id";
+            StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
                 .store(conn)
                 .unwrap();
 
             let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
-            assert_eq!(fetched_identity.account_address, account_address);
+            assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
 
         fs::remove_file(db_path).unwrap();
@@ -441,21 +463,21 @@ mod tests {
             .unwrap();
             let conn = &store.conn().unwrap();
 
-            let account_address = "address";
-            StoredIdentity::new(account_address.to_string(), rand_vec(), rand_vec())
+            let inbox_id = "inbox_id";
+            StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
                 .store(conn)
                 .unwrap();
 
             let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
 
-            assert_eq!(fetched_identity.account_address, account_address);
+            assert_eq!(fetched_identity.inbox_id, inbox_id);
 
             store.release_connection().unwrap();
             assert!(store.pool.read().unwrap().is_none());
             store.reconnect().unwrap();
             let fetched_identity2: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
 
-            assert_eq!(fetched_identity2.account_address, account_address);
+            assert_eq!(fetched_identity2.inbox_id, inbox_id);
         }
 
         fs::remove_file(db_path).unwrap();
@@ -480,7 +502,6 @@ mod tests {
         enc_key[3] = 145; // Alter the enc_key
         let res = EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key);
 
-        println!("{:?}", &res.as_ref().err());
         // Ensure it fails
         assert!(
             matches!(res.err(), Some(StorageError::DbInit(_))),
@@ -499,14 +520,14 @@ mod tests {
         .unwrap();
 
         let conn1 = &store.conn().unwrap();
-        let account_address = "address";
-        StoredIdentity::new(account_address.to_string(), rand_vec(), rand_vec())
+        let inbox_id = "inbox_id";
+        StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
             .store(conn1)
             .unwrap();
 
         let conn2 = &store.conn().unwrap();
         let fetched_identity: StoredIdentity = conn2.fetch(&()).unwrap().unwrap();
-        assert_eq!(fetched_identity.account_address, account_address);
+        assert_eq!(fetched_identity.inbox_id, inbox_id);
     }
 
     #[test]

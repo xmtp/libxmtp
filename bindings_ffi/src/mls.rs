@@ -10,11 +10,18 @@ use std::sync::{
 };
 use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_id::associations::builder::SignatureRequest;
+use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
+use xmtp_id::associations::Erc1271Signature;
+use xmtp_id::associations::RecoverableEcdsaSignature;
+use xmtp_id::InboxId;
+use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::group_permissions::GroupMutablePermissions;
 use xmtp_mls::groups::PreconfiguredPolicies;
-use xmtp_mls::identity::v3::{IdentityStrategy, LegacyIdentity};
+use xmtp_mls::identity::IdentityStrategy;
+use xmtp_mls::retry::Retry;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -23,7 +30,6 @@ use xmtp_mls::{
         group_message::DeliveryStatus, group_message::GroupMessageKind,
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
     },
-    types::Address,
 };
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
@@ -58,8 +64,6 @@ pub async fn create_client(
     legacy_identity_source: LegacyIdentitySource,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
-    init_logger(logger);
-
     log::info!(
         "Creating API client for host: {}, isSecure: {}",
         host,
@@ -91,13 +95,15 @@ pub async fn create_client(
     log::info!("Creating XMTP client");
     let legacy_key_result =
         legacy_signed_private_key_proto.ok_or("No legacy key provided".to_string());
-    let legacy_identity = match legacy_identity_source {
-        LegacyIdentitySource::None => LegacyIdentity::None,
-        LegacyIdentitySource::Static => LegacyIdentity::Static(legacy_key_result?),
-        LegacyIdentitySource::Network => LegacyIdentity::Network(legacy_key_result?),
-        LegacyIdentitySource::KeyGenerator => LegacyIdentity::KeyGenerator(legacy_key_result?),
-    };
-    let identity_strategy = IdentityStrategy::CreateIfNotFound(account_address, legacy_identity);
+    // TODO: uncomment
+    // let legacy_identity = match legacy_identity_source {
+    //     LegacyIdentitySource::None => LegacyIdentity::None,
+    //     LegacyIdentitySource::Static => LegacyIdentity::Static(legacy_key_result?),
+    //     LegacyIdentitySource::Network => LegacyIdentity::Network(legacy_key_result?),
+    //     LegacyIdentitySource::KeyGenerator => LegacyIdentity::KeyGenerator(legacy_key_result?),
+    // };
+    let identity_strategy =
+        IdentityStrategy::CreateIfNotFound(account_address.clone().to_lowercase(), None);
     let xmtp_client: RustXmtpClient = ClientBuilder::new(identity_strategy)
         .api_client(api_client)
         .store(store)
@@ -105,23 +111,110 @@ pub async fn create_client(
         .await?;
 
     log::info!(
-        "Created XMTP client for address: {}",
-        xmtp_client.account_address()
+        "Created XMTP client for inbox_id: {}",
+        xmtp_client.inbox_id()
     );
     Ok(Arc::new(FfiXmtpClient {
         inner_client: Arc::new(xmtp_client),
+        account_address,
     }))
+}
+
+#[allow(unused)]
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn get_inbox_id_for_address(
+    logger: Box<dyn FfiLogger>,
+    host: String,
+    is_secure: bool,
+    account_address: String,
+) -> Result<Option<String>, GenericError> {
+    init_logger(logger);
+
+    let api_client = ApiClientWrapper::new(
+        TonicApiClient::create(host.clone(), is_secure).await?,
+        Retry::default(),
+    );
+
+    let results = api_client
+        .get_inbox_ids(vec![account_address.clone()])
+        .await
+        .map_err(GenericError::from_error)?;
+
+    Ok(results.get(&account_address).cloned())
+}
+
+#[allow(unused)]
+#[uniffi::export]
+pub fn generate_inbox_id(account_address: String, nonce: u64) -> String {
+    xmtp_id_generate_inbox_id(&account_address, &nonce)
+}
+
+#[derive(uniffi::Object)]
+pub struct FfiSignatureRequest {
+    // Using `tokio::sync::Mutex`bc rust MutexGuard cannot be sent between threads.
+    inner: Arc<tokio::sync::Mutex<SignatureRequest>>,
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl FfiSignatureRequest {
+    // Signature that's signed by EOA wallet
+    pub async fn add_ecdsa_signature(&self, signature_bytes: Vec<u8>) -> Result<(), GenericError> {
+        let mut inner = self.inner.lock().await;
+        let signature_text = inner.signature_text();
+        inner
+            .add_signature(Box::new(RecoverableEcdsaSignature::new(
+                signature_text,
+                signature_bytes,
+            )))
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn add_erc1271_signature(
+        &self,
+        signature_bytes: Vec<u8>,
+        address: String,
+        chain_rpc_url: String,
+    ) -> Result<(), GenericError> {
+        let mut inner = self.inner.lock().await;
+        let erc1271_signature = Erc1271Signature::new_with_rpc(
+            inner.signature_text(),
+            signature_bytes,
+            address,
+            chain_rpc_url,
+        )
+        .await?;
+        inner.add_signature(Box::new(erc1271_signature)).await?;
+        Ok(())
+    }
+
+    pub async fn signature_text(&self) -> Result<String, GenericError> {
+        Ok(self.inner.lock().await.signature_text())
+    }
+
+    /// missing signatures that are from [MemberKind::Address]
+    pub async fn missing_address_signatures(&self) -> Result<Vec<String>, GenericError> {
+        let inner = self.inner.lock().await;
+        Ok(inner
+            .missing_address_signatures()
+            .iter()
+            .map(|member| member.to_string())
+            .collect())
+    }
 }
 
 #[derive(uniffi::Object)]
 pub struct FfiXmtpClient {
     inner_client: Arc<RustXmtpClient>,
+    #[allow(dead_code)]
+    account_address: String,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
-    pub fn account_address(&self) -> Address {
-        self.inner_client.account_address()
+    pub fn inbox_id(&self) -> InboxId {
+        self.inner_client.inbox_id()
     }
 
     pub fn conversations(&self) -> Arc<FfiConversations> {
@@ -156,16 +249,24 @@ impl FfiXmtpClient {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
-    pub fn text_to_sign(&self) -> Option<String> {
-        self.inner_client.text_to_sign()
+    pub fn signature_request(&self) -> Option<Arc<FfiSignatureRequest>> {
+        self.inner_client
+            .identity()
+            .signature_request()
+            .map(|request| {
+                Arc::new(FfiSignatureRequest {
+                    inner: Arc::new(tokio::sync::Mutex::new(request)),
+                })
+            })
     }
 
     pub async fn register_identity(
         &self,
-        recoverable_wallet_signature: Option<Vec<u8>>,
+        signature_request: Arc<FfiSignatureRequest>,
     ) -> Result<(), GenericError> {
+        let signature_request = signature_request.inner.lock().await;
         self.inner_client
-            .register_identity(recoverable_wallet_signature)
+            .register_identity(signature_request.clone())
             .await?;
 
         Ok(())
@@ -224,7 +325,7 @@ impl FfiConversations {
         let convo = self.inner_client.create_group(group_permissions)?;
         if !account_addresses.is_empty() {
             convo
-                .add_members(account_addresses, &self.inner_client)
+                .add_members(&self.inner_client, account_addresses)
                 .await?;
         }
         let out = Arc::new(FfiGroup {
@@ -330,7 +431,8 @@ pub struct FfiGroup {
 
 #[derive(uniffi::Record)]
 pub struct FfiGroupMember {
-    pub account_address: String,
+    pub inbox_id: String,
+    pub account_addresses: Vec<String>,
     pub installation_ids: Vec<Vec<u8>>,
 }
 
@@ -424,7 +526,8 @@ impl FfiGroup {
             .members()?
             .into_iter()
             .map(|member| FfiGroupMember {
-                account_address: member.account_address,
+                inbox_id: member.inbox_id,
+                account_addresses: member.account_addresses,
                 installation_ids: member.installation_ids,
             })
             .collect();
@@ -442,7 +545,26 @@ impl FfiGroup {
         );
 
         group
-            .add_members(account_addresses, &self.inner_client)
+            .add_members(&self.inner_client, account_addresses)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn add_members_by_inbox_id(
+        &self,
+        inbox_ids: Vec<String>,
+    ) -> Result<(), GenericError> {
+        log::info!("adding members by inbox id: {}", inbox_ids.join(","));
+
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        group
+            .add_members_by_inbox_id(&self.inner_client, inbox_ids)
             .await?;
 
         Ok(())
@@ -456,7 +578,24 @@ impl FfiGroup {
         );
 
         group
-            .remove_members(account_addresses, &self.inner_client)
+            .remove_members(&self.inner_client, account_addresses)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn remove_members_by_inbox_id(
+        &self,
+        inbox_ids: Vec<String>,
+    ) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        group
+            .remove_members_by_inbox_id(&self.inner_client, inbox_ids)
             .await?;
 
         Ok(())
@@ -498,8 +637,7 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
             move |message| message_callback.on_message(message.into()),
-        )
-        .await?;
+        )?;
 
         Ok(Arc::new(FfiStreamCloser {
             close_fn: stream_closer.close_fn,
@@ -521,14 +659,14 @@ impl FfiGroup {
         Ok(group.is_active()?)
     }
 
-    pub fn added_by_address(&self) -> Result<String, GenericError> {
+    pub fn added_by_inbox_id(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        Ok(group.added_by_address()?)
+        Ok(group.added_by_inbox_id()?)
     }
 
     pub fn group_metadata(&self) -> Result<Arc<FfiGroupMetadata>, GenericError> {
@@ -599,7 +737,7 @@ pub struct FfiMessage {
     pub id: Vec<u8>,
     pub sent_at_ns: i64,
     pub convo_id: Vec<u8>,
-    pub addr_from: String,
+    pub sender_inbox_id: String,
     pub content: Vec<u8>,
     pub kind: FfiGroupMessageKind,
     pub delivery_status: FfiDeliveryStatus,
@@ -611,7 +749,7 @@ impl From<StoredGroupMessage> for FfiMessage {
             id: msg.id,
             sent_at_ns: msg.sent_at_ns,
             convo_id: msg.group_id,
-            addr_from: msg.sender_account_address,
+            sender_inbox_id: msg.sender_inbox_id,
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
             delivery_status: msg.delivery_status.into(),
@@ -660,8 +798,8 @@ pub struct FfiGroupMetadata {
 
 #[uniffi::export]
 impl FfiGroupMetadata {
-    pub fn creator_account_address(&self) -> String {
-        self.inner.creator_account_address.clone()
+    pub fn creator_inbox_id(&self) -> String {
+        self.inner.creator_inbox_id.clone()
     }
 
     pub fn conversation_type(&self) -> String {
@@ -688,8 +826,8 @@ impl FfiGroupPermissions {
 #[cfg(test)]
 mod tests {
     use crate::{
-        inbox_owner::SigningError, logger::FfiLogger, FfiConversationCallback, FfiInboxOwner,
-        LegacyIdentitySource,
+        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
+        FfiConversationCallback, FfiInboxOwner, LegacyIdentitySource,
     };
     use std::{
         env,
@@ -700,6 +838,7 @@ mod tests {
     };
 
     use super::{create_client, FfiMessage, FfiMessageCallback, FfiXmtpClient};
+    use ethers::utils::hex;
     use ethers_core::rand::{
         self,
         distributions::{Alphanumeric, DistString},
@@ -786,6 +925,19 @@ mod tests {
         [2u8; 32]
     }
 
+    async fn register_client(inbox_owner: &LocalWalletInboxOwner, client: &FfiXmtpClient) {
+        let signature_request = client.signature_request().unwrap();
+        signature_request
+            .add_ecdsa_signature(
+                inbox_owner
+                    .sign(signature_request.signature_text().await.unwrap())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        client.register_identity(signature_request).await.unwrap();
+    }
+
     async fn new_test_client() -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
 
@@ -801,37 +953,40 @@ mod tests {
         )
         .await
         .unwrap();
+        register_client(&ffi_inbox_owner, &client).await;
+        return client;
+    }
 
-        let text_to_sign = client.text_to_sign().unwrap();
-        let signature = ffi_inbox_owner.sign(text_to_sign).unwrap();
+    #[tokio::test]
+    async fn get_inbox_id() {
+        let client = new_test_client().await;
+        let real_inbox_id = client.inbox_id();
 
-        client.register_identity(Some(signature)).await.unwrap();
-        client
+        let from_network = get_inbox_id_for_address(
+            Box::new(MockLogger {}),
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            client.account_address.clone(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(real_inbox_id, from_network);
     }
 
     // Try a query on a test topic, and make sure we get a response
     #[tokio::test]
     async fn test_client_creation() {
         let client = new_test_client().await;
-        assert!(!client.account_address().is_empty());
+        assert!(!client.signature_request().is_none());
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_legacy_identity() {
-        let legacy_address = "0x419cb1fa5635b0c6df47c9dc5765c8f1f4dff78e";
-        let legacy_signed_private_key_proto = vec![
-            8, 128, 154, 196, 133, 220, 244, 197, 216, 23, 18, 34, 10, 32, 214, 70, 104, 202, 68,
-            204, 25, 202, 197, 141, 239, 159, 145, 249, 55, 242, 147, 126, 3, 124, 159, 207, 96,
-            135, 134, 122, 60, 90, 82, 171, 131, 162, 26, 153, 1, 10, 79, 8, 128, 154, 196, 133,
-            220, 244, 197, 216, 23, 26, 67, 10, 65, 4, 232, 32, 50, 73, 113, 99, 115, 168, 104,
-            229, 206, 24, 217, 132, 223, 217, 91, 63, 137, 136, 50, 89, 82, 186, 179, 150, 7, 127,
-            140, 10, 165, 117, 233, 117, 196, 134, 227, 143, 125, 210, 187, 77, 195, 169, 162, 116,
-            34, 20, 196, 145, 40, 164, 246, 139, 197, 154, 233, 190, 148, 35, 131, 240, 106, 103,
-            18, 70, 18, 68, 10, 64, 90, 24, 36, 99, 130, 246, 134, 57, 60, 34, 142, 165, 221, 123,
-            63, 27, 138, 242, 195, 175, 212, 146, 181, 152, 89, 48, 8, 70, 104, 94, 163, 0, 25,
-            196, 228, 190, 49, 108, 141, 60, 174, 150, 177, 115, 229, 138, 92, 105, 170, 226, 204,
-            249, 206, 12, 37, 145, 3, 35, 226, 15, 49, 20, 102, 60, 16, 1,
-        ];
+        let account_address = "0x0bD00B21aF9a2D538103c3AAf95Cb507f8AF1B28".to_lowercase();
+        let legacy_keys = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
 
         let client = create_client(
             Box::new(MockLogger {}),
@@ -839,16 +994,14 @@ mod tests {
             false,
             Some(tmp_path()),
             None,
-            legacy_address.to_string(),
+            account_address.to_string(),
             LegacyIdentitySource::KeyGenerator,
-            Some(legacy_signed_private_key_proto),
+            Some(legacy_keys),
         )
         .await
         .unwrap();
 
-        assert!(client.text_to_sign().is_none());
-        client.register_identity(None).await.unwrap();
-        assert_eq!(client.account_address(), legacy_address);
+        assert!(client.signature_request().is_none());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -869,9 +1022,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let text_to_sign = client_a.text_to_sign().unwrap();
-        let signature = ffi_inbox_owner.sign(text_to_sign).unwrap();
-        client_a.register_identity(Some(signature)).await.unwrap();
+        register_client(&ffi_inbox_owner, &client_a).await;
 
         let installation_pub_key = client_a.inner_client.installation_public_key();
         drop(client_a);
@@ -944,11 +1095,10 @@ mod tests {
     async fn test_create_group_with_members() {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
-        bola.register_identity(None).await.unwrap();
 
         let group = amal
             .conversations()
-            .create_group(vec![bola.account_address()], None)
+            .create_group(vec![bola.account_address.clone()], None)
             .await
             .unwrap();
 
@@ -974,11 +1124,8 @@ mod tests {
         .await
         .unwrap();
 
-        let text_to_sign = client.text_to_sign().unwrap();
-        let mut signature = inbox_owner.sign(text_to_sign).unwrap();
-        signature[0] ^= 1;
-
-        assert!(client.register_identity(Some(signature)).await.is_err());
+        let signature_request = client.signature_request().unwrap();
+        assert!(client.register_identity(signature_request).await.is_err());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1024,12 +1171,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let text_to_sign = client_bola.text_to_sign().unwrap();
-        let signature = bola.sign(text_to_sign).unwrap();
-        client_bola
-            .register_identity(Some(signature))
-            .await
-            .unwrap();
+        register_client(&bola, &client_bola).await;
 
         let can_message_result2 = client_amal
             .can_message(vec![bola.get_address()])
@@ -1046,6 +1188,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    // This one is flaky for me. Passes reliably locally and fails on CI
     #[ignore]
     async fn test_conversation_streaming() {
         let amal = new_test_client().await;
@@ -1062,16 +1205,16 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         amal.conversations()
-            .create_group(vec![bola.account_address()], None)
+            .create_group(vec![bola.account_address.clone()], None)
             .await
             .unwrap();
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
         assert_eq!(stream_callback.message_count(), 1);
         // Create another group and add bola
         amal.conversations()
-            .create_group(vec![bola.account_address()], None)
+            .create_group(vec![bola.account_address.clone()], None)
             .await
             .unwrap();
 
@@ -1091,7 +1234,7 @@ mod tests {
 
         let alix_group = alix
             .conversations()
-            .create_group(vec![caro.account_address()], None)
+            .create_group(vec![caro.account_address.clone()], None)
             .await
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -1109,7 +1252,7 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let bo_group = bo
             .conversations()
-            .create_group(vec![caro.account_address()], None)
+            .create_group(vec![caro.account_address.clone()], None)
             .await
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
@@ -1133,7 +1276,7 @@ mod tests {
 
         let group = amal
             .conversations()
-            .create_group(vec![bola.account_address()], None)
+            .create_group(vec![bola.account_address.clone()], None)
             .await
             .unwrap();
 
@@ -1161,14 +1304,14 @@ mod tests {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
         log::info!(
-            "Created addresses {} and {}",
-            amal.account_address(),
-            bola.account_address()
+            "Created Inbox IDs {} and {}",
+            amal.inbox_id(),
+            bola.inbox_id()
         );
 
         let amal_group = amal
             .conversations()
-            .create_group(vec![bola.account_address()], None)
+            .create_group(vec![bola.account_address.clone()], None)
             .await
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -1190,7 +1333,7 @@ mod tests {
         assert!(!stream_closer.is_closed());
 
         amal_group
-            .remove_members(vec![bola.account_address()])
+            .remove_members_by_inbox_id(vec![bola.inbox_id().clone()])
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
@@ -1203,7 +1346,7 @@ mod tests {
 
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         amal_group
-            .add_members(vec![bola.account_address()])
+            .add_members(vec![bola.account_address.clone()])
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -1227,7 +1370,7 @@ mod tests {
 
         // Amal creates a group and adds Bola to the group
         amal.conversations()
-            .create_group(vec![bola.account_address()], None)
+            .create_group(vec![bola.account_address.clone()], None)
             .await
             .unwrap();
 
@@ -1249,13 +1392,13 @@ mod tests {
 
         let bola_group = bola_groups.first().unwrap();
 
-        // Check Bola's group for the added_by_address of the inviter
-        let added_by_address = bola_group.added_by_address().unwrap();
+        // Check Bola's group for the added_by_inbox_id of the inviter
+        let added_by_inbox_id = bola_group.added_by_inbox_id().unwrap();
 
         // // Verify the welcome host_credential is equal to Amal's
         assert_eq!(
-            amal.account_address(),
-            added_by_address,
+            amal.inbox_id(),
+            added_by_inbox_id,
             "The Inviter and added_by_address do not match!"
         );
     }

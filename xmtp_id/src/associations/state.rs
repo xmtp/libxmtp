@@ -60,7 +60,7 @@ impl AssociationState {
 
     pub fn set_recovery_address(&self, recovery_address: String) -> Self {
         let mut new_state = self.clone();
-        new_state.recovery_address = recovery_address;
+        new_state.recovery_address = recovery_address.to_lowercase();
 
         new_state
     }
@@ -108,6 +108,26 @@ impl AssociationState {
             .collect()
     }
 
+    pub fn account_addresses(&self) -> Vec<String> {
+        self.members_by_kind(MemberKind::Address)
+            .into_iter()
+            .filter_map(|member| match member.identifier {
+                MemberIdentifier::Address(address) => Some(address),
+                MemberIdentifier::Installation(_) => None,
+            })
+            .collect()
+    }
+
+    pub fn installation_ids(&self) -> Vec<Vec<u8>> {
+        self.members_by_kind(MemberKind::Installation)
+            .into_iter()
+            .filter_map(|member| match member.identifier {
+                MemberIdentifier::Address(_) => None,
+                MemberIdentifier::Installation(installation_id) => Some(installation_id),
+            })
+            .collect()
+    }
+
     pub fn diff(&self, new_state: &Self) -> AssociationStateDiff {
         let new_members: Vec<MemberIdentifier> = new_state
             .members
@@ -151,7 +171,7 @@ impl AssociationState {
                 members
             },
             seen_signatures: HashSet::new(),
-            recovery_address: account_address,
+            recovery_address: account_address.to_lowercase(),
             inbox_id,
         }
     }

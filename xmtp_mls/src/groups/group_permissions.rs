@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use openmls::{
-    extensions::{Extension, UnknownExtension},
+    extensions::{Extension, Extensions, UnknownExtension},
     group::MlsGroup as OpenMlsGroup,
 };
 use prost::Message;
@@ -28,8 +28,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 
 use super::{
-    group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError},
-    validated_commit::{AggregatedMembershipChange, CommitParticipant, ValidatedCommit},
+    group_mutable_metadata::GroupMutableMetadata,
+    validated_commit::{CommitParticipant, Inbox, MetadataFieldChange, ValidatedCommit},
 };
 
 #[derive(Debug, Error)]
@@ -113,25 +113,33 @@ impl TryFrom<GroupMutablePermissionsProto> for GroupMutablePermissions {
     }
 }
 
+impl TryFrom<&Extensions> for GroupMutablePermissions {
+    type Error = GroupMutablePermissionsError;
+
+    fn try_from(value: &Extensions) -> Result<Self, Self::Error> {
+        for extension in value.iter() {
+            if let Extension::Unknown(GROUP_PERMISSIONS_EXTENSION_ID, UnknownExtension(metadata)) =
+                extension
+            {
+                return GroupMutablePermissions::try_from(metadata);
+            }
+        }
+        Err(GroupMutablePermissionsError::MissingExtension)
+    }
+}
+
 pub fn extract_group_permissions(
     group: &OpenMlsGroup,
 ) -> Result<GroupMutablePermissions, GroupMutablePermissionsError> {
     let extensions = group.export_group_context().extensions();
-    for extension in extensions.iter() {
-        if let Extension::Unknown(GROUP_PERMISSIONS_EXTENSION_ID, UnknownExtension(metadata)) =
-            extension
-        {
-            return GroupMutablePermissions::try_from(metadata);
-        }
-    }
-    Err(GroupMutablePermissionsError::MissingExtension)
+    extensions.try_into()
 }
 
 // A trait for policies that can update Metadata for the group
 pub trait MetadataPolicy: std::fmt::Debug {
     // Verify relevant metadata is actually changed before evaluating against the MetadataPolicy
     // See evaluate_metadata_policy
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataChange) -> bool;
+    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataFieldChange) -> bool;
     fn to_proto(&self) -> Result<MetadataPolicyProto, PolicyError>;
 }
 
@@ -144,21 +152,14 @@ pub enum MetadataBasePolicies {
 }
 
 impl MetadataPolicy for &MetadataBasePolicies {
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, _change: &MetadataFieldChange) -> bool {
         match self {
             MetadataBasePolicies::Allow => true,
             MetadataBasePolicies::Deny => false,
             MetadataBasePolicies::AllowIfActorAdminOrSuperAdmin => {
-                change.old_value.admin_list.contains(&actor.account_address)
-                    || change
-                        .old_value
-                        .super_admin_list
-                        .contains(&actor.account_address)
+                actor.is_admin || actor.is_super_admin
             }
-            MetadataBasePolicies::AllowIfActorSuperAdmin => change
-                .old_value
-                .super_admin_list
-                .contains(&actor.account_address),
+            MetadataBasePolicies::AllowIfActorSuperAdmin => actor.is_super_admin,
         }
     }
 
@@ -222,25 +223,6 @@ impl MetadataPolicies {
     }
 }
 
-// Information for Metadata Update used for validation
-#[derive(Clone, Debug)]
-pub struct MetadataChange {
-    pub(crate) old_value: GroupMutableMetadata,
-    pub(crate) new_value: GroupMutableMetadata,
-    pub(crate) metadata_policies: HashMap<String, MetadataPolicies>,
-}
-
-impl MetadataChange {
-    #[cfg(test)]
-    fn empty_for_testing() -> Self {
-        Self {
-            old_value: GroupMutableMetadata::new_default("empty".to_string()),
-            new_value: GroupMutableMetadata::new_default("empty".to_string()),
-            metadata_policies: MetadataPolicies::default_map(MetadataPolicies::allow()),
-        }
-    }
-}
-
 impl TryFrom<MetadataPolicyProto> for MetadataPolicies {
     type Error = PolicyError;
 
@@ -284,7 +266,7 @@ impl TryFrom<MetadataPolicyProto> for MetadataPolicies {
 }
 
 impl MetadataPolicy for MetadataPolicies {
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataFieldChange) -> bool {
         match self {
             MetadataPolicies::Standard(policy) => policy.evaluate(actor, change),
             MetadataPolicies::AndCondition(policy) => policy.evaluate(actor, change),
@@ -314,7 +296,7 @@ impl MetadataAndCondition {
 }
 
 impl MetadataPolicy for MetadataAndCondition {
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataFieldChange) -> bool {
         self.policies
             .iter()
             .all(|policy| policy.evaluate(actor, change))
@@ -349,7 +331,7 @@ impl MetadataAnyCondition {
 }
 
 impl MetadataPolicy for MetadataAnyCondition {
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataFieldChange) -> bool {
         self.policies
             .iter()
             .any(|policy| policy.evaluate(actor, change))
@@ -595,7 +577,7 @@ impl PermissionsPolicy for PermissionsAnyCondition {
 
 // A trait for policies that can add/remove members and installations for the group
 pub trait MembershipPolicy: std::fmt::Debug {
-    fn evaluate(&self, actor: &CommitParticipant, change: &AggregatedMembershipChange) -> bool;
+    fn evaluate(&self, actor: &CommitParticipant, change: &Inbox) -> bool;
     fn to_proto(&self) -> Result<MembershipPolicyProto, PolicyError>;
 }
 
@@ -622,13 +604,13 @@ pub enum BasePolicies {
 }
 
 impl MembershipPolicy for BasePolicies {
-    fn evaluate(&self, actor: &CommitParticipant, change: &AggregatedMembershipChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, inbox: &Inbox) -> bool {
         match self {
             BasePolicies::Allow => true,
             BasePolicies::Deny => false,
-            BasePolicies::AllowSameMember => change.account_address == actor.account_address,
-            BasePolicies::AllowIfAdminOrSuperAdmin => actor.is_creator, //TODO Fix
-            BasePolicies::AllowIfSuperAdmin => actor.is_creator,        //TODO Fix
+            BasePolicies::AllowSameMember => inbox.inbox_id == actor.inbox_id,
+            BasePolicies::AllowIfAdminOrSuperAdmin => actor.is_admin || actor.is_super_admin,
+            BasePolicies::AllowIfSuperAdmin => actor.is_super_admin,
         }
     }
 
@@ -733,11 +715,11 @@ impl TryFrom<MembershipPolicyProto> for MembershipPolicies {
 }
 
 impl MembershipPolicy for MembershipPolicies {
-    fn evaluate(&self, actor: &CommitParticipant, change: &AggregatedMembershipChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, inbox: &Inbox) -> bool {
         match self {
-            MembershipPolicies::Standard(policy) => policy.evaluate(actor, change),
-            MembershipPolicies::AndCondition(policy) => policy.evaluate(actor, change),
-            MembershipPolicies::AnyCondition(policy) => policy.evaluate(actor, change),
+            MembershipPolicies::Standard(policy) => policy.evaluate(actor, inbox),
+            MembershipPolicies::AndCondition(policy) => policy.evaluate(actor, inbox),
+            MembershipPolicies::AnyCondition(policy) => policy.evaluate(actor, inbox),
         }
     }
 
@@ -763,10 +745,10 @@ impl AndCondition {
 }
 
 impl MembershipPolicy for AndCondition {
-    fn evaluate(&self, actor: &CommitParticipant, change: &AggregatedMembershipChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, inbox: &Inbox) -> bool {
         self.policies
             .iter()
-            .all(|policy| policy.evaluate(actor, change))
+            .all(|policy| policy.evaluate(actor, inbox))
     }
 
     fn to_proto(&self) -> Result<MembershipPolicyProto, PolicyError> {
@@ -796,10 +778,10 @@ impl AnyCondition {
 }
 
 impl MembershipPolicy for AnyCondition {
-    fn evaluate(&self, actor: &CommitParticipant, change: &AggregatedMembershipChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, inbox: &Inbox) -> bool {
         self.policies
             .iter()
-            .any(|policy| policy.evaluate(actor, change))
+            .any(|policy| policy.evaluate(actor, inbox))
     }
 
     fn to_proto(&self) -> Result<MembershipPolicyProto, PolicyError> {
@@ -820,36 +802,12 @@ impl MembershipPolicy for AnyCondition {
 pub struct PolicySet {
     pub add_member_policy: MembershipPolicies,
     pub remove_member_policy: MembershipPolicies,
-    pub add_installation_policy: MembershipPolicies,
-    pub remove_installation_policy: MembershipPolicies,
     pub update_metadata_policy: HashMap<String, MetadataPolicies>,
     pub add_admin_policy: PermissionsPolicies,
     pub remove_admin_policy: PermissionsPolicies,
     pub update_permissions_policy: PermissionsPolicies,
 }
 
-fn extract_field_changed(change: &MetadataChange) -> Result<String, GroupMutableMetadataError> {
-    let changes: Vec<&String> = change
-        .old_value
-        .attributes
-        .iter()
-        .filter(|(key, old_value)| {
-            match change.new_value.attributes.get(*key) {
-                Some(new_value) => &new_value != old_value,
-                None => true, // Assuming missing keys in `new_value` count as changes
-            }
-        })
-        .map(|(key, _)| key)
-        .collect();
-
-    match changes.len() {
-        1 => Ok(changes[0].clone()), // There is exactly one change
-        0 => Err(GroupMutableMetadataError::NoUpdates),
-        _ => Err(GroupMutableMetadataError::TooManyUpdates),
-    }
-}
-
-#[allow(dead_code)]
 impl PolicySet {
     pub fn new(
         add_member_policy: MembershipPolicies,
@@ -862,8 +820,6 @@ impl PolicySet {
         Self {
             add_member_policy,
             remove_member_policy,
-            add_installation_policy: default_add_installation_policy(),
-            remove_installation_policy: default_remove_installation_policy(),
             update_metadata_policy,
             add_admin_policy,
             remove_admin_policy,
@@ -873,22 +829,18 @@ impl PolicySet {
 
     pub fn evaluate_commit(&self, commit: &ValidatedCommit) -> bool {
         self.evaluate_policy(
-            commit.members_added.iter(),
+            commit.added_inboxes.iter(),
             &self.add_member_policy,
             &commit.actor,
         ) && self.evaluate_policy(
-            commit.members_removed.iter(),
+            commit.removed_inboxes.iter(),
             &self.remove_member_policy,
             &commit.actor,
-        ) && self.evaluate_policy(
-            commit.installations_added.iter(),
-            &self.add_installation_policy,
+        ) && self.evaluate_metadata_policy(
+            commit.metadata_changes.metadata_field_changes.iter(),
+            &self.update_metadata_policy,
             &commit.actor,
-        ) && self.evaluate_policy(
-            commit.installations_removed.iter(),
-            &self.remove_installation_policy,
-            &commit.actor,
-        ) & self.evaluate_metadata_policy(&commit.group_name_updated, &commit.actor)
+        )
     }
 
     fn evaluate_policy<'a, I, P>(
@@ -898,7 +850,7 @@ impl PolicySet {
         actor: &CommitParticipant,
     ) -> bool
     where
-        I: Iterator<Item = &'a AggregatedMembershipChange>,
+        I: Iterator<Item = &'a Inbox>,
         P: MembershipPolicy + std::fmt::Debug,
     {
         changes.all(|change| {
@@ -915,44 +867,35 @@ impl PolicySet {
         })
     }
 
-    // In case group creator is on future version of libxmtp, we can validate
-    // metadata policies on new unknown fields
-    fn evaluate_metadata_policy(&self, change: &MetadataChange, actor: &CommitParticipant) -> bool {
-        #[allow(clippy::needless_late_init)]
-        let field_changed;
-        match extract_field_changed(change) {
-            Ok(f) => field_changed = f,
-            Err(error) => {
-                match error {
-                    // If there is no change in metadata, no need to validate the policy
-                    GroupMutableMetadataError::NoUpdates => return true,
-                    _ => {
-                        log::info!(
-                            "Change extraction failed for actor {:?} and change {:?}",
-                            actor,
-                            change
-                        );
-                        return false;
-                    }
+    fn evaluate_metadata_policy<'a, I>(
+        &self,
+        mut changes: I,
+        policies: &HashMap<String, MetadataPolicies>,
+        actor: &CommitParticipant,
+    ) -> bool
+    where
+        I: Iterator<Item = &'a MetadataFieldChange>,
+    {
+        changes.all(|change| {
+            if let Some(policy) = policies.get(&change.field_name) {
+                let is_ok = policy.evaluate(actor, change);
+                if !is_ok {
+                    log::info!(
+                        "Policy for field {} failed for actor {:?} and change {:?}",
+                        change.field_name,
+                        actor,
+                        change
+                    );
+                    return false;
                 }
+                return is_ok;
             }
-        }
-
-        if let Some(policy) = change.metadata_policies.get(&field_changed) {
-            let is_ok = policy.evaluate(actor, change);
-            if !is_ok {
-                log::info!(
-                    "Policy {:?} failed for actor {:?} and change {:?}",
-                    policy,
-                    actor,
-                    change
-                );
-            }
-            is_ok
-        } else {
-            log::info!("Missing policy for the changed field: {:?}", &field_changed);
+            log::info!(
+                "Missing policy for changed metadata field: {}",
+                change.field_name
+            );
             false
-        }
+        })
     }
 
     pub(crate) fn to_proto(&self) -> Result<PolicySetProto, PolicyError> {
@@ -1028,14 +971,6 @@ impl PolicySet {
     }
 }
 
-fn default_add_installation_policy() -> MembershipPolicies {
-    MembershipPolicies::allow()
-}
-
-fn default_remove_installation_policy() -> MembershipPolicies {
-    MembershipPolicies::deny()
-}
-
 /// A policy where any member can add or remove any other member
 pub(crate) fn policy_all_members() -> PolicySet {
     let mut metadata_policies_map: HashMap<String, MetadataPolicies> = HashMap::new();
@@ -1102,31 +1037,34 @@ impl std::fmt::Display for PreconfiguredPolicies {
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::test::{rand_account_address, rand_vec};
+    use crate::{
+        groups::{group_mutable_metadata::MetadataField, validated_commit::MutableMetadataChanges},
+        utils::test::{rand_string, rand_vec},
+    };
 
     use super::*;
 
-    fn build_change(
-        account_address: Option<String>,
-        installation_id: Option<Vec<u8>>,
-        is_creator: bool,
-    ) -> AggregatedMembershipChange {
-        AggregatedMembershipChange {
-            account_address: account_address.unwrap_or_else(rand_account_address),
-            installation_ids: vec![installation_id.unwrap_or_else(rand_vec)],
-            is_creator,
+    fn build_change(inbox_id: Option<String>, is_admin: bool, is_super_admin: bool) -> Inbox {
+        Inbox {
+            inbox_id: inbox_id.unwrap_or(rand_string()),
+            is_creator: is_super_admin,
+            is_super_admin,
+            is_admin,
         }
     }
 
     fn build_actor(
-        account_address: Option<String>,
+        inbox_id: Option<String>,
         installation_id: Option<Vec<u8>>,
-        is_creator: bool,
+        is_admin: bool,
+        is_super_admin: bool,
     ) -> CommitParticipant {
         CommitParticipant {
-            account_address: account_address.unwrap_or_else(rand_account_address),
+            inbox_id: inbox_id.unwrap_or(rand_string()),
             installation_id: installation_id.unwrap_or_else(rand_vec),
-            is_creator,
+            is_creator: is_super_admin,
+            is_admin,
+            is_super_admin,
         }
     }
 
@@ -1134,38 +1072,40 @@ mod tests {
         // Add a member with the same account address as the actor if true, random account address if false
         member_added: Option<bool>,
         member_removed: Option<bool>,
-        installation_added: Option<bool>,
-        installation_removed: Option<bool>,
-        actor_is_creator: bool,
+        metadata_fields_changed: Option<Vec<String>>,
+        actor_is_super_admin: bool,
     ) -> ValidatedCommit {
-        let actor = build_actor(None, None, actor_is_creator);
+        let actor = build_actor(None, None, actor_is_super_admin, actor_is_super_admin);
         let build_membership_change = |same_address_as_actor| {
             if same_address_as_actor {
                 vec![build_change(
-                    Some(actor.account_address.clone()),
-                    None,
-                    actor_is_creator,
+                    Some(actor.inbox_id.clone()),
+                    actor_is_super_admin,
+                    actor_is_super_admin,
                 )]
             } else {
-                vec![build_change(None, None, false)]
+                vec![build_change(None, false, false)]
             }
         };
 
+        let field_changes = metadata_fields_changed
+            .unwrap_or(vec![])
+            .into_iter()
+            .map(|field| MetadataFieldChange::new(field, Some(rand_string()), Some(rand_string())))
+            .collect();
+
         ValidatedCommit {
             actor: actor.clone(),
-            members_added: member_added
+            added_inboxes: member_added
                 .map(build_membership_change)
                 .unwrap_or_default(),
-            members_removed: member_removed
+            removed_inboxes: member_removed
                 .map(build_membership_change)
                 .unwrap_or_default(),
-            installations_added: installation_added
-                .map(build_membership_change)
-                .unwrap_or_default(),
-            installations_removed: installation_removed
-                .map(build_membership_change)
-                .unwrap_or_default(),
-            group_name_updated: MetadataChange::empty_for_testing(),
+            metadata_changes: MutableMetadataChanges {
+                metadata_field_changes: field_changes,
+                ..Default::default()
+            },
         }
     }
 
@@ -1182,7 +1122,7 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let commit = build_validated_commit(Some(true), Some(true), None, None, false);
+        let commit = build_validated_commit(Some(true), Some(true), None, false);
         assert!(permissions.evaluate_commit(&commit));
     }
 
@@ -1197,21 +1137,11 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let member_added_commit = build_validated_commit(Some(false), None, None, None, false);
+        let member_added_commit = build_validated_commit(Some(false), None, None, false);
         assert!(!permissions.evaluate_commit(&member_added_commit));
 
-        let member_removed_commit = build_validated_commit(None, Some(false), None, None, false);
+        let member_removed_commit = build_validated_commit(None, Some(false), None, false);
         assert!(!permissions.evaluate_commit(&member_removed_commit));
-
-        let installation_added_commit =
-            build_validated_commit(None, None, Some(false), None, false);
-        // Installation added is always allowed
-        assert!(permissions.evaluate_commit(&installation_added_commit));
-
-        // Installation removed is always denied
-        let installation_removed_commit =
-            build_validated_commit(None, None, None, Some(false), false);
-        assert!(!permissions.evaluate_commit(&installation_removed_commit));
     }
 
     #[test]
@@ -1225,11 +1155,10 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let commit_with_creator = build_validated_commit(Some(true), Some(true), None, None, true);
+        let commit_with_creator = build_validated_commit(Some(true), Some(true), None, true);
         assert!(permissions.evaluate_commit(&commit_with_creator));
 
-        let commit_without_creator =
-            build_validated_commit(Some(true), Some(true), None, None, false);
+        let commit_without_creator = build_validated_commit(Some(true), Some(true), None, false);
         assert!(!permissions.evaluate_commit(&commit_without_creator));
     }
 
@@ -1244,11 +1173,10 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let commit_with_same_member = build_validated_commit(Some(true), None, None, None, false);
+        let commit_with_same_member = build_validated_commit(Some(true), None, None, false);
         assert!(permissions.evaluate_commit(&commit_with_same_member));
 
-        let commit_with_different_member =
-            build_validated_commit(Some(false), None, None, None, false);
+        let commit_with_different_member = build_validated_commit(Some(false), None, None, false);
         assert!(!permissions.evaluate_commit(&commit_with_different_member));
     }
 
@@ -1266,7 +1194,7 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let member_added_commit = build_validated_commit(Some(true), None, None, None, false);
+        let member_added_commit = build_validated_commit(Some(true), None, None, false);
         assert!(!permissions.evaluate_commit(&member_added_commit));
     }
 
@@ -1284,7 +1212,7 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let member_added_commit = build_validated_commit(Some(true), None, None, None, false);
+        let member_added_commit = build_validated_commit(Some(true), None, None, false);
         assert!(permissions.evaluate_commit(&member_added_commit));
     }
 
@@ -1313,6 +1241,38 @@ mod tests {
         let restored = PolicySet::from_bytes(as_bytes.as_slice()).expect("proto conversion failed");
         // All fields implement PartialEq so this should test equality all the way down
         assert!(permissions.eq(&restored))
+    }
+
+    #[test]
+    fn test_update_group_name() {
+        let allow_permissions = PolicySet::new(
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
+            MetadataPolicies::default_map(MetadataPolicies::allow()),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+        );
+
+        let member_added_commit = build_validated_commit(
+            Some(true),
+            None,
+            Some(vec![MetadataField::GroupName.to_string()]),
+            false,
+        );
+
+        assert!(allow_permissions.evaluate_commit(&member_added_commit));
+
+        let deny_permissions = PolicySet::new(
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
+            MetadataPolicies::default_map(MetadataPolicies::deny()),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+        );
+
+        assert!(!deny_permissions.evaluate_commit(&member_added_commit));
     }
 
     #[test]

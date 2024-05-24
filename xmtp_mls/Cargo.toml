@@ -59,7 +59,9 @@ flume = "0.11"
 mockall = "0.11.4"
 mockito = "1.4.0"
 tempfile = "3.5.0"
-tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+tracing = "0.1"
+tracing-log = "0.2.0"
+tracing-test = "0.2.4"
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 async-barrier = "1.1"

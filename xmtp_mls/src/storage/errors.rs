@@ -19,9 +19,9 @@ pub enum StorageError {
     #[error("Error migrating database {0}")]
     MigrationError(#[from] Box<dyn std::error::Error + Send + Sync>),
     #[error("serialization error")]
-    Serialization,
+    Serialization(String),
     #[error("deserialization error")]
-    Deserialization,
+    Deserialization(String),
     #[error("not found")]
     NotFound,
     #[error("lock")]

@@ -475,14 +475,14 @@ mod tests {
 
     use crate::{assert_ok, builder::ClientBuilder};
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_allow_history_sync() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
         assert_ok!(client.allow_history_sync().await);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_installations_are_added_to_sync_group() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -510,7 +510,7 @@ mod tests {
         assert_eq!(amal_b_sync_groups[0].id, amal_c_sync_groups[0].id);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_send_message_history_request() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -524,7 +524,7 @@ mod tests {
         assert_eq!(pin_code.len(), 4);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_send_message_history_reply() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -540,7 +540,7 @@ mod tests {
         assert_ok!(result);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_history_messages_stored_correctly() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -578,7 +578,7 @@ mod tests {
         assert_eq!(amal_a_messages.len(), 1);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_provide_pin_challenge() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -604,7 +604,7 @@ mod tests {
         assert!(pin_challenge_result_2.is_err());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_request_reply_roundtrip() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;

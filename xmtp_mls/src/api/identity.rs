@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 
-use crate::{types::InboxId, XmtpApi};
-
 use super::{ApiClientWrapper, WrappedApiError};
-use xmtp_id::associations::{DeserializationError, IdentityUpdate};
+use crate::XmtpApi;
+use xmtp_id::{
+    associations::{DeserializationError, IdentityUpdate},
+    InboxId,
+};
 use xmtp_proto::xmtp::identity::api::v1::{
     get_identity_updates_request::Request as GetIdentityUpdatesV2RequestProto,
     get_identity_updates_response::IdentityUpdateLog,
@@ -27,6 +29,7 @@ impl From<GetIdentityUpdatesV2Filter> for GetIdentityUpdatesV2RequestProto {
     }
 }
 
+#[derive(Clone)]
 pub struct InboxUpdate {
     pub sequence_id: u64,
     pub server_timestamp_ns: u64,
@@ -106,6 +109,7 @@ where
         &self,
         account_addresses: Vec<String>,
     ) -> Result<AddressToInboxIdMap, WrappedApiError> {
+        log::info!("Asked for account addresses: {:?}", &account_addresses);
         let result = self
             .api_client
             .get_inbox_ids(GetInboxIdsRequest {

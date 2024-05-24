@@ -137,6 +137,8 @@ dist
 
 # Sqlite Instances
 *.db3
+*.db3-shm
+*.db3-wal
 
 # JAR files
 *.jar

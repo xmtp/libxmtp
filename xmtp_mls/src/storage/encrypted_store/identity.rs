@@ -1,10 +1,9 @@
-use std::sync::RwLock;
-
+use crate::storage::encrypted_store::schema::identity;
 use diesel::prelude::*;
+use xmtp_id::InboxId;
 
-use super::schema::identity;
 use crate::{
-    identity::v3::Identity,
+    identity::Identity,
     impl_fetch, impl_store,
     storage::serialization::{db_deserialize, db_serialize},
 };
@@ -14,7 +13,7 @@ use crate::{
 #[derive(Insertable, Queryable, Debug, Clone)]
 #[diesel(table_name = identity)]
 pub struct StoredIdentity {
-    pub account_address: String,
+    pub inbox_id: InboxId,
     pub installation_keys: Vec<u8>,
     pub credential_bytes: Vec<u8>,
     rowid: Option<i32>,
@@ -24,13 +23,9 @@ impl_fetch!(StoredIdentity, identity);
 impl_store!(StoredIdentity, identity);
 
 impl StoredIdentity {
-    pub fn new(
-        account_address: String,
-        installation_keys: Vec<u8>,
-        credential_bytes: Vec<u8>,
-    ) -> Self {
+    pub fn new(inbox_id: InboxId, installation_keys: Vec<u8>, credential_bytes: Vec<u8>) -> Self {
         Self {
-            account_address,
+            inbox_id,
             installation_keys,
             credential_bytes,
             rowid: None,
@@ -41,14 +36,9 @@ impl StoredIdentity {
 impl From<&Identity> for StoredIdentity {
     fn from(identity: &Identity) -> Self {
         StoredIdentity {
-            account_address: identity.account_address.clone(),
+            inbox_id: identity.inbox_id.clone(),
             installation_keys: db_serialize(&identity.installation_keys).unwrap(),
-            credential_bytes: db_serialize(
-                &identity
-                    .credential()
-                    .expect("Only persisted after registration"),
-            )
-            .unwrap(),
+            credential_bytes: db_serialize(&identity.credential()).unwrap(),
             rowid: None,
         }
     }
@@ -57,10 +47,10 @@ impl From<&Identity> for StoredIdentity {
 impl From<StoredIdentity> for Identity {
     fn from(identity: StoredIdentity) -> Self {
         Identity {
-            account_address: identity.account_address,
+            inbox_id: identity.inbox_id.clone(),
             installation_keys: db_deserialize(&identity.installation_keys).unwrap(),
-            credential: RwLock::new(Some(db_deserialize(&identity.credential_bytes).unwrap())),
-            unsigned_association_data: None,
+            credential: db_deserialize(&identity.credential_bytes).unwrap(),
+            signature_request: None,
         }
     }
 }

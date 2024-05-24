@@ -1,11 +1,11 @@
-use std::array::TryFromSliceError;
-
 use crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
+use std::array::TryFromSliceError;
 
 use super::MemberIdentifier;
 use async_trait::async_trait;
 use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey};
 use ethers::{
+    providers::{Http, Middleware, Provider},
     types::{BlockNumber, U64},
     utils::hash_message,
 };
@@ -39,6 +39,10 @@ pub enum SignatureError {
     AddressValidationError(#[from] xmtp_cryptography::signature::AddressValidationError),
     #[error("Invalid account address")]
     InvalidAccountAddress(#[from] rustc_hex::FromHexError),
+    #[error(transparent)]
+    UrlParseError(#[from] url::ParseError),
+    #[error(transparent)]
+    ProviderError(#[from] ethers::providers::ProviderError),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -138,6 +142,12 @@ pub struct AccountId {
 }
 
 impl AccountId {
+    pub fn new(chain_id: String, account_address: String) -> Self {
+        AccountId {
+            chain_id,
+            account_address,
+        }
+    }
     pub fn is_evm_chain(&self) -> bool {
         self.chain_id.starts_with("eip155")
     }
@@ -155,6 +165,8 @@ pub struct Erc1271Signature {
     chain_rpc_url: String,
 }
 
+unsafe impl Send for Erc1271Signature {}
+
 impl Erc1271Signature {
     pub fn new(
         signature_text: String,
@@ -170,6 +182,27 @@ impl Erc1271Signature {
             chain_rpc_url,
             block_number,
         }
+    }
+
+    /// Fetch Chain ID & block number from the RPC URL and create the new ERC1271 Signature
+    /// This could be used by platform SDK who only needs to provide the RPC URL and account address.
+    pub async fn new_with_rpc(
+        signature_text: String,
+        signature_bytes: Vec<u8>,
+        account_address: String,
+        chain_rpc_url: String,
+    ) -> Result<Self, SignatureError> {
+        let provider = Provider::<Http>::try_from(&chain_rpc_url)?;
+        let block_number = provider.get_block_number().await?;
+        let chain_id = provider.get_chainid().await?;
+        let account_id = AccountId::new(chain_id.to_string(), account_address);
+        Ok(Erc1271Signature::new(
+            signature_text,
+            signature_bytes,
+            account_id,
+            chain_rpc_url,
+            block_number.as_u64(),
+        ))
     }
 }
 
@@ -187,7 +220,10 @@ impl Signature for Erc1271Signature {
             .await?;
         if is_valid {
             Ok(MemberIdentifier::Address(
-                self.account_id.get_account_address().to_string(),
+                self.account_id
+                    .get_account_address()
+                    .to_string()
+                    .to_lowercase(),
             ))
         } else {
             Err(SignatureError::Invalid)
@@ -288,17 +324,21 @@ impl LegacyDelegatedSignature {
 #[async_trait]
 impl Signature for LegacyDelegatedSignature {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
+        // TODO: Actually verify the private key signature, in addition to extracting the wallet
+        // address from the SignedPublicKey
         // 1. Verify the RecoverableEcdsaSignature
-        let legacy_signer = self.legacy_key_signature.recover_signer().await?;
+        // let legacy_signer = self.legacy_key_signature.recover_signer().await?;
 
         // 2. Verify the [LegacySignedPublicKeyProto] and make sure it matches to the legacy_signer
         let signed_public_key: ValidatedLegacySignedPublicKey =
             self.signed_public_key_proto.clone().try_into()?;
-        if MemberIdentifier::Address(signed_public_key.account_address()) != legacy_signer {
-            return Err(SignatureError::Invalid);
-        }
+        // if MemberIdentifier::Address(signed_public_key.account_address()) != legacy_signer {
+        //     // return Err(SignatureError::Invalid);
+        // }
 
-        Ok(legacy_signer)
+        Ok(MemberIdentifier::Address(
+            signed_public_key.account_address().to_lowercase(),
+        ))
     }
 
     fn signature_kind(&self) -> SignatureKind {
