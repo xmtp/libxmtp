@@ -219,7 +219,7 @@ mod tests {
     fn it_does_not_error_on_empty_messages() {
         with_connection(|conn| {
             let id = vec![0x0];
-            assert_ok!(conn.get_group_message(id), None);
+            assert_eq!(conn.get_group_message(id).unwrap(), None);
         })
     }
 
@@ -234,7 +234,7 @@ mod tests {
             message.store(conn).unwrap();
 
             let stored_message = conn.get_group_message(id);
-            assert_ok!(stored_message, Some(message));
+            assert_eq!(stored_message.unwrap(), Some(message));
         })
     }
 
