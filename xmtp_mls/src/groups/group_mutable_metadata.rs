@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt};
 
 use openmls::{
-    extensions::{Extension, UnknownExtension},
+    extensions::{Extension, Extensions, UnknownExtension},
     group::MlsGroup as OpenMlsGroup,
 };
 use prost::Message;
@@ -76,7 +76,7 @@ impl GroupMutableMetadata {
         }
     }
 
-    pub fn new_default(creator_account_address: String) -> Self {
+    pub fn new_default(creator_inbox_id: String) -> Self {
         let mut attributes = HashMap::new();
         attributes.insert(
             MetadataField::GroupName.to_string(),
@@ -86,8 +86,8 @@ impl GroupMutableMetadata {
             MetadataField::Description.to_string(),
             DEFAULT_GROUP_DESCRIPTION.to_string(),
         );
-        let admin_list = vec![creator_account_address.clone()];
-        let super_admin_list = vec![creator_account_address.clone()];
+        let admin_list = vec![creator_inbox_id.clone()];
+        let super_admin_list = vec![creator_inbox_id.clone()];
         Self {
             attributes,
             admin_list,
@@ -98,6 +98,14 @@ impl GroupMutableMetadata {
     // These fields will receive default permission policies for new groups
     pub fn supported_fields() -> Vec<MetadataField> {
         vec![MetadataField::GroupName, MetadataField::Description]
+    }
+
+    pub fn is_admin(&self, inbox_id: &String) -> bool {
+        self.admin_list.contains(inbox_id)
+    }
+
+    pub fn is_super_admin(&self, inbox_id: &String) -> bool {
+        self.super_admin_list.contains(inbox_id)
     }
 }
 
@@ -152,16 +160,33 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
     }
 }
 
-pub fn extract_group_mutable_metadata(
-    group: &OpenMlsGroup,
-) -> Result<GroupMutableMetadata, GroupMutableMetadataError> {
-    let extensions = group.export_group_context().extensions();
-    for extension in extensions.iter() {
+impl TryFrom<&Extensions> for GroupMutableMetadata {
+    type Error = GroupMutableMetadataError;
+
+    fn try_from(value: &Extensions) -> Result<Self, Self::Error> {
+        match find_mutable_metadata_extension(value) {
+            Some(metadata) => GroupMutableMetadata::try_from(metadata),
+            None => Err(GroupMutableMetadataError::MissingExtension),
+        }
+    }
+}
+
+impl TryFrom<&OpenMlsGroup> for GroupMutableMetadata {
+    type Error = GroupMutableMetadataError;
+
+    fn try_from(value: &OpenMlsGroup) -> Result<Self, Self::Error> {
+        let extensions = value.export_group_context().extensions();
+        extensions.try_into()
+    }
+}
+
+pub fn find_mutable_metadata_extension(extensions: &Extensions) -> Option<&Vec<u8>> {
+    extensions.iter().find_map(|extension| {
         if let Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, UnknownExtension(metadata)) =
             extension
         {
-            return GroupMutableMetadata::try_from(metadata);
+            return Some(metadata);
         }
-    }
-    Err(GroupMutableMetadataError::MissingExtension)
+        None
+    })
 }

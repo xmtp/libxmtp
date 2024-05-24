@@ -2833,7 +2833,7 @@ dependencies = [
 [[package]]
 name = "openmls"
 version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?rev=0239b96#0239b966f771c8c6ae4e3d4556879e9b591eaf48"
+source = "git+https://github.com/xmtp/openmls?rev=606bf92#606bf929e133422fe9737ba7089f6e63a4738300"
 dependencies = [
  "backtrace",
  "itertools 0.10.5",
@@ -2855,7 +2855,7 @@ dependencies = [
 [[package]]
 name = "openmls_basic_credential"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=0239b96#0239b966f771c8c6ae4e3d4556879e9b591eaf48"
+source = "git+https://github.com/xmtp/openmls?rev=606bf92#606bf929e133422fe9737ba7089f6e63a4738300"
 dependencies = [
  "ed25519-dalek",
  "openmls_traits",
@@ -2868,7 +2868,7 @@ dependencies = [
 [[package]]
 name = "openmls_memory_storage"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=0239b96#0239b966f771c8c6ae4e3d4556879e9b591eaf48"
+source = "git+https://github.com/xmtp/openmls?rev=606bf92#606bf929e133422fe9737ba7089f6e63a4738300"
 dependencies = [
  "hex",
  "log",
@@ -2881,7 +2881,7 @@ dependencies = [
 [[package]]
 name = "openmls_rust_crypto"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=0239b96#0239b966f771c8c6ae4e3d4556879e9b591eaf48"
+source = "git+https://github.com/xmtp/openmls?rev=606bf92#606bf929e133422fe9737ba7089f6e63a4738300"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -2905,7 +2905,7 @@ dependencies = [
 [[package]]
 name = "openmls_test"
 version = "0.1.0"
-source = "git+https://github.com/xmtp/openmls?rev=0239b96#0239b966f771c8c6ae4e3d4556879e9b591eaf48"
+source = "git+https://github.com/xmtp/openmls?rev=606bf92#606bf929e133422fe9737ba7089f6e63a4738300"
 dependencies = [
  "ansi_term",
  "openmls_rust_crypto",
@@ -2920,7 +2920,7 @@ dependencies = [
 [[package]]
 name = "openmls_traits"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=0239b96#0239b966f771c8c6ae4e3d4556879e9b591eaf48"
+source = "git+https://github.com/xmtp/openmls?rev=606bf92#606bf929e133422fe9737ba7089f6e63a4738300"
 dependencies = [
  "serde",
  "tls_codec 0.4.2-pre.1",
@@ -5138,6 +5138,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-test"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a2c0ff408fe918a94c428a3f2ad04e4afd5c95bbc08fcf868eff750c15728a4"
+dependencies = [
+ "lazy_static",
+ "tracing-core",
+ "tracing-subscriber",
+ "tracing-test-macro",
+]
+
+[[package]]
+name = "tracing-test-macro"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "258bc1c4f8e2e73a977812ab339d503e6feeb92700f6d07a6de4d321522d5c08"
+dependencies = [
+ "lazy_static",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5914,7 +5937,9 @@ dependencies = [
  "tls_codec 0.4.1",
  "tokio",
  "toml 0.8.12",
- "tracing-subscriber",
+ "tracing",
+ "tracing-log",
+ "tracing-test",
  "xmtp_api_grpc",
  "xmtp_cryptography",
  "xmtp_id",
