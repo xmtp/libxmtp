@@ -381,6 +381,11 @@ impl IdentityAction for IdentityUpdate {
 
         let new_state = state.ok_or(AssociationError::NotCreated)?;
         if new_state.inbox_id().ne(&self.inbox_id) {
+            log::error!(
+                "state inbox id mismatch, old: {}, new: {}",
+                self.inbox_id,
+                new_state.inbox_id()
+            );
             return Err(AssociationError::WrongInboxId);
         }
 

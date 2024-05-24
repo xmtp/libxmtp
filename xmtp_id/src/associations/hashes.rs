@@ -8,5 +8,5 @@ fn sha256_string(input: String) -> String {
 }
 
 pub fn generate_inbox_id(account_address: &String, nonce: &u64) -> String {
-    sha256_string(format!("{}{}", account_address, nonce))
+    sha256_string(format!("{}{}", account_address.to_lowercase(), nonce))
 }
