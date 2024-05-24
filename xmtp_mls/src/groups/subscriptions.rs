@@ -7,8 +7,8 @@ use futures::Stream;
 use super::{extract_message_v1, GroupError, MlsGroup};
 use crate::storage::group_message::StoredGroupMessage;
 use crate::subscriptions::{MessagesStreamInfo, StreamCloser};
+use crate::Client;
 use crate::XmtpApi;
-use crate::{await_helper, Client};
 use prost::Message;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
@@ -22,21 +22,28 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let msgv1 = extract_message_v1(envelope)?;
+        let created_ns = msgv1.created_ns;
 
-        let process_result = self.context.store.transaction(|provider| {
-            let mut openmls_group = self.load_mls_group(provider)?;
+        let client_pointer = client.clone();
+        let process_result = self
+            .context
+            .store
+            .transaction_async(|provider| async move {
+                let mut openmls_group = self.load_mls_group(&provider)?;
 
-            // Attempt processing immediately, but fail if the message is not an Application Message
-            // Returning an error should roll back the DB tx
-            await_helper(self.process_message(
-                client.as_ref(),
-                &mut openmls_group,
-                provider,
-                &msgv1,
-                false,
-            ))
-            .map_err(GroupError::ReceiveError)
-        });
+                // Attempt processing immediately, but fail if the message is not an Application Message
+                // Returning an error should roll back the DB tx
+                self.process_message(
+                    client_pointer.as_ref(),
+                    &mut openmls_group,
+                    &provider,
+                    &msgv1,
+                    false,
+                )
+                .await
+                .map_err(GroupError::ReceiveError)
+            })
+            .await;
 
         if let Some(GroupError::ReceiveError(_)) = process_result.err() {
             self.sync(&client).await?;
@@ -48,7 +55,7 @@ impl MlsGroup {
             .context
             .store
             .conn()?
-            .get_group_message_by_timestamp(&self.group_id, msgv1.created_ns as i64)?;
+            .get_group_message_by_timestamp(&self.group_id, created_ns as i64)?;
 
         Ok(new_message)
     }
