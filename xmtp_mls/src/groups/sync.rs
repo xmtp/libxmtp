@@ -508,7 +508,7 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let provider = self.context.mls_provider(conn);
-        let mut openmls_group = self.load_mls_group(provider)?;
+        let mut openmls_group = self.load_mls_group(&provider)?;
         log::debug!("  loaded openmls group");
 
         let mut receive_errors = vec![];
