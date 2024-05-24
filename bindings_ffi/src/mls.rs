@@ -498,8 +498,7 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
             move |message| message_callback.on_message(message.into()),
-        )
-        .await?;
+        )?;
 
         Ok(Arc::new(FfiStreamCloser {
             close_fn: stream_closer.close_fn,
