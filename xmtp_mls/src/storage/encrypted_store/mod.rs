@@ -463,7 +463,8 @@ mod tests {
             .unwrap();
             let conn = &store.conn().unwrap();
 
-            let inbox_id = "inbox id";
+            let inbox_id = "inbox_id";
+
             StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
                 .store(conn)
                 .unwrap();
