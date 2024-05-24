@@ -222,6 +222,8 @@ impl SignatureRequest {
     ) -> Result<(), SignatureRequestError> {
         let signer_identity = signature.recover_signer().await?;
         let missing_signatures = self.missing_signatures();
+        log::info!("Provided Signer: {}", signer_identity);
+        log::info!("Missing Signatures: {:?}", missing_signatures);
 
         // Make sure the signer is someone actually in the request
         if !missing_signatures.contains(&signer_identity) {

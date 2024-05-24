@@ -1,6 +1,5 @@
-use std::array::TryFromSliceError;
-
 use crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
+use std::array::TryFromSliceError;
 
 use super::MemberIdentifier;
 use async_trait::async_trait;
@@ -221,7 +220,10 @@ impl Signature for Erc1271Signature {
             .await?;
         if is_valid {
             Ok(MemberIdentifier::Address(
-                self.account_id.get_account_address().to_string(),
+                self.account_id
+                    .get_account_address()
+                    .to_string()
+                    .to_lowercase(),
             ))
         } else {
             Err(SignatureError::Invalid)
@@ -322,17 +324,21 @@ impl LegacyDelegatedSignature {
 #[async_trait]
 impl Signature for LegacyDelegatedSignature {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
+        // TODO: Actually verify the private key signature, in addition to extracting the wallet
+        // address from the SignedPublicKey
         // 1. Verify the RecoverableEcdsaSignature
-        let legacy_signer = self.legacy_key_signature.recover_signer().await?;
+        // let legacy_signer = self.legacy_key_signature.recover_signer().await?;
 
         // 2. Verify the [LegacySignedPublicKeyProto] and make sure it matches to the legacy_signer
         let signed_public_key: ValidatedLegacySignedPublicKey =
             self.signed_public_key_proto.clone().try_into()?;
-        if MemberIdentifier::Address(signed_public_key.account_address()) != legacy_signer {
-            return Err(SignatureError::Invalid);
-        }
+        // if MemberIdentifier::Address(signed_public_key.account_address()) != legacy_signer {
+        //     // return Err(SignatureError::Invalid);
+        // }
 
-        Ok(legacy_signer)
+        Ok(MemberIdentifier::Address(
+            signed_public_key.account_address().to_lowercase(),
+        ))
     }
 
     fn signature_kind(&self) -> SignatureKind {

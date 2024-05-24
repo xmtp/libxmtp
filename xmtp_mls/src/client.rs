@@ -28,7 +28,8 @@ use xmtp_proto::xmtp::mls::api::v1::{
 use crate::{
     api::ApiClientWrapper,
     groups::{
-        validated_commit::CommitValidationError, IntentError, MlsGroup, PreconfiguredPolicies,
+        validated_commit::CommitValidationError, GroupError, IntentError, MlsGroup,
+        PreconfiguredPolicies,
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::IdentityUpdateError,
@@ -82,6 +83,9 @@ pub enum ClientError {
     IdentityUpdate(#[from] IdentityUpdateError),
     #[error(transparent)]
     SignatureRequest(#[from] SignatureRequestError),
+    // the box is to prevent infinite cycle between client and group errors
+    #[error(transparent)]
+    Group(#[from] Box<GroupError>),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -246,6 +250,17 @@ where
         &self.context.store
     }
 
+    pub fn release_db_connection(&self) -> Result<(), ClientError> {
+        let store = &self.context.store;
+        store.release_connection()?;
+        Ok(())
+    }
+
+    pub fn reconnect_db(&self) -> Result<(), ClientError> {
+        self.context.store.reconnect()?;
+        Ok(())
+    }
+
     pub fn identity(&self) -> &Identity {
         &self.context.identity
     }
@@ -270,17 +285,15 @@ where
             GroupMembershipState::Allowed,
             permissions,
         )
-        .map_err(|e| {
-            ClientError::Storage(StorageError::Store(format!("group create error {}", e)))
-        })?;
+        .map_err(Box::new)?;
 
         Ok(group)
     }
 
-    pub(crate) fn create_sync_group(&self) -> Result<MlsGroup, StorageError> {
+    pub(crate) fn create_sync_group(&self) -> Result<MlsGroup, ClientError> {
         log::info!("creating sync group");
-        let sync_group = MlsGroup::create_and_insert_sync_group(self.context.clone())
-            .map_err(|e| StorageError::Store(format!("sync group create error {}", e)))?;
+        let sync_group =
+            MlsGroup::create_and_insert_sync_group(self.context.clone()).map_err(Box::new)?;
 
         Ok(sync_group)
     }

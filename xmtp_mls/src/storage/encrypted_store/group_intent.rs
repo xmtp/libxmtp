@@ -593,11 +593,17 @@ mod tests {
 
             let commit_result = conn.set_group_intent_committed(intent.id);
             assert!(commit_result.is_err());
-            assert_eq!(commit_result.err().unwrap(), StorageError::NotFound);
+            assert!(matches!(
+                commit_result.err().unwrap(),
+                StorageError::NotFound
+            ));
 
             let to_publish_result = conn.set_group_intent_to_publish(intent.id);
             assert!(to_publish_result.is_err());
-            assert_eq!(to_publish_result.err().unwrap(), StorageError::NotFound);
+            assert!(matches!(
+                to_publish_result.err().unwrap(),
+                StorageError::NotFound
+            ));
         })
     }
 

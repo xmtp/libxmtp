@@ -21,7 +21,10 @@ pub mod key_store_entry;
 pub mod refresh_state;
 pub mod schema;
 
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    sync::{Arc, RwLock},
+};
 
 use diesel::{
     connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
@@ -67,7 +70,7 @@ pub fn ignore_unique_violation<T>(
 /// Manages a Sqlite db for persisting messages and other objects.
 pub struct EncryptedMessageStore {
     connect_opt: StorageOption,
-    pool: Pool<ConnectionManager<SqliteConnection>>,
+    pool: Arc<RwLock<Option<Pool<ConnectionManager<SqliteConnection>>>>>,
     enc_key: Option<EncryptionKey>,
 }
 
@@ -92,23 +95,22 @@ impl EncryptedMessageStore {
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
         log::info!("Setting up DB connection pool");
-        let pool = match opts {
-            StorageOption::Ephemeral => Pool::builder()
-                .max_size(1)
-                .build(ConnectionManager::<SqliteConnection>::new(":memory:"))
-                .map_err(|e| StorageError::DbInit(e.to_string()))?,
-            StorageOption::Persistent(ref path) => Pool::builder()
-                .max_size(10)
-                .build(ConnectionManager::<SqliteConnection>::new(path))
-                .map_err(|e| StorageError::DbInit(e.to_string()))?,
-        };
+        let pool =
+            match opts {
+                StorageOption::Ephemeral => Pool::builder()
+                    .max_size(1)
+                    .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
+                StorageOption::Persistent(ref path) => Pool::builder()
+                    .max_size(10)
+                    .build(ConnectionManager::<SqliteConnection>::new(path))?,
+            };
 
         // TODO: Validate that sqlite is correctly configured. Bad EncKey is not detected until the
         // migrations run which returns an unhelpful error.
 
         let mut obj = Self {
             connect_opt: opts,
-            pool,
+            pool: Arc::new(Some(pool).into()),
             enc_key,
         };
 
@@ -132,12 +134,15 @@ impl EncryptedMessageStore {
     fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| StorageError::Pool(e.to_string()))?;
+        let pool_guard = self.pool.read()?;
 
-        if let Some(key) = self.enc_key {
+        let pool = pool_guard
+            .as_ref()
+            .ok_or(StorageError::PoolNeedsConnection)?;
+
+        let mut conn = pool.get()?;
+
+        if let Some(ref key) = self.enc_key {
             conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
         }
 
@@ -191,11 +196,83 @@ impl EncryptedMessageStore {
         }
     }
 
+    /// Start a new database transaction with the OpenMLS Provider from XMTP
+    /// # Arguments
+    /// `fun`: Scoped closure providing an [`XmtpOpenMLSProvider`] to carry out the transaction in
+    /// async context.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// store.transaction_async(|provider| async move {
+    ///     // do some operations requiring provider
+    ///     // access the connection with .conn()
+    ///     provider.conn().db_operation()?;
+    /// }).await
+    /// ```
+    pub async fn transaction_async<T, F, E, Fut>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(XmtpOpenMlsProvider) -> Fut,
+        Fut: futures::Future<Output = Result<T, E>>,
+        E: From<diesel::result::Error> + From<StorageError>,
+    {
+        let mut connection = self.raw_conn()?;
+        AnsiTransactionManager::begin_transaction(&mut *connection)?;
+
+        let db_connection = DbConnection::new(connection);
+        let provider = XmtpOpenMlsProvider::new(db_connection);
+        let local_provider = provider.clone();
+
+        let result = fun(provider).await;
+
+        // after the closure finishes, `local_provider` should have the only reference ('strong')
+        // to `XmtpOpenMlsProvider` inner `DbConnection`..
+        let conn_ref = local_provider.conn_ref();
+        match result {
+            Ok(value) => {
+                conn_ref.raw_query(|conn| {
+                    PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
+                })?;
+                Ok(value)
+            }
+            Err(err) => match conn_ref.raw_query(|conn| {
+                PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(&mut *conn)
+            }) {
+                Ok(()) => Err(err),
+                Err(Error::BrokenTransactionManager) => Err(err),
+                Err(rollback) => Err(rollback.into()),
+            },
+        }
+    }
+
     pub fn generate_enc_key() -> EncryptionKey {
         // TODO: Handle Key Better/ Zeroize
         let mut key = [0u8; 32];
         crypto_utils::rng().fill_bytes(&mut key[..]);
         key
+    }
+
+    pub fn release_connection(&self) -> Result<(), StorageError> {
+        let mut pool_guard = self.pool.write()?;
+        pool_guard.take();
+        Ok(())
+    }
+
+    pub fn reconnect(&self) -> Result<(), StorageError> {
+        let pool =
+            match self.connect_opt {
+                StorageOption::Ephemeral => Pool::builder()
+                    .max_size(1)
+                    .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
+                StorageOption::Persistent(ref path) => Pool::builder()
+                    .max_size(10)
+                    .build(ConnectionManager::<SqliteConnection>::new(path))?,
+            };
+
+        let mut pool_write = self.pool.write()?;
+        *pool_write = Some(pool);
+
+        Ok(())
     }
 }
 
@@ -300,7 +377,6 @@ mod tests {
         db_connection::DbConnection, identity::StoredIdentity, EncryptedMessageStore, StorageError,
         StorageOption,
     };
-    use diesel::result::Error as DieselError;
     use std::sync::Barrier;
 
     use crate::{
@@ -377,6 +453,37 @@ mod tests {
     }
 
     #[test]
+    fn releases_db_lock() {
+        let db_path = tmp_path();
+        {
+            let store = EncryptedMessageStore::new(
+                StorageOption::Persistent(db_path.clone()),
+                EncryptedMessageStore::generate_enc_key(),
+            )
+            .unwrap();
+            let conn = &store.conn().unwrap();
+
+            let inbox_id = "inbox_id";
+            StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
+                .store(conn)
+                .unwrap();
+
+            let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+
+            assert_eq!(fetched_identity.inbox_id, inbox_id);
+
+            store.release_connection().unwrap();
+            assert!(store.pool.read().unwrap().is_none());
+            store.reconnect().unwrap();
+            let fetched_identity2: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+
+            assert_eq!(fetched_identity2.inbox_id, inbox_id);
+        }
+
+        fs::remove_file(db_path).unwrap();
+    }
+
+    #[test]
     fn mismatched_encryption_key() {
         let mut enc_key = [1u8; 32];
 
@@ -394,6 +501,8 @@ mod tests {
 
         enc_key[3] = 145; // Alter the enc_key
         let res = EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key);
+
+        println!("{:?}", &res.as_ref().err());
         // Ensure it fails
         assert!(
             matches!(res.err(), Some(StorageError::DbInit(_))),
@@ -485,11 +594,13 @@ mod tests {
         let handle = std::thread::spawn(move || {
             store_pointer.transaction(|provider| {
                 let conn1 = provider.conn();
-                barrier_pointer.wait();
                 StoredIdentity::new("correct".to_string(), rand_vec(), rand_vec())
                     .store(&conn1)
                     .unwrap();
-                std::thread::sleep(std::time::Duration::from_secs(1));
+                // wait for second transaction to start
+                barrier_pointer.wait();
+                // wait for second transaction to finish
+                barrier_pointer.wait();
                 Ok::<_, StorageError>(())
             })
         });
@@ -497,18 +608,19 @@ mod tests {
         let store_pointer = store.clone();
         let handle2 = std::thread::spawn(move || {
             barrier.wait();
-            store_pointer.transaction(|provider| {
+            let result = store_pointer.transaction(|provider| -> Result<(), anyhow::Error> {
                 let connection = provider.conn();
-                let _ = connection.insert_or_ignore_group(StoredGroup::new(
-                    b"wrong".to_vec(),
+                let group = StoredGroup::new(
+                    b"should not exist".to_vec(),
                     0,
                     GroupMembershipState::Allowed,
-                    "wrong".into(),
-                ));
-                StoredIdentity::new("wrong".to_string(), rand_vec(), rand_vec())
-                    .store(&connection)?;
-                Ok::<_, StorageError>(())
-            })
+                    "goodbye".to_string(),
+                );
+                group.store(&connection)?;
+                Ok(())
+            });
+            barrier.wait();
+            result
         });
 
         let result = handle.join().unwrap();
@@ -517,15 +629,58 @@ mod tests {
         let result = handle2.join().unwrap();
 
         // handle 2 errored because the first transaction has precedence
-        assert!(matches!(
-            result,
-            Err(StorageError::DieselResult(DieselError::DatabaseError(_, _)))
-        ));
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Diesel result error: database is locked"
+        );
+        let groups = store
+            .conn()
+            .unwrap()
+            .find_group(b"should not exist".to_vec())
+            .unwrap();
+        assert_eq!(groups, None);
+    }
+
+    #[tokio::test]
+    async fn test_async_transaction() {
+        let db_path = tmp_path();
+
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(db_path.clone()),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+
+        let store_pointer = store.clone();
+
+        let handle = tokio::spawn(async move {
+            store_pointer
+                .transaction_async(|provider| async move {
+                    let conn1 = provider.conn();
+                    StoredIdentity::new("crab".to_string(), rand_vec(), rand_vec())
+                        .store(&conn1)
+                        .unwrap();
+
+                    let group = StoredGroup::new(
+                        b"should not exist".to_vec(),
+                        0,
+                        GroupMembershipState::Allowed,
+                        "goodbye".to_string(),
+                    );
+                    group.store(&conn1).unwrap();
+
+                    anyhow::bail!("force a rollback")
+                })
+                .await?;
+            Ok::<_, anyhow::Error>(())
+        });
+
+        let result = handle.await.unwrap();
+        assert!(result.is_err());
 
         let conn = store.conn().unwrap();
-
         // this group should not exist because of the rollback
-        let groups = conn.find_group(b"wrong".to_vec()).unwrap();
+        let groups = conn.find_group(b"should not exist".to_vec()).unwrap();
         assert_eq!(groups, None);
     }
 }

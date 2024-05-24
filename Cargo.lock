@@ -171,6 +171,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-barrier"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04b50fe84d0aea412a4e751cb01b9e26e2be533b2708607c2a2a739b192ee45a"
+dependencies = [
+ "async-mutex",
+ "event-listener",
+]
+
+[[package]]
+name = "async-mutex"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "479db852db25d9dbf6204e6cb6253698f175c15726470f78af0d918e99d6156e"
+dependencies = [
+ "event-listener",
+]
+
+[[package]]
 name = "async-stream"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1495,6 +1514,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "event-listener"
+version = "2.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0206175f82b8d6bf6652ff7d71a1e27fd2e4efde587fd368662814d6ec1d9ce0"
+
+[[package]]
 name = "eyre"
 version = "0.6.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2808,7 +2833,7 @@ dependencies = [
 [[package]]
 name = "openmls"
 version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?rev=9f3cad8c6c434f4860bd4f120451558e8d6293ce#9f3cad8c6c434f4860bd4f120451558e8d6293ce"
+source = "git+https://github.com/xmtp/openmls?rev=606bf92#606bf929e133422fe9737ba7089f6e63a4738300"
 dependencies = [
  "backtrace",
  "itertools 0.10.5",
@@ -2830,7 +2855,7 @@ dependencies = [
 [[package]]
 name = "openmls_basic_credential"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=9f3cad8c6c434f4860bd4f120451558e8d6293ce#9f3cad8c6c434f4860bd4f120451558e8d6293ce"
+source = "git+https://github.com/xmtp/openmls?rev=606bf92#606bf929e133422fe9737ba7089f6e63a4738300"
 dependencies = [
  "ed25519-dalek",
  "openmls_traits",
@@ -2843,7 +2868,7 @@ dependencies = [
 [[package]]
 name = "openmls_memory_storage"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=9f3cad8c6c434f4860bd4f120451558e8d6293ce#9f3cad8c6c434f4860bd4f120451558e8d6293ce"
+source = "git+https://github.com/xmtp/openmls?rev=606bf92#606bf929e133422fe9737ba7089f6e63a4738300"
 dependencies = [
  "hex",
  "log",
@@ -2856,7 +2881,7 @@ dependencies = [
 [[package]]
 name = "openmls_rust_crypto"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=9f3cad8c6c434f4860bd4f120451558e8d6293ce#9f3cad8c6c434f4860bd4f120451558e8d6293ce"
+source = "git+https://github.com/xmtp/openmls?rev=606bf92#606bf929e133422fe9737ba7089f6e63a4738300"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -2880,7 +2905,7 @@ dependencies = [
 [[package]]
 name = "openmls_test"
 version = "0.1.0"
-source = "git+https://github.com/xmtp/openmls?rev=9f3cad8c6c434f4860bd4f120451558e8d6293ce#9f3cad8c6c434f4860bd4f120451558e8d6293ce"
+source = "git+https://github.com/xmtp/openmls?rev=606bf92#606bf929e133422fe9737ba7089f6e63a4738300"
 dependencies = [
  "ansi_term",
  "openmls_rust_crypto",
@@ -2895,7 +2920,7 @@ dependencies = [
 [[package]]
 name = "openmls_traits"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=9f3cad8c6c434f4860bd4f120451558e8d6293ce#9f3cad8c6c434f4860bd4f120451558e8d6293ce"
+source = "git+https://github.com/xmtp/openmls?rev=606bf92#606bf929e133422fe9737ba7089f6e63a4738300"
 dependencies = [
  "serde",
  "tls_codec 0.4.2-pre.1",
@@ -5879,6 +5904,10 @@ dependencies = [
 name = "xmtp_mls"
 version = "0.1.0"
 dependencies = [
+ "aes",
+ "aes-gcm",
+ "anyhow",
+ "async-barrier",
  "async-trait",
  "chrono",
  "ctor",
