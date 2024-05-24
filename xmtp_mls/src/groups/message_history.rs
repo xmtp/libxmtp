@@ -398,8 +398,7 @@ mod tests {
     use super::*;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::assert_ok;
-    use crate::builder::ClientBuilder;
+    use crate::{assert_ok, builder::ClientBuilder};
 
     #[tokio::test]
     async fn test_allow_history_sync() {
@@ -623,10 +622,10 @@ mod tests {
         std::fs::write(input_path, input_content).expect("Unable to write test input file");
 
         // Encrypt the file
-        encrypt_messages_file(input_path, encrypted_path, &key_bytes).expect("Encryption failed");
+        encrypt_messages_file(input_path, encrypted_path, key_bytes).expect("Encryption failed");
 
         // Decrypt the file
-        decrypt_messages_file(encrypted_path, decrypted_path, &key_bytes)
+        decrypt_messages_file(encrypted_path, decrypted_path, key_bytes)
             .expect("Decryption failed");
 
         // Read the decrypted file content

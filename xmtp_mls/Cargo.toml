@@ -59,3 +59,5 @@ tempfile = "3.5.0"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
+async-barrier = "1.1"
+anyhow.workspace = true
