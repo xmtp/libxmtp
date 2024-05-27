@@ -827,23 +827,32 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 
 #[cfg(test)]
 mod tests {
-    use openmls::prelude::Member;
+    use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
     use prost::Message;
+    use tracing_test::traced_test;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     use crate::{
+        assert_logged,
         builder::ClientBuilder,
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
-        groups::{group_mutable_metadata::MetadataField, PreconfiguredPolicies},
+        groups::{
+            build_group_membership_extension, group_membership::GroupMembership,
+            group_mutable_metadata::MetadataField, PreconfiguredPolicies,
+        },
         storage::{
             group_intent::IntentState,
             group_message::{GroupMessageKind, StoredGroupMessage},
         },
+        xmtp_openmls_provider::XmtpOpenMlsProvider,
         Client, InboxOwner, XmtpApi,
     };
 
-    use super::MlsGroup;
+    use super::{
+        intents::{Installation, SendWelcomesAction},
+        MlsGroup,
+    };
 
     async fn receive_group_invite<ApiClient>(client: &Client<ApiClient>) -> MlsGroup
     where
@@ -866,6 +875,50 @@ mod tests {
         let mut messages = group.find_messages(None, None, None, None, None).unwrap();
 
         messages.pop().unwrap()
+    }
+
+    // Adds a member to the group without the usual validations on group membership
+    // Used for testing adversarial scenarios
+    async fn force_add_member<ApiClient: XmtpApi>(
+        sender_client: &Client<ApiClient>,
+        new_member_client: &Client<ApiClient>,
+        sender_group: &MlsGroup,
+        sender_mls_group: &mut OpenMlsGroup,
+        sender_provider: &XmtpOpenMlsProvider,
+    ) {
+        let new_member_provider =
+            new_member_client.mls_provider(new_member_client.store().conn().unwrap());
+
+        let key_package = new_member_client
+            .identity()
+            .new_key_package(&new_member_provider)
+            .unwrap();
+        let hpke_init_key = key_package.hpke_init_key().as_slice().to_vec();
+        let (commit, welcome, _) = sender_mls_group
+            .add_members(
+                sender_provider,
+                &sender_client.identity().installation_keys,
+                &[key_package],
+            )
+            .unwrap();
+        let serialized_commit = commit.tls_serialize_detached().unwrap();
+        let serialized_welcome = welcome.tls_serialize_detached().unwrap();
+        let send_welcomes_action = SendWelcomesAction::new(
+            vec![Installation {
+                installation_key: new_member_client.installation_public_key(),
+                hpke_public_key: hpke_init_key,
+            }],
+            serialized_welcome,
+        );
+        sender_client
+            .api_client
+            .send_group_messages(vec![serialized_commit.as_slice()])
+            .await
+            .unwrap();
+        sender_group
+            .send_welcomes(send_welcomes_action, sender_client)
+            .await
+            .unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1007,6 +1060,39 @@ mod tests {
             .unwrap();
         // Bola should have one uncommitted intent for the failed attempt at adding Charlie, who is already in the group
         assert_eq!(bola_uncommitted_intents.len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[traced_test]
+    async fn test_create_from_welcome_validation() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let alix_group: MlsGroup = alix.create_group(None).unwrap();
+        let provider = alix.mls_provider(alix.store().conn().unwrap());
+        // Doctor the group membership
+        let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
+        let mut existing_extensions = mls_group.extensions().clone();
+        let mut group_membership = GroupMembership::new();
+        group_membership.add("foo".to_string(), 1);
+        existing_extensions.add_or_replace(build_group_membership_extension(&group_membership));
+        mls_group
+            .update_group_context_extensions(
+                &provider,
+                existing_extensions.clone(),
+                &alix.identity().installation_keys,
+            )
+            .unwrap();
+        mls_group.merge_pending_commit(&provider).unwrap();
+
+        // Now add bo to the group
+        force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
+
+        // Bo should not be able to actually read this group
+        bo.sync_welcomes().await.unwrap();
+        let groups = bo.find_groups(None, None, None, None).unwrap();
+        assert_eq!(groups.len(), 0);
+        assert_logged!("failed to create group from welcome", 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
