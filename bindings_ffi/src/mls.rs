@@ -337,12 +337,14 @@ impl FfiConversations {
         Ok(out)
     }
 
-    pub fn process_streamed_welcome_message(
+    pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<Arc<FfiGroup>, GenericError> {
         let inner = self.inner_client.as_ref();
-        let group = inner.process_streamed_welcome_message(envelope_bytes)?;
+        let group = inner
+            .process_streamed_welcome_message(envelope_bytes)
+            .await?;
         let out = Arc::new(FfiGroup {
             inner_client: self.inner_client.clone(),
             group_id: group.group_id,

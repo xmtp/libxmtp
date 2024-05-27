@@ -791,11 +791,17 @@ async fn validate_initial_group_membership<ApiClient: XmtpApi>(
 
     let mut expected_installation_ids = HashSet::<Vec<u8>>::new();
 
-    for (inbox_id, sequence_id) in membership.members {
-        let association_state = client
-            .get_association_state(conn, inbox_id, Some(sequence_id as i64))
-            .await?;
+    let futures: Vec<_> = membership
+        .members
+        .into_iter()
+        .map(|(inbox_id, sequence_id)| {
+            client.get_association_state(conn, inbox_id, Some(sequence_id as i64))
+        })
+        .collect();
 
+    let results = futures::future::try_join_all(futures).await?;
+
+    for association_state in results {
         expected_installation_ids.extend(association_state.installation_ids());
     }
 
