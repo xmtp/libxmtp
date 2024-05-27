@@ -14,7 +14,6 @@ use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
 use crate::{
     api::GroupFilter,
-    await_helper,
     client::{extract_welcome_message, ClientError},
     groups::{extract_group_id, GroupError, MlsGroup},
     storage::group_message::StoredGroupMessage,

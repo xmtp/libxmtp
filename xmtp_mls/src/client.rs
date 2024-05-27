@@ -31,7 +31,6 @@ use xmtp_proto::xmtp::mls::api::v1::{
 
 use crate::{
     api::ApiClientWrapper,
-    await_helper,
     groups::{
         validated_commit::CommitValidationError, GroupError, IntentError, MlsGroup,
         PreconfiguredPolicies,
@@ -479,7 +478,9 @@ where
                             &provider,
                             welcome_v1.hpke_public_key.as_slice(),
                             welcome_v1.data,
-                        ) {
+                        )
+                        .await
+                        {
                             Ok(mls_group) => Ok(Some(mls_group)),
                             Err(err) => {
                                 log::error!("failed to create group from welcome: {}", err);
