@@ -33,7 +33,7 @@ impl GroupMembership {
     pub fn to_filters(&self) -> Vec<(String, i64)> {
         self.members
             .iter()
-            .map(|(inbox_id, sequence_id)| (inbox_id.clone(), sequence_id.clone() as i64))
+            .map(|(inbox_id, sequence_id)| (inbox_id.clone(), *sequence_id as i64))
             .collect()
     }
 
