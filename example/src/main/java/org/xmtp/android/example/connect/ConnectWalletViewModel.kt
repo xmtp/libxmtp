@@ -19,9 +19,9 @@ import org.xmtp.android.example.ClientManager
 import org.xmtp.android.example.account.WalletConnectV2Account
 import org.xmtp.android.library.Client
 import org.xmtp.android.library.XMTPException
+import org.xmtp.android.library.codecs.GroupUpdatedCodec
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.PrivateKeyBundleV1Builder
-import uniffi.xmtpv3.org.xmtp.android.library.codecs.GroupMembershipChangeCodec
 
 class ConnectWalletViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -87,7 +87,7 @@ class ConnectWalletViewModel(application: Application) : AndroidViewModel(applic
             try {
                 val wallet = PrivateKeyBuilder()
                 val client = Client().create(wallet, ClientManager.clientOptions(getApplication()))
-                Client.register(codec = GroupMembershipChangeCodec())
+                Client.register(codec = GroupUpdatedCodec())
                 _uiState.value = ConnectUiState.Success(
                     wallet.address,
                     PrivateKeyBundleV1Builder.encodeData(client.privateKeyBundleV1)
@@ -112,7 +112,7 @@ class ConnectWalletViewModel(application: Application) : AndroidViewModel(applic
                     }
                 }
                 val client = Client().create(wallet, ClientManager.clientOptions(getApplication()))
-                Client.register(codec = GroupMembershipChangeCodec())
+                Client.register(codec = GroupUpdatedCodec())
                 _uiState.value = ConnectUiState.Success(
                     wallet.address,
                     PrivateKeyBundleV1Builder.encodeData(client.privateKeyBundleV1)

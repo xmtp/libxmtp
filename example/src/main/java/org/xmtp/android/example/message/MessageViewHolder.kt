@@ -11,7 +11,7 @@ import org.xmtp.android.example.R
 import org.xmtp.android.example.conversation.ConversationDetailViewModel
 import org.xmtp.android.example.databinding.ListItemMessageBinding
 import org.xmtp.android.example.extension.margins
-import uniffi.xmtpv3.org.xmtp.android.library.codecs.GroupMembershipChanges
+import org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -49,11 +49,11 @@ class MessageViewHolder(
             val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
             binding.messageDate.text = sdf.format(item.message.sent)
 
-        } else if (item.message.content<Any>() is GroupMembershipChanges) {
-            val changes = item.message.content() as? GroupMembershipChanges
+        } else if (item.message.content<Any>() is GroupUpdated) {
+            val changes = item.message.content() as? GroupUpdated
             binding.messageBody.text =
                 "Membership Changed ${
-                    changes?.membersAddedList?.mapNotNull { it.accountAddress }.toString()
+                    changes?.addedInboxesList?.mapNotNull { it.inboxId }.toString()
                 }"
         }
     }

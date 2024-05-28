@@ -40,7 +40,7 @@ class RemoteAttachmentTest {
     }
 
     @Test
-    @Ignore
+    @Ignore("Flaky")
     fun testCanUseRemoteAttachmentCodec() {
         val attachment = Attachment(
             filename = "test.txt",
@@ -122,7 +122,7 @@ class RemoteAttachmentTest {
     }
 
     @Test
-    @Ignore
+    @Ignore("Flaky")
     fun testEnsuresContentDigestMatches() {
         val attachment = Attachment(
             filename = "test.txt",

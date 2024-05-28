@@ -52,6 +52,9 @@ android {
             withJavadocJar()
         }
     }
+    lint {
+        baseline = file("lint-baseline.xml")
+    }
 }
 
 protobuf {
@@ -84,9 +87,9 @@ dependencies {
     implementation 'io.grpc:grpc-protobuf-lite:1.62.2'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3'
     implementation 'org.web3j:crypto:5.0.0'
-    implementation "net.java.dev.jna:jna:5.13.0@aar"
+    implementation "net.java.dev.jna:jna:5.14.0@aar"
     api 'com.google.protobuf:protobuf-kotlin-lite:3.22.3'
-    api 'org.xmtp:proto-kotlin:3.51.0'
+    api 'org.xmtp:proto-kotlin:3.61.1'
 
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'app.cash.turbine:turbine:0.12.1'

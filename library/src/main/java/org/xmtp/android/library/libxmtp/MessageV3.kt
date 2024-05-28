@@ -4,6 +4,7 @@ import android.util.Log
 import org.xmtp.android.library.Client
 import org.xmtp.android.library.DecodedMessage
 import org.xmtp.android.library.XMTPException
+import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.messages.DecryptedMessage
 import org.xmtp.android.library.messages.MessageDeliveryStatus
@@ -12,7 +13,6 @@ import org.xmtp.android.library.toHex
 import uniffi.xmtpv3.FfiDeliveryStatus
 import uniffi.xmtpv3.FfiGroupMessageKind
 import uniffi.xmtpv3.FfiMessage
-import uniffi.xmtpv3.org.xmtp.android.library.codecs.ContentTypeGroupMembershipChange
 import java.util.Date
 
 data class MessageV3(val client: Client, private val libXMTPMessage: FfiMessage) {
@@ -23,8 +23,8 @@ data class MessageV3(val client: Client, private val libXMTPMessage: FfiMessage)
     val convoId: ByteArray
         get() = libXMTPMessage.convoId
 
-    val senderAddress: String
-        get() = libXMTPMessage.addrFrom
+    val senderInboxId: String
+        get() = libXMTPMessage.senderInboxId
 
     val sentAt: Date
         get() = Date(libXMTPMessage.sentAtNs / 1_000_000)
@@ -43,11 +43,11 @@ data class MessageV3(val client: Client, private val libXMTPMessage: FfiMessage)
                 client = client,
                 topic = Topic.groupMessage(convoId.toHex()).description,
                 encodedContent = EncodedContent.parseFrom(libXMTPMessage.content),
-                senderAddress = senderAddress,
+                senderAddress = senderInboxId,
                 sent = sentAt,
                 deliveryStatus = deliveryStatus
             )
-            if (decodedMessage.encodedContent.type == ContentTypeGroupMembershipChange && libXMTPMessage.kind != FfiGroupMessageKind.MEMBERSHIP_CHANGE) {
+            if (decodedMessage.encodedContent.type == ContentTypeGroupUpdated && libXMTPMessage.kind != FfiGroupMessageKind.MEMBERSHIP_CHANGE) {
                 throw XMTPException("Error decoding group membership change")
             }
             return decodedMessage
@@ -79,7 +79,7 @@ data class MessageV3(val client: Client, private val libXMTPMessage: FfiMessage)
             id = id.toHex(),
             topic = Topic.groupMessage(convoId.toHex()).description,
             encodedContent = decode().encodedContent,
-            senderAddress = senderAddress,
+            senderAddress = senderInboxId,
             sentAt = Date(),
             deliveryStatus = deliveryStatus
         )

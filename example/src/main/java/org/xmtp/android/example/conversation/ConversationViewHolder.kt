@@ -7,7 +7,9 @@ import org.xmtp.android.example.R
 import org.xmtp.android.example.databinding.ListItemConversationBinding
 import org.xmtp.android.example.extension.truncatedAddress
 import org.xmtp.android.library.Conversation
-import uniffi.xmtpv3.org.xmtp.android.library.codecs.GroupMembershipChanges
+import org.xmtp.android.library.codecs.GroupUpdatedCodec
+import org.xmtp.proto.mls.message.contents.TranscriptMessages
+import org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated
 
 class ConversationViewHolder(
     private val binding: ListItemConversationBinding,
@@ -37,10 +39,10 @@ class ConversationViewHolder(
 
         val messageBody: String = if (item.mostRecentMessage?.content<Any>() is String) {
             item.mostRecentMessage.body.orEmpty()
-        } else if (item.mostRecentMessage?.content<Any>() is GroupMembershipChanges) {
-            val changes = item.mostRecentMessage.content() as? GroupMembershipChanges
+        } else if (item.mostRecentMessage?.content<Any>() is TranscriptMessages.GroupUpdated) {
+            val changes = item.mostRecentMessage.content() as? GroupUpdated
             "Membership Changed ${
-                changes?.membersAddedList?.mapNotNull { it.accountAddress }.toString()
+                changes?.addedInboxesList?.mapNotNull { it.inboxId }.toString()
             }"
         } else {
             ""

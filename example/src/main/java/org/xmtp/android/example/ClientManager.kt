@@ -10,8 +10,8 @@ import kotlinx.coroutines.launch
 import org.xmtp.android.library.Client
 import org.xmtp.android.library.ClientOptions
 import org.xmtp.android.library.XMTPEnvironment
+import org.xmtp.android.library.codecs.GroupUpdatedCodec
 import org.xmtp.android.library.messages.PrivateKeyBundleV1Builder
-import uniffi.xmtpv3.org.xmtp.android.library.codecs.GroupMembershipChangeCodec
 
 object ClientManager {
 
@@ -47,7 +47,7 @@ object ClientManager {
                 val v1Bundle =
                     PrivateKeyBundleV1Builder.fromEncodedData(data = encodedPrivateKeyData)
                 _client = Client().buildFrom(v1Bundle, clientOptions(appContext))
-                Client.register(codec = GroupMembershipChangeCodec())
+                Client.register(codec = GroupUpdatedCodec())
                 _clientState.value = ClientState.Ready
             } catch (e: Exception) {
                 _clientState.value = ClientState.Error(e.localizedMessage.orEmpty())
