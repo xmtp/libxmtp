@@ -652,14 +652,14 @@ impl FfiGroup {
         Ok(super_admin_list)
     }
 
-    pub fn is_admin(&self, account_address: &String) -> Result<bool, GenericError> {
+    pub fn is_admin(&self, inbox_id: &String) -> Result<bool, GenericError> {
         let admin_list = self.admin_list()?;
-        Ok(admin_list.contains(account_address))
+        Ok(admin_list.contains(inbox_id))
     }
 
-    pub fn is_super_admin(&self, account_address: &String) -> Result<bool, GenericError> {
+    pub fn is_super_admin(&self, inbox_id: &String) -> Result<bool, GenericError> {
         let super_admin_list = self.super_admin_list()?;
-        Ok(super_admin_list.contains(account_address))
+        Ok(super_admin_list.contains(inbox_id))
     }
 
     pub async fn add_admin(&self, inbox_id: String) -> Result<(), GenericError> {
