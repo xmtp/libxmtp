@@ -628,7 +628,7 @@ fn extract_metadata_changes(
             immutable_metadata,
             old_mutable_metadata,
         ),
-        num_super_admins: old_mutable_metadata.super_admin_list.len() as u32,
+        num_super_admins: new_mutable_metadata.super_admin_list.len() as u32,
     })
 }
 

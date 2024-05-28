@@ -844,7 +844,7 @@ impl PolicySet {
         // Verify that super admin remove policy was not violated
         // You can never remove the last super admin
         let super_admin_remove_valid = commit.metadata_changes.super_admins_removed.is_empty()
-            || (commit.actor.is_super_admin && commit.metadata_changes.num_super_admins > 1);
+            || (commit.actor.is_super_admin && commit.metadata_changes.num_super_admins > 0);
 
         // TODO Validate permissions updates are valid
         // once we add the user actions for updating permissions
