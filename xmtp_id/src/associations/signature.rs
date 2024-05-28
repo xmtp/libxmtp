@@ -1,7 +1,5 @@
-use crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
-use std::array::TryFromSliceError;
-
 use super::MemberIdentifier;
+use crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
 use async_trait::async_trait;
 use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey};
 use ethers::{
@@ -13,17 +11,21 @@ use ethers::{
 };
 use prost::Message;
 use sha2::{Digest, Sha512};
+use std::array::TryFromSliceError;
 use thiserror::Error;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature};
-use xmtp_proto::xmtp::identity::associations::{
-    signature::Signature as SignatureKindProto, Erc1271Signature as Erc1271SignatureProto,
-    LegacyDelegatedSignature as LegacyDelegatedSignatureProto,
-    RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
-    RecoverableEd25519Signature as RecoverableEd25519SignatureProto, Signature as SignatureProto,
-};
-use xmtp_proto::xmtp::message_contents::{
-    signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto,
-    SignedPublicKey as LegacySignedPublicKeyProto,
+use xmtp_proto::xmtp::{
+    identity::associations::{
+        signature::Signature as SignatureKindProto, Erc1271Signature as Erc1271SignatureProto,
+        LegacyDelegatedSignature as LegacyDelegatedSignatureProto,
+        RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
+        RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
+        Signature as SignatureProto,
+    },
+    message_contents::{
+        signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto,
+        SignedPublicKey as LegacySignedPublicKeyProto,
+    },
 };
 
 #[derive(Debug, Error)]
@@ -377,7 +379,7 @@ impl Signature for LegacyDelegatedSignature {
     }
 }
 
-/// Decode the `legacy_signed_private_key` to legacy private / public key pairs & sign the `signature_text` with the private key.
+/// Decode the `legacy_signed_private_key` to legacy private / public key pairs & sign the `signature_text` with theprivate key.
 pub async fn sign_with_legacy_key(
     signature_text: String,
     legacy_signed_private_key: Vec<u8>,
