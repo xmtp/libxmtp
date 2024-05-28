@@ -214,10 +214,11 @@ fn write_to_file<T: serde::Serialize>(
     file_path: &Path,
     content: Vec<T>,
 ) -> Result<(), MessageHistoryError> {
-    let mut file = File::create(file_path)?;
+    let mut file = std::fs::OpenOptions::new().append(true).open(file_path)?;
     for entry in content {
         let entry_str = serde_json::to_string(&entry)?;
         file.write_all(entry_str.as_bytes())?;
+        file.write_all(b"\n")?;
     }
     Ok(())
 }
@@ -450,7 +451,7 @@ fn new_pin() -> String {
 // If we need to add more complex logic, we can do so here.
 // For example if we want to add a time limit or enforce a certain number of attempts.
 fn verify_pin(expected: &str, actual: &str) -> bool {
-    expected == actual
+    expected.eq(actual)
 }
 
 #[cfg(test)]
@@ -458,6 +459,7 @@ mod tests {
 
     use super::*;
     use mockito;
+    use std::io::{BufRead, BufReader};
     use tempfile::NamedTempFile;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -683,6 +685,47 @@ mod tests {
         assert_eq!(messages_result.len(), 4);
     }
 
+    #[tokio::test]
+    async fn test_write_to_file() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let group_a = amal_a.create_group(None).expect("create group");
+        let group_b = amal_a.create_group(None).expect("create group");
+
+        group_a
+            .send_message(b"hi", &amal_a)
+            .await
+            .expect("send message");
+        group_a
+            .send_message(b"hi", &amal_a)
+            .await
+            .expect("send message");
+        group_b
+            .send_message(b"hi", &amal_a)
+            .await
+            .expect("send message");
+        group_b
+            .send_message(b"hi", &amal_a)
+            .await
+            .expect("send message");
+
+        let groups = amal_a.prepare_groups_to_sync().await.unwrap();
+        let messages = amal_a.prepare_messages_to_sync().await.unwrap();
+
+        let temp_file = NamedTempFile::new().expect("Unable to create temp file");
+        let wrote_groups = write_to_file(temp_file.path(), groups);
+        assert!(wrote_groups.is_ok());
+        let wrote_messages = write_to_file(temp_file.path(), messages);
+        assert!(wrote_messages.is_ok());
+
+        let file = File::open(temp_file.path()).expect("Unable to open test file");
+        let reader = BufReader::new(file);
+        let n_lines_written = reader.lines().count();
+        assert_eq!(n_lines_written, 6);
+
+        std::fs::remove_file(temp_file).expect("Unable to remove test file");
+    }
+
     #[test]
     fn test_encrypt_decrypt_file() {
         let key = HistoryKeyType::new_chacha20_poly1305_key();
@@ -743,7 +786,6 @@ mod tests {
             HISTORY_SERVER_PORT + 1
         );
         let result = upload_history_bundle(&url, file_path.into(), signing_key).await;
-        println!("{:?}", result);
 
         assert!(result.is_ok());
         _m.assert_async().await;
