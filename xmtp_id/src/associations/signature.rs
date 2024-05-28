@@ -473,6 +473,7 @@ mod tests {
     use prost::Message;
     use sha2::{Digest, Sha512};
     use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
+    use xmtp_v2::k256_helper::sign_sha256;
 
     #[test]
     fn validate_good_key_round_trip() {
@@ -578,19 +579,42 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
+    // Test the happy path with LocalWallet & fail path with a secp256k1 signer.
     #[tokio::test]
     async fn recover_signer_legacy() {
         let signature_text = "test_legacy_signature".to_string();
         let account_address = "0x0bd00b21af9a2d538103c3aaf95cb507f8af1b28".to_string();
-        let legacy_signed_private_key = "0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001".to_string();
-        let legacy_signature = sign_with_legacy_key(
-            signature_text,
-            hex::decode(legacy_signed_private_key).unwrap(),
-        )
-        .await
-        .unwrap();
-        let expected = MemberIdentifier::Address(account_address);
+        let legacy_signed_private_key = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001".to_string()).unwrap();
+
+        // happy path
+        let legacy_signature =
+            sign_with_legacy_key(signature_text.clone(), legacy_signed_private_key.clone())
+                .await
+                .unwrap();
+        let expected = MemberIdentifier::Address(account_address.clone());
         let actual = legacy_signature.recover_signer().await.unwrap();
         assert_eq!(expected, actual);
+
+        // fail path
+        let legacy_signed_private_key_proto =
+            LegacySignedPrivateKeyProto::decode(legacy_signed_private_key.as_slice()).unwrap();
+        let signed_private_key::Union::Secp256k1(secp256k1) =
+            legacy_signed_private_key_proto.union.unwrap();
+        let legacy_private_key = secp256k1.bytes;
+        let (mut legacy_signature, recovery_id) = sign_sha256(
+            &legacy_private_key,       // secret_key
+            signature_text.as_bytes(), // message
+        )
+        .unwrap();
+        legacy_signature.push(recovery_id);
+        let legacy_signature = RecoverableEcdsaSignature::new(signature_text, legacy_signature);
+        let legacy_signed_public_key_proto = legacy_signed_private_key_proto.public_key.unwrap();
+        let legacy_signature: LegacyDelegatedSignature =
+            LegacyDelegatedSignature::new(legacy_signature, legacy_signed_public_key_proto);
+
+        assert!(matches!(
+            legacy_signature.recover_signer().await,
+            Err(super::SignatureError::Invalid)
+        ));
     }
 }
