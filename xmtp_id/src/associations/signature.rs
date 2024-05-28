@@ -423,9 +423,33 @@ mod tests {
     };
     use ed25519_dalek::SigningKey;
     use ethers::prelude::*;
+
     use prost::Message;
     use sha2::{Digest, Sha512};
-    use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
+    use xmtp_proto::xmtp::message_contents::{
+        signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto,
+        SignedPublicKey as LegacySignedPublicKeyProto,
+    };
+
+    // Duplicated & modified the function of [xmtp_mls::identity::sign_with_legacy_key] to avoid circular dependency.
+    // An ideal refactor would be moving this entire `signature.rs` file to xmtp_cryptography crate.
+    pub async fn sign_with_legacy_key(
+        signature_text: String,
+        legacy_signed_private_key: Vec<u8>,
+    ) -> LegacyDelegatedSignature {
+        let legacy_signed_private_key_proto =
+            LegacySignedPrivateKeyProto::decode(legacy_signed_private_key.as_slice()).unwrap();
+        let signed_private_key::Union::Secp256k1(secp256k1) =
+            legacy_signed_private_key_proto.union.unwrap();
+        let legacy_private_key = secp256k1.bytes;
+        let wallet: LocalWallet = hex::encode(legacy_private_key)
+            .parse::<LocalWallet>()
+            .unwrap();
+        let signature = wallet.sign_message(signature_text.clone()).await.unwrap();
+        let legacy_signed_public_key_proto = legacy_signed_private_key_proto.public_key.unwrap();
+        let recoverable_sig = RecoverableEcdsaSignature::new(signature_text, signature.to_vec());
+        LegacyDelegatedSignature::new(recoverable_sig, legacy_signed_public_key_proto)
+    }
 
     #[test]
     fn validate_good_key_round_trip() {
@@ -533,34 +557,16 @@ mod tests {
 
     #[tokio::test]
     async fn recover_signer_legacy() {
-        // 1. RecoverableEcdsaSignature
-        let legacy_key: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
-        let unsigned_action = UnsignedCreateInbox {
-            nonce: rand_u64(),
-            account_address: legacy_key.get_address(),
-        };
-        let signature_text = unsigned_action.signature_text();
-        let signature_bytes: Vec<u8> = legacy_key
-            .sign_message(signature_text.clone())
-            .await
-            .unwrap()
-            .to_vec();
-        let signature = RecoverableEcdsaSignature::new(signature_text.clone(), signature_bytes);
-
-        // 2. ValidatedLegacySignedPublicKey
-        let signed_public_key = ValidatedLegacySignedPublicKey {
-            account_address: legacy_key.get_address(),
-            serialized_key_data: vec![],
-            wallet_signature: RecoverableSignature::Eip191Signature(vec![0; 65]),
-            public_key_bytes: vec![0; 32],
-            created_ns: 0,
-        };
-
-        // LegacyDelegatedSignature
-        let delegated_signature =
-            LegacyDelegatedSignature::new(signature, signed_public_key.into());
-        let expected = MemberIdentifier::Address(legacy_key.get_address());
-        let actual = delegated_signature.recover_signer().await.unwrap();
+        let signature_text = "test_legacy_signature".to_string();
+        let account_address = "0x0bd00b21af9a2d538103c3aaf95cb507f8af1b28".to_string();
+        let legacy_signed_private_key = "0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001".to_string();
+        let legacy_signature = sign_with_legacy_key(
+            signature_text,
+            hex::decode(legacy_signed_private_key).unwrap(),
+        )
+        .await;
+        let expected = MemberIdentifier::Address(account_address);
+        let actual = legacy_signature.recover_signer().await.unwrap();
         assert_eq!(expected, actual);
     }
 }
