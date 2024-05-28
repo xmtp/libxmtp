@@ -9,11 +9,11 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
+import org.xmtp.android.library.codecs.GroupUpdated
 import org.xmtp.android.library.codecs.GroupUpdatedCodec
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
-import org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated
 
 @RunWith(AndroidJUnit4::class)
 class GroupUpdatedTest {
@@ -66,8 +66,8 @@ class GroupUpdatedTest {
         assertEquals(messages.size, 1)
         val content: GroupUpdated? = messages.first().content()
         assertEquals(
-            listOf(boClient.inboxId.lowercase(), caroClient.inboxId.lowercase()).sorted(),
-            content?.addedInboxesList?.map { it.inboxId.lowercase() }?.sorted()
+            listOf(boClient.inboxId, caroClient.inboxId).sorted(),
+            content?.addedInboxesList?.map { it.inboxId }?.sorted()
         )
         assert(content?.removedInboxesList.isNullOrEmpty())
     }
@@ -94,8 +94,8 @@ class GroupUpdatedTest {
         val content: GroupUpdated? = updatedMessages.first().content()
 
         assertEquals(
-            listOf(caroClient.inboxId.lowercase()),
-            content?.removedInboxesList?.map { it.inboxId.lowercase() }?.sorted()
+            listOf(caroClient.inboxId),
+            content?.removedInboxesList?.map { it.inboxId }?.sorted()
         )
         assert(content?.addedInboxesList.isNullOrEmpty())
     }

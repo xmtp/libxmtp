@@ -671,4 +671,20 @@ class GroupTest {
         result = boClient.contacts.isGroupDenied(group.id)
         assert(result)
     }
+
+    @Test
+    fun testCanAllowAndDenyInboxId() {
+        assert(!boClient.contacts.isInboxIdAllowed(alixClient.inboxId))
+        assert(!boClient.contacts.isInboxIdDenied(alixClient.inboxId))
+
+        runBlocking { boClient.contacts.allowInboxId(listOf(alixClient.inboxId)) }
+
+        assert(boClient.contacts.isInboxIdAllowed(alixClient.inboxId))
+        assert(!boClient.contacts.isInboxIdDenied(alixClient.inboxId))
+
+        runBlocking { boClient.contacts.denyInboxIds(listOf(alixClient.inboxId)) }
+
+        assert(!boClient.contacts.isInboxIdAllowed(alixClient.inboxId))
+        assert(boClient.contacts.isInboxIdDenied(alixClient.inboxId))
+    }
 }

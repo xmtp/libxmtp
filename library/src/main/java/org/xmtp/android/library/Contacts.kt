@@ -10,6 +10,7 @@ import org.xmtp.android.library.messages.Topic
 import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.contents.PrivatePreferences.PrivatePreferencesAction
+import org.xmtp.proto.message.contents.PrivatePreferences.PrivatePreferencesAction.AllowInboxId
 import java.util.Date
 
 enum class ConsentState {
@@ -26,6 +27,7 @@ data class ConsentListEntry(
     enum class EntryType {
         ADDRESS,
         GROUP_ID,
+        INBOX_ID
     }
 
     companion object {
@@ -41,6 +43,13 @@ data class ConsentListEntry(
             type: ConsentState = ConsentState.UNKNOWN,
         ): ConsentListEntry {
             return ConsentListEntry(String(groupId), EntryType.GROUP_ID, type)
+        }
+
+        fun inboxId(
+            inboxId: String,
+            type: ConsentState = ConsentState.UNKNOWN,
+        ): ConsentListEntry {
+            return ConsentListEntry(inboxId, EntryType.INBOX_ID, type)
         }
     }
 
@@ -105,6 +114,13 @@ class ConsentList(
             preference.denyGroup?.groupIdsList?.forEach { groupId ->
                 denyGroup(groupId.toByteArray())
             }
+
+            preference.allowInboxId?.inboxIdsList?.forEach { inboxId ->
+                allowInboxId(inboxId)
+            }
+            preference.denyInboxId?.inboxIdsList?.forEach { inboxId ->
+                denyInboxId(inboxId)
+            }
         }
 
         return entries.values.toList()
@@ -144,6 +160,24 @@ class ConsentList(
                                 it.setDenyGroup(
                                     PrivatePreferencesAction.DenyGroup.newBuilder()
                                         .addGroupIds(entry.value.toByteStringUtf8()),
+                                )
+
+                            ConsentState.UNKNOWN -> it.clearMessageType()
+                        }
+                    }
+
+                    ConsentListEntry.EntryType.INBOX_ID -> {
+                        when (entry.consentType) {
+                            ConsentState.ALLOWED ->
+                                it.setAllowInboxId(
+                                    PrivatePreferencesAction.AllowInboxId.newBuilder()
+                                        .addInboxIds(entry.value),
+                                )
+
+                            ConsentState.DENIED ->
+                                it.setDenyInboxId(
+                                    PrivatePreferencesAction.DenyInboxId.newBuilder()
+                                        .addInboxIds(entry.value),
                                 )
 
                             ConsentState.UNKNOWN -> it.clearMessageType()
@@ -197,6 +231,20 @@ class ConsentList(
         return entry
     }
 
+    fun allowInboxId(inboxId: String): ConsentListEntry {
+        val entry = ConsentListEntry.inboxId(inboxId, ConsentState.ALLOWED)
+        entries[entry.key] = entry
+
+        return entry
+    }
+
+    fun denyInboxId(inboxId: String): ConsentListEntry {
+        val entry = ConsentListEntry.inboxId(inboxId, ConsentState.DENIED)
+        entries[entry.key] = entry
+
+        return entry
+    }
+
     fun state(address: String): ConsentState {
         val entry = entries[ConsentListEntry.address(address).key]
 
@@ -205,6 +253,12 @@ class ConsentList(
 
     fun groupState(groupId: ByteArray): ConsentState {
         val entry = entries[ConsentListEntry.groupId(groupId).key]
+
+        return entry?.consentType ?: ConsentState.UNKNOWN
+    }
+
+    fun inboxIdState(inboxId: String): ConsentState {
+        val entry = entries[ConsentListEntry.inboxId(inboxId).key]
 
         return entry?.consentType ?: ConsentState.UNKNOWN
     }
@@ -250,6 +304,20 @@ data class Contacts(
         consentList.publish(entries)
     }
 
+    suspend fun allowInboxId(inboxIds: List<String>) {
+        val entries = inboxIds.map {
+            consentList.allowInboxId(it)
+        }
+        consentList.publish(entries)
+    }
+
+    suspend fun denyInboxIds(inboxIds: List<String>) {
+        val entries = inboxIds.map {
+            consentList.denyInboxId(it)
+        }
+        consentList.publish(entries)
+    }
+
     fun isAllowed(address: String): Boolean {
         return consentList.state(address) == ConsentState.ALLOWED
     }
@@ -264,6 +332,14 @@ data class Contacts(
 
     fun isGroupDenied(groupId: ByteArray): Boolean {
         return consentList.groupState(groupId) == ConsentState.DENIED
+    }
+
+    fun isInboxIdAllowed(inboxId: String): Boolean {
+        return consentList.inboxIdState(inboxId) == ConsentState.ALLOWED
+    }
+
+    fun isInboxIdDenied(inboxId: String): Boolean {
+        return consentList.inboxIdState(inboxId) == ConsentState.DENIED
     }
 
     fun has(peerAddress: String): Boolean = knownBundles[peerAddress] != null
