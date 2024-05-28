@@ -75,7 +75,7 @@ where
         Ok(())
     }
 
-    pub(crate) async fn send_message_history_request(&self) -> Result<String, GroupError> {
+    pub(crate) async fn send_history_request(&self) -> Result<String, GroupError> {
         // find the sync group
         let conn = self.store().conn()?;
         let sync_group_id = conn
@@ -113,7 +113,7 @@ where
         Ok(pin_code)
     }
 
-    pub(crate) async fn send_message_history_reply(
+    pub(crate) async fn send_history_reply(
         &self,
         contents: MessageHistoryReply,
     ) -> Result<(), GroupError> {
@@ -184,7 +184,7 @@ where
         Ok(())
     }
 
-    pub(crate) async fn prepare_groups_to_sync(&self) -> Result<Vec<StoredGroup>, StorageError> {
+    async fn prepare_groups_to_sync(&self) -> Result<Vec<StoredGroup>, StorageError> {
         let conn = self.store().conn()?;
         let groups = conn.find_groups(None, None, None, None)?;
         let mut all_groups: Vec<StoredGroup> = vec![];
@@ -196,9 +196,7 @@ where
         Ok(all_groups)
     }
 
-    pub(crate) async fn prepare_messages_to_sync(
-        &self,
-    ) -> Result<Vec<StoredGroupMessage>, StorageError> {
+    async fn prepare_messages_to_sync(&self) -> Result<Vec<StoredGroupMessage>, StorageError> {
         let conn = self.store().conn()?;
         let groups = conn.find_groups(None, None, None, None)?;
         let mut all_messages: Vec<StoredGroupMessage> = vec![];
@@ -511,21 +509,21 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_send_message_history_request() {
+    async fn test_send_history_request() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
         assert_ok!(client.allow_history_sync().await);
 
         // test that the request is sent, and that the pin code is returned
         let pin_code = client
-            .send_message_history_request()
+            .send_history_request()
             .await
             .expect("history request");
         assert_eq!(pin_code.len(), 4);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_send_message_history_reply() {
+    async fn test_send_history_reply() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
         assert_ok!(client.allow_history_sync().await);
@@ -536,7 +534,7 @@ mod tests {
         let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
         let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
         let reply = HistoryReply::new(&request_id, url, backup_hash, signing_key, encryption_key);
-        let result = client.send_message_history_reply(reply.into()).await;
+        let result = client.send_history_reply(reply.into()).await;
         assert_ok!(result);
     }
 
@@ -550,7 +548,7 @@ mod tests {
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
         let _sent = amal_b
-            .send_message_history_request()
+            .send_history_request()
             .await
             .expect("history request");
 
@@ -588,7 +586,7 @@ mod tests {
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
         let pin_code = amal_b
-            .send_message_history_request()
+            .send_history_request()
             .await
             .expect("history request");
 
@@ -615,7 +613,7 @@ mod tests {
 
         // amal_b sends a message history request to sync group messages
         let pin_code = amal_b
-            .send_message_history_request()
+            .send_history_request()
             .await
             .expect("history request");
 
@@ -636,7 +634,7 @@ mod tests {
             HistoryKeyType::new_chacha20_poly1305_key(),
         );
         amal_a
-            .send_message_history_reply(history_reply.into())
+            .send_history_reply(history_reply.into())
             .await
             .expect("send reply");
 
