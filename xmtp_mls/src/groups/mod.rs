@@ -869,7 +869,7 @@ mod tests {
         builder::ClientBuilder,
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
-            group_mutable_metadata::MetadataField, PreconfiguredPolicies, UpdateAdminListType,
+            group_metadata::{ConversationType, GroupMetadata}, group_mutable_metadata::MetadataField, PreconfiguredPolicies, UpdateAdminListType
         },
         storage::{
             group_intent::IntentState,
@@ -1724,5 +1724,27 @@ mod tests {
             added_by_inbox,
             "The Inviter and added_by_address do not match!"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_can_read_group_creator_inbox_id() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let policies = Some(PreconfiguredPolicies::AllMembers);
+        let amal_group = amal.create_group(policies).unwrap();
+        amal_group.sync(&amal).await.unwrap();
+    
+        let mutable_metadata = amal_group.mutable_metadata().unwrap();
+        assert_eq!(mutable_metadata.admin_list.len(), 1);
+        assert_eq!(mutable_metadata.admin_list[0], amal.inbox_id());
+        
+        let protected_metadata: GroupMetadata = amal_group.metadata().unwrap();
+        assert_eq!(protected_metadata.conversation_type, ConversationType::Group);
+        assert_eq!(protected_metadata.creator_inbox_id, amal.inbox_id());  // Fails here!
+        /*
+         * thread 'groups::tests::test_can_read_group_creator_inbox_id' 
+         * panicked at xmtp_mls/src/groups/mod.rs:1742:9:assertion `left == right` failed
+         * left: ""
+         * right: "8c623aceafbd8a142e5327e5eb4fbee1d519c641730eec7eba84aa82e95abf47"
+         */
     }
 }
