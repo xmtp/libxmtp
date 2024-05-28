@@ -14,7 +14,7 @@ use crate::{
 use crate::{builder::ClientBuilderError, storage::EncryptedMessageStore};
 use crate::{Fetch, Store};
 use ed25519_dalek::SigningKey;
-use ethers::signers::WalletError;
+use ethers::signers::{LocalWallet, Signer, WalletError};
 use log::debug;
 use log::info;
 use openmls::prelude::tls_codec::Serialize;
@@ -51,7 +51,6 @@ use xmtp_proto::{
         message_contents::{signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto},
     },
 };
-use xmtp_v2::k256_helper;
 
 pub enum IdentityStrategy {
     /// Tries to get an identity from the disk store. If not found, getting one from backend.
@@ -424,7 +423,7 @@ fn legacy_key_to_address(legacy_signed_private_key: Vec<u8>) -> Result<String, I
     Ok(validated_legacy_public_key.account_address())
 }
 
-async fn sign_with_legacy_key(
+pub async fn sign_with_legacy_key(
     signature_text: String,
     legacy_signed_private_key: Vec<u8>,
 ) -> Result<LegacyDelegatedSignature, IdentityError> {
@@ -436,13 +435,8 @@ async fn sign_with_legacy_key(
             "Missing secp256k1.union field".to_string(),
         ))?;
     let legacy_private_key = secp256k1.bytes;
-    let (mut delegating_signature, recovery_id) = k256_helper::sign_sha256(
-        &legacy_private_key, // secret_key
-        // TODO: Verify this will create a verifiable signature
-        signature_text.as_bytes(), // message
-    )
-    .map_err(IdentityError::LegacySignature)?;
-    delegating_signature.push(recovery_id); // TODO: normalize recovery ID if necessary
+    let wallet: LocalWallet = hex::encode(legacy_private_key).parse::<LocalWallet>()?;
+    let signature = wallet.sign_message(signature_text.clone()).await?;
 
     let legacy_signed_public_key_proto =
         legacy_signed_private_key_proto
@@ -451,7 +445,7 @@ async fn sign_with_legacy_key(
                 "Missing public_key field".to_string(),
             ))?;
 
-    let recoverable_sig = RecoverableEcdsaSignature::new(signature_text, delegating_signature);
+    let recoverable_sig = RecoverableEcdsaSignature::new(signature_text, signature.to_vec());
 
     Ok(LegacyDelegatedSignature::new(
         recoverable_sig,

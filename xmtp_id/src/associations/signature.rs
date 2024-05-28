@@ -5,14 +5,14 @@ use super::MemberIdentifier;
 use async_trait::async_trait;
 use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey};
 use ethers::{
+    core::k256,
     providers::{Http, Middleware, Provider},
     types::{BlockNumber, U64},
-    utils::hash_message,
+    utils::{hash_message, public_key_to_address},
 };
 use sha2::{Digest, Sha512};
 use thiserror::Error;
-use xmtp_cryptography::signature::h160addr_to_string;
-use xmtp_cryptography::signature::RecoverableSignature;
+use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature};
 use xmtp_proto::xmtp::identity::associations::{
     signature::Signature as SignatureKindProto, Erc1271Signature as Erc1271SignatureProto,
     LegacyDelegatedSignature as LegacyDelegatedSignatureProto,
@@ -305,8 +305,8 @@ impl Signature for InstallationKeySignature {
 
 #[derive(Debug, Clone)]
 pub struct LegacyDelegatedSignature {
-    legacy_key_signature: RecoverableEcdsaSignature, // signature from the legacy key(delegated)
-    signed_public_key_proto: LegacySignedPublicKeyProto, // signature of the wallet(delegator)
+    legacy_key_signature: RecoverableEcdsaSignature, // signature from the legacy key(delegatee)
+    signed_public_key_proto: LegacySignedPublicKeyProto, // signature from the wallet(delegator)
 }
 
 impl LegacyDelegatedSignature {
@@ -324,17 +324,18 @@ impl LegacyDelegatedSignature {
 #[async_trait]
 impl Signature for LegacyDelegatedSignature {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
-        // TODO: Actually verify the private key signature, in addition to extracting the wallet
-        // address from the SignedPublicKey
-        // 1. Verify the RecoverableEcdsaSignature
-        // let legacy_signer = self.legacy_key_signature.recover_signer().await?;
-
-        // 2. Verify the [LegacySignedPublicKeyProto] and make sure it matches to the legacy_signer
+        // Recover the RecoverableEcdsaSignature of the legacy signer(address of the legacy key)
+        let legacy_signer = self.legacy_key_signature.recover_signer().await?;
+        // Derive the address from legacy public key and compare it with legacy_signer.
+        // Note that it's not recovering the address from the __signed__ public key.
         let signed_public_key: ValidatedLegacySignedPublicKey =
             self.signed_public_key_proto.clone().try_into()?;
-        // if MemberIdentifier::Address(signed_public_key.account_address()) != legacy_signer {
-        //     // return Err(SignatureError::Invalid);
-        // }
+        let public_key: k256::ecdsa::VerifyingKey =
+            k256::ecdsa::VerifyingKey::from_sec1_bytes(&signed_public_key.public_key_bytes)?;
+        let address = h160addr_to_string(public_key_to_address(&public_key));
+        if MemberIdentifier::Address(address) != legacy_signer {
+            return Err(SignatureError::Invalid);
+        }
 
         Ok(MemberIdentifier::Address(
             signed_public_key.account_address().to_lowercase(),
@@ -531,7 +532,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // TODO: refactor [ValidatedLegacySignedPublicKey] to separate the validation logic from the protobuf deserialization.
     async fn recover_signer_legacy() {
         // 1. RecoverableEcdsaSignature
         let legacy_key: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
