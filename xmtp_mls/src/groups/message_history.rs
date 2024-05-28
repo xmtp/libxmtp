@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
@@ -210,26 +210,16 @@ where
     }
 }
 
-fn write_groups_file(groups: Vec<StoredGroup>) -> Result<PathBuf, MessageHistoryError> {
-    let tmp_dir = std::env::temp_dir();
-    let file_path = tmp_dir.join("groups.jsonl");
-    let mut file = std::fs::File::create(&file_path)?;
-    for group in groups {
-        let group_str = serde_json::to_string(&group)?;
-        file.write_all(group_str.as_bytes())?;
+fn write_to_file<T: serde::Serialize>(
+    file_path: &Path,
+    content: Vec<T>,
+) -> Result<(), MessageHistoryError> {
+    let mut file = File::create(file_path)?;
+    for entry in content {
+        let entry_str = serde_json::to_string(&entry)?;
+        file.write_all(entry_str.as_bytes())?;
     }
-    Ok(file_path)
-}
-
-fn write_messages_file(messages: Vec<StoredGroupMessage>) -> Result<PathBuf, MessageHistoryError> {
-    let tmp_dir = std::env::temp_dir();
-    let file_path = tmp_dir.join("messages.jsonl");
-    let mut file = std::fs::File::create(&file_path)?;
-    for message in messages {
-        let message_str = serde_json::to_string(&message)?;
-        file.write_all(message_str.as_bytes())?;
-    }
-    Ok(file_path)
+    Ok(())
 }
 
 fn encrypt_history_file(
