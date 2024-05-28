@@ -7,9 +7,11 @@ use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey};
 use ethers::{
     core::k256,
     providers::{Http, Middleware, Provider},
+    signers::{LocalWallet, Signer},
     types::{BlockNumber, U64},
     utils::{hash_message, public_key_to_address},
 };
+use prost::Message;
 use sha2::{Digest, Sha512};
 use thiserror::Error;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature};
@@ -19,14 +21,25 @@ use xmtp_proto::xmtp::identity::associations::{
     RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
     RecoverableEd25519Signature as RecoverableEd25519SignatureProto, Signature as SignatureProto,
 };
-use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
+use xmtp_proto::xmtp::message_contents::{
+    signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto,
+    SignedPublicKey as LegacySignedPublicKeyProto,
+};
 
 #[derive(Debug, Error)]
 pub enum SignatureError {
+    // ethers errors
     #[error(transparent)]
-    CryptoSignatureError(#[from] xmtp_cryptography::signature::SignatureError),
+    ProviderError(#[from] ethers::providers::ProviderError),
+    #[error(transparent)]
+    WalletError(#[from] ethers::signers::WalletError),
     #[error(transparent)]
     ECDSAError(#[from] ethers::types::SignatureError),
+
+    #[error("Malformed legacy key: {0}")]
+    MalformedLegacyKey(String),
+    #[error(transparent)]
+    CryptoSignatureError(#[from] xmtp_cryptography::signature::SignatureError),
     #[error(transparent)]
     VerifierError(#[from] crate::scw_verifier::VerifierError),
     #[error("ed25519 Signature failed {0}")]
@@ -42,7 +55,7 @@ pub enum SignatureError {
     #[error(transparent)]
     UrlParseError(#[from] url::ParseError),
     #[error(transparent)]
-    ProviderError(#[from] ethers::providers::ProviderError),
+    DecodeError(#[from] prost::DecodeError),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -364,6 +377,37 @@ impl Signature for LegacyDelegatedSignature {
     }
 }
 
+/// Decode the `legacy_signed_private_key` to legacy private / public key pairs & sign the `signature_text` with the private key.
+pub async fn sign_with_legacy_key(
+    signature_text: String,
+    legacy_signed_private_key: Vec<u8>,
+) -> Result<LegacyDelegatedSignature, SignatureError> {
+    let legacy_signed_private_key_proto =
+        LegacySignedPrivateKeyProto::decode(legacy_signed_private_key.as_slice())?;
+    let signed_private_key::Union::Secp256k1(secp256k1) = legacy_signed_private_key_proto
+        .union
+        .ok_or(SignatureError::MalformedLegacyKey(
+            "Missing secp256k1.union field".to_string(),
+        ))?;
+    let legacy_private_key = secp256k1.bytes;
+    let wallet: LocalWallet = hex::encode(legacy_private_key).parse::<LocalWallet>()?;
+    let signature = wallet.sign_message(signature_text.clone()).await?;
+
+    let legacy_signed_public_key_proto =
+        legacy_signed_private_key_proto
+            .public_key
+            .ok_or(SignatureError::MalformedLegacyKey(
+                "Missing public_key field".to_string(),
+            ))?;
+
+    let recoverable_sig = RecoverableEcdsaSignature::new(signature_text, signature.to_vec());
+
+    Ok(LegacyDelegatedSignature::new(
+        recoverable_sig,
+        legacy_signed_public_key_proto,
+    ))
+}
+
 #[derive(Clone, Debug)]
 pub struct ValidatedLegacySignedPublicKey {
     pub(crate) account_address: String,
@@ -426,30 +470,7 @@ mod tests {
 
     use prost::Message;
     use sha2::{Digest, Sha512};
-    use xmtp_proto::xmtp::message_contents::{
-        signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto,
-        SignedPublicKey as LegacySignedPublicKeyProto,
-    };
-
-    // Duplicated & modified the function of [xmtp_mls::identity::sign_with_legacy_key] to avoid circular dependency.
-    // An ideal refactor would be moving this entire `signature.rs` file to xmtp_cryptography crate.
-    pub async fn sign_with_legacy_key(
-        signature_text: String,
-        legacy_signed_private_key: Vec<u8>,
-    ) -> LegacyDelegatedSignature {
-        let legacy_signed_private_key_proto =
-            LegacySignedPrivateKeyProto::decode(legacy_signed_private_key.as_slice()).unwrap();
-        let signed_private_key::Union::Secp256k1(secp256k1) =
-            legacy_signed_private_key_proto.union.unwrap();
-        let legacy_private_key = secp256k1.bytes;
-        let wallet: LocalWallet = hex::encode(legacy_private_key)
-            .parse::<LocalWallet>()
-            .unwrap();
-        let signature = wallet.sign_message(signature_text.clone()).await.unwrap();
-        let legacy_signed_public_key_proto = legacy_signed_private_key_proto.public_key.unwrap();
-        let recoverable_sig = RecoverableEcdsaSignature::new(signature_text, signature.to_vec());
-        LegacyDelegatedSignature::new(recoverable_sig, legacy_signed_public_key_proto)
-    }
+    use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
     #[test]
     fn validate_good_key_round_trip() {
@@ -564,7 +585,8 @@ mod tests {
             signature_text,
             hex::decode(legacy_signed_private_key).unwrap(),
         )
-        .await;
+        .await
+        .unwrap();
         let expected = MemberIdentifier::Address(account_address);
         let actual = legacy_signature.recover_signer().await.unwrap();
         assert_eq!(expected, actual);

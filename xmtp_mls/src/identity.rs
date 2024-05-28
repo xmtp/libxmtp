@@ -14,7 +14,7 @@ use crate::{
 use crate::{builder::ClientBuilderError, storage::EncryptedMessageStore};
 use crate::{Fetch, Store};
 use ed25519_dalek::SigningKey;
-use ethers::signers::{LocalWallet, Signer, WalletError};
+use ethers::signers::WalletError;
 use log::debug;
 use log::info;
 use openmls::prelude::tls_codec::Serialize;
@@ -34,12 +34,11 @@ use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use sha2::{Digest, Sha512};
 use thiserror::Error;
-use xmtp_id::associations::ValidatedLegacySignedPublicKey;
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
-        generate_inbox_id, InstallationKeySignature, LegacyDelegatedSignature, MemberIdentifier,
-        RecoverableEcdsaSignature,
+        generate_inbox_id, sign_with_legacy_key, InstallationKeySignature, MemberIdentifier,
+        ValidatedLegacySignedPublicKey,
     },
     constants::INSTALLATION_KEY_SIGNATURE_CONTEXT,
     InboxId,
@@ -47,8 +46,7 @@ use xmtp_id::{
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::{
-        identity::MlsCredential,
-        message_contents::{signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto},
+        identity::MlsCredential, message_contents::SignedPrivateKey as LegacySignedPrivateKeyProto,
     },
 };
 
@@ -421,36 +419,6 @@ fn legacy_key_to_address(legacy_signed_private_key: Vec<u8>) -> Result<String, I
             .try_into()?;
 
     Ok(validated_legacy_public_key.account_address())
-}
-
-pub async fn sign_with_legacy_key(
-    signature_text: String,
-    legacy_signed_private_key: Vec<u8>,
-) -> Result<LegacyDelegatedSignature, IdentityError> {
-    let legacy_signed_private_key_proto =
-        LegacySignedPrivateKeyProto::decode(legacy_signed_private_key.as_slice())?;
-    let signed_private_key::Union::Secp256k1(secp256k1) = legacy_signed_private_key_proto
-        .union
-        .ok_or(IdentityError::MalformedLegacyKey(
-            "Missing secp256k1.union field".to_string(),
-        ))?;
-    let legacy_private_key = secp256k1.bytes;
-    let wallet: LocalWallet = hex::encode(legacy_private_key).parse::<LocalWallet>()?;
-    let signature = wallet.sign_message(signature_text.clone()).await?;
-
-    let legacy_signed_public_key_proto =
-        legacy_signed_private_key_proto
-            .public_key
-            .ok_or(IdentityError::MalformedLegacyKey(
-                "Missing public_key field".to_string(),
-            ))?;
-
-    let recoverable_sig = RecoverableEcdsaSignature::new(signature_text, signature.to_vec());
-
-    Ok(LegacyDelegatedSignature::new(
-        recoverable_sig,
-        legacy_signed_public_key_proto,
-    ))
 }
 
 fn sized_installation_key(installation_key: &[u8]) -> Result<&[u8; 32], IdentityError> {
