@@ -34,12 +34,11 @@ use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use sha2::{Digest, Sha512};
 use thiserror::Error;
-use xmtp_id::associations::ValidatedLegacySignedPublicKey;
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
-        generate_inbox_id, InstallationKeySignature, LegacyDelegatedSignature, MemberIdentifier,
-        RecoverableEcdsaSignature,
+        generate_inbox_id, sign_with_legacy_key, InstallationKeySignature, MemberIdentifier,
+        ValidatedLegacySignedPublicKey,
     },
     constants::INSTALLATION_KEY_SIGNATURE_CONTEXT,
     InboxId,
@@ -47,11 +46,9 @@ use xmtp_id::{
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::{
-        identity::MlsCredential,
-        message_contents::{signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto},
+        identity::MlsCredential, message_contents::SignedPrivateKey as LegacySignedPrivateKeyProto,
     },
 };
-use xmtp_v2::k256_helper;
 
 pub enum IdentityStrategy {
     /// Tries to get an identity from the disk store. If not found, getting one from backend.
@@ -422,41 +419,6 @@ fn legacy_key_to_address(legacy_signed_private_key: Vec<u8>) -> Result<String, I
             .try_into()?;
 
     Ok(validated_legacy_public_key.account_address())
-}
-
-async fn sign_with_legacy_key(
-    signature_text: String,
-    legacy_signed_private_key: Vec<u8>,
-) -> Result<LegacyDelegatedSignature, IdentityError> {
-    let legacy_signed_private_key_proto =
-        LegacySignedPrivateKeyProto::decode(legacy_signed_private_key.as_slice())?;
-    let signed_private_key::Union::Secp256k1(secp256k1) = legacy_signed_private_key_proto
-        .union
-        .ok_or(IdentityError::MalformedLegacyKey(
-            "Missing secp256k1.union field".to_string(),
-        ))?;
-    let legacy_private_key = secp256k1.bytes;
-    let (mut delegating_signature, recovery_id) = k256_helper::sign_sha256(
-        &legacy_private_key, // secret_key
-        // TODO: Verify this will create a verifiable signature
-        signature_text.as_bytes(), // message
-    )
-    .map_err(IdentityError::LegacySignature)?;
-    delegating_signature.push(recovery_id); // TODO: normalize recovery ID if necessary
-
-    let legacy_signed_public_key_proto =
-        legacy_signed_private_key_proto
-            .public_key
-            .ok_or(IdentityError::MalformedLegacyKey(
-                "Missing public_key field".to_string(),
-            ))?;
-
-    let recoverable_sig = RecoverableEcdsaSignature::new(signature_text, delegating_signature);
-
-    Ok(LegacyDelegatedSignature::new(
-        recoverable_sig,
-        legacy_signed_public_key_proto,
-    ))
 }
 
 fn sized_installation_key(installation_key: &[u8]) -> Result<&[u8; 32], IdentityError> {
