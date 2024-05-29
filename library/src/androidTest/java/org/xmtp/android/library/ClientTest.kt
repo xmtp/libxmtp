@@ -3,8 +3,8 @@ package org.xmtp.android.library
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -12,6 +12,7 @@ import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.PrivateKeyBundleV1Builder
 import org.xmtp.android.library.messages.generate
 import org.xmtp.proto.message.contents.PrivateKeyOuterClass
+import uniffi.xmtpv3.GenericException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
@@ -204,7 +205,7 @@ class ClientTest {
     fun testDoesNotCreateAV3Client() {
         val fakeWallet = PrivateKeyBuilder()
         val client = Client().create(account = fakeWallet)
-        Assert.assertThrows("Error no V3 client initialized", XMTPException::class.java) {
+        assertThrows("Error no V3 client initialized", XMTPException::class.java) {
             runBlocking {
                 client.canMessageV3(listOf(client.address))[client.address]?.let { assert(!it) }
             }
@@ -277,6 +278,53 @@ class ClientTest {
             expectation.get(5, TimeUnit.SECONDS)
         } catch (e: Exception) {
             fail("Error: $e")
+        }
+    }
+
+    @Test
+    fun testCanDropReconnectDatabase() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val fakeWallet = PrivateKeyBuilder()
+        val fakeWallet2 = PrivateKeyBuilder()
+        val boClient =
+            Client().create(
+                account = fakeWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    enableAlphaMls = true,
+                    appContext = context
+                )
+            )
+        val alixClient =
+            Client().create(
+                account = fakeWallet2,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    enableAlphaMls = true,
+                    appContext = context
+                )
+            )
+
+        runBlocking {
+            boClient.conversations.newGroup(listOf(alixClient.address))
+            boClient.conversations.syncGroups()
+        }
+
+        runBlocking {
+            assertEquals(boClient.conversations.listGroups().size, 1)
+        }
+
+        boClient.dropLocalDatabaseConnection()
+
+        assertThrows(
+            "Client error: storage error: Pool needs to  reconnect before use",
+            GenericException::class.java
+        ) { runBlocking { boClient.conversations.listGroups() } }
+
+        runBlocking { boClient.reconnectLocalDatabase() }
+
+        runBlocking {
+            assertEquals(boClient.conversations.listGroups().size, 1)
         }
     }
 }
