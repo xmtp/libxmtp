@@ -38,8 +38,8 @@ use self::{
     group_permissions::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
-    validated_commit::extract_group_membership,
     intents::{AdminListActionType, UpdateAdminListIntentData, UpdateMetadataIntentData},
+    validated_commit::extract_group_membership,
 };
 use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
@@ -926,7 +926,6 @@ mod tests {
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
             build_group_membership_extension, group_membership::GroupMembership,
-
             group_mutable_metadata::MetadataField, members::PermissionLevel, PreconfiguredPolicies,
             UpdateAdminListType,
         },
