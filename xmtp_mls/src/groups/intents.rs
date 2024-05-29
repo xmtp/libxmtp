@@ -218,7 +218,6 @@ impl UpdateGroupMembershipIntentData {
     }
 
     pub fn apply_to_group_membership(&self, group_membership: &GroupMembership) -> GroupMembership {
-        log::info!("old group membership: {:?}", group_membership.members);
         let mut new_membership = group_membership.clone();
         for (inbox_id, sequence_id) in self.membership_updates.iter() {
             new_membership.add(inbox_id.clone(), *sequence_id);
@@ -227,7 +226,6 @@ impl UpdateGroupMembershipIntentData {
         for inbox_id in self.removed_members.iter() {
             new_membership.remove(inbox_id)
         }
-        log::info!("updated group membership: {:?}", new_membership.members);
         new_membership
     }
 }

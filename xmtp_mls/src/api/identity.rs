@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use super::{ApiClientWrapper, WrappedApiError};
 use crate::XmtpApi;
+use tokio::time::Instant;
 use xmtp_id::{
     associations::{DeserializationError, IdentityUpdate},
     InboxId,
@@ -79,6 +80,7 @@ where
         &self,
         filters: Vec<GetIdentityUpdatesV2Filter>,
     ) -> Result<InboxUpdateMap, WrappedApiError> {
+        let start = Instant::now();
         let result = self
             .api_client
             .get_identity_updates_v2(GetIdentityUpdatesV2Request {
@@ -86,7 +88,7 @@ where
             })
             .await?;
 
-        result
+        let out = result
             .responses
             .into_iter()
             .map(|response| {
@@ -102,14 +104,16 @@ where
 
                 Ok((response.inbox_id, deserialized_updates))
             })
-            .collect::<Result<InboxUpdateMap, WrappedApiError>>()
+            .collect::<Result<InboxUpdateMap, WrappedApiError>>();
+        log::debug!("Time to get identity updates: {:?}", start.elapsed());
+        out
     }
 
     pub async fn get_inbox_ids(
         &self,
         account_addresses: Vec<String>,
     ) -> Result<AddressToInboxIdMap, WrappedApiError> {
-        log::info!("Asked for account addresses: {:?}", &account_addresses);
+        let start = Instant::now();
         let result = self
             .api_client
             .get_inbox_ids(GetInboxIdsRequest {
@@ -120,6 +124,7 @@ where
             })
             .await?;
 
+        log::debug!("Time to get inbox ids: {:?}", start.elapsed());
         Ok(result
             .responses
             .into_iter()

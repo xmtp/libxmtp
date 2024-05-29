@@ -1,6 +1,6 @@
 services:
   node:
-    image: xmtp/node-go:latest
+    image: xmtp/node-go@sha256:86f0e7d228bdb0912bb382953698b9737db3de468cf8a21cb9abe9c8f1dc9fe4
     platform: linux/amd64
     environment:
       - GOWAKU-NODEKEY=8a30dcb604b0b53627a5adc054dbf434b446628d4bd1eccc681d223f0550ce67
@@ -33,6 +33,6 @@ services:
       POSTGRES_PASSWORD: xmtp
 
   mlsdb:
-    image: postgres:13
+    image: postgres:16
     environment:
       POSTGRES_PASSWORD: xmtp

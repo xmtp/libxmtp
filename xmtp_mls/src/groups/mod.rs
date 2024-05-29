@@ -46,7 +46,7 @@ use self::{
     message_history::MessageHistoryError,
     validated_commit::CommitValidationError,
 };
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, sync::Arc, time::Instant};
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::InboxId;
 use xmtp_proto::xmtp::mls::{
@@ -209,11 +209,12 @@ impl MlsGroup {
 
     // Load the stored MLS group from the OpenMLS provider's keystore
     fn load_mls_group(&self, provider: impl OpenMlsProvider) -> Result<OpenMlsGroup, GroupError> {
+        let start = Instant::now();
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
                 .map_err(|_| GroupError::GroupNotFound)?
                 .ok_or(GroupError::GroupNotFound)?;
-
+        log::debug!("Time to load MLS group {:?}", start.elapsed());
         Ok(mls_group)
     }
 

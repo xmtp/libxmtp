@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Instant};
 
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, Credential as OpenMlsCredential},
@@ -201,6 +201,7 @@ impl ValidatedCommit {
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
     ) -> Result<Self, CommitValidationError> {
+        let start = Instant::now();
         // Get the immutable and mutable metadata
         let extensions = openmls_group.extensions();
         let immutable_metadata: GroupMetadata = extensions.try_into()?;
@@ -304,6 +305,8 @@ impl ValidatedCommit {
         if !policy_set.policies.evaluate_commit(&verified_commit) {
             return Err(CommitValidationError::InsufficientPermissions);
         }
+
+        log::debug!("Time to create verified commit {:?}", start.elapsed());
 
         Ok(verified_commit)
     }

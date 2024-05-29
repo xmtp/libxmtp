@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Instant;
 
 use super::ApiClientWrapper;
 use crate::{retry_async, XmtpApi};
@@ -6,15 +7,14 @@ use xmtp_proto::api_client::{
     Error as ApiError, ErrorKind, GroupMessageStream, WelcomeMessageStream,
 };
 use xmtp_proto::xmtp::mls::api::v1::{
-    get_identity_updates_response::update::Kind as UpdateKind,
     group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
     subscribe_group_messages_request::Filter as GroupFilterProto,
     subscribe_welcome_messages_request::Filter as WelcomeFilterProto,
-    FetchKeyPackagesRequest, GetIdentityUpdatesRequest, GroupMessage, GroupMessageInput,
-    KeyPackageUpload, PagingInfo, QueryGroupMessagesRequest, QueryWelcomeMessagesRequest,
-    RegisterInstallationRequest, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
-    SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-    UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
+    FetchKeyPackagesRequest, GroupMessage, GroupMessageInput, KeyPackageUpload, PagingInfo,
+    QueryGroupMessagesRequest, QueryWelcomeMessagesRequest, RegisterInstallationRequest,
+    SendGroupMessagesRequest, SendWelcomeMessagesRequest, SortDirection,
+    SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
+    WelcomeMessage, WelcomeMessageInput,
 };
 
 /// A filter for querying group messages
@@ -63,8 +63,6 @@ pub enum IdentityUpdate {
 
 type KeyPackageMap = HashMap<Vec<u8>, Vec<u8>>;
 
-type IdentityUpdatesMap = HashMap<String, Vec<IdentityUpdate>>;
-
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpApi,
@@ -74,6 +72,7 @@ where
         group_id: Vec<u8>,
         id_cursor: Option<u64>,
     ) -> Result<Vec<GroupMessage>, ApiError> {
+        let start = Instant::now();
         let mut out: Vec<GroupMessage> = vec![];
         let page_size = 100;
         let mut id_cursor = id_cursor;
@@ -108,6 +107,8 @@ where
 
             id_cursor = Some(paging_info.id_cursor);
         }
+
+        log::debug!("Time to query group messages {:?}", start.elapsed());
 
         Ok(out)
     }
@@ -211,6 +212,7 @@ where
         &self,
         installation_keys: Vec<Vec<u8>>,
     ) -> Result<KeyPackageMap, ApiError> {
+        let start = Instant::now();
         let res = retry_async!(
             self.retry_strategy,
             (async {
@@ -239,6 +241,8 @@ where
             })
             .collect();
 
+        log::debug!("Time to fetch key packages {:?}", start.elapsed());
+
         Ok(mapping)
     }
 
@@ -258,65 +262,6 @@ where
         )?;
 
         Ok(())
-    }
-
-    pub async fn get_identity_updates(
-        &self,
-        start_time_ns: u64,
-        account_addresses: Vec<String>,
-    ) -> Result<IdentityUpdatesMap, ApiError> {
-        let result = retry_async!(
-            self.retry_strategy,
-            (async {
-                self.api_client
-                    .get_identity_updates(GetIdentityUpdatesRequest {
-                        start_time_ns,
-                        account_addresses: account_addresses.clone(),
-                    })
-                    .await
-            })
-        )?;
-
-        if result.updates.len() != account_addresses.len() {
-            println!("mismatched number of results");
-            return Err(ApiError::new(ErrorKind::MlsError));
-        }
-
-        let mapping: IdentityUpdatesMap = result
-            .updates
-            .into_iter()
-            .zip(account_addresses.into_iter())
-            .map(|(update, account_address)| {
-                (
-                    account_address,
-                    update
-                        .updates
-                        .into_iter()
-                        .map(|update| match update.kind {
-                            Some(UpdateKind::NewInstallation(new_installation)) => {
-                                IdentityUpdate::NewInstallation(NewInstallation {
-                                    timestamp_ns: update.timestamp_ns,
-                                    installation_key: new_installation.installation_key,
-                                    credential_bytes: new_installation.credential_identity,
-                                })
-                            }
-                            Some(UpdateKind::RevokedInstallation(revoke_installation)) => {
-                                IdentityUpdate::RevokeInstallation(RevokeInstallation {
-                                    timestamp_ns: update.timestamp_ns,
-                                    installation_key: revoke_installation.installation_key,
-                                })
-                            }
-                            None => {
-                                println!("no update kind");
-                                IdentityUpdate::Invalid
-                            }
-                        })
-                        .collect(),
-                )
-            })
-            .collect();
-
-        Ok(mapping)
     }
 
     pub async fn send_group_messages(&self, group_messages: Vec<&[u8]>) -> Result<(), ApiError> {
@@ -379,11 +324,7 @@ pub mod tests {
     use xmtp_proto::{
         api_client::{Error, ErrorKind},
         xmtp::mls::api::v1::{
-            fetch_key_packages_response::KeyPackage,
-            get_identity_updates_response::{
-                update::Kind as UpdateKind, NewInstallationUpdate, Update, WalletUpdates,
-            },
-            FetchKeyPackagesResponse, GetIdentityUpdatesResponse, PagingInfo,
+            fetch_key_packages_response::KeyPackage, FetchKeyPackagesResponse, PagingInfo,
             QueryGroupMessagesResponse, RegisterInstallationResponse,
         },
     };
@@ -453,81 +394,6 @@ pub mod tests {
                 assert_eq!(v, vec![7, 8, 9]);
             } else {
                 assert_eq!(v, vec![10, 11, 12]);
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_get_identity_updates() {
-        let mut mock_api = MockApiClient::new();
-        let start_time_ns = 12;
-        let account_addresses = vec!["wallet1".to_string(), "wallet2".to_string()];
-        // account_addresses gets moved below but needs to be used for assertions later
-        let account_addresses_clone = account_addresses.clone();
-        mock_api
-            .expect_get_identity_updates()
-            .withf(move |req| {
-                req.start_time_ns.eq(&start_time_ns) && req.account_addresses.eq(&account_addresses)
-            })
-            .returning(move |_| {
-                Ok(GetIdentityUpdatesResponse {
-                    updates: {
-                        vec![
-                            WalletUpdates {
-                                updates: vec![Update {
-                                    timestamp_ns: 1,
-                                    kind: Some(UpdateKind::NewInstallation(
-                                        NewInstallationUpdate {
-                                            installation_key: vec![1, 2, 3],
-                                            credential_identity: vec![4, 5, 6],
-                                        },
-                                    )),
-                                }],
-                            },
-                            WalletUpdates {
-                                updates: vec![Update {
-                                    timestamp_ns: 2,
-                                    kind: Some(UpdateKind::NewInstallation(
-                                        NewInstallationUpdate {
-                                            installation_key: vec![7, 8, 9],
-                                            credential_identity: vec![10, 11, 12],
-                                        },
-                                    )),
-                                }],
-                            },
-                        ]
-                    },
-                })
-            });
-
-        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
-        let result = wrapper
-            .get_identity_updates(start_time_ns, account_addresses_clone.clone())
-            .await
-            .unwrap();
-        assert_eq!(result.len(), 2);
-
-        for (k, v) in result {
-            if k.eq(&account_addresses_clone[0]) {
-                assert_eq!(v.len(), 1);
-                assert_eq!(
-                    v[0],
-                    super::IdentityUpdate::NewInstallation(super::NewInstallation {
-                        installation_key: vec![1, 2, 3],
-                        credential_bytes: vec![4, 5, 6],
-                        timestamp_ns: 1,
-                    })
-                );
-            } else {
-                assert_eq!(v.len(), 1);
-                assert_eq!(
-                    v[0],
-                    super::IdentityUpdate::NewInstallation(super::NewInstallation {
-                        installation_key: vec![7, 8, 9],
-                        credential_bytes: vec![10, 11, 12],
-                        timestamp_ns: 2,
-                    })
-                );
             }
         }
     }

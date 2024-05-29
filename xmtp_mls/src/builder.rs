@@ -128,6 +128,12 @@ mod tests {
             .unwrap()
     }
 
+    async fn get_dev_grpc_client() -> GrpcClient {
+        GrpcClient::create("https://grpc.dev.xmtp.network".to_string(), true)
+            .await
+            .unwrap()
+    }
+
     async fn register_client(client: &Client<GrpcClient>, owner: &impl InboxOwner) {
         let mut signature_request = client.context.signature_request().unwrap();
         let signature_text = signature_request.signature_text();
@@ -147,6 +153,10 @@ mod tests {
             self.api_client(get_local_grpc_client().await)
         }
 
+        pub async fn dev_grpc(self) -> Self {
+            self.api_client(get_dev_grpc_client().await)
+        }
+
         fn temp_store(self) -> Self {
             let tmpdb = tmp_path();
             self.store(
@@ -161,6 +171,23 @@ mod tests {
             ))
             .temp_store()
             .local_grpc()
+            .await
+            .build()
+            .await
+            .unwrap();
+
+            register_client(&client, owner).await;
+
+            client
+        }
+
+        pub async fn new_dev_client(owner: &impl InboxOwner) -> Client<GrpcClient> {
+            let client = Self::new(IdentityStrategy::CreateIfNotFound(
+                owner.get_address(),
+                None,
+            ))
+            .temp_store()
+            .dev_grpc()
             .await
             .build()
             .await

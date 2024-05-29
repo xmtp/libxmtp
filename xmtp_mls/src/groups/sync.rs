@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     mem::discriminant,
+    time::Instant,
 };
 
 use super::{
@@ -220,6 +221,7 @@ impl MlsGroup {
                 .await?;
 
                 debug!("[{}] merging pending commit", self.context.inbox_id());
+                let merge_pending_commit_start = Instant::now();
                 if let Err(err) = openmls_group.merge_pending_commit(&provider) {
                     log::error!("error merging commit: {}", err);
                     match openmls_group.clear_pending_commit(provider.storage()) {
@@ -233,6 +235,10 @@ impl MlsGroup {
 
                     conn.set_group_intent_to_publish(intent.id)?;
                 } else {
+                    log::debug!(
+                        "Time to merge pending commit {:?}",
+                        merge_pending_commit_start.elapsed()
+                    );
                     // If no error committing the change, write a transcript message
                     self.save_transcript_message(
                         &conn,
@@ -290,7 +296,9 @@ impl MlsGroup {
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
         debug!("[{}] processing external message", self.context.inbox_id());
+        let start = Instant::now();
         let decrypted_message = openmls_group.process_message(provider, message)?;
+        log::debug!("Time to process external message {:?}", start.elapsed());
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
         debug!(
@@ -832,6 +840,7 @@ impl MlsGroup {
         inbox_ids_to_add: Vec<InboxId>,
         inbox_ids_to_remove: Vec<InboxId>,
     ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
+        let start = Instant::now();
         let mls_group = self.load_mls_group(provider)?;
         let existing_group_membership = extract_group_membership(mls_group.extensions())?;
 
@@ -876,7 +885,7 @@ impl MlsGroup {
 
                     Ok(updates)
                 })?;
-
+        log::debug!("Time to get membership updates {:?}", start.elapsed());
         Ok(UpdateGroupMembershipIntentData::new(
             changed_inbox_ids,
             inbox_ids_to_remove,
@@ -950,6 +959,7 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
     intent_data: UpdateGroupMembershipIntentData,
     signer: &SignatureKeyPair,
 ) -> Result<(MlsMessageOut, Option<PostCommitAction>), GroupError> {
+    let start = Instant::now();
     let extensions: Extensions = openmls_group.extensions().clone();
 
     let old_group_membership = extract_group_membership(&extensions)?;
@@ -1006,6 +1016,7 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
     let mut new_extensions = extensions.clone();
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
+    let create_commit_start = Instant::now();
     // Commit to the pending proposals, which will clear the proposal queue
     let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
         provider,
@@ -1014,6 +1025,7 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
         &leaf_nodes_to_remove,
         new_extensions,
     )?;
+    log::debug!("Time to create commit {:?}", create_commit_start.elapsed());
 
     let post_commit_action = match maybe_welcome_message {
         Some(welcome_message) => Some(PostCommitAction::from_welcome(
@@ -1022,7 +1034,10 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
         )?),
         None => None,
     };
-
+    log::debug!(
+        "Time to apply update group membership intent {:?}",
+        start.elapsed()
+    );
     Ok((commit, post_commit_action))
 }
 

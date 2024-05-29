@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::storage::association_state::StoredAssociationState;
 use prost::Message;
 use thiserror::Error;
+use tokio::time::Instant;
 use xmtp_id::associations::{
     apply_update,
     builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
@@ -129,6 +130,7 @@ where
         starting_sequence_id: Option<i64>,
         ending_sequence_id: Option<i64>,
     ) -> Result<AssociationStateDiff, ClientError> {
+        let start_time = Instant::now();
         if starting_sequence_id.is_none() {
             return Ok(self
                 .get_association_state(conn, inbox_id.as_ref(), ending_sequence_id)
@@ -151,7 +153,12 @@ where
             final_state = apply_update(final_state, update).await?;
         }
 
-        Ok(initial_state.diff(&final_state))
+        let diff = initial_state.diff(&final_state);
+        log::debug!(
+            "Time to get association state diff {:?}",
+            start_time.elapsed(),
+        );
+        Ok(diff)
     }
 
     pub async fn create_inbox(
@@ -353,8 +360,9 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
             })
         })
         .collect::<Vec<StoredIdentityUpdate>>();
-
+    let start = Instant::now();
     conn.insert_or_ignore_identity_updates(&to_store)?;
+    log::debug!("Time to insert updates {:?}", start.elapsed());
     Ok(updates)
 }
 

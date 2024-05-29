@@ -17,6 +17,7 @@ prost = { workspace = true, features = ["prost-derive"] }
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tonic = { workspace = true, features = [
+    "gzip",
     "tls",
     "tls-roots",
     "tls-webpki-roots",
