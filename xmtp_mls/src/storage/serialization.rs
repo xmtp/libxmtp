@@ -15,5 +15,5 @@ where
     T: serde::de::DeserializeOwned,
 {
     serde_json::from_slice(bytes)
-        .map_err(|e| StorageError::Deserialization("Failed to db_deserialize".to_string()))
+        .map_err(|_| StorageError::Deserialization("Failed to db_deserialize".to_string()))
 }
