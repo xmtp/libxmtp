@@ -8,23 +8,26 @@
 import SwiftUI
 import XMTPiOS
 
-enum ConversationOrGroup: Identifiable, Hashable {
+enum ConversationOrGroup: Hashable {
+	
 	case conversation(Conversation), group(XMTPiOS.Group)
 
-	static func == (lhs: ConversationOrGroup, rhs: ConversationOrGroup) -> Bool {
-		lhs.id == rhs.id
+	static func == (lhs: ConversationOrGroup, rhs: ConversationOrGroup) throws -> Bool {
+		try lhs.id == rhs.id
 	}
 
-	func hash(into hasher: inout Hasher) {
-		id.hash(into: &hasher)
+	func hash(into hasher: inout Hasher) throws {
+		try id.hash(into: &hasher)
 	}
 
 	var id: String {
-		switch self {
-		case .conversation(let conversation):
-			return conversation.peerAddress
-		case .group(let group):
-			return group.memberAddresses.joined(separator: ",")
+		get throws {
+			switch self {
+			case .conversation(let conversation):
+				return try conversation.peerAddress
+			case .group(let group):
+				return try group.members.map(\.inboxId).joined(separator: ",")
+			}
 		}
 	}
 

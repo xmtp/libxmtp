@@ -66,6 +66,22 @@ public struct Xmtp_MessageContents_PrivatePreferencesAction {
     set {messageType = .denyGroup(newValue)}
   }
 
+  public var allowInboxID: Xmtp_MessageContents_PrivatePreferencesAction.AllowInboxId {
+    get {
+      if case .allowInboxID(let v)? = messageType {return v}
+      return Xmtp_MessageContents_PrivatePreferencesAction.AllowInboxId()
+    }
+    set {messageType = .allowInboxID(newValue)}
+  }
+
+  public var denyInboxID: Xmtp_MessageContents_PrivatePreferencesAction.DenyInboxId {
+    get {
+      if case .denyInboxID(let v)? = messageType {return v}
+      return Xmtp_MessageContents_PrivatePreferencesAction.DenyInboxId()
+    }
+    set {messageType = .denyInboxID(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public enum OneOf_MessageType: Equatable {
@@ -73,6 +89,8 @@ public struct Xmtp_MessageContents_PrivatePreferencesAction {
     case denyAddress(Xmtp_MessageContents_PrivatePreferencesAction.DenyAddress)
     case allowGroup(Xmtp_MessageContents_PrivatePreferencesAction.AllowGroup)
     case denyGroup(Xmtp_MessageContents_PrivatePreferencesAction.DenyGroup)
+    case allowInboxID(Xmtp_MessageContents_PrivatePreferencesAction.AllowInboxId)
+    case denyInboxID(Xmtp_MessageContents_PrivatePreferencesAction.DenyInboxId)
 
   #if !swift(>=4.1)
     public static func ==(lhs: Xmtp_MessageContents_PrivatePreferencesAction.OneOf_MessageType, rhs: Xmtp_MessageContents_PrivatePreferencesAction.OneOf_MessageType) -> Bool {
@@ -94,6 +112,14 @@ public struct Xmtp_MessageContents_PrivatePreferencesAction {
       }()
       case (.denyGroup, .denyGroup): return {
         guard case .denyGroup(let l) = lhs, case .denyGroup(let r) = rhs else { preconditionFailure() }
+        return l == r
+      }()
+      case (.allowInboxID, .allowInboxID): return {
+        guard case .allowInboxID(let l) = lhs, case .allowInboxID(let r) = rhs else { preconditionFailure() }
+        return l == r
+      }()
+      case (.denyInboxID, .denyInboxID): return {
+        guard case .denyInboxID(let l) = lhs, case .denyInboxID(let r) = rhs else { preconditionFailure() }
         return l == r
       }()
       default: return false
@@ -124,6 +150,34 @@ public struct Xmtp_MessageContents_PrivatePreferencesAction {
 
     /// Add the given wallet addresses to the deny list
     public var walletAddresses: [String] = []
+
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+    public init() {}
+  }
+
+  /// Allow V3 1:1 direct message (DM) access
+  public struct AllowInboxId {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
+
+    /// Add the given inbox id to the allow list
+    public var inboxIds: [String] = []
+
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+    public init() {}
+  }
+
+  /// Deny (block) V3 1:1 direct message (DM) access
+  public struct DenyInboxId {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
+
+    /// Add the given inbox id to the deny list
+    public var inboxIds: [String] = []
 
     public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -205,6 +259,8 @@ extension Xmtp_MessageContents_PrivatePreferencesAction: @unchecked Sendable {}
 extension Xmtp_MessageContents_PrivatePreferencesAction.OneOf_MessageType: @unchecked Sendable {}
 extension Xmtp_MessageContents_PrivatePreferencesAction.AllowAddress: @unchecked Sendable {}
 extension Xmtp_MessageContents_PrivatePreferencesAction.DenyAddress: @unchecked Sendable {}
+extension Xmtp_MessageContents_PrivatePreferencesAction.AllowInboxId: @unchecked Sendable {}
+extension Xmtp_MessageContents_PrivatePreferencesAction.DenyInboxId: @unchecked Sendable {}
 extension Xmtp_MessageContents_PrivatePreferencesAction.AllowGroup: @unchecked Sendable {}
 extension Xmtp_MessageContents_PrivatePreferencesAction.DenyGroup: @unchecked Sendable {}
 extension Xmtp_MessageContents_PrivatePreferencesPayload: @unchecked Sendable {}
@@ -222,6 +278,8 @@ extension Xmtp_MessageContents_PrivatePreferencesAction: SwiftProtobuf.Message, 
     2: .standard(proto: "deny_address"),
     3: .standard(proto: "allow_group"),
     4: .standard(proto: "deny_group"),
+    5: .standard(proto: "allow_inbox_id"),
+    6: .standard(proto: "deny_inbox_id"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -282,6 +340,32 @@ extension Xmtp_MessageContents_PrivatePreferencesAction: SwiftProtobuf.Message, 
           self.messageType = .denyGroup(v)
         }
       }()
+      case 5: try {
+        var v: Xmtp_MessageContents_PrivatePreferencesAction.AllowInboxId?
+        var hadOneofValue = false
+        if let current = self.messageType {
+          hadOneofValue = true
+          if case .allowInboxID(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.messageType = .allowInboxID(v)
+        }
+      }()
+      case 6: try {
+        var v: Xmtp_MessageContents_PrivatePreferencesAction.DenyInboxId?
+        var hadOneofValue = false
+        if let current = self.messageType {
+          hadOneofValue = true
+          if case .denyInboxID(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.messageType = .denyInboxID(v)
+        }
+      }()
       default: break
       }
     }
@@ -308,6 +392,14 @@ extension Xmtp_MessageContents_PrivatePreferencesAction: SwiftProtobuf.Message, 
     case .denyGroup?: try {
       guard case .denyGroup(let v)? = self.messageType else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    }()
+    case .allowInboxID?: try {
+      guard case .allowInboxID(let v)? = self.messageType else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
+    }()
+    case .denyInboxID?: try {
+      guard case .denyInboxID(let v)? = self.messageType else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
     }()
     case nil: break
     }
@@ -380,6 +472,70 @@ extension Xmtp_MessageContents_PrivatePreferencesAction.DenyAddress: SwiftProtob
 
   public static func ==(lhs: Xmtp_MessageContents_PrivatePreferencesAction.DenyAddress, rhs: Xmtp_MessageContents_PrivatePreferencesAction.DenyAddress) -> Bool {
     if lhs.walletAddresses != rhs.walletAddresses {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Xmtp_MessageContents_PrivatePreferencesAction.AllowInboxId: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = Xmtp_MessageContents_PrivatePreferencesAction.protoMessageName + ".AllowInboxId"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "inbox_ids"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedStringField(value: &self.inboxIds) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.inboxIds.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.inboxIds, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Xmtp_MessageContents_PrivatePreferencesAction.AllowInboxId, rhs: Xmtp_MessageContents_PrivatePreferencesAction.AllowInboxId) -> Bool {
+    if lhs.inboxIds != rhs.inboxIds {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Xmtp_MessageContents_PrivatePreferencesAction.DenyInboxId: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = Xmtp_MessageContents_PrivatePreferencesAction.protoMessageName + ".DenyInboxId"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "inbox_ids"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedStringField(value: &self.inboxIds) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.inboxIds.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.inboxIds, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Xmtp_MessageContents_PrivatePreferencesAction.DenyInboxId, rhs: Xmtp_MessageContents_PrivatePreferencesAction.DenyInboxId) -> Bool {
+    if lhs.inboxIds != rhs.inboxIds {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

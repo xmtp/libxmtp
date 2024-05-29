@@ -195,8 +195,8 @@ final class IntegrationTests: XCTestCase {
 		// Alice should see the same topic and keyMaterial for both conversations.
 		XCTAssertEqual(c1.topic, c2.topic)
 		XCTAssertEqual(
-				c1.toTopicData().invitation.aes256GcmHkdfSha256.keyMaterial,
-				c2.toTopicData().invitation.aes256GcmHkdfSha256.keyMaterial)
+				try c1.toTopicData().invitation.aes256GcmHkdfSha256.keyMaterial,
+				try c2.toTopicData().invitation.aes256GcmHkdfSha256.keyMaterial)
 
 		// And Bob should only see the one conversation.
 		let bobConvos = try await bob.conversations.list()

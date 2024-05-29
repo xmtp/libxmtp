@@ -30,12 +30,12 @@ public enum Conversation: Sendable {
 		case v1, v2, group
 	}
 
-	public func consentState() async -> ConsentState {
+	public func consentState() async throws -> ConsentState {
 		switch self {
 		case .v1(let conversationV1):
-			return await conversationV1.client.contacts.consentList.state(address: peerAddress)
+			return try await conversationV1.client.contacts.consentList.state(address: peerAddress)
 		case .v2(let conversationV2):
-			return await conversationV2.client.contacts.consentList.state(address: peerAddress)
+			return try await conversationV2.client.contacts.consentList.state(address: peerAddress)
 		case let .group(group):
 			return await group.client.contacts.consentList.groupState(groupId: group.id)
 		}
@@ -76,24 +76,28 @@ public enum Conversation: Sendable {
 
 	/// The wallet address of the other person in this conversation.
 	public var peerAddress: String {
-		switch self {
-		case let .v1(conversationV1):
-			return conversationV1.peerAddress
-		case let .v2(conversationV2):
-			return conversationV2.peerAddress
-		case let .group(group):
-			return group.peerAddresses.joined(separator: ",")
+		get throws {
+			switch self {
+			case let .v1(conversationV1):
+				return conversationV1.peerAddress
+			case let .v2(conversationV2):
+				return conversationV2.peerAddress
+			case let .group(group):
+				return try group.peerInboxIds.joined(separator: ",")
+			}
 		}
 	}
 
 	public var peerAddresses: [String] {
-		switch self {
-		case let .v1(conversationV1):
-			return [conversationV1.peerAddress]
-		case let .v2(conversationV2):
-			return [conversationV2.peerAddress]
-		case let .group(group):
-			return group.peerAddresses
+		get throws {
+			switch self {
+			case let .v1(conversationV1):
+				return [conversationV1.peerAddress]
+			case let .v2(conversationV2):
+				return [conversationV2.peerAddress]
+			case let .group(group):
+				return try group.peerInboxIds
+			}
 		}
 	}
 
@@ -124,10 +128,10 @@ public enum Conversation: Sendable {
 
 	/// Exports the serializable topic data required for later import.
 	/// See Conversations.importTopicData()
-	public func toTopicData() -> Xmtp_KeystoreApi_V1_TopicMap.TopicData {
-		Xmtp_KeystoreApi_V1_TopicMap.TopicData.with {
+	public func toTopicData() throws -> Xmtp_KeystoreApi_V1_TopicMap.TopicData {
+		try Xmtp_KeystoreApi_V1_TopicMap.TopicData.with {
 			$0.createdNs = UInt64(createdAt.timeIntervalSince1970 * 1000) * 1_000_000
-			$0.peerAddress = peerAddress
+			$0.peerAddress = try peerAddress
 			if case let .v2(cv2) = self {
 				$0.invitation = Xmtp_MessageContents_InvitationV1.with {
 					$0.topic = cv2.topic

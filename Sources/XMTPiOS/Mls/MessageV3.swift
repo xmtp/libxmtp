@@ -29,8 +29,8 @@ public struct MessageV3: Identifiable {
 		return ffiMessage.convoId
 	}
 	
-	var senderAddress: String {
-		return ffiMessage.addrFrom
+	var senderInboxId: String {
+		return ffiMessage.senderInboxId
 	}
 	
 	var sentAt: Date {
@@ -57,12 +57,12 @@ public struct MessageV3: Identifiable {
 				client: client,
 				topic: Topic.groupMessage(convoId.toHex).description,
 				encodedContent: encodedContent,
-				senderAddress: senderAddress,
+				senderAddress: senderInboxId,
 				sent: sentAt,
 				deliveryStatus: deliveryStatus
 			)
 			
-			if decodedMessage.encodedContent.type == ContentTypeGroupMembershipChanged && ffiMessage.kind != .membershipChange {
+			if decodedMessage.encodedContent.type == ContentTypeGroupUpdated && ffiMessage.kind != .membershipChange {
 				throw MessageV3Error.decodeError("Error decoding group membership change")
 		 }
 			
@@ -96,13 +96,13 @@ public struct MessageV3: Identifiable {
 		let decrytedMessage =  DecryptedMessage(
 			id: id.toHex,
 			encodedContent: encodedContent,
-			senderAddress: senderAddress,
+			senderAddress: senderInboxId,
 			sentAt: Date(),
 			topic: Topic.groupMessage(convoId.toHex).description,
 			deliveryStatus: deliveryStatus
 		)
 		
-		if decrytedMessage.encodedContent.type == ContentTypeGroupMembershipChanged && ffiMessage.kind != .membershipChange {
+		if decrytedMessage.encodedContent.type == ContentTypeGroupUpdated && ffiMessage.kind != .membershipChange {
 			throw MessageV3Error.decodeError("Error decoding group membership change")
 		}
 		

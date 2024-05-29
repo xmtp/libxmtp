@@ -52,6 +52,12 @@ public struct Xmtp_MessageContents_FrameActionBody {
   /// A state serialized to a string (for example via JSON.stringify()). Maximum 4096 bytes.
   public var state: String = String()
 
+  /// A 0x wallet address
+  public var address: String = String()
+
+  /// A hash from a transaction
+  public var transactionID: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -115,6 +121,8 @@ extension Xmtp_MessageContents_FrameActionBody: SwiftProtobuf.Message, SwiftProt
     5: .standard(proto: "unix_timestamp"),
     6: .standard(proto: "input_text"),
     7: .same(proto: "state"),
+    8: .same(proto: "address"),
+    9: .standard(proto: "transaction_id"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -130,6 +138,8 @@ extension Xmtp_MessageContents_FrameActionBody: SwiftProtobuf.Message, SwiftProt
       case 5: try { try decoder.decodeSingularUInt32Field(value: &self.unixTimestamp) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self.inputText) }()
       case 7: try { try decoder.decodeSingularStringField(value: &self.state) }()
+      case 8: try { try decoder.decodeSingularStringField(value: &self.address) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.transactionID) }()
       default: break
       }
     }
@@ -157,6 +167,12 @@ extension Xmtp_MessageContents_FrameActionBody: SwiftProtobuf.Message, SwiftProt
     if !self.state.isEmpty {
       try visitor.visitSingularStringField(value: self.state, fieldNumber: 7)
     }
+    if !self.address.isEmpty {
+      try visitor.visitSingularStringField(value: self.address, fieldNumber: 8)
+    }
+    if !self.transactionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.transactionID, fieldNumber: 9)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -168,6 +184,8 @@ extension Xmtp_MessageContents_FrameActionBody: SwiftProtobuf.Message, SwiftProt
     if lhs.unixTimestamp != rhs.unixTimestamp {return false}
     if lhs.inputText != rhs.inputText {return false}
     if lhs.state != rhs.state {return false}
+    if lhs.address != rhs.address {return false}
+    if lhs.transactionID != rhs.transactionID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

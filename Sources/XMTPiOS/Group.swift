@@ -31,14 +31,6 @@ public struct Group: Identifiable, Equatable, Hashable {
 	var client: Client
 	let streamHolder = StreamHolder()
 
-	struct Member {
-		var ffiGroupMember: FfiGroupMember
-
-		public var accountAddress: String {
-			ffiGroupMember.accountAddress
-		}
-	}
-
 	public var id: Data {
 		ffiGroup.id()
 	}
@@ -68,35 +60,37 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 
 	public func isAdmin() throws -> Bool {
-		return try metadata().creatorAccountAddress().lowercased() == client.address.lowercased()
+		return try metadata().creatorInboxId() == client.inboxID
 	}
 
 //	public func permissionLevel() throws -> GroupPermissions {
 //		return try metadata().policyType()
 //	}
 
-	public func adminAddress() throws -> String {
-		return try metadata().creatorAccountAddress()
+	public func adminInboxId() throws -> String {
+		return try metadata().creatorInboxId()
 	}
 	
-	public func addedByAddress() throws -> String {
-		return try ffiGroup.addedByAddress()
+	public func addedByInboxId() throws -> String {
+		return try ffiGroup.addedByInboxId()
 	}
 
-	public var memberAddresses: [String] {
-		do {
-			return try ffiGroup.listMembers().map(\.fromFFI.accountAddress)
-		} catch {
-			return []
+	public var members: [Member] {
+		get throws {
+			return try ffiGroup.listMembers().map { ffiGroupMember in
+				Member(ffiGroupMember: ffiGroupMember)
+			}
 		}
 	}
 
-	public var peerAddresses: [String] {
-		var addresses = memberAddresses.map(\.localizedLowercase)
-		if let index = addresses.firstIndex(of: client.address.localizedLowercase) {
-			addresses.remove(at: index)
+	public var peerInboxIds: [String] {
+		get throws {
+			var ids = try members.map(\.inboxId)
+			if let index = ids.firstIndex(of: client.inboxID) {
+				ids.remove(at: index)
+			}
+			return ids
 		}
-		return addresses
 	}
 
 	public var createdAt: Date {
@@ -109,6 +103,14 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 	public func removeMembers(addresses: [String]) async throws {
 		try await ffiGroup.removeMembers(accountAddresses: addresses)
+	}
+	
+	public func addMembersByInboxId(inboxIds: [String]) async throws {
+		try await ffiGroup.addMembersByInboxId(inboxIds: inboxIds)
+	}
+
+	public func removeMembersByInboxId(inboxIds: [String]) async throws {
+		try await ffiGroup.removeMembersByInboxId(inboxIds: inboxIds)
 	}
     
     public func groupName() throws -> String {

@@ -35,9 +35,10 @@ extension GenericErrorDescribing {
 			let .GroupError(message),
 			let .Signature(message),
 			let .GroupMetadata(message),
-			let .Generic(message):
-			return message
-		case .GroupMutablePermissions(message: let message):
+			let .Generic(message),
+			let .GroupMutablePermissions(message),
+			let .SignatureRequestError(message),
+			let .Erc1271SignatureError(message):
 			return message
 		}
 	}

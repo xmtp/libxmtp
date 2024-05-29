@@ -510,7 +510,7 @@ class ConversationTests: XCTestCase {
 
 		let conversation = try aliceClient.importConversation(from: jsExportJSONData)
 
-		XCTAssertEqual(conversation?.peerAddress, "0x5DAc8E2B64b8523C11AF3e5A2E087c2EA9003f14")
+		XCTAssertEqual(try conversation?.peerAddress, "0x5DAc8E2B64b8523C11AF3e5A2E087c2EA9003f14")
 	}
 
 	func testImportV2ConversationFromJS() async throws {
@@ -519,7 +519,7 @@ class ConversationTests: XCTestCase {
 		""".utf8)
 
 		let conversation = try aliceClient.importConversation(from: jsExportJSONData)
-		XCTAssertEqual(conversation?.peerAddress, "0x436D906d1339fC4E951769b1699051f020373D04")
+		XCTAssertEqual(try conversation?.peerAddress, "0x436D906d1339fC4E951769b1699051f020373D04")
 	}
 
 	func testImportV2ConversationWithNoContextFromJS() async throws {
@@ -632,7 +632,7 @@ class ConversationTests: XCTestCase {
 
 	func testCanHaveConsentState() async throws {
 		let bobConversation = try await bobClient.conversations.newConversation(with: alice.address, context: InvitationV1.Context(conversationID: "hi"))
-		let isAllowed = (await bobConversation.consentState()) == .allowed
+		let isAllowed = (try await bobConversation.consentState()) == .allowed
 
 		// Conversations you start should start as allowed
 		XCTAssertTrue(isAllowed)
@@ -640,19 +640,19 @@ class ConversationTests: XCTestCase {
         try await bobClient.contacts.deny(addresses: [alice.address])
         try await bobClient.contacts.refreshConsentList()
 
-        let isDenied = (await bobConversation.consentState()) == .denied
+        let isDenied = (try await bobConversation.consentState()) == .denied
 
         XCTAssertTrue(isDenied)
 
 		let aliceConversation = (try await aliceClient.conversations.list())[0]
-		let isUnknown = (await aliceConversation.consentState()) == .unknown
+		let isUnknown = (try await aliceConversation.consentState()) == .unknown
 
 		// Conversations started with you should start as unknown
 		XCTAssertTrue(isUnknown)
 
 		try await aliceClient.contacts.allow(addresses: [bob.address])
 
-		let isBobAllowed = (await aliceConversation.consentState()) == .allowed
+		let isBobAllowed = (try await aliceConversation.consentState()) == .allowed
 		XCTAssertTrue(isBobAllowed)
 
 		let aliceClient2 = try await Client.create(account: alice, apiClient: fakeApiClient)
@@ -661,28 +661,28 @@ class ConversationTests: XCTestCase {
 		try await aliceClient2.contacts.refreshConsentList()
 
 		// Allow state should sync across clients
-		let isBobAllowed2 = (await aliceConversation2.consentState()) == .allowed
+		let isBobAllowed2 = (try await aliceConversation2.consentState()) == .allowed
 
 		XCTAssertTrue(isBobAllowed2)
 	}
     
     func testCanHaveImplicitConsentOnMessageSend() async throws {
         let bobConversation = try await bobClient.conversations.newConversation(with: alice.address, context: InvitationV1.Context(conversationID: "hi"))
-        let isAllowed = (await bobConversation.consentState()) == .allowed
+        let isAllowed = (try await bobConversation.consentState()) == .allowed
 
         // Conversations you start should start as allowed
         XCTAssertTrue(isAllowed)
 
 
         let aliceConversation = (try await aliceClient.conversations.list())[0]
-        let isUnknown = (await aliceConversation.consentState()) == .unknown
+        let isUnknown = (try await aliceConversation.consentState()) == .unknown
 
         // Conversations started with you should start as unknown
         XCTAssertTrue(isUnknown)
 
         try await aliceConversation.send(content: "hey bob")
         try await aliceClient.contacts.refreshConsentList()
-        let isNowAllowed = (await aliceConversation.consentState()) == .allowed
+        let isNowAllowed = (try await aliceConversation.consentState()) == .allowed
 
         // Conversations you send a message to get marked as allowed
         XCTAssertTrue(isNowAllowed)

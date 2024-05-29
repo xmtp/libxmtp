@@ -56,7 +56,7 @@ public struct ClientOptions {
 
 	public var mlsAlpha = false
 	public var mlsEncryptionKey: Data?
-	public var mlsDbPath: String?
+	public var mlsDbDirectory: String?
 
 	public init(
 		api: Api = Api(),
@@ -64,8 +64,7 @@ public struct ClientOptions {
 		preEnableIdentityCallback: PreEventCallback? = nil,
 		preCreateIdentityCallback: PreEventCallback? = nil,
 		mlsAlpha: Bool = false,
-		mlsEncryptionKey: Data? = nil,
-		mlsDbPath: String? = nil
+		mlsEncryptionKey: Data? = nil
 	) {
 		self.api = api
 		self.codecs = codecs
@@ -73,7 +72,6 @@ public struct ClientOptions {
 		self.preCreateIdentityCallback = preCreateIdentityCallback
 		self.mlsAlpha = mlsAlpha
 		self.mlsEncryptionKey = mlsEncryptionKey
-		self.mlsDbPath = mlsDbPath
 	}
 }
 
@@ -94,6 +92,7 @@ public final class Client {
 	public let libXMTPVersion: String = getVersionInfo()
 	let dbPath: String
 	public let installationID: String
+	public let inboxID: String
 
 	/// Access ``Conversations`` for this Client.
 	public lazy var conversations: Conversations = .init(client: self)
@@ -136,7 +135,18 @@ public final class Client {
 		signingKey: SigningKey?
 	) async throws -> (FfiXmtpClient?, String) {
 		if options?.mlsAlpha == true, options?.api.env.supportsMLS == true {
-			let dbURL = options?.mlsDbPath ?? URL.documentsDirectory.appendingPathComponent("xmtp-\(options?.api.env.rawValue ?? "")-\(address).db3").path
+			var inboxId = try await getInboxIdForAddress(
+				logger: XMTPLogger(),
+				host: (options?.api.env ?? .local).url,
+				isSecure: options?.api.env.isSecure == true,
+				accountAddress: address
+			)
+			if inboxId?.isEmpty ?? true {
+				inboxId = generateInboxId(accountAddress: address, nonce: 0)
+			}
+			
+			let alias = "xmtp-\(options?.api.env.rawValue ?? "")-\(inboxId ?? address).db3"
+			let dbURL = URL.documentsDirectory.appendingPathComponent(alias).path
 
 			let encryptionKey = options?.mlsEncryptionKey
 
@@ -150,16 +160,19 @@ public final class Client {
 				legacyIdentitySource: source,
 				legacySignedPrivateKeyProto: try privateKeyBundleV1.toV2().identityKey.serializedData()
 			)
-
-			if let textToSign = v3Client.textToSign() {
-				guard let signingKey else {
+			
+			if let signatureRequest = v3Client.signatureRequest() {
+				if let signingKey = signingKey {
+					do {
+						let signedData = try await signingKey.sign(message: signatureRequest.signatureText())
+						try await signatureRequest.addEcdsaSignature(signatureBytes: signedData.rawData)
+						try await v3Client.registerIdentity(signatureRequest: signatureRequest)
+					} catch {
+						throw ClientError.creationError("Failed to sign the message: \(error.localizedDescription)")
+					}
+				} else {
 					throw ClientError.creationError("No v3 keys found, you must pass a SigningKey in order to enable alpha MLS features")
 				}
-
-				let signature = try await signingKey.sign(message: textToSign)
-				try await v3Client.registerIdentity(recoverableWalletSignature: signature.rawData)
-			} else {
-				try await v3Client.registerIdentity(recoverableWalletSignature: nil)
 			}
 
 			print("LibXMTP \(getVersionInfo())")
@@ -181,7 +194,7 @@ public final class Client {
 			signingKey: account
 		)
 
-		let client = try Client(address: account.address, privateKeyBundleV1: privateKeyBundleV1, apiClient: apiClient, v3Client: v3Client, dbPath: dbPath, installationID: v3Client?.installationId().toHex ?? "")
+		let client = try Client(address: account.address, privateKeyBundleV1: privateKeyBundleV1, apiClient: apiClient, v3Client: v3Client, dbPath: dbPath, installationID: v3Client?.installationId().toHex ?? "", inboxID: v3Client?.inboxId() ?? "")
 		let conversations = client.conversations
 		let contacts = client.contacts
 		try await client.ensureUserContactPublished()
@@ -282,7 +295,7 @@ public final class Client {
 			rustClient: client
 		)
 
-		let result = try Client(address: address, privateKeyBundleV1: v1Bundle, apiClient: apiClient, v3Client: v3Client, dbPath: dbPath, installationID: v3Client?.installationId().toHex ?? "")
+		let result = try Client(address: address, privateKeyBundleV1: v1Bundle, apiClient: apiClient, v3Client: v3Client, dbPath: dbPath, installationID: v3Client?.installationId().toHex ?? "", inboxID: v3Client?.inboxId() ?? "")
 		let conversations = result.conversations
 		let contacts = result.contacts
 		for codec in options.codecs {
@@ -292,13 +305,14 @@ public final class Client {
 		return result
 	}
 
-	init(address: String, privateKeyBundleV1: PrivateKeyBundleV1, apiClient: ApiClient, v3Client: LibXMTP.FfiXmtpClient?, dbPath: String = "", installationID: String) throws {
+	init(address: String, privateKeyBundleV1: PrivateKeyBundleV1, apiClient: ApiClient, v3Client: LibXMTP.FfiXmtpClient?, dbPath: String = "", installationID: String, inboxID: String) throws {
 		self.address = address
 		self.privateKeyBundleV1 = privateKeyBundleV1
 		self.apiClient = apiClient
 		self.v3Client = v3Client
 		self.dbPath = dbPath
 		self.installationID = installationID
+		self.inboxID = inboxID
 	}
 
 	public var privateKeyBundle: PrivateKeyBundle {

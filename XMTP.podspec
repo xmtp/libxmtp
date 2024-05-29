@@ -44,5 +44,5 @@ Pod::Spec.new do |spec|
   spec.dependency "web3.swift"
   spec.dependency "GzipSwift"
   spec.dependency "Connect-Swift", "= 0.12.0"
-  spec.dependency 'LibXMTP', '= 0.4.4-beta6'
+  spec.dependency 'LibXMTP', '= 0.5.0-beta0'
 end

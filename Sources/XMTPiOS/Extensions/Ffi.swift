@@ -202,7 +202,7 @@ extension FfiGroup {
 }
 
 extension FfiGroupMember {
-	var fromFFI: Group.Member {
-		Group.Member(ffiGroupMember: self)
+	var fromFFI: Member {
+		Member(ffiGroupMember: self)
 	}
 }

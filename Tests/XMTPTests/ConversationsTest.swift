@@ -32,7 +32,7 @@ class ConversationsTests: XCTestCase {
 		let envelope = Envelope(topic: .userIntro(client.address), timestamp: created, message: try Message(v1: message).serializedData())
 
 		let conversation = try await client.conversations.fromIntro(envelope: envelope)
-		XCTAssertEqual(conversation.peerAddress, newWallet.address)
+		XCTAssertEqual(try conversation.peerAddress, newWallet.address)
 		XCTAssertEqual(conversation.createdAt.description, created.description)
 	}
 
@@ -58,7 +58,7 @@ class ConversationsTests: XCTestCase {
 		let envelope = Envelope(topic: .userInvite(peerAddress), timestamp: created, message: try sealed.serializedData())
 
 		let conversation = try await client.conversations.fromInvite(envelope: envelope)
-		XCTAssertEqual(conversation.peerAddress, newWallet.address)
+		XCTAssertEqual(try conversation.peerAddress, newWallet.address)
 		XCTAssertEqual(conversation.createdAt.description, created.description)
 	}
 

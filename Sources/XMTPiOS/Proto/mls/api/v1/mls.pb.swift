@@ -354,6 +354,8 @@ public struct Xmtp_Mls_Api_V1_RegisterInstallationRequest {
   /// Clears the value of `keyPackage`. Subsequent reads from it will return its default value.
   public mutating func clearKeyPackage() {self._keyPackage = nil}
 
+  public var isInboxIDCredential: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -389,6 +391,8 @@ public struct Xmtp_Mls_Api_V1_UploadKeyPackageRequest {
   public var hasKeyPackage: Bool {return self._keyPackage != nil}
   /// Clears the value of `keyPackage`. Subsequent reads from it will return its default value.
   public mutating func clearKeyPackage() {self._keyPackage = nil}
+
+  public var isInboxIDCredential: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1303,6 +1307,7 @@ extension Xmtp_Mls_Api_V1_RegisterInstallationRequest: SwiftProtobuf.Message, Sw
   public static let protoMessageName: String = _protobuf_package + ".RegisterInstallationRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .standard(proto: "key_package"),
+    2: .standard(proto: "is_inbox_id_credential"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -1312,6 +1317,7 @@ extension Xmtp_Mls_Api_V1_RegisterInstallationRequest: SwiftProtobuf.Message, Sw
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularMessageField(value: &self._keyPackage) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.isInboxIDCredential) }()
       default: break
       }
     }
@@ -1325,11 +1331,15 @@ extension Xmtp_Mls_Api_V1_RegisterInstallationRequest: SwiftProtobuf.Message, Sw
     try { if let v = self._keyPackage {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
     } }()
+    if self.isInboxIDCredential != false {
+      try visitor.visitSingularBoolField(value: self.isInboxIDCredential, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Xmtp_Mls_Api_V1_RegisterInstallationRequest, rhs: Xmtp_Mls_Api_V1_RegisterInstallationRequest) -> Bool {
     if lhs._keyPackage != rhs._keyPackage {return false}
+    if lhs.isInboxIDCredential != rhs.isInboxIDCredential {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1371,6 +1381,7 @@ extension Xmtp_Mls_Api_V1_UploadKeyPackageRequest: SwiftProtobuf.Message, SwiftP
   public static let protoMessageName: String = _protobuf_package + ".UploadKeyPackageRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .standard(proto: "key_package"),
+    2: .standard(proto: "is_inbox_id_credential"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -1380,6 +1391,7 @@ extension Xmtp_Mls_Api_V1_UploadKeyPackageRequest: SwiftProtobuf.Message, SwiftP
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularMessageField(value: &self._keyPackage) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.isInboxIDCredential) }()
       default: break
       }
     }
@@ -1393,11 +1405,15 @@ extension Xmtp_Mls_Api_V1_UploadKeyPackageRequest: SwiftProtobuf.Message, SwiftP
     try { if let v = self._keyPackage {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
     } }()
+    if self.isInboxIDCredential != false {
+      try visitor.visitSingularBoolField(value: self.isInboxIDCredential, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Xmtp_Mls_Api_V1_UploadKeyPackageRequest, rhs: Xmtp_Mls_Api_V1_UploadKeyPackageRequest) -> Bool {
     if lhs._keyPackage != rhs._keyPackage {return false}
+    if lhs.isInboxIDCredential != rhs.isInboxIDCredential {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -43,11 +43,21 @@ public struct Xmtp_MessageContents_ConversationReference {
   /// Clears the value of `context`. Subsequent reads from it will return its default value.
   public mutating func clearContext() {self._context = nil}
 
+  public var consentProofPayload: Xmtp_MessageContents_ConsentProofPayload {
+    get {return _consentProofPayload ?? Xmtp_MessageContents_ConsentProofPayload()}
+    set {_consentProofPayload = newValue}
+  }
+  /// Returns true if `consentProofPayload` has been explicitly set.
+  public var hasConsentProofPayload: Bool {return self._consentProofPayload != nil}
+  /// Clears the value of `consentProofPayload`. Subsequent reads from it will return its default value.
+  public mutating func clearConsentProofPayload() {self._consentProofPayload = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _context: Xmtp_MessageContents_InvitationV1.Context? = nil
+  fileprivate var _consentProofPayload: Xmtp_MessageContents_ConsentProofPayload? = nil
 }
 
 #if swift(>=5.5) && canImport(_Concurrency)
@@ -65,6 +75,7 @@ extension Xmtp_MessageContents_ConversationReference: SwiftProtobuf.Message, Swi
     2: .standard(proto: "peer_address"),
     3: .standard(proto: "created_ns"),
     4: .same(proto: "context"),
+    5: .standard(proto: "consent_proof_payload"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -77,6 +88,7 @@ extension Xmtp_MessageContents_ConversationReference: SwiftProtobuf.Message, Swi
       case 2: try { try decoder.decodeSingularStringField(value: &self.peerAddress) }()
       case 3: try { try decoder.decodeSingularUInt64Field(value: &self.createdNs) }()
       case 4: try { try decoder.decodeSingularMessageField(value: &self._context) }()
+      case 5: try { try decoder.decodeSingularMessageField(value: &self._consentProofPayload) }()
       default: break
       }
     }
@@ -99,6 +111,9 @@ extension Xmtp_MessageContents_ConversationReference: SwiftProtobuf.Message, Swi
     try { if let v = self._context {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
     } }()
+    try { if let v = self._consentProofPayload {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -107,6 +122,7 @@ extension Xmtp_MessageContents_ConversationReference: SwiftProtobuf.Message, Swi
     if lhs.peerAddress != rhs.peerAddress {return false}
     if lhs.createdNs != rhs.createdNs {return false}
     if lhs._context != rhs._context {return false}
+    if lhs._consentProofPayload != rhs._consentProofPayload {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -91,14 +91,14 @@ struct MessageGroupMembershipChangedView: View {
 
 	var label: String {
 		do {
-			let changes: GroupMembershipChanges = try message.content()
+			let changes: GroupUpdated = try message.content()
 
-			if !changes.membersAdded.isEmpty {
-				return "Added \(changes.membersAdded.map(\.accountAddress).map { Util.abbreviate(address: $0) }.joined(separator: ", "))"
+			if !changes.addedInboxes.isEmpty {
+				return "Added \(changes.addedInboxes.map(\.inboxID).map { Util.abbreviate(address: $0) }.joined(separator: ", "))"
 			}
 
-			if !changes.membersRemoved.isEmpty {
-				return "Removed \(changes.membersRemoved.map(\.accountAddress).map { Util.abbreviate(address: $0) }.joined(separator: ", "))"
+			if !changes.removedInboxes.isEmpty {
+				return "Removed \(changes.removedInboxes.map(\.inboxID).map { Util.abbreviate(address: $0) }.joined(separator: ", "))"
 			}
 
 			return changes.debugDescription
@@ -119,7 +119,7 @@ struct MessageCellView: View {
 		switch message.encodedContent.type {
 		case ContentTypeText:
 			MessageTextView(myAddress: myAddress, message: message)
-		case ContentTypeGroupMembershipChanged:
+		case ContentTypeGroupUpdated:
 			MessageGroupMembershipChangedView(message: message)
 		default:
 			Text(message.fallbackContent)

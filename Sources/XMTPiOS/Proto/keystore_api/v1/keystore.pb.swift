@@ -627,12 +627,22 @@ public struct Xmtp_KeystoreApi_V1_CreateInviteRequest {
 
   public var createdNs: UInt64 = 0
 
+  public var consentProof: Xmtp_MessageContents_ConsentProofPayload {
+    get {return _consentProof ?? Xmtp_MessageContents_ConsentProofPayload()}
+    set {_consentProof = newValue}
+  }
+  /// Returns true if `consentProof` has been explicitly set.
+  public var hasConsentProof: Bool {return self._consentProof != nil}
+  /// Clears the value of `consentProof`. Subsequent reads from it will return its default value.
+  public mutating func clearConsentProof() {self._consentProof = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _context: Xmtp_MessageContents_InvitationV1.Context? = nil
   fileprivate var _recipient: Xmtp_MessageContents_SignedPublicKeyBundle? = nil
+  fileprivate var _consentProof: Xmtp_MessageContents_ConsentProofPayload? = nil
 }
 
 /// Response to a CreateInviteRequest
@@ -2192,6 +2202,7 @@ extension Xmtp_KeystoreApi_V1_CreateInviteRequest: SwiftProtobuf.Message, SwiftP
     1: .same(proto: "context"),
     2: .same(proto: "recipient"),
     3: .standard(proto: "created_ns"),
+    4: .standard(proto: "consent_proof"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -2203,6 +2214,7 @@ extension Xmtp_KeystoreApi_V1_CreateInviteRequest: SwiftProtobuf.Message, SwiftP
       case 1: try { try decoder.decodeSingularMessageField(value: &self._context) }()
       case 2: try { try decoder.decodeSingularMessageField(value: &self._recipient) }()
       case 3: try { try decoder.decodeSingularUInt64Field(value: &self.createdNs) }()
+      case 4: try { try decoder.decodeSingularMessageField(value: &self._consentProof) }()
       default: break
       }
     }
@@ -2222,6 +2234,9 @@ extension Xmtp_KeystoreApi_V1_CreateInviteRequest: SwiftProtobuf.Message, SwiftP
     if self.createdNs != 0 {
       try visitor.visitSingularUInt64Field(value: self.createdNs, fieldNumber: 3)
     }
+    try { if let v = self._consentProof {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2229,6 +2244,7 @@ extension Xmtp_KeystoreApi_V1_CreateInviteRequest: SwiftProtobuf.Message, SwiftP
     if lhs._context != rhs._context {return false}
     if lhs._recipient != rhs._recipient {return false}
     if lhs.createdNs != rhs.createdNs {return false}
+    if lhs._consentProof != rhs._consentProof {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

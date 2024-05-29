@@ -62,9 +62,85 @@ public struct Xmtp_Mls_MessageContents_GroupMembershipChanges {
   public init() {}
 }
 
+/// A summary of the changes in a commit.
+/// Includes added/removed inboxes and changes to metadata
+public struct Xmtp_Mls_MessageContents_GroupUpdated {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var initiatedByInboxID: String = String()
+
+  /// The inboxes added in the commit
+  public var addedInboxes: [Xmtp_Mls_MessageContents_GroupUpdated.Inbox] = []
+
+  /// The inboxes removed in the commit
+  public var removedInboxes: [Xmtp_Mls_MessageContents_GroupUpdated.Inbox] = []
+
+  /// The metadata changes in the commit
+  public var metadataFieldChanges: [Xmtp_Mls_MessageContents_GroupUpdated.MetadataFieldChange] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  /// An inbox that was added or removed in this commit
+  public struct Inbox {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
+
+    public var inboxID: String = String()
+
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+    public init() {}
+  }
+
+  /// A summary of a change to the mutable metadata
+  public struct MetadataFieldChange {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
+
+    /// The field that was changed
+    public var fieldName: String = String()
+
+    /// The previous value
+    public var oldValue: String {
+      get {return _oldValue ?? String()}
+      set {_oldValue = newValue}
+    }
+    /// Returns true if `oldValue` has been explicitly set.
+    public var hasOldValue: Bool {return self._oldValue != nil}
+    /// Clears the value of `oldValue`. Subsequent reads from it will return its default value.
+    public mutating func clearOldValue() {self._oldValue = nil}
+
+    /// The updated value
+    public var newValue: String {
+      get {return _newValue ?? String()}
+      set {_newValue = newValue}
+    }
+    /// Returns true if `newValue` has been explicitly set.
+    public var hasNewValue: Bool {return self._newValue != nil}
+    /// Clears the value of `newValue`. Subsequent reads from it will return its default value.
+    public mutating func clearNewValue() {self._newValue = nil}
+
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+    public init() {}
+
+    fileprivate var _oldValue: String? = nil
+    fileprivate var _newValue: String? = nil
+  }
+
+  public init() {}
+}
+
 #if swift(>=5.5) && canImport(_Concurrency)
 extension Xmtp_Mls_MessageContents_MembershipChange: @unchecked Sendable {}
 extension Xmtp_Mls_MessageContents_GroupMembershipChanges: @unchecked Sendable {}
+extension Xmtp_Mls_MessageContents_GroupUpdated: @unchecked Sendable {}
+extension Xmtp_Mls_MessageContents_GroupUpdated.Inbox: @unchecked Sendable {}
+extension Xmtp_Mls_MessageContents_GroupUpdated.MetadataFieldChange: @unchecked Sendable {}
 #endif  // swift(>=5.5) && canImport(_Concurrency)
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
@@ -160,6 +236,136 @@ extension Xmtp_Mls_MessageContents_GroupMembershipChanges: SwiftProtobuf.Message
     if lhs.membersRemoved != rhs.membersRemoved {return false}
     if lhs.installationsAdded != rhs.installationsAdded {return false}
     if lhs.installationsRemoved != rhs.installationsRemoved {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Xmtp_Mls_MessageContents_GroupUpdated: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GroupUpdated"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "initiated_by_inbox_id"),
+    2: .standard(proto: "added_inboxes"),
+    3: .standard(proto: "removed_inboxes"),
+    4: .standard(proto: "metadata_field_changes"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.initiatedByInboxID) }()
+      case 2: try { try decoder.decodeRepeatedMessageField(value: &self.addedInboxes) }()
+      case 3: try { try decoder.decodeRepeatedMessageField(value: &self.removedInboxes) }()
+      case 4: try { try decoder.decodeRepeatedMessageField(value: &self.metadataFieldChanges) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.initiatedByInboxID.isEmpty {
+      try visitor.visitSingularStringField(value: self.initiatedByInboxID, fieldNumber: 1)
+    }
+    if !self.addedInboxes.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.addedInboxes, fieldNumber: 2)
+    }
+    if !self.removedInboxes.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.removedInboxes, fieldNumber: 3)
+    }
+    if !self.metadataFieldChanges.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.metadataFieldChanges, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Xmtp_Mls_MessageContents_GroupUpdated, rhs: Xmtp_Mls_MessageContents_GroupUpdated) -> Bool {
+    if lhs.initiatedByInboxID != rhs.initiatedByInboxID {return false}
+    if lhs.addedInboxes != rhs.addedInboxes {return false}
+    if lhs.removedInboxes != rhs.removedInboxes {return false}
+    if lhs.metadataFieldChanges != rhs.metadataFieldChanges {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Xmtp_Mls_MessageContents_GroupUpdated.Inbox: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = Xmtp_Mls_MessageContents_GroupUpdated.protoMessageName + ".Inbox"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "inbox_id"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.inboxID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.inboxID.isEmpty {
+      try visitor.visitSingularStringField(value: self.inboxID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Xmtp_Mls_MessageContents_GroupUpdated.Inbox, rhs: Xmtp_Mls_MessageContents_GroupUpdated.Inbox) -> Bool {
+    if lhs.inboxID != rhs.inboxID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Xmtp_Mls_MessageContents_GroupUpdated.MetadataFieldChange: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = Xmtp_Mls_MessageContents_GroupUpdated.protoMessageName + ".MetadataFieldChange"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "field_name"),
+    2: .standard(proto: "old_value"),
+    3: .standard(proto: "new_value"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.fieldName) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self._oldValue) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self._newValue) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.fieldName.isEmpty {
+      try visitor.visitSingularStringField(value: self.fieldName, fieldNumber: 1)
+    }
+    try { if let v = self._oldValue {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._newValue {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 3)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Xmtp_Mls_MessageContents_GroupUpdated.MetadataFieldChange, rhs: Xmtp_Mls_MessageContents_GroupUpdated.MetadataFieldChange) -> Bool {
+    if lhs.fieldName != rhs.fieldName {return false}
+    if lhs._oldValue != rhs._oldValue {return false}
+    if lhs._newValue != rhs._newValue {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -427,8 +427,8 @@ public actor Conversations {
 		return .v1(conversationV1)
 	}
 
-	private func findExistingConversation(with peerAddress: String, conversationID: String?) -> Conversation? {
-		return conversationsByTopic.first(where: { $0.value.peerAddress == peerAddress &&
+	private func findExistingConversation(with peerAddress: String, conversationID: String?) throws -> Conversation? {
+		return try conversationsByTopic.first(where: { try $0.value.peerAddress == peerAddress &&
 				(($0.value.conversationID ?? "") == (conversationID ?? ""))
 		})?.value
 	}
@@ -447,7 +447,7 @@ public actor Conversations {
 			throw ConversationError.recipientIsSender
 		}
 		print("\(client.address) starting conversation with \(peerAddress)")
-		if let existing = findExistingConversation(with: peerAddress, conversationID: context?.conversationID) {
+		if let existing = try findExistingConversation(with: peerAddress, conversationID: context?.conversationID) {
 			return existing
 		}
 
@@ -456,7 +456,7 @@ public actor Conversations {
 		}
 
 		_ = try await list() // cache old conversations and check again
-		if let existing = findExistingConversation(with: peerAddress, conversationID: context?.conversationID) {
+		if let existing = try findExistingConversation(with: peerAddress, conversationID: context?.conversationID) {
 			return existing
 		}
 
@@ -633,8 +633,8 @@ public actor Conversations {
 			}
 		}
 
-		newConversations
-			.filter { $0.peerAddress != client.address && Topic.isValidTopic(topic: $0.topic) }
+		try newConversations
+			.filter { try $0.peerAddress != client.address && Topic.isValidTopic(topic: $0.topic) }
 			.forEach { conversationsByTopic[$0.topic] = $0 }
 
 		// TODO(perf): use DB to persist + sort
