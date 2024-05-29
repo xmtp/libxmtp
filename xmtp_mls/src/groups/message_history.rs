@@ -254,7 +254,10 @@ fn write_to_file<T: serde::Serialize>(
     file_path: &Path,
     content: Vec<T>,
 ) -> Result<(), MessageHistoryError> {
-    let mut file = OpenOptions::new().create(true).append(true).open(file_path)?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file_path)?;
     for entry in content {
         let entry_str = serde_json::to_string(&entry)?;
         file.write_all(entry_str.as_bytes())?;
