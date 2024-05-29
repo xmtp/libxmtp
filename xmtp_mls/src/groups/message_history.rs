@@ -885,6 +885,7 @@ mod tests {
 
         _m.assert_async().await;
         std::fs::remove_file(output_path).expect("Unable to remove test output file");
+        server.reset();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -916,6 +917,8 @@ mod tests {
 
         let reply = amal_a.prepare_history_reply(&request_id, &url).await;
         assert!(reply.is_ok());
+        _m.assert_async().await;
+        server.reset();
     }
 
     #[test]
