@@ -899,20 +899,20 @@ mod tests {
 
         let request_id = new_request_id();
 
+        let port = HISTORY_SERVER_PORT + 2;
         let options = mockito::ServerOpts {
             host: HISTORY_SERVER_HOST,
-            port: HISTORY_SERVER_PORT + 2,
+            port,
             ..Default::default()
         };
         let mut server = mockito::Server::new_with_opts_async(options).await;
 
+        let url = format!("http://{HISTORY_SERVER_HOST}:{port}/upload");
         let _m = server
             .mock("POST", "/upload")
             .with_status(201)
             .with_body("encrypted_content")
             .create();
-
-        let url = format!("http://{HISTORY_SERVER_HOST}:{HISTORY_SERVER_PORT}/upload");
 
         let reply = amal_a.prepare_history_reply(&request_id, &url).await;
         assert!(reply.is_ok());
