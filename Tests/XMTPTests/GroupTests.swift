@@ -664,4 +664,27 @@ class GroupTests: XCTestCase {
         
         XCTAssertEqual(groupName, "Test Group Name 1")
     }
+	
+	func testCanAllowAndDenyInboxId() async throws {
+		let fixtures = try await localFixtures()
+
+		let isAllowed = await fixtures.bobClient.contacts.isInboxIdAllowed(inboxId: fixtures.aliceClient.inboxID)
+		let isDenied = await fixtures.bobClient.contacts.isInboxIdDenied(inboxId: fixtures.aliceClient.inboxID)
+		XCTAssert(!isAllowed)
+		XCTAssert(!isDenied)
+
+		try await fixtures.bobClient.contacts.allowInboxId(inboxIds: [fixtures.aliceClient.inboxID])
+
+		let isAllowed2 = await fixtures.bobClient.contacts.isInboxIdAllowed(inboxId: fixtures.aliceClient.inboxID)
+		let isDenied2 = await fixtures.bobClient.contacts.isInboxIdDenied(inboxId: fixtures.aliceClient.inboxID)
+		XCTAssert(isAllowed2)
+		XCTAssert(!isDenied2)
+
+		try await fixtures.bobClient.contacts.denyInboxId(inboxIds: [fixtures.aliceClient.inboxID])
+
+		let isAllowed3 = await fixtures.bobClient.contacts.isInboxIdAllowed(inboxId: fixtures.aliceClient.inboxID)
+		let isDenied3 = await fixtures.bobClient.contacts.isInboxIdDenied(inboxId: fixtures.aliceClient.inboxID)
+		XCTAssert(!isAllowed3)
+		XCTAssert(isDenied3)
+	}
 }

@@ -16,7 +16,7 @@ public enum ConsentState: String, Codable {
 
 public struct ConsentListEntry: Codable, Hashable {
 	public enum EntryType: String, Codable {
-		case address, groupId
+		case address, groupId, inboxId
 	}
 
 	static func address(_ address: String, type: ConsentState = .unknown) -> ConsentListEntry {
@@ -25,6 +25,10 @@ public struct ConsentListEntry: Codable, Hashable {
 	
 	static func groupId(groupId: String, type: ConsentState = ConsentState.unknown) -> ConsentListEntry {
 		ConsentListEntry(value: groupId, entryType: .groupId, consentType: type)
+	}
+	
+	static func inboxId(_ inboxId: String, type: ConsentState = .unknown) -> ConsentListEntry {
+		ConsentListEntry(value: inboxId, entryType: .inboxId, consentType: type)
 	}
 
 	public var value: String
@@ -104,6 +108,14 @@ public class ConsentList {
 			for groupId in preference.denyGroup.groupIds {
 				_ = await denyGroup(groupId: groupId)
 			}
+			
+			for inboxId in preference.allowInboxID.inboxIds {
+				_ = await allowInboxId(inboxId: inboxId)
+			}
+
+			for inboxId in preference.denyInboxID.inboxIds {
+				_ = await denyInboxId(inboxId: inboxId)
+			}
 		}
 
 		return await Array(entriesManager.map.values)
@@ -117,32 +129,38 @@ public class ConsentList {
 
       for entry in entries {
         switch entry.entryType {
-
-    	    case .address:
-    	      switch entry.consentType {
-    	      case .allowed:
-              	payload.allowAddress.walletAddresses.append(entry.value)
-    	      case .denied:
-    	          payload.denyAddress.walletAddresses.append(entry.value)
-    	      case .unknown:
-    	          payload.messageType = nil
-    	      }
-
-    			case .groupId:
-    	    	switch entry.consentType {
-    	    	case .allowed:
-    	    	    if let valueData = entry.value.data(using: .utf8) {
-    	    	        payload.allowGroup.groupIds.append(valueData)
-    	    	    }
-    	    	case .denied:
-    	    	    if let valueData = entry.value.data(using: .utf8) {
-    	    	            payload.denyGroup.groupIds.append(valueData)
-    	    	    }
-    	    	case .unknown:
-    	    	    payload.messageType = nil
+		case .address:
+		  switch entry.consentType {
+		  case .allowed:
+			payload.allowAddress.walletAddresses.append(entry.value)
+		  case .denied:
+			  payload.denyAddress.walletAddresses.append(entry.value)
+		  case .unknown:
+			  payload.messageType = nil
+		  }
+		case .groupId:
+			switch entry.consentType {
+			case .allowed:
+				if let valueData = entry.value.data(using: .utf8) {
+					payload.allowGroup.groupIds.append(valueData)
+				}
+			case .denied:
+				if let valueData = entry.value.data(using: .utf8) {
+						payload.denyGroup.groupIds.append(valueData)
+				}
+			case .unknown:
+				payload.messageType = nil
     	    }
-    	}
-
+		case .inboxId:
+			switch entry.consentType {
+			case .allowed:
+			  payload.allowInboxID.inboxIds.append(entry.value)
+			case .denied:
+				payload.denyInboxID.inboxIds.append(entry.value)
+			case .unknown:
+				payload.messageType = nil
+			}
+		}
     }
 
     let message = try LibXMTP.userPreferencesEncrypt(
@@ -189,6 +207,20 @@ public class ConsentList {
 
 		return entry
 	}
+	
+	func allowInboxId(inboxId: String) async -> ConsentListEntry {
+		let entry = ConsentListEntry.inboxId(inboxId, type: ConsentState.allowed)
+		await entriesManager.set(entry.key, entry)
+
+		return entry
+	}
+
+	func denyInboxId(inboxId: String) async -> ConsentListEntry {
+		let entry = ConsentListEntry.inboxId(inboxId, type: ConsentState.denied)
+		await entriesManager.set(entry.key, entry)
+
+		return entry
+	}
 
 	func state(address: String) async -> ConsentState {
 		guard let entry = await entriesManager.get(ConsentListEntry.address(address).key) else {
@@ -200,6 +232,14 @@ public class ConsentList {
 
 	func groupState(groupId: Data) async -> ConsentState {
 		guard let entry =  await entriesManager.get(ConsentListEntry.groupId(groupId: groupId.toHex).key) else {
+			return .unknown
+		}
+
+		return entry.consentType
+	}
+	
+	func inboxIdState(inboxId: String) async -> ConsentState {
+		guard let entry = await entriesManager.get(ConsentListEntry.inboxId(inboxId).key) else {
 			return .unknown
 		}
 
@@ -243,6 +283,14 @@ public actor Contacts {
 
 	public func isGroupDenied(groupId: Data) async -> Bool {
 		return await consentList.groupState(groupId: groupId) == .denied
+	}
+	
+	public func isInboxIdAllowed(inboxId: String) async -> Bool {
+		return await consentList.inboxIdState(inboxId: inboxId) == .allowed
+	}
+
+	public func isInboxIdDenied(inboxId: String) async -> Bool {
+		return await consentList.inboxIdState(inboxId: inboxId) == .denied
 	}
 
 	public func allow(addresses: [String]) async throws {
@@ -310,6 +358,40 @@ public actor Contacts {
 				entries.append(entry)
 			}
 		}        
+		try await consentList.publish(entries: entries)
+	}
+	
+	public func allowInboxId(inboxIds: [String]) async throws {
+		var entries: [ConsentListEntry] = []
+
+		try await withThrowingTaskGroup(of: ConsentListEntry.self) { group in
+			for inboxId in inboxIds {
+				group.addTask {
+					return await self.consentList.allowInboxId(inboxId: inboxId)
+				}
+			}
+
+			for try await entry in group {
+				entries.append(entry)
+			}
+		}
+		try await consentList.publish(entries: entries)
+	}
+
+	public func denyInboxId(inboxIds: [String]) async throws {
+		var entries: [ConsentListEntry] = []
+
+		try await withThrowingTaskGroup(of: ConsentListEntry.self) { group in
+			for inboxId in inboxIds {
+				group.addTask {
+					return await self.consentList.denyInboxId(inboxId: inboxId)
+				}
+			}
+
+			for try await entry in group {
+				entries.append(entry)
+			}
+		}
 		try await consentList.publish(entries: entries)
 	}
 
