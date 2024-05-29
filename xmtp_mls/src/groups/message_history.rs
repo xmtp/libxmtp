@@ -1,4 +1,4 @@
-use std::fs::{OpenOptions, File};
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -864,6 +864,7 @@ mod tests {
         .await;
 
         _m.assert_async().await;
+        std::fs::remove_file(output_path).expect("Unable to remove test output file");
     }
 
     #[test]
