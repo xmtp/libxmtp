@@ -897,8 +897,24 @@ mod tests {
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
         let request_id = new_request_id();
-        let url = "http://0.0.0.0:5558/upload";
-        let reply = amal_a.prepare_history_reply(&request_id, url).await;
+
+        let options = mockito::ServerOpts {
+            host: HISTORY_SERVER_HOST,
+            port: HISTORY_SERVER_PORT,
+            ..Default::default()
+        };
+        let mut server = mockito::Server::new_with_opts_async(options).await;
+        let bundle_id = "test_bundle_id";
+
+        let _m = server
+            .mock("GET", format!("/files/{}", bundle_id).as_str())
+            .with_status(200)
+            .with_body("encrypted_content")
+            .create();
+
+        let url = format!("http://{HISTORY_SERVER_HOST}:{HISTORY_SERVER_PORT}/upload");
+        
+        let reply = amal_a.prepare_history_reply(&request_id, &url).await;
         assert!(reply.is_ok());
     }
 
