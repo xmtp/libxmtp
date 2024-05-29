@@ -246,7 +246,7 @@ fn write_to_file<T: serde::Serialize>(
         file.write_all(entry_str.as_bytes())?;
         file.write_all(b"\n")?;
     }
-    
+
     Ok(())
 }
 
@@ -867,6 +867,77 @@ mod tests {
 
         _m.assert_async().await;
         std::fs::remove_file(output_path).expect("Unable to remove test output file");
+    }
+
+    #[tokio::test]
+    async fn test_upload_history_bundle() {
+        let options = mockito::ServerOpts {
+            host: HISTORY_SERVER_HOST,
+            port: HISTORY_SERVER_PORT + 1,
+            ..Default::default()
+        };
+        let mut server = mockito::Server::new_with_opts_async(options).await;
+
+        let _m = server
+            .mock("POST", "/upload")
+            .with_status(200)
+            .with_body("File uploaded")
+            .create();
+
+        let signing_key = b"test_signing_key";
+        let file_content = b"test file content";
+
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(file_content).unwrap();
+        let file_path = file.path().to_str().unwrap().to_string();
+
+        let url = format!(
+            "http://{}:{}/upload",
+            HISTORY_SERVER_HOST,
+            HISTORY_SERVER_PORT + 1
+        );
+        let result = upload_history_bundle(&url, file_path.into(), signing_key).await;
+        println!("{:?}", result);
+
+        assert!(result.is_ok());
+        _m.assert_async().await;
+        server.reset();
+    }
+
+    #[tokio::test]
+    async fn test_download_history_bundle() {
+        let bundle_id = "test_bundle_id";
+        let hmac_value = "test_hmac_value";
+        let signing_key = "test_signing_key";
+        let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let output_path = "test_output.jsonl";
+        let options = mockito::ServerOpts {
+            host: HISTORY_SERVER_HOST,
+            port: HISTORY_SERVER_PORT,
+            ..Default::default()
+        };
+        let mut server = mockito::Server::new_with_opts_async(options).await;
+
+        let _m = server
+            .mock("GET", format!("/files/{}", bundle_id).as_str())
+            .with_status(200)
+            .with_body("encrypted_content")
+            .create();
+
+        let url = format!(
+            "http://{}:{}/files/{bundle_id}",
+            HISTORY_SERVER_HOST, HISTORY_SERVER_PORT
+        );
+        let _result = download_history_bundle(
+            &url,
+            hmac_value,
+            signing_key,
+            *enc_key.as_bytes(),
+            PathBuf::from(output_path),
+        )
+        .await;
+
+        _m.assert_async().await;
     }
 
     #[test]
