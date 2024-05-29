@@ -14,6 +14,8 @@ pub fn db_deserialize<T>(bytes: &[u8]) -> Result<T, StorageError>
 where
     T: serde::de::DeserializeOwned,
 {
-    serde_json::from_slice(bytes)
-        .map_err(|_| StorageError::Deserialization("Failed to db_deserialize".to_string()))
+    serde_json::from_slice(bytes).map_err(|e| {
+        println!("{:?}", e);
+        StorageError::Deserialization("Failed to db_deserialize".to_string())
+    })
 }

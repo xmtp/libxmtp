@@ -25,9 +25,6 @@ pub enum ClientBuilderError {
 
     // #[error("Failed to serialize/deserialize state for persistence: {source}")]
     // SerializationError { source: serde_json::Error },
-    #[error("Required identity was not found in cache.")]
-    RequiredIdentityNotFound,
-
     #[error("Database was configured with a different wallet")]
     StoredIdentityMismatch,
 

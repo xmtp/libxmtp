@@ -133,7 +133,17 @@ where
 mod tests {
     use super::super::test_utils::*;
     use super::GetIdentityUpdatesV2Filter;
-    use crate::{api::ApiClientWrapper, retry::Retry};
+    use crate::{
+        api::ApiClientWrapper,
+        identity::{Identity, IdentityError, IdentityStrategy},
+        retry::Retry,
+        storage::{identity::StoredIdentity, EncryptedMessageStore, StorageOption},
+        utils::test::{rand_vec, tmp_path},
+        Store as _,
+    };
+    use openmls::credentials::{Credential, CredentialType};
+    use openmls_basic_credential::SignatureKeyPair;
+    use openmls_traits::types::SignatureScheme;
     use xmtp_id::associations::{test_utils::rand_string, Action, CreateInbox, IdentityUpdate};
     use xmtp_proto::xmtp::identity::api::v1::{
         get_identity_updates_response::{
@@ -245,21 +255,131 @@ mod tests {
     #[tokio::test]
     async fn test_initialize_identity() {
         let mut mock_api = MockApiClient::new();
+        let tmpdb = tmp_path();
 
+        let store =
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
         let address = rand_string();
-        let inbox_id = rand_string();
-        // let stored = StoredIdentity {
-        //
-        // };
+        let inbox_id = "inbox_id".to_string();
 
+        let keypair = SignatureKeyPair::new(SignatureScheme::ED25519).unwrap();
+        let credential = Credential::new(CredentialType::Basic, rand_vec());
+        let stored: StoredIdentity = (&Identity {
+            inbox_id: inbox_id.clone(),
+            installation_keys: keypair,
+            credential,
+            signature_request: None,
+        })
+            .into();
+
+        stored.store(&store.conn().unwrap()).unwrap();
+
+        let address_cloned = address.clone();
         mock_api.expect_get_inbox_ids().returning(move |_| {
             Ok(GetInboxIdsResponse {
                 responses: vec![GetInboxIdsResponseItem {
-                    address: address.clone(),
-                    inbox_id: inbox_id.clone(),
+                    address: address_cloned.clone(),
+                    inbox_id: Some(inbox_id.clone()),
                 }],
             })
         });
+
         let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+
+        let identity = IdentityStrategy::CreateIfNotFound(address, None);
+        identity
+            .initialize_identity(&wrapper, &store)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn identity_should_fail_if_inbox_id_does_not_exist() {
+        let mut mock_api = MockApiClient::new();
+
+        let address = rand_string();
+        let inbox_id = "inbox_id".to_string();
+
+        let tmpdb = tmp_path();
+        let store =
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
+
+        let keypair = SignatureKeyPair::new(SignatureScheme::ED25519).unwrap();
+        let credential = Credential::new(CredentialType::Basic, rand_vec());
+        let stored: StoredIdentity = (&Identity {
+            inbox_id: inbox_id.clone(),
+            installation_keys: keypair,
+            credential,
+            signature_request: None,
+        })
+            .into();
+
+        stored.store(&store.conn().unwrap()).unwrap();
+
+        mock_api.expect_get_inbox_ids().returning(move |_| {
+            let wrong_address = "wrong".to_string();
+            Ok(GetInboxIdsResponse {
+                responses: vec![GetInboxIdsResponseItem {
+                    address: wrong_address,
+                    inbox_id: Some(inbox_id.clone()),
+                }],
+            })
+        });
+
+        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+
+        let identity = IdentityStrategy::CreateIfNotFound(address.clone(), None);
+        let err = identity
+            .initialize_identity(&wrapper, &store)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, IdentityError::NoAssociatedInboxId(addr) if addr == address));
+    }
+
+    #[tokio::test]
+    async fn identity_should_fail_on_wrong_inbox_id() {
+        let mut mock_api = MockApiClient::new();
+
+        let network_address = rand_string();
+        let inbox_id = "inbox_id".to_string();
+
+        let tmpdb = tmp_path();
+        let store =
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
+
+        let keypair = SignatureKeyPair::new(SignatureScheme::ED25519).unwrap();
+        let credential = Credential::new(CredentialType::Basic, rand_vec());
+        let stored: StoredIdentity = (&Identity {
+            inbox_id: inbox_id.clone(),
+            installation_keys: keypair,
+            credential,
+            signature_request: None,
+        })
+            .into();
+
+        stored.store(&store.conn().unwrap()).unwrap();
+
+        let network_address_clone = network_address.clone();
+        mock_api.expect_get_inbox_ids().returning(move |_| {
+            Ok(GetInboxIdsResponse {
+                responses: vec![GetInboxIdsResponseItem {
+                    address: network_address_clone.clone(),
+                    inbox_id: Some("other".into()),
+                }],
+            })
+        });
+
+        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+
+        let identity = IdentityStrategy::CreateIfNotFound(network_address.clone(), None);
+        let err = identity
+            .initialize_identity(&wrapper, &store)
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(err, IdentityError::InboxIdMismatch{ id, address, stored} if id == "other" && address == network_address && stored == inbox_id)
+        );
     }
 }
