@@ -4,8 +4,18 @@ use rand::{
     distributions::{Alphanumeric, DistString},
     Rng,
 };
+use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
+use xmtp_id::associations::RecoverableEcdsaSignature;
 
-use crate::types::Address;
+use crate::{
+    builder::ClientBuilder,
+    identity::IdentityStrategy,
+    storage::{EncryptedMessageStore, StorageOption},
+    types::Address,
+    Client, InboxOwner,
+};
+
+pub type TestClient = Client<GrpcClient>;
 
 pub fn rand_string() -> String {
     Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
@@ -27,4 +37,55 @@ pub fn tmp_path() -> String {
 pub fn rand_time() -> i64 {
     let mut rng = rand::thread_rng();
     rng.gen_range(0..1_000_000_000)
+}
+
+/// Get a GRPC Client pointed at the local instance of `xmtp-node-go`
+pub async fn get_local_grpc_client() -> GrpcClient {
+    GrpcClient::create("http://localhost:5556".to_string(), false)
+        .await
+        .unwrap()
+}
+
+impl ClientBuilder<GrpcClient> {
+    pub async fn local_grpc(self) -> Self {
+        self.api_client(get_local_grpc_client().await)
+    }
+
+    pub fn temp_store(self) -> Self {
+        let tmpdb = tmp_path();
+        self.store(
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap(),
+        )
+    }
+
+    pub async fn new_test_client(owner: &impl InboxOwner) -> Client<GrpcClient> {
+        let client = Self::new(IdentityStrategy::CreateIfNotFound(
+            owner.get_address(),
+            None,
+        ))
+        .temp_store()
+        .local_grpc()
+        .await
+        .build()
+        .await
+        .unwrap();
+
+        register_client(&client, owner).await;
+
+        client
+    }
+}
+
+pub async fn register_client(client: &Client<GrpcClient>, owner: &impl InboxOwner) {
+    let mut signature_request = client.context.signature_request().unwrap();
+    let signature_text = signature_request.signature_text();
+    signature_request
+        .add_signature(Box::new(RecoverableEcdsaSignature::new(
+            signature_text.clone(),
+            owner.sign(&signature_text).unwrap().into(),
+        )))
+        .await
+        .unwrap();
+
+    client.register_identity(signature_request).await.unwrap();
 }

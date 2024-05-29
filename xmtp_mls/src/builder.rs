@@ -111,66 +111,15 @@ where
 
 #[cfg(test)]
 mod tests {
-    use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::associations::{generate_inbox_id, RecoverableEcdsaSignature};
+    use xmtp_id::associations::generate_inbox_id;
 
     use super::{ClientBuilder, IdentityStrategy};
     use crate::{
         storage::{EncryptedMessageStore, StorageOption},
-        utils::test::tmp_path,
-        Client, InboxOwner,
+        utils::test::{register_client, tmp_path},
+        InboxOwner,
     };
-
-    async fn get_local_grpc_client() -> GrpcClient {
-        GrpcClient::create("http://localhost:5556".to_string(), false)
-            .await
-            .unwrap()
-    }
-
-    async fn register_client(client: &Client<GrpcClient>, owner: &impl InboxOwner) {
-        let mut signature_request = client.context.signature_request().unwrap();
-        let signature_text = signature_request.signature_text();
-        signature_request
-            .add_signature(Box::new(RecoverableEcdsaSignature::new(
-                signature_text.clone(),
-                owner.sign(&signature_text).unwrap().into(),
-            )))
-            .await
-            .unwrap();
-
-        client.register_identity(signature_request).await.unwrap();
-    }
-
-    impl ClientBuilder<GrpcClient> {
-        pub async fn local_grpc(self) -> Self {
-            self.api_client(get_local_grpc_client().await)
-        }
-
-        fn temp_store(self) -> Self {
-            let tmpdb = tmp_path();
-            self.store(
-                EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap(),
-            )
-        }
-
-        pub async fn new_test_client(owner: &impl InboxOwner) -> Client<GrpcClient> {
-            let client = Self::new(IdentityStrategy::CreateIfNotFound(
-                owner.get_address(),
-                None,
-            ))
-            .temp_store()
-            .local_grpc()
-            .await
-            .build()
-            .await
-            .unwrap();
-
-            register_client(&client, owner).await;
-
-            client
-        }
-    }
 
     #[tokio::test]
     async fn builder_test() {
@@ -196,10 +145,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(
-            client.inbox_id(),
-            generate_inbox_id(&account_address.to_string(), &0)
-        );
+        assert_eq!(client.inbox_id(), generate_inbox_id(&account_address, &0));
     }
 
     #[tokio::test]
