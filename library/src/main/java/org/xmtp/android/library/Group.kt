@@ -16,9 +16,11 @@ import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import uniffi.xmtpv3.FfiDeliveryStatus
 import uniffi.xmtpv3.FfiGroup
 import uniffi.xmtpv3.FfiGroupMetadata
+import uniffi.xmtpv3.FfiGroupPermissions
 import uniffi.xmtpv3.FfiListMessagesOptions
 import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
+import uniffi.xmtpv3.GroupPermissions
 import java.util.Date
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.DurationUnit
@@ -35,6 +37,9 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
 
     private val metadata: FfiGroupMetadata
         get() = libXMTPGroup.groupMetadata()
+
+    private val permissions: FfiGroupPermissions
+        get() = libXMTPGroup.groupPermissions()
 
     val name: String
         get() = libXMTPGroup.groupName()
@@ -157,16 +162,16 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
         return libXMTPGroup.addedByInboxId()
     }
 
-//    fun permissionLevel(): GroupPermissions {
-//        return metadata.policyType()
-//    }
-
-    fun isAdmin(): Boolean {
-        return metadata.creatorInboxId() == client.inboxId
+    fun permissionLevel(): GroupPermissions {
+        return permissions.policyType()
     }
 
-    fun adminInboxId(): String {
+    fun creatorInboxId(): String {
         return metadata.creatorInboxId()
+    }
+
+    fun isCreator(): Boolean {
+        return metadata.creatorInboxId() == client.inboxId
     }
 
     suspend fun addMembers(addresses: List<String>) {
@@ -213,6 +218,54 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
 
     suspend fun updateGroupName(name: String) {
         return libXMTPGroup.updateGroupName(name)
+    }
+
+    fun isAdmin(inboxId: String): Boolean {
+        return libXMTPGroup.isAdmin(inboxId)
+    }
+
+    fun isSuperAdmin(inboxId: String): Boolean {
+        return libXMTPGroup.isSuperAdmin(inboxId)
+    }
+
+    suspend fun addAdmin(inboxId: String) {
+        try {
+            libXMTPGroup.addAdmin(inboxId)
+        } catch (e: Exception) {
+            throw XMTPException("Permission denied: Unable to add admin", e)
+        }
+    }
+
+    suspend fun removeAdmin(inboxId: String) {
+        try {
+            libXMTPGroup.removeAdmin(inboxId)
+        } catch (e: Exception) {
+            throw XMTPException("Permission denied: Unable to remove admin", e)
+        }
+    }
+
+    suspend fun addSuperAdmin(inboxId: String) {
+        try {
+            libXMTPGroup.addSuperAdmin(inboxId)
+        } catch (e: Exception) {
+            throw XMTPException("Permission denied: Unable to add super admin", e)
+        }
+    }
+
+    suspend fun removeSuperAdmin(inboxId: String) {
+        try {
+            libXMTPGroup.removeSuperAdmin(inboxId)
+        } catch (e: Exception) {
+            throw XMTPException("Permission denied: Unable to remove super admin", e)
+        }
+    }
+
+    suspend fun listAdmins(): List<String> {
+        return libXMTPGroup.adminList()
+    }
+
+    suspend fun listSuperAdmins(): List<String> {
+        return libXMTPGroup.superAdminList()
     }
 
     fun streamMessages(): Flow<DecodedMessage> = callbackFlow {

@@ -106,7 +106,7 @@ data class Conversations(
 
     suspend fun newGroup(
         accountAddresses: List<String>,
-        permissions: GroupPermissions = GroupPermissions.EVERYONE_IS_ADMIN,
+        permissions: GroupPermissions = GroupPermissions.ALL_MEMBERS,
     ): Group {
         if (accountAddresses.size == 1 &&
             accountAddresses.first().lowercase() == client.address.lowercase()
