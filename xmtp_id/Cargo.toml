@@ -38,6 +38,7 @@ ethers.workspace = true
 futures = "0.3"
 regex = "1.10"
 tokio = { workspace = true, features = ["time"] }
+xmtp_v2 = { path = "../xmtp_v2" }
 
 [features]
 test-utils = []

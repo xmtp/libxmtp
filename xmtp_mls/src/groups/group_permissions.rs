@@ -356,7 +356,7 @@ impl MetadataPolicy for MetadataAnyCondition {
 pub trait PermissionsPolicy: std::fmt::Debug {
     // Verify relevant metadata is actually changed before evaluating against the MetadataPolicy
     // See evaluate_metadata_policy
-    fn evaluate(&self, actor: &CommitParticipant, change: &PermissionsChange) -> bool;
+    fn evaluate(&self, actor: &CommitParticipant) -> bool;
     fn to_proto(&self) -> Result<PermissionsPolicyProto, PolicyError>;
 }
 
@@ -368,12 +368,13 @@ pub enum PermissionsBasePolicies {
 }
 
 impl PermissionsPolicy for &PermissionsBasePolicies {
-    fn evaluate(&self, _actor: &CommitParticipant, _change: &PermissionsChange) -> bool {
-        // TODO PERMISSIONS: Update this for permission policy updates
+    fn evaluate(&self, actor: &CommitParticipant) -> bool {
         match self {
             PermissionsBasePolicies::Deny => false,
-            PermissionsBasePolicies::AllowIfActorAdminOrSuperAdmin => true,
-            PermissionsBasePolicies::AllowIfActorSuperAdmin => true,
+            PermissionsBasePolicies::AllowIfActorAdminOrSuperAdmin => {
+                actor.is_admin || actor.is_super_admin
+            }
+            PermissionsBasePolicies::AllowIfActorSuperAdmin => actor.is_super_admin,
         }
     }
 
@@ -426,27 +427,6 @@ impl PermissionsPolicies {
     }
 }
 
-// Information for Metadata Update used for validation
-#[derive(Clone, Debug)]
-pub struct PermissionsChange {
-    #[allow(dead_code)]
-    pub(crate) old_value: GroupMutablePermissions,
-    #[allow(dead_code)]
-    pub(crate) new_value: GroupMutablePermissions,
-}
-
-impl PermissionsChange {
-    #[cfg(test)]
-    #[allow(dead_code)]
-    fn empty_for_testing() -> Self {
-        todo!();
-        // Self {
-        //     old_value: GroupMutablePermissions::new_default("empty".to_string()),
-        //     new_value: GroupMutablePermissions::new_default("empty".to_string()),
-        // }
-    }
-}
-
 impl TryFrom<PermissionsPolicyProto> for PermissionsPolicies {
     type Error = PolicyError;
 
@@ -489,11 +469,11 @@ impl TryFrom<PermissionsPolicyProto> for PermissionsPolicies {
 }
 
 impl PermissionsPolicy for PermissionsPolicies {
-    fn evaluate(&self, actor: &CommitParticipant, change: &PermissionsChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant) -> bool {
         match self {
-            PermissionsPolicies::Standard(policy) => policy.evaluate(actor, change),
-            PermissionsPolicies::AndCondition(policy) => policy.evaluate(actor, change),
-            PermissionsPolicies::AnyCondition(policy) => policy.evaluate(actor, change),
+            PermissionsPolicies::Standard(policy) => policy.evaluate(actor),
+            PermissionsPolicies::AndCondition(policy) => policy.evaluate(actor),
+            PermissionsPolicies::AnyCondition(policy) => policy.evaluate(actor),
         }
     }
 
@@ -519,10 +499,8 @@ impl PermissionsAndCondition {
 }
 
 impl PermissionsPolicy for PermissionsAndCondition {
-    fn evaluate(&self, actor: &CommitParticipant, change: &PermissionsChange) -> bool {
-        self.policies
-            .iter()
-            .all(|policy| policy.evaluate(actor, change))
+    fn evaluate(&self, actor: &CommitParticipant) -> bool {
+        self.policies.iter().all(|policy| policy.evaluate(actor))
     }
 
     fn to_proto(&self) -> Result<PermissionsPolicyProto, PolicyError> {
@@ -554,10 +532,8 @@ impl PermissionsAnyCondition {
 }
 
 impl PermissionsPolicy for PermissionsAnyCondition {
-    fn evaluate(&self, actor: &CommitParticipant, change: &PermissionsChange) -> bool {
-        self.policies
-            .iter()
-            .any(|policy| policy.evaluate(actor, change))
+    fn evaluate(&self, actor: &CommitParticipant) -> bool {
+        self.policies.iter().any(|policy| policy.evaluate(actor))
     }
 
     fn to_proto(&self) -> Result<PermissionsPolicyProto, PolicyError> {
@@ -828,19 +804,58 @@ impl PolicySet {
     }
 
     pub fn evaluate_commit(&self, commit: &ValidatedCommit) -> bool {
-        self.evaluate_policy(
+        // Verify add member policy was not violated
+        let added_inboxes_valid = self.evaluate_policy(
             commit.added_inboxes.iter(),
             &self.add_member_policy,
             &commit.actor,
-        ) && self.evaluate_policy(
+        );
+
+        // Verify remove member policy was not violated
+        // Super admin can not be removed from a group
+        let removed_inboxes_valid = self.evaluate_policy(
             commit.removed_inboxes.iter(),
             &self.remove_member_policy,
             &commit.actor,
-        ) && self.evaluate_metadata_policy(
+        ) && !commit
+            .removed_inboxes
+            .iter()
+            .any(|inbox| inbox.is_super_admin);
+
+        // Verify that update metadata policy was not violated
+        let metadata_changes_valid = self.evaluate_metadata_policy(
             commit.metadata_changes.metadata_field_changes.iter(),
             &self.update_metadata_policy,
             &commit.actor,
-        )
+        );
+
+        // Verify that add admin policy was not violated
+        let added_admins_valid = commit.metadata_changes.admins_added.is_empty()
+            || self.add_admin_policy.evaluate(&commit.actor);
+
+        // Verify that remove admin policy was not violated
+        let removed_admins_valid = commit.metadata_changes.admins_removed.is_empty()
+            || self.remove_admin_policy.evaluate(&commit.actor);
+
+        // Verify that super admin add policy was not violated
+        let super_admin_add_valid =
+            commit.metadata_changes.super_admins_added.is_empty() || commit.actor.is_super_admin;
+
+        // Verify that super admin remove policy was not violated
+        // You can never remove the last super admin
+        let super_admin_remove_valid = commit.metadata_changes.super_admins_removed.is_empty()
+            || (commit.actor.is_super_admin && commit.metadata_changes.num_super_admins > 0);
+
+        // TODO Validate permissions updates are valid
+        // once we add the user actions for updating permissions
+
+        added_inboxes_valid
+            && removed_inboxes_valid
+            && metadata_changes_valid
+            && added_admins_valid
+            && removed_admins_valid
+            && super_admin_add_valid
+            && super_admin_remove_valid
     }
 
     fn evaluate_policy<'a, I, P>(
@@ -1109,8 +1124,6 @@ mod tests {
         }
     }
 
-    // TODO CVOELL: add metadata specific test here
-
     #[test]
     fn test_allow_all() {
         let permissions = PolicySet::new(
@@ -1155,7 +1168,11 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
+        // Can not remove the creator if they are the only super admin
         let commit_with_creator = build_validated_commit(Some(true), Some(true), None, true);
+        assert!(!permissions.evaluate_commit(&commit_with_creator));
+
+        let commit_with_creator = build_validated_commit(Some(true), Some(false), None, true);
         assert!(permissions.evaluate_commit(&commit_with_creator));
 
         let commit_without_creator = build_validated_commit(Some(true), Some(true), None, false);
