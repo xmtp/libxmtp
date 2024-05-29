@@ -901,7 +901,7 @@ mod tests {
 
         let options = mockito::ServerOpts {
             host: HISTORY_SERVER_HOST,
-            port: HISTORY_SERVER_PORT,
+            port: HISTORY_SERVER_PORT + 2,
             ..Default::default()
         };
         let mut server = mockito::Server::new_with_opts_async(options).await;
