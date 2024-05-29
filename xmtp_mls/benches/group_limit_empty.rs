@@ -67,5 +67,5 @@ fn add_1000_members(c: &mut Criterion) {
     })
 }
 
-criterion_group!(group_limit, add_100_members, add_1000_members);
-criterion_main!(group_limit);
+criterion_group!(group_limit_empty, add_100_members, add_1000_members);
+criterion_main!(group_limit_empty);
