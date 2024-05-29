@@ -913,7 +913,7 @@ mod tests {
             .create();
 
         let url = format!("http://{HISTORY_SERVER_HOST}:{HISTORY_SERVER_PORT}/upload");
-        
+
         let reply = amal_a.prepare_history_reply(&request_id, &url).await;
         assert!(reply.is_ok());
     }
