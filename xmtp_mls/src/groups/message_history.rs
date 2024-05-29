@@ -246,6 +246,7 @@ fn write_to_file<T: serde::Serialize>(
         file.write_all(entry_str.as_bytes())?;
         file.write_all(b"\n")?;
     }
+    
     Ok(())
 }
 
