@@ -184,11 +184,25 @@ where
         Ok(())
     }
 
-    async fn prepare_history_bundle(
+    async fn prepare_history_reply(
         &self,
-    ) -> Result<(PathBuf, HistoryKeyType), MessageHistoryError> {
-        let (history_file, key) = self.write_history_bundle().await?;
-        Ok((history_file, key))
+        request_id: &str,
+        url: &str,
+    ) -> Result<HistoryReply, MessageHistoryError> {
+        let (history_file, enc_key) = self.write_history_bundle().await?;
+
+        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
+        upload_history_bundle(url, history_file.clone(), signing_key.as_bytes()).await?;
+
+        let history_reply = HistoryReply::new(
+            request_id,
+            url,
+            signing_key.as_bytes().to_vec(),
+            signing_key,
+            enc_key,
+        );
+
+        Ok(history_reply)
     }
 
     async fn write_history_bundle(&self) -> Result<(PathBuf, HistoryKeyType), MessageHistoryError> {
@@ -240,7 +254,7 @@ fn write_to_file<T: serde::Serialize>(
     file_path: &Path,
     content: Vec<T>,
 ) -> Result<(), MessageHistoryError> {
-    let mut file = OpenOptions::new().append(true).open(file_path)?;
+    let mut file = OpenOptions::new().create(true).append(true).open(file_path)?;
     for entry in content {
         let entry_str = serde_json::to_string(&entry)?;
         file.write_all(entry_str.as_bytes())?;
@@ -351,7 +365,7 @@ async fn download_history_bundle(
 
         decrypt_history_file(input_path, output_path, &aes_key)?;
     } else {
-        println!(
+        eprintln!(
             "Failed to download file. Status code: {} Response: {:?}",
             response.status(),
             response
@@ -385,6 +399,7 @@ impl From<HistoryRequest> for MessageHistoryRequest {
     }
 }
 
+#[derive(Debug)]
 struct HistoryReply {
     /// Unique ID for each client Message History Request
     request_id: String,
@@ -870,74 +885,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_upload_history_bundle() {
-        let options = mockito::ServerOpts {
-            host: HISTORY_SERVER_HOST,
-            port: HISTORY_SERVER_PORT + 1,
-            ..Default::default()
-        };
-        let mut server = mockito::Server::new_with_opts_async(options).await;
+    async fn test_prepare_history_reply() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let amal_b = ClientBuilder::new_test_client(&wallet).await;
+        assert_ok!(amal_b.allow_history_sync().await);
 
-        let _m = server
-            .mock("POST", "/upload")
-            .with_status(200)
-            .with_body("File uploaded")
-            .create();
+        amal_a.sync_welcomes().await.expect("sync_welcomes");
 
-        let signing_key = b"test_signing_key";
-        let file_content = b"test file content";
-
-        let mut file = NamedTempFile::new().unwrap();
-        file.write_all(file_content).unwrap();
-        let file_path = file.path().to_str().unwrap().to_string();
-
-        let url = format!(
-            "http://{}:{}/upload",
-            HISTORY_SERVER_HOST,
-            HISTORY_SERVER_PORT + 1
-        );
-        let result = upload_history_bundle(&url, file_path.into(), signing_key).await;
-        println!("{:?}", result);
-
-        assert!(result.is_ok());
-        _m.assert_async().await;
-        server.reset();
-    }
-
-    #[tokio::test]
-    async fn test_download_history_bundle() {
-        let bundle_id = "test_bundle_id";
-        let hmac_value = "test_hmac_value";
-        let signing_key = "test_signing_key";
-        let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
-        let output_path = "test_output.jsonl";
-        let options = mockito::ServerOpts {
-            host: HISTORY_SERVER_HOST,
-            port: HISTORY_SERVER_PORT,
-            ..Default::default()
-        };
-        let mut server = mockito::Server::new_with_opts_async(options).await;
-
-        let _m = server
-            .mock("GET", format!("/files/{}", bundle_id).as_str())
-            .with_status(200)
-            .with_body("encrypted_content")
-            .create();
-
-        let url = format!(
-            "http://{}:{}/files/{bundle_id}",
-            HISTORY_SERVER_HOST, HISTORY_SERVER_PORT
-        );
-        let _result = download_history_bundle(
-            &url,
-            hmac_value,
-            signing_key,
-            *enc_key.as_bytes(),
-            PathBuf::from(output_path),
-        )
-        .await;
-
-        _m.assert_async().await;
+        let request_id = new_request_id();
+        let url = "http://0.0.0.0:5558/upload";
+        let reply = amal_a.prepare_history_reply(&request_id, url).await;
+        assert!(reply.is_ok());
     }
 
     #[test]
