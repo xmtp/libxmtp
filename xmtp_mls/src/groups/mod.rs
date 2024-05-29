@@ -2,8 +2,8 @@ pub mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
 pub mod group_permissions;
+pub mod members;
 mod intents;
-mod members;
 mod message_history;
 mod subscriptions;
 mod sync;
@@ -595,6 +595,16 @@ impl MlsGroup {
     pub fn super_admin_list(&self) -> Result<Vec<String>, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
         Ok(mutable_metadata.super_admin_list)
+    }
+
+    pub fn is_admin(&self, inbox_id: String) -> Result<bool, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        Ok(mutable_metadata.admin_list.contains(&inbox_id))
+    }
+
+    pub fn is_super_admin(&self, inbox_id: String) -> Result<bool, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
     }
 
     pub async fn update_admin_list<ApiClient>(
