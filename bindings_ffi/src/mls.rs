@@ -26,7 +26,7 @@ use xmtp_mls::retry::Retry;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
-    groups::MlsGroup,
+    groups::{MlsGroup, members::PermissionLevel},
     storage::{
         group_message::DeliveryStatus, group_message::GroupMessageKind,
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
@@ -435,6 +435,14 @@ pub struct FfiGroupMember {
     pub inbox_id: String,
     pub account_addresses: Vec<String>,
     pub installation_ids: Vec<Vec<u8>>,
+    pub permission_level: FfiPermissionLevel,
+}
+
+#[derive(uniffi::Enum)]
+pub enum FfiPermissionLevel {
+    Member,
+    Admin,
+    SuperAdmin,
 }
 
 #[derive(uniffi::Record)]
@@ -530,6 +538,11 @@ impl FfiGroup {
                 inbox_id: member.inbox_id,
                 account_addresses: member.account_addresses,
                 installation_ids: member.installation_ids,
+                permission_level: match member.permission_level {
+                    PermissionLevel::Member => FfiPermissionLevel::Member,
+                    PermissionLevel::Admin => FfiPermissionLevel::Admin,
+                    PermissionLevel::SuperAdmin => FfiPermissionLevel::SuperAdmin,
+                },
             })
             .collect();
 
