@@ -925,9 +925,11 @@ mod tests {
         builder::ClientBuilder,
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
-            build_group_membership_extension, group_membership::GroupMembership,
-            group_mutable_metadata::MetadataField, members::PermissionLevel, PreconfiguredPolicies,
-            UpdateAdminListType,
+            build_group_membership_extension,
+            group_membership::GroupMembership,
+            group_mutable_metadata::MetadataField,
+            members::{GroupMember, PermissionLevel},
+            PreconfiguredPolicies, UpdateAdminListType,
         },
         storage::{
             group_intent::IntentState,
@@ -1103,11 +1105,27 @@ mod tests {
         assert_eq!(bola_group_name, "New Group");
 
         // Check if both clients can see the members correctly
-        let amal_members = amal_group.members().unwrap();
-        let bola_members = bola_group.members().unwrap();
+        let amal_members: Vec<GroupMember> = amal_group.members().unwrap();
+        let bola_members: Vec<GroupMember> = bola_group.members().unwrap();
 
         assert_eq!(amal_members.len(), 2);
-        assert_eq!(bola_members.len(), 2); // failing here, see len == 0
+        assert_eq!(bola_members.len(), 2);
+
+        for member in &amal_members {
+            if member.inbox_id == amal.inbox_id() {
+                assert_eq!(
+                    member.permission_level,
+                    PermissionLevel::SuperAdmin,
+                    "Amal should be a super admin"
+                );
+            } else if member.inbox_id == bola.inbox_id() {
+                assert_eq!(
+                    member.permission_level,
+                    PermissionLevel::Member,
+                    "Bola should be a member"
+                );
+            }
+        }
     }
 
     // Amal and Bola will both try and add Charlie from the same epoch.
