@@ -905,11 +905,10 @@ mod tests {
             ..Default::default()
         };
         let mut server = mockito::Server::new_with_opts_async(options).await;
-        let bundle_id = "test_bundle_id";
 
         let _m = server
-            .mock("GET", format!("/files/{}", bundle_id).as_str())
-            .with_status(200)
+            .mock("POST", "/upload")
+            .with_status(201)
             .with_body("encrypted_content")
             .create();
 
