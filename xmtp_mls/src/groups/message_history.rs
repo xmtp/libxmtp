@@ -43,8 +43,6 @@ use crate::{
 
 const ENC_KEY_SIZE: usize = 32; // 256-bit key
 const NONCE_SIZE: usize = 12; // 96-bit nonce
-const HISTORY_SERVER_HOST: &str = "0.0.0.0";
-const HISTORY_SERVER_PORT: u16 = 5558;
 
 #[derive(Debug, Error)]
 pub enum MessageHistoryError {
@@ -467,6 +465,9 @@ fn verify_pin(expected: &str, actual: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    const HISTORY_SERVER_HOST: &str = "0.0.0.0";
+    const HISTORY_SERVER_PORT: u16 = 5558;
 
     use super::*;
     use mockito;
