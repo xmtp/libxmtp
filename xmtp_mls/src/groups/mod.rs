@@ -2,8 +2,8 @@ pub mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
 pub mod group_permissions;
-pub mod members;
 mod intents;
+pub mod members;
 mod message_history;
 mod subscriptions;
 mod sync;
@@ -879,7 +879,8 @@ mod tests {
         builder::ClientBuilder,
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
-            group_mutable_metadata::MetadataField, members::PermissionLevel, PreconfiguredPolicies, UpdateAdminListType
+            group_mutable_metadata::MetadataField, members::PermissionLevel, PreconfiguredPolicies,
+            UpdateAdminListType,
         },
         storage::{
             group_intent::IntentState,
@@ -1699,90 +1700,99 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn test_group_members_permission_level_update() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    async fn test_group_members_permission_level_update() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-    let policies = Some(PreconfiguredPolicies::AdminsOnly);
-    let amal_group = amal.create_group(policies).unwrap();
-    amal_group.sync(&amal).await.unwrap();
+        let policies = Some(PreconfiguredPolicies::AdminsOnly);
+        let amal_group = amal.create_group(policies).unwrap();
+        amal_group.sync(&amal).await.unwrap();
 
-    // Add Bola and Caro to the group
-    amal_group
-        .add_members_by_inbox_id(&amal, vec![bola.inbox_id(), caro.inbox_id()])
-        .await
-        .unwrap();
-    amal_group.sync(&amal).await.unwrap();
+        // Add Bola and Caro to the group
+        amal_group
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id(), caro.inbox_id()])
+            .await
+            .unwrap();
+        amal_group.sync(&amal).await.unwrap();
 
-    // Initial checks for group members
-    let initial_members = amal_group.members().unwrap();
-    let mut count_member = 0;
-    let mut count_admin = 0;
-    let mut count_super_admin = 0;
+        // Initial checks for group members
+        let initial_members = amal_group.members().unwrap();
+        let mut count_member = 0;
+        let mut count_admin = 0;
+        let mut count_super_admin = 0;
 
-    for member in &initial_members {
-        match member.permission_level {
-            PermissionLevel::Member => count_member += 1,
-            PermissionLevel::Admin => count_admin += 1,
-            PermissionLevel::SuperAdmin => count_super_admin += 1,
+        for member in &initial_members {
+            match member.permission_level {
+                PermissionLevel::Member => count_member += 1,
+                PermissionLevel::Admin => count_admin += 1,
+                PermissionLevel::SuperAdmin => count_super_admin += 1,
+            }
         }
-    }
 
-    assert_eq!(count_super_admin, 1, "Only Amal should be super admin initially");
-    assert_eq!(count_admin, 0, "no members are admin only");
-    assert_eq!(count_member, 2, "two members have no admin status");
+        assert_eq!(
+            count_super_admin, 1,
+            "Only Amal should be super admin initially"
+        );
+        assert_eq!(count_admin, 0, "no members are admin only");
+        assert_eq!(count_member, 2, "two members have no admin status");
 
-    // Add Bola as an admin
-    amal_group
-        .update_admin_list(&amal, UpdateAdminListType::Add, bola.inbox_id())
-        .await
-        .unwrap();
-    amal_group.sync(&amal).await.unwrap();
+        // Add Bola as an admin
+        amal_group
+            .update_admin_list(&amal, UpdateAdminListType::Add, bola.inbox_id())
+            .await
+            .unwrap();
+        amal_group.sync(&amal).await.unwrap();
 
-    // Check after adding Bola as an admin
-    let members = amal_group.members().unwrap();
-    let mut count_member = 0;
-    let mut count_admin = 0;
-    let mut count_super_admin = 0;
+        // Check after adding Bola as an admin
+        let members = amal_group.members().unwrap();
+        let mut count_member = 0;
+        let mut count_admin = 0;
+        let mut count_super_admin = 0;
 
-    for member in &members {
-        match member.permission_level {
-            PermissionLevel::Member => count_member += 1,
-            PermissionLevel::Admin => count_admin += 1,
-            PermissionLevel::SuperAdmin => count_super_admin += 1,
+        for member in &members {
+            match member.permission_level {
+                PermissionLevel::Member => count_member += 1,
+                PermissionLevel::Admin => count_admin += 1,
+                PermissionLevel::SuperAdmin => count_super_admin += 1,
+            }
         }
-    }
 
-    assert_eq!(count_super_admin, 1, "Only Amal should be super admin initially");
-    assert_eq!(count_admin, 1, "bola is admin");
-    assert_eq!(count_member, 1, "caro has no admin status");
+        assert_eq!(
+            count_super_admin, 1,
+            "Only Amal should be super admin initially"
+        );
+        assert_eq!(count_admin, 1, "bola is admin");
+        assert_eq!(count_member, 1, "caro has no admin status");
 
-    // Add Caro as a super admin
-    amal_group
-        .update_admin_list(&amal, UpdateAdminListType::AddSuper, caro.inbox_id())
-        .await
-        .unwrap();
-    amal_group.sync(&amal).await.unwrap();
+        // Add Caro as a super admin
+        amal_group
+            .update_admin_list(&amal, UpdateAdminListType::AddSuper, caro.inbox_id())
+            .await
+            .unwrap();
+        amal_group.sync(&amal).await.unwrap();
 
-    // Check after adding Caro as a super admin
-    let members = amal_group.members().unwrap();
-    let mut count_member = 0;
-    let mut count_admin = 0;
-    let mut count_super_admin = 0;
+        // Check after adding Caro as a super admin
+        let members = amal_group.members().unwrap();
+        let mut count_member = 0;
+        let mut count_admin = 0;
+        let mut count_super_admin = 0;
 
-    for member in &members {
-        match member.permission_level {
-            PermissionLevel::Member => count_member += 1,
-            PermissionLevel::Admin => count_admin += 1,
-            PermissionLevel::SuperAdmin => count_super_admin += 1,
+        for member in &members {
+            match member.permission_level {
+                PermissionLevel::Member => count_member += 1,
+                PermissionLevel::Admin => count_admin += 1,
+                PermissionLevel::SuperAdmin => count_super_admin += 1,
+            }
         }
-    }
 
-    assert_eq!(count_super_admin, 2, "Amal and Caro should be super admin initially");
-    assert_eq!(count_admin, 1, "bola is admin");
-    assert_eq!(count_member, 0, "no members have no admin status");
-}
+        assert_eq!(
+            count_super_admin, 2,
+            "Amal and Caro should be super admin initially"
+        );
+        assert_eq!(count_admin, 1, "bola is admin");
+        assert_eq!(count_member, 0, "no members have no admin status");
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_staged_welcome() {
