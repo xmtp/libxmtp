@@ -699,7 +699,7 @@ mod tests {
         assert_eq!(amal_b_messages.len(), 1);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_prepare_groups_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -816,7 +816,7 @@ mod tests {
         std::fs::remove_file(decrypted_file).expect("Unable to remove test decrypted file");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_upload_history_bundle() {
         let options = mockito::ServerOpts {
             host: HISTORY_SERVER_HOST,
@@ -850,7 +850,7 @@ mod tests {
         server.reset();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_download_history_bundle() {
         let bundle_id = "test_bundle_id";
         let hmac_value = "test_hmac_value";
@@ -887,7 +887,7 @@ mod tests {
         std::fs::remove_file(output_path).expect("Unable to remove test output file");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_prepare_history_reply() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
