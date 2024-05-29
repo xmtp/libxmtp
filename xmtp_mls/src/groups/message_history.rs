@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::fs::{OpenOptions, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -60,6 +60,8 @@ pub enum MessageHistoryError {
     AesGcm(#[from] aes_gcm::Error),
     #[error("reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
 }
 
 impl<ApiClient> Client<ApiClient>
@@ -184,7 +186,31 @@ where
         Ok(())
     }
 
-    async fn prepare_groups_to_sync(&self) -> Result<Vec<StoredGroup>, StorageError> {
+    async fn prepare_history_bundle(
+        &self,
+    ) -> Result<(PathBuf, HistoryKeyType), MessageHistoryError> {
+        let (history_file, key) = self.write_history_bundle().await?;
+        Ok((history_file, key))
+    }
+
+    async fn write_history_bundle(&self) -> Result<(PathBuf, HistoryKeyType), MessageHistoryError> {
+        let groups = self.prepare_groups_to_sync().await?;
+        let messages = self.prepare_messages_to_sync().await?;
+
+        let temp_file = std::env::temp_dir().join("history.jsonl.tmp");
+        write_to_file(temp_file.as_path(), groups)?;
+        write_to_file(temp_file.as_path(), messages)?;
+
+        let history_file = std::env::temp_dir().join("history.jsonl.enc");
+        let key = HistoryKeyType::new_chacha20_poly1305_key();
+        encrypt_history_file(temp_file.as_path(), history_file.as_path(), key.as_bytes())?;
+
+        std::fs::remove_file(temp_file.as_path())?;
+
+        Ok((history_file, key))
+    }
+
+    async fn prepare_groups_to_sync(&self) -> Result<Vec<StoredGroup>, MessageHistoryError> {
         let conn = self.store().conn()?;
         let groups = conn.find_groups(None, None, None, None)?;
         let mut all_groups: Vec<StoredGroup> = vec![];
@@ -196,7 +222,9 @@ where
         Ok(all_groups)
     }
 
-    async fn prepare_messages_to_sync(&self) -> Result<Vec<StoredGroupMessage>, StorageError> {
+    async fn prepare_messages_to_sync(
+        &self,
+    ) -> Result<Vec<StoredGroupMessage>, MessageHistoryError> {
         let conn = self.store().conn()?;
         let groups = conn.find_groups(None, None, None, None)?;
         let mut all_messages: Vec<StoredGroupMessage> = vec![];
@@ -214,7 +242,7 @@ fn write_to_file<T: serde::Serialize>(
     file_path: &Path,
     content: Vec<T>,
 ) -> Result<(), MessageHistoryError> {
-    let mut file = std::fs::OpenOptions::new().append(true).open(file_path)?;
+    let mut file = OpenOptions::new().append(true).open(file_path)?;
     for entry in content {
         let entry_str = serde_json::to_string(&entry)?;
         file.write_all(entry_str.as_bytes())?;
@@ -224,8 +252,8 @@ fn write_to_file<T: serde::Serialize>(
 }
 
 fn encrypt_history_file(
-    input_path: &str,
-    output_path: &str,
+    input_path: &Path,
+    output_path: &Path,
     key: &[u8; ENC_KEY_SIZE],
 ) -> Result<(), MessageHistoryError> {
     // Read in the messages file content
@@ -255,7 +283,7 @@ fn decrypt_history_file(
     output_path: PathBuf,
     key: &[u8; ENC_KEY_SIZE],
 ) -> Result<(), MessageHistoryError> {
-    // Read the file content
+    // Read the messages file content
     let mut input_file = File::open(input_path)?;
     let mut buffer = Vec::new();
     input_file.read_to_end(&mut buffer)?;
@@ -283,18 +311,18 @@ async fn upload_history_bundle(
     signing_key: &[u8],
 ) -> Result<(), MessageHistoryError> {
     let mut file = File::open(file_path)?;
-    let mut file_content = Vec::new();
-    file.read_to_end(&mut file_content)?;
+    let mut content = Vec::new();
+    file.read_to_end(&mut content)?;
 
     let key = hmac::Key::new(hmac::HMAC_SHA256, signing_key);
-    let tag = hmac::sign(&key, &file_content);
+    let tag = hmac::sign(&key, &content);
     let hmac_hex = hex::encode(tag.as_ref());
 
     let client = reqwest::Client::new();
     let _response = client
         .post(url)
         .header("X-HMAC", hmac_hex)
-        .body(file_content)
+        .body(content)
         .send()
         .await?;
 
@@ -359,10 +387,15 @@ impl From<HistoryRequest> for MessageHistoryRequest {
 }
 
 struct HistoryReply {
+    /// Unique ID for each client Message History Request
     request_id: String,
+    /// URL to download the backup bundle
     url: String,
+    /// HMAC of the backup bundle
     bundle_hash: Vec<u8>,
+    /// HMAC Signing key for the backup bundle
     signing_key: HistoryKeyType,
+    /// AES encryption key for the backup bundle
     encryption_key: HistoryKeyType,
 }
 
@@ -403,7 +436,7 @@ enum HistoryKeyType {
 
 impl HistoryKeyType {
     fn new_chacha20_poly1305_key() -> Self {
-        let mut key = [0u8; 32]; // 256-bit key
+        let mut key = [0u8; ENC_KEY_SIZE]; // 256-bit key
         crypto_utils::rng().fill_bytes(&mut key[..]);
         HistoryKeyType::Chacha20Poly1305(key)
     }
@@ -731,31 +764,36 @@ mod tests {
         let key = HistoryKeyType::new_chacha20_poly1305_key();
         let key_bytes = key.as_bytes();
         let input_content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'";
-        let input_path = "test_input.jsonl";
-        let encrypted_path = "test_encrypted.jsonl.enc";
-        let decrypted_path = "test_decrypted.jsonl";
+        let input_file = NamedTempFile::new().expect("Unable to create temp file");
+        let encrypted_file = NamedTempFile::new().expect("Unable to create temp file");
+        let decrypted_file = NamedTempFile::new().expect("Unable to create temp file");
 
         // Write test input file
-        std::fs::write(input_path, input_content).expect("Unable to write test input file");
+        std::fs::write(input_file.path(), input_content).expect("Unable to write test input file");
 
         // Encrypt the file
-        encrypt_history_file(input_path, encrypted_path, key_bytes).expect("Encryption failed");
+        encrypt_history_file(input_file.path(), encrypted_file.path(), key_bytes)
+            .expect("Encryption failed");
 
         // Decrypt the file
-        decrypt_history_file(encrypted_path.into(), decrypted_path.into(), key_bytes)
-            .expect("Decryption failed");
+        decrypt_history_file(
+            encrypted_file.path().to_path_buf(),
+            decrypted_file.path().to_path_buf(),
+            key_bytes,
+        )
+        .expect("Decryption failed");
 
         // Read the decrypted file content
         let decrypted_content =
-            std::fs::read(decrypted_path).expect("Unable to read decrypted file");
+            std::fs::read(decrypted_file.path()).expect("Unable to read decrypted file");
 
         // Assert the decrypted content is the same as the original input content
         assert_eq!(decrypted_content, input_content);
 
         // Clean up test files
-        std::fs::remove_file(input_path).expect("Unable to remove test input file");
-        std::fs::remove_file(encrypted_path).expect("Unable to remove test encrypted file");
-        std::fs::remove_file(decrypted_path).expect("Unable to remove test decrypted file");
+        std::fs::remove_file(input_file).expect("Unable to remove test input file");
+        std::fs::remove_file(encrypted_file).expect("Unable to remove test encrypted file");
+        std::fs::remove_file(decrypted_file).expect("Unable to remove test decrypted file");
     }
 
     #[tokio::test]
