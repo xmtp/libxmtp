@@ -42,6 +42,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 	func metadata() throws -> FfiGroupMetadata {
 		return try ffiGroup.groupMetadata()
 	}
+    
+    func permissions() throws -> FfiGroupPermissions {
+        return try ffiGroup.groupPermissions()
+    }
 
 	public func sync() async throws {
 		try await ffiGroup.sync()
@@ -59,15 +63,47 @@ public struct Group: Identifiable, Equatable, Hashable {
 		return try ffiGroup.isActive()
 	}
 
-	public func isAdmin() throws -> Bool {
+	public func isCreator() throws -> Bool {
 		return try metadata().creatorInboxId() == client.inboxID
 	}
+    
+    public func isAdmin(inboxId: String) throws -> Bool {
+        return try ffiGroup.isAdmin(inboxId: inboxId)
+    }
+    
+    public func isSuperAdmin(inboxId: String) throws -> Bool {
+        return try ffiGroup.isSuperAdmin(inboxId: inboxId)
+    }
+    
+    public func addAdmin(inboxId: String) async throws {
+        try await ffiGroup.addAdmin(inboxId: inboxId)
+    }
+    
+    public func removeAdmin(inboxId: String) async throws {
+        try await ffiGroup.removeAdmin(inboxId: inboxId)
+    }
+    
+    public func addSuperAdmin(inboxId: String) async throws {
+        try await ffiGroup.addSuperAdmin(inboxId: inboxId)
+    }
+    
+    public func removeSuperAdmin(inboxId: String) async throws {
+        try await ffiGroup.removeSuperAdmin(inboxId: inboxId)
+    }
+    
+    public func listAdmins() throws -> [String] {
+        try ffiGroup.adminList()
+    }
+    
+    public func listSuperAdmins() throws -> [String] {
+        try ffiGroup.superAdminList()
+    }
 
-//	public func permissionLevel() throws -> GroupPermissions {
-//		return try metadata().policyType()
-//	}
+	public func permissionLevel() throws -> GroupPermissions {
+		return try permissions().policyType()
+	}
 
-	public func adminInboxId() throws -> String {
+	public func creatorInboxId() throws -> String {
 		return try metadata().creatorInboxId()
 	}
 	

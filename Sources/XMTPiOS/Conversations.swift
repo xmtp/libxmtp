@@ -113,7 +113,7 @@ public actor Conversations {
 		}
 	}
 
-	public func newGroup(with addresses: [String], permissions: GroupPermissions = .everyoneIsAdmin) async throws -> Group {
+    public func newGroup(with addresses: [String], permissions: GroupPermissions = .allMembers) async throws -> Group {
 		guard let v3Client = client.v3Client else {
 			throw GroupError.alphaMLSNotEnabled
 		}

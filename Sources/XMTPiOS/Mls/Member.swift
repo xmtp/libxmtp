@@ -8,19 +8,34 @@
 import Foundation
 import LibXMTP
 
-public struct Member {
-	var ffiGroupMember: FfiGroupMember
-	
-	init(ffiGroupMember: FfiGroupMember) {
-		self.ffiGroupMember = ffiGroupMember
-	}
+public enum PermissionLevel {
+    case Member, Admin, SuperAdmin
+}
 
-	public var inboxId: String {
-		ffiGroupMember.inboxId
-	}
-	
-	public var addresses: [String] {
-		ffiGroupMember.accountAddresses
+public struct Member {
+    var ffiGroupMember: FfiGroupMember
+    
+    init(ffiGroupMember: FfiGroupMember) {
+        self.ffiGroupMember = ffiGroupMember
+    }
+
+    public var inboxId: String {
+        ffiGroupMember.inboxId
+    }
+    
+    public var addresses: [String] {
+        ffiGroupMember.accountAddresses
+    }
+
+	public var permissionLevel: PermissionLevel {
+        switch ffiGroupMember.permissionLevel {
+        case .member:
+            return PermissionLevel.Member
+        case .admin:
+            return PermissionLevel.Admin
+        case .superAdmin:
+            return PermissionLevel.SuperAdmin
+        }
 	}
 }
 

@@ -87,82 +87,98 @@ class GroupTests: XCTestCase {
 		)
 	}
 
-//	func testCanCreateAGroupWithDefaultPermissions() async throws {
-//		let fixtures = try await localFixtures()
-//		let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
-//		try await fixtures.aliceClient.conversations.sync()
-//		let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
-//		XCTAssert(!bobGroup.id.isEmpty)
-//		XCTAssert(!aliceGroup.id.isEmpty)
-//		
-//		try await aliceGroup.addMembers(addresses: [fixtures.fred.address])
-//		try await bobGroup.sync()
-//		XCTAssertEqual(aliceGroup.memberAddresses.count, 3)
-//		XCTAssertEqual(bobGroup.memberAddresses.count, 3)
+	func testCanCreateAGroupWithDefaultPermissions() async throws {
+		let fixtures = try await localFixtures()
+		let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		try await fixtures.aliceClient.conversations.sync()
+		let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
+		XCTAssert(!bobGroup.id.isEmpty)
+		XCTAssert(!aliceGroup.id.isEmpty)
+		
+		try await aliceGroup.addMembers(addresses: [fixtures.fred.address])
+		try await bobGroup.sync()
+        // Issue members is not returning correctly for non group creators:
+        // https://github.com/xmtp/libxmtp/issues/769
+//		XCTAssertEqual(try aliceGroup.members.count, 3)
+		XCTAssertEqual(try bobGroup.members.count, 3)
+
+		try await aliceGroup.removeMembers(addresses: [fixtures.fred.address])
+		try await bobGroup.sync()
+        // Issue members is not returning correctly for non group creators:
+        // https://github.com/xmtp/libxmtp/issues/769
+//      XCTAssertEqual(try aliceGroup.members.count, 2)
+		XCTAssertEqual(try bobGroup.members.count, 2)
+
+		try await bobGroup.addMembers(addresses: [fixtures.fred.address])
+		try await aliceGroup.sync()
+        // Issue members is not returning correctly for non group creators:
+        // https://github.com/xmtp/libxmtp/issues/769
+//		XCTAssertEqual(try aliceGroup.members.count, 3)
+		XCTAssertEqual(try bobGroup.members.count, 3)
+		
+		XCTAssertEqual(try bobGroup.permissionLevel(), .allMembers)
+		XCTAssertEqual(try aliceGroup.permissionLevel(), .allMembers)
+
+        XCTAssert(try bobGroup.isAdmin(inboxId: fixtures.bobClient.inboxID))
+        XCTAssert(try !bobGroup.isAdmin(inboxId: fixtures.aliceClient.inboxID))
+        XCTAssert(try aliceGroup.isAdmin(inboxId: fixtures.bobClient.inboxID))
+        XCTAssert(try !aliceGroup.isAdmin(inboxId: fixtures.aliceClient.inboxID))
+		
+	}
 //
-//		try await aliceGroup.removeMembers(addresses: [fixtures.fred.address])
-//		try await bobGroup.sync()
-//		XCTAssertEqual(aliceGroup.memberAddresses.count, 2)
-//		XCTAssertEqual(bobGroup.memberAddresses.count, 2)
-//
-//		try await bobGroup.addMembers(addresses: [fixtures.fred.address])
-//		try await aliceGroup.sync()
-//		XCTAssertEqual(aliceGroup.memberAddresses.count, 3)
-//		XCTAssertEqual(bobGroup.memberAddresses.count, 3)
-//		
-////		XCTAssertEqual(try bobGroup.permissionLevel(), .everyoneIsAdmin)
-////		XCTAssertEqual(try aliceGroup.permissionLevel(), .everyoneIsAdmin)
-//		XCTAssertEqual(try bobGroup.adminAddress().lowercased(), fixtures.bobClient.address.lowercased())
-//		XCTAssertEqual(try aliceGroup.adminAddress().lowercased(), fixtures.bobClient.address.lowercased())
-//		XCTAssert(try bobGroup.isAdmin())
-//		XCTAssert(try !aliceGroup.isAdmin())
-//	}
-//
-//	func testCanCreateAGroupWithAdminPermissions() async throws {
-//		let fixtures = try await localFixtures()
-//		let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address], permissions: GroupPermissions.groupCreatorIsAdmin)
-//		try await fixtures.aliceClient.conversations.sync()
-//		let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
-//		XCTAssert(!bobGroup.id.isEmpty)
-//		XCTAssert(!aliceGroup.id.isEmpty)
-//
-//		let bobConsentResult = await fixtures.bobClient.contacts.consentList.groupState(groupId: bobGroup.id)
-//		XCTAssertEqual(bobConsentResult, ConsentState.allowed)
-//
-//		let aliceConsentResult = await fixtures.aliceClient.contacts.consentList.groupState(groupId: aliceGroup.id)
-//		XCTAssertEqual(aliceConsentResult, ConsentState.unknown)
-//
-//		try await bobGroup.addMembers(addresses: [fixtures.fred.address])
-//		try await aliceGroup.sync()
-//		XCTAssertEqual(aliceGroup.memberAddresses.count, 3)
-//		XCTAssertEqual(bobGroup.memberAddresses.count, 3)
-//
-//		await assertThrowsAsyncError(
-//			try await aliceGroup.removeMembers(addresses: [fixtures.fred.address])
-//		)
-//		try await bobGroup.sync()
-//		XCTAssertEqual(aliceGroup.memberAddresses.count, 3)
-//		XCTAssertEqual(bobGroup.memberAddresses.count, 3)
-//		
-//		try await bobGroup.removeMembers(addresses: [fixtures.fred.address])
-//		try await aliceGroup.sync()
-//		XCTAssertEqual(aliceGroup.memberAddresses.count, 2)
-//		XCTAssertEqual(bobGroup.memberAddresses.count, 2)
-//
-//		await assertThrowsAsyncError(
-//			try await aliceGroup.addMembers(addresses: [fixtures.fred.address])
-//		)
-//		try await bobGroup.sync()
-//		XCTAssertEqual(aliceGroup.memberAddresses.count, 2)
-//		XCTAssertEqual(bobGroup.memberAddresses.count, 2)
-//		
-////		XCTAssertEqual(try bobGroup.permissionLevel(), .groupCreatorIsAdmin)
-////		XCTAssertEqual(try aliceGroup.permissionLevel(), .groupCreatorIsAdmin)
-//		XCTAssertEqual(try bobGroup.adminAddress().lowercased(), fixtures.bobClient.address.lowercased())
-//		XCTAssertEqual(try aliceGroup.adminAddress().lowercased(), fixtures.bobClient.address.lowercased())
-//		XCTAssert(try bobGroup.isAdmin())
-//		XCTAssert(try !aliceGroup.isAdmin())
-//	}
+	func testCanCreateAGroupWithAdminPermissions() async throws {
+		let fixtures = try await localFixtures()
+		let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address], permissions: GroupPermissions.adminOnly)
+		try await fixtures.aliceClient.conversations.sync()
+		let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
+		XCTAssert(!bobGroup.id.isEmpty)
+		XCTAssert(!aliceGroup.id.isEmpty)
+
+		let bobConsentResult = await fixtures.bobClient.contacts.consentList.groupState(groupId: bobGroup.id)
+		XCTAssertEqual(bobConsentResult, ConsentState.allowed)
+
+		let aliceConsentResult = await fixtures.aliceClient.contacts.consentList.groupState(groupId: aliceGroup.id)
+		XCTAssertEqual(aliceConsentResult, ConsentState.unknown)
+
+		try await bobGroup.addMembers(addresses: [fixtures.fred.address])
+		try await aliceGroup.sync()
+        // Issue members is not returning correctly for non group creators:
+        // https://github.com/xmtp/libxmtp/issues/769
+//		XCTAssertEqual(try aliceGroup.members.count, 3)
+		XCTAssertEqual(try bobGroup.members.count, 3)
+
+		await assertThrowsAsyncError(
+			try await aliceGroup.removeMembers(addresses: [fixtures.fred.address])
+		)
+		try await bobGroup.sync()
+        // Issue members is not returning correctly for non group creators:
+        // https://github.com/xmtp/libxmtp/issues/769
+//		XCTAssertEqual(try aliceGroup.members.count, 3)
+		XCTAssertEqual(try bobGroup.members.count, 3)
+		
+		try await bobGroup.removeMembers(addresses: [fixtures.fred.address])
+		try await aliceGroup.sync()
+        // Issue members is not returning correctly for non group creators:
+        // https://github.com/xmtp/libxmtp/issues/769
+//		XCTAssertEqual(try aliceGroup.members.count, 2)
+		XCTAssertEqual(try bobGroup.members.count, 2)
+
+		await assertThrowsAsyncError(
+			try await aliceGroup.addMembers(addresses: [fixtures.fred.address])
+		)
+		try await bobGroup.sync()
+        // Issue members is not returning correctly for non group creators:
+        // https://github.com/xmtp/libxmtp/issues/769
+//		XCTAssertEqual(try aliceGroup.members.count, 2)
+		XCTAssertEqual(try bobGroup.members.count, 2)
+		
+		XCTAssertEqual(try bobGroup.permissionLevel(), .adminOnly)
+		XCTAssertEqual(try aliceGroup.permissionLevel(), .adminOnly)
+        XCTAssert(try bobGroup.isAdmin(inboxId: fixtures.bobClient.inboxID))
+        XCTAssert(try !bobGroup.isAdmin(inboxId: fixtures.aliceClient.inboxID))
+        XCTAssert(try aliceGroup.isAdmin(inboxId: fixtures.bobClient.inboxID))
+        XCTAssert(try !aliceGroup.isAdmin(inboxId: fixtures.aliceClient.inboxID))
+	}
 
 	func testCanListGroups() async throws {
 		let fixtures = try await localFixtures()
