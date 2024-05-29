@@ -39,6 +39,7 @@ use self::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
     intents::{AdminListActionType, UpdateAdminListIntentData, UpdateMetadataIntentData},
+    validated_commit::extract_group_membership,
 };
 use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
@@ -69,10 +70,11 @@ use crate::{
     },
     hpke::{decrypt_welcome, HpkeError},
     identity::{parse_credential, Identity, IdentityError},
-    identity_updates::InstallationDiffError,
+    identity_updates::{load_identity_updates, InstallationDiffError},
     retry::RetryableError,
     retryable,
     storage::{
+        db_connection::DbConnection,
         group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -93,6 +95,8 @@ pub enum GroupError {
     Api(#[from] xmtp_proto::api_client::Error),
     #[error("api error: {0}")]
     WrappedApi(#[from] WrappedApiError),
+    #[error("invalid group membership")]
+    InvalidGroupMembership,
     #[error("storage error: {0}")]
     Storage(#[from] crate::storage::StorageError),
     #[error("intent error: {0}")]
@@ -271,8 +275,8 @@ impl MlsGroup {
 
     // Create a group from a decrypted and decoded welcome message
     // If the group already exists in the store, overwrite the MLS state and do not update the group entry
-    fn create_from_welcome(
-        context: Arc<XmtpMlsLocalContext>,
+    async fn create_from_welcome<ApiClient: XmtpApi>(
+        client: &Client<ApiClient>,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
         added_by_inbox: String,
@@ -299,18 +303,20 @@ impl MlsGroup {
             ),
         };
 
+        validate_initial_group_membership(client, provider.conn_ref(), &mls_group).await?;
+
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
 
         Ok(Self::new(
-            context,
+            client.context.clone(),
             stored_group.id,
             stored_group.created_at_ns,
         ))
     }
 
     // Decrypt a welcome message using HPKE and then create and save a group from the stored message
-    pub fn create_from_encrypted_welcome(
-        context: Arc<XmtpMlsLocalContext>,
+    pub async fn create_from_encrypted_welcome<ApiClient: XmtpApi>(
+        client: &Client<ApiClient>,
         provider: &XmtpOpenMlsProvider,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: Vec<u8>,
@@ -328,9 +334,7 @@ impl MlsGroup {
         let added_by_credential = BasicCredential::try_from(added_by_node.credential().clone())?;
         let inbox_id = parse_credential(added_by_credential.identity())?;
 
-        // TODO:nm Validate the initial group membership and that the sender's inbox_id is in it
-
-        Self::create_from_welcome(context, provider, welcome, inbox_id)
+        Self::create_from_welcome(client, provider, welcome, inbox_id).await
     }
 
     pub(crate) fn create_and_insert_sync_group(
@@ -861,6 +865,45 @@ fn build_group_config(
         .build())
 }
 
+async fn validate_initial_group_membership<ApiClient: XmtpApi>(
+    client: &Client<ApiClient>,
+    conn: &DbConnection,
+    mls_group: &OpenMlsGroup,
+) -> Result<(), GroupError> {
+    let membership = extract_group_membership(mls_group.extensions())?;
+    let needs_update = client.filter_inbox_ids_needing_updates(conn, membership.to_filters())?;
+    if !needs_update.is_empty() {
+        load_identity_updates(&client.api_client, conn, needs_update).await?;
+    }
+
+    let mut expected_installation_ids = HashSet::<Vec<u8>>::new();
+
+    let futures: Vec<_> = membership
+        .members
+        .into_iter()
+        .map(|(inbox_id, sequence_id)| {
+            client.get_association_state(conn, inbox_id, Some(sequence_id as i64))
+        })
+        .collect();
+
+    let results = futures::future::try_join_all(futures).await?;
+
+    for association_state in results {
+        expected_installation_ids.extend(association_state.installation_ids());
+    }
+
+    let actual_installation_ids: HashSet<Vec<u8>> = mls_group
+        .members()
+        .map(|member| member.signature_key)
+        .collect();
+
+    if expected_installation_ids != actual_installation_ids {
+        return Err(GroupError::InvalidGroupMembership);
+    }
+
+    Ok(())
+}
+
 fn build_group_join_config() -> MlsGroupJoinConfig {
     MlsGroupJoinConfig::builder()
         .wire_format_policy(WireFormatPolicy::default())
@@ -871,15 +914,18 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 
 #[cfg(test)]
 mod tests {
-    use openmls::prelude::Member;
+    use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
     use prost::Message;
+    use tracing_test::traced_test;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     use crate::{
+        assert_logged,
         builder::ClientBuilder,
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
+            build_group_membership_extension, group_membership::GroupMembership,
             group_mutable_metadata::MetadataField, members::PermissionLevel, PreconfiguredPolicies,
             UpdateAdminListType,
         },
@@ -887,10 +933,14 @@ mod tests {
             group_intent::IntentState,
             group_message::{GroupMessageKind, StoredGroupMessage},
         },
+        xmtp_openmls_provider::XmtpOpenMlsProvider,
         Client, InboxOwner, XmtpApi,
     };
 
-    use super::MlsGroup;
+    use super::{
+        intents::{Installation, SendWelcomesAction},
+        MlsGroup,
+    };
 
     async fn receive_group_invite<ApiClient>(client: &Client<ApiClient>) -> MlsGroup
     where
@@ -913,6 +963,50 @@ mod tests {
         let mut messages = group.find_messages(None, None, None, None, None).unwrap();
 
         messages.pop().unwrap()
+    }
+
+    // Adds a member to the group without the usual validations on group membership
+    // Used for testing adversarial scenarios
+    async fn force_add_member<ApiClient: XmtpApi>(
+        sender_client: &Client<ApiClient>,
+        new_member_client: &Client<ApiClient>,
+        sender_group: &MlsGroup,
+        sender_mls_group: &mut OpenMlsGroup,
+        sender_provider: &XmtpOpenMlsProvider,
+    ) {
+        let new_member_provider =
+            new_member_client.mls_provider(new_member_client.store().conn().unwrap());
+
+        let key_package = new_member_client
+            .identity()
+            .new_key_package(&new_member_provider)
+            .unwrap();
+        let hpke_init_key = key_package.hpke_init_key().as_slice().to_vec();
+        let (commit, welcome, _) = sender_mls_group
+            .add_members(
+                sender_provider,
+                &sender_client.identity().installation_keys,
+                &[key_package],
+            )
+            .unwrap();
+        let serialized_commit = commit.tls_serialize_detached().unwrap();
+        let serialized_welcome = welcome.tls_serialize_detached().unwrap();
+        let send_welcomes_action = SendWelcomesAction::new(
+            vec![Installation {
+                installation_key: new_member_client.installation_public_key(),
+                hpke_public_key: hpke_init_key,
+            }],
+            serialized_welcome,
+        );
+        sender_client
+            .api_client
+            .send_group_messages(vec![serialized_commit.as_slice()])
+            .await
+            .unwrap();
+        sender_group
+            .send_welcomes(send_welcomes_action, sender_client)
+            .await
+            .unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1054,6 +1148,39 @@ mod tests {
             .unwrap();
         // Bola should have one uncommitted intent for the failed attempt at adding Charlie, who is already in the group
         assert_eq!(bola_uncommitted_intents.len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[traced_test]
+    async fn test_create_from_welcome_validation() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let alix_group: MlsGroup = alix.create_group(None).unwrap();
+        let provider = alix.mls_provider(alix.store().conn().unwrap());
+        // Doctor the group membership
+        let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
+        let mut existing_extensions = mls_group.extensions().clone();
+        let mut group_membership = GroupMembership::new();
+        group_membership.add("foo".to_string(), 1);
+        existing_extensions.add_or_replace(build_group_membership_extension(&group_membership));
+        mls_group
+            .update_group_context_extensions(
+                &provider,
+                existing_extensions.clone(),
+                &alix.identity().installation_keys,
+            )
+            .unwrap();
+        mls_group.merge_pending_commit(&provider).unwrap();
+
+        // Now add bo to the group
+        force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
+
+        // Bo should not be able to actually read this group
+        bo.sync_welcomes().await.unwrap();
+        let groups = bo.find_groups(None, None, None, None).unwrap();
+        assert_eq!(groups.len(), 0);
+        assert_logged!("failed to create group from welcome", 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

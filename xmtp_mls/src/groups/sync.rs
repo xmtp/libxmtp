@@ -902,7 +902,7 @@ impl MlsGroup {
         ))
     }
 
-    async fn send_welcomes<ApiClient>(
+    pub(super) async fn send_welcomes<ApiClient>(
         &self,
         action: SendWelcomesAction,
         client: &Client<ApiClient>,

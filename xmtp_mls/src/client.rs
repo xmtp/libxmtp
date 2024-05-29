@@ -474,11 +474,13 @@ where
                     |provider| async move {
                         // TODO: Abort if error is retryable
                         match MlsGroup::create_from_encrypted_welcome(
-                            self.context.clone(),
+                            self,
                             &provider,
                             welcome_v1.hpke_public_key.as_slice(),
                             welcome_v1.data,
-                        ) {
+                        )
+                        .await
+                        {
                             Ok(mls_group) => Ok(Some(mls_group)),
                             Err(err) => {
                                 log::error!("failed to create group from welcome: {}", err);

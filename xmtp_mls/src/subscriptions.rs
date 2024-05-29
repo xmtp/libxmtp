@@ -53,28 +53,32 @@ impl<ApiClient> Client<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    fn process_streamed_welcome(&self, welcome: WelcomeMessage) -> Result<MlsGroup, ClientError> {
+    async fn process_streamed_welcome(
+        &self,
+        welcome: WelcomeMessage,
+    ) -> Result<MlsGroup, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
         let conn = self.store().conn()?;
         let provider = self.mls_provider(conn);
 
         MlsGroup::create_from_encrypted_welcome(
-            self.context.clone(),
+            self,
             &provider,
             welcome_v1.hpke_public_key.as_slice(),
             welcome_v1.data,
         )
+        .await
         .map_err(|e| ClientError::Generic(e.to_string()))
     }
 
-    pub fn process_streamed_welcome_message(
+    pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<MlsGroup, ClientError> {
         let envelope = WelcomeMessage::decode(envelope_bytes.as_slice())
             .map_err(|e| ClientError::Generic(e.to_string()))?;
 
-        let welcome = self.process_streamed_welcome(envelope)?;
+        let welcome = self.process_streamed_welcome(envelope).await?;
         Ok(welcome)
     }
 
@@ -93,7 +97,7 @@ where
             .map(|welcome_result| async {
                 log::info!("Received conversation streaming payload");
                 let welcome = welcome_result?;
-                self.process_streamed_welcome(welcome)
+                self.process_streamed_welcome(welcome).await
             })
             .filter_map(|res| async {
                 match res.await {
