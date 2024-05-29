@@ -11,6 +11,14 @@ pub struct GroupMember {
     pub inbox_id: InboxId,
     pub account_addresses: Vec<String>,
     pub installation_ids: Vec<Vec<u8>>,
+    pub permission_level: PermissionLevel,
+}
+
+#[derive(Debug, Clone)]
+pub enum PermissionLevel {
+    Member,
+    Admin,
+    SuperAdmin,
 }
 
 impl MlsGroup {
@@ -40,10 +48,27 @@ impl MlsGroup {
         // Right now I am just omitting them
         let members = association_state_map
             .into_iter()
-            .map(|association_state| GroupMember {
-                inbox_id: association_state.inbox_id().to_string(),
-                account_addresses: association_state.account_addresses(),
-                installation_ids: association_state.installation_ids(),
+            .map(|association_state| {
+                let is_admin = self
+                    .is_admin(association_state.inbox_id().to_string())
+                    .unwrap();
+                let is_super_admin = self
+                    .is_super_admin(association_state.inbox_id().to_string())
+                    .unwrap();
+                let permission_level = if is_super_admin {
+                    PermissionLevel::SuperAdmin
+                } else if is_admin && !is_super_admin {
+                    PermissionLevel::Admin
+                } else {
+                    PermissionLevel::Member
+                };
+
+                GroupMember {
+                    inbox_id: association_state.inbox_id().to_string(),
+                    account_addresses: association_state.account_addresses(),
+                    installation_ids: association_state.installation_ids(),
+                    permission_level,
+                }
             })
             .collect::<Vec<GroupMember>>();
 

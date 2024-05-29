@@ -20,12 +20,13 @@ use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::group_permissions::GroupMutablePermissions;
 use xmtp_mls::groups::PreconfiguredPolicies;
+use xmtp_mls::groups::UpdateAdminListType;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::retry::Retry;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
-    groups::MlsGroup,
+    groups::{MlsGroup, members::PermissionLevel},
     storage::{
         group_message::DeliveryStatus, group_message::GroupMessageKind,
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
@@ -287,15 +288,15 @@ pub struct FfiConversations {
 
 #[derive(uniffi::Enum)]
 pub enum GroupPermissions {
-    EveryoneIsAdmin,
-    GroupCreatorIsAdmin,
+    AllMembers,
+    AdminOnly,
 }
 
 impl From<PreconfiguredPolicies> for GroupPermissions {
     fn from(policy: PreconfiguredPolicies) -> Self {
         match policy {
-            PreconfiguredPolicies::AllMembers => GroupPermissions::EveryoneIsAdmin,
-            PreconfiguredPolicies::AdminsOnly => GroupPermissions::GroupCreatorIsAdmin,
+            PreconfiguredPolicies::AllMembers => GroupPermissions::AllMembers,
+            PreconfiguredPolicies::AdminsOnly => GroupPermissions::AdminOnly,
         }
     }
 }
@@ -313,10 +314,10 @@ impl FfiConversations {
         );
 
         let group_permissions = match permissions {
-            Some(GroupPermissions::EveryoneIsAdmin) => {
+            Some(GroupPermissions::AllMembers) => {
                 Some(xmtp_mls::groups::PreconfiguredPolicies::AllMembers)
             }
-            Some(GroupPermissions::GroupCreatorIsAdmin) => {
+            Some(GroupPermissions::AdminOnly) => {
                 Some(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly)
             }
             _ => None,
@@ -436,6 +437,14 @@ pub struct FfiGroupMember {
     pub inbox_id: String,
     pub account_addresses: Vec<String>,
     pub installation_ids: Vec<Vec<u8>>,
+    pub permission_level: FfiPermissionLevel,
+}
+
+#[derive(uniffi::Enum)]
+pub enum FfiPermissionLevel {
+    Member,
+    Admin,
+    SuperAdmin,
 }
 
 #[derive(uniffi::Record)]
@@ -531,6 +540,11 @@ impl FfiGroup {
                 inbox_id: member.inbox_id,
                 account_addresses: member.account_addresses,
                 installation_ids: member.installation_ids,
+                permission_level: match member.permission_level {
+                    PermissionLevel::Member => FfiPermissionLevel::Member,
+                    PermissionLevel::Admin => FfiPermissionLevel::Admin,
+                    PermissionLevel::SuperAdmin => FfiPermissionLevel::SuperAdmin,
+                },
             })
             .collect();
 
@@ -611,7 +625,7 @@ impl FfiGroup {
         );
 
         group
-            .update_group_name(group_name, &self.inner_client)
+            .update_group_name(&self.inner_client, group_name)
             .await?;
 
         Ok(())
@@ -627,6 +641,97 @@ impl FfiGroup {
         let group_name = group.group_name()?;
 
         Ok(group_name)
+    }
+
+    pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let admin_list = group.admin_list()?;
+
+        Ok(admin_list)
+    }
+
+    pub fn super_admin_list(&self) -> Result<Vec<String>, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let super_admin_list = group.super_admin_list()?;
+
+        Ok(super_admin_list)
+    }
+
+    pub fn is_admin(&self, inbox_id: &String) -> Result<bool, GenericError> {
+        let admin_list = self.admin_list()?;
+        Ok(admin_list.contains(inbox_id))
+    }
+
+    pub fn is_super_admin(&self, inbox_id: &String) -> Result<bool, GenericError> {
+        let super_admin_list = self.super_admin_list()?;
+        Ok(super_admin_list.contains(inbox_id))
+    }
+
+    pub async fn add_admin(&self, inbox_id: String) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+        group.update_admin_list(&self.inner_client,  UpdateAdminListType::Add, inbox_id).await?;
+
+        Ok(())
+    }
+
+    pub async fn remove_admin(&self, inbox_id: String) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+        group.update_admin_list(&self.inner_client,  UpdateAdminListType::Remove, inbox_id).await?;
+
+        Ok(())
+    }
+
+    pub async fn add_super_admin(&self, inbox_id: String) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+        group.update_admin_list(&self.inner_client,  UpdateAdminListType::AddSuper, inbox_id).await?;
+
+        Ok(())
+    }
+
+    pub async fn remove_super_admin(&self, inbox_id: String) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+        group.update_admin_list(&self.inner_client,  UpdateAdminListType::RemoveSuper, inbox_id).await?;
+
+        Ok(())
+    }
+
+    pub fn group_permissions(&self) -> Result<Arc<FfiGroupPermissions>, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let permissions = group.permissions()?;
+        Ok(Arc::new(FfiGroupPermissions {
+            inner: Arc::new(permissions),
+        }))
     }
 
     pub async fn stream(

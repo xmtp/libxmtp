@@ -3,7 +3,8 @@ pub mod group_metadata;
 pub mod group_mutable_metadata;
 pub mod group_permissions;
 mod intents;
-mod members;
+pub mod members;
+#[allow(dead_code)]
 mod message_history;
 mod subscriptions;
 mod sync;
@@ -37,8 +38,8 @@ use self::{
     group_permissions::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
-    intents::UpdateMetadataIntentData,
     validated_commit::extract_group_membership,
+    intents::{AdminListActionType, UpdateAdminListIntentData, UpdateMetadataIntentData},
 };
 use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
@@ -195,6 +196,14 @@ impl Clone for MlsGroup {
             created_at_ns: self.created_at_ns,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UpdateAdminListType {
+    Add,
+    Remove,
+    AddSuper,
+    RemoveSuper,
 }
 
 impl MlsGroup {
@@ -551,8 +560,8 @@ impl MlsGroup {
 
     pub async fn update_group_name<ApiClient>(
         &self,
-        group_name: String,
         client: &Client<ApiClient>,
+        group_name: String,
     ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
@@ -570,8 +579,6 @@ impl MlsGroup {
             .await
     }
 
-    // Query the database for stored messages. Optionally filtered by time, kind, delivery_status
-    // and limit
     pub fn group_name(&self) -> Result<String, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
         match mutable_metadata
@@ -583,6 +590,54 @@ impl MlsGroup {
                 GroupMutableMetadataError::MissingExtension,
             )),
         }
+    }
+
+    pub fn admin_list(&self) -> Result<Vec<String>, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        Ok(mutable_metadata.admin_list)
+    }
+
+    pub fn super_admin_list(&self) -> Result<Vec<String>, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        Ok(mutable_metadata.super_admin_list)
+    }
+
+    pub fn is_admin(&self, inbox_id: String) -> Result<bool, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        Ok(mutable_metadata.admin_list.contains(&inbox_id))
+    }
+
+    pub fn is_super_admin(&self, inbox_id: String) -> Result<bool, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
+    }
+
+    pub async fn update_admin_list<ApiClient>(
+        &self,
+        client: &Client<ApiClient>,
+        action_type: UpdateAdminListType,
+        inbox_id: String,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let conn = self.context.store.conn()?;
+        let intent_action_type = match action_type {
+            UpdateAdminListType::Add => AdminListActionType::Add,
+            UpdateAdminListType::Remove => AdminListActionType::Remove,
+            UpdateAdminListType::AddSuper => AdminListActionType::AddSuper,
+            UpdateAdminListType::RemoveSuper => AdminListActionType::RemoveSuper,
+        };
+        let intent_data: Vec<u8> =
+            UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::UpdateAdminList,
+            self.group_id.clone(),
+            intent_data,
+        ))?;
+
+        self.sync_until_intent_resolved(conn, intent.id, client)
+            .await
     }
 
     /// Find the `inbox_id` of the group member who added the member to the group
@@ -693,8 +748,7 @@ pub fn build_mutable_metadata_extension_default(
     ))
 }
 
-pub fn build_mutable_metadata_extensions(
-    identity: &Identity,
+pub fn build_mutable_metadata_extensions_for_metadata_update(
     group: &OpenMlsGroup,
     field_name: String,
     field_value: String,
@@ -704,10 +758,43 @@ pub fn build_mutable_metadata_extensions(
     attributes.insert(field_name, field_value);
     let new_mutable_metadata: Vec<u8> = GroupMutableMetadata::new(
         attributes,
-        vec![identity.inbox_id.clone()],
-        vec![identity.inbox_id.clone()],
+        existing_metadata.admin_list,
+        existing_metadata.super_admin_list,
     )
     .try_into()?;
+    let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
+    let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
+    let mut extensions = group.extensions().clone();
+    extensions.add_or_replace(extension);
+    Ok(extensions)
+}
+
+pub fn build_mutable_metadata_extensions_for_admin_lists_update(
+    group: &OpenMlsGroup,
+    admin_lists_update: UpdateAdminListIntentData,
+) -> Result<Extensions, GroupError> {
+    let existing_metadata: GroupMutableMetadata = group.try_into()?;
+    let attributes = existing_metadata.attributes.clone();
+    let mut admin_list = existing_metadata.admin_list;
+    let mut super_admin_list = existing_metadata.super_admin_list;
+    match admin_lists_update.action_type {
+        AdminListActionType::Add => {
+            if !admin_list.contains(&admin_lists_update.inbox_id) {
+                admin_list.push(admin_lists_update.inbox_id);
+            }
+        }
+        AdminListActionType::Remove => admin_list.retain(|x| x != &admin_lists_update.inbox_id),
+        AdminListActionType::AddSuper => {
+            if !super_admin_list.contains(&admin_lists_update.inbox_id) {
+                super_admin_list.push(admin_lists_update.inbox_id);
+            }
+        }
+        AdminListActionType::RemoveSuper => {
+            super_admin_list.retain(|x| x != &admin_lists_update.inbox_id)
+        }
+    }
+    let new_mutable_metadata: Vec<u8> =
+        GroupMutableMetadata::new(attributes, admin_list, super_admin_list).try_into()?;
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
     let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
     let mut extensions = group.extensions().clone();
@@ -839,7 +926,9 @@ mod tests {
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
             build_group_membership_extension, group_membership::GroupMembership,
-            group_mutable_metadata::MetadataField, PreconfiguredPolicies,
+
+            group_mutable_metadata::MetadataField, members::PermissionLevel, PreconfiguredPolicies,
+            UpdateAdminListType,
         },
         storage::{
             group_intent::IntentState,
@@ -1452,7 +1541,7 @@ mod tests {
 
         // Update group name
         amal_group
-            .update_group_name("New Group Name 1".to_string(), &amal)
+            .update_group_name(&amal, "New Group Name 1".to_string())
             .await
             .unwrap();
 
@@ -1476,7 +1565,7 @@ mod tests {
 
         // Verify that bola can not update the group name since they are not the creator
         bola_group
-            .update_group_name("New Group Name 2".to_string(), &bola)
+            .update_group_name(&bola, "New Group Name 2".to_string())
             .await
             .expect_err("expected err");
 
@@ -1527,7 +1616,7 @@ mod tests {
 
         // Update group name
         amal_group
-            .update_group_name("New Group Name 1".to_string(), &amal)
+            .update_group_name(&amal, "New Group Name 1".to_string())
             .await
             .unwrap();
 
@@ -1551,7 +1640,7 @@ mod tests {
 
         // Verify that bola CAN update the group name since everyone is admin for this group
         bola_group
-            .update_group_name("New Group Name 2".to_string(), &bola)
+            .update_group_name(&bola, "New Group Name 2".to_string())
             .await
             .expect("non creator failed to udpate group name");
 
@@ -1563,6 +1652,275 @@ mod tests {
             .get(&MetadataField::GroupName.to_string())
             .unwrap();
         assert_eq!(amal_group_name, "New Group Name 2");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_group_admin_list_update() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_wallet = generate_local_wallet();
+        let bola = ClientBuilder::new_test_client(&bola_wallet).await;
+        let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let policies = Some(PreconfiguredPolicies::AdminsOnly);
+        let amal_group = amal.create_group(policies).unwrap();
+        amal_group.sync(&amal).await.unwrap();
+
+        // Add bola to the group
+        amal_group
+            .add_members(&amal, vec![bola_wallet.get_address()])
+            .await
+            .unwrap();
+        bola.sync_welcomes().await.unwrap();
+        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        assert_eq!(bola_groups.len(), 1);
+        let bola_group = bola_groups.first().unwrap();
+        bola_group.sync(&bola).await.unwrap();
+
+        // Verify Amal is the only admin and super admin
+        let admin_list = amal_group.admin_list().unwrap();
+        let super_admin_list = amal_group.super_admin_list().unwrap();
+        assert_eq!(admin_list.len(), 1);
+        assert!(admin_list.contains(&amal.inbox_id()));
+        assert_eq!(super_admin_list.len(), 1);
+        assert!(super_admin_list.contains(&amal.inbox_id()));
+
+        // Verify that bola can not add caro because they are not an admin
+        bola.sync_welcomes().await.unwrap();
+        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        assert_eq!(bola_groups.len(), 1);
+        let bola_group: &MlsGroup = bola_groups.first().unwrap();
+        bola_group.sync(&bola).await.unwrap();
+        bola_group
+            .add_members_by_inbox_id(&bola, vec![caro.inbox_id()])
+            .await
+            .expect_err("expected err");
+
+        // Add bola as an admin
+        amal_group
+            .update_admin_list(&amal, UpdateAdminListType::Add, bola.inbox_id())
+            .await
+            .unwrap();
+        amal_group.sync(&amal).await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
+        assert_eq!(bola_group.admin_list().unwrap().len(), 2);
+        assert!(bola_group.admin_list().unwrap().contains(&bola.inbox_id()));
+
+        // Verify that bola can now add caro because they are an admin
+        bola_group
+            .add_members_by_inbox_id(&bola, vec![caro.inbox_id()])
+            .await
+            .unwrap();
+
+        // Verify that bola can not remove amal as an admin, because
+        // Remove admin is super admin only permissions
+        bola_group
+            .update_admin_list(&bola, UpdateAdminListType::Remove, amal.inbox_id())
+            .await
+            .expect_err("expected err");
+
+        // Now amal removes bola as an admin
+        amal_group
+            .update_admin_list(&amal, UpdateAdminListType::Remove, bola.inbox_id())
+            .await
+            .unwrap();
+        amal_group.sync(&amal).await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
+        assert_eq!(bola_group.admin_list().unwrap().len(), 1);
+        assert!(!bola_group.admin_list().unwrap().contains(&bola.inbox_id()));
+
+        // Verify that bola can not add charlie because they are not an admin
+        bola.sync_welcomes().await.unwrap();
+        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        assert_eq!(bola_groups.len(), 1);
+        let bola_group: &MlsGroup = bola_groups.first().unwrap();
+        bola_group.sync(&bola).await.unwrap();
+        bola_group
+            .add_members_by_inbox_id(&bola, vec![charlie.inbox_id()])
+            .await
+            .expect_err("expected err");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_group_super_admin_list_update() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let policies = Some(PreconfiguredPolicies::AdminsOnly);
+        let amal_group = amal.create_group(policies).unwrap();
+        amal_group.sync(&amal).await.unwrap();
+
+        // Add bola to the group
+        amal_group
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .await
+            .unwrap();
+        bola.sync_welcomes().await.unwrap();
+        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        assert_eq!(bola_groups.len(), 1);
+        let bola_group = bola_groups.first().unwrap();
+        bola_group.sync(&bola).await.unwrap();
+
+        // Verify Amal is the only admin and super admin
+        let admin_list = amal_group.admin_list().unwrap();
+        let super_admin_list = amal_group.super_admin_list().unwrap();
+        assert_eq!(admin_list.len(), 1);
+        assert!(admin_list.contains(&amal.inbox_id()));
+        assert_eq!(super_admin_list.len(), 1);
+        assert!(super_admin_list.contains(&amal.inbox_id()));
+
+        // Verify that bola can not add caro as an admin because they are not a super admin
+        bola.sync_welcomes().await.unwrap();
+        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        assert_eq!(bola_groups.len(), 1);
+        let bola_group: &MlsGroup = bola_groups.first().unwrap();
+        bola_group.sync(&bola).await.unwrap();
+        bola_group
+            .update_admin_list(&bola, UpdateAdminListType::Add, caro.inbox_id())
+            .await
+            .expect_err("expected err");
+
+        // Add bola as a super admin
+        amal_group
+            .update_admin_list(&amal, UpdateAdminListType::AddSuper, bola.inbox_id())
+            .await
+            .unwrap();
+        amal_group.sync(&amal).await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
+        assert_eq!(bola_group.super_admin_list().unwrap().len(), 2);
+        assert!(bola_group
+            .super_admin_list()
+            .unwrap()
+            .contains(&bola.inbox_id()));
+
+        // Verify that bola can now add caro as an admin
+        bola_group
+            .update_admin_list(&bola, UpdateAdminListType::Add, caro.inbox_id())
+            .await
+            .unwrap();
+        bola_group.sync(&bola).await.unwrap();
+        assert_eq!(bola_group.admin_list().unwrap().len(), 2);
+        assert!(bola_group.admin_list().unwrap().contains(&caro.inbox_id()));
+
+        // Verify that no one can remove a super admin from a group
+        amal_group
+            .remove_members(&amal, vec![bola.inbox_id()])
+            .await
+            .expect_err("expected err");
+
+        // Verify that bola can now remove themself as a super admin
+        bola_group
+            .update_admin_list(&bola, UpdateAdminListType::RemoveSuper, bola.inbox_id())
+            .await
+            .unwrap();
+        bola_group.sync(&bola).await.unwrap();
+        assert_eq!(bola_group.super_admin_list().unwrap().len(), 1);
+        assert!(!bola_group
+            .super_admin_list()
+            .unwrap()
+            .contains(&bola.inbox_id()));
+
+        // Verify that amal can NOT remove themself as a super admin because they are the only remaining
+        amal_group
+            .update_admin_list(&amal, UpdateAdminListType::RemoveSuper, amal.inbox_id())
+            .await
+            .expect_err("expected err");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_group_members_permission_level_update() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let policies = Some(PreconfiguredPolicies::AdminsOnly);
+        let amal_group = amal.create_group(policies).unwrap();
+        amal_group.sync(&amal).await.unwrap();
+
+        // Add Bola and Caro to the group
+        amal_group
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id(), caro.inbox_id()])
+            .await
+            .unwrap();
+        amal_group.sync(&amal).await.unwrap();
+
+        // Initial checks for group members
+        let initial_members = amal_group.members().unwrap();
+        let mut count_member = 0;
+        let mut count_admin = 0;
+        let mut count_super_admin = 0;
+
+        for member in &initial_members {
+            match member.permission_level {
+                PermissionLevel::Member => count_member += 1,
+                PermissionLevel::Admin => count_admin += 1,
+                PermissionLevel::SuperAdmin => count_super_admin += 1,
+            }
+        }
+
+        assert_eq!(
+            count_super_admin, 1,
+            "Only Amal should be super admin initially"
+        );
+        assert_eq!(count_admin, 0, "no members are admin only");
+        assert_eq!(count_member, 2, "two members have no admin status");
+
+        // Add Bola as an admin
+        amal_group
+            .update_admin_list(&amal, UpdateAdminListType::Add, bola.inbox_id())
+            .await
+            .unwrap();
+        amal_group.sync(&amal).await.unwrap();
+
+        // Check after adding Bola as an admin
+        let members = amal_group.members().unwrap();
+        let mut count_member = 0;
+        let mut count_admin = 0;
+        let mut count_super_admin = 0;
+
+        for member in &members {
+            match member.permission_level {
+                PermissionLevel::Member => count_member += 1,
+                PermissionLevel::Admin => count_admin += 1,
+                PermissionLevel::SuperAdmin => count_super_admin += 1,
+            }
+        }
+
+        assert_eq!(
+            count_super_admin, 1,
+            "Only Amal should be super admin initially"
+        );
+        assert_eq!(count_admin, 1, "bola is admin");
+        assert_eq!(count_member, 1, "caro has no admin status");
+
+        // Add Caro as a super admin
+        amal_group
+            .update_admin_list(&amal, UpdateAdminListType::AddSuper, caro.inbox_id())
+            .await
+            .unwrap();
+        amal_group.sync(&amal).await.unwrap();
+
+        // Check after adding Caro as a super admin
+        let members = amal_group.members().unwrap();
+        let mut count_member = 0;
+        let mut count_admin = 0;
+        let mut count_super_admin = 0;
+
+        for member in &members {
+            match member.permission_level {
+                PermissionLevel::Member => count_member += 1,
+                PermissionLevel::Admin => count_admin += 1,
+                PermissionLevel::SuperAdmin => count_super_admin += 1,
+            }
+        }
+
+        assert_eq!(
+            count_super_admin, 2,
+            "Amal and Caro should be super admin initially"
+        );
+        assert_eq!(count_admin, 1, "bola is admin");
+        assert_eq!(count_member, 0, "no members have no admin status");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

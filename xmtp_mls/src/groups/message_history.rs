@@ -12,6 +12,7 @@ use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
 };
+use ring::hmac;
 use thiserror::Error;
 
 use xmtp_cryptography::utils as crypto_utils;
@@ -45,16 +46,18 @@ const NONCE_SIZE: usize = 12; // 96-bit nonce
 
 #[derive(Debug, Error)]
 pub enum MessageHistoryError {
-    #[error("Pin not found")]
+    #[error("pin not found")]
     PinNotFound,
-    #[error("Pin does not match the expected value")]
+    #[error("pin does not match the expected value")]
     PinMismatch,
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),
-    #[error("JSON Serialization error: {0}")]
+    #[error("JSON serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
-    #[error("AES-GCM Encryption error")]
+    #[error("AES-GCM encryption error")]
     AesGcm(#[from] aes_gcm::Error),
+    #[error("reqwest error: {0}")]
+    Reqwest(#[from] reqwest::Error),
 }
 
 impl<ApiClient> Client<ApiClient>
@@ -70,7 +73,6 @@ where
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub(crate) async fn send_message_history_request(&self) -> Result<String, GroupError> {
         // find the sync group
         let conn = self.store().conn()?;
@@ -109,7 +111,6 @@ where
         Ok(pin_code)
     }
 
-    #[allow(dead_code)]
     pub(crate) async fn send_message_history_reply(
         &self,
         contents: MessageHistoryReply,
@@ -147,7 +148,6 @@ where
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub(crate) fn provide_pin(&self, pin_challenge: &str) -> Result<(), GroupError> {
         let conn = self.store().conn()?;
         let sync_group_id = conn
@@ -182,7 +182,18 @@ where
         Ok(())
     }
 
-    #[allow(dead_code)]
+    pub(crate) async fn prepare_groups_to_sync(&self) -> Result<Vec<StoredGroup>, StorageError> {
+        let conn = self.store().conn()?;
+        let groups = conn.find_groups(None, None, None, None)?;
+        let mut all_groups: Vec<StoredGroup> = vec![];
+
+        for group in groups.into_iter() {
+            all_groups.push(group);
+        }
+
+        Ok(all_groups)
+    }
+
     pub(crate) async fn prepare_messages_to_sync(
         &self,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
@@ -190,7 +201,7 @@ where
         let groups = conn.find_groups(None, None, None, None)?;
         let mut all_messages: Vec<StoredGroupMessage> = vec![];
 
-        for StoredGroup { id, .. } in groups.clone() {
+        for StoredGroup { id, .. } in groups.into_iter() {
             let messages = conn.get_group_messages(id, None, None, None, None, None)?;
             all_messages.extend(messages);
         }
@@ -199,7 +210,17 @@ where
     }
 }
 
-#[allow(dead_code)]
+fn write_groups_file(groups: Vec<StoredGroup>) -> Result<PathBuf, MessageHistoryError> {
+    let tmp_dir = std::env::temp_dir();
+    let file_path = tmp_dir.join("groups.jsonl");
+    let mut file = std::fs::File::create(&file_path)?;
+    for group in groups {
+        let group_str = serde_json::to_string(&group)?;
+        file.write_all(group_str.as_bytes())?;
+    }
+    Ok(file_path)
+}
+
 fn write_messages_file(messages: Vec<StoredGroupMessage>) -> Result<PathBuf, MessageHistoryError> {
     let tmp_dir = std::env::temp_dir();
     let file_path = tmp_dir.join("messages.jsonl");
@@ -211,8 +232,7 @@ fn write_messages_file(messages: Vec<StoredGroupMessage>) -> Result<PathBuf, Mes
     Ok(file_path)
 }
 
-#[allow(dead_code)]
-fn encrypt_messages_file(
+fn encrypt_history_file(
     input_path: &str,
     output_path: &str,
     key: &[u8; ENC_KEY_SIZE],
@@ -239,10 +259,9 @@ fn encrypt_messages_file(
     Ok(())
 }
 
-#[allow(dead_code)]
-fn decrypt_messages_file(
-    input_path: &str,
-    output_path: &str,
+fn decrypt_history_file(
+    input_path: PathBuf,
+    output_path: PathBuf,
     key: &[u8; ENC_KEY_SIZE],
 ) -> Result<(), MessageHistoryError> {
     // Read the file content
@@ -267,6 +286,63 @@ fn decrypt_messages_file(
     Ok(())
 }
 
+async fn upload_history_bundle(
+    url: &str,
+    file_path: PathBuf,
+    signing_key: &[u8],
+) -> Result<(), MessageHistoryError> {
+    let mut file = File::open(file_path)?;
+    let mut file_content = Vec::new();
+    file.read_to_end(&mut file_content)?;
+
+    let key = hmac::Key::new(hmac::HMAC_SHA256, signing_key);
+    let tag = hmac::sign(&key, &file_content);
+    let hmac_hex = hex::encode(tag.as_ref());
+
+    let client = reqwest::Client::new();
+    let _response = client
+        .post(url)
+        .header("X-HMAC", hmac_hex)
+        .body(file_content)
+        .send()
+        .await?;
+
+    Ok(())
+}
+
+async fn download_history_bundle(
+    url: &str,
+    hmac_value: &str,
+    signing_key: &str,
+    aes_key: [u8; ENC_KEY_SIZE],
+    output_path: PathBuf,
+) -> Result<(), MessageHistoryError> {
+    let client = reqwest::Client::new();
+    let response = client
+        .get(url)
+        .header("X-HMAC", hmac_value)
+        .header("X-SIGNING-KEY", signing_key)
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        let input_path = std::env::temp_dir().join("downloaded_bundle.jsonl.enc");
+        let mut file = File::create(&output_path)?;
+        let bytes = response.bytes().await?;
+        file.write_all(&bytes)?;
+
+        decrypt_history_file(input_path, output_path, &aes_key)?;
+    } else {
+        println!(
+            "Failed to download file. Status code: {} Response: {:?}",
+            response.status(),
+            response
+        );
+    }
+
+    Ok(())
+}
+
 #[derive(Clone)]
 struct HistoryRequest {
     pin_code: String,
@@ -274,7 +350,6 @@ struct HistoryRequest {
 }
 
 impl HistoryRequest {
-    #[allow(dead_code)]
     pub(crate) fn new() -> Self {
         Self {
             pin_code: new_pin(),
@@ -301,7 +376,6 @@ struct HistoryReply {
 }
 
 impl HistoryReply {
-    #[allow(dead_code)]
     pub(crate) fn new(
         id: &str,
         url: &str,
@@ -337,21 +411,18 @@ enum HistoryKeyType {
 }
 
 impl HistoryKeyType {
-    #[allow(dead_code)]
     fn new_chacha20_poly1305_key() -> Self {
         let mut key = [0u8; 32]; // 256-bit key
         crypto_utils::rng().fill_bytes(&mut key[..]);
         HistoryKeyType::Chacha20Poly1305(key)
     }
 
-    #[allow(dead_code)]
     fn len(&self) -> usize {
         match self {
             HistoryKeyType::Chacha20Poly1305(key) => key.len(),
         }
     }
 
-    #[allow(dead_code)]
     fn as_bytes(&self) -> &[u8; ENC_KEY_SIZE] {
         match self {
             HistoryKeyType::Chacha20Poly1305(key) => key,
@@ -370,7 +441,7 @@ impl From<HistoryKeyType> for MessageHistoryKeyType {
 }
 
 fn new_request_id() -> String {
-    Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
+    Alphanumeric.sample_string(&mut rand::thread_rng(), ENC_KEY_SIZE)
 }
 
 fn generate_nonce() -> [u8; NONCE_SIZE] {
@@ -395,7 +466,12 @@ fn verify_pin(expected: &str, actual: &str) -> bool {
 #[cfg(test)]
 mod tests {
 
+    const HISTORY_SERVER_HOST: &str = "0.0.0.0";
+    const HISTORY_SERVER_PORT: u16 = 5558;
+
     use super::*;
+    use mockito;
+    use tempfile::NamedTempFile;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{assert_ok, builder::ClientBuilder};
@@ -581,7 +657,18 @@ mod tests {
         assert_eq!(amal_b_messages.len(), 1);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
+    async fn test_prepare_groups_to_sync() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let _group_a = amal_a.create_group(None).expect("create group");
+        let _group_b = amal_a.create_group(None).expect("create group");
+
+        let result = amal_a.prepare_groups_to_sync().await.unwrap();
+        assert_eq!(result.len(), 2);
+    }
+
+    #[tokio::test]
     async fn test_prepare_group_messages_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -613,19 +700,19 @@ mod tests {
     fn test_encrypt_decrypt_file() {
         let key = HistoryKeyType::new_chacha20_poly1305_key();
         let key_bytes = key.as_bytes();
-        let input_content = b"Hello, this is a test message!";
-        let input_path = "test_input.txt";
-        let encrypted_path = "test_encrypted.dat";
-        let decrypted_path = "test_decrypted.txt";
+        let input_content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'";
+        let input_path = "test_input.jsonl";
+        let encrypted_path = "test_encrypted.jsonl.enc";
+        let decrypted_path = "test_decrypted.jsonl";
 
         // Write test input file
         std::fs::write(input_path, input_content).expect("Unable to write test input file");
 
         // Encrypt the file
-        encrypt_messages_file(input_path, encrypted_path, key_bytes).expect("Encryption failed");
+        encrypt_history_file(input_path, encrypted_path, key_bytes).expect("Encryption failed");
 
         // Decrypt the file
-        decrypt_messages_file(encrypted_path, decrypted_path, key_bytes)
+        decrypt_history_file(encrypted_path.into(), decrypted_path.into(), key_bytes)
             .expect("Decryption failed");
 
         // Read the decrypted file content
@@ -641,9 +728,81 @@ mod tests {
         std::fs::remove_file(decrypted_path).expect("Unable to remove test decrypted file");
     }
 
+    #[tokio::test]
+    async fn test_upload_history_bundle() {
+        let options = mockito::ServerOpts {
+            host: HISTORY_SERVER_HOST,
+            port: HISTORY_SERVER_PORT + 1,
+            ..Default::default()
+        };
+        let mut server = mockito::Server::new_with_opts_async(options).await;
+
+        let _m = server
+            .mock("POST", "/upload")
+            .with_status(200)
+            .with_body("File uploaded")
+            .create();
+
+        let signing_key = b"test_signing_key";
+        let file_content = b"test file content";
+
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(file_content).unwrap();
+        let file_path = file.path().to_str().unwrap().to_string();
+
+        let url = format!(
+            "http://{}:{}/upload",
+            HISTORY_SERVER_HOST,
+            HISTORY_SERVER_PORT + 1
+        );
+        let result = upload_history_bundle(&url, file_path.into(), signing_key).await;
+        println!("{:?}", result);
+
+        assert!(result.is_ok());
+        _m.assert_async().await;
+        server.reset();
+    }
+
+    #[tokio::test]
+    async fn test_download_history_bundle() {
+        let bundle_id = "test_bundle_id";
+        let hmac_value = "test_hmac_value";
+        let signing_key = "test_signing_key";
+        let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let output_path = "test_output.jsonl";
+        let options = mockito::ServerOpts {
+            host: HISTORY_SERVER_HOST,
+            port: HISTORY_SERVER_PORT,
+            ..Default::default()
+        };
+        let mut server = mockito::Server::new_with_opts_async(options).await;
+
+        let _m = server
+            .mock("GET", format!("/files/{}", bundle_id).as_str())
+            .with_status(200)
+            .with_body("encrypted_content")
+            .create();
+
+        let url = format!(
+            "http://{}:{}/files/{bundle_id}",
+            HISTORY_SERVER_HOST, HISTORY_SERVER_PORT
+        );
+        let _result = download_history_bundle(
+            &url,
+            hmac_value,
+            signing_key,
+            *enc_key.as_bytes(),
+            PathBuf::from(output_path),
+        )
+        .await;
+
+        _m.assert_async().await;
+    }
+
     #[test]
     fn test_new_pin() {
         let pin = new_pin();
+        assert!(pin.chars().all(|c| c.is_numeric()));
         assert_eq!(pin.len(), 4);
     }
 
@@ -651,7 +810,7 @@ mod tests {
     fn test_new_key() {
         let sig_key = HistoryKeyType::new_chacha20_poly1305_key();
         let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
-        assert_eq!(sig_key.len(), 32);
+        assert_eq!(sig_key.len(), ENC_KEY_SIZE);
         // ensure keys are different (seed isn't reused)
         assert_ne!(sig_key, enc_key);
     }
