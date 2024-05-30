@@ -4,6 +4,7 @@ use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
 use crate::storage::sql_key_store::{MemoryStorageError, KEY_PACKAGE_REFERENCES};
+use crate::storage::EncryptedMessageStore;
 use crate::{
     api::{ApiClientWrapper, WrappedApiError},
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
@@ -11,7 +12,6 @@ use crate::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     XmtpApi,
 };
-use crate::{builder::ClientBuilderError, storage::EncryptedMessageStore};
 use crate::{Fetch, Store};
 use ed25519_dalek::SigningKey;
 use ethers::signers::WalletError;
@@ -66,7 +66,7 @@ impl IdentityStrategy {
         self,
         api_client: &ApiClientWrapper<ApiClient>,
         store: &EncryptedMessageStore,
-    ) -> Result<Identity, ClientBuilderError> {
+    ) -> Result<Identity, IdentityError> {
         info!("Initializing identity");
         let conn = store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
@@ -77,15 +77,29 @@ impl IdentityStrategy {
         debug!("Existing identity in store: {:?}", stored_identity);
         match self {
             IdentityStrategy::CachedOnly => {
-                stored_identity.ok_or(ClientBuilderError::RequiredIdentityNotFound)
+                stored_identity.ok_or(IdentityError::RequiredIdentityNotFound)
             }
             IdentityStrategy::CreateIfNotFound(address, legacy_signed_private_key) => {
                 if let Some(identity) = stored_identity {
+                    let ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
+                    let inbox_id = ids.get(&address);
+
+                    if inbox_id.is_none() {
+                        return Err(IdentityError::NoAssociatedInboxId(address));
+                    };
+                    let inbox_id = inbox_id.expect("Checked for none");
+
+                    if inbox_id != &identity.inbox_id {
+                        return Err(IdentityError::InboxIdMismatch {
+                            id: inbox_id.clone(),
+                            address: address.clone(),
+                            stored: identity.inbox_id,
+                        });
+                    }
+
                     Ok(identity)
                 } else {
-                    Identity::new(address, legacy_signed_private_key, api_client)
-                        .await
-                        .map_err(ClientBuilderError::from)
+                    Identity::new(address, legacy_signed_private_key, api_client).await
                 }
             }
             #[cfg(test)]
@@ -138,6 +152,16 @@ pub enum IdentityError {
     KeyPackageGenerationError(#[from] openmls::key_packages::errors::KeyPackageNewError),
     #[error(transparent)]
     ED25519Error(#[from] ed25519_dalek::ed25519::Error),
+    #[error("The InboxID {id}, associated with the given address, {address} does not match the stored InboxId {stored}.")]
+    InboxIdMismatch {
+        id: InboxId,
+        address: String,
+        stored: InboxId,
+    },
+    #[error("The address {0} has no associated InboxID")]
+    NoAssociatedInboxId(String),
+    #[error("Required identity was not found in cache.")]
+    RequiredIdentityNotFound,
 }
 
 #[derive(Debug, Clone)]
