@@ -918,7 +918,7 @@ mod tests {
     use prost::Message;
     use tracing_test::traced_test;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+    use xmtp_proto::xmtp::mls::{api::v1::group_message, message_contents::EncodedContent};
 
     use crate::{
         assert_logged,
@@ -1009,22 +1009,62 @@ mod tests {
             .unwrap();
     }
 
+    fn vec_to_u64(v: Vec<u8>) -> u64 {
+        assert!(v.len() >= 8, "Vec<u8> is too short to convert to u64");
+        let mut array = [0u8; 8];
+        let bytes = &v[..8]; // Get a slice of the first 8 bytes
+        array.copy_from_slice(bytes);  // Copy slice into fixed-size array
+        u64::from_be_bytes(array)      // Convert array to u64
+    }
+    
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_send_message() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
         let group = client.create_group(None).expect("create group");
-        group
-            .send_message(b"hello", &client)
-            .await
-            .expect("send message");
+        let id_vec = group.send_message(b"hello", &client).await.expect("send message");
+        let id = vec_to_u64(id_vec.clone());
+        let group_id = group.group_id.clone();
 
         let messages = client
             .api_client
-            .query_group_messages(group.group_id, None)
+            .query_group_messages(group_id, None)
             .await
             .expect("read topic");
+
         assert_eq!(messages.len(), 2);
+
+        let first_message = messages.first().unwrap();
+        let last_message = messages.last().unwrap();
+
+        group.sync(&client).await.unwrap();
+        let messages2 = group.find_messages(None, None, None, None, None).unwrap();
+
+        assert_eq!(messages2.len(), 2);
+
+        let first_message2 = messages2.first().unwrap();
+        let last_message2 = messages2.last().unwrap();
+
+        assert_eq!(messages.len(), 2);
+        if let Some(group_message::Version::V1(first_v1)) = &first_message.version {
+            let first_created_ns = first_v1.created_ns;
+            if let Some(group_message::Version::V1(last_v1)) = &last_message.version {
+                let last_created_ns = last_v1.created_ns;
+                
+                assert_ne!(first_created_ns, last_created_ns);
+                assert_ne!(first_v1.id, last_v1.id);
+                assert_eq!(last_v1.id, id);
+
+                assert_ne!(last_message2.sent_at_ns, first_message2.sent_at_ns);
+                assert_eq!(first_message2.sent_at_ns as u64, first_created_ns);
+                assert_eq!(id_vec, last_message2.id);
+
+            } else {
+                panic!("Last message is not version 1");
+            }
+        } else {
+            panic!("First message is not version 1");
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
