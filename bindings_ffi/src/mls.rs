@@ -53,10 +53,10 @@ pub enum LegacyIdentitySource {
 }
 
 /// It returns a new client of the specified `inbox_id`.
-/// Note that the `inbox_id` is either brand new or already associated with the `account_address`.
+/// Note that the `inbox_id` must be either brand new or already associated with the `account_address`.
 /// i.e. `inbox_id` cannot be associated with another account address.
 ///
-/// Prior to calling this function, platform SDKs is expected to follow the pseudo-code below, otherwise an error is returned.
+/// Prior to calling this function, it's suggested to form `inbox_id`, `account_address`, and `nonce` like below.
 ///
 /// ```text
 /// inbox_id = get_inbox_id_for_address(account_address)
@@ -72,7 +72,7 @@ pub enum LegacyIdentitySource {
 /// xmtp.create_client(account_address, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
 /// ```
 ///
-/// Note that in the case where the `account_address` is already associated with an inbox, `nonce` will be ignored.
+/// Note that in the case where the `account_address` is already associated with the `inbox_id`, `nonce` will be ignored.
 #[allow(clippy::too_many_arguments)]
 #[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]
