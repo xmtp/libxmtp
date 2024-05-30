@@ -83,27 +83,22 @@ class GroupTest {
             alixGroup.addMembers(listOf(caro.walletAddress))
             boGroup.sync()
         }
-        // Issue members is not returning correctly for non group creators:
-        // https://github.com/xmtp/libxmtp/issues/769
-//       assertEquals(alixGroup.members().size, 3)
+        assertEquals(alixGroup.members().size, 3)
         assertEquals(boGroup.members().size, 3)
 
         runBlocking {
             alixGroup.removeMembers(listOf(caro.walletAddress))
             boGroup.sync()
         }
-        // Issue members is not returning correctly for non group creators:
-        // https://github.com/xmtp/libxmtp/issues/769
-//       assertEquals(alixGroup.members().size, 2)
+
+        assertEquals(alixGroup.members().size, 2)
         assertEquals(boGroup.members().size, 2)
 
         runBlocking {
             boGroup.addMembers(listOf(caro.walletAddress))
-            boGroup.sync()
+            alixGroup.sync()
         }
-        // Issue members is not returning correctly for non group creators:
-        // https://github.com/xmtp/libxmtp/issues/769
-//       assertEquals(alixGroup.members().size, 3)
+        assertEquals(alixGroup.members().size, 3)
         assertEquals(boGroup.members().size, 3)
 
         assertEquals(boGroup.permissionLevel(), GroupPermissions.ALL_MEMBERS)
@@ -114,7 +109,7 @@ class GroupTest {
         assertEquals(alixGroup.isAdmin(alixClient.inboxId), false)
         // can not fetch creator ID. See https://github.com/xmtp/libxmtp/issues/788
 //       assert(boGroup.isCreator())
-//       assert(!alixGroup.isCreator())
+        assert(!alixGroup.isCreator())
     }
 
     @Test
@@ -138,35 +133,30 @@ class GroupTest {
             alixGroup.sync()
         }
 
-        // Issue members is not returning correctly for non group creators:
-        // https://github.com/xmtp/libxmtp/issues/769
-//        assertEquals(alixGroup.members().size, 3)
+        assertEquals(alixGroup.members().size, 3)
         assertEquals(boGroup.members().size, 3)
 
         assertThrows(XMTPException::class.java) {
             runBlocking { alixGroup.removeMembers(listOf(caro.walletAddress)) }
         }
         runBlocking { boGroup.sync() }
-        // Issue members is not returning correctly for non group creators:
-        // https://github.com/xmtp/libxmtp/issues/769
-//        assertEquals(alixGroup.members().size, 3)
+
+        assertEquals(alixGroup.members().size, 3)
         assertEquals(boGroup.members().size, 3)
         runBlocking {
             boGroup.removeMembers(listOf(caro.walletAddress))
             alixGroup.sync()
         }
-        // Issue members is not returning correctly for non group creators:
-        // https://github.com/xmtp/libxmtp/issues/769
-//        assertEquals(alixGroup.members().size, 2)
+
+        assertEquals(alixGroup.members().size, 2)
         assertEquals(boGroup.members().size, 2)
 
         assertThrows(XMTPException::class.java) {
             runBlocking { alixGroup.addMembers(listOf(caro.walletAddress)) }
         }
         runBlocking { boGroup.sync() }
-        // Issue members is not returning correctly for non group creators:
-        // https://github.com/xmtp/libxmtp/issues/769
-//        assertEquals(alixGroup.members().size, 2)
+
+        assertEquals(alixGroup.members().size, 2)
         assertEquals(boGroup.members().size, 2)
 
         assertEquals(boGroup.permissionLevel(), GroupPermissions.ADMIN_ONLY)
@@ -177,7 +167,7 @@ class GroupTest {
         assertEquals(alixGroup.isAdmin(alixClient.inboxId), false)
         // can not fetch creator ID. See https://github.com/xmtp/libxmtp/issues/788
 //       assert(boGroup.isCreator())
-//       assert(!alixGroup.isCreator())
+        assert(!alixGroup.isCreator())
     }
 
     @Test
@@ -285,13 +275,11 @@ class GroupTest {
             group.sync()
             boGroup.sync()
         }
-        // Issue members is not returning correctly for non group creators:
-        // https://github.com/xmtp/libxmtp/issues/769
         assertEquals(
             boGroup.members().map { it.inboxId }.sorted(),
             listOf(
-                alixClient.inboxId.lowercase(),
-                boClient.inboxId.lowercase()
+                alixClient.inboxId,
+                boClient.inboxId
             ).sorted()
         )
     }
@@ -329,27 +317,18 @@ class GroupTest {
         )
     }
 
-//    @Test
-//    fun testCanRemoveGroupMembersWhenNotCreator() {
-//        runBlocking {
-//            boClient.conversations.newGroup(
-//                listOf(
-//                    alixClient.address,
-//                    caroClient.address
-//                )
-//            )
-//        }
-//        runBlocking { alixClient.conversations.syncGroups() }
-//        val group = runBlocking { alixClient.conversations.listGroups().first() }
-//        runBlocking { group.removeMembers(listOf(caroClient.address)) }
-//        assertEquals(
-//            group.members().map { it.inboxId }.sorted(),
-//            listOf(
-//                alixClient.inboxId.lowercase(),
-//                boClient.inboxId.lowercase()
-//            ).sorted()
-//        )
-//    }
+    @Test
+    fun testMessageTimeIsCorrect() {
+        val alixGroup = runBlocking { alixClient.conversations.newGroup(listOf(boClient.address)) }
+        runBlocking { alixGroup.send("Hello") }
+        assertEquals(alixGroup.decryptedMessages().size, 2)
+        runBlocking { alixGroup.sync() }
+        val message2 = alixGroup.decryptedMessages().last()
+        runBlocking { alixGroup.sync() }
+        val message3 = alixGroup.decryptedMessages().last()
+        assertEquals(message3.id, message2.id)
+        assertEquals(message3.sentAt.time, message2.sentAt.time)
+    }
 
     @Test
     fun testIsActiveReturnsCorrectly() {
@@ -704,7 +683,7 @@ class GroupTest {
         var result = boClient.contacts.isGroupAllowed(group.id)
         assert(result)
 
-        runBlocking { boClient.contacts.allowGroup(listOf(group.id)) }
+        runBlocking { boClient.contacts.allowGroups(listOf(group.id)) }
 
         result = boClient.contacts.isGroupAllowed(group.id)
         assert(result)
@@ -723,7 +702,7 @@ class GroupTest {
         var result = boClient.contacts.isGroupAllowed(group.id)
         assert(result)
 
-        runBlocking { boClient.contacts.denyGroup(listOf(group.id)) }
+        runBlocking { boClient.contacts.denyGroups(listOf(group.id)) }
 
         result = boClient.contacts.isGroupDenied(group.id)
         assert(result)
@@ -731,17 +710,17 @@ class GroupTest {
 
     @Test
     fun testCanAllowAndDenyInboxId() {
-        assert(!boClient.contacts.isInboxIdAllowed(alixClient.inboxId))
-        assert(!boClient.contacts.isInboxIdDenied(alixClient.inboxId))
+        assert(!boClient.contacts.isInboxAllowed(alixClient.inboxId))
+        assert(!boClient.contacts.isInboxDenied(alixClient.inboxId))
 
-        runBlocking { boClient.contacts.allowInboxId(listOf(alixClient.inboxId)) }
+        runBlocking { boClient.contacts.allowInboxes(listOf(alixClient.inboxId)) }
 
-        assert(boClient.contacts.isInboxIdAllowed(alixClient.inboxId))
-        assert(!boClient.contacts.isInboxIdDenied(alixClient.inboxId))
+        assert(boClient.contacts.isInboxAllowed(alixClient.inboxId))
+        assert(!boClient.contacts.isInboxDenied(alixClient.inboxId))
 
-        runBlocking { boClient.contacts.denyInboxIds(listOf(alixClient.inboxId)) }
+        runBlocking { boClient.contacts.denyInboxes(listOf(alixClient.inboxId)) }
 
-        assert(!boClient.contacts.isInboxIdAllowed(alixClient.inboxId))
-        assert(boClient.contacts.isInboxIdDenied(alixClient.inboxId))
+        assert(!boClient.contacts.isInboxAllowed(alixClient.inboxId))
+        assert(boClient.contacts.isInboxDenied(alixClient.inboxId))
     }
 }

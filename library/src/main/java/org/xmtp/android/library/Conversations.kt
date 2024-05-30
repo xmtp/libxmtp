@@ -98,7 +98,7 @@ data class Conversations(
         )
     }
 
-    fun fromWelcome(envelopeBytes: ByteArray): Group {
+    suspend fun fromWelcome(envelopeBytes: ByteArray): Group {
         val group = libXMTPConversations?.processStreamedWelcomeMessage(envelopeBytes)
             ?: throw XMTPException("Client does not support Groups")
         return Group(client, group)
@@ -123,7 +123,7 @@ data class Conversations(
         val group =
             libXMTPConversations?.createGroup(accountAddresses, permissions = permissions)
                 ?: throw XMTPException("Client does not support Groups")
-        client.contacts.allowGroup(groupIds = listOf(group.id()))
+        client.contacts.allowGroups(groupIds = listOf(group.id()))
 
         return Group(client, group)
     }

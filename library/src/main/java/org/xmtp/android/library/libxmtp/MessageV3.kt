@@ -80,7 +80,7 @@ data class MessageV3(val client: Client, private val libXMTPMessage: FfiMessage)
             topic = Topic.groupMessage(convoId.toHex()).description,
             encodedContent = decode().encodedContent,
             senderAddress = senderInboxId,
-            sentAt = Date(),
+            sentAt = sentAt,
             deliveryStatus = deliveryStatus
         )
     }
