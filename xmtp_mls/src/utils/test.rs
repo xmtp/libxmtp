@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, path::Path};
 
 use rand::{
     distributions::{Alphanumeric, DistString},

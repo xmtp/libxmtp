@@ -6409,6 +6409,7 @@ dependencies = [
  "toml 0.8.13",
  "tracing",
  "tracing-log",
+ "tracing-subscriber",
  "tracing-test",
  "xmtp_api_grpc",
  "xmtp_cryptography",
