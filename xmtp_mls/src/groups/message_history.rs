@@ -453,8 +453,9 @@ enum HistoryKeyType {
 
 impl HistoryKeyType {
     fn new_chacha20_poly1305_key() -> Self {
-        let mut key = [0u8; ENC_KEY_SIZE]; // 256-bit key
-        crypto_utils::rng().fill_bytes(&mut key[..]);
+        let mut rng = crypto_utils::rng();
+        let mut key = [0u8; ENC_KEY_SIZE];
+        rng.fill_bytes(&mut key);
         HistoryKeyType::Chacha20Poly1305(key)
     }
 
