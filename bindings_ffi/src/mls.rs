@@ -44,18 +44,16 @@ pub type RustXmtpClient = MlsClient<TonicApiClient>;
 /// ```text
 /// inbox_id = get_inbox_id_for_address(account_address)
 /// nonce = 0
+///
 /// // if inbox_id is not associated, we will create new one.
-/// // else if inbox_id is associated, we will just use it and ignore the nonce.
 /// if !inbox_id {
 ///     if !legacy_key { nonce = random_u64() }
 ///     inbox_id = generate_inbox_id(account_address, nonce)
-/// }
+/// } // Otherwise, we will just use the inbox and ignore the nonce.
 /// db_path = $inbox_id-$env
 ///
 /// xmtp.create_client(account_address, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
 /// ```
-///
-/// Note that in the case where the `account_address` is already associated with the `inbox_id`, `nonce` will be ignored.
 #[allow(clippy::too_many_arguments)]
 #[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]
