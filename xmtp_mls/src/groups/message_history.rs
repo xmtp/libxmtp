@@ -412,7 +412,7 @@ struct HistoryReply {
     bundle_hash: Vec<u8>,
     /// HMAC Signing key for the backup bundle
     signing_key: HistoryKeyType,
-    /// AES encryption key for the backup bundle
+    /// Encryption key for the backup bundle
     encryption_key: HistoryKeyType,
 }
 
