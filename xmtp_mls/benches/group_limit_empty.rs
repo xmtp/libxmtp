@@ -1,28 +1,17 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use ethers::{
-    signers::{LocalWallet, Signer},
-    types::Address,
-};
+use ethers::signers::LocalWallet;
 use std::collections::HashMap;
 use tokio::runtime::{Builder, Runtime};
 use xmtp_cryptography::utils::rng;
-use xmtp_mls::{builder::ClientBuilder, groups::MlsGroup, utils::test::TestClient};
+use xmtp_mls::{
+    builder::ClientBuilder,
+    utils::{
+        bench::{create_identities_if_dont_exist, IDENTITIES},
+        test::TestClient,
+    },
+};
 
-async fn create_identity() -> Address {
-    let wallet = LocalWallet::new(&mut rng());
-    let _ = ClientBuilder::new_test_client(&wallet).await;
-    wallet.address()
-}
-
-async fn create_identities(n: usize) -> Vec<Address> {
-    let mut addresses = Vec::with_capacity(n);
-    for _ in 0..n {
-        addresses.push(create_identity().await);
-    }
-    addresses
-}
-
-fn setup(num_groups: usize) -> (TestClient, MlsGroup, Vec<String>, Runtime) {
+fn setup() -> (TestClient, Vec<String>, Runtime) {
     let runtime = Builder::new_multi_thread()
         .worker_threads(4)
         .enable_time()
@@ -31,20 +20,15 @@ fn setup(num_groups: usize) -> (TestClient, MlsGroup, Vec<String>, Runtime) {
         .build()
         .unwrap();
 
-    let (client, group, addresses) = runtime.block_on(async {
-        let addresses: Vec<String> = create_identities(num_groups)
-            .await
-            .into_iter()
-            .map(hex::encode)
-            .collect();
+    let (client, addresses) = runtime.block_on(async {
+        let addresses: Vec<String> = create_identities_if_dont_exist().await;
         let wallet = LocalWallet::new(&mut rng());
         let client = ClientBuilder::new_test_client(&wallet).await;
 
-        let group = client.create_group(None).unwrap();
-        (client, group, addresses)
+        (client, addresses)
     });
 
-    (client, group, addresses, runtime)
+    (client, addresses, runtime)
 }
 
 fn add_to_empty_group(c: &mut Criterion) {
@@ -53,29 +37,30 @@ fn add_to_empty_group(c: &mut Criterion) {
     let mut benchmark_group = c.benchmark_group("add_to_empty_group");
     benchmark_group.sample_size(10);
 
-    let total_identities = [10, 100, 250, 500, 1_000, 2_000]; /* 5_000, 10_000 + 20_000 + 40_000];*/
+    let total_identities = &IDENTITIES[0..8];
 
     println!(
         "Setting up {} identities",
         total_identities.iter().sum::<usize>()
     );
-    let (client, group, addresses, runtime) = setup(total_identities.iter().sum());
+    let (client, addresses, runtime) = setup();
     println!("setup finished");
 
     let mut addresses = addresses.into_iter();
     let mut map = HashMap::<usize, Vec<String>>::new();
 
     for size in total_identities {
-        map.insert(size, addresses.by_ref().take(size).collect());
+        map.insert(*size, addresses.by_ref().take(*size).collect());
     }
 
     for size in total_identities.iter() {
         benchmark_group.throughput(Throughput::Elements(*size as u64));
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let addrs = map.get(&size).unwrap();
-            b.to_async(&runtime).iter(|| {
+            b.to_async(&runtime).iter(|| async {
+                let group = client.create_group(None).unwrap();
                 println!("Adding {} members", addrs.len());
-                group.add_members(&client, addrs.clone())
+                group.add_members(&client, addrs.clone()).await.unwrap();
             });
         });
     }

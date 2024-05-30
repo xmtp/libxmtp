@@ -12,7 +12,8 @@ path = "src/bin/update-schema.rs"
 default = ["native"]
 grpc = ["xmtp_proto/grpc"]
 native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
-test-utils = ["xmtp_api_grpc", "tracing-subscriber"]
+test-utils = ["xmtp_api_grpc"]
+bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "rayon" ]
 
 [dependencies]
 aes = "0.8.4"
@@ -56,7 +57,9 @@ xmtp_v2 = { path = "../xmtp_v2" }
 # Test Utils
 xmtp_api_grpc = { path = "../xmtp_api_grpc", optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
-
+indicatif = { version = "0.17", optional = true, features = ["rayon"] }
+anyhow = { workspace = true, optional = true }
+rayon = { version = "1.10", optional = true }
 
 [dev-dependencies]
 ctor.workspace = true
@@ -76,4 +79,4 @@ criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 [[bench]]
 name = "group_limit_empty"
 harness = false
-required_features = ["test-utils"]
+required_features = ["bench"]

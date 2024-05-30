@@ -1,4 +1,4 @@
-use std::{env, path::Path};
+use std::env;
 
 use rand::{
     distributions::{Alphanumeric, DistString},
@@ -73,6 +73,17 @@ impl ClientBuilder<GrpcClient> {
         register_client(&client, owner).await;
 
         client
+    }
+}
+
+impl Client<GrpcClient> {
+    pub async fn is_registered(&self, address: &String) -> bool {
+        let ids = self
+            .api_client
+            .get_inbox_ids(vec![address.clone()])
+            .await
+            .unwrap();
+        ids.contains_key(address)
     }
 }
 

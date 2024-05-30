@@ -9,7 +9,7 @@ members = [
   "xmtp_user_preferences",
   "xmtp_v2",
   "xmtp_mls",
-  "xmtp_id",
+  "xmtp_id", "bin/generate_identities",
 ]
 
 exclude = ["bindings_ffi", "bindings_wasm", "xmtp_api_grpc_gateway"]
