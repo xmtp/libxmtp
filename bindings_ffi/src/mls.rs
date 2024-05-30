@@ -72,7 +72,7 @@ pub enum LegacyIdentitySource {
 /// xmtp.create_client(account_address, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
 /// ```
 ///
-/// Note that in the case when inbox_id is associated, nonce will be ignored.
+/// Note that in the case where the `account_address` is already associated with an inbox, `nonce` will be ignored.
 #[allow(clippy::too_many_arguments)]
 #[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]

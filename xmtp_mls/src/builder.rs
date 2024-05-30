@@ -152,7 +152,7 @@ mod tests {
         }
 
         pub async fn new_test_client(owner: &impl InboxOwner) -> Client<GrpcClient> {
-            let nonce = 0;
+            let nonce = 1;
             let inbox_id = generate_inbox_id(&owner.get_address(), &nonce);
             let client = Self::new(IdentityStrategy::CreateIfNotFound(
                 inbox_id,
@@ -217,7 +217,7 @@ mod tests {
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
                 .unwrap();
 
-        let nonce = 0;
+        let nonce = 1;
         let inbox_id = generate_inbox_id(&wallet.get_address(), &nonce);
         let client_a = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
             inbox_id.clone(),
