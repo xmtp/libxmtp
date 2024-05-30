@@ -108,12 +108,27 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::api::ApiClientWrapper;
     use crate::builder::ClientBuilderError;
     use crate::identity::IdentityError;
+    use crate::retry::Retry;
+    use crate::{
+        api::test_utils::*,
+        identity::Identity,
+        storage::identity::StoredIdentity,
+        utils::test::{rand_string, rand_vec},
+        Store,
+    };
+    use openmls::credentials::{Credential, CredentialType};
+    use openmls_basic_credential::SignatureKeyPair;
+    use openmls_traits::types::SignatureScheme;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::{
         generate_inbox_id, test_utils::rand_u64, RecoverableEcdsaSignature,
+    };
+    use xmtp_proto::xmtp::identity::api::v1::{
+        get_inbox_ids_response::Response as GetInboxIdsResponseItem, GetInboxIdsResponse,
     };
 
     use super::{ClientBuilder, IdentityStrategy};
@@ -196,7 +211,7 @@ mod tests {
 
         struct IdentityStrategyTestCase {
             strategy: IdentityStrategy,
-            err: Option<ClientBuilderError>,
+            err: Option<String>,
         }
 
         // Given that the identity in db will hijack the test cases, we put the happy case for an inbox_id at the end.
@@ -209,20 +224,16 @@ mod tests {
                     111,
                     Some(legacy_key.clone()),
                 ),
-                err: Some(ClientBuilderError::from(IdentityError::NewIdentity(
-                    "Nonce must be 0 if legacy key is provided".to_string(),
-                ))),
+                err: Some("Nonce must be 0 if legacy key is provided".to_string()),
             },
             IdentityStrategyTestCase {
                 strategy: IdentityStrategy::CreateIfNotFound(
-                    generate_inbox_id(&legacy_account_address.to_string(), &nonce_for_legacy),
+                    generate_inbox_id(&legacy_account_address.to_string(), &111),
                     legacy_account_address.to_string(),
-                    111,
+                    nonce_for_legacy,
                     Some(legacy_key.clone()),
                 ),
-                err: Some(ClientBuilderError::from(IdentityError::NewIdentity(
-                    "Inbox ID doesn't match nonce & address".to_string(),
-                ))),
+                err: Some("Inbox ID doesn't match nonce & address".to_string()),
             },
             IdentityStrategyTestCase {
                 strategy: IdentityStrategy::CreateIfNotFound(
@@ -241,20 +252,16 @@ mod tests {
                     0,
                     None,
                 ),
-                err: Some(ClientBuilderError::from(IdentityError::NewIdentity(
-                    "Nonce must be non-zero if legacy key is not provided".to_string(),
-                ))),
+                err: Some("Nonce must be non-zero if legacy key is not provided".to_string()),
             },
             IdentityStrategyTestCase {
                 strategy: IdentityStrategy::CreateIfNotFound(
-                    generate_inbox_id(&non_legacy_account_address, &nonce_for_non_legacy),
+                    generate_inbox_id(&non_legacy_account_address, &0),
                     non_legacy_account_address.clone(),
-                    0,
+                    nonce_for_non_legacy,
                     None,
                 ),
-                err: Some(ClientBuilderError::from(IdentityError::NewIdentity(
-                    "Inbox ID doesn't match nonce & address".to_string(),
-                ))),
+                err: Some("Inbox ID doesn't match nonce & address".to_string()),
             },
             IdentityStrategyTestCase {
                 strategy: IdentityStrategy::CreateIfNotFound(
@@ -275,14 +282,144 @@ mod tests {
                 .build()
                 .await;
 
-            if let Some(_expected_err) = test_case.err {
-                let actual_err = result.err();
-                assert!(&actual_err.is_some());
-                assert!(matches!(actual_err.unwrap(), _expected_err));
+            if let Some(err_string) = test_case.err {
+                assert!(result.is_err());
+                // println!("expected {}, result {:?}", err_string, result);
+                assert!(matches!(
+                    result,
+                    Err(ClientBuilderError::Identity(IdentityError::NewIdentity(err))) if err == err_string
+                ));
             } else {
-                assert!(result.err().is_none());
+                assert!(result.is_ok());
             }
         }
+    }
+
+    // Should return error if inbox associated with given account_address doesn't match the provided one.
+    #[tokio::test]
+    async fn api_identity_mismatch() {
+        let mut mock_api = MockApiClient::new();
+        let tmpdb = tmp_path();
+
+        let store =
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
+        let nonce = 0;
+        let address = rand_string();
+        let inbox_id = "inbox_id".to_string();
+
+        let address_cloned = address.clone();
+        let inbox_id_cloned = inbox_id.clone();
+        mock_api.expect_get_inbox_ids().returning(move |_| {
+            Ok(GetInboxIdsResponse {
+                responses: vec![GetInboxIdsResponseItem {
+                    address: address_cloned.clone(),
+                    inbox_id: Some(inbox_id_cloned.clone()),
+                }],
+            })
+        });
+
+        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+
+        let identity =
+            IdentityStrategy::CreateIfNotFound("other_inbox_id".to_string(), address, nonce, None);
+        assert!(matches!(
+            identity
+                .initialize_identity(&wrapper, &store)
+                .await
+                .unwrap_err(),
+            IdentityError::NewIdentity(msg) if msg == "Inbox ID mismatch"
+        ));
+    }
+
+    // Use the account_address associated inbox
+    #[tokio::test]
+    async fn api_identity_happy_path() {
+        let mut mock_api = MockApiClient::new();
+        let tmpdb = tmp_path();
+
+        let store =
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
+        let nonce = 0;
+        let address = rand_string();
+        let inbox_id = "inbox_id".to_string();
+
+        let address_cloned = address.clone();
+        let inbox_id_cloned = inbox_id.clone();
+        mock_api.expect_get_inbox_ids().returning(move |_| {
+            Ok(GetInboxIdsResponse {
+                responses: vec![GetInboxIdsResponseItem {
+                    address: address_cloned.clone(),
+                    inbox_id: Some(inbox_id_cloned.clone()),
+                }],
+            })
+        });
+
+        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+
+        let identity = IdentityStrategy::CreateIfNotFound(inbox_id.clone(), address, nonce, None);
+        assert!(identity.initialize_identity(&wrapper, &store).await.is_ok());
+    }
+
+    // Use a stored identity as long as the inbox_id matches the one provided.
+    #[tokio::test]
+    async fn stored_identity_happy_path() {
+        let mock_api = MockApiClient::new();
+        let tmpdb = tmp_path();
+
+        let store =
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
+        let nonce = 0;
+        let address = rand_string();
+        let inbox_id = "inbox_id".to_string();
+
+        let stored: StoredIdentity = (&Identity {
+            inbox_id: inbox_id.clone(),
+            installation_keys: SignatureKeyPair::new(SignatureScheme::ED25519).unwrap(),
+            credential: Credential::new(CredentialType::Basic, rand_vec()),
+            signature_request: None,
+        })
+            .into();
+
+        stored.store(&store.conn().unwrap()).unwrap();
+        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+        let identity = IdentityStrategy::CreateIfNotFound(inbox_id.clone(), address, nonce, None);
+        assert!(identity.initialize_identity(&wrapper, &store).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn stored_identity_mismatch() {
+        let mock_api = MockApiClient::new();
+
+        let network_address = rand_string();
+        let stored_inbox_id = "stored_inbox_id".to_string();
+
+        let tmpdb = tmp_path();
+        let store =
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
+
+        let stored: StoredIdentity = (&Identity {
+            inbox_id: stored_inbox_id.clone(),
+            installation_keys: SignatureKeyPair::new(SignatureScheme::ED25519).unwrap(),
+            credential: Credential::new(CredentialType::Basic, rand_vec()),
+            signature_request: None,
+        })
+            .into();
+
+        stored.store(&store.conn().unwrap()).unwrap();
+
+        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+
+        let inbox_id = "inbox_id".to_string();
+        let identity =
+            IdentityStrategy::CreateIfNotFound(inbox_id.clone(), network_address.clone(), 0, None);
+        let err = identity
+            .initialize_identity(&wrapper, &store)
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(err, IdentityError::InboxIdMismatch { id, stored } if id == inbox_id && stored == stored_inbox_id)
+        );
     }
 
     #[tokio::test]
