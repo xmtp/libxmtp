@@ -38,9 +38,20 @@ struct ConversationListView: View {
 						VStack(alignment: .leading) {
 							switch item {
 							case .conversation(let conversation):
-								Text(Util.abbreviate(address: conversation.peerAddress))
+								if let abbreviatedAddress = try? Util.abbreviate(address: conversation.peerAddress) {
+									Text(abbreviatedAddress)
+								} else {
+									Text("Unknown Address")
+										.foregroundStyle(.secondary)
+								}
 							case .group(let group):
-								Text(group.memberAddresses.sorted().map { Util.abbreviate(address: $0) }.joined(separator: ", "))
+								let memberAddresses = try? group.members.map(\.inboxId).sorted().map { Util.abbreviate(address: $0) }
+								if let addresses = memberAddresses {
+									Text(addresses.joined(separator: ", "))
+								} else {
+									Text("Unknown Members")
+										.foregroundStyle(.secondary)
+								}
 							}
 
 							Text(item.createdAt.formatted())

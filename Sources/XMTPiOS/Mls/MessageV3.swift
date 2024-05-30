@@ -97,7 +97,7 @@ public struct MessageV3: Identifiable {
 			id: id.toHex,
 			encodedContent: encodedContent,
 			senderAddress: senderInboxId,
-			sentAt: Date(),
+			sentAt: sentAt,
 			topic: Topic.groupMessage(convoId.toHex).description,
 			deliveryStatus: deliveryStatus
 		)

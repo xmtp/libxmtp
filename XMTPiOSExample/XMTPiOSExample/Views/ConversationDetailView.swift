@@ -43,7 +43,7 @@ struct ConversationDetailView: View {
 				}
 			}
 		}
-		.navigationTitle(conversation.peerAddress)
+		.navigationTitle((try? conversation.peerAddress) ?? "")
 		.navigationBarTitleDisplayMode(.inline)
 	}
 
@@ -54,7 +54,7 @@ struct ConversationDetailView: View {
 				self.messages = messages
 			}
 		} catch {
-			print("Error loading messages for \(conversation.peerAddress)")
+			print("Error loading messages for \(conversation.topic)")
 		}
 	}
 }

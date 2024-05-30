@@ -150,7 +150,7 @@ public actor Conversations {
 
 		let group = try await v3Client.conversations().createGroup(accountAddresses: addresses, permissions: permissions).fromFFI(client: client)
 
-		try await client.contacts.allowGroup(groupIds: [group.id])
+		try await client.contacts.allowGroups(groupIds: [group.id])
 
 		return group
 	}
@@ -433,12 +433,12 @@ public actor Conversations {
 		})?.value
 	}
 	
-	public func fromWelcome(envelopeBytes: Data) throws -> Group? {
+	public func fromWelcome(envelopeBytes: Data) async throws -> Group? {
 		guard let v3Client = client.v3Client else {
 			return nil
 		}
 
-		let group = try v3Client.conversations().processStreamedWelcomeMessage(envelopeBytes: envelopeBytes)
+		let group = try await v3Client.conversations().processStreamedWelcomeMessage(envelopeBytes: envelopeBytes)
 		return Group(ffiGroup: group, client: client)
 	}
 

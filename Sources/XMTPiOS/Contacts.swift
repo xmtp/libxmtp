@@ -16,7 +16,7 @@ public enum ConsentState: String, Codable {
 
 public struct ConsentListEntry: Codable, Hashable {
 	public enum EntryType: String, Codable {
-		case address, groupId, inboxId
+		case address, group_id, inbox_id
 	}
 
 	static func address(_ address: String, type: ConsentState = .unknown) -> ConsentListEntry {
@@ -24,11 +24,11 @@ public struct ConsentListEntry: Codable, Hashable {
 	}
 	
 	static func groupId(groupId: String, type: ConsentState = ConsentState.unknown) -> ConsentListEntry {
-		ConsentListEntry(value: groupId, entryType: .groupId, consentType: type)
+		ConsentListEntry(value: groupId, entryType: .group_id, consentType: type)
 	}
 	
 	static func inboxId(_ inboxId: String, type: ConsentState = .unknown) -> ConsentListEntry {
-		ConsentListEntry(value: inboxId, entryType: .inboxId, consentType: type)
+		ConsentListEntry(value: inboxId, entryType: .inbox_id, consentType: type)
 	}
 
 	public var value: String
@@ -138,7 +138,7 @@ public class ConsentList {
 		  case .unknown:
 			  payload.messageType = nil
 		  }
-		case .groupId:
+		case .group_id:
 			switch entry.consentType {
 			case .allowed:
 				if let valueData = entry.value.data(using: .utf8) {
@@ -151,7 +151,7 @@ public class ConsentList {
 			case .unknown:
 				payload.messageType = nil
     	    }
-		case .inboxId:
+		case .inbox_id:
 			switch entry.consentType {
 			case .allowed:
 			  payload.allowInboxID.inboxIds.append(entry.value)
@@ -285,11 +285,11 @@ public actor Contacts {
 		return await consentList.groupState(groupId: groupId) == .denied
 	}
 	
-	public func isInboxIdAllowed(inboxId: String) async -> Bool {
+	public func isInboxAllowed(inboxId: String) async -> Bool {
 		return await consentList.inboxIdState(inboxId: inboxId) == .allowed
 	}
 
-	public func isInboxIdDenied(inboxId: String) async -> Bool {
+	public func isInboxDenied(inboxId: String) async -> Bool {
 		return await consentList.inboxIdState(inboxId: inboxId) == .denied
 	}
 
@@ -327,7 +327,7 @@ public actor Contacts {
         try await consentList.publish(entries: entries)
 	}
 
-	public func allowGroup(groupIds: [Data]) async throws {
+	public func allowGroups(groupIds: [Data]) async throws {
 		var entries: [ConsentListEntry] = []
 
 		try await withThrowingTaskGroup(of: ConsentListEntry.self) { group in
@@ -344,7 +344,7 @@ public actor Contacts {
         try await consentList.publish(entries: entries)
 	}
 
-	public func denyGroup(groupIds: [Data]) async throws {
+	public func denyGroups(groupIds: [Data]) async throws {
 		var entries: [ConsentListEntry] = []
 
 		try await withThrowingTaskGroup(of: ConsentListEntry.self) { group in
@@ -361,7 +361,7 @@ public actor Contacts {
 		try await consentList.publish(entries: entries)
 	}
 	
-	public func allowInboxId(inboxIds: [String]) async throws {
+	public func allowInboxes(inboxIds: [String]) async throws {
 		var entries: [ConsentListEntry] = []
 
 		try await withThrowingTaskGroup(of: ConsentListEntry.self) { group in
@@ -378,7 +378,7 @@ public actor Contacts {
 		try await consentList.publish(entries: entries)
 	}
 
-	public func denyInboxId(inboxIds: [String]) async throws {
+	public func denyInboxes(inboxIds: [String]) async throws {
 		var entries: [ConsentListEntry] = []
 
 		try await withThrowingTaskGroup(of: ConsentListEntry.self) { group in

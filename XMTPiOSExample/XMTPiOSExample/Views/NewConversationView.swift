@@ -21,13 +21,11 @@ enum ConversationOrGroup: Hashable {
 	}
 
 	var id: String {
-		get throws {
-			switch self {
-			case .conversation(let conversation):
-				return try conversation.peerAddress
-			case .group(let group):
-				return try group.members.map(\.inboxId).joined(separator: ",")
-			}
+		switch self {
+		case .conversation(let conversation):
+			return conversation.topic
+		case .group(let group):
+			return group.id.toHexString()
 		}
 	}
 

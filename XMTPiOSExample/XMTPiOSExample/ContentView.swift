@@ -51,7 +51,7 @@ struct ContentView: View {
 									bundle: keys,
 									options: .init(
 										api: .init(env: .local, isSecure: false),
-										codecs: [GroupMembershipChangedCodec()],
+										codecs: [GroupUpdatedCodec()],
 										mlsAlpha: true
 									)
 								)
@@ -96,7 +96,7 @@ struct ContentView: View {
 					account: wallet,
 					options: .init(
 						api: .init(env: .local, isSecure: false, appVersion: "XMTPTest/v1.0.0"),
-						codecs: [GroupMembershipChangedCodec()],
+						codecs: [GroupUpdatedCodec()],
 						mlsAlpha: true
 					)
 				)

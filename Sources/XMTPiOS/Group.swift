@@ -176,7 +176,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		let groupState = await client.contacts.consentList.groupState(groupId: id)
 
 		if groupState == ConsentState.unknown {
-			try await client.contacts.allowGroup(groupIds: [id])
+			try await client.contacts.allowGroups(groupIds: [id])
 		}
 
 		let messageId = try await ffiGroup.send(contentBytes: encodedContent.serializedData())

@@ -51,7 +51,7 @@ struct GroupSettingsView: View {
 								Button("Remove", role: .destructive) {
 									Task {
 										try await group.removeMembers(addresses: [member])
-										await syncGroupMembers()
+										try await syncGroupMembers()
 									}
 								}
 							}
@@ -108,15 +108,15 @@ struct GroupSettingsView: View {
 			}
 			.navigationTitle("Group Settings")
 			.task {
-				await syncGroupMembers()
+				try? await syncGroupMembers()
 			}
 		}
 	}
 
-	private func syncGroupMembers() async {
+	private func syncGroupMembers() async throws {
 		try? await group.sync()
-		await MainActor.run {
-			self.groupMembers = group.memberAddresses
+		try await MainActor.run {
+			self.groupMembers = try group.members.map(\.inboxId)
 		}
 	}
 }

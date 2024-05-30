@@ -97,23 +97,20 @@ class GroupTests: XCTestCase {
 		
 		try await aliceGroup.addMembers(addresses: [fixtures.fred.address])
 		try await bobGroup.sync()
-        // Issue members is not returning correctly for non group creators:
-        // https://github.com/xmtp/libxmtp/issues/769
-//		XCTAssertEqual(try aliceGroup.members.count, 3)
+
+		XCTAssertEqual(try aliceGroup.members.count, 3)
 		XCTAssertEqual(try bobGroup.members.count, 3)
 
 		try await aliceGroup.removeMembers(addresses: [fixtures.fred.address])
 		try await bobGroup.sync()
-        // Issue members is not returning correctly for non group creators:
-        // https://github.com/xmtp/libxmtp/issues/769
-//      XCTAssertEqual(try aliceGroup.members.count, 2)
+
+        XCTAssertEqual(try aliceGroup.members.count, 2)
 		XCTAssertEqual(try bobGroup.members.count, 2)
 
 		try await bobGroup.addMembers(addresses: [fixtures.fred.address])
 		try await aliceGroup.sync()
-        // Issue members is not returning correctly for non group creators:
-        // https://github.com/xmtp/libxmtp/issues/769
-//		XCTAssertEqual(try aliceGroup.members.count, 3)
+
+		XCTAssertEqual(try aliceGroup.members.count, 3)
 		XCTAssertEqual(try bobGroup.members.count, 3)
 		
 		XCTAssertEqual(try bobGroup.permissionLevel(), .allMembers)
@@ -125,7 +122,7 @@ class GroupTests: XCTestCase {
         XCTAssert(try !aliceGroup.isAdmin(inboxId: fixtures.aliceClient.inboxID))
 		
 	}
-//
+
 	func testCanCreateAGroupWithAdminPermissions() async throws {
 		let fixtures = try await localFixtures()
 		let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address], permissions: GroupPermissions.adminOnly)
@@ -142,34 +139,30 @@ class GroupTests: XCTestCase {
 
 		try await bobGroup.addMembers(addresses: [fixtures.fred.address])
 		try await aliceGroup.sync()
-        // Issue members is not returning correctly for non group creators:
-        // https://github.com/xmtp/libxmtp/issues/769
-//		XCTAssertEqual(try aliceGroup.members.count, 3)
+
+		XCTAssertEqual(try aliceGroup.members.count, 3)
 		XCTAssertEqual(try bobGroup.members.count, 3)
 
 		await assertThrowsAsyncError(
 			try await aliceGroup.removeMembers(addresses: [fixtures.fred.address])
 		)
 		try await bobGroup.sync()
-        // Issue members is not returning correctly for non group creators:
-        // https://github.com/xmtp/libxmtp/issues/769
-//		XCTAssertEqual(try aliceGroup.members.count, 3)
+
+		XCTAssertEqual(try aliceGroup.members.count, 3)
 		XCTAssertEqual(try bobGroup.members.count, 3)
 		
 		try await bobGroup.removeMembers(addresses: [fixtures.fred.address])
 		try await aliceGroup.sync()
-        // Issue members is not returning correctly for non group creators:
-        // https://github.com/xmtp/libxmtp/issues/769
-//		XCTAssertEqual(try aliceGroup.members.count, 2)
+
+		XCTAssertEqual(try aliceGroup.members.count, 2)
 		XCTAssertEqual(try bobGroup.members.count, 2)
 
 		await assertThrowsAsyncError(
 			try await aliceGroup.addMembers(addresses: [fixtures.fred.address])
 		)
 		try await bobGroup.sync()
-        // Issue members is not returning correctly for non group creators:
-        // https://github.com/xmtp/libxmtp/issues/769
-//		XCTAssertEqual(try aliceGroup.members.count, 2)
+
+		XCTAssertEqual(try aliceGroup.members.count, 2)
 		XCTAssertEqual(try bobGroup.members.count, 2)
 		
 		XCTAssertEqual(try bobGroup.permissionLevel(), .adminOnly)
@@ -684,22 +677,22 @@ class GroupTests: XCTestCase {
 	func testCanAllowAndDenyInboxId() async throws {
 		let fixtures = try await localFixtures()
 
-		let isAllowed = await fixtures.bobClient.contacts.isInboxIdAllowed(inboxId: fixtures.aliceClient.inboxID)
-		let isDenied = await fixtures.bobClient.contacts.isInboxIdDenied(inboxId: fixtures.aliceClient.inboxID)
+		let isAllowed = await fixtures.bobClient.contacts.isInboxAllowed(inboxId: fixtures.aliceClient.inboxID)
+		let isDenied = await fixtures.bobClient.contacts.isInboxDenied(inboxId: fixtures.aliceClient.inboxID)
 		XCTAssert(!isAllowed)
 		XCTAssert(!isDenied)
 
-		try await fixtures.bobClient.contacts.allowInboxId(inboxIds: [fixtures.aliceClient.inboxID])
+		try await fixtures.bobClient.contacts.allowInboxes(inboxIds: [fixtures.aliceClient.inboxID])
 
-		let isAllowed2 = await fixtures.bobClient.contacts.isInboxIdAllowed(inboxId: fixtures.aliceClient.inboxID)
-		let isDenied2 = await fixtures.bobClient.contacts.isInboxIdDenied(inboxId: fixtures.aliceClient.inboxID)
+		let isAllowed2 = await fixtures.bobClient.contacts.isInboxAllowed(inboxId: fixtures.aliceClient.inboxID)
+		let isDenied2 = await fixtures.bobClient.contacts.isInboxDenied(inboxId: fixtures.aliceClient.inboxID)
 		XCTAssert(isAllowed2)
 		XCTAssert(!isDenied2)
 
-		try await fixtures.bobClient.contacts.denyInboxId(inboxIds: [fixtures.aliceClient.inboxID])
+		try await fixtures.bobClient.contacts.denyInboxes(inboxIds: [fixtures.aliceClient.inboxID])
 
-		let isAllowed3 = await fixtures.bobClient.contacts.isInboxIdAllowed(inboxId: fixtures.aliceClient.inboxID)
-		let isDenied3 = await fixtures.bobClient.contacts.isInboxIdDenied(inboxId: fixtures.aliceClient.inboxID)
+		let isAllowed3 = await fixtures.bobClient.contacts.isInboxAllowed(inboxId: fixtures.aliceClient.inboxID)
+		let isDenied3 = await fixtures.bobClient.contacts.isInboxDenied(inboxId: fixtures.aliceClient.inboxID)
 		XCTAssert(!isAllowed3)
 		XCTAssert(isDenied3)
 	}
