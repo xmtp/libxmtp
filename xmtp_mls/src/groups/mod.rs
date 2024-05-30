@@ -630,7 +630,8 @@ impl MlsGroup {
         let last_rotated_time = conn.get_rotated_time_checked(self.group_id.clone())?;
 
         if last_rotated_time == 0 {
-            let _ = self.key_update(client).await?;
+            self.key_update(client).await?;
+            conn.update_rotated_time_checked(self.group_id.clone())?;
         }
         let update_interval = Some(5_000_000);
         self.maybe_update_installations(conn.clone(), update_interval, client)
@@ -833,7 +834,14 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 
 #[cfg(test)]
 mod tests {
+    use openmls::prelude::tls_codec::Deserialize;
     use openmls::prelude::Member;
+    use openmls::prelude::MlsMessageIn;
+    use openmls::prelude::MlsMessageBodyIn;
+    use openmls::prelude::Proposal;
+    use openmls::prelude::ProcessedMessageContent;
+    use crate::groups::GroupMessageVersion;
+    use crate::groups::OpenMlsGroup;
     use prost::Message;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
@@ -1106,6 +1114,62 @@ mod tests {
             .find_messages(None, None, None, None, None)
             .unwrap();
         assert_eq!(bola_messages.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_pre_intent_hook() {
+        let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // client A makes a group with client B.
+        let group = client_a.create_group(None).expect("create group");
+        group.add_members(vec![client_b.account_address()], &client_a).await.unwrap();
+
+        // client B creates it from welcome.
+        let client_b_group = receive_group_invite(&client_b).await;
+        client_b_group.sync(&client_b).await.unwrap();
+
+        // verify no new payloads on client A.
+        let mut messages = client_a.api_client.query_group_messages(group.group_id.clone(), None).await.unwrap();
+        assert_eq!(messages.len(), 0);
+
+        // call pre_intent_hook on client B.
+        group.pre_intent_hook(&client_b).await.unwrap();
+        
+        // Verify client A receives a key rotation payload
+        messages = client_a.api_client.query_group_messages(group.group_id.clone(), None).await.unwrap();
+        assert_eq!(messages.len(), 1);
+
+        let first_message = &messages[0];
+
+        let msgv1 = match &first_message.version {
+            Some(GroupMessageVersion::V1(value)) => value,
+            _ => panic!("error msgv1"),
+        };
+        
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&msgv1.data).unwrap();
+        let deserialized_message = match mls_message_in.extract() {
+             MlsMessageBodyIn::PrivateMessage(deserialized_message) => deserialized_message,
+             _ => panic!("error decentralized message"),
+        };
+
+        let conn = &client_a.context.store.conn().unwrap();
+        let provider = super::XmtpOpenMlsProvider::new(conn.clone());
+        let mut openmls_group = group.load_mls_group(provider.clone()).unwrap();
+        let openmls_group_ref: &mut OpenMlsGroup = &mut openmls_group;
+        let decrypted_message = openmls_group_ref.process_message(&provider, deserialized_message).unwrap();
+
+        let staged_commit = match decrypted_message.into_content(){
+            ProcessedMessageContent::StagedCommitMessage(staged_commit) => *staged_commit,
+            _ => panic!("error staged_commit"),
+        };
+
+        for proposal in staged_commit.queued_proposals() {
+            match proposal.proposal() {
+                Proposal::Update(_) => {},
+                _ => panic!("error proposal"),
+            }
+        };
     }
 
     #[tokio::test]

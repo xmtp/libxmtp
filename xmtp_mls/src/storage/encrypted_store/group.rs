@@ -171,6 +171,16 @@ impl DbConnection {
         last_ts.ok_or(StorageError::NotFound)
     }
 
+    /// Update the 'rotated time' once we checked in pre_intent_hook
+    pub fn update_rotated_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
+        self.raw_query(|conn| {
+            let now = crate::utils::time::now_ns();
+            diesel::update(dsl::groups.find(&group_id)).set(dsl::rotated_at_ns.eq(now)).execute(conn)
+        })?;
+
+        Ok(())
+    }
+
     /// Updates the 'last time checked' we checked for new installations.
     pub fn update_installations_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
         self.raw_query(|conn| {
