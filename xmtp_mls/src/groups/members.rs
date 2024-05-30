@@ -44,14 +44,15 @@ impl MlsGroup {
 
         let conn = provider.conn_ref();
         let association_state_map = StoredAssociationState::batch_read_from_cache(conn, &requests)?;
+        let mutable_metadata = self.mutable_metadata()?;
         // TODO: Figure out what to do with missing members from the local DB. Do we go to the network? Load from identity updates?
         // Right now I am just omitting them
         let members = association_state_map
             .into_iter()
             .map(|association_state| {
                 let inbox_id_str = association_state.inbox_id().to_string();
-                let is_admin = self.is_admin(inbox_id_str.clone())?;
-                let is_super_admin = self.is_super_admin(inbox_id_str.clone())?;
+                let is_admin = mutable_metadata.is_admin(&inbox_id_str);
+                let is_super_admin = mutable_metadata.is_super_admin(&inbox_id_str);
                 let permission_level = if is_super_admin {
                     PermissionLevel::SuperAdmin
                 } else if is_admin {
