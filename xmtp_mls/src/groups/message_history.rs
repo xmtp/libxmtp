@@ -1,5 +1,5 @@
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 
 use aes_gcm::aead::generic_array::GenericArray;
@@ -179,6 +179,25 @@ where
         });
         if request.is_none() {
             return Err(GroupError::MessageHistory(MessageHistoryError::PinNotFound));
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn insert_history_bundle(
+        &self,
+        history_file: &Path,
+    ) -> Result<(), MessageHistoryError> {
+        let file = File::open(history_file)?;
+        let reader = BufReader::new(file);
+        let mut lines = reader.lines();
+
+        let conn = self.store().conn()?;
+
+        for line in lines {
+            let line = line?;
+            let group: StoredGroup = serde_json::from_str(&line)?;
+            conn.insert_group(group)?;
         }
 
         Ok(())
