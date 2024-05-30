@@ -35,23 +35,6 @@ use xmtp_mls::{
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
-/// XMTP SDK's may embed libxmtp (v3) alongside existing v2 protocol logic
-/// for backwards-compatibility purposes. In this case, the client may already
-/// have a wallet-signed v2 key. Depending on the source of this key,
-/// libxmtp may choose to bootstrap v3 installation keys using the existing
-/// legacy key.
-#[derive(uniffi::Enum)]
-pub enum LegacyIdentitySource {
-    // A client with no support for v2 messages
-    None,
-    // A cached v2 key was provided on client initialization
-    Static,
-    // A private bundle exists on the network from which the v2 key was fetched
-    Network,
-    // A new v2 key was generated on client initialization
-    KeyGenerator,
-}
-
 /// It returns a new client of the specified `inbox_id`.
 /// Note that the `inbox_id` must be either brand new or already associated with the `account_address`.
 /// i.e. `inbox_id` cannot be associated with another account address.
@@ -85,7 +68,6 @@ pub async fn create_client(
     inbox_id: &InboxId,
     account_address: String,
     nonce: u64,
-    legacy_identity_source: LegacyIdentitySource,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     log::info!(
@@ -116,13 +98,6 @@ pub async fn create_client(
         None => EncryptedMessageStore::new_unencrypted(storage_option)?,
     };
     log::info!("Creating XMTP client");
-    // TODO: uncomment
-    // let legacy_identity = match legacy_identity_source {
-    //     LegacyIdentitySource::None => LegacyIdentity::None,
-    //     LegacyIdentitySource::Static => LegacyIdentity::Static(legacy_key_result?),
-    //     LegacyIdentitySource::Network => LegacyIdentity::Network(legacy_key_result?),
-    //     LegacyIdentitySource::KeyGenerator => LegacyIdentity::KeyGenerator(legacy_key_result?),
-    // };
     let identity_strategy = IdentityStrategy::CreateIfNotFound(
         inbox_id.clone(),
         account_address.clone(),
@@ -970,7 +945,7 @@ impl FfiGroupPermissions {
 mod tests {
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
-        FfiConversationCallback, FfiInboxOwner, LegacyIdentitySource,
+        FfiConversationCallback, FfiInboxOwner,
     };
     use std::{
         env,
@@ -1096,7 +1071,6 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.get_address(),
             nonce,
-            LegacyIdentitySource::None,
             None,
         )
         .await
@@ -1147,7 +1121,6 @@ mod tests {
             &inbox_id,
             account_address.to_string(),
             nonce,
-            LegacyIdentitySource::KeyGenerator,
             Some(legacy_keys),
         )
         .await
@@ -1173,7 +1146,6 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.get_address(),
             nonce,
-            LegacyIdentitySource::None,
             None,
         )
         .await
@@ -1192,7 +1164,6 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.get_address(),
             nonce,
-            LegacyIdentitySource::None,
             None,
         )
         .await
@@ -1226,7 +1197,6 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.get_address(),
             nonce,
-            LegacyIdentitySource::None,
             None,
         )
         .await
@@ -1246,7 +1216,6 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.get_address(),
             nonce,
-            LegacyIdentitySource::None,
             None,
         )
         .await
@@ -1286,7 +1255,6 @@ mod tests {
             &inbox_id,
             inbox_owner.get_address(),
             nonce,
-            LegacyIdentitySource::None,
             None, // v2_signed_private_key_proto
         )
         .await
@@ -1314,7 +1282,6 @@ mod tests {
             &amal_inbox_id,
             amal.get_address(),
             nonce,
-            LegacyIdentitySource::None,
             None,
         )
         .await
@@ -1341,7 +1308,6 @@ mod tests {
             &bola_inbox_id,
             bola.get_address(),
             nonce,
-            LegacyIdentitySource::None,
             None,
         )
         .await
