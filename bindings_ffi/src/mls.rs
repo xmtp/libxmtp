@@ -1084,7 +1084,7 @@ mod tests {
 
     async fn new_test_client() -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
-        let nonce = 0;
+        let nonce = 1;
         let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
 
         let client = create_client(
@@ -1159,7 +1159,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_client_with_storage() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
-        let nonce = 0;
+        let nonce = 1;
         let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
 
         let path = tmp_path();
@@ -1210,7 +1210,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_client_with_key() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
-        let nonce = 0;
+        let nonce = 1;
         let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
 
         let path = tmp_path();
@@ -1273,7 +1273,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_invalid_external_signature() {
         let inbox_owner = LocalWalletInboxOwner::new();
-        let nonce = 0;
+        let nonce = 1;
         let inbox_id = generate_inbox_id(&inbox_owner.get_address(), &nonce);
         let path = tmp_path();
 
@@ -1299,7 +1299,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_can_message() {
         let amal = LocalWalletInboxOwner::new();
-        let nonce = 0;
+        let nonce = 1;
         let amal_inbox_id = generate_inbox_id(&amal.get_address(), &nonce);
         let bola = LocalWalletInboxOwner::new();
         let bola_inbox_id = generate_inbox_id(&bola.get_address(), &nonce);

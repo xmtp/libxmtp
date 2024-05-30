@@ -70,7 +70,7 @@ impl IdentityStrategy {
             .conn()
             .fetch(&())?
             .map(|i: StoredIdentity| i.into());
-        debug!("Existing identity in store: {:?}", stored_identity);
+        debug!("identity in store: {:?}", stored_identity);
         match self {
             IdentityStrategy::CachedOnly => {
                 stored_identity.ok_or(IdentityError::RequiredIdentityNotFound)
@@ -81,24 +81,15 @@ impl IdentityStrategy {
                 nonce,
                 legacy_signed_private_key,
             ) => {
-                if let Some(identity) = stored_identity {
-                    let ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
-                    let inbox_id = ids.get(&address);
-
-                    if inbox_id.is_none() {
-                        return Err(IdentityError::NoAssociatedInboxId(address));
-                    };
-                    let inbox_id = inbox_id.expect("Checked for none");
-
-                    if inbox_id != &identity.inbox_id {
+                if let Some(stored_identity) = stored_identity {
+                    if inbox_id != stored_identity.inbox_id {
                         return Err(IdentityError::InboxIdMismatch {
                             id: inbox_id.clone(),
-                            address: address.clone(),
-                            stored: identity.inbox_id,
+                            stored: stored_identity.inbox_id,
                         });
                     }
 
-                    Ok(identity)
+                    Ok(stored_identity)
                 } else {
                     Identity::new(
                         inbox_id,
@@ -160,12 +151,8 @@ pub enum IdentityError {
     KeyPackageGenerationError(#[from] openmls::key_packages::errors::KeyPackageNewError),
     #[error(transparent)]
     ED25519Error(#[from] ed25519_dalek::ed25519::Error),
-    #[error("The InboxID {id}, associated with the given address, {address} does not match the stored InboxId {stored}.")]
-    InboxIdMismatch {
-        id: InboxId,
-        address: String,
-        stored: InboxId,
-    },
+    #[error("The InboxID {id}, associated does not match the stored InboxId {stored}.")]
+    InboxIdMismatch { id: InboxId, stored: InboxId },
     #[error("The address {0} has no associated InboxID")]
     NoAssociatedInboxId(String),
     #[error("Required identity was not found in cache.")]
@@ -471,10 +458,4 @@ fn create_credential(inbox_id: InboxId) -> Result<OpenMlsCredential, IdentityErr
 pub fn parse_credential(credential_bytes: &[u8]) -> Result<InboxId, IdentityError> {
     let cred = MlsCredential::decode(credential_bytes)?;
     Ok(cred.inbox_id)
-}
-
-#[cfg(test)]
-mod test {
-    // #[tokio::test]
-    // pub async fn test_identity() -> Identity {}
 }

@@ -108,9 +108,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::builder::ClientBuilderError;
+    use crate::identity::IdentityError;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::associations::{generate_inbox_id, RecoverableEcdsaSignature};
+    use xmtp_id::associations::{
+        generate_inbox_id, test_utils::rand_u64, RecoverableEcdsaSignature,
+    };
 
     use super::{ClientBuilder, IdentityStrategy};
     use crate::{
@@ -180,31 +184,105 @@ mod tests {
         assert!(!client.installation_public_key().is_empty());
     }
 
+    // Test client creation using various identity strategies that creates new inboxes
     #[tokio::test]
-    async fn legacy_keys() {
-        // This test is supposed to be run with a fresh state where account_address has not been registered.
-        // Subsequent runs will use a different code path.
-        let account_address = "0x0bd00b21af9a2d538103c3aaf95cb507f8af1b28";
-        let legacy_keys = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
-        let nonce = 0;
-        let inbox_id = generate_inbox_id(&account_address.to_string(), &nonce);
-        let client = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
-            inbox_id,
-            account_address.to_string(),
-            nonce,
-            Some(legacy_keys),
-        ))
-        .temp_store()
-        .local_grpc()
-        .await
-        .build()
-        .await
-        .unwrap();
+    async fn test_client_creation() {
+        // test cases where new inbox are created
+        let legacy_account_address = "0x0bd00b21af9a2d538103c3aaf95cb507f8af1b28";
+        let legacy_key = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
+        let non_legacy_account_address = generate_local_wallet().get_address();
+        let nonce_for_legacy = 0;
+        let nonce_for_non_legacy = rand_u64();
 
-        assert_eq!(
-            client.inbox_id(),
-            generate_inbox_id(&account_address.to_string(), &0)
-        );
+        struct IdentityStrategyTestCase {
+            strategy: IdentityStrategy,
+            err: Option<ClientBuilderError>,
+        }
+
+        // Given that the identity in db will hijack the test cases, we put the happy case for an inbox_id at the end.
+        let identity_strategies_test_cases = vec![
+            // legacy cases
+            IdentityStrategyTestCase {
+                strategy: IdentityStrategy::CreateIfNotFound(
+                    generate_inbox_id(&legacy_account_address.to_string(), &111),
+                    legacy_account_address.to_string(),
+                    111,
+                    Some(legacy_key.clone()),
+                ),
+                err: Some(ClientBuilderError::from(IdentityError::NewIdentity(
+                    "Nonce must be 0 if legacy key is provided".to_string(),
+                ))),
+            },
+            IdentityStrategyTestCase {
+                strategy: IdentityStrategy::CreateIfNotFound(
+                    generate_inbox_id(&legacy_account_address.to_string(), &nonce_for_legacy),
+                    legacy_account_address.to_string(),
+                    111,
+                    Some(legacy_key.clone()),
+                ),
+                err: Some(ClientBuilderError::from(IdentityError::NewIdentity(
+                    "Inbox ID doesn't match nonce & address".to_string(),
+                ))),
+            },
+            IdentityStrategyTestCase {
+                strategy: IdentityStrategy::CreateIfNotFound(
+                    generate_inbox_id(&legacy_account_address.to_string(), &nonce_for_legacy),
+                    legacy_account_address.to_string(),
+                    nonce_for_legacy,
+                    Some(legacy_key.clone()),
+                ),
+                err: None,
+            },
+            // non-legacy cases
+            IdentityStrategyTestCase {
+                strategy: IdentityStrategy::CreateIfNotFound(
+                    generate_inbox_id(&non_legacy_account_address, &0),
+                    non_legacy_account_address.clone(),
+                    0,
+                    None,
+                ),
+                err: Some(ClientBuilderError::from(IdentityError::NewIdentity(
+                    "Nonce must be non-zero if legacy key is not provided".to_string(),
+                ))),
+            },
+            IdentityStrategyTestCase {
+                strategy: IdentityStrategy::CreateIfNotFound(
+                    generate_inbox_id(&non_legacy_account_address, &nonce_for_non_legacy),
+                    non_legacy_account_address.clone(),
+                    0,
+                    None,
+                ),
+                err: Some(ClientBuilderError::from(IdentityError::NewIdentity(
+                    "Inbox ID doesn't match nonce & address".to_string(),
+                ))),
+            },
+            IdentityStrategyTestCase {
+                strategy: IdentityStrategy::CreateIfNotFound(
+                    generate_inbox_id(&non_legacy_account_address, &nonce_for_non_legacy),
+                    non_legacy_account_address.clone(),
+                    nonce_for_non_legacy,
+                    None,
+                ),
+                err: None,
+            },
+        ];
+
+        for test_case in identity_strategies_test_cases {
+            let result = ClientBuilder::new(test_case.strategy)
+                .temp_store()
+                .local_grpc()
+                .await
+                .build()
+                .await;
+
+            if let Some(_expected_err) = test_case.err {
+                let actual_err = result.err();
+                assert!(&actual_err.is_some());
+                assert!(matches!(actual_err.unwrap(), _expected_err));
+            } else {
+                assert!(result.err().is_none());
+            }
+        }
     }
 
     #[tokio::test]

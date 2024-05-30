@@ -296,52 +296,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn identity_should_fail_if_inbox_id_does_not_exist() {
-        let mut mock_api = MockApiClient::new();
-
-        let address = rand_string();
-        let nonce = 0;
-        let inbox_id = "inbox_id".to_string();
-
-        let tmpdb = tmp_path();
-        let store =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
-
-        let keypair = SignatureKeyPair::new(SignatureScheme::ED25519).unwrap();
-        let credential = Credential::new(CredentialType::Basic, rand_vec());
-        let stored: StoredIdentity = (&Identity {
-            inbox_id: inbox_id.clone(),
-            installation_keys: keypair,
-            credential,
-            signature_request: None,
-        })
-            .into();
-
-        stored.store(&store.conn().unwrap()).unwrap();
-
-        let inbox_id_cloned = inbox_id.clone();
-        mock_api.expect_get_inbox_ids().returning(move |_| {
-            let wrong_address = "wrong".to_string();
-            Ok(GetInboxIdsResponse {
-                responses: vec![GetInboxIdsResponseItem {
-                    address: wrong_address,
-                    inbox_id: Some(inbox_id_cloned.clone()),
-                }],
-            })
-        });
-
-        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
-
-        let identity = IdentityStrategy::CreateIfNotFound(inbox_id, address.clone(), nonce, None);
-        let err = identity
-            .initialize_identity(&wrapper, &store)
-            .await
-            .unwrap_err();
-
-        assert!(matches!(err, IdentityError::NoAssociatedInboxId(addr) if addr == address));
-    }
-
-    #[tokio::test]
     async fn identity_should_fail_on_wrong_inbox_id() {
         let mut mock_api = MockApiClient::new();
 
@@ -384,7 +338,7 @@ mod tests {
             .unwrap_err();
 
         assert!(
-            matches!(err, IdentityError::InboxIdMismatch{ id, address, stored} if id == "other" && address == network_address && stored == inbox_id)
+            matches!(err, IdentityError::InboxIdMismatch{id, stored} if id == "other" && stored == inbox_id)
         );
     }
 }
