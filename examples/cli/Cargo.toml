@@ -27,12 +27,13 @@ log = { workspace = true, features = [
 ] }
 prost.workspace = true
 serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true 
+serde_json.workspace = true
 thiserror.workspace = true
 timeago = "0.4.1"
 tokio = "1.28.1"
 url = "2.3.1"
 xmtp_api_grpc = { path = "../../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../../xmtp_cryptography" }
+xmtp_id = { path = "../../xmtp_id" }
 xmtp_mls = { path = "../../xmtp_mls", features = ["grpc", "native"] }
 xmtp_proto = { path = "../../xmtp_proto", features = ["proto_full", "grpc"] }

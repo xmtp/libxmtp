@@ -27,6 +27,7 @@ use xmtp_cryptography::{
     signature::{RecoverableSignature, SignatureError},
     utils::rng,
 };
+use xmtp_id::associations::generate_inbox_id;
 use xmtp_mls::{
     builder::ClientBuilderError,
     client::ClientError,
@@ -368,9 +369,11 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
         Wallet::LocalWallet(LocalWallet::new(&mut rng()))
     };
 
+    let nonce = 0;
+    let inbox_id = generate_inbox_id(&w.get_address(), &nonce);
     let client = create_client(
         cli,
-        IdentityStrategy::CreateIfNotFound(w.get_address(), None),
+        IdentityStrategy::CreateIfNotFound(inbox_id, w.get_address(), nonce, None),
     )
     .await?;
     if let Err(e) = client

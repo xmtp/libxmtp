@@ -379,7 +379,7 @@ impl Signature for LegacyDelegatedSignature {
     }
 }
 
-/// Decode the `legacy_signed_private_key` to legacy private / public key pairs & sign the `signature_text` with theprivate key.
+/// Decode the `legacy_signed_private_key` to legacy private / public key pairs & sign the `signature_text` with the private key.
 pub async fn sign_with_legacy_key(
     signature_text: String,
     legacy_signed_private_key: Vec<u8>,

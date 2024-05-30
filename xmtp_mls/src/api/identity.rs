@@ -259,6 +259,7 @@ mod tests {
 
         let store =
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
+        let nonce = 0;
         let address = rand_string();
         let inbox_id = "inbox_id".to_string();
 
@@ -275,18 +276,19 @@ mod tests {
         stored.store(&store.conn().unwrap()).unwrap();
 
         let address_cloned = address.clone();
+        let inbox_id_cloned = inbox_id.clone();
         mock_api.expect_get_inbox_ids().returning(move |_| {
             Ok(GetInboxIdsResponse {
                 responses: vec![GetInboxIdsResponseItem {
                     address: address_cloned.clone(),
-                    inbox_id: Some(inbox_id.clone()),
+                    inbox_id: Some(inbox_id_cloned.clone()),
                 }],
             })
         });
 
         let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
 
-        let identity = IdentityStrategy::CreateIfNotFound(address, None);
+        let identity = IdentityStrategy::CreateIfNotFound(inbox_id.clone(), address, nonce, None);
         identity
             .initialize_identity(&wrapper, &store)
             .await
@@ -298,6 +300,7 @@ mod tests {
         let mut mock_api = MockApiClient::new();
 
         let address = rand_string();
+        let nonce = 0;
         let inbox_id = "inbox_id".to_string();
 
         let tmpdb = tmp_path();
@@ -316,19 +319,20 @@ mod tests {
 
         stored.store(&store.conn().unwrap()).unwrap();
 
+        let inbox_id_cloned = inbox_id.clone();
         mock_api.expect_get_inbox_ids().returning(move |_| {
             let wrong_address = "wrong".to_string();
             Ok(GetInboxIdsResponse {
                 responses: vec![GetInboxIdsResponseItem {
                     address: wrong_address,
-                    inbox_id: Some(inbox_id.clone()),
+                    inbox_id: Some(inbox_id_cloned.clone()),
                 }],
             })
         });
 
         let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
 
-        let identity = IdentityStrategy::CreateIfNotFound(address.clone(), None);
+        let identity = IdentityStrategy::CreateIfNotFound(inbox_id, address.clone(), nonce, None);
         let err = identity
             .initialize_identity(&wrapper, &store)
             .await
@@ -372,7 +376,8 @@ mod tests {
 
         let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
 
-        let identity = IdentityStrategy::CreateIfNotFound(network_address.clone(), None);
+        let identity =
+            IdentityStrategy::CreateIfNotFound(inbox_id.clone(), network_address.clone(), 0, None);
         let err = identity
             .initialize_identity(&wrapper, &store)
             .await

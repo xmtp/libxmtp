@@ -6178,6 +6178,7 @@ dependencies = [
  "url",
  "xmtp_api_grpc",
  "xmtp_cryptography",
+ "xmtp_id",
  "xmtp_mls",
  "xmtp_proto",
 ]
