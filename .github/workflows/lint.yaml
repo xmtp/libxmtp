@@ -20,13 +20,13 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           name: workspace
-          args: --all-features --no-deps
+          args: --all-features --all-targets --no-deps
       - uses: actions-rs/clippy-check@v1
         name: Lint ffi
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           name: ffi
-          args: --all-features --no-deps --manifest-path bindings_ffi/Cargo.toml
+          args: --all-features --all-targets --no-deps --manifest-path bindings_ffi/Cargo.toml
       - name: Format
         run: cargo fmt --check
       - name: Lint and fail on warnings
