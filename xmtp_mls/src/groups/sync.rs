@@ -69,6 +69,8 @@ use xmtp_proto::xmtp::mls::{
     },
 };
 
+pub const MAX_CHUNK: usize = 50 * 1024 * 1024;
+
 impl MlsGroup {
     pub async fn sync<ApiClient>(&self, client: &Client<ApiClient>) -> Result<(), GroupError>
     where
@@ -930,8 +932,20 @@ impl MlsGroup {
             })
             .collect::<Result<Vec<WelcomeMessageInput>, HpkeError>>()?;
 
+        let welcome = welcomes.first().unwrap();
+        let chunk_size = MAX_CHUNK
+            / welcome
+                .version
+                .as_ref()
+                .map(|w| match w {
+                    WelcomeMessageInputVersion::V1(w) => {
+                        w.installation_key.len() + w.data.len() + w.hpke_public_key.len()
+                    }
+                })
+                .unwrap_or(MAX_CHUNK / 200);
+        log::debug!("Chunk Size {}", chunk_size);
         let mut futures = vec![];
-        for welcomes in welcomes.chunks(200) {
+        for welcomes in welcomes.chunks(chunk_size) {
             futures.push(client.api_client.send_welcome_messages(welcomes));
         }
         try_join_all(futures).await?;
