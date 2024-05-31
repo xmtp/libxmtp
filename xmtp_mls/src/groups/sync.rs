@@ -928,7 +928,9 @@ impl MlsGroup {
                 })
             })
             .collect::<Result<Vec<WelcomeMessageInput>, HpkeError>>()?;
-        client.api_client.send_welcome_messages(welcomes).await?;
+        for welcomes in welcomes.chunks(200) {
+            client.api_client.send_welcome_messages(welcomes).await?;
+        }
 
         Ok(())
     }

@@ -244,7 +244,7 @@ where
 
     pub async fn send_welcome_messages(
         &self,
-        messages: Vec<WelcomeMessageInput>,
+        messages: &[WelcomeMessageInput],
     ) -> Result<(), ApiError> {
         log::debug!("Sending {} welcome messages", messages.len());
 
@@ -253,7 +253,7 @@ where
             (async {
                 self.api_client
                     .send_welcome_messages(SendWelcomeMessagesRequest {
-                        messages: messages.clone(),
+                        messages: messages.to_vec(),
                     })
                     .await
             })

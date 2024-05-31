@@ -52,7 +52,7 @@ fn add_to_empty_group(c: &mut Criterion) {
     benchmark_group.sample_size(10);
 
     let identity_samples = [
-        5, 10, 20, 40, 80, 100, 200, /* 400, 800, 1_000, 2_000, 4_000, 8_000, 10_000, 20_000,*/
+        5, 10, 20, 40, 80, 100, 200, 400, 800, 1_000, 2_000, 4_000, 8_000, 10_000, 20_000,
     ];
     let (client, identities, runtime) = setup();
     let addresses: Vec<String> = identities.into_iter().map(|i| i.address).collect();
