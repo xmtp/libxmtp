@@ -934,7 +934,9 @@ impl MlsGroup {
             })
             .collect::<Result<Vec<WelcomeMessageInput>, HpkeError>>()?;
 
-        let welcome = welcomes.first().unwrap();
+        let welcome = welcomes
+            .first()
+            .ok_or(GroupError::Generic("No welcomes to send".to_string()))?;
 
         let chunk_size = MAX_CHUNK
             / welcome
