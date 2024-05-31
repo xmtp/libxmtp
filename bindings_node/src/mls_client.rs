@@ -183,26 +183,6 @@ impl NapiClient {
   }
 
   #[napi]
-  pub fn release_db_connection(&self) -> Result<()> {
-    Ok(
-      self
-        .inner_client
-        .release_db_connection()
-        .map_err(|e| Error::from_reason(format!("{}", e)))?,
-    )
-  }
-
-  #[napi]
-  pub async fn db_reconnect(&self) -> Result<()> {
-    Ok(
-      self
-        .inner_client
-        .reconnect_db()
-        .map_err(|e| Error::from_reason(format!("{}", e)))?,
-    )
-  }
-
-  #[napi]
   pub fn conversations(&self) -> NapiConversations {
     NapiConversations::new(self.inner_client.clone())
   }
