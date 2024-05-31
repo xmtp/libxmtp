@@ -89,7 +89,7 @@ where
                 let result = self
                     .api_client
                     .get_identity_updates_v2(GetIdentityUpdatesV2Request {
-                        requests: chunk.into_iter().map(|filter| filter.into()).collect(),
+                        requests: chunk.iter().map(|filter| filter.into()).collect(),
                     })
                     .await?;
 
