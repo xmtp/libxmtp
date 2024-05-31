@@ -34,6 +34,7 @@ use crate::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, Delete, Fetch, Store, XmtpApi,
 };
+use futures::future::try_join_all;
 use log::debug;
 use openmls::{
     credentials::BasicCredential,
@@ -928,9 +929,12 @@ impl MlsGroup {
                 })
             })
             .collect::<Result<Vec<WelcomeMessageInput>, HpkeError>>()?;
+
+        let mut futures = vec![];
         for welcomes in welcomes.chunks(200) {
-            client.api_client.send_welcome_messages(welcomes).await?;
+            futures.push(client.api_client.send_welcome_messages(welcomes));
         }
+        try_join_all(futures).await?;
 
         Ok(())
     }

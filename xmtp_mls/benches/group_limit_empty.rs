@@ -14,6 +14,7 @@ use xmtp_mls::{
 };
 
 static INIT: Once = Once::new();
+pub const IDENTITY_SAMPLES: [usize; 12] = [5, 10, 20, 40, 80, 100, 200, 400, 500, 600, 700, 800];
 
 pub(crate) fn init_logging() {
     INIT.call_once(|| {
@@ -51,18 +52,15 @@ fn add_to_empty_group(c: &mut Criterion) {
     let mut benchmark_group = c.benchmark_group("add_to_empty_group");
     benchmark_group.sample_size(10);
 
-    let identity_samples = [
-        5, 10, 20, 40, 80, 100, 200, 400, 800, 1_000, 2_000, 4_000, 8_000, 10_000, 20_000,
-    ];
     let (client, identities, runtime) = setup();
     let addresses: Vec<String> = identities.into_iter().map(|i| i.address).collect();
 
     let mut map = HashMap::<usize, Vec<String>>::new();
-    for size in identity_samples {
+    for size in IDENTITY_SAMPLES {
         map.insert(size, addresses.iter().take(size).cloned().collect());
     }
 
-    for size in identity_samples.iter() {
+    for size in IDENTITY_SAMPLES.iter() {
         benchmark_group.throughput(Throughput::Elements(*size as u64));
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let addrs = map.get(&size).unwrap();
@@ -80,18 +78,15 @@ fn add_to_empty_group_by_inbox_id(c: &mut Criterion) {
     let mut benchmark_group = c.benchmark_group("add_to_empty_group_by_inbox_id");
     benchmark_group.sample_size(10);
 
-    let identity_samples = [
-        5, 10, 20, 40, 80, 100, 200, /*400, 800, 1_000, 2_000, 4_000, 8_000, 10_000, 20_000, */
-    ];
     let (client, identities, runtime) = setup();
     let inbox_ids: Vec<String> = identities.into_iter().map(|i| i.inbox_id).collect();
 
     let mut map = HashMap::<usize, Vec<String>>::new();
-    for size in identity_samples {
+    for size in IDENTITY_SAMPLES {
         map.insert(size, inbox_ids.iter().take(size).cloned().collect());
     }
 
-    for size in identity_samples.iter() {
+    for size in IDENTITY_SAMPLES.iter() {
         benchmark_group.throughput(Throughput::Elements(*size as u64));
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let ids = map.get(&size).unwrap();
