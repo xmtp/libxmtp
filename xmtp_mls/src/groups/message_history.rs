@@ -192,7 +192,7 @@ where
         Ok(())
     }
 
-    pub(crate) async fn insert_history_bundle(
+    pub(crate) fn insert_history_bundle(
         &self,
         history_file: &Path,
     ) -> Result<(), MessageHistoryError> {
@@ -387,15 +387,15 @@ async fn upload_history_bundle(
 async fn download_history_bundle(
     url: &str,
     hmac_value: &str,
-    signing_key: &str,
-    aes_key: [u8; ENC_KEY_SIZE],
+    hmac_signing_key: &str,
+    enc_key: [u8; ENC_KEY_SIZE],
     output_path: PathBuf,
 ) -> Result<(), MessageHistoryError> {
     let client = reqwest::Client::new();
     let response = client
         .get(url)
         .header("X-HMAC", hmac_value)
-        .header("X-SIGNING-KEY", signing_key)
+        .header("X-SIGNING-KEY", hmac_signing_key)
         .send()
         .await?;
 
@@ -405,7 +405,7 @@ async fn download_history_bundle(
         let bytes = response.bytes().await?;
         file.write_all(&bytes)?;
 
-        decrypt_history_file(input_path, output_path, &aes_key)?;
+        decrypt_history_file(input_path, output_path, &enc_key)?;
     } else {
         eprintln!(
             "Failed to download file. Status code: {} Response: {:?}",
@@ -447,7 +447,7 @@ struct HistoryReply {
     request_id: String,
     /// URL to download the backup bundle
     url: String,
-    /// HMAC of the backup bundle
+    /// HMAC value of the backup bundle
     bundle_hash: Vec<u8>,
     /// HMAC Signing key for the backup bundle
     signing_key: HistoryKeyType,
@@ -914,7 +914,7 @@ mod tests {
             "http://{}:{}/files/{bundle_id}",
             HISTORY_SERVER_HOST, HISTORY_SERVER_PORT
         );
-        let _result = download_history_bundle(
+        let _ = download_history_bundle(
             &url,
             hmac_value,
             signing_key,
@@ -975,7 +975,7 @@ mod tests {
         let (bundle_path, enc_key) = amal_a
             .write_history_bundle()
             .await
-            .expect("write_history_bundle");
+            .expect("Unable to write history bundle");
 
         let output_file = NamedTempFile::new().expect("Unable to create temp file");
         decrypt_history_file(
@@ -983,9 +983,9 @@ mod tests {
             output_file.path().to_path_buf(),
             enc_key.as_bytes(),
         )
-        .expect("decrypt_history_file");
+        .expect("Unable to decrypt history file");
 
-        let inserted = amal_b.insert_history_bundle(output_file.path()).await;
+        let inserted = amal_b.insert_history_bundle(output_file.path());
         assert!(inserted.is_ok());
     }
 
