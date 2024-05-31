@@ -37,14 +37,8 @@ fn add_to_empty_group(c: &mut Criterion) {
     let mut benchmark_group = c.benchmark_group("add_to_empty_group");
     benchmark_group.sample_size(10);
 
-    let total_identities = &IDENTITIES[0..8];
-
-    println!(
-        "Setting up {} identities",
-        total_identities.iter().sum::<usize>()
-    );
+    let total_identities = &IDENTITIES[0..4];
     let (client, addresses, runtime) = setup();
-    println!("setup finished");
 
     let mut addresses = addresses.into_iter();
     let mut map = HashMap::<usize, Vec<String>>::new();
@@ -66,6 +60,38 @@ fn add_to_empty_group(c: &mut Criterion) {
     }
     benchmark_group.finish();
 }
+
+/*
+fn remove_from_group(c: &mut Criterion) {
+    tracing_subscriber::fmt::init();
+
+    let mut benchmark_group = c.benchmark_group("add_to_empty_group");
+    benchmark_group.sample_size(10);
+
+    let total_identities = &IDENTITIES[0..3];
+    let (client, addresses, runtime) = setup();
+
+    let mut addresses = addresses.into_iter();
+    let mut map = HashMap::<usize, Vec<String>>::new();
+
+    for size in total_identities {
+        map.insert(*size, addresses.by_ref().take(*size).collect());
+    }
+
+    for size in total_identities.iter() {
+        benchmark_group.throughput(Throughput::Elements(*size as u64));
+        benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
+            let addrs = map.get(&size).unwrap();
+            b.to_async(&runtime).iter(|| async {
+                let group = client.create_group(None).unwrap();
+                println!("Adding {} members", addrs.len());
+                group.add_members(&client, addrs.clone()).await.unwrap();
+            });
+        });
+    }
+    benchmark_group.finish();
+}
+*/
 
 criterion_group!(
     name = group_limit_empty;

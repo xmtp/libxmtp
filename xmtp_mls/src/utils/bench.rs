@@ -1,5 +1,4 @@
 use crate::builder::ClientBuilder;
-use anyhow::Error;
 use ethers::{
     signers::{LocalWallet, Signer},
     types::Address,
@@ -7,8 +6,17 @@ use ethers::{
 use indicatif::{ParallelProgressIterator, ProgressStyle};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::sync::mpsc::channel;
+use thiserror::Error;
 use tokio::runtime::Builder;
 use xmtp_cryptography::utils::rng;
+
+#[derive(Debug, Error)]
+pub enum BenchError {
+    #[error(transparent)]
+    Serde(#[from] serde_json::Error),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
 
 pub const IDENTITIES: [usize; 14] = [
     10, 50, 100, 200, 500, 1_000, 1_500, 2_000, 3_000, 5_000, 10_000, 20_000, 30_000, 40_000,
@@ -30,9 +38,12 @@ pub fn write_identities(num_groups: usize) -> Vec<String> {
     addresses
 }
 
-pub fn load_identities() -> Result<Vec<String>, Error> {
+pub fn load_identities() -> Result<Vec<String>, BenchError> {
     let addresses = std::fs::read(file_path())?;
-    Ok(serde_json::from_slice(addresses.as_slice())?)
+    Ok(serde_json::from_slice::<Vec<String>>(addresses.as_slice())?
+        .into_iter()
+        .map(|a| format!("0x{}", a))
+        .collect())
 }
 
 fn create_identity() -> Address {
@@ -72,15 +83,25 @@ fn create_identities(n: usize) -> Vec<Address> {
 }
 
 pub async fn create_identities_if_dont_exist() -> Vec<String> {
-    println!("Beware, this fills $TMPDIR with ~10GBs of identities");
-
-    if let Ok(identities) = load_identities() {
-        let wallet = LocalWallet::new(&mut rng());
-        let client = ClientBuilder::new_test_client(&wallet).await;
-        if client.is_registered(&identities[0]).await {
-            return identities;
+    match load_identities() {
+        Ok(identities) => {
+            println!("Found file");
+            let wallet = LocalWallet::new(&mut rng());
+            let client = ClientBuilder::new_test_client(&wallet).await;
+            if client.is_registered(&identities[0]).await {
+                return identities;
+            }
         }
+        Err(BenchError::Serde(e)) => {
+            panic!("{}", e.to_string());
+        }
+        _ => (),
     }
+
+    println!(
+        "Could not find any identitites to load, creating new identitites \n
+        Beware, this fills $TMPDIR with ~10GBs of identities"
+    );
 
     let num_identities = IDENTITIES.iter().sum();
     println!("Writing {num_identities} identities... (this will take a while...)");

@@ -187,7 +187,7 @@ impl IdentityAction for AddAssociation {
 
         let new_member = Member::new(new_member_address, Some(existing_entity_id));
 
-        println!("Adding new entity to state {:?}", &new_member);
+        log::info!("Adding new entity to state {:?}", &new_member);
 
         Ok(existing_state.add(new_member))
     }
