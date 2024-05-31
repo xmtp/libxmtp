@@ -1389,14 +1389,17 @@ mod tests {
         assert_eq!(bola_messages.len(), 1);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_pre_intent_hook() {
         let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // client A makes a group with client B.
         let group = client_a.create_group(None).expect("create group");
-        group.add_members(vec![client_b.account_address()], &client_a).await.unwrap();
+        group
+            .add_members_by_inbox_id(&client_a, vec![client_b.inbox_id()])
+            .await
+            .unwrap();
 
         // client B creates it from welcome.
         let client_b_group = receive_group_invite(&client_b).await;
