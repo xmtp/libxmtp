@@ -16,7 +16,7 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use crate::{
   encoded_content::NapiEncodedContent,
   messages::{NapiListMessagesOptions, NapiMessage},
-  mls_client::NapiXmtpClient,
+  mls_client::RustXmtpClient,
   streams::NapiStreamCloser,
 };
 
@@ -99,14 +99,14 @@ impl NapiGroupPermissions {
 #[derive(Debug)]
 #[napi]
 pub struct NapiGroup {
-  inner_client: Arc<NapiXmtpClient>,
+  inner_client: Arc<RustXmtpClient>,
   group_id: Vec<u8>,
   created_at_ns: i64,
 }
 
 #[napi]
 impl NapiGroup {
-  pub fn new(inner_client: Arc<NapiXmtpClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+  pub fn new(inner_client: Arc<RustXmtpClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
     Self {
       inner_client,
       group_id,

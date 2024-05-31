@@ -13,11 +13,11 @@ use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
 
-pub type NapiXmtpClient = MlsClient<TonicApiClient>;
+pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
 #[napi]
 pub struct NapiClient {
-  inner_client: Arc<NapiXmtpClient>,
+  inner_client: Arc<RustXmtpClient>,
   pub account_address: String,
 }
 

@@ -10,7 +10,7 @@ use napi_derive::napi;
 // use crate::messages::NapiMessage;
 use crate::{
   groups::{GroupPermissions, NapiGroup},
-  mls_client::NapiXmtpClient,
+  mls_client::RustXmtpClient,
   streams::NapiStreamCloser,
 };
 
@@ -23,12 +23,12 @@ pub struct NapiListConversationsOptions {
 
 #[napi]
 pub struct NapiConversations {
-  inner_client: Arc<NapiXmtpClient>,
+  inner_client: Arc<RustXmtpClient>,
 }
 
 #[napi]
 impl NapiConversations {
-  pub fn new(inner_client: Arc<NapiXmtpClient>) -> Self {
+  pub fn new(inner_client: Arc<RustXmtpClient>) -> Self {
     Self { inner_client }
   }
 
@@ -128,7 +128,7 @@ impl NapiConversations {
     let tsfn: ThreadsafeFunction<NapiGroup, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let client = self.inner_client.clone();
-    let stream_closer = NapiXmtpClient::stream_conversations_with_callback(
+    let stream_closer = RustXmtpClient::stream_conversations_with_callback(
       client.clone(),
       move |convo| {
         tsfn.call(
@@ -155,7 +155,7 @@ impl NapiConversations {
   // pub async fn stream_all_messages(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
   //   let tsfn: ThreadsafeFunction<NapiMessage, ErrorStrategy::CalleeHandled> =
   //     callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-  //   let stream_closer = NapiXmtpClient::stream_all_messages_with_callback(
+  //   let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
   //     self.inner_client.clone(),
   //     move |message| {
   //       tsfn.call(Ok(message.into()), ThreadsafeFunctionCallMode::Blocking);
