@@ -36,7 +36,7 @@ impl GroupMetadata {
     pub(crate) fn from_proto(proto: GroupMetadataProto) -> Result<Self, GroupMetadataError> {
         Ok(Self::new(
             proto.conversation_type.try_into()?,
-            proto.creator_account_address.clone(),
+            proto.creator_inbox_id.clone(),
         ))
     }
 
