@@ -1504,6 +1504,372 @@ impl<'de> serde::Deserialize<'de> for GroupMutablePermissionsV1 {
         deserializer.deserialize_struct("xmtp.mls.message_contents.GroupMutablePermissionsV1", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for GroupUpdated {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.initiated_by_inbox_id.is_empty() {
+            len += 1;
+        }
+        if !self.added_inboxes.is_empty() {
+            len += 1;
+        }
+        if !self.removed_inboxes.is_empty() {
+            len += 1;
+        }
+        if !self.metadata_field_changes.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupUpdated", len)?;
+        if !self.initiated_by_inbox_id.is_empty() {
+            struct_ser.serialize_field("initiatedByInboxId", &self.initiated_by_inbox_id)?;
+        }
+        if !self.added_inboxes.is_empty() {
+            struct_ser.serialize_field("addedInboxes", &self.added_inboxes)?;
+        }
+        if !self.removed_inboxes.is_empty() {
+            struct_ser.serialize_field("removedInboxes", &self.removed_inboxes)?;
+        }
+        if !self.metadata_field_changes.is_empty() {
+            struct_ser.serialize_field("metadataFieldChanges", &self.metadata_field_changes)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for GroupUpdated {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "initiated_by_inbox_id",
+            "initiatedByInboxId",
+            "added_inboxes",
+            "addedInboxes",
+            "removed_inboxes",
+            "removedInboxes",
+            "metadata_field_changes",
+            "metadataFieldChanges",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            InitiatedByInboxId,
+            AddedInboxes,
+            RemovedInboxes,
+            MetadataFieldChanges,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "initiatedByInboxId" | "initiated_by_inbox_id" => Ok(GeneratedField::InitiatedByInboxId),
+                            "addedInboxes" | "added_inboxes" => Ok(GeneratedField::AddedInboxes),
+                            "removedInboxes" | "removed_inboxes" => Ok(GeneratedField::RemovedInboxes),
+                            "metadataFieldChanges" | "metadata_field_changes" => Ok(GeneratedField::MetadataFieldChanges),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = GroupUpdated;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.GroupUpdated")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GroupUpdated, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut initiated_by_inbox_id__ = None;
+                let mut added_inboxes__ = None;
+                let mut removed_inboxes__ = None;
+                let mut metadata_field_changes__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::InitiatedByInboxId => {
+                            if initiated_by_inbox_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("initiatedByInboxId"));
+                            }
+                            initiated_by_inbox_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::AddedInboxes => {
+                            if added_inboxes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("addedInboxes"));
+                            }
+                            added_inboxes__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::RemovedInboxes => {
+                            if removed_inboxes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("removedInboxes"));
+                            }
+                            removed_inboxes__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::MetadataFieldChanges => {
+                            if metadata_field_changes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("metadataFieldChanges"));
+                            }
+                            metadata_field_changes__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(GroupUpdated {
+                    initiated_by_inbox_id: initiated_by_inbox_id__.unwrap_or_default(),
+                    added_inboxes: added_inboxes__.unwrap_or_default(),
+                    removed_inboxes: removed_inboxes__.unwrap_or_default(),
+                    metadata_field_changes: metadata_field_changes__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.GroupUpdated", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for group_updated::Inbox {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.inbox_id.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupUpdated.Inbox", len)?;
+        if !self.inbox_id.is_empty() {
+            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for group_updated::Inbox {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "inbox_id",
+            "inboxId",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            InboxId,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = group_updated::Inbox;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.GroupUpdated.Inbox")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<group_updated::Inbox, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut inbox_id__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::InboxId => {
+                            if inbox_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("inboxId"));
+                            }
+                            inbox_id__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(group_updated::Inbox {
+                    inbox_id: inbox_id__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.GroupUpdated.Inbox", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for group_updated::MetadataFieldChange {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.field_name.is_empty() {
+            len += 1;
+        }
+        if self.old_value.is_some() {
+            len += 1;
+        }
+        if self.new_value.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupUpdated.MetadataFieldChange", len)?;
+        if !self.field_name.is_empty() {
+            struct_ser.serialize_field("fieldName", &self.field_name)?;
+        }
+        if let Some(v) = self.old_value.as_ref() {
+            struct_ser.serialize_field("oldValue", v)?;
+        }
+        if let Some(v) = self.new_value.as_ref() {
+            struct_ser.serialize_field("newValue", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for group_updated::MetadataFieldChange {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "field_name",
+            "fieldName",
+            "old_value",
+            "oldValue",
+            "new_value",
+            "newValue",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            FieldName,
+            OldValue,
+            NewValue,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "fieldName" | "field_name" => Ok(GeneratedField::FieldName),
+                            "oldValue" | "old_value" => Ok(GeneratedField::OldValue),
+                            "newValue" | "new_value" => Ok(GeneratedField::NewValue),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = group_updated::MetadataFieldChange;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.GroupUpdated.MetadataFieldChange")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<group_updated::MetadataFieldChange, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut field_name__ = None;
+                let mut old_value__ = None;
+                let mut new_value__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::FieldName => {
+                            if field_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("fieldName"));
+                            }
+                            field_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::OldValue => {
+                            if old_value__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("oldValue"));
+                            }
+                            old_value__ = map_.next_value()?;
+                        }
+                        GeneratedField::NewValue => {
+                            if new_value__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("newValue"));
+                            }
+                            new_value__ = map_.next_value()?;
+                        }
+                    }
+                }
+                Ok(group_updated::MetadataFieldChange {
+                    field_name: field_name__.unwrap_or_default(),
+                    old_value: old_value__,
+                    new_value: new_value__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.GroupUpdated.MetadataFieldChange", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for Inboxes {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>

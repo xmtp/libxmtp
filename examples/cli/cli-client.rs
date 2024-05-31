@@ -32,7 +32,7 @@ use xmtp_mls::{
     client::ClientError,
     codecs::{text::TextCodec, ContentCodec},
     groups::MlsGroup,
-    identity::v3::{IdentityStrategy, LegacyIdentity},
+    identity::IdentityStrategy,
     storage::{
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
         StorageOption,
@@ -183,7 +183,7 @@ async fn main() {
                 .await
                 .unwrap();
             let installation_id = hex::encode(client.installation_public_key());
-            info!("wallet info", { command_output: true, account_address: client.account_address(), installation_id: installation_id });
+            info!("identity info", { command_output: true, account_address: client.inbox_id(), installation_id: installation_id });
         }
         Commands::ListGroups {} => {
             info!("List Groups");
@@ -221,7 +221,7 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
-            info!("Address is: {}", client.account_address());
+            info!("Inbox ID is: {}", client.inbox_id());
             let group = get_group(&client, hex::decode(group_id).expect("group id decode"))
                 .await
                 .expect("failed to get group");
@@ -246,8 +246,8 @@ async fn main() {
                     .collect::<Vec<_>>();
                 info!("messages", { command_output: true, messages: make_value(&json_serializable_messages), group_id: group_id });
             } else {
-                let messages = format_messages(messages, client.account_address())
-                    .expect("failed to get messages");
+                let messages =
+                    format_messages(messages, client.inbox_id()).expect("failed to get messages");
                 info!(
                     "====== Group {} ======\n{}",
                     hex::encode(group.group_id),
@@ -268,7 +268,7 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .add_members(account_addresses.clone(), &client)
+                .add_members(&client, account_addresses.clone())
                 .await
                 .expect("failed to add member");
 
@@ -290,7 +290,7 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .remove_members(account_addresses.clone(), &client)
+                .remove_members(&client, account_addresses.clone())
                 .await
                 .expect("failed to add member");
 
@@ -370,16 +370,17 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
 
     let client = create_client(
         cli,
-        IdentityStrategy::CreateIfNotFound(w.get_address(), LegacyIdentity::None),
+        IdentityStrategy::CreateIfNotFound(w.get_address(), None),
     )
     .await?;
-    let signature: Option<Vec<u8>> = client.text_to_sign().map(|t| w.sign(&t).unwrap().into());
-
-    if let Err(e) = client.register_identity(signature).await {
+    if let Err(e) = client
+        .register_identity(client.identity().signature_request().unwrap())
+        .await
+    {
         error!("Initialization Failed: {}", e.to_string());
         panic!("Could not init");
     };
-    info!("Registered identity", {account_address: client.account_address(), installation_id: hex::encode(client.installation_public_key()), command_output: true});
+    info!("Registered identity", {account_address: client.inbox_id(), installation_id: hex::encode(client.installation_public_key()), command_output: true});
 
     Ok(())
 }
@@ -416,10 +417,11 @@ fn format_messages(
         if text.is_none() {
             continue;
         }
-        let sender = if msg.sender_account_address == my_account_address {
+        // TODO:nm use inbox ID
+        let sender = if msg.sender_inbox_id == my_account_address {
             "Me".to_string()
         } else {
-            msg.sender_account_address
+            msg.sender_inbox_id
         };
 
         let msg_line = format!(

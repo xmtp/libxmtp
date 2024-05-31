@@ -7,6 +7,7 @@ use diesel::{
     sql_types::Integer,
     sqlite::Sqlite,
 };
+use serde::Serialize;
 
 use super::{
     db_connection::DbConnection,
@@ -14,7 +15,7 @@ use super::{
 };
 use crate::{impl_fetch, impl_store, StorageError};
 
-#[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Insertable, Identifiable, Queryable, Eq, PartialEq)]
 #[diesel(table_name = group_messages)]
 #[diesel(primary_key(id))]
 /// Successfully processed messages to be returned to the User.
@@ -31,14 +32,14 @@ pub struct StoredGroupMessage {
     pub kind: GroupMessageKind,
     /// The ID of the App Installation this message was sent from.
     pub sender_installation_id: Vec<u8>,
-    /// Network wallet address of the Sender
-    pub sender_account_address: String,
+    /// The Inbox ID of the Sender
+    pub sender_inbox_id: String,
     /// We optimistically store messages before sending.
     pub delivery_status: DeliveryStatus,
 }
 
 #[repr(i32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow)]
+#[derive(Debug, Copy, Clone, Serialize, Eq, PartialEq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
 pub enum GroupMessageKind {
     Application = 1,
@@ -69,7 +70,7 @@ where
 }
 
 #[repr(i32)]
-#[derive(Debug, Copy, Clone, FromSqlRow, Eq, PartialEq, AsExpression)]
+#[derive(Debug, Copy, Clone, Serialize, Eq, PartialEq, FromSqlRow, AsExpression)]
 #[diesel(sql_type = Integer)]
 pub enum DeliveryStatus {
     Unpublished = 1,
@@ -208,7 +209,7 @@ mod tests {
             decrypted_message_bytes: rand_vec(),
             sent_at_ns: sent_at_ns.unwrap_or(rand_time()),
             sender_installation_id: rand_vec(),
-            sender_account_address: "0x0".to_string(),
+            sender_inbox_id: "0x0".to_string(),
             kind: kind.unwrap_or(GroupMessageKind::Application),
             delivery_status: DeliveryStatus::Unpublished,
         }
@@ -218,7 +219,7 @@ mod tests {
     fn it_does_not_error_on_empty_messages() {
         with_connection(|conn| {
             let id = vec![0x0];
-            assert_ok!(conn.get_group_message(id), None);
+            assert_eq!(conn.get_group_message(id).unwrap(), None);
         })
     }
 
@@ -233,7 +234,7 @@ mod tests {
             message.store(conn).unwrap();
 
             let stored_message = conn.get_group_message(id);
-            assert_ok!(stored_message, Some(message));
+            assert_eq!(stored_message.unwrap(), Some(message));
         })
     }
 

@@ -56,6 +56,14 @@ impl VerifiedKeyPackageV2 {
 
         kp.try_into()
     }
+
+    pub fn installation_id(&self) -> Vec<u8> {
+        self.inner.leaf_node().signature_key().as_slice().to_vec()
+    }
+
+    pub fn hpke_init_key(&self) -> Vec<u8> {
+        self.inner.hpke_init_key().as_slice().to_vec()
+    }
 }
 
 impl TryFrom<KeyPackage> for VerifiedKeyPackageV2 {
@@ -63,7 +71,7 @@ impl TryFrom<KeyPackage> for VerifiedKeyPackageV2 {
 
     fn try_from(kp: KeyPackage) -> Result<Self, Self::Error> {
         let leaf_node = kp.leaf_node();
-        let basic_credential = BasicCredential::try_from(leaf_node.credential())?;
+        let basic_credential = BasicCredential::try_from(leaf_node.credential().clone())?;
         let pub_key_bytes = leaf_node.signature_key().as_slice().to_vec();
         let credential = MlsCredential::decode(basic_credential.identity())?;
 

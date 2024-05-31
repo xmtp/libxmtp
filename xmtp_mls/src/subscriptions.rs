@@ -53,28 +53,32 @@ impl<ApiClient> Client<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    fn process_streamed_welcome(&self, welcome: WelcomeMessage) -> Result<MlsGroup, ClientError> {
+    async fn process_streamed_welcome(
+        &self,
+        welcome: WelcomeMessage,
+    ) -> Result<MlsGroup, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
         let conn = self.store().conn()?;
         let provider = self.mls_provider(conn);
 
         MlsGroup::create_from_encrypted_welcome(
-            self.context.clone(),
+            self,
             &provider,
             welcome_v1.hpke_public_key.as_slice(),
             welcome_v1.data,
         )
+        .await
         .map_err(|e| ClientError::Generic(e.to_string()))
     }
 
-    pub fn process_streamed_welcome_message(
+    pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<MlsGroup, ClientError> {
         let envelope = WelcomeMessage::decode(envelope_bytes.as_slice())
             .map_err(|e| ClientError::Generic(e.to_string()))?;
 
-        let welcome = self.process_streamed_welcome(envelope)?;
+        let welcome = self.process_streamed_welcome(envelope).await?;
         Ok(welcome)
     }
 
@@ -93,7 +97,7 @@ where
             .map(|welcome_result| async {
                 log::info!("Received conversation streaming payload");
                 let welcome = welcome_result?;
-                self.process_streamed_welcome(welcome)
+                self.process_streamed_welcome(welcome).await
             })
             .filter_map(|res| async {
                 match res.await {
@@ -319,7 +323,7 @@ mod tests {
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_stream_welcomes() {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -328,7 +332,7 @@ mod tests {
 
         let mut bob_stream = bob.stream_conversations().await.unwrap();
         alice_bob_group
-            .add_members(vec![bob.account_address()], &alice)
+            .add_members_by_inbox_id(&alice, vec![bob.inbox_id()])
             .await
             .unwrap();
 
@@ -344,13 +348,13 @@ mod tests {
 
         let alix_group = alix.create_group(None).unwrap();
         alix_group
-            .add_members_by_installation_id(vec![caro.installation_public_key()], &alix)
+            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
             .unwrap();
 
         let bo_group = bo.create_group(None).unwrap();
         bo_group
-            .add_members_by_installation_id(vec![caro.installation_public_key()], &bo)
+            .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -402,7 +406,7 @@ mod tests {
 
         let alix_group = alix.create_group(None).unwrap();
         alix_group
-            .add_members_by_installation_id(vec![caro.installation_public_key()], &alix)
+            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
             .unwrap();
 
@@ -430,7 +434,7 @@ mod tests {
 
         let bo_group = bo.create_group(None).unwrap();
         bo_group
-            .add_members_by_installation_id(vec![caro.installation_public_key()], &bo)
+            .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -449,7 +453,7 @@ mod tests {
 
         let alix_group_2 = alix.create_group(None).unwrap();
         alix_group_2
-            .add_members_by_installation_id(vec![caro.installation_public_key()], &alix)
+            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;

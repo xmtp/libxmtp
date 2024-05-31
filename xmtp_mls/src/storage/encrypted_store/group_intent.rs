@@ -22,10 +22,10 @@ pub type ID = i32;
 #[diesel(sql_type = Integer)]
 pub enum IntentKind {
     SendMessage = 1,
-    AddMembers = 2,
-    RemoveMembers = 3,
-    KeyUpdate = 4,
-    MetadataUpdate = 5,
+    KeyUpdate = 2,
+    MetadataUpdate = 3,
+    UpdateGroupMembership = 4,
+    UpdateAdminList = 5,
 }
 
 #[repr(i32)]
@@ -259,10 +259,10 @@ where
     fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
         match i32::from_sql(bytes)? {
             1 => Ok(IntentKind::SendMessage),
-            2 => Ok(IntentKind::AddMembers),
-            3 => Ok(IntentKind::RemoveMembers),
-            4 => Ok(IntentKind::KeyUpdate),
-            5 => Ok(IntentKind::MetadataUpdate),
+            2 => Ok(IntentKind::KeyUpdate),
+            3 => Ok(IntentKind::MetadataUpdate),
+            4 => Ok(IntentKind::UpdateGroupMembership),
+            5 => Ok(IntentKind::UpdateAdminList),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
@@ -346,7 +346,7 @@ mod tests {
     fn test_store_and_fetch() {
         let group_id = rand_vec();
         let data = rand_vec();
-        let kind = IntentKind::AddMembers;
+        let kind = IntentKind::UpdateGroupMembership;
         let state = IntentState::ToPublish;
 
         let to_insert = NewGroupIntent::new_test(kind, group_id.clone(), data.clone(), state);
@@ -380,19 +380,19 @@ mod tests {
 
         let test_intents: Vec<NewGroupIntent> = vec![
             NewGroupIntent::new_test(
-                IntentKind::AddMembers,
+                IntentKind::UpdateGroupMembership,
                 group_id.clone(),
                 rand_vec(),
                 IntentState::ToPublish,
             ),
             NewGroupIntent::new_test(
-                IntentKind::RemoveMembers,
+                IntentKind::KeyUpdate,
                 group_id.clone(),
                 rand_vec(),
                 IntentState::Published,
             ),
             NewGroupIntent::new_test(
-                IntentKind::RemoveMembers,
+                IntentKind::KeyUpdate,
                 group_id.clone(),
                 rand_vec(),
                 IntentState::Committed,
@@ -420,11 +420,7 @@ mod tests {
 
             // Can query by kind
             results = conn
-                .find_group_intents(
-                    group_id.clone(),
-                    None,
-                    Some(vec![IntentKind::RemoveMembers]),
-                )
+                .find_group_intents(group_id.clone(), None, Some(vec![IntentKind::KeyUpdate]))
                 .unwrap();
             assert_eq!(results.len(), 2);
 
@@ -433,7 +429,7 @@ mod tests {
                 .find_group_intents(
                     group_id.clone(),
                     Some(vec![IntentState::Committed]),
-                    Some(vec![IntentKind::RemoveMembers]),
+                    Some(vec![IntentKind::KeyUpdate]),
                 )
                 .unwrap();
 
@@ -464,9 +460,13 @@ mod tests {
             insert_group(conn, group_id.clone());
 
             // Store the intent
-            NewGroupIntent::new(IntentKind::AddMembers, group_id.clone(), rand_vec())
-                .store(conn)
-                .unwrap();
+            NewGroupIntent::new(
+                IntentKind::UpdateGroupMembership,
+                group_id.clone(),
+                rand_vec(),
+            )
+            .store(conn)
+            .unwrap();
 
             // Find the intent with the ID populated
             let intent = find_first_intent(conn, group_id.clone());
@@ -498,9 +498,13 @@ mod tests {
             insert_group(conn, group_id.clone());
 
             // Store the intent
-            NewGroupIntent::new(IntentKind::AddMembers, group_id.clone(), rand_vec())
-                .store(conn)
-                .unwrap();
+            NewGroupIntent::new(
+                IntentKind::UpdateGroupMembership,
+                group_id.clone(),
+                rand_vec(),
+            )
+            .store(conn)
+            .unwrap();
 
             let mut intent = find_first_intent(conn, group_id.clone());
 
@@ -536,9 +540,13 @@ mod tests {
             insert_group(conn, group_id.clone());
 
             // Store the intent
-            NewGroupIntent::new(IntentKind::AddMembers, group_id.clone(), rand_vec())
-                .store(conn)
-                .unwrap();
+            NewGroupIntent::new(
+                IntentKind::UpdateGroupMembership,
+                group_id.clone(),
+                rand_vec(),
+            )
+            .store(conn)
+            .unwrap();
 
             let mut intent = find_first_intent(conn, group_id.clone());
 
@@ -573,19 +581,29 @@ mod tests {
             insert_group(conn, group_id.clone());
 
             // Store the intent
-            NewGroupIntent::new(IntentKind::AddMembers, group_id.clone(), rand_vec())
-                .store(conn)
-                .unwrap();
+            NewGroupIntent::new(
+                IntentKind::UpdateGroupMembership,
+                group_id.clone(),
+                rand_vec(),
+            )
+            .store(conn)
+            .unwrap();
 
             let intent = find_first_intent(conn, group_id.clone());
 
             let commit_result = conn.set_group_intent_committed(intent.id);
             assert!(commit_result.is_err());
-            assert_eq!(commit_result.err().unwrap(), StorageError::NotFound);
+            assert!(matches!(
+                commit_result.err().unwrap(),
+                StorageError::NotFound
+            ));
 
             let to_publish_result = conn.set_group_intent_to_publish(intent.id);
             assert!(to_publish_result.is_err());
-            assert_eq!(to_publish_result.err().unwrap(), StorageError::NotFound);
+            assert!(matches!(
+                to_publish_result.err().unwrap(),
+                StorageError::NotFound
+            ));
         })
     }
 
@@ -594,9 +612,13 @@ mod tests {
         let group_id = rand_vec();
         with_connection(|conn| {
             insert_group(conn, group_id.clone());
-            NewGroupIntent::new(IntentKind::AddMembers, group_id.clone(), rand_vec())
-                .store(conn)
-                .unwrap();
+            NewGroupIntent::new(
+                IntentKind::UpdateGroupMembership,
+                group_id.clone(),
+                rand_vec(),
+            )
+            .store(conn)
+            .unwrap();
 
             let mut intent = find_first_intent(conn, group_id.clone());
             assert_eq!(intent.publish_attempts, 0);
