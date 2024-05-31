@@ -1,12 +1,8 @@
 use crate::builder::ClientBuilder;
 use ethers::signers::{LocalWallet, Signer};
-use indicatif::{ParallelProgressIterator, ProgressStyle};
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
-use std::sync::mpsc::channel;
 use thiserror::Error;
-use thread_local::ThreadLocal;
-use tokio::runtime::{Builder, Runtime};
 use xmtp_cryptography::utils::rng;
 
 #[derive(Debug, Error)]
@@ -17,16 +13,14 @@ pub enum BenchError {
     Io(#[from] std::io::Error),
 }
 
-pub const IDENTITY_SAMPLES: [usize; 6] = [
-    10, 50, 100, 200, 500, 1_000, /*1_500, 2_000, 3_000, 5_000, 10_000, 20_000, */
-];
+pub const MAX_IDENTITIES: usize = 20_000;
 
 pub fn file_path() -> String {
     format!("{}/identities.generated", env!("CARGO_MANIFEST_DIR"))
 }
 
-pub fn write_identities(num_groups: usize) -> Vec<Identity> {
-    let identities: Vec<Identity> = create_identities(num_groups).into_iter().collect();
+pub async fn write_identities(num_groups: usize) -> Vec<Identity> {
+    let identities: Vec<Identity> = create_identities(num_groups).await.into_iter().collect();
     let json = serde_json::to_string(&identities).unwrap();
 
     std::fs::write(file_path(), json).unwrap();
@@ -51,52 +45,51 @@ impl Identity {
     }
 }
 
-fn create_identity(runtime: &Runtime) -> Identity {
+async fn create_identity() -> Identity {
     let wallet = LocalWallet::new(&mut rng());
-    let client = runtime.block_on(ClientBuilder::new_test_client(&wallet));
+    let client = ClientBuilder::new_test_client(&wallet).await;
 
-    Identity::new(client.inbox_id(), format!("{:x}", wallet.address()))
+    Identity::new(client.inbox_id(), format!("0x{:x}", wallet.address()))
 }
 
-fn create_identities(n: usize) -> Vec<Identity> {
-    let mut addresses = Vec::with_capacity(n);
-
-    let (tx, rx) = channel();
+async fn create_identities(n: usize) -> Vec<Identity> {
+    let mut identities = Vec::with_capacity(n);
 
     let style =
         ProgressStyle::with_template("{bar} {pos}/{len} elapsed {elapsed} remaining {eta_precise}");
 
-    let get_runtime = || -> Runtime {
-        Builder::new_current_thread()
-            .enable_time()
-            .enable_io()
-            .thread_name("xmtp-identity-gen")
-            .build()
-            .unwrap()
-    };
+    let mut set = tokio::task::JoinSet::new();
+    let bar = ProgressBar::new(n as u64).with_style(style.unwrap());
+    let mut handles = vec![];
 
-    let tl = ThreadLocal::new();
-    (0..n)
-        .collect::<Vec<usize>>()
-        .par_iter()
-        .progress_count(n as u64)
-        .with_style(style.unwrap())
-        .for_each(|_| {
-            let runtime = tl.get_or(get_runtime);
-            tx.send(create_identity(runtime)).unwrap();
-        });
+    for _ in 0..n {
+        let bar_pointer = bar.clone();
+        handles.push(set.spawn(async move {
+            let identity = create_identity().await;
+            bar_pointer.inc(1);
+            identity
+        }));
 
-    while let Ok(addr) = rx.try_recv() {
-        addresses.push(addr);
+        // going above 128 we hit "unable to open database errors"
+        // This may be related to open file limits
+        if set.len() == 128 {
+            if let Some(Ok(identity)) = set.join_next().await {
+                identities.push(identity);
+            }
+        }
     }
 
-    addresses
+    while let Some(Ok(identity)) = set.join_next().await {
+        identities.push(identity);
+    }
+
+    identities
 }
 
 pub async fn create_identities_if_dont_exist() -> Vec<Identity> {
     match load_identities() {
         Ok(identities) => {
-            println!("Found file");
+            log::info!("Found generated identities, checking for existence on backend...");
             let wallet = LocalWallet::new(&mut rng());
             let client = ClientBuilder::new_test_client(&wallet).await;
             if client.is_registered(&identities[0].address).await {
@@ -109,14 +102,13 @@ pub async fn create_identities_if_dont_exist() -> Vec<Identity> {
         _ => (),
     }
 
-    println!(
+    log::info!(
         "Could not find any identitites to load, creating new identitites \n
         Beware, this fills $TMPDIR with ~10GBs of identities"
     );
 
-    let num_identities = IDENTITY_SAMPLES.iter().sum();
-    println!("Writing {num_identities} identities... (this will take a while...)");
-    let addresses = write_identities(num_identities);
-    println!("Wrote {num_identities} to {}", file_path());
+    println!("Writing {MAX_IDENTITIES} identities... (this will take a while...)");
+    let addresses = write_identities(MAX_IDENTITIES).await;
+    println!("Wrote {MAX_IDENTITIES} to {}", file_path());
     addresses
 }

@@ -53,6 +53,7 @@ impl ClientBuilder<GrpcClient> {
 
     pub fn temp_store(self) -> Self {
         let tmpdb = tmp_path();
+        log::debug!("database path {}", tmpdb);
         self.store(
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap(),
         )

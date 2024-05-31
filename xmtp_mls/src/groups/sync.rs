@@ -919,7 +919,6 @@ impl MlsGroup {
                     action.welcome_message.as_slice(),
                     installation.hpke_public_key.as_slice(),
                 )?;
-
                 Ok(WelcomeMessageInput {
                     version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
                         installation_key,
@@ -929,7 +928,6 @@ impl MlsGroup {
                 })
             })
             .collect::<Result<Vec<WelcomeMessageInput>, HpkeError>>()?;
-
         client.api_client.send_welcome_messages(welcomes).await?;
 
         Ok(())
