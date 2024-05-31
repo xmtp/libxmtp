@@ -13,6 +13,7 @@ use rand::{
     Rng, RngCore,
 };
 use ring::hmac;
+use serde::Deserialize;
 use thiserror::Error;
 
 use xmtp_cryptography::utils as crypto_utils;
@@ -60,6 +61,13 @@ pub enum MessageHistoryError {
     Reqwest(#[from] reqwest::Error),
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum SyncableTables {
+    StoredGroup(StoredGroup),
+    StoredGroupMessage(StoredGroupMessage),
 }
 
 impl<ApiClient> Client<ApiClient>
@@ -190,14 +198,22 @@ where
     ) -> Result<(), MessageHistoryError> {
         let file = File::open(history_file)?;
         let reader = BufReader::new(file);
-        let mut lines = reader.lines();
+        let lines = reader.lines();
 
         let conn = self.store().conn()?;
 
         for line in lines {
             let line = line?;
-            let group: StoredGroup = serde_json::from_str(&line)?;
-            conn.insert_group(group)?;
+            let db_entry: SyncableTables = serde_json::from_str(&line)?;
+            match db_entry {
+                SyncableTables::StoredGroup(group) => {
+                    // alternatively consider: group.store(&conn)?
+                    conn.insert_or_ignore_group(group)?;
+                }
+                SyncableTables::StoredGroupMessage(group_message) => {
+                    group_message.store(&conn)?;
+                }
+            }
         }
 
         Ok(())
@@ -233,12 +249,16 @@ where
         write_to_file(temp_file.as_path(), messages)?;
 
         let history_file = std::env::temp_dir().join("history.jsonl.enc");
-        let key = HistoryKeyType::new_chacha20_poly1305_key();
-        encrypt_history_file(temp_file.as_path(), history_file.as_path(), key.as_bytes())?;
+        let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
+        encrypt_history_file(
+            temp_file.as_path(),
+            history_file.as_path(),
+            enc_key.as_bytes(),
+        )?;
 
         std::fs::remove_file(temp_file.as_path())?;
 
-        Ok((history_file, key))
+        Ok((history_file, enc_key))
     }
 
     async fn prepare_groups_to_sync(&self) -> Result<Vec<StoredGroup>, MessageHistoryError> {
@@ -940,6 +960,35 @@ mod tests {
         server.reset();
     }
 
+    #[tokio::test]
+    async fn test_insert_history_bundle() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let amal_b = ClientBuilder::new_test_client(&wallet).await;
+        let group_a = amal_a.create_group(None).expect("create group");
+
+        group_a
+            .send_message(b"hi", &amal_a)
+            .await
+            .expect("send message");
+
+        let (bundle_path, enc_key) = amal_a
+            .write_history_bundle()
+            .await
+            .expect("write_history_bundle");
+
+        let output_file = NamedTempFile::new().expect("Unable to create temp file");
+        decrypt_history_file(
+            bundle_path,
+            output_file.path().to_path_buf(),
+            enc_key.as_bytes(),
+        )
+        .expect("decrypt_history_file");
+
+        let inserted = amal_b.insert_history_bundle(output_file.path()).await;
+        assert!(inserted.is_ok());
+    }
+
     #[test]
     fn test_new_pin() {
         let pin = new_pin();
@@ -952,6 +1001,7 @@ mod tests {
         let sig_key = HistoryKeyType::new_chacha20_poly1305_key();
         let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
         assert_eq!(sig_key.len(), ENC_KEY_SIZE);
+        assert_eq!(enc_key.len(), ENC_KEY_SIZE);
         // ensure keys are different (seed isn't reused)
         assert_ne!(sig_key, enc_key);
     }
