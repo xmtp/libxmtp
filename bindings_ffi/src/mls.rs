@@ -26,7 +26,7 @@ use xmtp_mls::retry::Retry;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
-    groups::{MlsGroup, members::PermissionLevel},
+    groups::{members::PermissionLevel, MlsGroup},
     storage::{
         group_message::DeliveryStatus, group_message::GroupMessageKind,
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
@@ -683,7 +683,9 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
         );
-        group.update_admin_list(&self.inner_client,  UpdateAdminListType::Add, inbox_id).await?;
+        group
+            .update_admin_list(&self.inner_client, UpdateAdminListType::Add, inbox_id)
+            .await?;
 
         Ok(())
     }
@@ -694,7 +696,9 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
         );
-        group.update_admin_list(&self.inner_client,  UpdateAdminListType::Remove, inbox_id).await?;
+        group
+            .update_admin_list(&self.inner_client, UpdateAdminListType::Remove, inbox_id)
+            .await?;
 
         Ok(())
     }
@@ -705,7 +709,9 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
         );
-        group.update_admin_list(&self.inner_client,  UpdateAdminListType::AddSuper, inbox_id).await?;
+        group
+            .update_admin_list(&self.inner_client, UpdateAdminListType::AddSuper, inbox_id)
+            .await?;
 
         Ok(())
     }
@@ -716,7 +722,13 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
         );
-        group.update_admin_list(&self.inner_client,  UpdateAdminListType::RemoveSuper, inbox_id).await?;
+        group
+            .update_admin_list(
+                &self.inner_client,
+                UpdateAdminListType::RemoveSuper,
+                inbox_id,
+            )
+            .await?;
 
         Ok(())
     }
@@ -1061,7 +1073,7 @@ mod tests {
         .await
         .unwrap();
         register_client(&ffi_inbox_owner, &client).await;
-        return client;
+        client
     }
 
     #[tokio::test]
@@ -1086,7 +1098,7 @@ mod tests {
     #[tokio::test]
     async fn test_client_creation() {
         let client = new_test_client().await;
-        assert!(!client.signature_request().is_none());
+        assert!(client.signature_request().is_some());
     }
 
     #[tokio::test]
