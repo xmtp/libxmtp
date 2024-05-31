@@ -6,7 +6,7 @@ use xmtp_cryptography::utils::rng;
 use xmtp_mls::{
     builder::ClientBuilder,
     utils::{
-        bench::{create_identities_if_dont_exist, IDENTITIES},
+        bench::{create_identities_if_dont_exist, IDENTITY_SAMPLES},
         test::TestClient,
     },
 };
@@ -21,7 +21,11 @@ fn setup() -> (TestClient, Vec<String>, Runtime) {
         .unwrap();
 
     let (client, addresses) = runtime.block_on(async {
-        let addresses: Vec<String> = create_identities_if_dont_exist().await;
+        let addresses: Vec<String> = create_identities_if_dont_exist()
+            .await
+            .into_iter()
+            .map(|i| i.address)
+            .collect();
         let wallet = LocalWallet::new(&mut rng());
         let client = ClientBuilder::new_test_client(&wallet).await;
 
@@ -37,7 +41,7 @@ fn add_to_empty_group(c: &mut Criterion) {
     let mut benchmark_group = c.benchmark_group("add_to_empty_group");
     benchmark_group.sample_size(10);
 
-    let total_identities = &IDENTITIES[0..4];
+    let total_identities = &IDENTITY_SAMPLES[0..4];
     let (client, addresses, runtime) = setup();
 
     let mut addresses = addresses.into_iter();

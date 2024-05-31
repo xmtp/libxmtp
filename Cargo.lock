@@ -6465,6 +6465,7 @@ dependencies = [
  "smart-default",
  "tempfile",
  "thiserror",
+ "thread_local",
  "tls_codec 0.4.1",
  "tokio",
  "toml 0.8.13",

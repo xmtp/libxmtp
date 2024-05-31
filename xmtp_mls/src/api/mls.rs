@@ -246,6 +246,8 @@ where
         &self,
         messages: Vec<WelcomeMessageInput>,
     ) -> Result<(), ApiError> {
+        log::debug!("Sending {} welcome messages", messages.len());
+
         retry_async!(
             self.retry_strategy,
             (async {
