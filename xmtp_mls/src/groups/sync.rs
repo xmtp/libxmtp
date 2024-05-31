@@ -69,6 +69,8 @@ use xmtp_proto::xmtp::mls::{
     },
 };
 
+// TODO: Change `send_welcomes` to be constant-sized
+/// the max size gRPC will accept
 pub const MAX_CHUNK: usize = 50 * 1024 * 1024;
 
 impl MlsGroup {
@@ -933,6 +935,7 @@ impl MlsGroup {
             .collect::<Result<Vec<WelcomeMessageInput>, HpkeError>>()?;
 
         let welcome = welcomes.first().unwrap();
+
         let chunk_size = MAX_CHUNK
             / welcome
                 .version
@@ -943,7 +946,7 @@ impl MlsGroup {
                     }
                 })
                 .unwrap_or(MAX_CHUNK / 200);
-        log::debug!("Chunk Size {}", chunk_size);
+
         let mut futures = vec![];
         for welcomes in welcomes.chunks(chunk_size) {
             futures.push(client.api_client.send_welcome_messages(welcomes));
