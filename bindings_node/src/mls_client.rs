@@ -7,7 +7,9 @@ use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
-use xmtp_id::associations::{AccountId, Erc1271Signature, RecoverableEcdsaSignature, Signature};
+use xmtp_id::associations::{
+  AccountId, Erc1271Signature, MemberIdentifier, RecoverableEcdsaSignature, Signature,
+};
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
@@ -15,16 +17,10 @@ use xmtp_mls::Client as MlsClient;
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
-#[derive(Eq, Hash, PartialEq)]
-enum SignatureType {
-  RecoverableEcdsaSignature,
-  Erc1271Signature,
-}
-
 #[napi]
 pub struct NapiClient {
   inner_client: Arc<RustXmtpClient>,
-  signatures: HashMap<SignatureType, Box<dyn Signature>>,
+  signatures: HashMap<MemberIdentifier, Box<dyn Signature>>,
   pub account_address: String,
 }
 
@@ -118,9 +114,10 @@ impl NapiClient {
       signature_bytes.deref().to_vec(),
     ));
 
-    self
-      .signatures
-      .insert(SignatureType::RecoverableEcdsaSignature, signature);
+    self.signatures.insert(
+      MemberIdentifier::Address(self.account_address.clone()),
+      signature,
+    );
 
     Ok(())
   }
@@ -145,7 +142,7 @@ impl NapiClient {
       None => return Err(Error::from_reason("No signature text found")),
     };
 
-    let account_id = AccountId::new(chain_id, account_address);
+    let account_id = AccountId::new(chain_id, account_address.clone());
 
     let signature = Box::new(Erc1271Signature::new(
       signature_text,
@@ -155,9 +152,10 @@ impl NapiClient {
       block_number.get_u64().1,
     ));
 
-    self
-      .signatures
-      .insert(SignatureType::Erc1271Signature, signature);
+    self.signatures.insert(
+      MemberIdentifier::Address(account_address.clone()),
+      signature,
+    );
 
     Ok(())
   }
