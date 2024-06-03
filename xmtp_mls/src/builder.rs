@@ -219,7 +219,7 @@ mod tests {
             // legacy cases
             IdentityStrategyTestCase {
                 strategy: IdentityStrategy::CreateIfNotFound(
-                    generate_inbox_id(&legacy_account_address.to_string(), &111),
+                    generate_inbox_id(legacy_account_address, &111),
                     legacy_account_address.to_string(),
                     111,
                     Some(legacy_key.clone()),
@@ -228,7 +228,7 @@ mod tests {
             },
             IdentityStrategyTestCase {
                 strategy: IdentityStrategy::CreateIfNotFound(
-                    generate_inbox_id(&legacy_account_address.to_string(), &111),
+                    generate_inbox_id(legacy_account_address, &111),
                     legacy_account_address.to_string(),
                     nonce_for_legacy,
                     Some(legacy_key.clone()),
@@ -237,7 +237,7 @@ mod tests {
             },
             IdentityStrategyTestCase {
                 strategy: IdentityStrategy::CreateIfNotFound(
-                    generate_inbox_id(&legacy_account_address.to_string(), &nonce_for_legacy),
+                    generate_inbox_id(legacy_account_address, &nonce_for_legacy),
                     legacy_account_address.to_string(),
                     nonce_for_legacy,
                     Some(legacy_key.clone()),
