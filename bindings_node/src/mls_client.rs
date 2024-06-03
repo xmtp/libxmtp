@@ -176,14 +176,27 @@ impl NapiClient {
 
     let mut signature_request = match self.inner_client.identity().signature_request() {
       Some(signature_req) => signature_req,
+      // this should never happen since we're checking for it above in is_registered
       None => return Err(Error::from_reason("No signature request found")),
     };
 
-    for signature in self.signatures.values() {
-      signature_request
-        .add_signature(signature.clone())
-        .await
-        .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    // check for missing signatures
+    let missing_signatures = signature_request.missing_signatures();
+    let missing = missing_signatures
+      .iter()
+      .filter(|id| !self.signatures.contains_key(id))
+      .collect::<Vec<&MemberIdentifier>>();
+
+    if !missing.is_empty() {
+      // apply missing signatures if they exist
+      for id in missing {
+        if let Some(signature) = self.signatures.get(id) {
+          signature_request
+            .add_signature(signature.clone())
+            .await
+            .map_err(|e| Error::from_reason(format!("{}", e)))?;
+        }
+      }
     }
 
     self
