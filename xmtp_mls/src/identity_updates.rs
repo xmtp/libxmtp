@@ -220,7 +220,7 @@ where
     }
 
     pub async fn apply_signature_request(
-        &self,
+        &mut self,
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
         let inbox_id = signature_request.inbox_id();
@@ -233,6 +233,8 @@ where
         self.api_client
             .publish_identity_update(identity_update)
             .await?;
+
+        self.identity.signature_request = None;
 
         // Load the identity updates for the inbox so that we have a record in our DB
         load_identity_updates(&self.api_client, &self.store().conn()?, vec![inbox_id]).await?;
@@ -428,7 +430,7 @@ mod tests {
     async fn create_inbox_round_trip() {
         let wallet = generate_local_wallet();
         let wallet_address = wallet.get_address();
-        let client = ClientBuilder::new_test_client(&wallet).await;
+        let mut client = ClientBuilder::new_test_client(&wallet).await;
 
         let mut signature_request: SignatureRequest = client
             .create_inbox(wallet_address.clone(), None)
@@ -456,7 +458,7 @@ mod tests {
         let wallet_2 = generate_local_wallet();
         let wallet_address = wallet.get_address();
         let wallet_2_address = wallet_2.get_address();
-        let client = ClientBuilder::new_test_client(&wallet).await;
+        let mut client = ClientBuilder::new_test_client(&wallet).await;
 
         let mut signature_request: SignatureRequest = client
             .create_inbox(wallet_address.clone(), None)
@@ -501,7 +503,7 @@ mod tests {
         let wallet_2 = generate_local_wallet();
         let wallet_address = wallet.get_address();
         let wallet_2_address = wallet_2.get_address();
-        let client = ClientBuilder::new_test_client(&wallet).await;
+        let mut client = ClientBuilder::new_test_client(&wallet).await;
 
         let mut signature_request: SignatureRequest = client
             .create_inbox(wallet_address.clone(), None)
@@ -596,7 +598,7 @@ mod tests {
         let mut inbox_ids: Vec<String> = vec![];
 
         // Create an inbox with 2 history items for each client
-        for (client, wallet) in vec![
+        for (mut client, wallet) in vec![
             (client_1, wallet_1),
             (client_2, wallet_2),
             (client_3, wallet_3),

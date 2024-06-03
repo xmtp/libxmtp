@@ -369,7 +369,7 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
         Wallet::LocalWallet(LocalWallet::new(&mut rng()))
     };
 
-    let client = create_client(
+    let mut client = create_client(
         cli,
         IdentityStrategy::CreateIfNotFound(w.get_address(), None),
     )

@@ -312,7 +312,7 @@ where
     ///
     /// If `text_to_sign` returns `Some`, then the caller should sign the text with their wallet and pass the signature to this function.
     pub async fn register_identity(
-        &self,
+        &mut self,
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
         log::info!("registering identity");

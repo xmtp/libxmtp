@@ -125,7 +125,7 @@ mod tests {
             .unwrap()
     }
 
-    async fn register_client(client: &Client<GrpcClient>, owner: &impl InboxOwner) {
+    async fn register_client(client: &mut Client<GrpcClient>, owner: &impl InboxOwner) {
         let mut signature_request = client.signature_request().unwrap();
         let signature_text = signature_request.signature_text();
         signature_request
@@ -152,7 +152,7 @@ mod tests {
         }
 
         pub async fn new_test_client(owner: &impl InboxOwner) -> Client<GrpcClient> {
-            let client = Self::new(IdentityStrategy::CreateIfNotFound(
+            let mut client = Self::new(IdentityStrategy::CreateIfNotFound(
                 owner.get_address(),
                 None,
             ))
@@ -163,7 +163,7 @@ mod tests {
             .await
             .unwrap();
 
-            register_client(&client, owner).await;
+            register_client(&mut client, owner).await;
 
             client
         }
@@ -206,7 +206,7 @@ mod tests {
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
                 .unwrap();
 
-        let client_a = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
+        let mut client_a = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
             wallet.get_address(),
             None,
         ))
@@ -217,7 +217,7 @@ mod tests {
         .await
         .unwrap();
 
-        register_client(&client_a, wallet).await;
+        register_client(&mut client_a, wallet).await;
 
         let keybytes_a = client_a.installation_public_key();
         drop(client_a);
