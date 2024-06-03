@@ -190,6 +190,10 @@ impl FfiSignatureRequest {
         Ok(())
     }
 
+    pub async fn is_ready(&self) -> bool {
+        self.inner.lock().await.is_ready()
+    }
+
     pub async fn signature_text(&self) -> Result<String, GenericError> {
         Ok(self.inner.lock().await.signature_text())
     }
