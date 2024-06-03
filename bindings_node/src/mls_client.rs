@@ -180,23 +180,12 @@ impl NapiClient {
       None => return Err(Error::from_reason("No signature request found")),
     };
 
-    // check for missing signatures
-    let missing_signatures = signature_request.missing_signatures();
-    let signatures_to_add = missing_signatures
-      .iter()
-      .filter(|id| self.signatures.contains_key(id))
-      .collect::<Vec<&MemberIdentifier>>();
-
-    if !signatures_to_add.is_empty() {
-      // apply missing signatures if they exist
-      for id in signatures_to_add {
-        if let Some(signature) = self.signatures.get(id) {
-          signature_request
-            .add_signature(signature.clone())
-            .await
-            .map_err(|e| Error::from_reason(format!("{}", e)))?;
-        }
-      }
+    // apply added signatures to the signature request
+    for signature in self.signatures.values() {
+      signature_request
+        .add_signature(signature.clone())
+        .await
+        .map_err(|e| Error::from_reason(format!("{}", e)))?;
     }
 
     self
