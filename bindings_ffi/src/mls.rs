@@ -35,23 +35,6 @@ use xmtp_mls::{
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
-/// XMTP SDK's may embed libxmtp (v3) alongside existing v2 protocol logic
-/// for backwards-compatibility purposes. In this case, the client may already
-/// have a wallet-signed v2 key. Depending on the source of this key,
-/// libxmtp may choose to bootstrap v3 installation keys using the existing
-/// legacy key.
-#[derive(uniffi::Enum)]
-pub enum LegacyIdentitySource {
-    // A client with no support for v2 messages
-    None,
-    // A cached v2 key was provided on client initialization
-    Static,
-    // A private bundle exists on the network from which the v2 key was fetched
-    Network,
-    // A new v2 key was generated on client initialization
-    KeyGenerator,
-}
-
 #[allow(clippy::too_many_arguments)]
 #[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]
@@ -62,7 +45,6 @@ pub async fn create_client(
     db: Option<String>,
     encryption_key: Option<Vec<u8>>,
     account_address: String,
-    legacy_identity_source: LegacyIdentitySource,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     log::info!(
@@ -94,17 +76,10 @@ pub async fn create_client(
     };
 
     log::info!("Creating XMTP client");
-    let legacy_key_result =
-        legacy_signed_private_key_proto.ok_or("No legacy key provided".to_string());
-    // TODO: uncomment
-    // let legacy_identity = match legacy_identity_source {
-    //     LegacyIdentitySource::None => LegacyIdentity::None,
-    //     LegacyIdentitySource::Static => LegacyIdentity::Static(legacy_key_result?),
-    //     LegacyIdentitySource::Network => LegacyIdentity::Network(legacy_key_result?),
-    //     LegacyIdentitySource::KeyGenerator => LegacyIdentity::KeyGenerator(legacy_key_result?),
-    // };
-    let identity_strategy =
-        IdentityStrategy::CreateIfNotFound(account_address.clone().to_lowercase(), None);
+    let identity_strategy = IdentityStrategy::CreateIfNotFound(
+        account_address.clone().to_lowercase(),
+        legacy_signed_private_key_proto,
+    );
     let xmtp_client: RustXmtpClient = ClientBuilder::new(identity_strategy)
         .api_client(api_client)
         .store(store)
@@ -946,7 +921,7 @@ impl FfiGroupPermissions {
 mod tests {
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
-        FfiConversationCallback, FfiInboxOwner, LegacyIdentitySource,
+        FfiConversationCallback, FfiInboxOwner,
     };
     use std::{
         env,
@@ -1067,7 +1042,6 @@ mod tests {
             Some(tmp_path()),
             None,
             ffi_inbox_owner.get_address(),
-            LegacyIdentitySource::None,
             None,
         )
         .await
@@ -1114,7 +1088,6 @@ mod tests {
             Some(tmp_path()),
             None,
             account_address.to_string(),
-            LegacyIdentitySource::KeyGenerator,
             Some(legacy_keys),
         )
         .await
@@ -1136,7 +1109,6 @@ mod tests {
             Some(path.clone()),
             None,
             ffi_inbox_owner.get_address(),
-            LegacyIdentitySource::None,
             None,
         )
         .await
@@ -1153,7 +1125,6 @@ mod tests {
             Some(path),
             None,
             ffi_inbox_owner.get_address(),
-            LegacyIdentitySource::None,
             None,
         )
         .await
@@ -1183,7 +1154,6 @@ mod tests {
             Some(path.clone()),
             Some(key),
             ffi_inbox_owner.get_address(),
-            LegacyIdentitySource::None,
             None,
         )
         .await
@@ -1201,7 +1171,6 @@ mod tests {
             Some(path),
             Some(other_key.to_vec()),
             ffi_inbox_owner.get_address(),
-            LegacyIdentitySource::None,
             None,
         )
         .await
@@ -1237,7 +1206,6 @@ mod tests {
             Some(path.clone()),
             None, // encryption_key
             inbox_owner.get_address(),
-            LegacyIdentitySource::None,
             None, // v2_signed_private_key_proto
         )
         .await
@@ -1260,7 +1228,6 @@ mod tests {
             Some(path.clone()),
             None,
             amal.get_address(),
-            LegacyIdentitySource::None,
             None,
         )
         .await
@@ -1285,7 +1252,6 @@ mod tests {
             Some(path.clone()),
             None,
             bola.get_address(),
-            LegacyIdentitySource::None,
             None,
         )
         .await
