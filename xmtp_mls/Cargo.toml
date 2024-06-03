@@ -76,7 +76,6 @@ anyhow.workspace = true
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 
 [[bench]]
-name = "group_limit_empty"
+name = "group_limit"
 harness = false
-required_features = ["bench"]
 

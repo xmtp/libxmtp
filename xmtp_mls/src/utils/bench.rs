@@ -1,3 +1,6 @@
+//! Utilities for xmtp_mls benchmarks
+//! Utilities mostly include pre-generating identities in order to save time when writing/testing
+//! benchmarks.
 use crate::builder::ClientBuilder;
 use ethers::signers::{LocalWallet, Signer};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -12,8 +15,6 @@ pub enum BenchError {
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
-
-pub const MAX_IDENTITIES: usize = 20_000;
 
 pub fn file_path() -> String {
     format!("{}/identities.generated", env!("CARGO_MANIFEST_DIR"))
@@ -86,7 +87,11 @@ async fn create_identities(n: usize) -> Vec<Identity> {
     identities
 }
 
-pub async fn create_identities_if_dont_exist() -> Vec<Identity> {
+/// Create identities if they don't already exist.
+/// creates specified `identities` on the
+/// local gRPC for [`ClientBuilder::new_test_client`] and saves them to the file,
+/// `identities.generated`. Uses this file for subsequent runs.
+pub async fn create_identities_if_dont_exist(identities: usize) -> Vec<Identity> {
     match load_identities() {
         Ok(identities) => {
             log::info!("Found generated identities, checking for existence on backend...");
@@ -107,8 +112,8 @@ pub async fn create_identities_if_dont_exist() -> Vec<Identity> {
         Beware, this fills $TMPDIR with ~10GBs of identities"
     );
 
-    println!("Writing {MAX_IDENTITIES} identities... (this will take a while...)");
-    let addresses = write_identities(MAX_IDENTITIES).await;
-    println!("Wrote {MAX_IDENTITIES} to {}", file_path());
+    println!("Writing {identities} identities... (this will take a while...)");
+    let addresses = write_identities(identities).await;
+    println!("Wrote {identities} to {}", file_path());
     addresses
 }
