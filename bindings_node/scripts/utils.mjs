@@ -29,7 +29,8 @@ export const initEcdsaClient = async (wallet) => {
 
     try {
       console.log(`registering identity for ${wallet.account.address}...`);
-      await client.registerEcdsaIdentity(sigBytes);
+      client.addEcdsaSignature(sigBytes);
+      await client.registerIdentity();
     } catch (e) {
       console.error("failed to register identity", e);
     }
@@ -92,11 +93,11 @@ export const syncGroups = async (client) => {
   return groups;
 };
 
-export const createGroup = async (client, withWallets, name) => {
+export const createGroup = async (client, users, name) => {
   console.log("creating group");
   const newGroup = await client
     .conversations()
-    .createGroup(withWallets.map((wallet) => wallet.account.address));
+    .createGroup(users.map((user) => user.account.address));
   console.log(
     `group created with id "${newGroup.id()}" and name "${newGroup.groupName()}"`
   );
