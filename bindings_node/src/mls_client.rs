@@ -3,11 +3,11 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use crate::conversations::NapiConversations;
-use napi::bindgen_prelude::{Error, Result, Uint8Array};
+use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
-use xmtp_id::associations::{Erc1271Signature, RecoverableEcdsaSignature};
+use xmtp_id::associations::{AccountId, Erc1271Signature, RecoverableEcdsaSignature, Signature};
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
@@ -15,9 +15,16 @@ use xmtp_mls::Client as MlsClient;
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
+#[derive(Eq, Hash, PartialEq)]
+enum SignatureType {
+  RecoverableEcdsaSignature,
+  Erc1271Signature,
+}
+
 #[napi]
 pub struct NapiClient {
   inner_client: Arc<RustXmtpClient>,
+  signatures: HashMap<SignatureType, Box<dyn Signature>>,
   pub account_address: String,
 }
 
@@ -61,6 +68,7 @@ pub async fn create_client(
   Ok(NapiClient {
     inner_client: Arc::new(xmtp_client),
     account_address,
+    signatures: HashMap::new(),
   })
 }
 
@@ -93,17 +101,13 @@ impl NapiClient {
   }
 
   #[napi]
-  pub async fn register_ecdsa_identity(&self, signature_bytes: Uint8Array) -> Result<()> {
+  pub fn add_ecdsa_signature(&mut self, signature_bytes: Uint8Array) -> Result<()> {
     if self.is_registered() {
       return Err(Error::from_reason(
         "An identity is already registered with this client",
       ));
     }
 
-    let mut signature_request = match self.inner_client.identity().signature_request() {
-      Some(signature_req) => signature_req,
-      None => return Err(Error::from_reason("No signature request found")),
-    };
     let signature_text = match self.signature_text() {
       Some(text) => text,
       None => return Err(Error::from_reason("No signature text found")),
@@ -114,25 +118,21 @@ impl NapiClient {
       signature_bytes.deref().to_vec(),
     ));
 
-    signature_request
-      .add_signature(signature)
-      .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
-
     self
-      .inner_client
-      .register_identity(signature_request)
-      .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .signatures
+      .insert(SignatureType::RecoverableEcdsaSignature, signature);
 
-    return Ok(());
+    Ok(())
   }
 
   #[napi]
-  pub async fn register_erc1271_identity(
-    &self,
+  pub fn add_erc1271_signature(
+    &mut self,
     signature_bytes: Uint8Array,
+    chain_id: String,
+    account_address: String,
     chain_rpc_url: String,
+    block_number: BigInt,
   ) -> Result<()> {
     if self.is_registered() {
       return Err(Error::from_reason(
@@ -140,30 +140,53 @@ impl NapiClient {
       ));
     }
 
-    let mut signature_request = match self.inner_client.identity().signature_request() {
-      Some(signature_req) => signature_req,
-      None => return Err(Error::from_reason("No signature request found")),
-    };
     let signature_text = match self.signature_text() {
       Some(text) => text,
       None => return Err(Error::from_reason("No signature text found")),
     };
 
-    let signature = Box::new(
-      Erc1271Signature::new_with_rpc(
-        signature_text,
-        signature_bytes.deref().to_vec(),
-        self.account_address.clone(),
-        chain_rpc_url,
-      )
-      .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?,
-    );
+    let account_id = AccountId::new(chain_id, account_address);
 
-    signature_request
-      .add_signature(signature)
-      .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    let signature = Box::new(Erc1271Signature::new(
+      signature_text,
+      signature_bytes.deref().to_vec(),
+      account_id,
+      chain_rpc_url,
+      block_number.get_u64().1,
+    ));
+
+    self
+      .signatures
+      .insert(SignatureType::Erc1271Signature, signature);
+
+    Ok(())
+  }
+
+  #[napi]
+  pub async fn register_identity(&self) -> Result<()> {
+    if self.is_registered() {
+      return Err(Error::from_reason(
+        "An identity is already registered with this client",
+      ));
+    }
+
+    if self.signatures.is_empty() {
+      return Err(Error::from_reason(
+        "No client signatures found, add at least 1 before registering",
+      ));
+    }
+
+    let mut signature_request = match self.inner_client.identity().signature_request() {
+      Some(signature_req) => signature_req,
+      None => return Err(Error::from_reason("No signature request found")),
+    };
+
+    for signature in self.signatures.values() {
+      signature_request
+        .add_signature(signature.clone())
+        .await
+        .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    }
 
     self
       .inner_client
