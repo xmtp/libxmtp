@@ -501,7 +501,7 @@ mod tests {
         let intent =
             UpdateGroupMembershipIntentData::new(membership_updates, vec!["bar".to_string()]);
 
-        let as_bytes: Vec<u8> = intent.clone().try_into().unwrap();
+        let as_bytes: Vec<u8> = intent.clone().into();
         let restored_intent: UpdateGroupMembershipIntentData = as_bytes.try_into().unwrap();
 
         assert_eq!(

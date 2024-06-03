@@ -193,10 +193,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(
-            client.inbox_id(),
-            generate_inbox_id(&account_address.to_string(), &0)
-        );
+        assert_eq!(client.inbox_id(), generate_inbox_id(account_address, &0));
     }
 
     #[tokio::test]
