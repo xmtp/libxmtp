@@ -1,6 +1,6 @@
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
@@ -58,6 +58,8 @@ pub enum MessageHistoryError {
     AesGcm(#[from] aes_gcm::Error),
     #[error("reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
 }
 
 impl<ApiClient> Client<ApiClient>
@@ -73,7 +75,7 @@ where
         Ok(())
     }
 
-    pub(crate) async fn send_message_history_request(&self) -> Result<String, GroupError> {
+    pub(crate) async fn send_history_request(&self) -> Result<String, GroupError> {
         // find the sync group
         let conn = self.store().conn()?;
         let sync_group_id = conn
@@ -111,7 +113,7 @@ where
         Ok(pin_code)
     }
 
-    pub(crate) async fn send_message_history_reply(
+    pub(crate) async fn send_history_reply(
         &self,
         contents: MessageHistoryReply,
     ) -> Result<(), GroupError> {
@@ -182,7 +184,45 @@ where
         Ok(())
     }
 
-    pub(crate) async fn prepare_groups_to_sync(&self) -> Result<Vec<StoredGroup>, StorageError> {
+    async fn prepare_history_reply(
+        &self,
+        request_id: &str,
+        url: &str,
+    ) -> Result<HistoryReply, MessageHistoryError> {
+        let (history_file, enc_key) = self.write_history_bundle().await?;
+
+        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
+        upload_history_bundle(url, history_file.clone(), signing_key.as_bytes()).await?;
+
+        let history_reply = HistoryReply::new(
+            request_id,
+            url,
+            signing_key.as_bytes().to_vec(),
+            signing_key,
+            enc_key,
+        );
+
+        Ok(history_reply)
+    }
+
+    async fn write_history_bundle(&self) -> Result<(PathBuf, HistoryKeyType), MessageHistoryError> {
+        let groups = self.prepare_groups_to_sync().await?;
+        let messages = self.prepare_messages_to_sync().await?;
+
+        let temp_file = std::env::temp_dir().join("history.jsonl.tmp");
+        write_to_file(temp_file.as_path(), groups)?;
+        write_to_file(temp_file.as_path(), messages)?;
+
+        let history_file = std::env::temp_dir().join("history.jsonl.enc");
+        let key = HistoryKeyType::new_chacha20_poly1305_key();
+        encrypt_history_file(temp_file.as_path(), history_file.as_path(), key.as_bytes())?;
+
+        std::fs::remove_file(temp_file.as_path())?;
+
+        Ok((history_file, key))
+    }
+
+    async fn prepare_groups_to_sync(&self) -> Result<Vec<StoredGroup>, MessageHistoryError> {
         let conn = self.store().conn()?;
         let groups = conn.find_groups(None, None, None, None)?;
         let mut all_groups: Vec<StoredGroup> = vec![];
@@ -194,9 +234,9 @@ where
         Ok(all_groups)
     }
 
-    pub(crate) async fn prepare_messages_to_sync(
+    async fn prepare_messages_to_sync(
         &self,
-    ) -> Result<Vec<StoredGroupMessage>, StorageError> {
+    ) -> Result<Vec<StoredGroupMessage>, MessageHistoryError> {
         let conn = self.store().conn()?;
         let groups = conn.find_groups(None, None, None, None)?;
         let mut all_messages: Vec<StoredGroupMessage> = vec![];
@@ -210,31 +250,26 @@ where
     }
 }
 
-fn write_groups_file(groups: Vec<StoredGroup>) -> Result<PathBuf, MessageHistoryError> {
-    let tmp_dir = std::env::temp_dir();
-    let file_path = tmp_dir.join("groups.jsonl");
-    let mut file = std::fs::File::create(&file_path)?;
-    for group in groups {
-        let group_str = serde_json::to_string(&group)?;
-        file.write_all(group_str.as_bytes())?;
+fn write_to_file<T: serde::Serialize>(
+    file_path: &Path,
+    content: Vec<T>,
+) -> Result<(), MessageHistoryError> {
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file_path)?;
+    for entry in content {
+        let entry_str = serde_json::to_string(&entry)?;
+        file.write_all(entry_str.as_bytes())?;
+        file.write_all(b"\n")?;
     }
-    Ok(file_path)
-}
 
-fn write_messages_file(messages: Vec<StoredGroupMessage>) -> Result<PathBuf, MessageHistoryError> {
-    let tmp_dir = std::env::temp_dir();
-    let file_path = tmp_dir.join("messages.jsonl");
-    let mut file = std::fs::File::create(&file_path)?;
-    for message in messages {
-        let message_str = serde_json::to_string(&message)?;
-        file.write_all(message_str.as_bytes())?;
-    }
-    Ok(file_path)
+    Ok(())
 }
 
 fn encrypt_history_file(
-    input_path: &str,
-    output_path: &str,
+    input_path: &Path,
+    output_path: &Path,
     key: &[u8; ENC_KEY_SIZE],
 ) -> Result<(), MessageHistoryError> {
     // Read in the messages file content
@@ -264,7 +299,7 @@ fn decrypt_history_file(
     output_path: PathBuf,
     key: &[u8; ENC_KEY_SIZE],
 ) -> Result<(), MessageHistoryError> {
-    // Read the file content
+    // Read the messages file content
     let mut input_file = File::open(input_path)?;
     let mut buffer = Vec::new();
     input_file.read_to_end(&mut buffer)?;
@@ -292,18 +327,18 @@ async fn upload_history_bundle(
     signing_key: &[u8],
 ) -> Result<(), MessageHistoryError> {
     let mut file = File::open(file_path)?;
-    let mut file_content = Vec::new();
-    file.read_to_end(&mut file_content)?;
+    let mut content = Vec::new();
+    file.read_to_end(&mut content)?;
 
     let key = hmac::Key::new(hmac::HMAC_SHA256, signing_key);
-    let tag = hmac::sign(&key, &file_content);
+    let tag = hmac::sign(&key, &content);
     let hmac_hex = hex::encode(tag.as_ref());
 
     let client = reqwest::Client::new();
     let _response = client
         .post(url)
         .header("X-HMAC", hmac_hex)
-        .body(file_content)
+        .body(content)
         .send()
         .await?;
 
@@ -333,7 +368,7 @@ async fn download_history_bundle(
 
         decrypt_history_file(input_path, output_path, &aes_key)?;
     } else {
-        println!(
+        eprintln!(
             "Failed to download file. Status code: {} Response: {:?}",
             response.status(),
             response
@@ -367,11 +402,17 @@ impl From<HistoryRequest> for MessageHistoryRequest {
     }
 }
 
+#[derive(Debug)]
 struct HistoryReply {
+    /// Unique ID for each client Message History Request
     request_id: String,
+    /// URL to download the backup bundle
     url: String,
+    /// HMAC of the backup bundle
     bundle_hash: Vec<u8>,
+    /// HMAC Signing key for the backup bundle
     signing_key: HistoryKeyType,
+    /// Encryption key for the backup bundle
     encryption_key: HistoryKeyType,
 }
 
@@ -412,8 +453,9 @@ enum HistoryKeyType {
 
 impl HistoryKeyType {
     fn new_chacha20_poly1305_key() -> Self {
-        let mut key = [0u8; 32]; // 256-bit key
-        crypto_utils::rng().fill_bytes(&mut key[..]);
+        let mut rng = crypto_utils::rng();
+        let mut key = [0u8; ENC_KEY_SIZE];
+        rng.fill_bytes(&mut key);
         HistoryKeyType::Chacha20Poly1305(key)
     }
 
@@ -460,7 +502,7 @@ fn new_pin() -> String {
 // If we need to add more complex logic, we can do so here.
 // For example if we want to add a time limit or enforce a certain number of attempts.
 fn verify_pin(expected: &str, actual: &str) -> bool {
-    expected == actual
+    expected.eq(actual)
 }
 
 #[cfg(test)]
@@ -471,6 +513,7 @@ mod tests {
 
     use super::*;
     use mockito;
+    use std::io::{BufRead, BufReader};
     use tempfile::NamedTempFile;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -512,21 +555,21 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_send_message_history_request() {
+    async fn test_send_history_request() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
         assert_ok!(client.allow_history_sync().await);
 
         // test that the request is sent, and that the pin code is returned
         let pin_code = client
-            .send_message_history_request()
+            .send_history_request()
             .await
             .expect("history request");
         assert_eq!(pin_code.len(), 4);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_send_message_history_reply() {
+    async fn test_send_history_reply() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
         assert_ok!(client.allow_history_sync().await);
@@ -537,7 +580,7 @@ mod tests {
         let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
         let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
         let reply = HistoryReply::new(&request_id, url, backup_hash, signing_key, encryption_key);
-        let result = client.send_message_history_reply(reply.into()).await;
+        let result = client.send_history_reply(reply.into()).await;
         assert_ok!(result);
     }
 
@@ -551,7 +594,7 @@ mod tests {
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
         let _sent = amal_b
-            .send_message_history_request()
+            .send_history_request()
             .await
             .expect("history request");
 
@@ -589,7 +632,7 @@ mod tests {
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
         let pin_code = amal_b
-            .send_message_history_request()
+            .send_history_request()
             .await
             .expect("history request");
 
@@ -616,7 +659,7 @@ mod tests {
 
         // amal_b sends a message history request to sync group messages
         let pin_code = amal_b
-            .send_message_history_request()
+            .send_history_request()
             .await
             .expect("history request");
 
@@ -637,7 +680,7 @@ mod tests {
             HistoryKeyType::new_chacha20_poly1305_key(),
         );
         amal_a
-            .send_message_history_reply(history_reply.into())
+            .send_history_reply(history_reply.into())
             .await
             .expect("send reply");
 
@@ -657,7 +700,7 @@ mod tests {
         assert_eq!(amal_b_messages.len(), 1);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_prepare_groups_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -696,39 +739,85 @@ mod tests {
         assert_eq!(messages_result.len(), 4);
     }
 
+    #[tokio::test]
+    async fn test_write_to_file() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let group_a = amal_a.create_group(None).expect("create group");
+        let group_b = amal_a.create_group(None).expect("create group");
+
+        group_a
+            .send_message(b"hi", &amal_a)
+            .await
+            .expect("send message");
+        group_a
+            .send_message(b"hi", &amal_a)
+            .await
+            .expect("send message");
+        group_b
+            .send_message(b"hi", &amal_a)
+            .await
+            .expect("send message");
+        group_b
+            .send_message(b"hi", &amal_a)
+            .await
+            .expect("send message");
+
+        let groups = amal_a.prepare_groups_to_sync().await.unwrap();
+        let messages = amal_a.prepare_messages_to_sync().await.unwrap();
+
+        let temp_file = NamedTempFile::new().expect("Unable to create temp file");
+        let wrote_groups = write_to_file(temp_file.path(), groups);
+        assert!(wrote_groups.is_ok());
+        let wrote_messages = write_to_file(temp_file.path(), messages);
+        assert!(wrote_messages.is_ok());
+
+        let file = File::open(temp_file.path()).expect("Unable to open test file");
+        let reader = BufReader::new(file);
+        let n_lines_written = reader.lines().count();
+        assert_eq!(n_lines_written, 6);
+
+        std::fs::remove_file(temp_file).expect("Unable to remove test file");
+    }
+
     #[test]
     fn test_encrypt_decrypt_file() {
         let key = HistoryKeyType::new_chacha20_poly1305_key();
         let key_bytes = key.as_bytes();
         let input_content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'";
-        let input_path = "test_input.jsonl";
-        let encrypted_path = "test_encrypted.jsonl.enc";
-        let decrypted_path = "test_decrypted.jsonl";
+        let input_file = NamedTempFile::new().expect("Unable to create temp file");
+        let encrypted_file = NamedTempFile::new().expect("Unable to create temp file");
+        let decrypted_file = NamedTempFile::new().expect("Unable to create temp file");
 
         // Write test input file
-        std::fs::write(input_path, input_content).expect("Unable to write test input file");
+        std::fs::write(input_file.path(), input_content).expect("Unable to write test input file");
 
         // Encrypt the file
-        encrypt_history_file(input_path, encrypted_path, key_bytes).expect("Encryption failed");
+        encrypt_history_file(input_file.path(), encrypted_file.path(), key_bytes)
+            .expect("Encryption failed");
 
         // Decrypt the file
-        decrypt_history_file(encrypted_path.into(), decrypted_path.into(), key_bytes)
-            .expect("Decryption failed");
+        decrypt_history_file(
+            encrypted_file.path().to_path_buf(),
+            decrypted_file.path().to_path_buf(),
+            key_bytes,
+        )
+        .expect("Decryption failed");
 
         // Read the decrypted file content
         let decrypted_content =
-            std::fs::read(decrypted_path).expect("Unable to read decrypted file");
+            std::fs::read(decrypted_file.path()).expect("Unable to read decrypted file");
 
         // Assert the decrypted content is the same as the original input content
         assert_eq!(decrypted_content, input_content);
 
         // Clean up test files
-        std::fs::remove_file(input_path).expect("Unable to remove test input file");
-        std::fs::remove_file(encrypted_path).expect("Unable to remove test encrypted file");
-        std::fs::remove_file(decrypted_path).expect("Unable to remove test decrypted file");
+        std::fs::remove_file(input_file).expect("Unable to remove test input file");
+        std::fs::remove_file(encrypted_file).expect("Unable to remove test encrypted file");
+        std::fs::remove_file(decrypted_file).expect("Unable to remove test decrypted file");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_upload_history_bundle() {
         let options = mockito::ServerOpts {
             host: HISTORY_SERVER_HOST,
@@ -756,14 +845,13 @@ mod tests {
             HISTORY_SERVER_PORT + 1
         );
         let result = upload_history_bundle(&url, file_path.into(), signing_key).await;
-        println!("{:?}", result);
 
         assert!(result.is_ok());
         _m.assert_async().await;
         server.reset();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_download_history_bundle() {
         let bundle_id = "test_bundle_id";
         let hmac_value = "test_hmac_value";
@@ -797,6 +885,40 @@ mod tests {
         .await;
 
         _m.assert_async().await;
+        std::fs::remove_file(output_path).expect("Unable to remove test output file");
+        server.reset();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_prepare_history_reply() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let amal_b = ClientBuilder::new_test_client(&wallet).await;
+        assert_ok!(amal_b.allow_history_sync().await);
+
+        amal_a.sync_welcomes().await.expect("sync_welcomes");
+
+        let request_id = new_request_id();
+
+        let port = HISTORY_SERVER_PORT + 2;
+        let options = mockito::ServerOpts {
+            host: HISTORY_SERVER_HOST,
+            port,
+            ..Default::default()
+        };
+        let mut server = mockito::Server::new_with_opts_async(options).await;
+
+        let url = format!("http://{HISTORY_SERVER_HOST}:{port}/upload");
+        let _m = server
+            .mock("POST", "/upload")
+            .with_status(201)
+            .with_body("encrypted_content")
+            .create();
+
+        let reply = amal_a.prepare_history_reply(&request_id, &url).await;
+        assert!(reply.is_ok());
+        _m.assert_async().await;
+        server.reset();
     }
 
     #[test]

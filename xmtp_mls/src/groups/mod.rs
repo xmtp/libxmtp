@@ -925,9 +925,12 @@ mod tests {
         builder::ClientBuilder,
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
-            build_group_membership_extension, group_membership::GroupMembership,
-            group_mutable_metadata::MetadataField, members::PermissionLevel, PreconfiguredPolicies,
-            UpdateAdminListType,
+            build_group_membership_extension,
+            group_membership::GroupMembership,
+            group_metadata::{ConversationType, GroupMetadata},
+            group_mutable_metadata::MetadataField,
+            members::{GroupMember, PermissionLevel},
+            PreconfiguredPolicies, UpdateAdminListType,
         },
         storage::{
             group_intent::IntentState,
@@ -1076,6 +1079,54 @@ mod tests {
 
         let message = get_latest_message(&alix_group, &alix).await;
         assert_eq!(message.decrypted_message_bytes, bo_message);
+    }
+
+    // Test members function from non group creator
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_members_func_from_non_creator() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let amal_group = amal.create_group(None).unwrap();
+        amal_group
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .await
+            .unwrap();
+
+        // Get bola's version of the same group
+        let bola_groups = bola.sync_welcomes().await.unwrap();
+        let bola_group = bola_groups.first().unwrap();
+
+        // Call sync for both
+        amal_group.sync(&amal).await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
+
+        // Verify bola can see the group name
+        let bola_group_name = bola_group.group_name().unwrap();
+        assert_eq!(bola_group_name, "New Group");
+
+        // Check if both clients can see the members correctly
+        let amal_members: Vec<GroupMember> = amal_group.members().unwrap();
+        let bola_members: Vec<GroupMember> = bola_group.members().unwrap();
+
+        assert_eq!(amal_members.len(), 2);
+        assert_eq!(bola_members.len(), 2);
+
+        for member in &amal_members {
+            if member.inbox_id == amal.inbox_id() {
+                assert_eq!(
+                    member.permission_level,
+                    PermissionLevel::SuperAdmin,
+                    "Amal should be a super admin"
+                );
+            } else if member.inbox_id == bola.inbox_id() {
+                assert_eq!(
+                    member.permission_level,
+                    PermissionLevel::Member,
+                    "Bola should be a member"
+                );
+            }
+        }
     }
 
     // Amal and Bola will both try and add Charlie from the same epoch.
@@ -1958,5 +2009,25 @@ mod tests {
             added_by_inbox,
             "The Inviter and added_by_address do not match!"
         );
+    }
+
+    #[tokio::test]
+    async fn test_can_read_group_creator_inbox_id() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let policies = Some(PreconfiguredPolicies::AllMembers);
+        let amal_group = amal.create_group(policies).unwrap();
+        amal_group.sync(&amal).await.unwrap();
+
+        let mutable_metadata = amal_group.mutable_metadata().unwrap();
+        assert_eq!(mutable_metadata.admin_list.len(), 1);
+        assert_eq!(mutable_metadata.admin_list[0], amal.inbox_id());
+
+        let protected_metadata: GroupMetadata = amal_group.metadata().unwrap();
+        assert_eq!(
+            protected_metadata.conversation_type,
+            ConversationType::Group
+        );
+
+        assert_eq!(protected_metadata.creator_inbox_id, amal.inbox_id());
     }
 }

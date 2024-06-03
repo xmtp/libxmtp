@@ -187,6 +187,10 @@ impl FfiSignatureRequest {
         Ok(())
     }
 
+    pub async fn is_ready(&self) -> bool {
+        self.inner.lock().await.is_ready()
+    }
+
     pub async fn signature_text(&self) -> Result<String, GenericError> {
         Ok(self.inner.lock().await.signature_text())
     }
@@ -1074,7 +1078,7 @@ mod tests {
         .await
         .unwrap();
         register_client(&ffi_inbox_owner, &client).await;
-        return client;
+        client
     }
 
     #[tokio::test]
@@ -1099,7 +1103,7 @@ mod tests {
     #[tokio::test]
     async fn test_client_creation() {
         let client = new_test_client().await;
-        assert!(!client.signature_request().is_none());
+        assert!(client.signature_request().is_some());
     }
 
     #[tokio::test]
