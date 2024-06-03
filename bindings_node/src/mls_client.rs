@@ -115,7 +115,7 @@ impl NapiClient {
     ));
 
     self.signatures.insert(
-      MemberIdentifier::Address(self.account_address.clone()),
+      MemberIdentifier::Address(self.account_address.clone().to_lowercase()),
       signature,
     );
 
@@ -153,7 +153,7 @@ impl NapiClient {
     ));
 
     self.signatures.insert(
-      MemberIdentifier::Address(account_address.clone()),
+      MemberIdentifier::Address(account_address.clone().to_lowercase()),
       signature,
     );
 
@@ -182,14 +182,14 @@ impl NapiClient {
 
     // check for missing signatures
     let missing_signatures = signature_request.missing_signatures();
-    let missing = missing_signatures
+    let signatures_to_add = missing_signatures
       .iter()
-      .filter(|id| !self.signatures.contains_key(id))
+      .filter(|id| self.signatures.contains_key(id))
       .collect::<Vec<&MemberIdentifier>>();
 
-    if !missing.is_empty() {
+    if !signatures_to_add.is_empty() {
       // apply missing signatures if they exist
-      for id in missing {
+      for id in signatures_to_add {
         if let Some(signature) = self.signatures.get(id) {
           signature_request
             .add_signature(signature.clone())
