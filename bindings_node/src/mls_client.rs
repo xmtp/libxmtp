@@ -115,7 +115,7 @@ impl NapiClient {
     ));
 
     self.signatures.insert(
-      MemberIdentifier::Address(self.account_address.clone()),
+      MemberIdentifier::Address(self.account_address.clone().to_lowercase()),
       signature,
     );
 
@@ -153,7 +153,7 @@ impl NapiClient {
     ));
 
     self.signatures.insert(
-      MemberIdentifier::Address(account_address.clone()),
+      MemberIdentifier::Address(account_address.clone().to_lowercase()),
       signature,
     );
 
@@ -180,23 +180,12 @@ impl NapiClient {
       None => return Err(Error::from_reason("No signature request found")),
     };
 
-    // check for missing signatures
-    let missing_signatures = signature_request.missing_signatures();
-    let missing = missing_signatures
-      .iter()
-      .filter(|id| !self.signatures.contains_key(id))
-      .collect::<Vec<&MemberIdentifier>>();
-
-    if !missing.is_empty() {
-      // apply missing signatures if they exist
-      for id in missing {
-        if let Some(signature) = self.signatures.get(id) {
-          signature_request
-            .add_signature(signature.clone())
-            .await
-            .map_err(|e| Error::from_reason(format!("{}", e)))?;
-        }
-      }
+    // apply added signatures to the signature request
+    for signature in self.signatures.values() {
+      signature_request
+        .add_signature(signature.clone())
+        .await
+        .map_err(|e| Error::from_reason(format!("{}", e)))?;
     }
 
     self
