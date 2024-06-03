@@ -24,8 +24,8 @@ pub enum PermissionLevel {
 impl MlsGroup {
     // Load the member list for the group from the DB, merging together multiple installations into a single entry
     pub fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
-        let conn = self.context.store.conn()?;
-        let provider = self.context.mls_provider(conn);
+        let conn = self.store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(conn);
         self.members_with_provider(&provider)
     }
 

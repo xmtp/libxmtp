@@ -1,4 +1,4 @@
-use std::{collections::HashMap, mem::Discriminant, sync::Arc};
+use std::{collections::HashMap, mem::Discriminant};
 
 use futures::{
     stream::{self, StreamExt},
@@ -178,46 +178,8 @@ impl From<&str> for ClientError {
 #[derive(Debug)]
 pub struct Client<ApiClient> {
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
-    pub(crate) context: Arc<XmtpMlsLocalContext>,
-}
-
-/// The local context a XMTP MLS needs to function:
-/// - Sqlite Database
-/// - Identity for the User
-///
-#[derive(Debug)]
-pub struct XmtpMlsLocalContext {
-    /// XMTP Identity
     pub(crate) identity: Identity,
-    /// XMTP Local Storage
     pub(crate) store: EncryptedMessageStore,
-}
-
-impl XmtpMlsLocalContext {
-    /// The installation public key is the primary identifier for an installation
-    pub fn installation_public_key(&self) -> Vec<u8> {
-        self.identity.installation_keys.to_public_vec()
-    }
-
-    /// Get the account address of the blockchain account associated with this client
-    pub fn inbox_id(&self) -> InboxId {
-        self.identity.inbox_id().clone()
-    }
-
-    /// Get sequence id, may not be consistent with the backend
-    pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
-        self.identity.sequence_id(conn)
-    }
-
-    /// Integrators should always check the `signature_request` return value of this function before calling [`register_identity`](Self::register_identity).
-    /// If `signature_request` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
-    pub fn signature_request(&self) -> Option<SignatureRequest> {
-        self.identity.signature_request()
-    }
-
-    pub(crate) fn mls_provider(&self, conn: DbConnection) -> XmtpOpenMlsProvider {
-        XmtpOpenMlsProvider::new(conn)
-    }
 }
 
 impl<ApiClient> Client<ApiClient>
@@ -232,51 +194,39 @@ where
         identity: Identity,
         store: EncryptedMessageStore,
     ) -> Self {
-        let context = XmtpMlsLocalContext { identity, store };
         Self {
             api_client,
-            context: Arc::new(context),
+            identity,
+            store,
         }
     }
 
     pub fn installation_public_key(&self) -> Vec<u8> {
-        self.context.installation_public_key()
+        self.identity.installation_keys.to_public_vec()
     }
 
     pub fn inbox_id(&self) -> String {
-        self.context.inbox_id()
+        self.identity.inbox_id().clone()
     }
 
     /// Get sequence id, may not be consistent with the backend
     pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
-        self.context.inbox_sequence_id(conn)
+        self.identity.sequence_id(conn)
     }
 
     pub fn store(&self) -> &EncryptedMessageStore {
-        &self.context.store
+        &self.store
     }
 
     pub fn release_db_connection(&self) -> Result<(), ClientError> {
-        let store = &self.context.store;
+        let store = &self.store;
         store.release_connection()?;
         Ok(())
     }
 
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
-        self.context.store.reconnect()?;
+        self.store.reconnect()?;
         Ok(())
-    }
-
-    pub fn identity(&self) -> &Identity {
-        &self.context.identity
-    }
-
-    pub(crate) fn mls_provider(&self, conn: DbConnection) -> XmtpOpenMlsProvider {
-        XmtpOpenMlsProvider::new(conn)
-    }
-
-    pub fn context(&self) -> &Arc<XmtpMlsLocalContext> {
-        &self.context
     }
 
     /// Create a new group with the default settings
@@ -287,7 +237,8 @@ where
         log::info!("creating group");
 
         let group = MlsGroup::create_and_insert(
-            self.context.clone(),
+            &self.identity,
+            self.store.clone(),
             GroupMembershipState::Allowed,
             permissions,
         )
@@ -298,8 +249,8 @@ where
 
     pub(crate) fn create_sync_group(&self) -> Result<MlsGroup, ClientError> {
         log::info!("creating sync group");
-        let sync_group =
-            MlsGroup::create_and_insert_sync_group(self.context.clone()).map_err(Box::new)?;
+        let sync_group = MlsGroup::create_and_insert_sync_group(&self.identity, self.store.clone())
+            .map_err(Box::new)?;
 
         Ok(sync_group)
     }
@@ -311,7 +262,8 @@ where
         let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
         match stored_group {
             Some(group) => Ok(MlsGroup::new(
-                self.context.clone(),
+                self.identity.clone(),
+                self.store.clone(),
                 group.id,
                 group.created_at_ns,
             )),
@@ -340,12 +292,17 @@ where
             .into_iter()
             .map(|stored_group| {
                 MlsGroup::new(
-                    self.context.clone(),
+                    self.identity.clone(),
+                    self.store.clone(),
                     stored_group.id,
                     stored_group.created_at_ns,
                 )
             })
             .collect())
+    }
+
+    pub fn identity(&self) -> &Identity {
+        &self.identity
     }
 
     /// Register the identity with the network
@@ -361,10 +318,8 @@ where
         log::info!("registering identity");
         self.apply_signature_request(signature_request).await?;
         let connection = self.store().conn()?;
-        let provider = self.mls_provider(connection);
-        self.identity()
-            .register(&provider, &self.api_client)
-            .await?;
+        let provider = XmtpOpenMlsProvider::new(connection);
+        self.identity.register(&provider, &self.api_client).await?;
 
         Ok(())
     }
@@ -374,8 +329,8 @@ where
     pub async fn rotate_key_package(&self) -> Result<(), ClientError> {
         let connection = self.store().conn()?;
         let kp = self
-            .identity()
-            .new_key_package(&self.mls_provider(connection))?;
+            .identity
+            .new_key_package(&XmtpOpenMlsProvider::new(connection))?;
         let kp_bytes = kp.tls_serialize_detached()?;
         self.api_client.upload_key_package(kp_bytes, true).await?;
 
@@ -419,7 +374,7 @@ where
         let key_package_results = self.api_client.fetch_key_packages(installation_ids).await?;
 
         let conn = self.store().conn()?;
-        let mls_provider = self.mls_provider(conn);
+        let mls_provider = XmtpOpenMlsProvider::new(conn);
         Ok(key_package_results
             .values()
             .map(|bytes| VerifiedKeyPackageV2::from_bytes(mls_provider.crypto(), bytes.as_slice()))
@@ -578,6 +533,7 @@ mod tests {
     use crate::{
         builder::ClientBuilder,
         hpke::{decrypt_welcome, encrypt_welcome},
+        xmtp_openmls_provider::XmtpOpenMlsProvider,
     };
 
     #[tokio::test]
@@ -702,9 +658,9 @@ mod tests {
     async fn test_welcome_encryption() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let conn = client.store().conn().unwrap();
-        let provider = client.mls_provider(conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
 
-        let kp = client.identity().new_key_package(&provider).unwrap();
+        let kp = client.identity.new_key_package(&provider).unwrap();
         let hpke_public_key = kp.hpke_init_key().as_slice();
         let to_encrypt = vec![1, 2, 3];
 

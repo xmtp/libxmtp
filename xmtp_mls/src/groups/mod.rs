@@ -47,7 +47,7 @@ use self::{
     message_history::MessageHistoryError,
     validated_commit::CommitValidationError,
 };
-use std::{collections::HashSet, sync::Arc};
+use std::collections::HashSet;
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::InboxId;
 use xmtp_proto::xmtp::mls::{
@@ -63,7 +63,7 @@ use xmtp_proto::xmtp::mls::{
 
 use crate::{
     api::WrappedApiError,
-    client::{deserialize_welcome, ClientError, MessageProcessingError, XmtpMlsLocalContext},
+    client::{deserialize_welcome, ClientError, MessageProcessingError},
     configuration::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
         MUTABLE_METADATA_EXTENSION_ID,
@@ -78,7 +78,7 @@ use crate::{
         group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-        sql_key_store,
+        sql_key_store, EncryptedMessageStore,
     },
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -182,20 +182,12 @@ impl RetryableError for GroupError {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct MlsGroup {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
-    context: Arc<XmtpMlsLocalContext>,
-}
-
-impl Clone for MlsGroup {
-    fn clone(&self) -> Self {
-        Self {
-            context: self.context.clone(),
-            group_id: self.group_id.clone(),
-            created_at_ns: self.created_at_ns,
-        }
-    }
+    pub identity: Identity,
+    pub store: EncryptedMessageStore,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -208,9 +200,15 @@ pub enum UpdateAdminListType {
 
 impl MlsGroup {
     // Creates a new group instance. Does not validate that the group exists in the DB
-    pub fn new(context: Arc<XmtpMlsLocalContext>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+    pub fn new(
+        identity: Identity,
+        store: EncryptedMessageStore,
+        group_id: Vec<u8>,
+        created_at_ns: i64,
+    ) -> Self {
         Self {
-            context,
+            identity,
+            store,
             group_id,
             created_at_ns,
         }
@@ -228,16 +226,18 @@ impl MlsGroup {
 
     // Create a new group and save it to the DB
     pub fn create_and_insert(
-        context: Arc<XmtpMlsLocalContext>,
+        identity: &Identity,
+        store: EncryptedMessageStore,
         membership_state: GroupMembershipState,
         permissions: Option<PreconfiguredPolicies>,
     ) -> Result<Self, GroupError> {
-        let conn = context.store.conn()?;
+        let conn = store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata =
-            build_protected_metadata_extension(&context.identity, Purpose::Conversation)?;
-        let mutable_metadata = build_mutable_metadata_extension_default(&context.identity)?;
-        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
+            build_protected_metadata_extension(identity, Purpose::Conversation)?;
+        let mutable_metadata = build_mutable_metadata_extension_default(identity)?;
+        let group_membership =
+            build_starting_group_membership_extension(identity.inbox_id().clone(), 0);
         let mutable_permissions =
             build_mutable_permissions_extension(permissions.unwrap_or_default().to_policy_set())?;
         let group_config = build_group_config(
@@ -249,11 +249,11 @@ impl MlsGroup {
 
         let mls_group = OpenMlsGroup::new(
             &provider,
-            &context.identity.installation_keys,
+            &identity.installation_keys,
             &group_config,
             CredentialWithKey {
-                credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.to_public_vec().into(),
+                credential: identity.credential(),
+                signature_key: identity.installation_keys.to_public_vec().into(),
             },
         )?;
 
@@ -262,12 +262,13 @@ impl MlsGroup {
             group_id.clone(),
             now_ns(),
             membership_state,
-            context.inbox_id(),
+            identity.inbox_id().clone(),
         );
 
         stored_group.store(provider.conn_ref())?;
         Ok(Self::new(
-            context.clone(),
+            identity.clone(),
+            store,
             group_id,
             stored_group.created_at_ns,
         ))
@@ -308,7 +309,8 @@ impl MlsGroup {
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
 
         Ok(Self::new(
-            client.context.clone(),
+            client.identity.clone(),
+            client.store.clone(),
             stored_group.id,
             stored_group.created_at_ns,
         ))
@@ -338,15 +340,16 @@ impl MlsGroup {
     }
 
     pub(crate) fn create_and_insert_sync_group(
-        context: Arc<XmtpMlsLocalContext>,
+        identity: &Identity,
+        store: EncryptedMessageStore,
     ) -> Result<MlsGroup, GroupError> {
-        let conn = context.store.conn()?;
+        let conn = store.conn()?;
         // let my_sequence_id = context.inbox_sequence_id(&conn)?;
         let provider = XmtpOpenMlsProvider::new(conn);
-        let protected_metadata =
-            build_protected_metadata_extension(&context.identity, Purpose::Sync)?;
-        let mutable_metadata = build_mutable_metadata_extension_default(&context.identity)?;
-        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
+        let protected_metadata = build_protected_metadata_extension(identity, Purpose::Sync)?;
+        let mutable_metadata = build_mutable_metadata_extension_default(identity)?;
+        let group_membership =
+            build_starting_group_membership_extension(identity.inbox_id().clone(), 0);
         let mutable_permissions =
             build_mutable_permissions_extension(PreconfiguredPolicies::default().to_policy_set())?;
         let group_config = build_group_config(
@@ -357,11 +360,11 @@ impl MlsGroup {
         )?;
         let mls_group = OpenMlsGroup::new(
             &provider,
-            &context.identity.installation_keys,
+            &identity.installation_keys,
             &group_config,
             CredentialWithKey {
-                credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.to_public_vec().into(),
+                credential: identity.credential(),
+                signature_key: identity.installation_keys.to_public_vec().into(),
             },
         )?;
 
@@ -372,7 +375,8 @@ impl MlsGroup {
         stored_group.store(provider.conn_ref())?;
 
         Ok(Self::new(
-            context.clone(),
+            identity.clone(),
+            store,
             stored_group.id,
             stored_group.created_at_ns,
         ))
@@ -386,7 +390,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
+        let conn = self.store.conn()?;
 
         let update_interval = Some(5_000_000); // 5 seconds in nanoseconds
         self.maybe_update_installations(conn.clone(), update_interval, client)
@@ -412,8 +416,8 @@ impl MlsGroup {
             decrypted_message_bytes: message.to_vec(),
             sent_at_ns: now,
             kind: GroupMessageKind::Application,
-            sender_installation_id: self.context.installation_public_key(),
-            sender_inbox_id: self.context.inbox_id(),
+            sender_installation_id: self.identity.installation_keys.to_public_vec(),
+            sender_inbox_id: self.identity.inbox_id().clone(),
             delivery_status: DeliveryStatus::Unpublished,
         };
         group_message.store(&conn)?;
@@ -444,7 +448,7 @@ impl MlsGroup {
         delivery_status: Option<DeliveryStatus>,
         limit: Option<i64>,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.store.conn()?;
         let messages = conn.get_group_messages(
             &self.group_id,
             sent_after_ns,
@@ -501,7 +505,7 @@ impl MlsGroup {
         inbox_ids: Vec<String>,
     ) -> Result<(), GroupError> {
         let conn = client.store().conn()?;
-        let provider = client.mls_provider(conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let intent_data = self
             .get_membership_update_intent(client, &provider, inbox_ids, vec![])
             .await?;
@@ -541,7 +545,7 @@ impl MlsGroup {
         inbox_ids: Vec<InboxId>,
     ) -> Result<(), GroupError> {
         let conn = client.store().conn()?;
-        let provider = client.mls_provider(conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let intent_data = self
             .get_membership_update_intent(client, &provider, vec![], inbox_ids)
             .await?;
@@ -566,7 +570,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
+        let conn = self.store.conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
@@ -621,7 +625,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
+        let conn = self.store.conn()?;
         let intent_action_type = match action_type {
             UpdateAdminListType::Add => AdminListActionType::Add,
             UpdateAdminListType::Remove => AdminListActionType::Remove,
@@ -642,7 +646,7 @@ impl MlsGroup {
 
     /// Find the `inbox_id` of the group member who added the member to the group
     pub fn added_by_inbox_id(&self) -> Result<String, GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.store.conn()?;
         conn.find_group(self.group_id.clone())
             .map_err(GroupError::from)
             .and_then(|fetch_result| {
@@ -657,7 +661,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
+        let conn = self.store.conn()?;
         let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
         intent.store(&conn)?;
 
@@ -665,7 +669,7 @@ impl MlsGroup {
     }
 
     pub fn is_active(&self) -> Result<bool, GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let mls_group = self.load_mls_group(&provider)?;
 
@@ -673,7 +677,7 @@ impl MlsGroup {
     }
 
     pub fn metadata(&self) -> Result<GroupMetadata, GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let mls_group = self.load_mls_group(&provider)?;
 
@@ -681,7 +685,7 @@ impl MlsGroup {
     }
 
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let mls_group = &self.load_mls_group(&provider)?;
 
@@ -689,7 +693,7 @@ impl MlsGroup {
     }
 
     pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let mls_group = self.load_mls_group(&provider)?;
 
@@ -978,17 +982,17 @@ mod tests {
         sender_provider: &XmtpOpenMlsProvider,
     ) {
         let new_member_provider =
-            new_member_client.mls_provider(new_member_client.store().conn().unwrap());
+            XmtpOpenMlsProvider::new(new_member_client.store().conn().unwrap());
 
         let key_package = new_member_client
-            .identity()
+            .identity
             .new_key_package(&new_member_provider)
             .unwrap();
         let hpke_init_key = key_package.hpke_init_key().as_slice().to_vec();
         let (commit, welcome, _) = sender_mls_group
             .add_members(
                 sender_provider,
-                &sender_client.identity().installation_keys,
+                &sender_client.identity.installation_keys,
                 &[key_package],
             )
             .unwrap();
@@ -1166,17 +1170,17 @@ mod tests {
             .expect_err("expected error");
 
         // Check Amal's MLS group state.
-        let amal_db = amal.context.store.conn().unwrap();
+        let amal_db = amal.store.conn().unwrap();
         let amal_mls_group = amal_group
-            .load_mls_group(&amal.mls_provider(amal_db.clone()))
+            .load_mls_group(&XmtpOpenMlsProvider::new(amal_db.clone()))
             .unwrap();
         let amal_members: Vec<Member> = amal_mls_group.members().collect();
         assert_eq!(amal_members.len(), 3);
 
         // Check Bola's MLS group state.
-        let bola_db = bola.context.store.conn().unwrap();
+        let bola_db = bola.store.conn().unwrap();
         let bola_mls_group = bola_group
-            .load_mls_group(&bola.mls_provider(bola_db.clone()))
+            .load_mls_group(&XmtpOpenMlsProvider::new(bola_db.clone()))
             .unwrap();
         let bola_members: Vec<Member> = bola_mls_group.members().collect();
         assert_eq!(bola_members.len(), 3);
@@ -1208,7 +1212,7 @@ mod tests {
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let alix_group: MlsGroup = alix.create_group(None).unwrap();
-        let provider = alix.mls_provider(alix.store().conn().unwrap());
+        let provider = XmtpOpenMlsProvider::new(alix.store().conn().unwrap());
         // Doctor the group membership
         let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
         let mut existing_extensions = mls_group.extensions().clone();
@@ -1219,7 +1223,7 @@ mod tests {
             .update_group_context_extensions(
                 &provider,
                 existing_extensions.clone(),
-                &alix.identity().installation_keys,
+                &alix.identity.installation_keys,
             )
             .unwrap();
         mls_group.merge_pending_commit(&provider).unwrap();
@@ -1336,7 +1340,7 @@ mod tests {
             .unwrap();
         assert_eq!(messages.len(), 2);
 
-        let conn = &client.context.store.conn().unwrap();
+        let conn = &client.store.conn().unwrap();
         let provider = super::XmtpOpenMlsProvider::new(conn.clone());
         let mls_group = group.load_mls_group(&provider).unwrap();
         let pending_commit = mls_group.pending_commit();
@@ -1442,7 +1446,7 @@ mod tests {
 
         assert_eq!(group.members().unwrap().len(), 2);
 
-        let conn = &amal.context.store.conn().unwrap();
+        let conn = &amal.store.conn().unwrap();
         let provider = super::XmtpOpenMlsProvider::new(conn.clone());
         // Finished with setup
 

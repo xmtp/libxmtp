@@ -161,7 +161,7 @@ where
     ) -> Result<SignatureRequest, ClientError> {
         let nonce = maybe_nonce.unwrap_or(0);
         let inbox_id = generate_inbox_id(&wallet_address, &nonce);
-        let installation_public_key = self.identity().installation_keys.public();
+        let installation_public_key = self.identity.installation_keys.public();
         let member_identifier: MemberIdentifier = wallet_address.to_lowercase().into();
 
         let builder = SignatureRequestBuilder::new(inbox_id);
@@ -175,7 +175,7 @@ where
             .add_signature(Box::new(InstallationKeySignature::new(
                 signature_request.signature_text(),
                 // TODO: Move this to a method on the new identity
-                self.identity().sign(signature_request.signature_text())?,
+                self.identity.sign(signature_request.signature_text())?,
                 self.installation_public_key(),
             )))
             .await?;
@@ -213,6 +213,10 @@ where
                 wallet_to_revoke.into(),
             )
             .build())
+    }
+
+    pub fn signature_request(&self) -> Option<SignatureRequest> {
+        self.identity.signature_request()
     }
 
     pub async fn apply_signature_request(

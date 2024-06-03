@@ -73,7 +73,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
+        let conn = self.store.conn()?;
 
         self.maybe_update_installations(conn.clone(), None, client)
             .await?;
@@ -184,7 +184,7 @@ impl MlsGroup {
         }
         debug!(
             "[{}] processing own message for intent {} / {:?}",
-            self.context.inbox_id(),
+            self.identity.inbox_id(),
             intent.id,
             intent.kind
         );
@@ -221,7 +221,7 @@ impl MlsGroup {
                 )
                 .await?;
 
-                debug!("[{}] merging pending commit", self.context.inbox_id());
+                debug!("[{}] merging pending commit", self.identity.inbox_id());
                 if let Err(err) = openmls_group.merge_pending_commit(&provider) {
                     log::error!("error merging commit: {}", err);
                     match openmls_group.clear_pending_commit(provider.storage()) {
@@ -291,13 +291,13 @@ impl MlsGroup {
         envelope_timestamp_ns: u64,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
-        debug!("[{}] processing external message", self.context.inbox_id());
+        debug!("[{}] processing external message", self.identity.inbox_id());
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
         debug!(
             "[{}] extracted sender sender inbox id: {}",
-            self.context.inbox_id(),
+            self.identity.inbox_id(),
             sender_inbox_id
         );
         match decrypted_message.into_content() {
@@ -396,7 +396,7 @@ impl MlsGroup {
                 }
                 debug!(
                     "[{}] received staged commit. Merging and clearing any pending commits",
-                    self.context.inbox_id()
+                    self.identity.inbox_id()
                 );
 
                 let sc = *staged_commit;
@@ -509,7 +509,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let provider = self.context.mls_provider(conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
         log::debug!("  loaded openmls group");
 
@@ -561,7 +561,7 @@ impl MlsGroup {
 
         log::info!(
             "{}: Storing a transcript message with {} members added and {} members removed and {} metadata changes",
-            self.context.inbox_id(),
+            self.identity.inbox_id(),
             validated_commit.added_inboxes.len(),
             validated_commit.removed_inboxes.len(),
             validated_commit.metadata_changes.metadata_field_changes.len(),
@@ -604,7 +604,7 @@ impl MlsGroup {
     where
         ClientApi: XmtpApi,
     {
-        let provider = self.context.mls_provider(conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
 
         let intents = provider.conn().find_group_intents(
@@ -669,7 +669,7 @@ impl MlsGroup {
         match intent.kind {
             IntentKind::UpdateGroupMembership => {
                 let intent_data = UpdateGroupMembershipIntentData::try_from(&intent.data)?;
-                let signer = &self.context.identity.installation_keys;
+                let signer = &self.identity.installation_keys;
                 let (commit, post_commit_action) = apply_update_group_membership_intent(
                     client,
                     provider,
@@ -690,7 +690,7 @@ impl MlsGroup {
                 // TODO: Handle pending_proposal errors and UseAfterEviction errors
                 let msg = openmls_group.create_message(
                     &provider,
-                    &self.context.identity.installation_keys,
+                    &self.identity.installation_keys,
                     intent_data.message.as_slice(),
                 )?;
 
@@ -698,8 +698,8 @@ impl MlsGroup {
                 Ok((msg_bytes, None))
             }
             IntentKind::KeyUpdate => {
-                let (commit, _, _) = openmls_group
-                    .self_update(&provider, &self.context.identity.installation_keys)?;
+                let (commit, _, _) =
+                    openmls_group.self_update(&provider, &self.identity.installation_keys)?;
 
                 Ok((commit.tls_serialize_detached()?, None))
             }
@@ -715,7 +715,7 @@ impl MlsGroup {
                 let (commit, _, _) = openmls_group.update_group_context_extensions(
                     &provider,
                     mutable_metadata_extensions,
-                    &self.context.identity.installation_keys,
+                    &self.identity.installation_keys,
                 )?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
@@ -734,7 +734,7 @@ impl MlsGroup {
                 let (commit, _, _) = openmls_group.update_group_context_extensions(
                     provider,
                     mutable_metadata_extensions,
-                    &self.context.identity.installation_keys,
+                    &self.identity.installation_keys,
                 )?;
                 let commit_bytes = commit.tls_serialize_detached()?;
                 Ok((commit_bytes, None))
@@ -792,7 +792,7 @@ impl MlsGroup {
         let last = conn.get_installations_time_checked(self.group_id.clone())?;
         let elapsed = now - last;
         if elapsed > interval {
-            let provider = self.context.mls_provider(conn.clone());
+            let provider = XmtpOpenMlsProvider::new(conn.clone());
             self.add_missing_installations(&provider, client).await?;
             conn.update_installations_time_checked(self.group_id.clone())?;
         }

@@ -126,7 +126,7 @@ mod tests {
     }
 
     async fn register_client(client: &Client<GrpcClient>, owner: &impl InboxOwner) {
-        let mut signature_request = client.context.signature_request().unwrap();
+        let mut signature_request = client.signature_request().unwrap();
         let signature_text = signature_request.signature_text();
         signature_request
             .add_signature(Box::new(RecoverableEcdsaSignature::new(

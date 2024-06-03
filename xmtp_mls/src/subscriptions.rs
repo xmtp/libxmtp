@@ -17,6 +17,7 @@ use crate::{
     client::{extract_welcome_message, ClientError},
     groups::{extract_group_id, GroupError, MlsGroup},
     storage::group_message::StoredGroupMessage,
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, XmtpApi,
 };
 
@@ -59,7 +60,7 @@ where
     ) -> Result<MlsGroup, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
         let conn = self.store().conn()?;
-        let provider = self.mls_provider(conn);
+        let provider = XmtpOpenMlsProvider::new(conn);
 
         MlsGroup::create_from_encrypted_welcome(
             self,
@@ -124,7 +125,8 @@ where
 
         let stream = messages_subscription
             .map(move |res| {
-                let context = self.context.clone();
+                let identity = self.identity.clone();
+                let store = self.store.clone();
                 let client = self.clone();
 
                 let group_id_to_info = group_id_to_info.clone();
@@ -139,9 +141,14 @@ where
                                 ),
                             )?;
                             // TODO update cursor
-                            MlsGroup::new(context, group_id, stream_info.convo_created_at_ns)
-                                .process_stream_entry(envelope, client)
-                                .await
+                            MlsGroup::new(
+                                identity.clone(),
+                                store.clone(),
+                                group_id,
+                                stream_info.convo_created_at_ns,
+                            )
+                            .process_stream_entry(envelope, client)
+                            .await
                         }
                         Err(err) => Err(GroupError::Api(err)),
                     }

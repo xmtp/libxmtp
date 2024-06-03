@@ -26,7 +26,6 @@ impl MlsGroup {
 
         let client_pointer = client.clone();
         let process_result = self
-            .context
             .store
             .transaction_async(|provider| async move {
                 let mut openmls_group = self.load_mls_group(&provider)?;
@@ -52,7 +51,6 @@ impl MlsGroup {
         // Load the message from the DB to handle cases where it may have been already processed in
         // another thread
         let new_message = self
-            .context
             .store
             .conn()?
             .get_group_message_by_timestamp(&self.group_id, created_ns as i64)?;

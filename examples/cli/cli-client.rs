@@ -374,7 +374,7 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
         IdentityStrategy::CreateIfNotFound(w.get_address(), None),
     )
     .await?;
-    let mut signature_request = client.identity().signature_request().unwrap();
+    let mut signature_request = client.signature_request().unwrap();
     let signature = RecoverableEcdsaSignature::new(
         signature_request.signature_text(),
         w.sign(signature_request.signature_text().as_str())
