@@ -1,5 +1,5 @@
-import { wallets, addresses } from "./users.mjs";
-import { initEcdsaClient, checkCanMessage } from "./utils.mjs";
+import { wallets } from "./users.mjs";
+import { initEcdsaClient } from "./utils.mjs";
 
 wallets.forEach(async (wallet) => {
   try {
