@@ -47,6 +47,7 @@ use xmtp_proto::{
     xmtp::identity::MlsCredential,
 };
 
+#[derive(Debug, Clone)]
 pub enum IdentityStrategy {
     /// Tries to get an identity from the disk store. If not found, getting one from backend.
     CreateIfNotFound(InboxId, String, u64, Option<Vec<u8>>), // (inbox_id, address, nonce, legacy_signed_private_key)

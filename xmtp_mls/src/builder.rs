@@ -295,6 +295,76 @@ mod tests {
         }
     }
 
+    // First, create a client1 using legacy key and then test following cases:
+    // - create client2 from same db with [IdentityStrategy::CachedOnly]
+    // - create client3 from same db with [IdentityStrategy::CreateIfNotFound]
+    // - create client4 with different db.
+    #[tokio::test]
+    async fn test_2nd_time_client_creation() {
+        let legacy_account_address = "0x0bd00b21af9a2d538103c3aaf95cb507f8af1b28";
+        let legacy_key = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
+        let identity_strategy = IdentityStrategy::CreateIfNotFound(
+            generate_inbox_id(legacy_account_address, &0),
+            legacy_account_address.to_string(),
+            0,
+            Some(legacy_key),
+        );
+        let store =
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmp_path())).unwrap();
+
+        let client1: Client<GrpcClient> = ClientBuilder::new(identity_strategy.clone())
+            .store(store.clone())
+            .local_grpc()
+            .await
+            .build()
+            .await
+            .unwrap();
+        assert!(client1.context.signature_request().is_none());
+
+        let client2: Client<GrpcClient> = ClientBuilder::new(IdentityStrategy::CachedOnly)
+            .store(store.clone())
+            .local_grpc()
+            .await
+            .build()
+            .await
+            .unwrap();
+        assert!(client2.context.signature_request().is_none());
+        assert!(client1.inbox_id() == client2.inbox_id());
+        assert!(client1.installation_public_key() == client2.installation_public_key());
+
+        let client3: Client<GrpcClient> = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
+            generate_inbox_id(legacy_account_address, &0),
+            legacy_account_address.to_string(),
+            0,
+            None,
+        ))
+        .store(store.clone())
+        .local_grpc()
+        .await
+        .build()
+        .await
+        .unwrap();
+        assert!(client3.context.signature_request().is_none());
+        assert!(client1.inbox_id() == client3.inbox_id());
+        assert!(client1.installation_public_key() == client3.installation_public_key());
+
+        let client4: Client<GrpcClient> = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
+            generate_inbox_id(legacy_account_address, &0),
+            legacy_account_address.to_string(),
+            0,
+            None,
+        ))
+        .temp_store()
+        .local_grpc()
+        .await
+        .build()
+        .await
+        .unwrap();
+        assert!(client4.context.signature_request().is_some());
+        assert!(client1.inbox_id() == client4.inbox_id());
+        assert!(client1.installation_public_key() != client4.installation_public_key());
+    }
+
     // Should return error if inbox associated with given account_address doesn't match the provided one.
     #[tokio::test]
     async fn api_identity_mismatch() {
