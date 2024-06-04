@@ -361,5 +361,5 @@ fn add_1_member_to_large_group(c: &mut Criterion) {
 criterion_group!(
     name = group_limit;
     config = Criterion::default().sample_size(10);
-    targets = /*add_to_empty_group, add_to_empty_group_by_inbox_id, remove_all_members_from_group, remove_half_members_from_group,*/ add_to_100_member_group_by_inbox_id, add_to_100_member_group_by_inbox_id, add_1_member_to_large_group);
+    targets = add_to_empty_group, add_to_empty_group_by_inbox_id, remove_all_members_from_group, remove_half_members_from_group, add_to_100_member_group_by_inbox_id, add_to_100_member_group_by_inbox_id, add_1_member_to_large_group);
 criterion_main!(group_limit);
