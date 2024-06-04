@@ -138,12 +138,6 @@ mod tests {
         Client, InboxOwner,
     };
 
-    async fn get_local_grpc_client() -> GrpcClient {
-        GrpcClient::create("http://localhost:5556".to_string(), false)
-            .await
-            .unwrap()
-    }
-
     async fn register_client(client: &Client<GrpcClient>, owner: &impl InboxOwner) {
         let mut signature_request = client.context.signature_request().unwrap();
         let signature_text = signature_request.signature_text();
@@ -156,40 +150,6 @@ mod tests {
             .unwrap();
 
         client.register_identity(signature_request).await.unwrap();
-    }
-
-    impl ClientBuilder<GrpcClient> {
-        pub async fn local_grpc(self) -> Self {
-            self.api_client(get_local_grpc_client().await)
-        }
-
-        fn temp_store(self) -> Self {
-            let tmpdb = tmp_path();
-            self.store(
-                EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap(),
-            )
-        }
-
-        pub async fn new_test_client(owner: &impl InboxOwner) -> Client<GrpcClient> {
-            let nonce = 1;
-            let inbox_id = generate_inbox_id(&owner.get_address(), &nonce);
-            let client = Self::new(IdentityStrategy::CreateIfNotFound(
-                inbox_id,
-                owner.get_address(),
-                nonce,
-                None,
-            ))
-            .temp_store()
-            .local_grpc()
-            .await
-            .build()
-            .await
-            .unwrap();
-
-            register_client(&client, owner).await;
-
-            client
-        }
     }
 
     #[tokio::test]

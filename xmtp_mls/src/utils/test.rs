@@ -5,7 +5,7 @@ use rand::{
     Rng,
 };
 use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
-use xmtp_id::associations::RecoverableEcdsaSignature;
+use xmtp_id::associations::{generate_inbox_id, RecoverableEcdsaSignature};
 
 use crate::{
     builder::ClientBuilder,
@@ -53,15 +53,18 @@ impl ClientBuilder<GrpcClient> {
 
     pub fn temp_store(self) -> Self {
         let tmpdb = tmp_path();
-        log::debug!("database path {}", tmpdb);
         self.store(
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap(),
         )
     }
 
     pub async fn new_test_client(owner: &impl InboxOwner) -> Client<GrpcClient> {
+        let nonce = 1;
+        let inbox_id = generate_inbox_id(&owner.get_address(), &nonce);
         let client = Self::new(IdentityStrategy::CreateIfNotFound(
+            inbox_id,
             owner.get_address(),
+            nonce,
             None,
         ))
         .temp_store()
