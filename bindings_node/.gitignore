@@ -1,0 +1,14 @@
+# yarn
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# build artifacts
+dist
+
+# local DBs
+*.db3*

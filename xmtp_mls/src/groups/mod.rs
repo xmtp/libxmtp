@@ -927,6 +927,7 @@ mod tests {
         groups::{
             build_group_membership_extension,
             group_membership::GroupMembership,
+            group_metadata::{ConversationType, GroupMetadata},
             group_mutable_metadata::MetadataField,
             members::{GroupMember, PermissionLevel},
             PreconfiguredPolicies, UpdateAdminListType,
@@ -2008,5 +2009,25 @@ mod tests {
             added_by_inbox,
             "The Inviter and added_by_address do not match!"
         );
+    }
+
+    #[tokio::test]
+    async fn test_can_read_group_creator_inbox_id() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let policies = Some(PreconfiguredPolicies::AllMembers);
+        let amal_group = amal.create_group(policies).unwrap();
+        amal_group.sync(&amal).await.unwrap();
+
+        let mutable_metadata = amal_group.mutable_metadata().unwrap();
+        assert_eq!(mutable_metadata.admin_list.len(), 1);
+        assert_eq!(mutable_metadata.admin_list[0], amal.inbox_id());
+
+        let protected_metadata: GroupMetadata = amal_group.metadata().unwrap();
+        assert_eq!(
+            protected_metadata.conversation_type,
+            ConversationType::Group
+        );
+
+        assert_eq!(protected_metadata.creator_inbox_id, amal.inbox_id());
     }
 }

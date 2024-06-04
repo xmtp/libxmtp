@@ -154,3 +154,5 @@ libxmtp-version.txt
 # Directories from v2 branch
 bindings_swift/
 ecies_bindings_wasm/
+
+**/test_output.jsonl
