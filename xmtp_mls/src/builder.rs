@@ -119,16 +119,27 @@ mod tests {
         utils::test::{rand_string, rand_vec},
         Store,
     };
+    use ethers::signers::Signer;
+    use ethers_core::k256;
     use openmls::credentials::{Credential, CredentialType};
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_traits::types::SignatureScheme;
+    use prost::Message;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
-    use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_cryptography::signature::h160addr_to_string;
+    use xmtp_cryptography::utils::{generate_local_wallet, rng};
+    use xmtp_id::associations::ValidatedLegacySignedPublicKey;
     use xmtp_id::associations::{
         generate_inbox_id, test_utils::rand_u64, RecoverableEcdsaSignature,
     };
     use xmtp_proto::xmtp::identity::api::v1::{
         get_inbox_ids_response::Response as GetInboxIdsResponseItem, GetInboxIdsResponse,
+    };
+    use xmtp_proto::xmtp::message_contents::signature::WalletEcdsaCompact;
+    use xmtp_proto::xmtp::message_contents::signed_private_key::{Secp256k1, Union};
+    use xmtp_proto::xmtp::message_contents::unsigned_public_key::{self, Secp256k1Uncompressed};
+    use xmtp_proto::xmtp::message_contents::{
+        signature, Signature, SignedPrivateKey, SignedPublicKey, UnsignedPublicKey,
     };
 
     use super::{ClientBuilder, IdentityStrategy};
@@ -192,6 +203,49 @@ mod tests {
         }
     }
 
+    /// Generate a random legacy key proto bytes and corresponding account address.
+    async fn generate_random_legacy_key() -> (Vec<u8>, String) {
+        let wallet = generate_local_wallet();
+        let address = h160addr_to_string(wallet.address());
+        let created_ns = rand_u64();
+        let secret_key = k256::ecdsa::SigningKey::random(&mut rng());
+        let public_key = k256::ecdsa::VerifyingKey::from(&secret_key);
+        let public_key_bytes = public_key.to_sec1_bytes().to_vec();
+        let mut public_key_buf = vec![];
+        UnsignedPublicKey {
+            created_ns,
+            union: Some(unsigned_public_key::Union::Secp256k1Uncompressed(
+                Secp256k1Uncompressed {
+                    bytes: public_key_bytes.clone(),
+                },
+            )),
+        }
+        .encode(&mut public_key_buf)
+        .unwrap();
+        let message = ValidatedLegacySignedPublicKey::text(&public_key_buf);
+        let signed_public_key = wallet.sign_message(message).await.unwrap().to_vec();
+        let (bytes, recovery_id) = signed_public_key.as_slice().split_at(64);
+        let recovery_id = recovery_id[0];
+        let signed_private_key: SignedPrivateKey = SignedPrivateKey {
+            created_ns,
+            public_key: Some(SignedPublicKey {
+                key_bytes: public_key_buf,
+                signature: Some(Signature {
+                    union: Some(signature::Union::WalletEcdsaCompact(WalletEcdsaCompact {
+                        bytes: bytes.to_vec(),
+                        recovery: recovery_id.into(),
+                    })),
+                }),
+            }),
+            union: Some(Union::Secp256k1(Secp256k1 {
+                bytes: secret_key.to_bytes().to_vec(),
+            })),
+        };
+        let mut buf = vec![];
+        signed_private_key.encode(&mut buf).unwrap();
+        (buf, address.to_lowercase())
+    }
+
     #[tokio::test]
     async fn builder_test() {
         let wallet = generate_local_wallet();
@@ -202,9 +256,7 @@ mod tests {
     // Test client creation using various identity strategies that creates new inboxes
     #[tokio::test]
     async fn test_client_creation() {
-        // test cases where new inbox are created
-        let legacy_account_address = "0x0bd00b21af9a2d538103c3aaf95cb507f8af1b28";
-        let legacy_key = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
+        let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
         let non_legacy_account_address = generate_local_wallet().get_address();
         let nonce_for_legacy = 0;
         let nonce_for_non_legacy = rand_u64();
@@ -214,12 +266,11 @@ mod tests {
             err: Option<String>,
         }
 
-        // Given that the identity in db will hijack the test cases, we put the happy case for an inbox_id at the end.
         let identity_strategies_test_cases = vec![
             // legacy cases
             IdentityStrategyTestCase {
                 strategy: IdentityStrategy::CreateIfNotFound(
-                    generate_inbox_id(legacy_account_address, &111),
+                    generate_inbox_id(&legacy_account_address, &111),
                     legacy_account_address.to_string(),
                     111,
                     Some(legacy_key.clone()),
@@ -228,7 +279,7 @@ mod tests {
             },
             IdentityStrategyTestCase {
                 strategy: IdentityStrategy::CreateIfNotFound(
-                    generate_inbox_id(legacy_account_address, &111),
+                    generate_inbox_id(&legacy_account_address, &111),
                     legacy_account_address.to_string(),
                     nonce_for_legacy,
                     Some(legacy_key.clone()),
@@ -237,7 +288,7 @@ mod tests {
             },
             IdentityStrategyTestCase {
                 strategy: IdentityStrategy::CreateIfNotFound(
-                    generate_inbox_id(legacy_account_address, &nonce_for_legacy),
+                    generate_inbox_id(&legacy_account_address, &nonce_for_legacy),
                     legacy_account_address.to_string(),
                     nonce_for_legacy,
                     Some(legacy_key.clone()),
@@ -284,7 +335,6 @@ mod tests {
 
             if let Some(err_string) = test_case.err {
                 assert!(result.is_err());
-                // println!("expected {}, result {:?}", err_string, result);
                 assert!(matches!(
                     result,
                     Err(ClientBuilderError::Identity(IdentityError::NewIdentity(err))) if err == err_string
@@ -293,6 +343,75 @@ mod tests {
                 assert!(result.is_ok());
             }
         }
+    }
+
+    // First, create a client1 using legacy key and then test following cases:
+    // - create client2 from same db with [IdentityStrategy::CachedOnly]
+    // - create client3 from same db with [IdentityStrategy::CreateIfNotFound]
+    // - create client4 with different db.
+    #[tokio::test]
+    async fn test_2nd_time_client_creation() {
+        let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
+        let identity_strategy = IdentityStrategy::CreateIfNotFound(
+            generate_inbox_id(&legacy_account_address, &0),
+            legacy_account_address.to_string(),
+            0,
+            Some(legacy_key.clone()),
+        );
+        let store =
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmp_path())).unwrap();
+
+        let client1: Client<GrpcClient> = ClientBuilder::new(identity_strategy.clone())
+            .store(store.clone())
+            .local_grpc()
+            .await
+            .build()
+            .await
+            .unwrap();
+        assert!(client1.context.signature_request().is_none());
+
+        let client2: Client<GrpcClient> = ClientBuilder::new(IdentityStrategy::CachedOnly)
+            .store(store.clone())
+            .local_grpc()
+            .await
+            .build()
+            .await
+            .unwrap();
+        assert!(client2.context.signature_request().is_none());
+        assert!(client1.inbox_id() == client2.inbox_id());
+        assert!(client1.installation_public_key() == client2.installation_public_key());
+
+        let client3: Client<GrpcClient> = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
+            generate_inbox_id(&legacy_account_address, &0),
+            legacy_account_address.to_string(),
+            0,
+            None,
+        ))
+        .store(store.clone())
+        .local_grpc()
+        .await
+        .build()
+        .await
+        .unwrap();
+        assert!(client3.context.signature_request().is_none());
+        assert!(client1.inbox_id() == client3.inbox_id());
+        assert!(client1.installation_public_key() == client3.installation_public_key());
+
+        let client4: Client<GrpcClient> = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
+            generate_inbox_id(&legacy_account_address, &0),
+            legacy_account_address.to_string(),
+            0,
+            Some(legacy_key),
+        ))
+        .temp_store()
+        .local_grpc()
+        .await
+        .build()
+        .await
+        .unwrap();
+        assert!(client4.context.signature_request().is_some());
+        assert!(client1.inbox_id() == client4.inbox_id());
+        assert!(client1.installation_public_key() != client4.installation_public_key());
     }
 
     // Should return error if inbox associated with given account_address doesn't match the provided one.
