@@ -97,6 +97,7 @@ impl IdentityStrategy {
                         nonce,
                         legacy_signed_private_key,
                         api_client,
+                        &provider,
                     )
                     .await
                 }
@@ -183,6 +184,7 @@ impl Identity {
         nonce: u64,
         legacy_signed_private_key: Option<Vec<u8>>,
         api_client: &ApiClientWrapper<ApiClient>,
+        provider: &XmtpOpenMlsProvider,
     ) -> Result<Self, IdentityError> {
         // check if address is already associated with an inbox_id
         let inbox_ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
@@ -265,6 +267,9 @@ impl Identity {
                 credential: create_credential(inbox_id)?,
                 signature_request: None,
             };
+
+            identity.register(provider, api_client).await?;
+
             Ok(identity)
         } else {
             if nonce == 0 {
