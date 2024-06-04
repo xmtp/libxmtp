@@ -258,7 +258,6 @@ impl Identity {
                     .await?,
                 ))
                 .await?;
-
             let identity_update = signature_request.build_identity_update()?;
             api_client.publish_identity_update(identity_update).await?;
 
