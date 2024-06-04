@@ -118,8 +118,7 @@ impl Client<GrpcClient> {
             .get_inbox_ids(vec![address.clone()])
             .await
             .unwrap();
-        let s = ids.contains_key(address);
-        s
+        ids.contains_key(address)
     }
 }
 
