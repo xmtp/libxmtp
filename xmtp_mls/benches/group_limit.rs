@@ -13,7 +13,9 @@ use xmtp_mls::{
 };
 
 static INIT: Once = Once::new();
-pub const IDENTITY_SAMPLES: [usize; 12] = [5, 10, 20, 40, 80, 100, 200, 400, 500, 600, 700, 800];
+pub const IDENTITY_SAMPLES: [usize; 15] = [
+    5, 10, 20, 40, 80, 100, 200, 400, 500, 600, 700, 800, 1600, 3200, 4_000,
+];
 pub const MAX_IDENTITIES: usize = 5_000;
 pub const SAMPLE_SIZE: usize = 10;
 
@@ -182,52 +184,6 @@ fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
     benchmark_group.finish();
 }
 
-// requires https://github.com/xmtp/libxmtp/issues/810 to work
-fn add_to_100_member_group_by_address(c: &mut Criterion) {
-    init_logging();
-    let mut benchmark_group = c.benchmark_group("add_to_100_member_group_by_address");
-    benchmark_group.sample_size(SAMPLE_SIZE);
-
-    let (client, identities, runtime) = setup();
-    let addresses: Vec<String> = identities.into_iter().map(|i| i.address).collect();
-
-    let mut map = HashMap::<usize, Vec<String>>::new();
-
-    for size in IDENTITY_SAMPLES {
-        map.insert(size, addresses.iter().take(size).cloned().collect());
-    }
-
-    for size in IDENTITY_SAMPLES.iter() {
-        benchmark_group.throughput(Throughput::Elements(*size as u64));
-        benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
-            let ids = map.get(&size).unwrap();
-            b.to_async(&runtime).iter_batched(
-                || {
-                    bench_async_setup(|| async {
-                        let group = client.create_group(None).unwrap();
-                        group
-                            .add_members(
-                                &client,
-                                // it is OK to take from the back for now because we aren't getting
-                                // near MAX_IDENTITIES
-                                addresses.iter().rev().take(100).cloned().collect(),
-                            )
-                            .await
-                            .unwrap();
-
-                        (client.clone(), group)
-                    })
-                },
-                |(client, group)| async move {
-                    group.add_members(&client, ids.clone()).await.unwrap();
-                },
-                BatchSize::SmallInput,
-            );
-        });
-    }
-    benchmark_group.finish();
-}
-
 fn remove_all_members_from_group(c: &mut Criterion) {
     init_logging();
     let mut benchmark_group = c.benchmark_group("remove_all_members_from_group");
@@ -314,10 +270,9 @@ fn remove_half_members_from_group(c: &mut Criterion) {
     benchmark_group.finish();
 }
 
-// requires https://github.com/xmtp/libxmtp/issues/810 to work
-fn add_1_member_to_large_group(c: &mut Criterion) {
+fn add_1_member_to_group(c: &mut Criterion) {
     init_logging();
-    let mut benchmark_group = c.benchmark_group("add_to_100_member_group_by_address");
+    let mut benchmark_group = c.benchmark_group("add_1_member_to_group");
     benchmark_group.sample_size(SAMPLE_SIZE);
 
     let (client, identities, runtime) = setup();
@@ -361,5 +316,5 @@ fn add_1_member_to_large_group(c: &mut Criterion) {
 criterion_group!(
     name = group_limit;
     config = Criterion::default().sample_size(10);
-    targets = add_to_empty_group, add_to_empty_group_by_inbox_id, remove_all_members_from_group, remove_half_members_from_group, add_to_100_member_group_by_inbox_id, add_to_100_member_group_by_inbox_id, add_1_member_to_large_group);
+    targets = add_to_empty_group, add_to_empty_group_by_inbox_id, remove_all_members_from_group, remove_half_members_from_group, add_to_100_member_group_by_inbox_id, add_1_member_to_group);
 criterion_main!(group_limit);

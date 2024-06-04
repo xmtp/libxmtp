@@ -128,15 +128,17 @@ mod tests {
             )
             .unwrap();
 
-            let first_association_state =
-                StoredAssociationState::batch_read_from_cache(conn, &[(inbox_id.to_string(), 1)])
-                    .unwrap();
+            let first_association_state = StoredAssociationState::batch_read_from_cache(
+                conn,
+                vec![(inbox_id.to_string(), 1)],
+            )
+            .unwrap();
             assert_eq!(first_association_state.len(), 1);
             assert_eq!(first_association_state[0].inbox_id(), &inbox_id);
 
             let both_association_states = StoredAssociationState::batch_read_from_cache(
                 conn,
-                &[(inbox_id.to_string(), 1), (inbox_id_2.to_string(), 2)],
+                vec![(inbox_id.to_string(), 1), (inbox_id_2.to_string(), 2)],
             )
             .unwrap();
 
@@ -145,7 +147,7 @@ mod tests {
             let no_results = StoredAssociationState::batch_read_from_cache(
                 conn,
                 // Mismatched inbox_id and sequence_id
-                &[(inbox_id.to_string(), 2)],
+                vec![(inbox_id.to_string(), 2)],
             )
             .unwrap();
             assert_eq!(no_results.len(), 0);
