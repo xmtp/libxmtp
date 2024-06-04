@@ -157,3 +157,4 @@ ecies_bindings_wasm/
 
 # Locally Generated Stuff
 *.generated
+**/test_output.jsonl

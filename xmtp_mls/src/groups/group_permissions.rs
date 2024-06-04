@@ -1104,7 +1104,7 @@ mod tests {
         };
 
         let field_changes = metadata_fields_changed
-            .unwrap_or(vec![])
+            .unwrap_or_default()
             .into_iter()
             .map(|field| MetadataFieldChange::new(field, Some(rand_string()), Some(rand_string())))
             .collect();

@@ -26,7 +26,7 @@ use xmtp_mls::retry::Retry;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
-    groups::{MlsGroup, members::PermissionLevel},
+    groups::{members::PermissionLevel, MlsGroup},
     storage::{
         group_message::DeliveryStatus, group_message::GroupMessageKind,
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
@@ -35,23 +35,25 @@ use xmtp_mls::{
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
-/// XMTP SDK's may embed libxmtp (v3) alongside existing v2 protocol logic
-/// for backwards-compatibility purposes. In this case, the client may already
-/// have a wallet-signed v2 key. Depending on the source of this key,
-/// libxmtp may choose to bootstrap v3 installation keys using the existing
-/// legacy key.
-#[derive(uniffi::Enum)]
-pub enum LegacyIdentitySource {
-    // A client with no support for v2 messages
-    None,
-    // A cached v2 key was provided on client initialization
-    Static,
-    // A private bundle exists on the network from which the v2 key was fetched
-    Network,
-    // A new v2 key was generated on client initialization
-    KeyGenerator,
-}
-
+/// It returns a new client of the specified `inbox_id`.
+/// Note that the `inbox_id` must be either brand new or already associated with the `account_address`.
+/// i.e. `inbox_id` cannot be associated with another account address.
+///
+/// Prior to calling this function, it's suggested to form `inbox_id`, `account_address`, and `nonce` like below.
+///
+/// ```text
+/// inbox_id = get_inbox_id_for_address(account_address)
+/// nonce = 0
+///
+/// // if inbox_id is not associated, we will create new one.
+/// if !inbox_id {
+///     if !legacy_key { nonce = random_u64() }
+///     inbox_id = generate_inbox_id(account_address, nonce)
+/// } // Otherwise, we will just use the inbox and ignore the nonce.
+/// db_path = $inbox_id-$env
+///
+/// xmtp.create_client(account_address, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
+/// ```
 #[allow(clippy::too_many_arguments)]
 #[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]
@@ -61,8 +63,9 @@ pub async fn create_client(
     is_secure: bool,
     db: Option<String>,
     encryption_key: Option<Vec<u8>>,
+    inbox_id: &InboxId,
     account_address: String,
-    legacy_identity_source: LegacyIdentitySource,
+    nonce: u64,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     log::info!(
@@ -92,19 +95,13 @@ pub async fn create_client(
         }
         None => EncryptedMessageStore::new_unencrypted(storage_option)?,
     };
-
     log::info!("Creating XMTP client");
-    let legacy_key_result =
-        legacy_signed_private_key_proto.ok_or("No legacy key provided".to_string());
-    // TODO: uncomment
-    // let legacy_identity = match legacy_identity_source {
-    //     LegacyIdentitySource::None => LegacyIdentity::None,
-    //     LegacyIdentitySource::Static => LegacyIdentity::Static(legacy_key_result?),
-    //     LegacyIdentitySource::Network => LegacyIdentity::Network(legacy_key_result?),
-    //     LegacyIdentitySource::KeyGenerator => LegacyIdentity::KeyGenerator(legacy_key_result?),
-    // };
-    let identity_strategy =
-        IdentityStrategy::CreateIfNotFound(account_address.clone().to_lowercase(), None);
+    let identity_strategy = IdentityStrategy::CreateIfNotFound(
+        inbox_id.clone(),
+        account_address.clone(),
+        nonce,
+        legacy_signed_private_key_proto,
+    );
     let xmtp_client: RustXmtpClient = ClientBuilder::new(identity_strategy)
         .api_client(api_client)
         .store(store)
@@ -188,6 +185,10 @@ impl FfiSignatureRequest {
         .await?;
         inner.add_signature(Box::new(erc1271_signature)).await?;
         Ok(())
+    }
+
+    pub async fn is_ready(&self) -> bool {
+        self.inner.lock().await.is_ready()
     }
 
     pub async fn signature_text(&self) -> Result<String, GenericError> {
@@ -683,7 +684,9 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
         );
-        group.update_admin_list(&self.inner_client,  UpdateAdminListType::Add, inbox_id).await?;
+        group
+            .update_admin_list(&self.inner_client, UpdateAdminListType::Add, inbox_id)
+            .await?;
 
         Ok(())
     }
@@ -694,7 +697,9 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
         );
-        group.update_admin_list(&self.inner_client,  UpdateAdminListType::Remove, inbox_id).await?;
+        group
+            .update_admin_list(&self.inner_client, UpdateAdminListType::Remove, inbox_id)
+            .await?;
 
         Ok(())
     }
@@ -705,7 +710,9 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
         );
-        group.update_admin_list(&self.inner_client,  UpdateAdminListType::AddSuper, inbox_id).await?;
+        group
+            .update_admin_list(&self.inner_client, UpdateAdminListType::AddSuper, inbox_id)
+            .await?;
 
         Ok(())
     }
@@ -716,7 +723,13 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
         );
-        group.update_admin_list(&self.inner_client,  UpdateAdminListType::RemoveSuper, inbox_id).await?;
+        group
+            .update_admin_list(
+                &self.inner_client,
+                UpdateAdminListType::RemoveSuper,
+                inbox_id,
+            )
+            .await?;
 
         Ok(())
     }
@@ -934,7 +947,7 @@ impl FfiGroupPermissions {
 mod tests {
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
-        FfiConversationCallback, FfiInboxOwner, LegacyIdentitySource,
+        FfiConversationCallback, FfiInboxOwner,
     };
     use std::{
         env,
@@ -951,6 +964,7 @@ mod tests {
         distributions::{Alphanumeric, DistString},
     };
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
+    use xmtp_id::associations::generate_inbox_id;
     use xmtp_mls::{storage::EncryptionKey, InboxOwner};
 
     #[derive(Clone)]
@@ -1047,6 +1061,8 @@ mod tests {
 
     async fn new_test_client() -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
+        let nonce = 1;
+        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
 
         let client = create_client(
             Box::new(MockLogger {}),
@@ -1054,14 +1070,15 @@ mod tests {
             false,
             Some(tmp_path()),
             None,
+            &inbox_id,
             ffi_inbox_owner.get_address(),
-            LegacyIdentitySource::None,
+            nonce,
             None,
         )
         .await
         .unwrap();
         register_client(&ffi_inbox_owner, &client).await;
-        return client;
+        client
     }
 
     #[tokio::test]
@@ -1086,7 +1103,7 @@ mod tests {
     #[tokio::test]
     async fn test_client_creation() {
         let client = new_test_client().await;
-        assert!(!client.signature_request().is_none());
+        assert!(client.signature_request().is_some());
     }
 
     #[tokio::test]
@@ -1094,6 +1111,8 @@ mod tests {
     async fn test_legacy_identity() {
         let account_address = "0x0bD00B21aF9a2D538103c3AAf95Cb507f8AF1B28".to_lowercase();
         let legacy_keys = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
+        let nonce = 0;
+        let inbox_id = generate_inbox_id(&account_address, &nonce);
 
         let client = create_client(
             Box::new(MockLogger {}),
@@ -1101,8 +1120,9 @@ mod tests {
             false,
             Some(tmp_path()),
             None,
+            &inbox_id,
             account_address.to_string(),
-            LegacyIdentitySource::KeyGenerator,
+            nonce,
             Some(legacy_keys),
         )
         .await
@@ -1114,6 +1134,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_client_with_storage() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
+        let nonce = 1;
+        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
 
         let path = tmp_path();
 
@@ -1123,8 +1145,9 @@ mod tests {
             false,
             Some(path.clone()),
             None,
+            &inbox_id,
             ffi_inbox_owner.get_address(),
-            LegacyIdentitySource::None,
+            nonce,
             None,
         )
         .await
@@ -1140,8 +1163,9 @@ mod tests {
             false,
             Some(path),
             None,
+            &inbox_id,
             ffi_inbox_owner.get_address(),
-            LegacyIdentitySource::None,
+            nonce,
             None,
         )
         .await
@@ -1159,6 +1183,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_client_with_key() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
+        let nonce = 1;
+        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
 
         let path = tmp_path();
 
@@ -1170,8 +1196,9 @@ mod tests {
             false,
             Some(path.clone()),
             Some(key),
+            &inbox_id,
             ffi_inbox_owner.get_address(),
-            LegacyIdentitySource::None,
+            nonce,
             None,
         )
         .await
@@ -1188,8 +1215,9 @@ mod tests {
             false,
             Some(path),
             Some(other_key.to_vec()),
+            &inbox_id,
             ffi_inbox_owner.get_address(),
-            LegacyIdentitySource::None,
+            nonce,
             None,
         )
         .await
@@ -1216,6 +1244,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_invalid_external_signature() {
         let inbox_owner = LocalWalletInboxOwner::new();
+        let nonce = 1;
+        let inbox_id = generate_inbox_id(&inbox_owner.get_address(), &nonce);
         let path = tmp_path();
 
         let client = create_client(
@@ -1224,8 +1254,9 @@ mod tests {
             false,
             Some(path.clone()),
             None, // encryption_key
+            &inbox_id,
             inbox_owner.get_address(),
-            LegacyIdentitySource::None,
+            nonce,
             None, // v2_signed_private_key_proto
         )
         .await
@@ -1238,7 +1269,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_can_message() {
         let amal = LocalWalletInboxOwner::new();
+        let nonce = 1;
+        let amal_inbox_id = generate_inbox_id(&amal.get_address(), &nonce);
         let bola = LocalWalletInboxOwner::new();
+        let bola_inbox_id = generate_inbox_id(&bola.get_address(), &nonce);
         let path = tmp_path();
 
         let client_amal = create_client(
@@ -1247,8 +1281,9 @@ mod tests {
             false,
             Some(path.clone()),
             None,
+            &amal_inbox_id,
             amal.get_address(),
-            LegacyIdentitySource::None,
+            nonce,
             None,
         )
         .await
@@ -1272,8 +1307,9 @@ mod tests {
             false,
             Some(path.clone()),
             None,
+            &bola_inbox_id,
             bola.get_address(),
-            LegacyIdentitySource::None,
+            nonce,
             None,
         )
         .await

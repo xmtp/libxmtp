@@ -15,6 +15,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder};
 use kv_log_macro::{error, info};
 use prost::Message;
+use xmtp_id::associations::RecoverableEcdsaSignature;
 
 use crate::{
     json_logger::make_value,
@@ -27,6 +28,7 @@ use xmtp_cryptography::{
     signature::{RecoverableSignature, SignatureError},
     utils::rng,
 };
+use xmtp_id::associations::generate_inbox_id;
 use xmtp_mls::{
     builder::ClientBuilderError,
     client::ClientError,
@@ -368,15 +370,26 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
         Wallet::LocalWallet(LocalWallet::new(&mut rng()))
     };
 
+    let nonce = 0;
+    let inbox_id = generate_inbox_id(&w.get_address(), &nonce);
     let client = create_client(
         cli,
-        IdentityStrategy::CreateIfNotFound(w.get_address(), None),
+        IdentityStrategy::CreateIfNotFound(inbox_id, w.get_address(), nonce, None),
     )
     .await?;
-    if let Err(e) = client
-        .register_identity(client.identity().signature_request().unwrap())
+    let mut signature_request = client.identity().signature_request().unwrap();
+    let signature = RecoverableEcdsaSignature::new(
+        signature_request.signature_text(),
+        w.sign(signature_request.signature_text().as_str())
+            .unwrap()
+            .into(),
+    );
+    signature_request
+        .add_signature(Box::new(signature))
         .await
-    {
+        .unwrap();
+
+    if let Err(e) = client.register_identity(signature_request).await {
         error!("Initialization Failed: {}", e.to_string());
         panic!("Could not init");
     };
