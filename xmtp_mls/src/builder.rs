@@ -296,7 +296,6 @@ mod tests {
     }
 
     // Create two clients sequencially with the same inbox id & legacy key
-    //
     #[tokio::test]
     async fn test_twice_client_creation() {
         let legacy_account_address = "0x0bd00b21af9a2d538103c3aaf95cb507f8af1b28";

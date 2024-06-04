@@ -176,10 +176,10 @@ impl Identity {
     /// Create a new [Identity] instance.
     ///
     /// If the address is already associated with an inbox_id, the existing inbox_id will be used.
-    /// Prioritize legacy key if provided, otherwise will need to require a signature from wallet.
+    /// Prioritize legacy key if provided, otherwise identity.signature_request is not ready and needs to be signed from users.
     ///
     /// If the address is NOT associated with an inbox_id, a new inbox_id will be generated.
-    /// Prioritize legacy key if provided, otherwise will need to require a signature from wallet.
+    /// Prioritize legacy key if provided, otherwise identity.signature_request is not ready and needs to be signed from users.
     pub(crate) async fn new<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
         inbox_id: InboxId,
         address: String,
