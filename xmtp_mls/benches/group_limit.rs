@@ -246,10 +246,7 @@ fn remove_all_members_from_group(c: &mut Criterion) {
                     bench_async_setup(|| async {
                         let group = client.create_group(None).unwrap();
                         group
-                            .add_members_by_inbox_id(
-                                &client,
-                                inbox_ids.iter().take(size).cloned().collect(),
-                            )
+                            .add_members_by_inbox_id(&client, ids.clone())
                             .await
                             .unwrap();
                         (client.clone(), group)
@@ -292,10 +289,7 @@ fn remove_half_members_from_group(c: &mut Criterion) {
                     bench_async_setup(|| async {
                         let group = client.create_group(None).unwrap();
                         group
-                            .add_members_by_inbox_id(
-                                &client,
-                                inbox_ids.iter().take(size).cloned().collect(),
-                            )
+                            .add_members_by_inbox_id(&client, ids.clone())
                             .await
                             .unwrap();
                         (client.clone(), group)
