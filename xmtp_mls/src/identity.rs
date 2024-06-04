@@ -83,7 +83,6 @@ impl IdentityStrategy {
                 legacy_signed_private_key,
             ) => {
                 if let Some(stored_identity) = stored_identity {
-                    info!("Calling Identity::new");
                     if inbox_id != stored_identity.inbox_id {
                         return Err(IdentityError::InboxIdMismatch {
                             id: inbox_id.clone(),
@@ -93,7 +92,6 @@ impl IdentityStrategy {
 
                     Ok(stored_identity)
                 } else {
-                    info!("Calling Identity::new");
                     Identity::new(
                         inbox_id,
                         address,
