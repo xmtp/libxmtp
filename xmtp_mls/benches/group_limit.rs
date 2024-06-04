@@ -37,10 +37,20 @@ fn setup() -> (Arc<TestClient>, Vec<Identity>, Runtime) {
         .unwrap();
 
     let (client, identities) = runtime.block_on(async {
-        let identities: Vec<Identity> = create_identities_if_dont_exist(MAX_IDENTITIES).await;
-
         let wallet = LocalWallet::new(&mut rng());
-        let client = Arc::new(ClientBuilder::new_test_client(&wallet).await);
+
+        // use dev network if `DEV_GRPC` is set
+        let dev = std::env::var("DEV_GRPC");
+        let is_dev_network = matches!(dev, Ok(d) if d == "true" || d == "1");
+        let client = if is_dev_network {
+            println!("Using Dev GRPC");
+            Arc::new(ClientBuilder::new_dev_client(&wallet).await)
+        } else {
+            Arc::new(ClientBuilder::new_test_client(&wallet).await)
+        };
+
+        let identities: Vec<Identity> =
+            create_identities_if_dont_exist(MAX_IDENTITIES, &client, is_dev_network).await;
 
         (client, identities)
     });

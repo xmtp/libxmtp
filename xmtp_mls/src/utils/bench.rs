@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use xmtp_cryptography::utils::rng;
 
+use super::test::TestClient;
+
 #[derive(Debug, Error)]
 pub enum BenchError {
     #[error(transparent)]
@@ -16,21 +18,28 @@ pub enum BenchError {
     Io(#[from] std::io::Error),
 }
 
-pub fn file_path() -> String {
-    format!("{}/identities.generated", env!("CARGO_MANIFEST_DIR"))
+pub fn file_path(is_dev_network: bool) -> String {
+    if is_dev_network {
+        format!("{}/dev-identities.generated", env!("CARGO_MANIFEST_DIR"))
+    } else {
+        format!("{}/identities.generated", env!("CARGO_MANIFEST_DIR"))
+    }
 }
 
-pub async fn write_identities(num_groups: usize) -> Vec<Identity> {
-    let identities: Vec<Identity> = create_identities(num_groups).await.into_iter().collect();
+pub async fn write_identities(num_groups: usize, is_dev_network: bool) -> Vec<Identity> {
+    let identities: Vec<Identity> = create_identities(num_groups, is_dev_network)
+        .await
+        .into_iter()
+        .collect();
     let json = serde_json::to_string(&identities).unwrap();
 
-    std::fs::write(file_path(), json).unwrap();
+    std::fs::write(file_path(is_dev_network), json).unwrap();
 
     identities
 }
 
-pub fn load_identities() -> Result<Vec<Identity>, BenchError> {
-    let identities = std::fs::read(file_path())?;
+pub fn load_identities(is_dev_network: bool) -> Result<Vec<Identity>, BenchError> {
+    let identities = std::fs::read(file_path(is_dev_network))?;
     Ok(serde_json::from_slice(identities.as_slice())?)
 }
 
@@ -46,14 +55,17 @@ impl Identity {
     }
 }
 
-async fn create_identity() -> Identity {
+async fn create_identity(is_dev_network: bool) -> Identity {
     let wallet = LocalWallet::new(&mut rng());
-    let client = ClientBuilder::new_test_client(&wallet).await;
-
+    let client = if is_dev_network {
+        ClientBuilder::new_dev_client(&wallet).await
+    } else {
+        ClientBuilder::new_test_client(&wallet).await
+    };
     Identity::new(client.inbox_id(), format!("0x{:x}", wallet.address()))
 }
 
-async fn create_identities(n: usize) -> Vec<Identity> {
+async fn create_identities(n: usize, is_dev_network: bool) -> Vec<Identity> {
     let mut identities = Vec::with_capacity(n);
 
     let style =
@@ -66,7 +78,7 @@ async fn create_identities(n: usize) -> Vec<Identity> {
     for _ in 0..n {
         let bar_pointer = bar.clone();
         handles.push(set.spawn(async move {
-            let identity = create_identity().await;
+            let identity = create_identity(is_dev_network).await;
             bar_pointer.inc(1);
             identity
         }));
@@ -89,14 +101,19 @@ async fn create_identities(n: usize) -> Vec<Identity> {
 
 /// Create identities if they don't already exist.
 /// creates specified `identities` on the
-/// local gRPC for [`ClientBuilder::new_test_client`] and saves them to the file,
+/// local gRPC local/dev and saves them to the file,
 /// `identities.generated`. Uses this file for subsequent runs.
-pub async fn create_identities_if_dont_exist(identities: usize) -> Vec<Identity> {
-    match load_identities() {
+pub async fn create_identities_if_dont_exist(
+    identities: usize,
+    client: &TestClient,
+    is_dev_network: bool,
+) -> Vec<Identity> {
+    match load_identities(is_dev_network) {
         Ok(identities) => {
-            log::info!("Found generated identities, checking for existence on backend...");
-            let wallet = LocalWallet::new(&mut rng());
-            let client = ClientBuilder::new_test_client(&wallet).await;
+            log::info!(
+                "Found generated identities at {}, checking for existence on backend...",
+                file_path(is_dev_network)
+            );
             if client.is_registered(&identities[0].address).await {
                 return identities;
             }
@@ -113,7 +130,7 @@ pub async fn create_identities_if_dont_exist(identities: usize) -> Vec<Identity>
     );
 
     println!("Writing {identities} identities... (this will take a while...)");
-    let addresses = write_identities(identities).await;
-    println!("Wrote {identities} to {}", file_path());
+    let addresses = write_identities(identities, is_dev_network).await;
+    println!("Wrote {identities} to {}", file_path(is_dev_network));
     addresses
 }

@@ -46,9 +46,19 @@ pub async fn get_local_grpc_client() -> GrpcClient {
         .unwrap()
 }
 
+pub async fn get_dev_grpc_client() -> GrpcClient {
+    GrpcClient::create("https://grpc.dev.xmtp.network:443".into(), true)
+        .await
+        .unwrap()
+}
+
 impl ClientBuilder<GrpcClient> {
     pub async fn local_grpc(self) -> Self {
         self.api_client(get_local_grpc_client().await)
+    }
+
+    pub async fn dev_grpc(self) -> Self {
+        self.api_client(get_dev_grpc_client().await)
     }
 
     pub fn temp_store(self) -> Self {
@@ -78,6 +88,27 @@ impl ClientBuilder<GrpcClient> {
 
         client
     }
+
+    pub async fn new_dev_client(owner: &impl InboxOwner) -> Client<GrpcClient> {
+        let nonce = 1;
+        let inbox_id = generate_inbox_id(&owner.get_address(), &nonce);
+        let client = Self::new(IdentityStrategy::CreateIfNotFound(
+            inbox_id,
+            owner.get_address(),
+            nonce,
+            None,
+        ))
+        .temp_store()
+        .dev_grpc()
+        .await
+        .build()
+        .await
+        .unwrap();
+
+        register_client(&client, owner).await;
+
+        client
+    }
 }
 
 impl Client<GrpcClient> {
@@ -87,7 +118,9 @@ impl Client<GrpcClient> {
             .get_inbox_ids(vec![address.clone()])
             .await
             .unwrap();
-        ids.contains_key(address)
+        let s = ids.contains_key(address);
+        println!("Is registered? {}", s);
+        s
     }
 }
 
