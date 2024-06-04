@@ -5,6 +5,7 @@ use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
 use crate::storage::sql_key_store::{MemoryStorageError, KEY_PACKAGE_REFERENCES};
 use crate::storage::EncryptedMessageStore;
+use crate::{api, Fetch, Store};
 use crate::{
     api::{ApiClientWrapper, WrappedApiError},
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
@@ -12,7 +13,6 @@ use crate::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     XmtpApi,
 };
-use crate::{Fetch, Store};
 use ed25519_dalek::SigningKey;
 use ethers::signers::WalletError;
 use log::debug;
@@ -97,6 +97,7 @@ impl IdentityStrategy {
                         nonce,
                         legacy_signed_private_key,
                         api_client,
+                        &provider,
                     )
                     .await
                 }
@@ -183,6 +184,7 @@ impl Identity {
         nonce: u64,
         legacy_signed_private_key: Option<Vec<u8>>,
         api_client: &ApiClientWrapper<ApiClient>,
+        provider: &XmtpOpenMlsProvider,
     ) -> Result<Self, IdentityError> {
         // check if address is already associated with an inbox_id
         let inbox_ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
@@ -265,6 +267,9 @@ impl Identity {
                 credential: create_credential(inbox_id)?,
                 signature_request: None,
             };
+
+            identity.register(provider, api_client).await?;
+
             Ok(identity)
         } else {
             if nonce == 0 {
