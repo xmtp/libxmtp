@@ -31,7 +31,6 @@ use super::GroupError;
 
 use crate::XmtpApi;
 use crate::{
-    client::ClientError,
     configuration::DELIMITER,
     groups::{intents::SendMessageIntentData, GroupMessageKind, StoredGroupMessage},
     storage::{
@@ -74,12 +73,9 @@ impl<ApiClient> Client<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    pub async fn allow_history_sync(&self) -> Result<(), ClientError> {
+    pub async fn allow_history_sync(&self) -> Result<(), GroupError> {
         let history_sync_group = self.create_sync_group()?;
-        history_sync_group
-            .sync(self)
-            .await
-            .map_err(|e| ClientError::Generic(e.to_string()))?;
+        history_sync_group.sync(self).await?;
         Ok(())
     }
 
@@ -334,8 +330,8 @@ fn encrypt_history_file(
 }
 
 fn decrypt_history_file(
-    input_path: PathBuf,
-    output_path: PathBuf,
+    input_path: &Path,
+    output_path: &Path,
     key: &[u8; ENC_KEY_SIZE],
 ) -> Result<(), MessageHistoryError> {
     // Read the messages file content
@@ -405,7 +401,7 @@ async fn download_history_bundle(
         let bytes = response.bytes().await?;
         file.write_all(&bytes)?;
 
-        decrypt_history_file(input_path, output_path, &enc_key)?;
+        decrypt_history_file(&input_path, &output_path, &enc_key)?;
     } else {
         eprintln!(
             "Failed to download file. Status code: {} Response: {:?}",
@@ -527,12 +523,13 @@ fn new_request_id() -> String {
 
 fn generate_nonce() -> [u8; NONCE_SIZE] {
     let mut nonce = [0u8; NONCE_SIZE];
-    rand::thread_rng().fill(&mut nonce);
+    let mut rng = crypto_utils::rng();
+    rng.fill_bytes(&mut nonce);
     nonce
 }
 
 fn new_pin() -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = crypto_utils::rng();
     let pin: u32 = rng.gen_range(0..10000);
     format!("{:04}", pin)
 }
@@ -836,12 +833,8 @@ mod tests {
             .expect("Encryption failed");
 
         // Decrypt the file
-        decrypt_history_file(
-            encrypted_file.path().to_path_buf(),
-            decrypted_file.path().to_path_buf(),
-            key_bytes,
-        )
-        .expect("Decryption failed");
+        decrypt_history_file(encrypted_file.path(), decrypted_file.path(), key_bytes)
+            .expect("Decryption failed");
 
         // Read the decrypted file content
         let decrypted_content =
@@ -978,12 +971,8 @@ mod tests {
             .expect("Unable to write history bundle");
 
         let output_file = NamedTempFile::new().expect("Unable to create temp file");
-        decrypt_history_file(
-            bundle_path,
-            output_file.path().to_path_buf(),
-            enc_key.as_bytes(),
-        )
-        .expect("Unable to decrypt history file");
+        decrypt_history_file(&bundle_path, output_file.path(), enc_key.as_bytes())
+            .expect("Unable to decrypt history file");
 
         let inserted = amal_b.insert_history_bundle(output_file.path());
         assert!(inserted.is_ok());
@@ -1008,7 +997,10 @@ mod tests {
 
     #[test]
     fn test_generate_nonce() {
-        let nonce = generate_nonce();
-        assert_eq!(nonce.len(), NONCE_SIZE);
+        let nonce_1 = generate_nonce();
+        let nonce_2 = generate_nonce();
+        assert_eq!(nonce_1.len(), NONCE_SIZE);
+        // ensure nonces are different (seed isn't reused)
+        assert_ne!(nonce_1, nonce_2);
     }
 }
