@@ -130,8 +130,6 @@ fn add_to_empty_group_by_inbox_id(c: &mut Criterion) {
     benchmark_group.finish();
 }
 
-#[allow(dead_code)]
-// requires https://github.com/xmtp/libxmtp/issues/810 to work
 fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
     init_logging();
     let mut benchmark_group = c.benchmark_group("add_to_100_member_group_by_inbox_id");
@@ -184,7 +182,6 @@ fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
     benchmark_group.finish();
 }
 
-#[allow(dead_code)]
 // requires https://github.com/xmtp/libxmtp/issues/810 to work
 fn add_to_100_member_group_by_address(c: &mut Criterion) {
     init_logging();
@@ -222,7 +219,6 @@ fn add_to_100_member_group_by_address(c: &mut Criterion) {
                     })
                 },
                 |(client, group)| async move {
-                    println!("Adding {} to group", ids.len());
                     group.add_members(&client, ids.clone()).await.unwrap();
                 },
                 BatchSize::SmallInput,
@@ -318,8 +314,52 @@ fn remove_half_members_from_group(c: &mut Criterion) {
     benchmark_group.finish();
 }
 
+// requires https://github.com/xmtp/libxmtp/issues/810 to work
+fn add_1_member_to_large_group(c: &mut Criterion) {
+    init_logging();
+    let mut benchmark_group = c.benchmark_group("add_to_100_member_group_by_address");
+    benchmark_group.sample_size(SAMPLE_SIZE);
+
+    let (client, identities, runtime) = setup();
+    let inbox_ids: Vec<String> = identities.into_iter().map(|i| i.inbox_id).collect();
+
+    let mut map = HashMap::<usize, Vec<String>>::new();
+
+    for size in IDENTITY_SAMPLES {
+        map.insert(size, inbox_ids.iter().take(size).cloned().collect());
+    }
+
+    for size in IDENTITY_SAMPLES.iter() {
+        benchmark_group.throughput(Throughput::Elements(*size as u64));
+        benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
+            let ids = map.get(&size).unwrap();
+            b.to_async(&runtime).iter_batched(
+                || {
+                    bench_async_setup(|| async {
+                        let group = client.create_group(None).unwrap();
+                        group.add_members(&client, ids.clone()).await.unwrap();
+
+                        (client.clone(), group)
+                    })
+                },
+                |(client, group)| {
+                    let single_member = inbox_ids.last().unwrap().clone();
+                    async move {
+                        group
+                            .add_members(&client, vec![single_member])
+                            .await
+                            .unwrap();
+                    }
+                },
+                BatchSize::SmallInput,
+            );
+        });
+    }
+    benchmark_group.finish();
+}
+
 criterion_group!(
     name = group_limit;
     config = Criterion::default().sample_size(10);
-    targets = add_to_empty_group, add_to_empty_group_by_inbox_id, remove_all_members_from_group, remove_half_members_from_group);
+    targets = /*add_to_empty_group, add_to_empty_group_by_inbox_id, remove_all_members_from_group, remove_half_members_from_group,*/ add_to_100_member_group_by_inbox_id, add_to_100_member_group_by_inbox_id, add_1_member_to_large_group);
 criterion_main!(group_limit);
