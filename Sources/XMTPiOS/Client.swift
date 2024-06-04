@@ -128,24 +128,27 @@ public final class Client {
 	}
 
 	static func initV3Client(
-		address: String,
+		accountAddress: String,
 		options: ClientOptions?,
-		source: LegacyIdentitySource,
 		privateKeyBundleV1: PrivateKeyBundleV1,
 		signingKey: SigningKey?
 	) async throws -> (FfiXmtpClient?, String) {
 		if options?.mlsAlpha == true, options?.api.env.supportsMLS == true {
-			var inboxId = try await getInboxIdForAddress(
-				logger: XMTPLogger(),
-				host: (options?.api.env ?? .local).url,
-				isSecure: options?.api.env.isSecure == true,
-				accountAddress: address
-			)
-			if inboxId?.isEmpty ?? true {
+			let address = accountAddress.lowercased()
+
+			var inboxId: String
+			do {
+				inboxId = try await getInboxIdForAddress(
+					logger: XMTPLogger(),
+					host: (options?.api.env ?? .local).url,
+					isSecure: options?.api.env.isSecure == true,
+					accountAddress: address
+				) ?? generateInboxId(accountAddress: address, nonce: 0)
+			} catch {
 				inboxId = generateInboxId(accountAddress: address, nonce: 0)
 			}
 			
-			let alias = "xmtp-\(options?.api.env.rawValue ?? "")-\(inboxId ?? address).db3"
+			let alias = "xmtp-\(options?.api.env.rawValue ?? "")-\(inboxId).db3"
 			let dbURL = URL.documentsDirectory.appendingPathComponent(alias).path
 
 			let encryptionKey = options?.mlsEncryptionKey
@@ -156,8 +159,9 @@ public final class Client {
 				isSecure: options?.api.env.isSecure == true,
 				db: dbURL,
 				encryptionKey: encryptionKey,
+				inboxId: inboxId,
 				accountAddress: address,
-				legacyIdentitySource: source,
+				nonce: 0,
 				legacySignedPrivateKeyProto: try privateKeyBundleV1.toV2().identityKey.serializedData()
 			)
 			
@@ -184,12 +188,11 @@ public final class Client {
 	}
 
 	static func create(account: SigningKey, apiClient: ApiClient, options: ClientOptions? = nil) async throws -> Client {
-		let (privateKeyBundleV1, source) = try await loadOrCreateKeys(for: account, apiClient: apiClient, options: options)
+		let privateKeyBundleV1 = try await loadOrCreateKeys(for: account, apiClient: apiClient, options: options)
 
 		let (v3Client, dbPath) = try await initV3Client(
-			address: account.address,
+			accountAddress: account.address,
 			options: options,
-			source: source,
 			privateKeyBundleV1: privateKeyBundleV1,
 			signingKey: account
 		)
@@ -206,13 +209,13 @@ public final class Client {
 		return client
 	}
 
-	static func loadOrCreateKeys(for account: SigningKey, apiClient: ApiClient, options: ClientOptions? = nil) async throws -> (PrivateKeyBundleV1, LegacyIdentitySource) {
+	static func loadOrCreateKeys(for account: SigningKey, apiClient: ApiClient, options: ClientOptions? = nil) async throws -> PrivateKeyBundleV1 {
 		if let keys = try await loadPrivateKeys(for: account, apiClient: apiClient, options: options) {
 			print("loading existing private keys.")
 			#if DEBUG
 				print("Loaded existing private keys.")
 			#endif
-			return (keys, .network)
+			return keys
 		} else {
 			#if DEBUG
 				print("No existing keys found, creating new bundle.")
@@ -229,7 +232,7 @@ public final class Client {
 				Envelope(topic: .userPrivateStoreKeyBundle(account.address), timestamp: Date(), message: encryptedKeys.serializedData()),
 			])
 
-			return (keys, .keyGenerator)
+			return keys
 		}
 	}
 
@@ -281,9 +284,8 @@ public final class Client {
 		let options = options ?? ClientOptions()
 
 		let (v3Client, dbPath) = try await initV3Client(
-			address: address,
+			accountAddress: address,
 			options: options,
-			source: .static,
 			privateKeyBundleV1: v1Bundle,
 			signingKey: nil
 		)
