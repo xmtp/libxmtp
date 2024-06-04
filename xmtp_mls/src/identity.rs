@@ -5,7 +5,6 @@ use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
 use crate::storage::sql_key_store::{MemoryStorageError, KEY_PACKAGE_REFERENCES};
 use crate::storage::EncryptedMessageStore;
-use crate::{api, Fetch, Store};
 use crate::{
     api::{ApiClientWrapper, WrappedApiError},
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
@@ -13,6 +12,7 @@ use crate::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     XmtpApi,
 };
+use crate::{Fetch, Store};
 use ed25519_dalek::SigningKey;
 use ethers::signers::WalletError;
 use log::debug;
