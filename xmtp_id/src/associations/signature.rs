@@ -433,7 +433,7 @@ impl ValidatedLegacySignedPublicKey {
         "For more info: https://xmtp.org/signatures/".to_string()
     }
 
-    pub(crate) fn text(serialized_legacy_key: &[u8]) -> String {
+    pub fn text(serialized_legacy_key: &[u8]) -> String {
         format!(
             "{}\n{}\n\n{}",
             Self::header_text(),

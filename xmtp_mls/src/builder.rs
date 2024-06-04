@@ -128,6 +128,7 @@ mod tests {
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::signature::h160addr_to_string;
     use xmtp_cryptography::utils::{generate_local_wallet, rng};
+    use xmtp_id::associations::ValidatedLegacySignedPublicKey;
     use xmtp_id::associations::{
         generate_inbox_id, test_utils::rand_u64, RecoverableEcdsaSignature,
     };
@@ -221,10 +222,7 @@ mod tests {
         }
         .encode(&mut public_key_buf)
         .unwrap();
-        let public_key_hex = hex::encode(&public_key_buf);
-        let message = format!(
-            "XMTP : Create Identity\n{public_key_hex}\n\nFor more info: https://xmtp.org/signatures/",
-        );
+        let message = ValidatedLegacySignedPublicKey::text(&public_key_buf);
         let signed_public_key = wallet.sign_message(message).await.unwrap().to_vec();
         let (bytes, recovery_id) = signed_public_key.as_slice().split_at(64);
         let recovery_id = recovery_id[0];
