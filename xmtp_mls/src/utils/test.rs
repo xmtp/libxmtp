@@ -119,7 +119,6 @@ impl Client<GrpcClient> {
             .await
             .unwrap();
         let s = ids.contains_key(address);
-        println!("Is registered? {}", s);
         s
     }
 }
