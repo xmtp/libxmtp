@@ -71,15 +71,14 @@ impl StoredAssociationState {
 
     pub fn batch_read_from_cache(
         conn: &DbConnection,
-        identifiers: &[(InboxId, i64)],
+        identifiers: Vec<(InboxId, i64)>,
     ) -> Result<Vec<AssociationState>, StorageError> {
         // If no identifier provided, return empty hash map
         if identifiers.is_empty() {
             return Ok(vec![]);
         }
 
-        let (inbox_ids, sequence_ids): (Vec<InboxId>, Vec<i64>) =
-            identifiers.iter().cloned().unzip();
+        let (inbox_ids, sequence_ids): (Vec<InboxId>, Vec<i64>) = identifiers.into_iter().unzip();
 
         let query = dsl::association_state
             .select((dsl::inbox_id, dsl::sequence_id, dsl::state))
@@ -88,9 +87,6 @@ impl StoredAssociationState {
                     .eq_any(inbox_ids)
                     .and(dsl::sequence_id.eq_any(sequence_ids)),
             );
-
-        let dbg = diesel::debug_query::<diesel::sqlite::Sqlite, _>(&query).to_string();
-        println!("QUERY: {}", dbg);
 
         let association_states =
             conn.raw_query(|query_conn| query.load::<StoredAssociationState>(query_conn))?;
