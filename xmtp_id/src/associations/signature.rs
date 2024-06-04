@@ -539,7 +539,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn recover_signer_erc1271() {
         let wallet: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
 
