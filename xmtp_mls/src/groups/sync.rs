@@ -14,10 +14,13 @@ use super::{
     GroupError, MlsGroup,
 };
 use crate::{
-    client::MessageProcessingError,
+    client::{self, MessageProcessingError},
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{DELIMITER, MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
-    groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
+    groups::{
+        intents::UpdateMetadataIntentData,
+        validated_commit::{CommitValidationError, ValidatedCommit},
+    },
     hpke::{encrypt_welcome, HpkeError},
     identity::parse_credential,
     identity_updates::load_identity_updates,
@@ -219,7 +222,24 @@ impl MlsGroup {
                     maybe_pending_commit.expect("already checked"),
                     openmls_group,
                 )
-                .await?;
+                .await;
+
+                if maybe_validated_commit.is_err() {
+                    log::error!("error validating commit: {:?}", maybe_validated_commit);
+                    match openmls_group.clear_pending_commit(provider.storage()) {
+                        Ok(_) => (),
+                        Err(_) => {
+                            return Err(MessageProcessingError::Generic(
+                                "Error clearing pending commit after failed validation".to_string(),
+                            ))
+                        }
+                    }
+                    return Err(client::MessageProcessingError::CommitValidation(
+                        CommitValidationError::InsufficientPermissions,
+                    ));
+                }
+
+                let validated_commit = maybe_validated_commit.unwrap();
 
                 debug!("[{}] merging pending commit", self.context.inbox_id());
                 if let Err(err) = openmls_group.merge_pending_commit(&provider) {
@@ -236,11 +256,7 @@ impl MlsGroup {
                     conn.set_group_intent_to_publish(intent.id)?;
                 } else {
                     // If no error committing the change, write a transcript message
-                    self.save_transcript_message(
-                        &conn,
-                        maybe_validated_commit,
-                        envelope_timestamp_ns,
-                    )?;
+                    self.save_transcript_message(&conn, validated_commit, envelope_timestamp_ns)?;
                 }
             }
             IntentKind::SendMessage => {
