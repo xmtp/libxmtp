@@ -44,7 +44,6 @@ import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.BatchQueryResponse
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryRequest
 import uniffi.xmtpv3.FfiXmtpClient
-import uniffi.xmtpv3.LegacyIdentitySource
 import uniffi.xmtpv3.createClient
 import uniffi.xmtpv3.generateInboxId
 import uniffi.xmtpv3.getInboxIdForAddress
@@ -216,7 +215,7 @@ class Client() {
         val clientOptions = options ?: ClientOptions()
         return runBlocking {
             try {
-                val (privateKeyBundleV1, legacyIdentityKey) = loadOrCreateKeys(
+                val privateKeyBundleV1 = loadOrCreateKeys(
                     account,
                     apiClient,
                     clientOptions
@@ -228,7 +227,6 @@ class Client() {
                         account,
                         clientOptions.appContext,
                         privateKeyBundleV1,
-                        legacyIdentityKey,
                         account.address
                     )
 
@@ -276,7 +274,6 @@ class Client() {
                     account,
                     options?.appContext,
                     v1Bundle,
-                    LegacyIdentitySource.STATIC,
                     address
                 )
             }
@@ -302,10 +299,10 @@ class Client() {
         account: SigningKey?,
         appContext: Context?,
         privateKeyBundleV1: PrivateKeyBundleV1,
-        legacyIdentitySource: LegacyIdentitySource,
-        accountAddress: String,
+        address: String,
     ): Pair<FfiXmtpClient?, String> {
         var dbPath = ""
+        val accountAddress = address.lowercase()
         val v3Client: FfiXmtpClient? =
             if (isAlphaMlsEnabled(options)) {
                 var inboxId = getInboxIdForAddress(
@@ -314,9 +311,11 @@ class Client() {
                     isSecure = options.api.isSecure,
                     accountAddress = accountAddress
                 )
+
                 if (inboxId.isNullOrBlank()) {
                     inboxId = generateInboxId(accountAddress, 0.toULong())
                 }
+
                 val alias = "xmtp-${options.api.env}-$inboxId"
 
                 val dbDir = if (options.dbDirectory == null) {
@@ -367,7 +366,8 @@ class Client() {
                     db = dbPath,
                     encryptionKey = encryptionKey,
                     accountAddress = accountAddress,
-                    legacyIdentitySource = legacyIdentitySource,
+                    inboxId = inboxId,
+                    nonce = 0.toULong(),
                     legacySignedPrivateKeyProto = privateKeyBundleV1.toV2().identityKey.toByteArray()
                 )
             } else {
@@ -408,16 +408,16 @@ class Client() {
         account: SigningKey,
         apiClient: ApiClient,
         options: ClientOptions? = null,
-    ): Pair<PrivateKeyBundleV1, LegacyIdentitySource> {
+    ): PrivateKeyBundleV1 {
         val keys = loadPrivateKeys(account, apiClient, options)
         return if (keys != null) {
-            Pair(keys, LegacyIdentitySource.NETWORK)
+            keys
         } else {
             val v1Keys = PrivateKeyBundleV1.newBuilder().build().generate(account, options)
             val keyBundle = PrivateKeyBundleBuilder.buildFromV1Key(v1Keys)
             val encryptedKeys = keyBundle.encrypted(account, options?.preEnableIdentityCallback)
             authSave(apiClient, keyBundle.v1, encryptedKeys)
-            Pair(v1Keys, LegacyIdentitySource.KEY_GENERATOR)
+            v1Keys
         }
     }
 

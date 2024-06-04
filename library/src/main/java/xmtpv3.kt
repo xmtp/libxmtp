@@ -1023,6 +1023,10 @@ internal interface UniffiLib : Library {
         `chainRpcUrl`: RustBuffer.ByValue,
     ): Long
 
+    fun uniffi_xmtpv3_fn_method_ffisignaturerequest_is_ready(
+        `ptr`: Pointer,
+    ): Long
+
     fun uniffi_xmtpv3_fn_method_ffisignaturerequest_missing_address_signatures(
         `ptr`: Pointer,
     ): Long
@@ -1157,8 +1161,9 @@ internal interface UniffiLib : Library {
         `isSecure`: Byte,
         `db`: RustBuffer.ByValue,
         `encryptionKey`: RustBuffer.ByValue,
+        `inboxId`: RustBuffer.ByValue,
         `accountAddress`: RustBuffer.ByValue,
-        `legacyIdentitySource`: RustBuffer.ByValue,
+        `nonce`: Long,
         `legacySignedPrivateKeyProto`: RustBuffer.ByValue,
     ): Long
 
@@ -1626,6 +1631,9 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_erc1271_signature(
     ): Short
 
+    fun uniffi_xmtpv3_checksum_method_ffisignaturerequest_is_ready(
+    ): Short
+
     fun uniffi_xmtpv3_checksum_method_ffisignaturerequest_missing_address_signatures(
     ): Short
 
@@ -1718,7 +1726,7 @@ private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: UniffiLib) {
-    if (lib.uniffi_xmtpv3_checksum_func_create_client() != 30339.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_func_create_client() != 51078.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_create_v2_client() != 48060.toShort()) {
@@ -1875,6 +1883,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_erc1271_signature() != 27040.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_is_ready() != 65051.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_missing_address_signatures() != 34688.toShort()) {
@@ -4149,6 +4160,8 @@ public interface FfiSignatureRequestInterface {
         `chainRpcUrl`: kotlin.String,
     )
 
+    suspend fun `isReady`(): kotlin.Boolean
+
     /**
      * missing signatures that are from [MemberKind::Address]
      */
@@ -4309,6 +4322,37 @@ open class FfiSignatureRequest : Disposable, AutoCloseable, FfiSignatureRequestI
 
             // Error FFI converter
             GenericException.ErrorHandler,
+        )
+    }
+
+
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `isReady`(): kotlin.Boolean {
+        return uniffiRustCallAsync(
+            callWithPointer { thisPtr ->
+                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffisignaturerequest_is_ready(
+                    thisPtr,
+
+                    )
+            },
+            { future, callback, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_i8(
+                    future,
+                    callback,
+                    continuation
+                )
+            },
+            { future, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_i8(
+                    future,
+                    continuation
+                )
+            },
+            { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_i8(future) },
+            // lift function
+            { FfiConverterBoolean.lift(it) },
+            // Error FFI converter
+            UniffiNullRustCallStatusErrorHandler,
         )
     }
 
@@ -6372,40 +6416,6 @@ public object FfiConverterTypeGroupPermissions : FfiConverterRustBuffer<GroupPer
 }
 
 
-/**
- * XMTP SDK's may embed libxmtp (v3) alongside existing v2 protocol logic
- * for backwards-compatibility purposes. In this case, the client may already
- * have a wallet-signed v2 key. Depending on the source of this key,
- * libxmtp may choose to bootstrap v3 installation keys using the existing
- * legacy key.
- */
-
-enum class LegacyIdentitySource {
-
-    NONE,
-    STATIC,
-    NETWORK,
-    KEY_GENERATOR;
-
-    companion object
-}
-
-
-public object FfiConverterTypeLegacyIdentitySource : FfiConverterRustBuffer<LegacyIdentitySource> {
-    override fun read(buf: ByteBuffer) = try {
-        LegacyIdentitySource.values()[buf.getInt() - 1]
-    } catch (e: IndexOutOfBoundsException) {
-        throw RuntimeException("invalid enum value, something is very wrong!!", e)
-    }
-
-    override fun allocationSize(value: LegacyIdentitySource) = 4UL
-
-    override fun write(value: LegacyIdentitySource, buf: ByteBuffer) {
-        buf.putInt(value.ordinal + 1)
-    }
-}
-
-
 sealed class SigningException(message: String) : Exception(message) {
 
     class Generic(message: String) : SigningException(message)
@@ -7149,6 +7159,27 @@ public object FfiConverterMapStringBoolean :
 }
 
 
+/**
+ * It returns a new client of the specified `inbox_id`.
+ * Note that the `inbox_id` must be either brand new or already associated with the `account_address`.
+ * i.e. `inbox_id` cannot be associated with another account address.
+ *
+ * Prior to calling this function, it's suggested to form `inbox_id`, `account_address`, and `nonce` like below.
+ *
+ * ```text
+ * inbox_id = get_inbox_id_for_address(account_address)
+ * nonce = 0
+ *
+ * // if inbox_id is not associated, we will create new one.
+ * if !inbox_id {
+ * if !legacy_key { nonce = random_u64() }
+ * inbox_id = generate_inbox_id(account_address, nonce)
+ * } // Otherwise, we will just use the inbox and ignore the nonce.
+ * db_path = $inbox_id-$env
+ *
+ * xmtp.create_client(account_address, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
+ * ```
+ */
 @Throws(GenericException::class)
 @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
 suspend fun `createClient`(
@@ -7157,8 +7188,9 @@ suspend fun `createClient`(
     `isSecure`: kotlin.Boolean,
     `db`: kotlin.String?,
     `encryptionKey`: kotlin.ByteArray?,
+    `inboxId`: kotlin.String,
     `accountAddress`: kotlin.String,
-    `legacyIdentitySource`: LegacyIdentitySource,
+    `nonce`: kotlin.ULong,
     `legacySignedPrivateKeyProto`: kotlin.ByteArray?,
 ): FfiXmtpClient {
     return uniffiRustCallAsync(
@@ -7170,8 +7202,9 @@ suspend fun `createClient`(
             FfiConverterBoolean.lower(`isSecure`),
             FfiConverterOptionalString.lower(`db`),
             FfiConverterOptionalByteArray.lower(`encryptionKey`),
+            FfiConverterString.lower(`inboxId`),
             FfiConverterString.lower(`accountAddress`),
-            FfiConverterTypeLegacyIdentitySource.lower(`legacyIdentitySource`),
+            FfiConverterULong.lower(`nonce`),
             FfiConverterOptionalByteArray.lower(`legacySignedPrivateKeyProto`),
         ),
         { future, callback, continuation ->
