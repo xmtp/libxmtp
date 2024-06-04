@@ -271,14 +271,11 @@ impl Identity {
                 ))
                 .await?;
 
-            let identity_update = signature_request.build_identity_update()?;
-            api_client.publish_identity_update(identity_update).await?;
-
             let identity = Self {
                 inbox_id: inbox_id.clone(),
                 installation_keys: signature_keys,
                 credential: create_credential(inbox_id)?,
-                signature_request: None,
+                signature_request: Some(signature_request),
             };
             Ok(identity)
         } else {
