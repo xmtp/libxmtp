@@ -64,7 +64,8 @@ public struct ClientOptions {
 		preEnableIdentityCallback: PreEventCallback? = nil,
 		preCreateIdentityCallback: PreEventCallback? = nil,
 		mlsAlpha: Bool = false,
-		mlsEncryptionKey: Data? = nil
+		mlsEncryptionKey: Data? = nil,
+		mlsDbDirectory: String? = nil
 	) {
 		self.api = api
 		self.codecs = codecs
@@ -72,6 +73,7 @@ public struct ClientOptions {
 		self.preCreateIdentityCallback = preCreateIdentityCallback
 		self.mlsAlpha = mlsAlpha
 		self.mlsEncryptionKey = mlsEncryptionKey
+		self.mlsDbDirectory = mlsDbDirectory
 	}
 }
 
@@ -148,9 +150,26 @@ public final class Client {
 				inboxId = generateInboxId(accountAddress: address, nonce: 0)
 			}
 			
-			let alias = "xmtp-\(options?.api.env.rawValue ?? "")-\(inboxId).db3"
-			let dbURL = URL.documentsDirectory.appendingPathComponent(alias).path
+			let mlsDbDirectory = options?.mlsDbDirectory
+			var directoryURL: URL
+			if let mlsDbDirectory = mlsDbDirectory {
+				let fileManager = FileManager.default
+				directoryURL = URL.documentsDirectory.appendingPathComponent(mlsDbDirectory)
+				// Check if the directory exists, if not, create it
+				if !fileManager.fileExists(atPath: directoryURL.path) {
+					do {
+						try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
+					} catch {
+						throw ClientError.creationError("Failed db directory \(mlsDbDirectory)")
+					}
+				}
+			} else {
+				directoryURL = URL.documentsDirectory
+			}
 
+			let alias = "xmtp-\(options?.api.env.rawValue ?? "")-\(inboxId).db3"
+			let dbURL = directoryURL.appendingPathComponent(alias).path
+			
 			let encryptionKey = options?.mlsEncryptionKey
 
 			let v3Client = try await LibXMTP.createClient(
