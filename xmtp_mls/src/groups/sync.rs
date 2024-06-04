@@ -69,7 +69,7 @@ use xmtp_proto::xmtp::mls::{
     },
 };
 
-// TODO: Change `send_welcomes` to be constant-sized
+// TODO: Change `send_welcomes` to be constant-sized (#812)
 /// the max size gRPC will accept
 pub const MAX_CHUNK: usize = 50 * 1024 * 1024;
 

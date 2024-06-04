@@ -13,8 +13,7 @@ use xmtp_mls::{
 };
 
 static INIT: Once = Once::new();
-pub const IDENTITY_SAMPLES: [usize; 2] =
-    [5, 10 /*20, 40, 80, 100, 200, 400, 500, 600, 700, 800*/];
+pub const IDENTITY_SAMPLES: [usize; 12] = [5, 10, 20, 40, 80, 100, 200, 400, 500, 600, 700, 800];
 pub const MAX_IDENTITIES: usize = 5_000;
 pub const SAMPLE_SIZE: usize = 10;
 
