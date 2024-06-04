@@ -40,7 +40,7 @@ impl MlsGroup {
             .members
             .into_iter()
             .map(|(inbox_id, sequence_id)| (inbox_id, sequence_id as i64))
-            .collect();
+            .collect::<Vec<_>>();
 
         let conn = provider.conn_ref();
         let association_state_map = StoredAssociationState::batch_read_from_cache(conn, &requests)?;
