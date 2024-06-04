@@ -47,6 +47,7 @@ use xmtp_proto::{
     xmtp::identity::MlsCredential,
 };
 
+#[derive(Debug, Clone)]
 pub enum IdentityStrategy {
     /// Tries to get an identity from the disk store. If not found, getting one from backend.
     CreateIfNotFound(InboxId, String, u64, Option<Vec<u8>>), // (inbox_id, address, nonce, legacy_signed_private_key)
@@ -82,6 +83,7 @@ impl IdentityStrategy {
                 legacy_signed_private_key,
             ) => {
                 if let Some(stored_identity) = stored_identity {
+                    info!("Calling Identity::new");
                     if inbox_id != stored_identity.inbox_id {
                         return Err(IdentityError::InboxIdMismatch {
                             id: inbox_id.clone(),
@@ -91,6 +93,7 @@ impl IdentityStrategy {
 
                     Ok(stored_identity)
                 } else {
+                    info!("Calling Identity::new");
                     Identity::new(
                         inbox_id,
                         address,
@@ -173,10 +176,10 @@ impl Identity {
     /// Create a new [Identity] instance.
     ///
     /// If the address is already associated with an inbox_id, the existing inbox_id will be used.
-    /// Users will be required to sign with their wallet, and the legacy is ignored even if it's provided.
+    /// Prioritize legacy key if provided, otherwise will need to require a signature from wallet.
     ///
     /// If the address is NOT associated with an inbox_id, a new inbox_id will be generated.
-    /// Prioritize legacy key if provided, otherwise use wallet to sign.
+    /// Prioritize legacy key if provided, otherwise will need to require a signature from wallet.
     pub(crate) async fn new<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
         inbox_id: InboxId,
         address: String,
@@ -211,6 +214,18 @@ impl Identity {
                     .await?,
                 ))
                 .await?;
+
+            if let Some(legacy_signed_private_key) = legacy_signed_private_key {
+                signature_request
+                    .add_signature(Box::new(
+                        sign_with_legacy_key(
+                            signature_request.signature_text(),
+                            legacy_signed_private_key,
+                        )
+                        .await?,
+                    ))
+                    .await?;
+            }
 
             let identity = Self {
                 inbox_id: associated_inbox_id.clone(),

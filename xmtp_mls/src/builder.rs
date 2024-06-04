@@ -295,6 +295,38 @@ mod tests {
         }
     }
 
+    // Create two clients sequencially with the same inbox id & legacy key
+    //
+    #[tokio::test]
+    async fn test_twice_client_creation() {
+        let legacy_account_address = "0x0bd00b21af9a2d538103c3aaf95cb507f8af1b28";
+        let legacy_key = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
+        let identity_strategy = IdentityStrategy::CreateIfNotFound(
+            generate_inbox_id(&legacy_account_address, &0),
+            legacy_account_address.to_string(),
+            0,
+            Some(legacy_key),
+        );
+
+        let client1 = ClientBuilder::new(identity_strategy.clone())
+            .temp_store()
+            .local_grpc()
+            .await
+            .build()
+            .await
+            .unwrap();
+
+        let client2 = ClientBuilder::new(identity_strategy)
+            .temp_store()
+            .local_grpc()
+            .await
+            .build()
+            .await
+            .unwrap();
+
+        assert!(client1.inbox_id() == client2.inbox_id());
+    }
+
     // Should return error if inbox associated with given account_address doesn't match the provided one.
     #[tokio::test]
     async fn api_identity_mismatch() {
