@@ -350,7 +350,6 @@ impl MlsGroup {
                                 sender_inbox_id,
                                 delivery_status: DeliveryStatus::Published,
                             };
-                            debug!("Stored MessageHistoryRequest with request_id: {request_id} and pin_code: {pin_code}");
                             message.store(provider.conn_ref())?;
 
                             // prepare and send the reply
