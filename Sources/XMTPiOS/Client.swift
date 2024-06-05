@@ -154,7 +154,7 @@ public final class Client {
 			var directoryURL: URL
 			if let mlsDbDirectory = mlsDbDirectory {
 				let fileManager = FileManager.default
-				directoryURL = URL.documentsDirectory.appendingPathComponent(mlsDbDirectory)
+				directoryURL = URL(fileURLWithPath: mlsDbDirectory, isDirectory: true)
 				// Check if the directory exists, if not, create it
 				if !fileManager.fileExists(atPath: directoryURL.path) {
 					do {
