@@ -332,7 +332,7 @@ impl NapiGroup {
     Ok(group_name)
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiGroup) => void")]
+  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage) => void")]
   pub fn stream(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
     let tsfn: ThreadsafeFunction<NapiMessage, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
