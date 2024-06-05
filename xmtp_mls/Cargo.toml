@@ -79,3 +79,7 @@ criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 name = "group_limit"
 harness = false
 
+[[bench]]
+name = "crypto"
+harness = false
+

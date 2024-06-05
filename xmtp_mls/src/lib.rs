@@ -5,7 +5,7 @@ pub mod codecs;
 pub mod configuration;
 pub mod credential;
 pub mod groups;
-mod hpke;
+pub mod hpke;
 pub mod identity;
 mod identity_updates;
 pub mod owner;

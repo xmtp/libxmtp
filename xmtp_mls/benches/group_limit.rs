@@ -13,8 +13,8 @@ use xmtp_mls::{
 };
 
 static INIT: Once = Once::new();
-pub const IDENTITY_SAMPLES: [usize; 15] = [
-    5, 10, 20, 40, 80, 100, 200, 400, 500, 600, 700, 800, 1600, 3200, 4_000,
+pub const IDENTITY_SAMPLES: [usize; 14] = [
+    5, 10, 20, 40, 80, 100, 200, 400, 500, 600, 700, 800, 1600, 3200,
 ];
 pub const MAX_IDENTITIES: usize = 5_000;
 pub const SAMPLE_SIZE: usize = 10;
@@ -292,19 +292,19 @@ fn add_1_member_to_group(c: &mut Criterion) {
                 || {
                     bench_async_setup(|| async {
                         let group = client.create_group(None).unwrap();
-                        group.add_members(&client, ids.clone()).await.unwrap();
-
-                        (client.clone(), group)
-                    })
-                },
-                |(client, group)| {
-                    let single_member = inbox_ids.last().unwrap().clone();
-                    async move {
                         group
-                            .add_members(&client, vec![single_member])
+                            .add_members_by_inbox_id(&client, ids.clone())
                             .await
                             .unwrap();
-                    }
+                        let member = inbox_ids.last().unwrap().clone();
+                        (client.clone(), group, member)
+                    })
+                },
+                |(client, group, member)| async move {
+                    group
+                        .add_members_by_inbox_id(&client, vec![member])
+                        .await
+                        .unwrap();
                 },
                 BatchSize::SmallInput,
             );
@@ -316,5 +316,5 @@ fn add_1_member_to_group(c: &mut Criterion) {
 criterion_group!(
     name = group_limit;
     config = Criterion::default().sample_size(10);
-    targets = add_to_empty_group, add_to_empty_group_by_inbox_id, remove_all_members_from_group, remove_half_members_from_group, add_to_100_member_group_by_inbox_id, add_1_member_to_group);
+    targets = /*add_to_empty_group, add_to_empty_group_by_inbox_id, remove_all_members_from_group, remove_half_members_from_group, add_to_100_member_group_by_inbox_id, */ add_1_member_to_group);
 criterion_main!(group_limit);
