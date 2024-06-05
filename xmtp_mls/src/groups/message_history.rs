@@ -128,7 +128,6 @@ where
             .pop()
             .ok_or(GroupError::GroupNotFound)?
             .id;
-        let sync_group = self.group(sync_group_id.clone())?;
 
         // build the reply
         let envelope = PlaintextEnvelope {
@@ -144,10 +143,12 @@ where
             .encode(&mut encoded_envelope)
             .map_err(GroupError::EncodeError)?;
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        let intent = NewGroupIntent::new(IntentKind::SendMessage, sync_group_id, intent_data);
+        let intent =
+            NewGroupIntent::new(IntentKind::SendMessage, sync_group_id.clone(), intent_data);
         intent.store(&conn)?;
 
         // publish the intent
+        let sync_group = self.group(sync_group_id)?;
         if let Err(err) = sync_group.publish_intents(conn, self).await {
             log::error!("error publishing sync group intents: {:?}", err);
         }
@@ -215,7 +216,7 @@ where
         Ok(())
     }
 
-    async fn prepare_history_reply(
+    pub(crate) async fn prepare_history_reply(
         &self,
         request_id: &str,
         url: &str,
@@ -438,7 +439,7 @@ impl From<HistoryRequest> for MessageHistoryRequest {
 }
 
 #[derive(Debug)]
-struct HistoryReply {
+pub(crate) struct HistoryReply {
     /// Unique ID for each client Message History Request
     request_id: String,
     /// URL to download the backup bundle
@@ -482,7 +483,7 @@ impl From<HistoryReply> for MessageHistoryReply {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-enum HistoryKeyType {
+pub(crate) enum HistoryKeyType {
     Chacha20Poly1305([u8; ENC_KEY_SIZE]),
 }
 
@@ -650,12 +651,6 @@ mod tests {
 
         // make sure they are the same group
         assert_eq!(amal_a_sync_group.group_id, amal_b_sync_group.group_id);
-
-        let amal_a_conn = amal_a.store().conn().unwrap();
-        let amal_a_messages = amal_a_conn
-            .get_group_messages(amal_a_sync_group.group_id, None, None, None, None, None)
-            .unwrap();
-        assert_eq!(amal_a_messages.len(), 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

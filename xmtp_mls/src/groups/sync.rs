@@ -335,11 +335,12 @@ impl MlsGroup {
                             request_id,
                             pin_code,
                         })) => {
+                            // store the request message
                             let contents =
                                 format!("{request_id}{DELIMITER}{pin_code}").into_bytes();
                             let message_id =
                                 calculate_message_id(&self.group_id, &contents, &idempotency_key);
-                            StoredGroupMessage {
+                            let message = StoredGroupMessage {
                                 id: message_id,
                                 group_id: self.group_id.clone(),
                                 decrypted_message_bytes: contents,
@@ -348,8 +349,29 @@ impl MlsGroup {
                                 sender_installation_id,
                                 sender_inbox_id,
                                 delivery_status: DeliveryStatus::Published,
+                            };
+                            debug!("Stored MessageHistoryRequest with request_id: {request_id} and pin_code: {pin_code}");
+                            message.store(provider.conn_ref())?;
+
+                            // prepare and send the reply
+                            match client
+                                .prepare_history_reply(&request_id, "https://example.com")
+                                .await
+                            {
+                                Ok(history_reply) => client
+                                    .send_history_reply(history_reply.into())
+                                    .await
+                                    .map_err(|e| {
+                                        MessageProcessingError::Generic(format!(
+                                            "could not send history reply: {e}"
+                                        ))
+                                    })?,
+                                Err(e) => {
+                                    return Err(MessageProcessingError::Generic(format!(
+                                        "error preparing history reply: {e}"
+                                    )));
+                                }
                             }
-                            .store(provider.conn_ref())?
                         }
                         Some(Reply(MessageHistoryReply {
                             request_id: _,
@@ -358,6 +380,7 @@ impl MlsGroup {
                             signing_key,
                             bundle_hash,
                         })) => {
+                            // store the reply message
                             let contents = format!(
                                 "{url}{DELIMITER}{:?}{DELIMITER}{:?}{DELIMITER}{:?}",
                                 encryption_key, signing_key, bundle_hash
@@ -376,6 +399,8 @@ impl MlsGroup {
                                 delivery_status: DeliveryStatus::Published,
                             }
                             .store(provider.conn_ref())?
+
+                            // handle the reply and fetch the history
                         }
                         _ => {
                             return Err(MessageProcessingError::InvalidPayload);
