@@ -14,13 +14,10 @@ use super::{
     GroupError, MlsGroup,
 };
 use crate::{
-    client::{self, MessageProcessingError},
+    client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{DELIMITER, MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
-    groups::{
-        intents::UpdateMetadataIntentData,
-        validated_commit::{CommitValidationError, ValidatedCommit},
-    },
+    groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
     identity::parse_credential,
     identity_updates::load_identity_updates,
@@ -234,9 +231,7 @@ impl MlsGroup {
                             ))
                         }
                     }
-                    return Err(client::MessageProcessingError::CommitValidation(
-                        CommitValidationError::InsufficientPermissions,
-                    ));
+                    return Ok(());
                 }
 
                 let validated_commit = maybe_validated_commit.unwrap();

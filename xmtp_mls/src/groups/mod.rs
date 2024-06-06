@@ -2041,38 +2041,51 @@ mod tests {
 
         // Step 2:  Amal adds Bola to the group
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        amal_group.add_members_by_inbox_id(&amal, vec![bola.inbox_id()]).await.unwrap();
+        amal_group
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .await
+            .unwrap();
 
         // Step 3: Verify that Bola can update the group name, and amal sees the update
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(None, None, None, None).unwrap();
         let bola_group: &MlsGroup = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
-        bola_group.update_group_name(&bola, "Name Update 1".to_string()).await.unwrap();
+        bola_group
+            .update_group_name(&bola, "Name Update 1".to_string())
+            .await
+            .unwrap();
         amal_group.sync(&amal).await.unwrap();
         let name = amal_group.group_name().unwrap();
         assert_eq!(name, "Name Update 1");
 
         // Step 4:  Bola attempts an action that they do not have permissions for like add admin, fails as expected
-        let result = bola_group.update_admin_list(&bola, UpdateAdminListType::Add, bola.inbox_id()).await;
+        let result = bola_group
+            .update_admin_list(&bola, UpdateAdminListType::Add, bola.inbox_id())
+            .await;
         if let Err(e) = &result {
             eprintln!("Error updating admin list: {:?}", e);
         }
         // Step 5: Now have Bola attempt to update the group name again => It is failing for some reason
-        let result = bola_group.update_group_name(&bola, "Name Update 2".to_string()).await;
-        if let Err(e) = &result {
-            eprintln!("FAILING WHEN UPDATING GROUP NAME AFTER FAILED UPDATE COMMIT: {:?}", e);
-        }
+        bola_group
+            .update_group_name(&bola, "Name Update 2".to_string())
+            .await
+            .unwrap();
 
-        // Step 6: Verify that the group name has been updated
+        // Step 6: Verify that both clients can sync without error and that the group name has been updated
         amal_group.sync(&amal).await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
         let binding = amal_group.mutable_metadata().expect("msg");
         let amal_group_name: &String = binding
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap();
-        assert_eq!(amal_group_name, "Name Update 2"); // <= Currently failing because error above on second name update is unexpectedly showing up
-
-        // If you comment out step 4, the test passes
+        assert_eq!(amal_group_name, "Name Update 2");
+        let binding = bola_group.mutable_metadata().expect("msg");
+        let bola_group_name: &String = binding
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap();
+        assert_eq!(bola_group_name, "Name Update 2");
     }
 }
