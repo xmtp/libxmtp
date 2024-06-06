@@ -82,6 +82,7 @@ pub async fn get_inbox_id_for_address(
   is_secure: bool,
   account_address: String,
 ) -> Result<Option<String>> {
+  let account_address = account_address.to_lowercase();
   let api_client = ApiClientWrapper::new(
     TonicApiClient::create(host.clone(), is_secure)
       .await
@@ -99,6 +100,7 @@ pub async fn get_inbox_id_for_address(
 
 #[napi]
 pub fn generate_inbox_id(account_address: String) -> String {
+  let account_address = account_address.to_lowercase();
   // ensure that the nonce is always 1 for now since this will only be used for the
   // create_client function above, which also has a hard-coded nonce of 1
   xmtp_id_generate_inbox_id(&account_address, &1)
