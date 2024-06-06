@@ -347,10 +347,16 @@ impl MlsGroup {
                                 sent_at_ns: envelope_timestamp_ns as i64,
                                 kind: GroupMessageKind::Application,
                                 sender_installation_id,
-                                sender_inbox_id,
+                                sender_inbox_id: sender_inbox_id.clone(),
                                 delivery_status: DeliveryStatus::Published,
                             };
                             message.store(provider.conn_ref())?;
+
+                            // ensure the requester is a member of all the groups
+                            let _ = client
+                                .ensure_member_of_all_groups(sender_inbox_id)
+                                .await
+                                .map_err(|e| MessageProcessingError::Group(Box::new(e)));
 
                             // prepare and send the reply
                             match client

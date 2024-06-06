@@ -79,6 +79,17 @@ where
         Ok(())
     }
 
+    pub async fn ensure_member_of_all_groups(&self, inbox_id: String) -> Result<(), GroupError> {
+        let conn = self.store().conn()?;
+        let groups = conn.find_groups(None, None, None, None)?;
+        for group in groups {
+            let group = self.group(group.id)?;
+            Box::pin(group.add_members_by_inbox_id(self, vec![inbox_id.clone()])).await?;
+        }
+
+        Ok(())
+    }
+
     pub(crate) async fn send_history_request(&self) -> Result<String, GroupError> {
         // find the sync group
         let conn = self.store().conn()?;
