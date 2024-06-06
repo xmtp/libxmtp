@@ -802,9 +802,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@xmtp/bindings-node@workspace:.":
+"@xmtp/mls-client-bindings-node@workspace:.":
   version: 0.0.0-use.local
-  resolution: "@xmtp/bindings-node@workspace:."
+  resolution: "@xmtp/mls-client-bindings-node@workspace:."
   dependencies:
     "@napi-rs/cli": "npm:^3.0.0-alpha.55"
     viem: "npm:^2.11.1"
