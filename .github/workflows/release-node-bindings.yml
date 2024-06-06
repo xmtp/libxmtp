@@ -251,3 +251,5 @@ jobs:
         with:
           token: ${{ secrets.NPM_TOKEN }}
           package: bindings_node
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
