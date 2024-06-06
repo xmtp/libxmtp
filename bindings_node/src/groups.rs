@@ -9,7 +9,8 @@ use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_mls::groups::{
   group_metadata::{ConversationType, GroupMetadata},
   group_permissions::GroupMutablePermissions,
-  MlsGroup, PreconfiguredPolicies,
+  members::PermissionLevel,
+  MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
@@ -71,10 +72,18 @@ impl NapiGroupMetadata {
 }
 
 #[napi]
+pub enum NapiPermissionLevel {
+  Member,
+  Admin,
+  SuperAdmin,
+}
+
+#[napi]
 pub struct NapiGroupMember {
   pub inbox_id: String,
   pub account_addresses: Vec<String>,
   pub installation_ids: Vec<String>,
+  pub permission_level: NapiPermissionLevel,
 }
 
 #[napi]
@@ -231,10 +240,61 @@ impl NapiGroup {
           .into_iter()
           .map(|id| ed25519_public_key_to_address(id.as_slice()))
           .collect(),
+        permission_level: match member.permission_level {
+          PermissionLevel::Member => NapiPermissionLevel::Member,
+          PermissionLevel::Admin => NapiPermissionLevel::Admin,
+          PermissionLevel::SuperAdmin => NapiPermissionLevel::SuperAdmin,
+        },
       })
       .collect();
 
     Ok(members)
+  }
+
+  #[napi]
+  pub fn admin_list(&self) -> Result<Vec<String>> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    let admin_list = group
+      .admin_list()
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(admin_list)
+  }
+
+  #[napi]
+  pub fn super_admin_list(&self) -> Result<Vec<String>> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    let super_admin_list = group
+      .super_admin_list()
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(super_admin_list)
+  }
+
+  #[napi]
+  pub fn is_admin(&self, inbox_id: String) -> Result<bool> {
+    let admin_list = self
+      .admin_list()
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    Ok(admin_list.contains(&inbox_id))
+  }
+
+  #[napi]
+  pub fn is_super_admin(&self, inbox_id: String) -> Result<bool> {
+    let super_admin_list = self
+      .super_admin_list()
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    Ok(super_admin_list.contains(&inbox_id))
   }
 
   #[napi]
@@ -251,6 +311,85 @@ impl NapiGroup {
       .map_err(|e| Error::from_reason(format!("{}", e)))?;
 
     Ok(())
+  }
+
+  #[napi]
+  pub async fn add_admin(&self, inbox_id: String) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+    group
+      .update_admin_list(&self.inner_client, UpdateAdminListType::Add, inbox_id)
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub async fn remove_admin(&self, inbox_id: String) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+    group
+      .update_admin_list(&self.inner_client, UpdateAdminListType::Remove, inbox_id)
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub async fn add_super_admin(&self, inbox_id: String) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+    group
+      .update_admin_list(&self.inner_client, UpdateAdminListType::AddSuper, inbox_id)
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub async fn remove_super_admin(&self, inbox_id: String) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+    group
+      .update_admin_list(
+        &self.inner_client,
+        UpdateAdminListType::RemoveSuper,
+        inbox_id,
+      )
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub fn group_permissions(&self) -> Result<NapiGroupPermissions> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    let permissions = group
+      .permissions()
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(NapiGroupPermissions { inner: permissions })
   }
 
   #[napi]
