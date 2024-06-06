@@ -4,12 +4,17 @@
 use crate::builder::ClientBuilder;
 use ethers::signers::{LocalWallet, Signer};
 use indicatif::{ProgressBar, ProgressStyle};
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
+use std::sync::Once;
 use thiserror::Error;
 use tracing::{Metadata, Subscriber};
+use tracing_flame::{FlameLayer, FlushGuard};
 use tracing_subscriber::{
-    layer::{Context, Filter},
+    layer::{Context, Filter, Layer, SubscriberExt},
     registry::LookupSpan,
+    util::SubscriberInitExt,
+    EnvFilter,
 };
 use xmtp_cryptography::utils::rng;
 
@@ -21,6 +26,31 @@ pub enum BenchError {
     Serde(#[from] serde_json::Error),
     #[error(transparent)]
     Io(#[from] std::io::Error),
+}
+
+static INIT: Once = Once::new();
+
+static LOGGER: OnceCell<FlushGuard<std::io::BufWriter<std::fs::File>>> = OnceCell::new();
+
+/// initializes logging for benchmarks
+/// this does not include any fmt output
+/// but instead generates a flamegraph of the benched execution
+/// if `RUST_LOG=trace`
+pub fn init_logging() {
+    INIT.call_once(|| {
+        let (flame_layer, guard) = FlameLayer::with_file("./tracing.folded").unwrap();
+        let flame_layer = flame_layer
+            .with_threads_collapsed(true)
+            .with_module_path(true)
+            .with_empty_samples(false);
+
+        tracing_subscriber::registry()
+            .with(EnvFilter::from_default_env())
+            .with(flame_layer.with_filter(BenchFilter))
+            .init();
+
+        LOGGER.set(guard).unwrap();
+    })
 }
 
 /// Filters for only spans where the root span name is "bench"

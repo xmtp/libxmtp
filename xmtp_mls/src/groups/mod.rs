@@ -465,6 +465,7 @@ impl MlsGroup {
      * If any existing members have new installations that have not been added, the missing installations
      * will be added as part of this process as well.
      */
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members<ApiClient>(
         &self,
         client: &Client<ApiClient>,

@@ -72,6 +72,7 @@ impl DbConnection {
     }
 
     /// Batch insert identity updates, ignoring duplicates.
+    #[tracing::instrument(level = "trace", skip(updates))]
     pub fn insert_or_ignore_identity_updates(
         &self,
         updates: &[StoredIdentityUpdate],

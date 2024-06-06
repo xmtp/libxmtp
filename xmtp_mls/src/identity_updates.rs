@@ -334,7 +334,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
         .map(|inbox_id| GetIdentityUpdatesV2Filter {
             sequence_id: existing_sequence_ids
                 .get(&inbox_id)
-                .cloned()
+                .copied()
                 .map(|i| i as u64),
             inbox_id,
         })
@@ -342,18 +342,20 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
 
     let updates = api_client.get_identity_updates_v2(filters).await?;
 
-    let to_store = updates
-        .clone()
-        .into_iter()
-        .flat_map(|(inbox_id, updates)| {
-            updates.into_iter().map(move |update| StoredIdentityUpdate {
-                inbox_id: inbox_id.clone(),
-                sequence_id: update.sequence_id as i64,
-                server_timestamp_ns: update.server_timestamp_ns as i64,
-                payload: update.update.to_proto().encode_to_vec(),
+    let to_store = tracing::trace_span!("store updates").in_scope(|| {
+        updates
+            .clone()
+            .into_iter()
+            .flat_map(|(inbox_id, updates)| {
+                updates.into_iter().map(move |update| StoredIdentityUpdate {
+                    inbox_id: inbox_id.clone(),
+                    sequence_id: update.sequence_id as i64,
+                    server_timestamp_ns: update.server_timestamp_ns as i64,
+                    payload: update.update.to_proto().encode_to_vec(),
+                })
             })
-        })
-        .collect::<Vec<StoredIdentityUpdate>>();
+            .collect::<Vec<StoredIdentityUpdate>>()
+    });
 
     conn.insert_or_ignore_identity_updates(&to_store)?;
     Ok(updates)

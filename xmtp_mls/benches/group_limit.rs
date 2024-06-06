@@ -3,45 +3,21 @@
 //! may be used to generate a flamegraph of execution from tracing logs.
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use ethers::signers::LocalWallet;
-use once_cell::sync::OnceCell;
-use std::{collections::HashMap, sync::Arc, sync::Once};
+use std::{collections::HashMap, sync::Arc};
 use tokio::runtime::{Builder, Handle, Runtime};
-use tracing::{span, Instrument, Level};
-use tracing_flame::{FlameLayer, FlushGuard};
-use tracing_subscriber::{
-    layer::{Layer, SubscriberExt},
-    util::SubscriberInitExt,
-    EnvFilter,
-};
+use tracing::{trace_span, Instrument};
 use xmtp_cryptography::utils::rng;
 use xmtp_mls::{
     builder::ClientBuilder,
     utils::{
-        bench::{create_identities_if_dont_exist, BenchFilter, Identity},
+        bench::{create_identities_if_dont_exist, init_logging, Identity},
         test::TestClient,
     },
 };
 
-static INIT: Once = Once::new();
-pub const IDENTITY_SAMPLES: [usize; 1] = [10 /*20, 40, 80, 100, 200, 400, 800*/];
-pub const MAX_IDENTITIES: usize = 5_000;
+pub const IDENTITY_SAMPLES: [usize; 8] = [10, 20, 40, 80, 100, 200, 400, 800];
+pub const MAX_IDENTITIES: usize = 2_000;
 pub const SAMPLE_SIZE: usize = 10;
-
-static LOGGER: OnceCell<FlushGuard<std::io::BufWriter<std::fs::File>>> = OnceCell::new();
-
-pub(crate) fn init_logging() {
-    INIT.call_once(|| {
-        let (flame_layer, guard) = FlameLayer::with_file("./tracing.folded").unwrap();
-        let flame_layer = flame_layer.with_threads_collapsed(true);
-
-        tracing_subscriber::registry()
-            .with(EnvFilter::from_default_env())
-            .with(flame_layer.with_filter(BenchFilter))
-            .init();
-
-        LOGGER.set(guard).unwrap();
-    })
-}
 
 fn setup() -> (Arc<TestClient>, Vec<Identity>, Runtime) {
     let runtime = Builder::new_multi_thread()
@@ -101,10 +77,22 @@ fn add_to_empty_group(c: &mut Criterion) {
         benchmark_group.throughput(Throughput::Elements(*size as u64));
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let addrs = map.get(&size).unwrap();
+            let span = trace_span!("bench", size);
             b.to_async(&runtime).iter_batched(
-                || (client.clone(), client.create_group(None).unwrap()),
-                |(client, group)| async move {
-                    group.add_members(&client, addrs.clone()).await.unwrap();
+                || {
+                    (
+                        client.clone(),
+                        client.create_group(None).unwrap(),
+                        addrs.clone(),
+                        span.clone(),
+                    )
+                },
+                |(client, group, addrs, span)| async move {
+                    group
+                        .add_members(&client, addrs)
+                        .instrument(span)
+                        .await
+                        .unwrap();
                 },
                 BatchSize::SmallInput,
             );
@@ -130,11 +118,20 @@ fn add_to_empty_group_by_inbox_id(c: &mut Criterion) {
         benchmark_group.throughput(Throughput::Elements(*size as u64));
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let ids = map.get(&size).unwrap();
+            let span = trace_span!("bench", size);
             b.to_async(&runtime).iter_batched(
-                || (client.clone(), client.create_group(None).unwrap()),
-                |(client, group)| async move {
+                || {
+                    (
+                        client.clone(),
+                        client.create_group(None).unwrap(),
+                        span.clone(),
+                        ids.clone(),
+                    )
+                },
+                |(client, group, span, ids)| async move {
                     group
-                        .add_members_by_inbox_id(&client, ids.clone())
+                        .add_members_by_inbox_id(&client, ids)
+                        .instrument(span)
                         .await
                         .unwrap();
                 },
@@ -163,7 +160,7 @@ fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
         benchmark_group.throughput(Throughput::Elements(*size as u64));
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let ids = map.get(&size).unwrap();
-            // let setup = setup(&runtime);
+            let span = trace_span!("bench", size);
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {
@@ -178,17 +175,15 @@ fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
                             .await
                             .unwrap();
 
-                        (client.clone(), group)
+                        (client.clone(), group, span.clone(), ids.clone())
                     })
                 },
-                |(client, group)| {
-                    let client = client.clone();
-                    async move {
-                        group
-                            .add_members_by_inbox_id(&client, ids.clone())
-                            .await
-                            .unwrap();
-                    }
+                |(client, group, span, ids)| async move {
+                    group
+                        .add_members_by_inbox_id(&client, ids)
+                        .instrument(span)
+                        .await
+                        .unwrap();
                 },
                 BatchSize::SmallInput,
             );
@@ -215,7 +210,7 @@ fn remove_all_members_from_group(c: &mut Criterion) {
         benchmark_group.throughput(Throughput::Elements(*size as u64));
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let ids = map.get(&size).unwrap();
-
+            let span = trace_span!("bench", size);
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {
@@ -224,12 +219,13 @@ fn remove_all_members_from_group(c: &mut Criterion) {
                             .add_members_by_inbox_id(&client, ids.clone())
                             .await
                             .unwrap();
-                        (client.clone(), group)
+                        (client.clone(), group, span.clone(), ids.clone())
                     })
                 },
-                |(client, group)| async move {
+                |(client, group, span, ids)| async move {
                     group
-                        .remove_members_by_inbox_id(&client, ids.clone())
+                        .remove_members_by_inbox_id(&client, ids)
+                        .instrument(span)
                         .await
                         .unwrap();
                 },
@@ -258,7 +254,7 @@ fn remove_half_members_from_group(c: &mut Criterion) {
         benchmark_group.throughput(Throughput::Elements(*size as u64));
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let ids = map.get(&size).unwrap();
-
+            let span = trace_span!("bench", size);
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {
@@ -267,12 +263,18 @@ fn remove_half_members_from_group(c: &mut Criterion) {
                             .add_members_by_inbox_id(&client, ids.clone())
                             .await
                             .unwrap();
-                        (client.clone(), group)
+                        (
+                            client.clone(),
+                            group,
+                            span.clone(),
+                            ids[0..(size / 2)].into(),
+                        )
                     })
                 },
-                |(client, group)| async move {
+                |(client, group, span, ids)| async move {
                     group
-                        .remove_members_by_inbox_id(&client, ids[0..(size / 2)].into())
+                        .remove_members_by_inbox_id(&client, ids)
+                        .instrument(span)
                         .await
                         .unwrap();
                 },
@@ -301,7 +303,7 @@ fn add_1_member_to_group(c: &mut Criterion) {
         benchmark_group.throughput(Throughput::Elements(*size as u64));
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let ids = map.get(&size).unwrap();
-            let span = span!(Level::TRACE, "bench", size);
+            let span = trace_span!("bench", size);
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {
@@ -311,19 +313,15 @@ fn add_1_member_to_group(c: &mut Criterion) {
                             .await
                             .unwrap();
                         let member = inbox_ids.last().unwrap().clone();
-                        (client.clone(), group, member)
+                        (client.clone(), group, vec![member], span.clone())
                     })
                 },
-                |(client, group, member)| {
-                    let span = span.clone();
-                    async move {
-                        group
-                            .add_members_by_inbox_id(&client, vec![member])
-                            .in_current_span()
-                            .await
-                            .unwrap();
-                    }
-                    .instrument(span)
+                |(client, group, member, span)| async move {
+                    group
+                        .add_members_by_inbox_id(&client, member)
+                        .instrument(span)
+                        .await
+                        .unwrap();
                 },
                 BatchSize::SmallInput,
             );
@@ -335,5 +333,5 @@ fn add_1_member_to_group(c: &mut Criterion) {
 criterion_group!(
     name = group_limit;
     config = Criterion::default().sample_size(10);
-    targets = /*add_to_empty_group, add_to_empty_group_by_inbox_id, remove_all_members_from_group, remove_half_members_from_group, add_to_100_member_group_by_inbox_id, */ add_1_member_to_group);
+    targets = add_to_empty_group, add_to_empty_group_by_inbox_id, remove_all_members_from_group, remove_half_members_from_group, add_to_100_member_group_by_inbox_id, add_1_member_to_group);
 criterion_main!(group_limit);
