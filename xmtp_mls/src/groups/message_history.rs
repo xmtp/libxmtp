@@ -654,6 +654,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[ignore] // this test is only relevant if we are enforcing the PIN challenge
     async fn test_provide_pin_challenge() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -689,7 +690,7 @@ mod tests {
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
         // amal_b sends a message history request to sync group messages
-        let pin_code = amal_b
+        let _pin_code = amal_b
             .send_history_request()
             .await
             .expect("history request");
@@ -699,8 +700,6 @@ mod tests {
         // get the first sync group
         let amal_a_sync_group = amal_a.group(amal_a_sync_groups[0].id.clone()).unwrap();
         amal_a_sync_group.sync(&amal_a).await.expect("sync");
-        let pin_challenge_result = amal_a.provide_pin(&pin_code);
-        assert_ok!(pin_challenge_result);
 
         // amal_a builds and sends a message history reply back
         let history_reply = HistoryReply::new(
