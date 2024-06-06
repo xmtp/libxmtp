@@ -223,6 +223,8 @@ jobs:
           retention-days: 1
 
   publish:
+    permissions:
+      id-token: write
     runs-on: warp-ubuntu-latest-x64-8x
     needs: [build-linux, build-macos, build-windows]
     steps:
@@ -245,9 +247,9 @@ jobs:
       - name: Enable corepack
         run: corepack enable
       - name: Publish to NPM
-        run: |
-          cd bindings_node
-          npm publish
+        uses: JS-DevTools/npm-publish@v3
+        with:
+          token: ${{ secrets.NPM_TOKEN }}
+          package: bindings_node
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
