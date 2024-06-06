@@ -459,8 +459,8 @@ mod tests {
         let store =
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
         let nonce = 0;
-        let address = rand_string();
-        let inbox_id = "inbox_id".to_string();
+        let address = generate_local_wallet().get_address();
+        let inbox_id = generate_inbox_id(&address, &nonce);
 
         let address_cloned = address.clone();
         let inbox_id_cloned = inbox_id.clone();
@@ -476,7 +476,7 @@ mod tests {
         let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
 
         let identity = IdentityStrategy::CreateIfNotFound(inbox_id.clone(), address, nonce, None);
-        assert!(identity.initialize_identity(&wrapper, &store).await.is_ok());
+        assert!(dbg!(identity.initialize_identity(&wrapper, &store).await).is_ok());
     }
 
     // Use a stored identity as long as the inbox_id matches the one provided.
@@ -488,8 +488,8 @@ mod tests {
         let store =
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
         let nonce = 0;
-        let address = rand_string();
-        let inbox_id = "inbox_id".to_string();
+        let address = generate_local_wallet().get_address();
+        let inbox_id = generate_inbox_id(&address, &nonce);
 
         let stored: StoredIdentity = (&Identity {
             inbox_id: inbox_id.clone(),
