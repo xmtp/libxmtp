@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-use std::ops::Deref;
-use std::sync::Arc;
-
 use crate::conversations::NapiConversations;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
+use rand::Rng;
+use std::collections::HashMap;
+use std::ops::Deref;
+use std::sync::Arc;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::{
@@ -29,6 +29,7 @@ pub async fn create_client(
   host: String,
   is_secure: bool,
   db_path: String,
+  inbox_id: String,
   account_address: String,
   encryption_key: Option<Uint8Array>,
 ) -> Result<NapiClient> {
@@ -51,8 +52,14 @@ pub async fn create_client(
       .map_err(|_| Error::from_reason("Error creating unencrypted message store"))?,
   };
 
-  let identity_strategy =
-    IdentityStrategy::CreateIfNotFound(account_address.clone().to_lowercase(), None);
+  let nonce: u64 = rand::thread_rng().gen();
+
+  let identity_strategy = IdentityStrategy::CreateIfNotFound(
+    inbox_id.clone(),
+    account_address.clone().to_lowercase(),
+    nonce,
+    None,
+  );
 
   let xmtp_client = ClientBuilder::new(identity_strategy)
     .api_client(api_client)
