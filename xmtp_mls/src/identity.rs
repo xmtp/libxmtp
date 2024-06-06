@@ -188,6 +188,7 @@ impl Identity {
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Self, IdentityError> {
         // check if address is already associated with an inbox_id
+        let address = address.to_lowercase();
         let inbox_ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
         let associated_inbox_id = inbox_ids.get(&address);
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
