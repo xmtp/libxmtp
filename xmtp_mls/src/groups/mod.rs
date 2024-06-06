@@ -2066,7 +2066,7 @@ mod tests {
         if let Err(e) = &result {
             eprintln!("Error updating admin list: {:?}", e);
         }
-        // Step 5: Now have Bola attempt to update the group name again => It is failing for some reason
+        // Step 5: Now have Bola attempt to update the group name again
         bola_group
             .update_group_name(&bola, "Name Update 2".to_string())
             .await

@@ -156,7 +156,8 @@ impl MlsGroup {
                             "not retrying intent ID {}. since it is in state Error",
                             intent.id,
                         );
-                        return Ok(());
+                        return Err(last_err
+                            .unwrap_or(GroupError::Generic("Group intent could not be committed".to_string())));
                     }
                     log::warn!(
                         "retrying intent ID {}. intent currently in state {:?}",
