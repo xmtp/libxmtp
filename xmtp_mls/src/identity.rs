@@ -272,11 +272,6 @@ impl Identity {
 
             Ok(identity)
         } else {
-            if nonce == 0 {
-                return Err(IdentityError::NewIdentity(
-                    "Nonce must be non-zero if legacy key is not provided".to_string(),
-                ));
-            }
             if inbox_id != generate_inbox_id(&address, &nonce) {
                 return Err(IdentityError::NewIdentity(
                     "Inbox ID doesn't match nonce & address".to_string(),

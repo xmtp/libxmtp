@@ -256,11 +256,6 @@ mod tests {
     // Test client creation using various identity strategies that creates new inboxes
     #[tokio::test]
     async fn test_client_creation() {
-        let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-        let non_legacy_account_address = generate_local_wallet().get_address();
-        let nonce_for_legacy = 0;
-        let nonce_for_non_legacy = rand_u64();
-
         struct IdentityStrategyTestCase {
             strategy: IdentityStrategy,
             err: Option<String>,
@@ -269,58 +264,78 @@ mod tests {
         let identity_strategies_test_cases = vec![
             // legacy cases
             IdentityStrategyTestCase {
-                strategy: IdentityStrategy::CreateIfNotFound(
-                    generate_inbox_id(&legacy_account_address, &111),
-                    legacy_account_address.to_string(),
-                    111,
-                    Some(legacy_key.clone()),
-                ),
+                strategy: {
+                    let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
+                    IdentityStrategy::CreateIfNotFound(
+                        generate_inbox_id(&legacy_account_address, &1),
+                        legacy_account_address.clone(),
+                        1,
+                        Some(legacy_key),
+                    )
+                },
                 err: Some("Nonce must be 0 if legacy key is provided".to_string()),
             },
             IdentityStrategyTestCase {
-                strategy: IdentityStrategy::CreateIfNotFound(
-                    generate_inbox_id(&legacy_account_address, &111),
-                    legacy_account_address.to_string(),
-                    nonce_for_legacy,
-                    Some(legacy_key.clone()),
-                ),
+                strategy: {
+                    let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
+                    IdentityStrategy::CreateIfNotFound(
+                        generate_inbox_id(&legacy_account_address, &1),
+                        legacy_account_address.clone(),
+                        0,
+                        Some(legacy_key),
+                    )
+                },
                 err: Some("Inbox ID doesn't match nonce & address".to_string()),
             },
             IdentityStrategyTestCase {
-                strategy: IdentityStrategy::CreateIfNotFound(
-                    generate_inbox_id(&legacy_account_address, &nonce_for_legacy),
-                    legacy_account_address.to_string(),
-                    nonce_for_legacy,
-                    Some(legacy_key.clone()),
-                ),
+                strategy: {
+                    let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
+                    IdentityStrategy::CreateIfNotFound(
+                        generate_inbox_id(&legacy_account_address, &0),
+                        legacy_account_address.clone(),
+                        0,
+                        Some(legacy_key),
+                    )
+                },
                 err: None,
             },
             // non-legacy cases
             IdentityStrategyTestCase {
-                strategy: IdentityStrategy::CreateIfNotFound(
-                    generate_inbox_id(&non_legacy_account_address, &0),
-                    non_legacy_account_address.clone(),
-                    0,
-                    None,
-                ),
-                err: Some("Nonce must be non-zero if legacy key is not provided".to_string()),
-            },
-            IdentityStrategyTestCase {
-                strategy: IdentityStrategy::CreateIfNotFound(
-                    generate_inbox_id(&non_legacy_account_address, &0),
-                    non_legacy_account_address.clone(),
-                    nonce_for_non_legacy,
-                    None,
-                ),
+                strategy: {
+                    let account_address = generate_local_wallet().get_address();
+                    IdentityStrategy::CreateIfNotFound(
+                        generate_inbox_id(&account_address, &1),
+                        account_address.clone(),
+                        0,
+                        None,
+                    )
+                },
                 err: Some("Inbox ID doesn't match nonce & address".to_string()),
             },
             IdentityStrategyTestCase {
-                strategy: IdentityStrategy::CreateIfNotFound(
-                    generate_inbox_id(&non_legacy_account_address, &nonce_for_non_legacy),
-                    non_legacy_account_address.clone(),
-                    nonce_for_non_legacy,
-                    None,
-                ),
+                strategy: {
+                    let nonce = 1;
+                    let account_address = generate_local_wallet().get_address();
+                    IdentityStrategy::CreateIfNotFound(
+                        generate_inbox_id(&account_address, &nonce),
+                        account_address.clone(),
+                        nonce,
+                        None,
+                    )
+                },
+                err: None,
+            },
+            IdentityStrategyTestCase {
+                strategy: {
+                    let nonce = 0;
+                    let account_address = generate_local_wallet().get_address();
+                    IdentityStrategy::CreateIfNotFound(
+                        generate_inbox_id(&account_address, &nonce),
+                        account_address.clone(),
+                        nonce,
+                        None,
+                    )
+                },
                 err: None,
             },
         ];
