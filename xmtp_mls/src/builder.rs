@@ -113,11 +113,8 @@ mod tests {
     use crate::identity::IdentityError;
     use crate::retry::Retry;
     use crate::{
-        api::test_utils::*,
-        identity::Identity,
-        storage::identity::StoredIdentity,
-        utils::test::{rand_string, rand_vec},
-        Store,
+        api::test_utils::*, identity::Identity, storage::identity::StoredIdentity,
+        utils::test::rand_vec, Store,
     };
     use ethers::signers::Signer;
     use ethers_core::k256;
@@ -423,8 +420,8 @@ mod tests {
         let store =
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
         let nonce = 0;
-        let address = rand_string();
-        let inbox_id = "inbox_id".to_string();
+        let address = generate_local_wallet().get_address();
+        let inbox_id = generate_inbox_id(&address, &nonce);
 
         let address_cloned = address.clone();
         let inbox_id_cloned = inbox_id.clone();
@@ -509,8 +506,9 @@ mod tests {
     async fn stored_identity_mismatch() {
         let mock_api = MockApiClient::new();
 
-        let network_address = rand_string();
-        let stored_inbox_id = "stored_inbox_id".to_string();
+        let nonce = 0;
+        let address = generate_local_wallet().get_address();
+        let stored_inbox_id = generate_inbox_id(&address, &nonce);
 
         let tmpdb = tmp_path();
         let store =
@@ -530,7 +528,7 @@ mod tests {
 
         let inbox_id = "inbox_id".to_string();
         let identity =
-            IdentityStrategy::CreateIfNotFound(inbox_id.clone(), network_address.clone(), 0, None);
+            IdentityStrategy::CreateIfNotFound(inbox_id.clone(), address.clone(), nonce, None);
         let err = identity
             .initialize_identity(&wrapper, &store)
             .await
