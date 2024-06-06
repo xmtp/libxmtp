@@ -151,6 +151,13 @@ impl MlsGroup {
                     return Ok(());
                 }
                 Ok(Some(intent)) => {
+                    if intent.state == IntentState::Error {
+                        log::warn!(
+                            "not retrying intent ID {}. since it is in state Error",
+                            intent.id,
+                        );
+                        return Ok(());
+                    }
                     log::warn!(
                         "retrying intent ID {}. intent currently in state {:?}",
                         intent.id,
@@ -222,7 +229,7 @@ impl MlsGroup {
                 .await;
 
                 if maybe_validated_commit.is_err() {
-                    log::error!("error validating commit: {:?}", maybe_validated_commit);
+                    debug!("error validating commit: {:?}", maybe_validated_commit);
                     match openmls_group.clear_pending_commit(provider.storage()) {
                         Ok(_) => (),
                         Err(_) => {
@@ -231,6 +238,9 @@ impl MlsGroup {
                             ))
                         }
                     }
+                    conn.set_group_intent_error(intent.id)?;
+                    // Return before merging commit since it does not pass validation
+                    // An error will roll back clearing pending commit, so we return Ok here
                     return Ok(());
                 }
 
