@@ -1103,7 +1103,7 @@ mod tests {
 
         // Verify bola can see the group name
         let bola_group_name = bola_group.group_name().unwrap();
-        assert_eq!(bola_group_name, "New Group");
+        assert_eq!(bola_group_name, "");
 
         // Check if both clients can see the members correctly
         let amal_members: Vec<GroupMember> = amal_group.members().unwrap();
@@ -1570,7 +1570,7 @@ mod tests {
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap()
-            .eq("New Group"));
+            .eq(""));
 
         // Add bola to the group
         amal_group
@@ -1587,7 +1587,7 @@ mod tests {
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap()
-            .eq("New Group"));
+            .eq(""));
 
         // Update group name
         amal_group
@@ -1645,7 +1645,7 @@ mod tests {
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap()
-            .eq("New Group"));
+            .eq(""));
 
         // Add bola to the group
         amal_group
@@ -1662,7 +1662,7 @@ mod tests {
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap()
-            .eq("New Group"));
+            .eq(""));
 
         // Update group name
         amal_group
