@@ -13,8 +13,7 @@
     "dist"
   ],
   "napi": {
-    "name": "bindings_node",
-    "triples": {}
+    "binaryName": "bindings_node"
   },
   "license": "MIT",
   "devDependencies": {
@@ -28,7 +27,6 @@
     "artifacts": "napi artifacts",
     "build": "napi build --platform --release",
     "build:clean": "rm -rf dist",
-    "build:cross": "napi build --platform --release --use-cross",
     "build:debug": "napi build --platform",
     "build:finish": "mkdir dist && mv index.js dist && mv index.d.ts dist && mv *.node dist",
     "build:release": "yarn build:clean && yarn build && yarn build:finish",
@@ -38,6 +36,7 @@
   "packageManager": "yarn@4.2.2",
   "publishConfig": {
     "access": "public",
+    "provenance": true,
     "registry": "https://registry.npmjs.org/"
   }
 }
