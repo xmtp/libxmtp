@@ -69,6 +69,7 @@ impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpApi,
 {
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn query_group_messages(
         &self,
         group_id: Vec<u8>,

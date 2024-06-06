@@ -78,6 +78,7 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_identity_updates_v2(
         &self,
         filters: Vec<GetIdentityUpdatesV2Filter>,

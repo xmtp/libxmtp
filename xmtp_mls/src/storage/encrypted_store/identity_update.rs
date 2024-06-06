@@ -97,6 +97,7 @@ impl DbConnection {
     }
 
     /// Given a list of inbox_ids return a hashamp of each inbox ID -> highest known sequence ID
+    #[tracing::instrument(level = "trace", skip_all)]
     pub fn get_latest_sequence_id(
         &self,
         inbox_ids: &[String],

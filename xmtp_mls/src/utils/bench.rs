@@ -6,6 +6,11 @@ use ethers::signers::{LocalWallet, Signer};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tracing::{Metadata, Subscriber};
+use tracing_subscriber::{
+    layer::{Context, Filter},
+    registry::LookupSpan,
+};
 use xmtp_cryptography::utils::rng;
 
 use super::test::TestClient;
@@ -16,6 +21,29 @@ pub enum BenchError {
     Serde(#[from] serde_json::Error),
     #[error(transparent)]
     Io(#[from] std::io::Error),
+}
+
+/// Filters for only spans where the root span name is "bench"
+pub struct BenchFilter;
+
+impl<S> Filter<S> for BenchFilter
+where
+    S: Subscriber + for<'lookup> LookupSpan<'lookup> + std::fmt::Debug,
+    for<'lookup> <S as LookupSpan<'lookup>>::Data: std::fmt::Debug,
+{
+    fn enabled(&self, meta: &Metadata<'_>, cx: &Context<'_, S>) -> bool {
+        if meta.name() == "bench" {
+            return true;
+        }
+        if let Some(id) = cx.current_span().id() {
+            if let Some(s) = cx.span_scope(id) {
+                if let Some(s) = s.from_root().take(1).collect::<Vec<_>>().first() {
+                    return s.name() == "bench";
+                }
+            }
+        }
+        false
+    }
 }
 
 pub fn file_path(is_dev_network: bool) -> String {

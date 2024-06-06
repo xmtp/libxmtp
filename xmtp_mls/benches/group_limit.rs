@@ -1,37 +1,50 @@
+//! Benchmarks for group limit
+//! using `RUST_LOG=trace` will additionally output a `tracing.folded` file, which
+//! may be used to generate a flamegraph of execution from tracing logs.
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use ethers::signers::LocalWallet;
+use once_cell::sync::OnceCell;
 use std::{collections::HashMap, sync::Arc, sync::Once};
 use tokio::runtime::{Builder, Handle, Runtime};
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
+use tracing::{span, Instrument, Level};
+use tracing_flame::{FlameLayer, FlushGuard};
+use tracing_subscriber::{
+    layer::{Layer, SubscriberExt},
+    util::SubscriberInitExt,
+    EnvFilter,
+};
 use xmtp_cryptography::utils::rng;
 use xmtp_mls::{
     builder::ClientBuilder,
     utils::{
-        bench::{create_identities_if_dont_exist, Identity},
+        bench::{create_identities_if_dont_exist, BenchFilter, Identity},
         test::TestClient,
     },
 };
 
 static INIT: Once = Once::new();
-pub const IDENTITY_SAMPLES: [usize; 14] = [
-    5, 10, 20, 40, 80, 100, 200, 400, 500, 600, 700, 800, 1600, 3200,
-];
+pub const IDENTITY_SAMPLES: [usize; 1] = [10 /*20, 40, 80, 100, 200, 400, 800*/];
 pub const MAX_IDENTITIES: usize = 5_000;
 pub const SAMPLE_SIZE: usize = 10;
 
+static LOGGER: OnceCell<FlushGuard<std::io::BufWriter<std::fs::File>>> = OnceCell::new();
+
 pub(crate) fn init_logging() {
     INIT.call_once(|| {
-        let fmt = fmt::layer().compact();
-        Registry::default()
+        let (flame_layer, guard) = FlameLayer::with_file("./tracing.folded").unwrap();
+        let flame_layer = flame_layer.with_threads_collapsed(true);
+
+        tracing_subscriber::registry()
             .with(EnvFilter::from_default_env())
-            .with(fmt)
-            .init()
+            .with(flame_layer.with_filter(BenchFilter))
+            .init();
+
+        LOGGER.set(guard).unwrap();
     })
 }
 
 fn setup() -> (Arc<TestClient>, Vec<Identity>, Runtime) {
     let runtime = Builder::new_multi_thread()
-        .worker_threads(4)
         .enable_time()
         .enable_io()
         .thread_name("xmtp-bencher")
@@ -288,6 +301,7 @@ fn add_1_member_to_group(c: &mut Criterion) {
         benchmark_group.throughput(Throughput::Elements(*size as u64));
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let ids = map.get(&size).unwrap();
+            let span = span!(Level::TRACE, "bench", size);
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {
@@ -300,11 +314,16 @@ fn add_1_member_to_group(c: &mut Criterion) {
                         (client.clone(), group, member)
                     })
                 },
-                |(client, group, member)| async move {
-                    group
-                        .add_members_by_inbox_id(&client, vec![member])
-                        .await
-                        .unwrap();
+                |(client, group, member)| {
+                    let span = span.clone();
+                    async move {
+                        group
+                            .add_members_by_inbox_id(&client, vec![member])
+                            .in_current_span()
+                            .await
+                            .unwrap();
+                    }
+                    .instrument(span)
                 },
                 BatchSize::SmallInput,
             );

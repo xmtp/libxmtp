@@ -85,6 +85,7 @@ impl NewGroupIntent {
 }
 
 impl DbConnection {
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn insert_group_intent(
         &self,
         to_save: NewGroupIntent,
@@ -97,6 +98,7 @@ impl DbConnection {
     }
 
     // Query for group_intents by group_id, optionally filtering by state and kind
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn find_group_intents(
         &self,
         group_id: Vec<u8>,
@@ -194,6 +196,7 @@ impl DbConnection {
     }
 
     // Set the intent with the given ID to `Committed`
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn set_group_intent_error(&self, intent_id: ID) -> Result<(), StorageError> {
         let res = self.raw_query(|conn| {
             diesel::update(dsl::group_intents)

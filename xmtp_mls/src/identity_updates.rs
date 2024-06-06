@@ -318,6 +318,7 @@ where
 }
 
 /// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id`, write them in the db, and return the updates
+#[tracing::instrument(level = "trace", skip_all)]
 pub async fn load_identity_updates<ApiClient: XmtpApi>(
     api_client: &ApiClientWrapper<ApiClient>,
     conn: &DbConnection,
