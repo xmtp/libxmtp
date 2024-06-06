@@ -230,7 +230,7 @@ impl ValidatedCommit {
 
         // Block any ReInit proposals
         if staged_commit.psk_proposals().any(|_| true) {
-            return Err(CommitValidationError::NoPSKSupport)
+            return Err(CommitValidationError::NoPSKSupport);
         }
 
         // Get the installations actually added and removed in the commit
