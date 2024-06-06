@@ -266,39 +266,36 @@ mod tests {
             IdentityStrategyTestCase {
                 strategy: {
                     let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-                    let strategy = IdentityStrategy::CreateIfNotFound(
+                    IdentityStrategy::CreateIfNotFound(
                         generate_inbox_id(&legacy_account_address, &1),
                         legacy_account_address.clone(),
                         1,
                         Some(legacy_key),
-                    );
-                    strategy
+                    )
                 },
                 err: Some("Nonce must be 0 if legacy key is provided".to_string()),
             },
             IdentityStrategyTestCase {
                 strategy: {
                     let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-                    let strategy = IdentityStrategy::CreateIfNotFound(
+                    IdentityStrategy::CreateIfNotFound(
                         generate_inbox_id(&legacy_account_address, &1),
                         legacy_account_address.clone(),
                         0,
                         Some(legacy_key),
-                    );
-                    strategy
+                    )
                 },
                 err: Some("Inbox ID doesn't match nonce & address".to_string()),
             },
             IdentityStrategyTestCase {
                 strategy: {
                     let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-                    let strategy = IdentityStrategy::CreateIfNotFound(
+                    IdentityStrategy::CreateIfNotFound(
                         generate_inbox_id(&legacy_account_address, &0),
                         legacy_account_address.clone(),
                         0,
                         Some(legacy_key),
-                    );
-                    strategy
+                    )
                 },
                 err: None,
             },
@@ -320,13 +317,12 @@ mod tests {
                 strategy: {
                     let nonce = 1;
                     let account_address = generate_local_wallet().get_address();
-                    let strategy = IdentityStrategy::CreateIfNotFound(
+                    IdentityStrategy::CreateIfNotFound(
                         generate_inbox_id(&account_address, &nonce),
                         account_address.clone(),
                         nonce,
                         None,
-                    );
-                    strategy
+                    )
                 },
                 err: None,
             },
@@ -334,13 +330,12 @@ mod tests {
                 strategy: {
                     let nonce = 0;
                     let account_address = generate_local_wallet().get_address();
-                    let strategy = IdentityStrategy::CreateIfNotFound(
+                    IdentityStrategy::CreateIfNotFound(
                         generate_inbox_id(&account_address, &nonce),
                         account_address.clone(),
                         nonce,
                         None,
-                    );
-                    strategy
+                    )
                 },
                 err: None,
             },
