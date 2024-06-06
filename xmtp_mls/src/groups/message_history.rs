@@ -60,6 +60,8 @@ pub enum MessageHistoryError {
     Reqwest(#[from] reqwest::Error),
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
+    #[error("type conversion error")]
+    Conversion
 }
 
 #[derive(Debug, Deserialize)]
@@ -392,28 +394,30 @@ async fn upload_history_bundle(
     Ok(())
 }
 
-async fn download_history_bundle(
+pub(crate) async fn download_history_bundle(
     url: &str,
-    hmac_value: &str,
-    hmac_signing_key: &str,
-    enc_key: [u8; ENC_KEY_SIZE],
-    output_path: PathBuf,
-) -> Result<(), MessageHistoryError> {
+    hmac_value: Vec<u8>,
+    signing_key: MessageHistoryKeyType,
+    encryption_key: MessageHistoryKeyType,
+) -> Result<PathBuf, MessageHistoryError> {
+    let sign_key: HistoryKeyType = signing_key.try_into()?;
+    let enc_key: HistoryKeyType = encryption_key.try_into()?;
     let client = reqwest::Client::new();
     let response = client
         .get(url)
         .header("X-HMAC", hmac_value)
-        .header("X-SIGNING-KEY", hmac_signing_key)
+        .header("X-SIGNING-KEY", sign_key.as_bytes().to_vec())
         .send()
         .await?;
 
+    let output_path = std::env::temp_dir().join("messages.jsonl");
     if response.status().is_success() {
         let input_path = std::env::temp_dir().join("downloaded_bundle.jsonl.enc");
         let mut file = File::create(&output_path)?;
         let bytes = response.bytes().await?;
         file.write_all(&bytes)?;
 
-        decrypt_history_file(&input_path, &output_path, &enc_key)?;
+        decrypt_history_file(&input_path, &output_path, enc_key.as_bytes())?;
     } else {
         eprintln!(
             "Failed to download file. Status code: {} Response: {:?}",
@@ -422,7 +426,7 @@ async fn download_history_bundle(
         );
     }
 
-    Ok(())
+    Ok(output_path)
 }
 
 #[derive(Clone)]
@@ -525,6 +529,26 @@ impl From<HistoryKeyType> for MessageHistoryKeyType {
             HistoryKeyType::Chacha20Poly1305(key) => MessageHistoryKeyType {
                 key: Some(Key::Chacha20Poly1305(key.to_vec())),
             },
+        }
+    }
+}
+
+impl TryFrom<MessageHistoryKeyType> for HistoryKeyType {
+    type Error = MessageHistoryError;
+    fn try_from(key: MessageHistoryKeyType) -> Result<Self, Self::Error> {
+        match key {
+            MessageHistoryKeyType { key } => {
+                match key {
+                    Some(k) => {
+                        let Key::Chacha20Poly1305(hist_key) = k;
+                        match hist_key.try_into() {
+                            Ok(array) => Ok(HistoryKeyType::Chacha20Poly1305(array)),
+                            Err(_) => Err(MessageHistoryError::Conversion),
+                        }
+                    }
+                    None => Err(MessageHistoryError::Conversion),
+                }
+            }
         }
     }
 }
@@ -892,9 +916,8 @@ mod tests {
     async fn test_download_history_bundle() {
         let bundle_id = "test_bundle_id";
         let hmac_value = "test_hmac_value";
-        let signing_key = "test_signing_key";
+        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
         let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
-        let output_path = "test_output.jsonl";
         let options = mockito::ServerOpts {
             host: HISTORY_SERVER_HOST,
             port: HISTORY_SERVER_PORT,
@@ -912,17 +935,17 @@ mod tests {
             "http://{}:{}/files/{bundle_id}",
             HISTORY_SERVER_HOST, HISTORY_SERVER_PORT
         );
-        let _ = download_history_bundle(
+        let output_path = download_history_bundle(
             &url,
-            hmac_value,
-            signing_key,
-            *enc_key.as_bytes(),
-            PathBuf::from(output_path),
+            hmac_value.into(),
+            signing_key.into(),
+            enc_key.into(),
         )
-        .await;
+        .await
+        .expect("could not download history bundle");
 
         _m.assert_async().await;
-        std::fs::remove_file(output_path).expect("Unable to remove test output file");
+        std::fs::remove_file(&output_path.as_path()).expect("Unable to remove test output file");
         server.reset();
     }
 

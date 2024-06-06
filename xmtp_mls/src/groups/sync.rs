@@ -17,7 +17,10 @@ use crate::{
     client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{DELIMITER, MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
-    groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
+    groups::{
+        intents::UpdateMetadataIntentData, message_history::download_history_bundle,
+        validated_commit::ValidatedCommit,
+    },
     hpke::{encrypt_welcome, HpkeError},
     identity::parse_credential,
     identity_updates::load_identity_updates,
@@ -385,6 +388,18 @@ impl MlsGroup {
                             signing_key,
                             bundle_hash,
                         })) => {
+                            if signing_key.is_none() {
+                                return Err(MessageProcessingError::InvalidPayload);
+                            }
+                            
+                            if encryption_key.is_none() {
+                                return Err(MessageProcessingError::InvalidPayload);
+                            }
+                            
+                            let signing_key = signing_key.unwrap();
+                            
+                            let encryption_key = encryption_key.unwrap();
+
                             // store the reply message
                             let contents = format!(
                                 "{url}{DELIMITER}{:?}{DELIMITER}{:?}{DELIMITER}{:?}",
@@ -403,9 +418,15 @@ impl MlsGroup {
                                 sender_inbox_id,
                                 delivery_status: DeliveryStatus::Published,
                             }
-                            .store(provider.conn_ref())?
+                            .store(provider.conn_ref())?;
 
                             // handle the reply and fetch the history
+                            let output_path = download_history_bundle(
+                                &url,
+                                bundle_hash,
+                                signing_key,
+                                encryption_key,
+                            ).await.map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
                         }
                         _ => {
                             return Err(MessageProcessingError::InvalidPayload);
