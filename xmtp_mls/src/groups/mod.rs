@@ -165,6 +165,8 @@ pub enum GroupError {
     MessageHistory(#[from] MessageHistoryError),
     #[error("Installation diff error: {0}")]
     InstallationDiff(#[from] InstallationDiffError),
+    #[error("PSKs are not support")]
+    NoPSKSupport,
 }
 
 impl RetryableError for GroupError {
@@ -326,6 +328,9 @@ impl MlsGroup {
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
         let join_config = build_group_join_config();
+        if join_config.number_of_resumption_psks > 0 {
+            return Err(GroupError::NoPSKSupport);
+        }
         let staged_welcome =
             StagedWelcome::new_from_welcome(provider, &join_config, welcome.clone(), None)?;
 
