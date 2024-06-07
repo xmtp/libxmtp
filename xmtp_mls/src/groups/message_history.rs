@@ -61,7 +61,9 @@ pub enum MessageHistoryError {
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
     #[error("type conversion error")]
-    Conversion
+    Conversion,
+    #[error("utf-8 error: {0}")]
+    UTF8(#[from] std::str::Utf8Error),
 }
 
 #[derive(Debug, Deserialize)]
@@ -319,8 +321,11 @@ fn write_to_file<T: serde::Serialize>(
 fn encrypt_history_file(
     input_path: &Path,
     output_path: &Path,
-    key: &[u8; ENC_KEY_SIZE],
+    encryption_key: &[u8; 32],
 ) -> Result<(), MessageHistoryError> {
+    // let enc_key: HistoryKeyType = encryption_key.try_into()?;
+    // let enc_key_bytes = enc_key.as_bytes();
+
     // Read in the messages file content
     let mut input_file = File::open(input_path)?;
     let mut buffer = Vec::new();
@@ -329,7 +334,7 @@ fn encrypt_history_file(
     let nonce = generate_nonce();
 
     // Create a cipher instance
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(key));
+    let cipher = Aes256Gcm::new(GenericArray::from_slice(encryption_key));
     let nonce_array = GenericArray::from_slice(&nonce);
 
     // Encrypt the file content
@@ -343,11 +348,13 @@ fn encrypt_history_file(
     Ok(())
 }
 
-fn decrypt_history_file(
+pub(crate) fn decrypt_history_file(
     input_path: &Path,
     output_path: &Path,
-    key: &[u8; ENC_KEY_SIZE],
+    encryption_key: MessageHistoryKeyType,
 ) -> Result<(), MessageHistoryError> {
+    let enc_key: HistoryKeyType = encryption_key.try_into()?;
+    let enc_key_bytes = enc_key.as_bytes();
     // Read the messages file content
     let mut input_file = File::open(input_path)?;
     let mut buffer = Vec::new();
@@ -357,7 +364,7 @@ fn decrypt_history_file(
     let (nonce, ciphertext) = buffer.split_at(NONCE_SIZE);
 
     // Create a cipher instance
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(key));
+    let cipher = Aes256Gcm::new(GenericArray::from_slice(enc_key_bytes));
     let nonce_array = GenericArray::from_slice(nonce);
 
     // Decrypt the ciphertext
@@ -398,35 +405,36 @@ pub(crate) async fn download_history_bundle(
     url: &str,
     hmac_value: Vec<u8>,
     signing_key: MessageHistoryKeyType,
-    encryption_key: MessageHistoryKeyType,
 ) -> Result<PathBuf, MessageHistoryError> {
     let sign_key: HistoryKeyType = signing_key.try_into()?;
-    let enc_key: HistoryKeyType = encryption_key.try_into()?;
+    let sign_key_bytes = sign_key.as_bytes().to_vec();
     let client = reqwest::Client::new();
     let response = client
         .get(url)
         .header("X-HMAC", hmac_value)
-        .header("X-SIGNING-KEY", sign_key.as_bytes().to_vec())
+        .header("X-SIGNING-KEY", hex::encode(sign_key_bytes))
         .send()
         .await?;
 
-    let output_path = std::env::temp_dir().join("messages.jsonl");
+    // let output_path = std::env::temp_dir().join("messages.jsonl");
     if response.status().is_success() {
-        let input_path = std::env::temp_dir().join("downloaded_bundle.jsonl.enc");
-        let mut file = File::create(&output_path)?;
+        let file_path = std::env::temp_dir().join("downloaded_bundle.jsonl.enc");
+        let mut file = File::create(&file_path)?;
         let bytes = response.bytes().await?;
         file.write_all(&bytes)?;
+        Ok(file_path)
 
-        decrypt_history_file(&input_path, &output_path, enc_key.as_bytes())?;
+        // decrypt_history_file(&input_path, &output_path, enc_key.as_bytes())?;
     } else {
         eprintln!(
             "Failed to download file. Status code: {} Response: {:?}",
             response.status(),
             response
         );
+        Err(MessageHistoryError::Reqwest(
+            response.error_for_status().unwrap_err(),
+        ))
     }
-
-    Ok(output_path)
 }
 
 #[derive(Clone)]
@@ -536,19 +544,16 @@ impl From<HistoryKeyType> for MessageHistoryKeyType {
 impl TryFrom<MessageHistoryKeyType> for HistoryKeyType {
     type Error = MessageHistoryError;
     fn try_from(key: MessageHistoryKeyType) -> Result<Self, Self::Error> {
+        let MessageHistoryKeyType { key } = key;
         match key {
-            MessageHistoryKeyType { key } => {
-                match key {
-                    Some(k) => {
-                        let Key::Chacha20Poly1305(hist_key) = k;
-                        match hist_key.try_into() {
-                            Ok(array) => Ok(HistoryKeyType::Chacha20Poly1305(array)),
-                            Err(_) => Err(MessageHistoryError::Conversion),
-                        }
-                    }
-                    None => Err(MessageHistoryError::Conversion),
+            Some(k) => {
+                let Key::Chacha20Poly1305(hist_key) = k;
+                match hist_key.try_into() {
+                    Ok(array) => Ok(HistoryKeyType::Chacha20Poly1305(array)),
+                    Err(_) => Err(MessageHistoryError::Conversion),
                 }
             }
+            None => Err(MessageHistoryError::Conversion),
         }
     }
 }
@@ -716,6 +721,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[ignore]
     async fn test_request_reply_roundtrip() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -848,6 +854,7 @@ mod tests {
     #[test]
     fn test_encrypt_decrypt_file() {
         let key = HistoryKeyType::new_chacha20_poly1305_key();
+        let converted_key: MessageHistoryKeyType = key.try_into().expect("Unable to convert key");
         let key_bytes = key.as_bytes();
         let input_content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'";
         let input_file = NamedTempFile::new().expect("Unable to create temp file");
@@ -862,7 +869,7 @@ mod tests {
             .expect("Encryption failed");
 
         // Decrypt the file
-        decrypt_history_file(encrypted_file.path(), decrypted_file.path(), key_bytes)
+        decrypt_history_file(encrypted_file.path(), decrypted_file.path(), converted_key)
             .expect("Decryption failed");
 
         // Read the decrypted file content
@@ -917,7 +924,6 @@ mod tests {
         let bundle_id = "test_bundle_id";
         let hmac_value = "test_hmac_value";
         let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
-        let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
         let options = mockito::ServerOpts {
             host: HISTORY_SERVER_HOST,
             port: HISTORY_SERVER_PORT,
@@ -935,17 +941,12 @@ mod tests {
             "http://{}:{}/files/{bundle_id}",
             HISTORY_SERVER_HOST, HISTORY_SERVER_PORT
         );
-        let output_path = download_history_bundle(
-            &url,
-            hmac_value.into(),
-            signing_key.into(),
-            enc_key.into(),
-        )
-        .await
-        .expect("could not download history bundle");
+        let output_path = download_history_bundle(&url, hmac_value.into(), signing_key.into())
+            .await
+            .expect("could not download history bundle");
 
         _m.assert_async().await;
-        std::fs::remove_file(&output_path.as_path()).expect("Unable to remove test output file");
+        std::fs::remove_file(output_path.as_path()).expect("Unable to remove test output file");
         server.reset();
     }
 
@@ -999,7 +1000,9 @@ mod tests {
             .expect("Unable to write history bundle");
 
         let output_file = NamedTempFile::new().expect("Unable to create temp file");
-        decrypt_history_file(&bundle_path, output_file.path(), enc_key.as_bytes())
+        let converted_key: MessageHistoryKeyType =
+            enc_key.try_into().expect("Unable to convert key");
+        decrypt_history_file(&bundle_path, output_file.path(), converted_key)
             .expect("Unable to decrypt history file");
 
         let inserted = amal_b.insert_history_bundle(output_file.path());

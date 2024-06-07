@@ -18,7 +18,8 @@ use crate::{
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{DELIMITER, MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
     groups::{
-        intents::UpdateMetadataIntentData, message_history::download_history_bundle,
+        intents::UpdateMetadataIntentData,
+        message_history::{decrypt_history_file, download_history_bundle},
         validated_commit::ValidatedCommit,
     },
     hpke::{encrypt_welcome, HpkeError},
@@ -391,13 +392,13 @@ impl MlsGroup {
                             if signing_key.is_none() {
                                 return Err(MessageProcessingError::InvalidPayload);
                             }
-                            
+
                             if encryption_key.is_none() {
                                 return Err(MessageProcessingError::InvalidPayload);
                             }
-                            
+
                             let signing_key = signing_key.unwrap();
-                            
+
                             let encryption_key = encryption_key.unwrap();
 
                             // store the reply message
@@ -421,12 +422,19 @@ impl MlsGroup {
                             .store(provider.conn_ref())?;
 
                             // handle the reply and fetch the history
-                            let output_path = download_history_bundle(
-                                &url,
-                                bundle_hash,
-                                signing_key,
-                                encryption_key,
-                            ).await.map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
+                            let enc_file_path =
+                                download_history_bundle(&url, bundle_hash, signing_key)
+                                    .await
+                                    .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
+
+                            let messages_path = std::env::temp_dir().join("messages.jsonl");
+
+                            decrypt_history_file(&enc_file_path, &messages_path, encryption_key)
+                                .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
+
+                            client
+                                .insert_history_bundle(&messages_path)
+                                .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
                         }
                         _ => {
                             return Err(MessageProcessingError::InvalidPayload);
