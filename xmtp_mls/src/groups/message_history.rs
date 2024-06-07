@@ -321,7 +321,7 @@ fn write_to_file<T: serde::Serialize>(
 fn encrypt_history_file(
     input_path: &Path,
     output_path: &Path,
-    encryption_key: &[u8; 32],
+    encryption_key: &[u8; ENC_KEY_SIZE],
 ) -> Result<(), MessageHistoryError> {
     // Read in the messages file content
     let mut input_file = File::open(input_path)?;
