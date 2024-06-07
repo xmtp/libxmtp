@@ -23,6 +23,11 @@
   "engines": {
     "node": ">=18"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://git@github.com/xmtp/libxmtp.git",
+    "directory": "bindings_node"
+  },
   "scripts": {
     "artifacts": "napi artifacts",
     "build": "napi build --platform --release",
