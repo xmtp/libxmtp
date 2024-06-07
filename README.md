@@ -87,6 +87,23 @@ buffers
 [user key bundle](https://xmtp.org/docs/concepts/key-generation-and-usage) to
 encrypt and exchange messages.
 
-## Benchmarks
+## XMTP MLS Rust SDK Benchmarks
 
-relevant environment variables: `DEV_GRPC`, `XMTP_FLAMEGRAPH`
+### Run the benchmarks
+
+**possible benchmarks include:**
+
+- `group_limit`: benchmarks surrounding maximum members adding/removed from
+  group
+- `crypto`: benchmarks surrounding cryptographic functions
+
+**Example Commands**
+
+- **Run a specific category of benchmark**
+  `cargo bench --features bench -p xmtp_mls --bench group_limit`
+- **Run against dev grpc** DEV_GRPC=1 cargo bench --features bench -p xmtp_mls
+  --bench group_limit
+- **Just run all benchmarks** ./dev/bench
+- **Run one specific benchmark** ./dev/bench add_1_member_to_group
+- **Generate flamegraph from one benchmark** ./dev/flamegraph
+  add_1_member_to_group
