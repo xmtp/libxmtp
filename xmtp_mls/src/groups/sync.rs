@@ -16,7 +16,10 @@ use super::{
 use crate::{
     client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
-    configuration::{DELIMITER, MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
+    configuration::{
+        DELIMITER, GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS,
+        UPDATE_INSTALLATIONS_INTERVAL_NS,
+    },
     groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
     identity::parse_credential,
@@ -68,10 +71,6 @@ use xmtp_proto::xmtp::mls::{
         GroupUpdated, MessageHistoryReply, MessageHistoryRequest, PlaintextEnvelope,
     },
 };
-
-// TODO: Change `send_welcomes` to be constant-sized (#812)
-/// the max size gRPC will accept
-pub const MAX_CHUNK: usize = 50 * 1024 * 1024;
 
 impl MlsGroup {
     pub async fn sync<ApiClient>(&self, client: &Client<ApiClient>) -> Result<(), GroupError>
@@ -951,17 +950,20 @@ impl MlsGroup {
             .first()
             .ok_or(GroupError::Generic("No welcomes to send".to_string()))?;
 
-        let chunk_size = MAX_CHUNK
+        let chunk_size = GRPC_DATA_LIMIT
             / welcome
                 .version
                 .as_ref()
                 .map(|w| match w {
                     WelcomeMessageInputVersion::V1(w) => {
-                        w.installation_key.len() + w.data.len() + w.hpke_public_key.len()
+                        let w = w.installation_key.len() + w.data.len() + w.hpke_public_key.len();
+                        log::debug!("total welcome message proto bytes={w}");
+                        w
                     }
                 })
-                .unwrap_or(MAX_CHUNK / 200);
+                .unwrap_or(GRPC_DATA_LIMIT / usize::from(MAX_GROUP_SIZE));
 
+        log::debug!("welcome chunk_size={chunk_size}");
         let mut futures = vec![];
         for welcomes in welcomes.chunks(chunk_size) {
             futures.push(client.api_client.send_welcome_messages(welcomes));
@@ -997,6 +999,7 @@ fn extract_message_sender(
 
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
 // returning the commit and post_commit_action
+#[tracing::instrument(level = "trace", skip_all)]
 async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
     client: &Client<ApiClient>,
     provider: &XmtpOpenMlsProvider,

@@ -752,6 +752,7 @@ pub fn build_mutable_metadata_extension_default(
     ))
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 pub fn build_mutable_metadata_extensions_for_metadata_update(
     group: &OpenMlsGroup,
     field_name: String,
@@ -773,6 +774,7 @@ pub fn build_mutable_metadata_extensions_for_metadata_update(
     Ok(extensions)
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 pub fn build_mutable_metadata_extensions_for_admin_lists_update(
     group: &OpenMlsGroup,
     admin_lists_update: UpdateAdminListIntentData,

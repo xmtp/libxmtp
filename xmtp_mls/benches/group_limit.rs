@@ -10,13 +10,13 @@ use xmtp_cryptography::utils::rng;
 use xmtp_mls::{
     builder::ClientBuilder,
     utils::{
-        bench::{create_identities_if_dont_exist, init_logging, Identity},
+        bench::{create_identities_if_dont_exist, init_logging, Identity, BENCH_ROOT_SPAN},
         test::TestClient,
     },
 };
 
-pub const IDENTITY_SAMPLES: [usize; 8] = [10, 20, 40, 80, 100, 200, 400, 800];
-pub const MAX_IDENTITIES: usize = 2_000;
+pub const IDENTITY_SAMPLES: [usize; 9] = [10, 20, 40, 80, 100, 200, 300, 400, 450];
+pub const MAX_IDENTITIES: usize = 1_000;
 pub const SAMPLE_SIZE: usize = 10;
 
 fn setup() -> (Arc<TestClient>, Vec<Identity>, Runtime) {
@@ -34,7 +34,7 @@ fn setup() -> (Arc<TestClient>, Vec<Identity>, Runtime) {
         let dev = std::env::var("DEV_GRPC");
         let is_dev_network = matches!(dev, Ok(d) if d == "true" || d == "1");
         let client = if is_dev_network {
-            println!("Using Dev GRPC");
+            log::info!("Using Dev GRPC");
             Arc::new(ClientBuilder::new_dev_client(&wallet).await)
         } else {
             Arc::new(ClientBuilder::new_test_client(&wallet).await)
@@ -77,7 +77,7 @@ fn add_to_empty_group(c: &mut Criterion) {
         benchmark_group.throughput(Throughput::Elements(*size as u64));
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let addrs = map.get(&size).unwrap();
-            let span = trace_span!("bench", size);
+            let span = trace_span!(BENCH_ROOT_SPAN, size);
             b.to_async(&runtime).iter_batched(
                 || {
                     (
@@ -118,7 +118,7 @@ fn add_to_empty_group_by_inbox_id(c: &mut Criterion) {
         benchmark_group.throughput(Throughput::Elements(*size as u64));
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let ids = map.get(&size).unwrap();
-            let span = trace_span!("bench", size);
+            let span = trace_span!(BENCH_ROOT_SPAN, size);
             b.to_async(&runtime).iter_batched(
                 || {
                     (
@@ -160,7 +160,7 @@ fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
         benchmark_group.throughput(Throughput::Elements(*size as u64));
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let ids = map.get(&size).unwrap();
-            let span = trace_span!("bench", size);
+            let span = trace_span!(BENCH_ROOT_SPAN, size);
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {
@@ -210,7 +210,7 @@ fn remove_all_members_from_group(c: &mut Criterion) {
         benchmark_group.throughput(Throughput::Elements(*size as u64));
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let ids = map.get(&size).unwrap();
-            let span = trace_span!("bench", size);
+            let span = trace_span!(BENCH_ROOT_SPAN, size);
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {
@@ -254,7 +254,7 @@ fn remove_half_members_from_group(c: &mut Criterion) {
         benchmark_group.throughput(Throughput::Elements(*size as u64));
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let ids = map.get(&size).unwrap();
-            let span = trace_span!("bench", size);
+            let span = trace_span!(BENCH_ROOT_SPAN, size);
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {
@@ -303,7 +303,7 @@ fn add_1_member_to_group(c: &mut Criterion) {
         benchmark_group.throughput(Throughput::Elements(*size as u64));
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let ids = map.get(&size).unwrap();
-            let span = trace_span!("bench", size);
+            let span = trace_span!(BENCH_ROOT_SPAN, size);
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {

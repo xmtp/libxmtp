@@ -18,6 +18,10 @@ pub const UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NANOSECONDS_IN_HOUR / 2; // 30
 
 pub const MAX_GROUP_SIZE: u16 = 20_000;
 
+/// the max amount of data that can be sent in one gRPC call
+/// we leave 5 * 1024 * 1024 as extra buffer room
+pub const GRPC_DATA_LIMIT: usize = 45 * 1024 * 1024;
+
 pub const DELIMITER: char = '\x01';
 
 /// MLS Extension Types

@@ -20,6 +20,8 @@ use xmtp_cryptography::utils::rng;
 
 use super::test::TestClient;
 
+pub const BENCH_ROOT_SPAN: &str = "xmtp-trace-bench";
+
 #[derive(Debug, Error)]
 pub enum BenchError {
     #[error(transparent)]
@@ -33,20 +35,23 @@ static INIT: Once = Once::new();
 static LOGGER: OnceCell<FlushGuard<std::io::BufWriter<std::fs::File>>> = OnceCell::new();
 
 /// initializes logging for benchmarks
-/// this does not include any fmt output
-/// but instead generates a flamegraph of the benched execution
-/// if `RUST_LOG=trace`
+/// - FMT logging is enabled by passing the normal `RUST_LOG` environment variable options.
+/// - Generate a flamegraph from tracing data by passing `XMTP_FLAMEGRAPH=trace`
 pub fn init_logging() {
     INIT.call_once(|| {
         let (flame_layer, guard) = FlameLayer::with_file("./tracing.folded").unwrap();
         let flame_layer = flame_layer
             .with_threads_collapsed(true)
-            .with_module_path(true)
-            .with_empty_samples(false);
+            .with_module_path(true);
+        // .with_empty_samples(false);
 
         tracing_subscriber::registry()
-            .with(EnvFilter::from_default_env())
-            .with(flame_layer.with_filter(BenchFilter))
+            .with(tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env()))
+            .with(
+                flame_layer
+                    .with_filter(BenchFilter)
+                    .with_filter(EnvFilter::from_env("XMTP_FLAMEGRAPH")),
+            )
             .init();
 
         LOGGER.set(guard).unwrap();
@@ -62,13 +67,13 @@ where
     for<'lookup> <S as LookupSpan<'lookup>>::Data: std::fmt::Debug,
 {
     fn enabled(&self, meta: &Metadata<'_>, cx: &Context<'_, S>) -> bool {
-        if meta.name() == "bench" {
+        if meta.name() == BENCH_ROOT_SPAN {
             return true;
         }
         if let Some(id) = cx.current_span().id() {
             if let Some(s) = cx.span_scope(id) {
                 if let Some(s) = s.from_root().take(1).collect::<Vec<_>>().first() {
-                    return s.name() == "bench";
+                    return s.name() == BENCH_ROOT_SPAN;
                 }
             }
         }

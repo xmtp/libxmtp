@@ -412,6 +412,7 @@ where
         Ok(welcomes)
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,

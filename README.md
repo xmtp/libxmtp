@@ -1,17 +1,23 @@
 # LibXMTP
 
-![https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg](https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg) ![https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg) ![Status](https://img.shields.io/badge/Project_status-Alpha-orange)
+![https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg](https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg)
+![https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg)
+![Status](https://img.shields.io/badge/Project_status-Alpha-orange)
 
-LibXMTP is a shared library encapsulating the core functionality of the XMTP messaging protocol, such as cryptography, networking, and language bindings.
+LibXMTP is a shared library encapsulating the core functionality of the XMTP
+messaging protocol, such as cryptography, networking, and language bindings.
 
-> **Important**  
-> This software is in **alpha** status and ready for you to start experimenting with. However, we do not recommend using alpha software in production apps. Expect frequent changes as we add features and iterate based on feedback.
+> **Important**\
+> This software is in **alpha** status and ready for you to start experimenting
+> with. However, we do not recommend using alpha software in production apps.
+> Expect frequent changes as we add features and iterate based on feedback.
 
 ## Requirements
 
 - Install [Rustup](https://rustup.rs/)
 - Install [Docker](https://www.docker.com/get-started/)
-- Install [Foundry](https://book.getfoundry.sh/getting-started/installation#using-foundryup)
+- Install
+  [Foundry](https://book.getfoundry.sh/getting-started/installation#using-foundryup)
 
 ## Development
 
@@ -33,7 +39,8 @@ Start Docker Desktop.
 
 ## Quick Start (Dev Containers)
 
-This project supports containerized development. From Visual Studio Code Dev Containers extension specify the Dockerfile as the target:
+This project supports containerized development. From Visual Studio Code Dev
+Containers extension specify the Dockerfile as the target:
 
 `Reopen in Container`
 
@@ -49,24 +56,37 @@ docker build . -t libxmtp:1
 
 libxmtp/
 
-├ [`bindings_ffi`](./bindings_ffi): FFI bindings for Android and iOS (in progress)
+├ [`bindings_ffi`](./bindings_ffi): FFI bindings for Android and iOS (in
+progress)
 
 ├ [`bindings_wasm`](./bindings_wasm): Wasm bindings (in progress)
 
 ├ examples/
 
-   ├ [`android/xmtpv3_example`](./examples/android/xmtpv3_example): Example Android app (in progress)
+   ├ [`android/xmtpv3_example`](./examples/android/xmtpv3_example): Example
+Android app (in progress)
 
-   └ [`cli`](./examples/cli): Example XMTP console client. Use the CLI to try out sending double ratchet messages on the XMTP `dev` network.
+   └ [`cli`](./examples/cli): Example XMTP console client. Use the CLI to try
+out sending double ratchet messages on the XMTP `dev` network.
 
-├ [`xmtp_api_grpc`](./xmtp_api_grpc): API client for XMTP's gRPC API, using code from `xmtp_proto`
+├ [`xmtp_api_grpc`](./xmtp_api_grpc): API client for XMTP's gRPC API, using code
+from `xmtp_proto`
 
-├ [`xmtp_api_grpc_gateway`](./xmtp_api_grpc_gateway): API client for XMTP's gRPC Gateway API, using code from `xmtp_proto` (in progress)
+├ [`xmtp_api_grpc_gateway`](./xmtp_api_grpc_gateway): API client for XMTP's gRPC
+Gateway API, using code from `xmtp_proto` (in progress)
 
 ├ [`xmtp_cryptography`](./xmtp_cryptography): Cryptographic operations
 
-├ [`xmtp_mls`](./xmtp_mls): Version 3 of XMTP which implements [Messaging Layer Security](https://messaginglayersecurity.rocks/).
+├ [`xmtp_mls`](./xmtp_mls): Version 3 of XMTP which implements
+[Messaging Layer Security](https://messaginglayersecurity.rocks/).
 
-├ [`xmtp_proto`](./xmtp_proto): Generated code for handling XMTP protocol buffers
+├ [`xmtp_proto`](./xmtp_proto): Generated code for handling XMTP protocol
+buffers
 
-└ [`xmtp_v2`](./xmtp_v2): Version 2 of XMTP which uses a [user key bundle](https://xmtp.org/docs/concepts/key-generation-and-usage) to encrypt and exchange messages.
+└ [`xmtp_v2`](./xmtp_v2): Version 2 of XMTP which uses a
+[user key bundle](https://xmtp.org/docs/concepts/key-generation-and-usage) to
+encrypt and exchange messages.
+
+## Benchmarks
+
+relevant environment variables: `DEV_GRPC`, `XMTP_FLAMEGRAPH`
