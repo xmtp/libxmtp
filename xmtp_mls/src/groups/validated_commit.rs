@@ -188,6 +188,7 @@ impl MetadataFieldChange {
  * present in the [`AssociationState`] for the `inbox_id` presented in the credential at the `to_sequence_id` found in the
  * new [`GroupMembership`].
  * 5. All proposals in a commit must come from the same installation
+ * 6. No PSK proposals will be allowed
  */
 #[derive(Debug, Clone)]
 pub struct ValidatedCommit {
@@ -228,7 +229,7 @@ impl ValidatedCommit {
             &mutable_metadata,
         )?;
 
-        // Block any ReInit proposals
+        // Block any psk proposals
         if staged_commit.psk_proposals().any(|_| true) {
             return Err(CommitValidationError::NoPSKSupport);
         }
