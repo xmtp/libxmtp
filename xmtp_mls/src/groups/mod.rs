@@ -18,7 +18,10 @@ use openmls::{
         Extension, ExtensionType, Extensions, Metadata, RequiredCapabilitiesExtension,
         UnknownExtension,
     },
-    group::{CreateGroupContextExtProposalError, MlsGroupCreateConfig, MlsGroupJoinConfig},
+    group::{
+        CreateGroupContextExtProposalError, MlsGroupCreateConfig, MlsGroupJoinConfig,
+        ProcessedWelcome,
+    },
     messages::proposals::ProposalType,
     prelude::{
         BasicCredentialError, Capabilities, CredentialWithKey, Error as TlsCodecError, GroupId,
@@ -328,11 +331,12 @@ impl MlsGroup {
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
         let join_config = build_group_join_config();
-        if join_config.number_of_resumption_psks > 0 {
+        let processed_welcome =
+            ProcessedWelcome::new_from_welcome(provider, &join_config, welcome.clone())?;
+        if processed_welcome.psks().is_empty() {
             return Err(GroupError::NoPSKSupport);
         }
-        let staged_welcome =
-            StagedWelcome::new_from_welcome(provider, &join_config, welcome.clone(), None)?;
+        let staged_welcome = processed_welcome.into_staged_welcome(provider, None)?;
 
         let added_by_node = staged_welcome.welcome_sender()?;
 

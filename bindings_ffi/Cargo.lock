@@ -2751,7 +2751,7 @@ dependencies = [
 [[package]]
 name = "openmls"
 version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?rev=5174c31#5174c3118c9c43fd769fbc6ba469cc8e78b162af"
+source = "git+https://github.com/xmtp/openmls?rev=2fa5d2d#2fa5d2d10b263db13c73d243962cdcc729d0a3ff"
 dependencies = [
  "backtrace",
  "itertools 0.10.5",
@@ -2773,7 +2773,7 @@ dependencies = [
 [[package]]
 name = "openmls_basic_credential"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=5174c31#5174c3118c9c43fd769fbc6ba469cc8e78b162af"
+source = "git+https://github.com/xmtp/openmls?rev=2fa5d2d#2fa5d2d10b263db13c73d243962cdcc729d0a3ff"
 dependencies = [
  "ed25519-dalek",
  "openmls_traits",
@@ -2786,7 +2786,7 @@ dependencies = [
 [[package]]
 name = "openmls_memory_storage"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=5174c31#5174c3118c9c43fd769fbc6ba469cc8e78b162af"
+source = "git+https://github.com/xmtp/openmls?rev=2fa5d2d#2fa5d2d10b263db13c73d243962cdcc729d0a3ff"
 dependencies = [
  "hex",
  "log",
@@ -2799,7 +2799,7 @@ dependencies = [
 [[package]]
 name = "openmls_rust_crypto"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=5174c31#5174c3118c9c43fd769fbc6ba469cc8e78b162af"
+source = "git+https://github.com/xmtp/openmls?rev=2fa5d2d#2fa5d2d10b263db13c73d243962cdcc729d0a3ff"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -2823,7 +2823,7 @@ dependencies = [
 [[package]]
 name = "openmls_test"
 version = "0.1.0"
-source = "git+https://github.com/xmtp/openmls?rev=5174c31#5174c3118c9c43fd769fbc6ba469cc8e78b162af"
+source = "git+https://github.com/xmtp/openmls?rev=2fa5d2d#2fa5d2d10b263db13c73d243962cdcc729d0a3ff"
 dependencies = [
  "ansi_term",
  "openmls_rust_crypto",
@@ -2838,7 +2838,7 @@ dependencies = [
 [[package]]
 name = "openmls_traits"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=5174c31#5174c3118c9c43fd769fbc6ba469cc8e78b162af"
+source = "git+https://github.com/xmtp/openmls?rev=2fa5d2d#2fa5d2d10b263db13c73d243962cdcc729d0a3ff"
 dependencies = [
  "serde",
  "tls_codec 0.4.2-pre.1",
