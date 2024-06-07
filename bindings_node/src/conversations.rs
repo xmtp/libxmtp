@@ -38,10 +38,7 @@ impl NapiConversations {
     account_addresses: Vec<String>,
     permissions: Option<GroupPermissions>,
   ) -> Result<NapiGroup> {
-    let group_permissions = match permissions {
-      Some(group_permissions) => Some(group_permissions.into()),
-      _ => None,
-    };
+    let group_permissions = permissions.map(|group_permissions| group_permissions.into());
 
     let convo = self
       .inner_client

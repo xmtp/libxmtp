@@ -232,15 +232,16 @@ impl NapiClient {
       .await
       .map_err(|e| Error::from_reason(format!("{}", e)))?;
 
-    return Ok(());
+    Ok(())
   }
 
   #[napi]
   pub fn signature_text(&self) -> Option<String> {
-    match self.inner_client.identity().signature_request() {
-      Some(signature_req) => Some(signature_req.signature_text()),
-      None => None,
-    }
+    self
+      .inner_client
+      .identity()
+      .signature_request()
+      .map(|signature_req| signature_req.signature_text())
   }
 
   #[napi]
