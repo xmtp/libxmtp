@@ -413,15 +413,12 @@ pub(crate) async fn download_history_bundle(
         .send()
         .await?;
 
-    // let output_path = std::env::temp_dir().join("messages.jsonl");
     if response.status().is_success() {
         let file_path = std::env::temp_dir().join("downloaded_bundle.jsonl.enc");
         let mut file = File::create(&file_path)?;
         let bytes = response.bytes().await?;
         file.write_all(&bytes)?;
         Ok(file_path)
-
-        // decrypt_history_file(&input_path, &output_path, enc_key.as_bytes())?;
     } else {
         eprintln!(
             "Failed to download file. Status code: {} Response: {:?}",
