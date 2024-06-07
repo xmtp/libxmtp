@@ -318,14 +318,14 @@ class Client() {
 
                 val alias = "xmtp-${options.api.env}-$inboxId"
 
-                val dbDir = if (options.dbDirectory == null) {
-                    File(appContext?.filesDir?.absolutePath, "xmtp_db")
+                val mlsDbDirectory = options.dbDirectory
+                val directoryFile = if (mlsDbDirectory != null) {
+                    File(mlsDbDirectory)
                 } else {
-                    File(appContext?.filesDir?.absolutePath, options.dbDirectory)
+                    File(appContext?.filesDir?.absolutePath, "xmtp_db")
                 }
-
-                dbDir.mkdir()
-                dbPath = dbDir.absolutePath + "/$alias.db3"
+                directoryFile.mkdir()
+                dbPath = directoryFile.absolutePath + "/$alias.db3"
 
                 val encryptionKey = if (options.dbEncryptionKey == null) {
                     val keyStore = KeyStore.getInstance("AndroidKeyStore")
