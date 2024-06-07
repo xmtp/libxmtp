@@ -23,11 +23,8 @@ impl NapiStreamCloser {
 
   #[napi]
   pub fn end(&self) {
-    match self.close_fn.lock() {
-      Ok(mut close_fn_option) => {
-        let _ = close_fn_option.take().map(|close_fn| close_fn.send(()));
-      }
-      _ => {}
+    if let Ok(mut close_fn_option) = self.close_fn.lock() {
+      let _ = close_fn_option.take().map(|close_fn| close_fn.send(()));
     }
   }
 

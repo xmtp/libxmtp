@@ -23,13 +23,13 @@ impl From<ContentTypeId> for NapiContentTypeId {
   }
 }
 
-impl Into<ContentTypeId> for NapiContentTypeId {
-  fn into(self) -> ContentTypeId {
+impl From<NapiContentTypeId> for ContentTypeId {
+  fn from(content_type_id: NapiContentTypeId) -> Self {
     ContentTypeId {
-      authority_id: self.authority_id,
-      type_id: self.type_id,
-      version_major: self.version_major,
-      version_minor: self.version_minor,
+      authority_id: content_type_id.authority_id,
+      type_id: content_type_id.type_id,
+      version_major: content_type_id.version_major,
+      version_minor: content_type_id.version_minor,
     }
   }
 }
@@ -46,10 +46,7 @@ pub struct NapiEncodedContent {
 
 impl From<EncodedContent> for NapiEncodedContent {
   fn from(content: EncodedContent) -> NapiEncodedContent {
-    let r#type = match content.r#type {
-      Some(v) => Some(v.into()),
-      None => None,
-    };
+    let r#type = content.r#type.map(|v| v.into());
 
     NapiEncodedContent {
       r#type,
@@ -61,21 +58,17 @@ impl From<EncodedContent> for NapiEncodedContent {
   }
 }
 
-impl Into<EncodedContent> for NapiEncodedContent {
-  fn into(self) -> EncodedContent {
-    let content_type = match self.r#type {
-      Some(v) => Some(v.into()),
-      None => None,
-    };
-
-    let content: Vec<u8> = self.content.deref().to_vec();
+impl From<NapiEncodedContent> for EncodedContent {
+  fn from(content: NapiEncodedContent) -> Self {
+    let r#type = content.r#type.map(|v| v.into());
+    let content_bytes: Vec<u8> = content.content.deref().to_vec();
 
     EncodedContent {
-      r#type: content_type,
-      parameters: self.parameters,
-      fallback: self.fallback,
-      compression: self.compression,
-      content,
+      r#type,
+      parameters: content.parameters,
+      fallback: content.fallback,
+      compression: content.compression,
+      content: content_bytes,
     }
   }
 }

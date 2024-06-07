@@ -40,9 +40,9 @@ impl From<PreconfiguredPolicies> for GroupPermissions {
   }
 }
 
-impl Into<PreconfiguredPolicies> for GroupPermissions {
-  fn into(self) -> PreconfiguredPolicies {
-    match self {
+impl From<GroupPermissions> for PreconfiguredPolicies {
+  fn from(permissions: GroupPermissions) -> Self {
+    match permissions {
       GroupPermissions::EveryoneIsAdmin => PreconfiguredPolicies::AllMembers,
       GroupPermissions::GroupCreatorIsAdmin => PreconfiguredPolicies::AdminsOnly,
     }
@@ -131,10 +131,9 @@ impl NapiGroup {
   #[napi]
   pub async fn send(&self, encoded_content: NapiEncodedContent) -> Result<String> {
     let encoded_content: EncodedContent = encoded_content.into();
-    let group_id: Vec<u8> = self.group_id.clone().into();
     let group = MlsGroup::new(
       self.inner_client.context().clone(),
-      group_id,
+      self.group_id.clone(),
       self.created_at_ns,
     );
 
@@ -150,10 +149,9 @@ impl NapiGroup {
 
   #[napi]
   pub async fn sync(&self) -> Result<()> {
-    let group_id: Vec<u8> = self.group_id.clone().into();
     let group = MlsGroup::new(
       self.inner_client.context().clone(),
-      group_id,
+      self.group_id.clone(),
       self.created_at_ns,
     );
 
@@ -504,11 +502,9 @@ impl NapiGroup {
       self.created_at_ns,
     );
 
-    Ok(
-      group
-        .is_active()
-        .map_err(|e| Error::from_reason(format!("{}", e)))?,
-    )
+    group
+      .is_active()
+      .map_err(|e| Error::from_reason(format!("{}", e)))
   }
 
   #[napi]
@@ -519,11 +515,9 @@ impl NapiGroup {
       self.created_at_ns,
     );
 
-    Ok(
-      group
-        .added_by_inbox_id()
-        .map_err(|e| Error::from_reason(format!("{}", e)))?,
-    )
+    group
+      .added_by_inbox_id()
+      .map_err(|e| Error::from_reason(format!("{}", e)))
   }
 
   #[napi]
