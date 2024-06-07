@@ -323,9 +323,6 @@ fn encrypt_history_file(
     output_path: &Path,
     encryption_key: &[u8; 32],
 ) -> Result<(), MessageHistoryError> {
-    // let enc_key: HistoryKeyType = encryption_key.try_into()?;
-    // let enc_key_bytes = enc_key.as_bytes();
-
     // Read in the messages file content
     let mut input_file = File::open(input_path)?;
     let mut buffer = Vec::new();
