@@ -116,6 +116,7 @@ where
         Ok(inbox_map)
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_inbox_ids(
         &self,
         account_addresses: Vec<String>,
