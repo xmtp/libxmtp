@@ -164,8 +164,9 @@ async fn create_identities(n: usize, is_dev_network: bool) -> Vec<Identity> {
 
 /// Create identities if they don't already exist.
 /// creates specified `identities` on the
-/// local gRPC local/dev and saves them to the file,
-/// `identities.generated`. Uses this file for subsequent runs.
+/// gRPC local docker or development node and saves them to a file.
+/// `identities.generated`/`dev-identities.generated`. Uses this file for subsequent runs if
+/// node still has those identities.
 pub async fn create_identities_if_dont_exist(
     identities: usize,
     client: &TestClient,
