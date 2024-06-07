@@ -854,7 +854,7 @@ mod tests {
     #[test]
     fn test_encrypt_decrypt_file() {
         let key = HistoryKeyType::new_chacha20_poly1305_key();
-        let converted_key: MessageHistoryKeyType = key.try_into().expect("Unable to convert key");
+        let converted_key: MessageHistoryKeyType = key.into();
         let key_bytes = key.as_bytes();
         let input_content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'";
         let input_file = NamedTempFile::new().expect("Unable to create temp file");
@@ -1000,8 +1000,7 @@ mod tests {
             .expect("Unable to write history bundle");
 
         let output_file = NamedTempFile::new().expect("Unable to create temp file");
-        let converted_key: MessageHistoryKeyType =
-            enc_key.try_into().expect("Unable to convert key");
+        let converted_key: MessageHistoryKeyType = enc_key.into();
         decrypt_history_file(&bundle_path, output_file.path(), converted_key)
             .expect("Unable to decrypt history file");
 
