@@ -435,6 +435,23 @@ impl MlsGroup {
                             client
                                 .insert_history_bundle(&messages_path)
                                 .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
+
+                            client
+                                .sync_welcomes()
+                                .await
+                                .map_err(|e| MessageProcessingError::Generic(e.to_string()))?;
+
+                            let conn = provider.conn_ref();
+                            let groups = conn.find_groups(None, None, None, None)?;
+                            for crate::storage::group::StoredGroup { id, .. } in groups.into_iter()
+                            {
+                                let group = client
+                                    .group(id)
+                                    .map_err(|e| MessageProcessingError::Generic(e.to_string()))?;
+                                Box::pin(group.sync(client))
+                                    .await
+                                    .map_err(|e| MessageProcessingError::Generic(e.to_string()))?;
+                            }
                         }
                         _ => {
                             return Err(MessageProcessingError::InvalidPayload);

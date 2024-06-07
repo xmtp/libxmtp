@@ -31,6 +31,7 @@ use super::GroupError;
 
 use crate::XmtpApi;
 use crate::{
+    client::ClientError,
     configuration::DELIMITER,
     groups::{intents::SendMessageIntentData, GroupMessageKind, StoredGroupMessage},
     storage::{
@@ -64,6 +65,10 @@ pub enum MessageHistoryError {
     Conversion,
     #[error("utf-8 error: {0}")]
     UTF8(#[from] std::str::Utf8Error),
+    #[error("client error: {0}")]
+    Client(#[from] ClientError),
+    #[error("group error: {0}")]
+    Group(#[from] GroupError),
 }
 
 #[derive(Debug, Deserialize)]
@@ -198,7 +203,9 @@ where
             }
         });
         if request.is_none() {
-            return Err(GroupError::MessageHistory(MessageHistoryError::PinNotFound));
+            return Err(GroupError::MessageHistory(Box::new(
+                MessageHistoryError::PinNotFound,
+            )));
         }
 
         Ok(())
