@@ -184,7 +184,6 @@ pub struct Client<ApiClient> {
 /// The local context a XMTP MLS needs to function:
 /// - Sqlite Database
 /// - Identity for the User
-///
 #[derive(Debug)]
 pub struct XmtpMlsLocalContext {
     /// XMTP Identity

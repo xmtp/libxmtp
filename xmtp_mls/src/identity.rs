@@ -47,6 +47,7 @@ use xmtp_proto::{
     xmtp::identity::MlsCredential,
 };
 
+#[derive(Debug, Clone)]
 pub enum IdentityStrategy {
     /// Tries to get an identity from the disk store. If not found, getting one from backend.
     CreateIfNotFound(InboxId, String, u64, Option<Vec<u8>>), // (inbox_id, address, nonce, legacy_signed_private_key)
@@ -97,6 +98,7 @@ impl IdentityStrategy {
                         nonce,
                         legacy_signed_private_key,
                         api_client,
+                        &provider,
                     )
                     .await
                 }
@@ -183,8 +185,10 @@ impl Identity {
         nonce: u64,
         legacy_signed_private_key: Option<Vec<u8>>,
         api_client: &ApiClientWrapper<ApiClient>,
+        provider: &XmtpOpenMlsProvider,
     ) -> Result<Self, IdentityError> {
         // check if address is already associated with an inbox_id
+        let address = address.to_lowercase();
         let inbox_ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
         let associated_inbox_id = inbox_ids.get(&address);
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
@@ -255,7 +259,6 @@ impl Identity {
                     .await?,
                 ))
                 .await?;
-
             let identity_update = signature_request.build_identity_update()?;
             api_client.publish_identity_update(identity_update).await?;
 
@@ -265,13 +268,11 @@ impl Identity {
                 credential: create_credential(inbox_id)?,
                 signature_request: None,
             };
+
+            identity.register(provider, api_client).await?;
+
             Ok(identity)
         } else {
-            if nonce == 0 {
-                return Err(IdentityError::NewIdentity(
-                    "Nonce must be non-zero if legacy key is not provided".to_string(),
-                ));
-            }
             if inbox_id != generate_inbox_id(&address, &nonce) {
                 return Err(IdentityError::NewIdentity(
                     "Inbox ID doesn't match nonce & address".to_string(),

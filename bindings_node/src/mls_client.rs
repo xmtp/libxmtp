@@ -1,17 +1,19 @@
-use std::collections::HashMap;
-use std::ops::Deref;
-use std::sync::Arc;
-
 use crate::conversations::NapiConversations;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
+use std::collections::HashMap;
+use std::ops::Deref;
+use std::sync::Arc;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
+use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 use xmtp_id::associations::{
   AccountId, Erc1271Signature, MemberIdentifier, RecoverableEcdsaSignature, Signature,
 };
+use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::identity::IdentityStrategy;
+use xmtp_mls::retry::Retry;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
 
@@ -29,6 +31,7 @@ pub async fn create_client(
   host: String,
   is_secure: bool,
   db_path: String,
+  inbox_id: String,
   account_address: String,
   encryption_key: Option<Uint8Array>,
 ) -> Result<NapiClient> {
@@ -51,8 +54,13 @@ pub async fn create_client(
       .map_err(|_| Error::from_reason("Error creating unencrypted message store"))?,
   };
 
-  let identity_strategy =
-    IdentityStrategy::CreateIfNotFound(account_address.clone().to_lowercase(), None);
+  let identity_strategy = IdentityStrategy::CreateIfNotFound(
+    inbox_id.clone(),
+    account_address.clone().to_lowercase(),
+    // this is a temporary solution
+    1,
+    None,
+  );
 
   let xmtp_client = ClientBuilder::new(identity_strategy)
     .api_client(api_client)
@@ -66,6 +74,36 @@ pub async fn create_client(
     account_address,
     signatures: HashMap::new(),
   })
+}
+
+#[napi]
+pub async fn get_inbox_id_for_address(
+  host: String,
+  is_secure: bool,
+  account_address: String,
+) -> Result<Option<String>> {
+  let account_address = account_address.to_lowercase();
+  let api_client = ApiClientWrapper::new(
+    TonicApiClient::create(host.clone(), is_secure)
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?,
+    Retry::default(),
+  );
+
+  let results = api_client
+    .get_inbox_ids(vec![account_address.clone()])
+    .await
+    .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+  Ok(results.get(&account_address).cloned())
+}
+
+#[napi]
+pub fn generate_inbox_id(account_address: String) -> String {
+  let account_address = account_address.to_lowercase();
+  // ensure that the nonce is always 1 for now since this will only be used for the
+  // create_client function above, which also has a hard-coded nonce of 1
+  xmtp_id_generate_inbox_id(&account_address, &1)
 }
 
 #[napi]
@@ -194,15 +232,16 @@ impl NapiClient {
       .await
       .map_err(|e| Error::from_reason(format!("{}", e)))?;
 
-    return Ok(());
+    Ok(())
   }
 
   #[napi]
   pub fn signature_text(&self) -> Option<String> {
-    match self.inner_client.identity().signature_request() {
-      Some(signature_req) => Some(signature_req.signature_text()),
-      None => None,
-    }
+    self
+      .inner_client
+      .identity()
+      .signature_request()
+      .map(|signature_req| signature_req.signature_text())
   }
 
   #[napi]
