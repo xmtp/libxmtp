@@ -6,8 +6,9 @@ use diesel::{
 };
 use log::error;
 use openmls_traits::storage::*;
-use serde::Serialize;
-use serde_json::{from_slice, from_value, Value};
+use openmls::prelude::tls_codec::{Serialize, Deserialize};
+// use serde::Serialize;
+// use serde_json::{from_slice, from_value, Value};
 
 const SELECT_QUERY: &str =
     "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
@@ -207,6 +208,7 @@ impl SqlKeyStore {
         match results {
             Ok(data) => {
                 if let Some(entry) = data.into_iter().next() {
+                    // TODO: replace with a custom/derived deserialization method
                     match serde_json::from_slice::<V>(&entry.value_bytes) {
                         Ok(deserialized) => Ok(Some(deserialized)),
                         Err(e) => {
@@ -234,11 +236,13 @@ impl SqlKeyStore {
         match self.select_query::<VERSION>(&storage_key) {
             Ok(results) => {
                 if let Some(entry) = results.into_iter().next() {
+                    // TODO: replace with a custom/derived deserialization method
                     let list = from_slice::<Vec<Vec<u8>>>(&entry.value_bytes)?;
 
                     // Read the values from the bytes in the list
                     let mut deserialized_list = Vec::new();
                     for v in list {
+                    // TODO: replace with a custom/derived deserialization method
                         match serde_json::from_slice(&v) {
                             Ok(deserialized_value) => deserialized_list.push(deserialized_value),
                             Err(_) => return Err(MemoryStorageError::SerializationError),
