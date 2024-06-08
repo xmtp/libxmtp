@@ -1,16 +1,21 @@
 use std::collections::HashMap;
 
-use crate::{types::InboxId, XmtpApi};
-
 use super::{ApiClientWrapper, WrappedApiError};
-use xmtp_id::associations::{DeserializationError, IdentityUpdate};
+use crate::XmtpApi;
+use futures::future::try_join_all;
+use xmtp_id::{
+    associations::{DeserializationError, IdentityUpdate},
+    InboxId,
+};
 use xmtp_proto::xmtp::identity::api::v1::{
     get_identity_updates_request::Request as GetIdentityUpdatesV2RequestProto,
     get_identity_updates_response::IdentityUpdateLog,
     get_inbox_ids_request::Request as GetInboxIdsRequestProto,
-    GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetInboxIdsRequest,
-    PublishIdentityUpdateRequest,
+    GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetIdentityUpdatesResponse,
+    GetInboxIdsRequest, PublishIdentityUpdateRequest,
 };
+
+const GET_IDENTITY_UPDATES_CHUNK_SIZE: usize = 50;
 
 /// A filter for querying identity updates. `sequence_id` is the starting sequence, and only later updates will be returned.
 pub struct GetIdentityUpdatesV2Filter {
@@ -18,15 +23,16 @@ pub struct GetIdentityUpdatesV2Filter {
     pub sequence_id: Option<u64>,
 }
 
-impl From<GetIdentityUpdatesV2Filter> for GetIdentityUpdatesV2RequestProto {
-    fn from(filter: GetIdentityUpdatesV2Filter) -> Self {
+impl From<&GetIdentityUpdatesV2Filter> for GetIdentityUpdatesV2RequestProto {
+    fn from(filter: &GetIdentityUpdatesV2Filter) -> Self {
         Self {
-            inbox_id: filter.inbox_id,
+            inbox_id: filter.inbox_id.clone(),
             sequence_id: filter.sequence_id.unwrap_or(0),
         }
     }
 }
 
+#[derive(Clone)]
 pub struct InboxUpdate {
     pub sequence_id: u64,
     pub server_timestamp_ns: u64,
@@ -76,36 +82,44 @@ where
         &self,
         filters: Vec<GetIdentityUpdatesV2Filter>,
     ) -> Result<InboxUpdateMap, WrappedApiError> {
-        let result = self
-            .api_client
-            .get_identity_updates_v2(GetIdentityUpdatesV2Request {
-                requests: filters.into_iter().map(|filter| filter.into()).collect(),
-            })
-            .await?;
+        let chunks = filters.chunks(GET_IDENTITY_UPDATES_CHUNK_SIZE);
 
-        result
-            .responses
-            .into_iter()
-            .map(|response| {
-                let deserialized_updates = response
-                    .updates
-                    .into_iter()
-                    .map(|update| {
-                        let deserialized: InboxUpdate = update.try_into()?;
-
-                        Ok(deserialized)
+        let chunked_results: Result<Vec<GetIdentityUpdatesResponse>, WrappedApiError> =
+            try_join_all(chunks.map(|chunk| async move {
+                let result = self
+                    .api_client
+                    .get_identity_updates_v2(GetIdentityUpdatesV2Request {
+                        requests: chunk.iter().map(|filter| filter.into()).collect(),
                     })
-                    .collect::<Result<Vec<InboxUpdate>, WrappedApiError>>()?;
+                    .await?;
 
-                Ok((response.inbox_id, deserialized_updates))
+                Ok(result)
+            }))
+            .await;
+
+        let inbox_map = chunked_results?
+            .into_iter()
+            .flat_map(|response| {
+                response.responses.into_iter().map(|item| {
+                    let deserialized_updates = item
+                        .updates
+                        .into_iter()
+                        .map(|update| update.try_into().map_err(WrappedApiError::from))
+                        .collect::<Result<Vec<InboxUpdate>, WrappedApiError>>()?;
+
+                    Ok((item.inbox_id, deserialized_updates))
+                })
             })
-            .collect::<Result<InboxUpdateMap, WrappedApiError>>()
+            .collect::<Result<InboxUpdateMap, WrappedApiError>>()?;
+
+        Ok(inbox_map)
     }
 
     pub async fn get_inbox_ids(
         &self,
         account_addresses: Vec<String>,
     ) -> Result<AddressToInboxIdMap, WrappedApiError> {
+        log::info!("Asked for account addresses: {:?}", &account_addresses);
         let result = self
             .api_client
             .get_inbox_ids(GetInboxIdsRequest {

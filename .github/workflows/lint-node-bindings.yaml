@@ -1,0 +1,26 @@
+name: Lint Node Bindings
+
+on:
+  pull_request:
+    paths:
+      - "bindings_node/**"
+      - ".github/workflows/lint-node-bindings.yaml"
+
+jobs:
+  lint:
+    runs-on: warp-ubuntu-latest-x64-8x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Run clippy and fail on warnings
+        run: cargo clippy --manifest-path bindings_node/Cargo.toml --all-features --all-targets --no-deps -- -Dwarnings
+      - name: Run format check
+        run: cargo fmt --manifest-path bindings_node/Cargo.toml --check

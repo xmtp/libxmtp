@@ -1,7 +1,6 @@
 use openmls::versions::ProtocolVersion;
 use openmls_traits::types::Ciphersuite;
 
-// TODO confirm ciphersuite choice
 pub const CIPHERSUITE: Ciphersuite =
     Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519;
 
@@ -38,5 +37,5 @@ pub const MUTABLE_METADATA_EXTENSION_ID: u16 = 0xff00;
 pub const GROUP_MEMBERSHIP_EXTENSION_ID: u16 = 0xff01;
 pub const GROUP_PERMISSIONS_EXTENSION_ID: u16 = 0xff02;
 
-pub const DEFAULT_GROUP_NAME: &str = "New Group";
-pub const DEFAULT_GROUP_DESCRIPTION: &str = "New Group Description";
+pub const DEFAULT_GROUP_NAME: &str = "";
+pub const DEFAULT_GROUP_DESCRIPTION: &str = "";

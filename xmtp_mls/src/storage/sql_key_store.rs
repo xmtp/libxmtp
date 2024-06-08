@@ -1173,7 +1173,7 @@ mod tests {
         assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
 
         key_store
-            .write_aad::<GroupId>(&group_id, &"test".as_bytes())
+            .write_aad::<GroupId>(&group_id, "test".as_bytes())
             .unwrap();
 
         assert!(!key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
@@ -1225,7 +1225,7 @@ mod tests {
         let proposal_refs_read: Vec<ProposalRef> =
             key_store.queued_proposal_refs(&group_id).unwrap();
         assert_eq!(
-            (0..10).map(|i| ProposalRef(i)).collect::<Vec<_>>(),
+            (0..10).map(ProposalRef).collect::<Vec<_>>(),
             proposal_refs_read
         );
 
@@ -1233,7 +1233,7 @@ mod tests {
         let proposals_read: Vec<(ProposalRef, Proposal)> =
             key_store.queued_proposals(&group_id).unwrap();
         let proposals_expected: Vec<(ProposalRef, Proposal)> = (0..10)
-            .map(|i| ProposalRef(i))
+            .map(ProposalRef)
             .zip(proposals.clone().into_iter())
             .collect();
         assert_eq!(proposals_expected, proposals_read);
@@ -1245,14 +1245,14 @@ mod tests {
 
         let proposal_refs_read: Vec<ProposalRef> =
             key_store.queued_proposal_refs(&group_id).unwrap();
-        let mut expected = (0..10).map(|i| ProposalRef(i)).collect::<Vec<_>>();
+        let mut expected = (0..10).map(ProposalRef).collect::<Vec<_>>();
         expected.remove(5);
         assert_eq!(expected, proposal_refs_read);
 
         let proposals_read: Vec<(ProposalRef, Proposal)> =
             key_store.queued_proposals(&group_id).unwrap();
         let mut proposals_expected: Vec<(ProposalRef, Proposal)> = (0..10)
-            .map(|i| ProposalRef(i))
+            .map(ProposalRef)
             .zip(proposals.clone().into_iter())
             .collect();
         proposals_expected.remove(5);

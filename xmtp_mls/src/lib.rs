@@ -35,12 +35,17 @@ pub trait InboxOwner {
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError>;
 }
 
-/// Inserts a model to the underlying data store
+/// Inserts a model to the underlying data store, erroring if it already exists
 pub trait Store<StorageConnection> {
     fn store(&self, into: &StorageConnection) -> Result<(), StorageError>;
 }
 
-/// Fetches a model from the underlying data store
+/// Inserts a model to the underlying data store, silent no-op on unique constraint violations
+pub trait StoreOrIgnore<StorageConnection> {
+    fn store_or_ignore(&self, into: &StorageConnection) -> Result<(), StorageError>;
+}
+
+/// Fetches a model from the underlying data store, returning None if it does not exist
 pub trait Fetch<Model> {
     type Key;
     fn fetch(&self, key: &Self::Key) -> Result<Option<Model>, StorageError>;
@@ -54,16 +59,32 @@ pub trait Delete<Model> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Once;
+    use tracing_test::traced_test;
 
-    static INIT: Once = Once::new();
-
-    /// Setup for tests
+    // Execute once before any tests are run
     #[ctor::ctor]
+    // Capture traces in a variable that can be checked in tests, as well as outputting them to stdout on test failure
+    #[traced_test]
     fn setup() {
-        INIT.call_once(|| {
-            tracing_subscriber::fmt::init();
-        })
+        // Capture logs (e.g. log::info!()) as traces too
+        let _ = tracing_log::LogTracer::init();
+    }
+
+    /// Note: tests that use this must have the #[traced_test] attribute
+    #[macro_export]
+    macro_rules! assert_logged {
+        ( $search:expr , $occurrences:expr ) => {
+            logs_assert(|lines: &[&str]| {
+                let actual = lines.iter().filter(|line| line.contains($search)).count();
+                if actual != $occurrences {
+                    return Err(format!(
+                        "Expected '{}' to be logged {} times, but was logged {} times instead",
+                        $search, $occurrences, actual
+                    ));
+                }
+                Ok(())
+            });
+        };
     }
 
     /// wrapper over assert!(matches!()) for Errors

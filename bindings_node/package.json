@@ -1,0 +1,47 @@
+{
+  "name": "@xmtp/mls-client-bindings-node",
+  "version": "0.0.3",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "napi": {
+    "binaryName": "bindings_node"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@napi-rs/cli": "^3.0.0-alpha.55",
+    "viem": "^2.11.1"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://git@github.com/xmtp/libxmtp.git",
+    "directory": "bindings_node"
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release",
+    "build:clean": "rm -rf dist",
+    "build:debug": "napi build --platform",
+    "build:finish": "mkdir dist && mv index.js dist && mv index.d.ts dist && mv *.node dist",
+    "build:release": "yarn build:clean && yarn build && yarn build:finish",
+    "universal": "napi universal",
+    "version": "napi version"
+  },
+  "packageManager": "yarn@4.2.2",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  }
+}

@@ -11,10 +11,11 @@ futures = "0.3.28"
 log = { version = "0.4", features = ["std"] }
 thiserror = "1.0"
 tokio = { version = "1.28.1", features = ["macros"] }
-uniffi = { version = "0.25.3", features = ["tokio", "cli"] }
-uniffi_macros = "0.25.3"
+uniffi = { version = "0.27.2", features = ["tokio", "cli"] }
+uniffi_macros = "0.27.2"
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
+xmtp_id = { path = "../xmtp_id" }
 xmtp_mls = { path = "../xmtp_mls", features = ["grpc", "native"] }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
 xmtp_user_preferences = { path = "../xmtp_user_preferences" }
@@ -30,20 +31,20 @@ xmtp_v2 = { path = "../xmtp_v2" }
 openssl-sys = { git = "https://github.com/xmtp/rust-openssl.git", branch = "clone-v0.9.92" }
 
 [build-dependencies]
-uniffi = { version = "0.25.3", features = ["build"] }
+uniffi = { version = "0.27.2", features = ["build"] }
 
 [[bin]]
 name = "ffi-uniffi-bindgen"
 path = "src/bin.rs"
 
 [dev-dependencies]
+async-barrier = "1.1"
 ethers = "2.0.13"
 ethers-core = "2.0.13"
 tempfile = "3.5.0"
 tokio = { version = "1.28.1", features = ["full"] }
-uniffi = { version = "0.25.3", features = ["bindgen-tests"] }
-async-barrier = "1.1"
 tokio-test = "0.4"
+uniffi = { version = "0.27.2", features = ["bindgen-tests"] }
 
 # NOTE: The release profile reduces bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093

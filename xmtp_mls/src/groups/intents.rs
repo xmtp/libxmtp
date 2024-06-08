@@ -8,30 +8,28 @@ use prost::{bytes::Bytes, DecodeError, Message};
 use thiserror::Error;
 
 use xmtp_proto::xmtp::mls::database::{
-    add_members_data::{Version as AddMembersVersion, V1 as AddMembersV1},
     addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
     post_commit_action::{
         Installation as InstallationProto, Kind as PostCommitActionKind,
         SendWelcomes as SendWelcomesProto,
     },
-    remove_members_data::{Version as RemoveMembersVersion, V1 as RemoveMembersV1},
     send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
+    update_admin_lists_data::{Version as UpdateAdminListsVersion, V1 as UpdateAdminListsV1},
     update_group_membership_data::{
         Version as UpdateGroupMembershipVersion, V1 as UpdateGroupMembershipV1,
     },
     update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
-    AccountAddresses, AddMembersData,
-    AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper, InstallationIds,
-    PostCommitAction as PostCommitActionProto, RemoveMembersData, SendMessageData,
-    UpdateGroupMembershipData, UpdateMetadataData,
+    AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
+    InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
+    UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData,
 };
 
 use crate::{
     types::Address,
-    verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
+    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 
-use super::group_mutable_metadata::MetadataField;
+use super::{group_membership::GroupMembership, group_mutable_metadata::MetadataField};
 
 #[derive(Debug, Error)]
 pub enum IntentError {
@@ -145,93 +143,6 @@ impl From<Vec<Vec<u8>>> for AddressesOrInstallationIds {
 }
 
 #[derive(Debug, Clone)]
-pub struct AddMembersIntentData {
-    pub address_or_id: AddressesOrInstallationIds,
-}
-
-impl AddMembersIntentData {
-    pub fn new(address_or_id: AddressesOrInstallationIds) -> Self {
-        Self { address_or_id }
-    }
-
-    pub(crate) fn to_bytes(&self) -> Result<Vec<u8>, IntentError> {
-        let mut buf = Vec::new();
-        AddMembersData {
-            version: Some(AddMembersVersion::V1(AddMembersV1 {
-                addresses_or_installation_ids: Some(self.address_or_id.clone().into()),
-            })),
-        }
-        .encode(&mut buf)
-        .expect("encode error");
-
-        Ok(buf)
-    }
-
-    pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
-        let msg = AddMembersData::decode(data)?;
-        let address_or_id = match msg.version {
-            Some(AddMembersVersion::V1(v1)) => v1
-                .addresses_or_installation_ids
-                .ok_or(IntentError::Generic("missing payload".to_string()))?,
-            None => return Err(IntentError::Generic("missing payload".to_string())),
-        };
-
-        Ok(Self::new(address_or_id.try_into()?))
-    }
-}
-
-impl TryFrom<AddMembersIntentData> for Vec<u8> {
-    type Error = IntentError;
-
-    fn try_from(intent: AddMembersIntentData) -> Result<Self, Self::Error> {
-        intent.to_bytes()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct RemoveMembersIntentData {
-    pub address_or_id: AddressesOrInstallationIds,
-}
-
-impl RemoveMembersIntentData {
-    pub fn new(address_or_id: AddressesOrInstallationIds) -> Self {
-        Self { address_or_id }
-    }
-
-    pub(crate) fn to_bytes(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-
-        RemoveMembersData {
-            version: Some(RemoveMembersVersion::V1(RemoveMembersV1 {
-                addresses_or_installation_ids: Some(self.address_or_id.clone().into()),
-            })),
-        }
-        .encode(&mut buf)
-        .expect("encode error");
-
-        buf
-    }
-
-    pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
-        let msg = RemoveMembersData::decode(data)?;
-        let address_or_id = match msg.version {
-            Some(RemoveMembersVersion::V1(v1)) => v1
-                .addresses_or_installation_ids
-                .ok_or(IntentError::Generic("missing payload".to_string()))?,
-            None => return Err(IntentError::Generic("missing payload".to_string())),
-        };
-
-        Ok(Self::new(address_or_id.try_into()?))
-    }
-}
-
-impl From<RemoveMembersIntentData> for Vec<u8> {
-    fn from(intent: RemoveMembersIntentData) -> Self {
-        intent.to_bytes()
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct UpdateMetadataIntentData {
     pub field_name: String,
     pub field_value: String,
@@ -289,6 +200,7 @@ impl TryFrom<Vec<u8>> for UpdateMetadataIntentData {
     }
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct UpdateGroupMembershipIntentData {
     pub membership_updates: HashMap<String, u64>,
     pub removed_members: Vec<String>,
@@ -300,6 +212,24 @@ impl UpdateGroupMembershipIntentData {
             membership_updates,
             removed_members,
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.membership_updates.is_empty() && self.removed_members.is_empty()
+    }
+
+    pub fn apply_to_group_membership(&self, group_membership: &GroupMembership) -> GroupMembership {
+        log::info!("old group membership: {:?}", group_membership.members);
+        let mut new_membership = group_membership.clone();
+        for (inbox_id, sequence_id) in self.membership_updates.iter() {
+            new_membership.add(inbox_id.clone(), *sequence_id);
+        }
+
+        for inbox_id in self.removed_members.iter() {
+            new_membership.remove(inbox_id)
+        }
+        log::info!("updated group membership: {:?}", new_membership.members);
+        new_membership
     }
 }
 
@@ -335,6 +265,107 @@ impl TryFrom<Vec<u8>> for UpdateGroupMembershipIntentData {
     }
 }
 
+impl TryFrom<&Vec<u8>> for UpdateGroupMembershipIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: &Vec<u8>) -> Result<Self, Self::Error> {
+        if let UpdateGroupMembershipData {
+            version: Some(UpdateGroupMembershipVersion::V1(v1)),
+        } = UpdateGroupMembershipData::decode(data.as_slice())?
+        {
+            Ok(Self::new(v1.membership_updates, v1.removed_members))
+        } else {
+            Err(IntentError::Generic("missing payload".to_string()))
+        }
+    }
+}
+
+#[repr(i32)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum AdminListActionType {
+    Add = 1,         // Matches ADD_ADMIN in Protobuf
+    Remove = 2,      // Matches REMOVE_ADMIN in Protobuf
+    AddSuper = 3,    // Matches ADD_SUPER_ADMIN in Protobuf
+    RemoveSuper = 4, // Matches REMOVE_SUPER_ADMIN in Protobuf
+}
+
+impl TryFrom<i32> for AdminListActionType {
+    type Error = &'static str;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(AdminListActionType::Add),
+            2 => Ok(AdminListActionType::Remove),
+            3 => Ok(AdminListActionType::AddSuper),
+            4 => Ok(AdminListActionType::RemoveSuper),
+            _ => Err("Unknown value for AdminListActionType"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateAdminListIntentData {
+    pub action_type: AdminListActionType,
+    pub inbox_id: String,
+}
+
+impl UpdateAdminListIntentData {
+    pub fn new(action_type: AdminListActionType, inbox_id: String) -> Self {
+        Self {
+            action_type,
+            inbox_id,
+        }
+    }
+}
+
+impl From<UpdateAdminListIntentData> for Vec<u8> {
+    fn from(intent: UpdateAdminListIntentData) -> Self {
+        let mut buf = Vec::new();
+        let action_type = intent.action_type as i32;
+
+        UpdateAdminListsData {
+            version: Some(UpdateAdminListsVersion::V1(UpdateAdminListsV1 {
+                admin_list_update_type: action_type,
+                inbox_id: intent.inbox_id,
+            })),
+        }
+        .encode(&mut buf)
+        .expect("encode error");
+
+        buf
+    }
+}
+
+impl TryFrom<Vec<u8>> for UpdateAdminListIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
+        let msg = UpdateAdminListsData::decode(Bytes::from(data))?;
+
+        let action_type: AdminListActionType = match msg.version {
+            Some(UpdateAdminListsVersion::V1(ref v1)) => {
+                AdminListActionType::try_from(v1.admin_list_update_type)
+                    .map_err(|e| IntentError::Generic(e.to_string()))?
+            }
+            None => {
+                return Err(IntentError::Generic(
+                    "missing update admin version".to_string(),
+                ))
+            }
+        };
+        let inbox_id = match msg.version {
+            Some(UpdateAdminListsVersion::V1(ref v1)) => v1.inbox_id.clone(),
+            None => {
+                return Err(IntentError::Generic(
+                    "missing update admin version".to_string(),
+                ))
+            }
+        };
+
+        Ok(Self::new(action_type, inbox_id))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum PostCommitAction {
     SendWelcomes(SendWelcomesAction),
@@ -347,7 +378,7 @@ pub struct Installation {
 }
 
 impl Installation {
-    pub fn from_verified_key_package(key_package: &VerifiedKeyPackage) -> Self {
+    pub fn from_verified_key_package(key_package: &VerifiedKeyPackageV2) -> Self {
         Self {
             installation_key: key_package.installation_id(),
             hpke_public_key: key_package.hpke_init_key(),
@@ -450,10 +481,7 @@ impl From<Vec<u8>> for PostCommitAction {
 
 #[cfg(test)]
 mod tests {
-    use xmtp_cryptography::utils::generate_local_wallet;
-
     use super::*;
-    use crate::InboxOwner;
 
     #[test]
     fn test_serialize_send_message() {
@@ -466,15 +494,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_serialize_add_members() {
-        let wallet = generate_local_wallet();
-        let account_address = wallet.get_address();
+    async fn test_serialize_update_membership() {
+        let mut membership_updates = HashMap::new();
+        membership_updates.insert("foo".to_string(), 123);
 
-        let intent = AddMembersIntentData::new(vec![account_address.clone()].into());
-        let as_bytes: Vec<u8> = intent.clone().try_into().unwrap();
-        let restored_intent = AddMembersIntentData::from_bytes(as_bytes.as_slice()).unwrap();
+        let intent =
+            UpdateGroupMembershipIntentData::new(membership_updates, vec!["bar".to_string()]);
 
-        assert_eq!(intent.address_or_id, restored_intent.address_or_id);
+        let as_bytes: Vec<u8> = intent.clone().into();
+        let restored_intent: UpdateGroupMembershipIntentData = as_bytes.try_into().unwrap();
+
+        assert_eq!(
+            intent.membership_updates,
+            restored_intent.membership_updates
+        );
+
+        assert_eq!(intent.removed_members, restored_intent.removed_members);
     }
 
     #[tokio::test]

@@ -1,4 +1,4 @@
-use openmls::group::MlsGroup as OpenMlsGroup;
+use openmls::{extensions::Extensions, group::MlsGroup as OpenMlsGroup};
 use prost::Message;
 use thiserror::Error;
 
@@ -22,20 +22,13 @@ pub enum GroupMetadataError {
 pub struct GroupMetadata {
     pub conversation_type: ConversationType,
     // TODO: Remove this once transition is completed
-    pub creator_account_address: String,
     pub creator_inbox_id: String,
 }
 
 impl GroupMetadata {
-    pub fn new(
-        conversation_type: ConversationType,
-        // TODO: Remove this once transition is completed
-        creator_account_address: String,
-        creator_inbox_id: String,
-    ) -> Self {
+    pub fn new(conversation_type: ConversationType, creator_inbox_id: String) -> Self {
         Self {
             conversation_type,
-            creator_account_address,
             creator_inbox_id,
         }
     }
@@ -43,7 +36,6 @@ impl GroupMetadata {
     pub(crate) fn from_proto(proto: GroupMetadataProto) -> Result<Self, GroupMetadataError> {
         Ok(Self::new(
             proto.conversation_type.try_into()?,
-            proto.creator_account_address.clone(),
             proto.creator_inbox_id.clone(),
         ))
     }
@@ -53,7 +45,7 @@ impl GroupMetadata {
         Ok(GroupMetadataProto {
             conversation_type: conversation_type as i32,
             creator_inbox_id: self.creator_inbox_id.clone(),
-            creator_account_address: self.creator_account_address.clone(),
+            creator_account_address: "".to_string(), // TODO: remove from proto
         })
     }
 }
@@ -84,6 +76,17 @@ impl TryFrom<GroupMetadataProto> for GroupMetadata {
 
     fn try_from(value: GroupMetadataProto) -> Result<Self, Self::Error> {
         Self::from_proto(value)
+    }
+}
+
+impl TryFrom<&Extensions> for GroupMetadata {
+    type Error = GroupMetadataError;
+
+    fn try_from(extensions: &Extensions) -> Result<Self, Self::Error> {
+        let data = extensions
+            .immutable_metadata()
+            .ok_or(GroupMetadataError::MissingExtension)?;
+        data.metadata().try_into()
     }
 }
 

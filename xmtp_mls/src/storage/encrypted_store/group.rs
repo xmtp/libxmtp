@@ -9,6 +9,7 @@ use diesel::{
     sql_types::Integer,
     sqlite::Sqlite,
 };
+use serde::Serialize;
 
 use super::{
     db_connection::DbConnection,
@@ -19,7 +20,7 @@ use crate::{impl_fetch, impl_store, StorageError};
 /// The Group ID type.
 pub type ID = Vec<u8>;
 
-#[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Insertable, Identifiable, Queryable)]
 #[diesel(table_name = groups)]
 #[diesel(primary_key(id))]
 /// A Unique group chat
@@ -34,8 +35,8 @@ pub struct StoredGroup {
     pub installations_last_checked: i64,
     /// Enum, [`Purpose`] signifies the group purpose which extends to who can access it.
     pub purpose: Purpose,
-    /// The wallet address of who added the user to a group.
-    pub added_by_address: String,
+    /// The inbox_id of who added the user to a group.
+    pub added_by_inbox_id: String,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -47,7 +48,7 @@ impl StoredGroup {
         id: ID,
         created_at_ns: i64,
         membership_state: GroupMembershipState,
-        added_by_address: String,
+        added_by_inbox_id: String,
     ) -> Self {
         Self {
             id,
@@ -55,11 +56,12 @@ impl StoredGroup {
             membership_state,
             installations_last_checked: 0,
             purpose: Purpose::Conversation,
-            added_by_address,
+            added_by_inbox_id,
         }
     }
 
     /// Create a new [`Purpose::Sync`] group.  This is less common and is used to sync message history.
+    /// TODO: Set added_by_inbox to your own inbox_id
     pub fn new_sync_group(
         id: ID,
         created_at_ns: i64,
@@ -71,7 +73,7 @@ impl StoredGroup {
             membership_state,
             installations_last_checked: 0,
             purpose: Purpose::Sync,
-            added_by_address: "".into(),
+            added_by_inbox_id: "".into(),
         }
     }
 }
@@ -186,7 +188,7 @@ impl DbConnection {
 }
 
 #[repr(i32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow)]
+#[derive(Debug, Copy, Clone, Serialize, Eq, PartialEq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
 /// Status of membership in a group, once a user sends a request to join
 pub enum GroupMembershipState {
@@ -223,7 +225,7 @@ where
 }
 
 #[repr(i32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow)]
+#[derive(Debug, Copy, Clone, Serialize, Eq, PartialEq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
 pub enum Purpose {
     Conversation = 1,
@@ -303,9 +305,8 @@ pub(crate) mod tests {
             })
             .unwrap();
 
-            let fetched_group: Result<Option<StoredGroup>, StorageError> =
-                conn.fetch(&test_group.id);
-            assert_ok!(fetched_group, Some(test_group));
+            let fetched_group: Option<StoredGroup> = conn.fetch(&test_group.id).unwrap();
+            assert_eq!(fetched_group, Some(test_group));
         })
     }
 
@@ -398,10 +399,9 @@ pub(crate) mod tests {
             })
             .unwrap();
 
-            let fetched_group: Result<Option<StoredGroup>, StorageError> =
-                conn.fetch(&test_group.id);
-            assert_ok!(fetched_group, Some(test_group));
-            let purpose = fetched_group.unwrap().unwrap().purpose;
+            let fetched_group: Option<StoredGroup> = conn.fetch(&test_group.id).unwrap();
+            assert_eq!(fetched_group, Some(test_group));
+            let purpose = fetched_group.unwrap().purpose;
             assert_eq!(purpose, Purpose::Conversation);
         })
     }

@@ -1,5 +1,6 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
+use crate::storage::association_state::StoredAssociationState;
 use prost::Message;
 use thiserror::Error;
 use xmtp_id::associations::{
@@ -10,7 +11,7 @@ use xmtp_id::associations::{
 };
 
 use crate::{
-    api::GetIdentityUpdatesV2Filter,
+    api::{ApiClientWrapper, GetIdentityUpdatesV2Filter, InboxUpdate},
     client::ClientError,
     groups::group_membership::{GroupMembership, MembershipDiff},
     storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
@@ -23,6 +24,7 @@ pub enum IdentityUpdateError {
     InvalidSignatureRequest(#[from] SignatureRequestError),
 }
 
+#[derive(Debug)]
 pub struct InstallationDiff {
     pub added_installations: HashSet<Vec<u8>>,
     pub removed_installations: HashSet<Vec<u8>>,
@@ -38,48 +40,9 @@ impl<'a, ApiClient> Client<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    /// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id``
-    pub async fn load_identity_updates(
-        &self,
-        conn: &DbConnection,
-        inbox_ids: Vec<String>,
-    ) -> Result<(), ClientError> {
-        if inbox_ids.is_empty() {
-            return Ok(());
-        }
-
-        let existing_sequence_ids = conn.get_latest_sequence_id(&inbox_ids)?;
-        let filters: Vec<GetIdentityUpdatesV2Filter> = inbox_ids
-            .into_iter()
-            .map(|inbox_id| GetIdentityUpdatesV2Filter {
-                sequence_id: existing_sequence_ids
-                    .get(&inbox_id)
-                    .cloned()
-                    .map(|i| i as u64),
-                inbox_id,
-            })
-            .collect();
-
-        let updates = self.api_client.get_identity_updates_v2(filters).await?;
-
-        let to_store = updates
-            .into_iter()
-            .flat_map(|(inbox_id, updates)| {
-                updates.into_iter().map(move |update| StoredIdentityUpdate {
-                    inbox_id: inbox_id.clone(),
-                    sequence_id: update.sequence_id as i64,
-                    server_timestamp_ns: update.server_timestamp_ns as i64,
-                    payload: update.update.to_proto().encode_to_vec(),
-                })
-            })
-            .collect::<Vec<StoredIdentityUpdate>>();
-
-        Ok(conn.insert_or_ignore_identity_updates(&to_store)?)
-    }
-
     /// Take a list of inbox_id/sequence_id tuples and determine which `inbox_id`s have missing entries
     /// in the local DB
-    fn filter_inbox_ids_needing_updates<InboxId: AsRef<str> + ToString>(
+    pub(crate) fn filter_inbox_ids_needing_updates<InboxId: AsRef<str> + ToString>(
         &self,
         conn: &DbConnection,
         filters: Vec<(InboxId, i64)>,
@@ -108,34 +71,55 @@ where
         Ok(needs_update)
     }
 
+    pub async fn get_latest_association_state<InboxId: AsRef<str>>(
+        &self,
+        conn: &DbConnection,
+        inbox_id: InboxId,
+    ) -> Result<AssociationState, ClientError> {
+        load_identity_updates(&self.api_client, conn, vec![inbox_id.as_ref().to_string()]).await?;
+
+        self.get_association_state(conn, inbox_id, None).await
+    }
+
     pub async fn get_association_state<InboxId: AsRef<str>>(
         &self,
         conn: &DbConnection,
         inbox_id: InboxId,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
-        // TODO: Check against a local cache before talking to the network
-
+        let inbox_id = inbox_id.as_ref();
+        // TODO: Refactor this so that we don't have to fetch all the identity updates if the value is in the cache
         let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
-        let last_update = updates.last();
-        if last_update.is_none() {
+        let last_sequence_id = updates
+            .last()
+            .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
+            .sequence_id;
+        if to_sequence_id.is_some() && to_sequence_id != Some(last_sequence_id) {
             return Err(AssociationError::MissingIdentityUpdate.into());
         }
-        if let Some(sequence_id) = to_sequence_id {
-            if last_update
-                .expect("already checked")
-                .sequence_id
-                .ne(&sequence_id)
-            {
-                return Err(AssociationError::MissingIdentityUpdate.into());
-            }
+
+        if let Some(association_state) =
+            StoredAssociationState::read_from_cache(conn, inbox_id.to_string(), last_sequence_id)?
+        {
+            log::debug!("Loaded association state from cache");
+            return Ok(association_state);
         }
+
         let updates = updates
             .into_iter()
             .map(IdentityUpdate::try_from)
             .collect::<Result<Vec<IdentityUpdate>, AssociationError>>()?;
+        let association_state = get_state(updates).await?;
 
-        Ok(get_state(updates).await?)
+        StoredAssociationState::write_to_cache(
+            conn,
+            inbox_id.to_string(),
+            last_sequence_id,
+            association_state.clone(),
+        )?;
+        log::debug!("Wrote association state to cache");
+
+        Ok(association_state)
     }
 
     pub(crate) async fn get_association_state_diff<InboxId: AsRef<str>>(
@@ -178,7 +162,7 @@ where
         let nonce = maybe_nonce.unwrap_or(0);
         let inbox_id = generate_inbox_id(&wallet_address, &nonce);
         let installation_public_key = self.identity().installation_keys.public();
-        let member_identifier: MemberIdentifier = wallet_address.into();
+        let member_identifier: MemberIdentifier = wallet_address.to_lowercase().into();
 
         let builder = SignatureRequestBuilder::new(inbox_id);
         let mut signature_request = builder
@@ -235,6 +219,7 @@ where
         &self,
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
+        let inbox_id = signature_request.inbox_id();
         // If the signature request isn't completed, this will error
         let identity_update = signature_request
             .build_identity_update()
@@ -244,6 +229,9 @@ where
         self.api_client
             .publish_identity_update(identity_update)
             .await?;
+
+        // Load the identity updates for the inbox so that we have a record in our DB
+        load_identity_updates(&self.api_client, &self.store().conn()?, vec![inbox_id]).await?;
 
         Ok(())
     }
@@ -257,6 +245,11 @@ where
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
     ) -> Result<InstallationDiff, InstallationDiffError> {
+        log::info!(
+            "Getting installation diff. Old: {:?}. New {:?}",
+            old_group_membership,
+            new_group_membership
+        );
         let added_and_updated_members = membership_diff
             .added_inboxes
             .iter()
@@ -273,19 +266,28 @@ where
             })
             .collect::<Vec<(&String, i64)>>();
 
-        self.load_identity_updates(conn, self.filter_inbox_ids_needing_updates(conn, filters)?)
-            .await?;
+        load_identity_updates(
+            &self.api_client,
+            conn,
+            self.filter_inbox_ids_needing_updates(conn, filters)?,
+        )
+        .await?;
 
         let mut added_installations: HashSet<Vec<u8>> = HashSet::new();
         let mut removed_installations: HashSet<Vec<u8>> = HashSet::new();
 
         // TODO: Do all of this in parallel
         for inbox_id in added_and_updated_members {
+            let starting_sequence_id = match old_group_membership.get(inbox_id) {
+                Some(0) => None,
+                Some(i) => Some(*i as i64),
+                None => None,
+            };
             let state_diff = self
                 .get_association_state_diff(
                     conn,
                     inbox_id,
-                    old_group_membership.get(inbox_id).map(|i| *i as i64),
+                    starting_sequence_id,
                     new_group_membership.get(inbox_id).map(|i| *i as i64),
                 )
                 .await?;
@@ -315,9 +317,51 @@ where
     }
 }
 
+/// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id`, write them in the db, and return the updates
+pub async fn load_identity_updates<ApiClient: XmtpApi>(
+    api_client: &ApiClientWrapper<ApiClient>,
+    conn: &DbConnection,
+    inbox_ids: Vec<String>,
+) -> Result<HashMap<String, Vec<InboxUpdate>>, ClientError> {
+    if inbox_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let existing_sequence_ids = conn.get_latest_sequence_id(&inbox_ids)?;
+    let filters: Vec<GetIdentityUpdatesV2Filter> = inbox_ids
+        .into_iter()
+        .map(|inbox_id| GetIdentityUpdatesV2Filter {
+            sequence_id: existing_sequence_ids
+                .get(&inbox_id)
+                .cloned()
+                .map(|i| i as u64),
+            inbox_id,
+        })
+        .collect();
+
+    let updates = api_client.get_identity_updates_v2(filters).await?;
+
+    let to_store = updates
+        .clone()
+        .into_iter()
+        .flat_map(|(inbox_id, updates)| {
+            updates.into_iter().map(move |update| StoredIdentityUpdate {
+                inbox_id: inbox_id.clone(),
+                sequence_id: update.sequence_id as i64,
+                server_timestamp_ns: update.server_timestamp_ns as i64,
+                payload: update.update.to_proto().encode_to_vec(),
+            })
+        })
+        .collect::<Vec<StoredIdentityUpdate>>();
+
+    conn.insert_or_ignore_identity_updates(&to_store)?;
+    Ok(updates)
+}
+
 #[cfg(test)]
 mod tests {
     use ethers::signers::LocalWallet;
+    use tracing_test::traced_test;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{
         associations::{builder::SignatureRequest, AssociationState, RecoverableEcdsaSignature},
@@ -325,12 +369,15 @@ mod tests {
     };
 
     use crate::{
+        assert_logged,
         builder::ClientBuilder,
         groups::group_membership::GroupMembership,
         storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
         utils::test::rand_vec,
         Client, XmtpApi,
     };
+
+    use super::load_identity_updates;
 
     async fn sign_with_wallet(wallet: &LocalWallet, signature_request: &mut SignatureRequest) {
         let wallet_signature: Vec<u8> = wallet
@@ -355,8 +402,7 @@ mod tests {
         ApiClient: XmtpApi,
     {
         let conn = client.store().conn().unwrap();
-        client
-            .load_identity_updates(&conn, vec![inbox_id.clone()])
+        load_identity_updates(&client.api_client, &conn, vec![inbox_id.clone()])
             .await
             .unwrap();
 
@@ -445,6 +491,75 @@ mod tests {
     }
 
     #[tokio::test]
+    #[traced_test]
+    async fn cache_association_state() {
+        let wallet = generate_local_wallet();
+        let wallet_2 = generate_local_wallet();
+        let wallet_address = wallet.get_address();
+        let wallet_2_address = wallet_2.get_address();
+        let client = ClientBuilder::new_test_client(&wallet).await;
+
+        let mut signature_request: SignatureRequest = client
+            .create_inbox(wallet_address.clone(), None)
+            .await
+            .unwrap();
+        let inbox_id = signature_request.inbox_id();
+
+        sign_with_wallet(&wallet, &mut signature_request).await;
+
+        client
+            .apply_signature_request(signature_request)
+            .await
+            .unwrap();
+
+        get_association_state(&client, inbox_id.clone()).await;
+
+        assert_logged!("Loaded association", 0);
+        assert_logged!("Wrote association", 1);
+
+        let association_state = get_association_state(&client, inbox_id.clone()).await;
+
+        assert_eq!(association_state.members().len(), 2);
+        assert_eq!(association_state.recovery_address(), &wallet_address);
+        assert!(association_state
+            .get(&wallet_address.clone().into())
+            .is_some());
+
+        assert_logged!("Loaded association", 1);
+        assert_logged!("Wrote association", 1);
+
+        let mut add_association_request = client
+            .associate_wallet(
+                inbox_id.clone(),
+                wallet_address.clone(),
+                wallet_2_address.clone(),
+            )
+            .unwrap();
+
+        sign_with_wallet(&wallet, &mut add_association_request).await;
+        sign_with_wallet(&wallet_2, &mut add_association_request).await;
+
+        client
+            .apply_signature_request(add_association_request)
+            .await
+            .unwrap();
+
+        get_association_state(&client, inbox_id.clone()).await;
+
+        assert_logged!("Loaded association", 1);
+        assert_logged!("Wrote association", 2);
+
+        let association_state = get_association_state(&client, inbox_id.clone()).await;
+
+        assert_logged!("Loaded association", 2);
+        assert_logged!("Wrote association", 2);
+
+        assert_eq!(association_state.members().len(), 3);
+        assert_eq!(association_state.recovery_address(), &wallet_address);
+        assert!(association_state.get(&wallet_2_address.into()).is_some());
+    }
+
+    #[tokio::test]
     async fn load_identity_updates_if_needed() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -512,8 +627,7 @@ mod tests {
         let other_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let other_conn = other_client.store().conn().unwrap();
         // Load all the identity updates for the new inboxes
-        other_client
-            .load_identity_updates(&other_conn, inbox_ids.clone())
+        load_identity_updates(&other_client.api_client, &other_conn, inbox_ids.clone())
             .await
             .expect("load should succeed");
 

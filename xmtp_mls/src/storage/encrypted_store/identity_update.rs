@@ -85,6 +85,17 @@ impl DbConnection {
         })?)
     }
 
+    pub fn get_latest_sequence_id_for_inbox(&self, inbox_id: &str) -> Result<i64, StorageError> {
+        let query = dsl::identity_updates
+            .select(dsl::sequence_id)
+            .order(dsl::sequence_id.desc())
+            .limit(1)
+            .filter(dsl::inbox_id.eq(inbox_id))
+            .into_boxed();
+
+        Ok(self.raw_query(|conn| query.first::<i64>(conn))?)
+    }
+
     /// Given a list of inbox_ids return a hashamp of each inbox ID -> highest known sequence ID
     pub fn get_latest_sequence_id(
         &self,
@@ -214,6 +225,22 @@ mod tests {
                 latest_sequence_ids_with_missing_member.get("missing_inbox"),
                 None
             );
+        })
+    }
+
+    #[test]
+    fn get_single_sequence_id() {
+        with_connection(|conn| {
+            let inbox_id = "inbox_1";
+            let update = build_update(inbox_id, 1);
+            let update_2 = build_update(inbox_id, 2);
+            update.store(conn).expect("should store without error");
+            update_2.store(conn).expect("should store without error");
+
+            let sequence_id = conn
+                .get_latest_sequence_id_for_inbox(inbox_id)
+                .expect("query should work");
+            assert_eq!(sequence_id, 2);
         })
     }
 }
