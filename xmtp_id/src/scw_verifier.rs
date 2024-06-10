@@ -72,7 +72,7 @@ impl SmartContractWalletVerifier {
     /// # Arguments
     ///
     /// * `block_number` - Block number to verify the signature at.
-    /// * `signer` - can be the smart wallet address or the ecrecover .
+    /// * `signer` - can be the smart wallet address or EOA address.
     /// * `hash` - Message digest for the signature.
     /// * `signature` - Could be encoded smart wallet signature or raw ECDSA signature.
     pub async fn erc6492_is_valid_signature(
@@ -133,6 +133,8 @@ impl SmartContractWalletVerifier {
 
 #[cfg(test)]
 pub mod tests {
+    use crate::is_smart_contract;
+
     use super::*;
     use ethers::{
         abi::{self, Token},
@@ -156,7 +158,6 @@ pub mod tests {
         derives(serde::Serialize, serde::Deserialize)
     );
 
-    // keys for smart contract hashmap
     pub struct SmartContracts {
         coinbase_smart_wallet_factory:
             CoinbaseSmartWalletFactory<SignerMiddleware<Provider<Http>, LocalWallet>>,
@@ -339,19 +340,34 @@ pub mod tests {
         .await;
     }
 
+    // Tests 4 cases of ERC-6492
+    // Deployed ERC-1271, valid signature -> true
+    // Deployed ERC-1271, invalid signature -> false
+    // Undeployed ERC-1271, valid signature -> true
+    // Undeployed ERC-1271, invalid signature -> false
     #[tokio::test]
     async fn test_erc6492() {
         with_smart_contracts(|anvil, provider, client, smart_contracts| async move {
             let verifier = SmartContractWalletVerifier::new(anvil.endpoint());
-            let undeployed_address = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266".parse::<Address>().unwrap();
-            let correct_signature = Bytes::from_hex("0xa461f509887bd19e312c0c58467ce8ff8e300d3c1a90b608a760c5b80318eaf15fe57c96f9175d6cd4daad4663763baa7e78836e067d0163e9a2ccf2ff753f5b1b").unwrap(); 
-            let hash = hash_message("hello world");
+            let hash: [u8; 32] = H256::random().into();
 
-            let res = verifier
-                .erc6492_is_valid_signature(None, undeployed_address, hash.into(), correct_signature)
+            // Create owner EOA wallet and then create smart contract wallet account from the factory.
+            let owner: LocalWallet = anvil.keys()[0].clone().into();
+            let owners_addresses = vec![Bytes::from(H256::from(owner.address()).0.to_vec())];
+            let factory = smart_contracts.coinbase_smart_wallet_factory();
+            let nonce = U256::from(0);
+            let smart_wallet_address = factory
+                .get_address(owners_addresses.clone(), nonce)
                 .await
                 .unwrap();
-            assert!(res);
+            let tx = factory.create_account(owners_addresses.clone(), nonce);
+            let pending_tx = tx.send().await.unwrap();
+            let _ = pending_tx.await.unwrap();
+            assert!(
+                is_smart_contract(smart_wallet_address, anvil.endpoint(), None)
+                    .await
+                    .unwrap()
+            );
         })
         .await;
     }
