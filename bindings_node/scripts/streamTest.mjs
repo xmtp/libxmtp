@@ -1,6 +1,7 @@
 import process from "node:process";
 import { AsyncStream } from "./AsyncStream.mjs";
-import { initEcdsaClient } from "./utils.mjs";
+import { initEcdsaClient, syncGroups } from "./utils.mjs";
+import { wallets } from "./users.mjs";
 
 const client1 = await initEcdsaClient(wallets[0]);
 await syncGroups(client1);

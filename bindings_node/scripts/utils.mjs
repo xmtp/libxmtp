@@ -2,15 +2,27 @@ import { toBytes } from "viem";
 import { join } from "node:path";
 import process from "node:process";
 import { TextEncoder } from "node:util";
-import { createClient } from "../dist/index.js";
+import {
+  createClient,
+  getInboxIdForAddress,
+  generateInboxId,
+} from "../dist/index.js";
 
 export const initEcdsaClient = async (wallet) => {
   const dbPath = join(process.cwd(), `${wallet.account.address}.db3`);
+
+  const inboxId =
+    (await getInboxIdForAddress(
+      "http://localhost:5556",
+      false,
+      wallet.account.address
+    )) || generateInboxId(wallet.account.address);
 
   const client = await createClient(
     "http://localhost:5556",
     false,
     dbPath,
+    inboxId,
     wallet.account.address
   );
 

@@ -193,13 +193,11 @@ impl DbConnection {
         }
     }
 
-    // Set the intent with the given ID to `Committed`
+    // Set the intent with the given ID to `Error`
     pub fn set_group_intent_error(&self, intent_id: ID) -> Result<(), StorageError> {
         let res = self.raw_query(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
-                // State machine requires that the only valid state transition to Committed is from
-                // Published
                 .set(dsl::state.eq(IntentState::Error))
                 .execute(conn)
         })?;
