@@ -154,7 +154,10 @@ impl DbConnection {
             Ok(ts)
         })?;
 
-        last_ts.ok_or(StorageError::NotFound)
+        last_ts.ok_or(StorageError::NotFound(format!(
+            "installation time for group {}",
+            hex::encode(group_id)
+        )))
     }
 
     /// Updates the 'last time checked' we checked for new installations.

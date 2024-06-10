@@ -89,9 +89,9 @@ impl DbConnection {
         }
     }
 
-    pub fn update_cursor<IdType: AsRef<Vec<u8>>>(
+    pub fn update_cursor(
         &self,
-        entity_id: IdType,
+        entity_id: &Vec<u8>,
         entity_kind: EntityKind,
         cursor: i64,
     ) -> Result<bool, StorageError> {
@@ -107,7 +107,11 @@ impl DbConnection {
                 })?;
                 Ok(num_updated == 1)
             }
-            None => Err(StorageError::NotFound),
+            None => Err(StorageError::NotFound(format!(
+                "state for entity ID {} with kind {:?}",
+                hex::encode(entity_id),
+                entity_kind
+            ))),
         }
     }
 }

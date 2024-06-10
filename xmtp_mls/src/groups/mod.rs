@@ -420,7 +420,7 @@ impl MlsGroup {
 
         // Skipping a full sync here and instead just firing and forgetting
         if let Err(err) = self.publish_intents(conn, client).await {
-            println!("error publishing intents: {:?}", err);
+            log::error!("Send: error publishing intents: {:?}", err);
         }
         Ok(message_id)
     }

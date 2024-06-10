@@ -93,7 +93,7 @@ impl MlsGroup {
 
         // Even if publish fails, continue to receiving
         if let Err(publish_error) = self.publish_intents(conn.clone(), client).await {
-            log::error!("error publishing intents {:?}", publish_error);
+            log::error!("Sync: error publishing intents {:?}", publish_error);
             errors.push(publish_error);
         }
 
