@@ -331,9 +331,11 @@ impl MlsGroup {
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
         let join_config = build_group_join_config();
+
         let processed_welcome =
             ProcessedWelcome::new_from_welcome(provider, &join_config, welcome.clone())?;
-        if processed_welcome.psks().is_empty() {
+        let psks = processed_welcome.psks();
+        if !psks.is_empty() {
             return Err(GroupError::NoPSKSupport);
         }
         let staged_welcome = processed_welcome.into_staged_welcome(provider, None)?;
