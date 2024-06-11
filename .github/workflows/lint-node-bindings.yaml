@@ -12,15 +12,44 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Cache
-        uses: actions/cache@v3
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          workspaces: |
+            .
+            bindings_node
+
       - name: Run clippy and fail on warnings
         run: cargo clippy --manifest-path bindings_node/Cargo.toml --all-features --all-targets --no-deps -- -Dwarnings
+
       - name: Run format check
         run: cargo fmt --manifest-path bindings_node/Cargo.toml --check
+
+  prettier:
+    runs-on: warp-ubuntu-latest-x64-8x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".node-version"
+          cache-dependency-path: "bindings_node/yarn.lock"
+          cache: "yarn"
+        env:
+          SKIP_YARN_COREPACK_CHECK: "1"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: |
+          cd bindings_node
+          yarn
+
+      - name: Format check
+        run: |
+          cd bindings_node
+          yarn format:check

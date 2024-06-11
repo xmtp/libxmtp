@@ -5,22 +5,32 @@
     },
     "linkedProjects": [
       "bindings_ffi/Cargo.toml",
+      "bindings_node/Cargo.toml",
       "examples/cli/Cargo.toml",
       "xmtp_api_grpc_gateway/Cargo.toml"
     ],
-    "procMacro" : {
+    "procMacro": {
       "enable": true,
       "attributes.enable": true,
       "ignored": {
-        "async-trait": [ "async_trait" ],
-        "napi-derive": [ "napi" ],
-        "async-recursion": [ "async_recursion" ],
-        "ctor": [ "ctor" ],
-        "tokio": [ "test" ]
+        "async-trait": ["async_trait"],
+        "napi-derive": ["napi"],
+        "async-recursion": ["async_recursion"],
+        "ctor": ["ctor"],
+        "tokio": ["test"]
       }
     }
   },
   "[toml]": {
     "editor.defaultFormatter": "tamasfe.even-better-toml"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   }
 }
