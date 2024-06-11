@@ -9,7 +9,14 @@ use std::{
 
 use futures::{Stream, StreamExt};
 use prost::Message;
-use tokio::sync::oneshot::{self, Sender};
+use tokio::{
+    sync::{
+        mpsc::{self, UnboundedSender},
+        oneshot::{self, Sender},
+    },
+    task::JoinHandle,
+};
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
 use crate::{
@@ -242,6 +249,58 @@ where
         })
     }
 
+    pub async fn stream_all_messages(
+        client: Arc<Client<ApiClient>>,
+    ) -> Result<impl Stream<Item = StoredGroupMessage>, ClientError> {
+        let mut handle;
+
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        client.sync_welcomes().await?;
+
+        let current_groups = client.store().conn()?.find_groups(None, None, None, None)?;
+
+        let mut group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo> = current_groups
+            .into_iter()
+            .map(|group| {
+                (
+                    group.id.clone(),
+                    MessagesStreamInfo {
+                        convo_created_at_ns: group.created_at_ns,
+                        cursor: 0,
+                    },
+                )
+            })
+            .collect();
+        handle = Self::relay_messages(client.clone(), tx.clone(), group_id_to_info.clone());
+
+        tokio::spawn(async move {
+            let client_pointer = client.clone();
+            let mut convo_stream = Self::stream_conversations(&client_pointer).await?;
+
+            while let Some(new_group) = convo_stream.next().await {
+                if group_id_to_info.contains_key(&new_group.group_id) {
+                    continue;
+                }
+
+                handle.abort();
+                for info in group_id_to_info.values_mut() {
+                    info.cursor = 0;
+                }
+                group_id_to_info.insert(
+                    new_group.group_id,
+                    MessagesStreamInfo {
+                        convo_created_at_ns: new_group.created_at_ns,
+                        cursor: 1,
+                    },
+                );
+                handle = Self::relay_messages(client.clone(), tx.clone(), group_id_to_info.clone());
+            }
+        });
+
+        Ok(UnboundedReceiverStream::new(rx))
+    }
+
     pub async fn stream_all_messages_with_callback(
         client: Arc<Client<ApiClient>>,
         callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
@@ -312,6 +371,23 @@ where
         )?;
 
         Ok(groups_stream_closer)
+    }
+
+    fn relay_messages(
+        client: Arc<Client<ApiClient>>,
+        tx: UnboundedSender<StoredGroupMessage>,
+        group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
+    ) -> JoinHandle<Result<(), ClientError>> {
+        tokio::spawn(async move {
+            let mut stream = client.stream_messages(group_id_to_info).await?;
+            while let Some(message) = stream.next().await {
+                // an error can only mean the receiver has been dropped or closed
+                if tx.send(message).is_err() {
+                    break;
+                }
+            }
+            Ok::<_, ClientError>(())
+        })
     }
 }
 

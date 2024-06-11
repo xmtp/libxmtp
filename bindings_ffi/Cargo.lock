@@ -5823,6 +5823,7 @@ dependencies = [
  "thiserror",
  "tls_codec 0.4.0",
  "tokio",
+ "tokio-stream",
  "toml 0.8.8",
  "xmtp_cryptography",
  "xmtp_id",
