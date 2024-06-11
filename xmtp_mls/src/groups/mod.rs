@@ -18,7 +18,10 @@ use openmls::{
         Extension, ExtensionType, Extensions, Metadata, RequiredCapabilitiesExtension,
         UnknownExtension,
     },
-    group::{CreateGroupContextExtProposalError, MlsGroupCreateConfig, MlsGroupJoinConfig},
+    group::{
+        CreateGroupContextExtProposalError, MlsGroupCreateConfig, MlsGroupJoinConfig,
+        ProcessedWelcome,
+    },
     messages::proposals::ProposalType,
     prelude::{
         BasicCredentialError, Capabilities, CredentialWithKey, Error as TlsCodecError, GroupId,
@@ -162,9 +165,11 @@ pub enum GroupError {
     #[error("LeafNode error")]
     LeafNodeError(#[from] LibraryError),
     #[error("Message History error: {0}")]
-    MessageHistory(#[from] MessageHistoryError),
+    MessageHistory(#[from] Box<MessageHistoryError>),
     #[error("Installation diff error: {0}")]
     InstallationDiff(#[from] InstallationDiffError),
+    #[error("PSKs are not support")]
+    NoPSKSupport,
 }
 
 impl RetryableError for GroupError {
@@ -326,8 +331,14 @@ impl MlsGroup {
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
         let join_config = build_group_join_config();
-        let staged_welcome =
-            StagedWelcome::new_from_welcome(provider, &join_config, welcome.clone(), None)?;
+
+        let processed_welcome =
+            ProcessedWelcome::new_from_welcome(provider, &join_config, welcome.clone())?;
+        let psks = processed_welcome.psks();
+        if !psks.is_empty() {
+            return Err(GroupError::NoPSKSupport);
+        }
+        let staged_welcome = processed_welcome.into_staged_welcome(provider, None)?;
 
         let added_by_node = staged_welcome.welcome_sender()?;
 
