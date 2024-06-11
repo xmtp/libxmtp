@@ -1,40 +1,23 @@
 {
   "name": "@xmtp/mls-client-bindings-node",
   "version": "0.0.3",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://git@github.com/xmtp/libxmtp.git",
+    "directory": "bindings_node"
+  },
+  "license": "MIT",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
   },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "files": [
     "dist"
   ],
-  "napi": {
-    "binaryName": "bindings_node"
-  },
-  "license": "MIT",
-  "devDependencies": {
-    "@napi-rs/cli": "^3.0.0-alpha.55",
-    "@types/node": "^20.14.2",
-    "prettier": "^3.3.2",
-    "prettier-plugin-packagejson": "^2.5.0",
-    "typescript": "^5.4.5",
-    "viem": "^2.11.1",
-    "vite": "^5.2.13",
-    "vite-tsconfig-paths": "^4.3.2",
-    "vitest": "^1.6.0"
-  },
-  "engines": {
-    "node": ">=18"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://git@github.com/xmtp/libxmtp.git",
-    "directory": "bindings_node"
-  },
   "scripts": {
     "artifacts": "napi artifacts",
     "build": "napi build --platform --release",
@@ -48,10 +31,28 @@
     "test": "vitest run",
     "test:clean": "rm -rf test/*.db3*"
   },
+  "devDependencies": {
+    "@ianvs/prettier-plugin-sort-imports": "^4.2.1",
+    "@napi-rs/cli": "^3.0.0-alpha.55",
+    "@types/node": "^20.14.2",
+    "prettier": "^3.3.2",
+    "prettier-plugin-packagejson": "^2.5.0",
+    "typescript": "^5.4.5",
+    "viem": "^2.11.1",
+    "vite": "^5.2.13",
+    "vite-tsconfig-paths": "^4.3.2",
+    "vitest": "^1.6.0"
+  },
   "packageManager": "yarn@4.2.2",
+  "engines": {
+    "node": ">=18"
+  },
   "publishConfig": {
     "access": "public",
     "provenance": true,
     "registry": "https://registry.npmjs.org/"
+  },
+  "napi": {
+    "binaryName": "bindings_node"
   }
 }
