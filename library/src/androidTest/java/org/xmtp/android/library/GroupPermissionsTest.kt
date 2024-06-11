@@ -98,19 +98,19 @@ class GroupPermissionsTest {
         assert(superAdminList.contains(boClient.inboxId))
 
         // Verify that alix can NOT  update group name
-        assert(boGroup.name == "New Group")
+        assert(boGroup.name == "")
         val exception = assertThrows(uniffi.xmtpv3.GenericException.GroupException::class.java) {
             runBlocking {
                 alixGroup.updateGroupName("Alix group name")
             }
         }
-        assertEquals(exception.message, "Group error: generic: failed to wait for intent")
+        assertEquals(exception.message, "Group error: generic: Group intent could not be committed")
         runBlocking {
             alixGroup.sync()
             boGroup.sync()
         }
-        assert(boGroup.name == "New Group")
-        assert(alixGroup.name == "New Group")
+        assert(boGroup.name == "")
+        assert(alixGroup.name == "")
 
         runBlocking {
             boGroup.addAdmin(alixClient.inboxId)
@@ -165,7 +165,7 @@ class GroupPermissionsTest {
                 alixGroup.updateGroupName("Alix group name 2")
             }
         }
-        assertEquals(exception.message, "Group error: generic: failed to wait for intent")
+        assertEquals(exception.message, "Group error: generic: Group intent could not be committed")
     }
 
     @Test
@@ -256,5 +256,36 @@ class GroupPermissionsTest {
         assert(admins.size == 1)
         assert(superAdmins.size == 2)
         assert(regularMembers.isEmpty())
+    }
+
+    @Test
+    fun testCanCommitAfterInvalidPermissionsCommit() {
+        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alix.walletAddress, caro.walletAddress), GroupPermissions.ALL_MEMBERS) }
+        runBlocking { alixClient.conversations.syncGroups() }
+        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
+
+        // Verify that alix can NOT  add an admin
+        assert(boGroup.name == "")
+        val exception = assertThrows(XMTPException::class.java) {
+            runBlocking {
+                alixGroup.addAdmin(alixClient.inboxId)
+            }
+        }
+        assertEquals(exception.message, "Permission denied: Unable to add admin")
+        runBlocking {
+            alixGroup.sync()
+            boGroup.sync()
+        }
+
+        // Verify that alix can update group name
+        runBlocking {
+            boGroup.sync()
+            alixGroup.sync()
+            alixGroup.updateGroupName("Alix group name")
+            alixGroup.sync()
+            boGroup.sync()
+        }
+        assert(boGroup.name == "Alix group name")
+        assert(alixGroup.name == "Alix group name")
     }
 }

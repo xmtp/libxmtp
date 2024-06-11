@@ -210,7 +210,7 @@ class GroupTest {
     fun testNameAGroup() {
         val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alix.walletAddress)) }
         runBlocking {
-            assertEquals("New Group", boGroup.name)
+            assertEquals("", boGroup.name)
             boGroup.updateGroupName("This Is A Great Group")
             boGroup.sync()
             alixClient.conversations.syncGroups()
