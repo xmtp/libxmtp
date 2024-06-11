@@ -18,7 +18,14 @@
   "license": "MIT",
   "devDependencies": {
     "@napi-rs/cli": "^3.0.0-alpha.55",
-    "viem": "^2.11.1"
+    "@types/node": "^20.14.2",
+    "prettier": "^3.3.2",
+    "prettier-plugin-packagejson": "^2.5.0",
+    "typescript": "^5.4.5",
+    "viem": "^2.11.1",
+    "vite": "^5.2.13",
+    "vite-tsconfig-paths": "^4.3.2",
+    "vitest": "^1.6.0"
   },
   "engines": {
     "node": ">=18"
@@ -35,8 +42,11 @@
     "build:debug": "napi build --platform",
     "build:finish": "mkdir dist && mv index.js dist && mv index.d.ts dist && mv *.node dist",
     "build:release": "yarn build:clean && yarn build && yarn build:finish",
-    "universal": "napi universal",
-    "version": "napi version"
+    "clean": "yarn build:clean && yarn test:clean",
+    "format": "prettier -w .",
+    "format:check": "prettier -c .",
+    "test": "vitest run",
+    "test:clean": "rm -rf test/*.db3*"
   },
   "packageManager": "yarn@4.2.2",
   "publishConfig": {
