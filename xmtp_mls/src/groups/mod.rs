@@ -165,7 +165,7 @@ pub enum GroupError {
     #[error("LeafNode error")]
     LeafNodeError(#[from] LibraryError),
     #[error("Message History error: {0}")]
-    MessageHistory(#[from] MessageHistoryError),
+    MessageHistory(#[from] Box<MessageHistoryError>),
     #[error("Installation diff error: {0}")]
     InstallationDiff(#[from] InstallationDiffError),
     #[error("PSKs are not support")]

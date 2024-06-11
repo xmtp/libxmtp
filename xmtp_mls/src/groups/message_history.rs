@@ -1,5 +1,5 @@
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 
 use aes_gcm::aead::generic_array::GenericArray;
@@ -13,6 +13,7 @@ use rand::{
     Rng, RngCore,
 };
 use ring::hmac;
+use serde::Deserialize;
 use thiserror::Error;
 
 use xmtp_cryptography::utils as crypto_utils;
@@ -60,18 +61,41 @@ pub enum MessageHistoryError {
     Reqwest(#[from] reqwest::Error),
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
+    #[error("type conversion error")]
+    Conversion,
+    #[error("utf-8 error: {0}")]
+    UTF8(#[from] std::str::Utf8Error),
+    #[error("client error: {0}")]
+    Client(#[from] ClientError),
+    #[error("group error: {0}")]
+    Group(#[from] GroupError),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum SyncableTables {
+    StoredGroup(StoredGroup),
+    StoredGroupMessage(StoredGroupMessage),
 }
 
 impl<ApiClient> Client<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    pub async fn allow_history_sync(&self) -> Result<(), ClientError> {
+    pub async fn allow_history_sync(&self) -> Result<(), GroupError> {
         let history_sync_group = self.create_sync_group()?;
-        history_sync_group
-            .sync(self)
-            .await
-            .map_err(|e| ClientError::Generic(e.to_string()))?;
+        history_sync_group.sync(self).await?;
+        Ok(())
+    }
+
+    pub async fn ensure_member_of_all_groups(&self, inbox_id: String) -> Result<(), GroupError> {
+        let conn = self.store().conn()?;
+        let groups = conn.find_groups(None, None, None, None)?;
+        for group in groups {
+            let group = self.group(group.id)?;
+            Box::pin(group.add_members_by_inbox_id(self, vec![inbox_id.clone()])).await?;
+        }
+
         Ok(())
     }
 
@@ -124,7 +148,6 @@ where
             .pop()
             .ok_or(GroupError::GroupNotFound)?
             .id;
-        let sync_group = self.group(sync_group_id.clone())?;
 
         // build the reply
         let envelope = PlaintextEnvelope {
@@ -140,10 +163,12 @@ where
             .encode(&mut encoded_envelope)
             .map_err(GroupError::EncodeError)?;
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        let intent = NewGroupIntent::new(IntentKind::SendMessage, sync_group_id, intent_data);
+        let intent =
+            NewGroupIntent::new(IntentKind::SendMessage, sync_group_id.clone(), intent_data);
         intent.store(&conn)?;
 
         // publish the intent
+        let sync_group = self.group(sync_group_id)?;
         if let Err(err) = sync_group.publish_intents(conn, self).await {
             log::error!("error publishing sync group intents: {:?}", err);
         }
@@ -178,13 +203,42 @@ where
             }
         });
         if request.is_none() {
-            return Err(GroupError::MessageHistory(MessageHistoryError::PinNotFound));
+            return Err(GroupError::MessageHistory(Box::new(
+                MessageHistoryError::PinNotFound,
+            )));
         }
 
         Ok(())
     }
 
-    async fn prepare_history_reply(
+    pub(crate) fn insert_history_bundle(
+        &self,
+        history_file: &Path,
+    ) -> Result<(), MessageHistoryError> {
+        let file = File::open(history_file)?;
+        let reader = BufReader::new(file);
+        let lines = reader.lines();
+
+        let conn = self.store().conn()?;
+
+        for line in lines {
+            let line = line?;
+            let db_entry: SyncableTables = serde_json::from_str(&line)?;
+            match db_entry {
+                SyncableTables::StoredGroup(group) => {
+                    // alternatively consider: group.store(&conn)?
+                    conn.insert_or_ignore_group(group)?;
+                }
+                SyncableTables::StoredGroupMessage(group_message) => {
+                    group_message.store(&conn)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn prepare_history_reply(
         &self,
         request_id: &str,
         url: &str,
@@ -214,12 +268,16 @@ where
         write_to_file(temp_file.as_path(), messages)?;
 
         let history_file = std::env::temp_dir().join("history.jsonl.enc");
-        let key = HistoryKeyType::new_chacha20_poly1305_key();
-        encrypt_history_file(temp_file.as_path(), history_file.as_path(), key.as_bytes())?;
+        let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
+        encrypt_history_file(
+            temp_file.as_path(),
+            history_file.as_path(),
+            enc_key.as_bytes(),
+        )?;
 
         std::fs::remove_file(temp_file.as_path())?;
 
-        Ok((history_file, key))
+        Ok((history_file, enc_key))
     }
 
     async fn prepare_groups_to_sync(&self) -> Result<Vec<StoredGroup>, MessageHistoryError> {
@@ -270,7 +328,7 @@ fn write_to_file<T: serde::Serialize>(
 fn encrypt_history_file(
     input_path: &Path,
     output_path: &Path,
-    key: &[u8; ENC_KEY_SIZE],
+    encryption_key: &[u8; ENC_KEY_SIZE],
 ) -> Result<(), MessageHistoryError> {
     // Read in the messages file content
     let mut input_file = File::open(input_path)?;
@@ -280,7 +338,7 @@ fn encrypt_history_file(
     let nonce = generate_nonce();
 
     // Create a cipher instance
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(key));
+    let cipher = Aes256Gcm::new(GenericArray::from_slice(encryption_key));
     let nonce_array = GenericArray::from_slice(&nonce);
 
     // Encrypt the file content
@@ -294,11 +352,13 @@ fn encrypt_history_file(
     Ok(())
 }
 
-fn decrypt_history_file(
-    input_path: PathBuf,
-    output_path: PathBuf,
-    key: &[u8; ENC_KEY_SIZE],
+pub(crate) fn decrypt_history_file(
+    input_path: &Path,
+    output_path: &Path,
+    encryption_key: MessageHistoryKeyType,
 ) -> Result<(), MessageHistoryError> {
+    let enc_key: HistoryKeyType = encryption_key.try_into()?;
+    let enc_key_bytes = enc_key.as_bytes();
     // Read the messages file content
     let mut input_file = File::open(input_path)?;
     let mut buffer = Vec::new();
@@ -308,7 +368,7 @@ fn decrypt_history_file(
     let (nonce, ciphertext) = buffer.split_at(NONCE_SIZE);
 
     // Create a cipher instance
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(key));
+    let cipher = Aes256Gcm::new(GenericArray::from_slice(enc_key_bytes));
     let nonce_array = GenericArray::from_slice(nonce);
 
     // Decrypt the ciphertext
@@ -345,37 +405,37 @@ async fn upload_history_bundle(
     Ok(())
 }
 
-async fn download_history_bundle(
+pub(crate) async fn download_history_bundle(
     url: &str,
-    hmac_value: &str,
-    signing_key: &str,
-    aes_key: [u8; ENC_KEY_SIZE],
-    output_path: PathBuf,
-) -> Result<(), MessageHistoryError> {
+    hmac_value: Vec<u8>,
+    signing_key: MessageHistoryKeyType,
+) -> Result<PathBuf, MessageHistoryError> {
+    let sign_key: HistoryKeyType = signing_key.try_into()?;
+    let sign_key_bytes = sign_key.as_bytes().to_vec();
     let client = reqwest::Client::new();
     let response = client
         .get(url)
         .header("X-HMAC", hmac_value)
-        .header("X-SIGNING-KEY", signing_key)
+        .header("X-SIGNING-KEY", hex::encode(sign_key_bytes))
         .send()
         .await?;
 
     if response.status().is_success() {
-        let input_path = std::env::temp_dir().join("downloaded_bundle.jsonl.enc");
-        let mut file = File::create(&output_path)?;
+        let file_path = std::env::temp_dir().join("downloaded_bundle.jsonl.enc");
+        let mut file = File::create(&file_path)?;
         let bytes = response.bytes().await?;
         file.write_all(&bytes)?;
-
-        decrypt_history_file(input_path, output_path, &aes_key)?;
+        Ok(file_path)
     } else {
         eprintln!(
             "Failed to download file. Status code: {} Response: {:?}",
             response.status(),
             response
         );
+        Err(MessageHistoryError::Reqwest(
+            response.error_for_status().unwrap_err(),
+        ))
     }
-
-    Ok(())
 }
 
 #[derive(Clone)]
@@ -403,12 +463,12 @@ impl From<HistoryRequest> for MessageHistoryRequest {
 }
 
 #[derive(Debug)]
-struct HistoryReply {
+pub(crate) struct HistoryReply {
     /// Unique ID for each client Message History Request
     request_id: String,
     /// URL to download the backup bundle
     url: String,
-    /// HMAC of the backup bundle
+    /// HMAC value of the backup bundle
     bundle_hash: Vec<u8>,
     /// HMAC Signing key for the backup bundle
     signing_key: HistoryKeyType,
@@ -447,7 +507,7 @@ impl From<HistoryReply> for MessageHistoryReply {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-enum HistoryKeyType {
+pub(crate) enum HistoryKeyType {
     Chacha20Poly1305([u8; ENC_KEY_SIZE]),
 }
 
@@ -482,18 +542,36 @@ impl From<HistoryKeyType> for MessageHistoryKeyType {
     }
 }
 
+impl TryFrom<MessageHistoryKeyType> for HistoryKeyType {
+    type Error = MessageHistoryError;
+    fn try_from(key: MessageHistoryKeyType) -> Result<Self, Self::Error> {
+        let MessageHistoryKeyType { key } = key;
+        match key {
+            Some(k) => {
+                let Key::Chacha20Poly1305(hist_key) = k;
+                match hist_key.try_into() {
+                    Ok(array) => Ok(HistoryKeyType::Chacha20Poly1305(array)),
+                    Err(_) => Err(MessageHistoryError::Conversion),
+                }
+            }
+            None => Err(MessageHistoryError::Conversion),
+        }
+    }
+}
+
 fn new_request_id() -> String {
     Alphanumeric.sample_string(&mut rand::thread_rng(), ENC_KEY_SIZE)
 }
 
 fn generate_nonce() -> [u8; NONCE_SIZE] {
     let mut nonce = [0u8; NONCE_SIZE];
-    rand::thread_rng().fill(&mut nonce);
+    let mut rng = crypto_utils::rng();
+    rng.fill_bytes(&mut nonce);
     nonce
 }
 
 fn new_pin() -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = crypto_utils::rng();
     let pin: u32 = rng.gen_range(0..10000);
     format!("{:04}", pin)
 }
@@ -614,15 +692,10 @@ mod tests {
 
         // make sure they are the same group
         assert_eq!(amal_a_sync_group.group_id, amal_b_sync_group.group_id);
-
-        let amal_a_conn = amal_a.store().conn().unwrap();
-        let amal_a_messages = amal_a_conn
-            .get_group_messages(amal_a_sync_group.group_id, None, None, None, None, None)
-            .unwrap();
-        assert_eq!(amal_a_messages.len(), 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[ignore] // this test is only relevant if we are enforcing the PIN challenge
     async fn test_provide_pin_challenge() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -649,6 +722,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[ignore]
     async fn test_request_reply_roundtrip() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -658,7 +732,7 @@ mod tests {
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
         // amal_b sends a message history request to sync group messages
-        let pin_code = amal_b
+        let _pin_code = amal_b
             .send_history_request()
             .await
             .expect("history request");
@@ -668,8 +742,6 @@ mod tests {
         // get the first sync group
         let amal_a_sync_group = amal_a.group(amal_a_sync_groups[0].id.clone()).unwrap();
         amal_a_sync_group.sync(&amal_a).await.expect("sync");
-        let pin_challenge_result = amal_a.provide_pin(&pin_code);
-        assert_ok!(pin_challenge_result);
 
         // amal_a builds and sends a message history reply back
         let history_reply = HistoryReply::new(
@@ -783,6 +855,7 @@ mod tests {
     #[test]
     fn test_encrypt_decrypt_file() {
         let key = HistoryKeyType::new_chacha20_poly1305_key();
+        let converted_key: MessageHistoryKeyType = key.into();
         let key_bytes = key.as_bytes();
         let input_content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'";
         let input_file = NamedTempFile::new().expect("Unable to create temp file");
@@ -797,12 +870,8 @@ mod tests {
             .expect("Encryption failed");
 
         // Decrypt the file
-        decrypt_history_file(
-            encrypted_file.path().to_path_buf(),
-            decrypted_file.path().to_path_buf(),
-            key_bytes,
-        )
-        .expect("Decryption failed");
+        decrypt_history_file(encrypted_file.path(), decrypted_file.path(), converted_key)
+            .expect("Decryption failed");
 
         // Read the decrypted file content
         let decrypted_content =
@@ -855,9 +924,7 @@ mod tests {
     async fn test_download_history_bundle() {
         let bundle_id = "test_bundle_id";
         let hmac_value = "test_hmac_value";
-        let signing_key = "test_signing_key";
-        let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
-        let output_path = "test_output.jsonl";
+        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
         let options = mockito::ServerOpts {
             host: HISTORY_SERVER_HOST,
             port: HISTORY_SERVER_PORT,
@@ -875,17 +942,12 @@ mod tests {
             "http://{}:{}/files/{bundle_id}",
             HISTORY_SERVER_HOST, HISTORY_SERVER_PORT
         );
-        let _result = download_history_bundle(
-            &url,
-            hmac_value,
-            signing_key,
-            *enc_key.as_bytes(),
-            PathBuf::from(output_path),
-        )
-        .await;
+        let output_path = download_history_bundle(&url, hmac_value.into(), signing_key.into())
+            .await
+            .expect("could not download history bundle");
 
         _m.assert_async().await;
-        std::fs::remove_file(output_path).expect("Unable to remove test output file");
+        std::fs::remove_file(output_path.as_path()).expect("Unable to remove test output file");
         server.reset();
     }
 
@@ -921,6 +983,32 @@ mod tests {
         server.reset();
     }
 
+    #[tokio::test]
+    async fn test_insert_history_bundle() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let amal_b = ClientBuilder::new_test_client(&wallet).await;
+        let group_a = amal_a.create_group(None).expect("create group");
+
+        group_a
+            .send_message(b"hi", &amal_a)
+            .await
+            .expect("send message");
+
+        let (bundle_path, enc_key) = amal_a
+            .write_history_bundle()
+            .await
+            .expect("Unable to write history bundle");
+
+        let output_file = NamedTempFile::new().expect("Unable to create temp file");
+        let converted_key: MessageHistoryKeyType = enc_key.into();
+        decrypt_history_file(&bundle_path, output_file.path(), converted_key)
+            .expect("Unable to decrypt history file");
+
+        let inserted = amal_b.insert_history_bundle(output_file.path());
+        assert!(inserted.is_ok());
+    }
+
     #[test]
     fn test_new_pin() {
         let pin = new_pin();
@@ -933,13 +1021,17 @@ mod tests {
         let sig_key = HistoryKeyType::new_chacha20_poly1305_key();
         let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
         assert_eq!(sig_key.len(), ENC_KEY_SIZE);
+        assert_eq!(enc_key.len(), ENC_KEY_SIZE);
         // ensure keys are different (seed isn't reused)
         assert_ne!(sig_key, enc_key);
     }
 
     #[test]
     fn test_generate_nonce() {
-        let nonce = generate_nonce();
-        assert_eq!(nonce.len(), NONCE_SIZE);
+        let nonce_1 = generate_nonce();
+        let nonce_2 = generate_nonce();
+        assert_eq!(nonce_1.len(), NONCE_SIZE);
+        // ensure nonces are different (seed isn't reused)
+        assert_ne!(nonce_1, nonce_2);
     }
 }

@@ -1,5 +1,5 @@
-use std::sync::Arc;
-use std::{fmt, sync::Mutex};
+use std::fmt;
+use std::sync::{Arc, Mutex};
 
 use crate::storage::RawDbConnection;
 
