@@ -645,7 +645,7 @@ class GroupTests: XCTestCase {
         
         var groupName = try group.groupName()
         
-        XCTAssertEqual(groupName, "New Group")
+        XCTAssertEqual(groupName, "")
 
         try await group.updateGroupName(groupName: "Test Group Name 1")
         
@@ -666,7 +666,7 @@ class GroupTests: XCTestCase {
                 bobGroup = group
         }
         groupName = try bobGroup.groupName()
-        XCTAssertEqual(groupName, "New Group")
+        XCTAssertEqual(groupName, "")
         
         try await bobGroup.sync()
         groupName = try bobGroup.groupName()
