@@ -716,7 +716,14 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<MessageSecrets>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(MESSAGE_SECRETS_LABEL, group_id)?;
-        self.read(MESSAGE_SECRETS_LABEL, &key)
+        match self.read::<CURRENT_VERSION>(MESSAGE_SECRETS_LABEL, &key) {
+            Ok(Some(value)) => Ok(Some(serde_json::from_slice(&value)?)),
+            Ok(None) => Ok(None),
+            Err(e) => {
+                error!("Error reading message secrets: {:?}", e);
+                Err(MemoryStorageError::None)
+            }
+        }
     }
 
     fn write_message_secrets<
