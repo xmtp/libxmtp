@@ -1615,7 +1615,7 @@ mod tests {
         amal_group.sync(&amal).await.unwrap();
 
         let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
-        assert!(group_mutable_metadata.attributes.len().eq(&2));
+        assert!(group_mutable_metadata.attributes.len().eq(&3));
         assert!(group_mutable_metadata
             .attributes
             .get(&MetadataField::GroupName.to_string())
