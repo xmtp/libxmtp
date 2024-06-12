@@ -678,7 +678,14 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<GroupState>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(GROUP_STATE_LABEL, group_id)?;
-        self.read(GROUP_STATE_LABEL, &key)
+        match self.read::<CURRENT_VERSION>(GROUP_STATE_LABEL, &key) {
+            Ok(Some(value)) => Ok(Some(serde_json::from_slice(&value)?)),
+            Ok(None) => Ok(None),
+            Err(e) => {
+                error!("Error reading group_state: {:?}", e);
+                Err(MemoryStorageError::None)
+            }
+        }
     }
 
     fn write_group_state<
