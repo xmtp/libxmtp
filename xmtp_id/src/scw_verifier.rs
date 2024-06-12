@@ -107,32 +107,17 @@ impl SmartContractWalletVerifier {
             },
         ];
         let constructor = Constructor { inputs };
-
         let tokens = &[
             Token::Address(signer),
             Token::FixedBytes(hash.to_vec()),
             Token::Bytes(signature.to_vec()),
         ];
         let data = constructor.encode_input(code, tokens)?;
-
-        println!("data: {:?}", hex::encode(&data));
-
-        let tx: TypedTransaction = TransactionRequest::new()
-            // .from(
-            //     // Since this is a eth_call, we need to make sure the `from` address has balance to complete the simulation
-            //     // 0x0000000000000000000000000000000000000000 is a neutral address that has balance on most evm chains(mainnet, base, arbitrum, optimism, polygon, etc.)
-            //     "0x0000000000000000000000000000000000000000"
-            //         .parse::<Address>()
-            //         .unwrap(),
-            // )
-            .data(data)
-            .into();
-
+        let tx: TypedTransaction = TransactionRequest::new().data(data).into();
         let res = self
             .provider
             .call(&tx, block_number.map(BlockId::Number))
             .await?;
-
         Ok(res == Bytes::from_hex("0x01").unwrap())
     }
 }
@@ -242,9 +227,9 @@ pub mod tests {
                     .get_address(owners_addresses.clone(), nonce)
                     .await
                     .unwrap();
-                let tx = factory.create_account(owners_addresses.clone(), nonce);
-                let pending_tx = tx.send().await.unwrap();
-                let _ = pending_tx.await.unwrap();
+                let contract_call = factory.create_account(owners_addresses.clone(), nonce);
+                let pending_tx = contract_call.send().await.unwrap();
+                pending_tx.await.unwrap();
 
                 // Generate signatures from owners and verify them.
                 let smart_wallet = CoinbaseSmartWallet::new(
@@ -346,14 +331,10 @@ pub mod tests {
         .await;
     }
 
-    // Tests 4 cases of ERC-6492
-    // Deployed ERC-1271, valid signature -> true
-    // Deployed ERC-1271, invalid signature -> false
-    // Undeployed ERC-1271, valid signature -> true
-    // Undeployed ERC-1271, invalid signature -> false
+    // Testing ERC-6492 with deployed / undeployed coinbase smart wallet(ERC-1271) contracts, and EOA.
     #[tokio::test]
-    async fn test_erc6492() {
-        with_smart_contracts(|anvil, provider, client, smart_contracts| async move {
+    async fn test_erc6492_coinbase_smart_wallet() {
+        with_smart_contracts(|anvil, _provider, client, smart_contracts| async move {
             // Create owner EOA wallet and then create smart contract wallet account from the factory.
             let owner: LocalWallet = anvil.keys()[0].clone().into();
             let owners_addresses = vec![Bytes::from(H256::from(owner.address()).0.to_vec())];
@@ -363,16 +344,17 @@ pub mod tests {
                 .get_address(owners_addresses.clone(), nonce)
                 .await
                 .unwrap();
-            let tx = factory.create_account(owners_addresses.clone(), nonce);
-            let pending_tx = tx.send().await.unwrap();
-            let _ = pending_tx.await.unwrap();
+            let contract_call = factory.create_account(owners_addresses.clone(), nonce);
+            let pending_tx = contract_call.send().await.unwrap();
+            pending_tx.await.unwrap();
+
             assert!(
                 is_smart_contract(smart_wallet_address, anvil.endpoint(), None)
                     .await
                     .unwrap()
             );
 
-            // Generate the signature
+            // Generate the signature for coinbase smart wallet
             let smart_wallet = CoinbaseSmartWallet::new(
                 smart_wallet_address,
                 Arc::new(client.with_signer(owner.clone().with_chain_id(anvil.chain_id()))),
@@ -394,6 +376,7 @@ pub mod tests {
                 .await
                 .unwrap());
 
+            // Testing ERC-6492 signatures with deployed ERC-1271.
             assert!(verifier
                 .erc6492_is_valid_signature(smart_wallet_address, hash, &signature, None,)
                 .await
@@ -409,9 +392,9 @@ pub mod tests {
                 .await
                 .unwrap());
 
-            // TODO: 2 cases
+            // TODO: Testing ERC-6492 signatures with undeployed ERC-1271.
 
-            // Now we test if vanila wallet signature is valid on ERC-6492
+            // Testing if EOA wallet signature is valid on ERC-6492
             let signature = owner.sign_hash(hash.into()).unwrap();
             assert!(
                 verifier
@@ -438,6 +421,7 @@ pub mod tests {
         .await;
     }
 
+    // This aims to test ERC-6492 signatures with undeployed ERC-1271 on ambire wallet.
     #[tokio::test]
     async fn test_erc6492_ambire_wallet() {
         let signer: Address = "0x4836a472ab1dd406ecb8d0f933a985541ee3921f"
