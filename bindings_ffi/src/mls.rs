@@ -339,6 +339,14 @@ impl FfiConversations {
             }
         }
 
+        if let Some(ref image_url) = opts.group_image_url {
+            if !image_url.is_empty() {
+                convo
+                    .update_group_image_url(&self.inner_client, image_url.to_string())
+                    .await?;
+            }
+        }
+
         let out = Arc::new(FfiGroup {
             inner_client: self.inner_client.clone(),
             group_id: convo.group_id,
@@ -469,6 +477,7 @@ pub struct FfiListMessagesOptions {
 pub struct FfiCreateGroupOptions {
     pub permissions: Option<GroupPermissions>,
     pub group_name: Option<String>,
+    pub group_image_url: Option<String>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -657,6 +666,32 @@ impl FfiGroup {
         let group_name = group.group_name()?;
 
         Ok(group_name)
+    }
+
+    pub async fn update_group_image_url(&self, group_image_url: String) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        group
+            .update_group_image_url(&self.inner_client, group_image_url)
+            .await?;
+
+        Ok(())
+    }
+
+    pub fn group_image_url(&self) -> Result<String, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let group_image_url = group.group_image_url()?;
+
+        Ok(group_image_url)
     }
 
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
@@ -1253,6 +1288,7 @@ mod tests {
                 FfiCreateGroupOptions {
                     permissions: None,
                     group_name: None,
+                    group_image_url: None,
                 },
             )
             .await
@@ -1274,6 +1310,7 @@ mod tests {
                 FfiCreateGroupOptions {
                     permissions: Some(GroupPermissions::AdminOnly),
                     group_name: Some("Group Name".to_string()),
+                    group_image_url: Some("url".to_string()),
                 },
             )
             .await
@@ -1282,6 +1319,7 @@ mod tests {
         let members = group.list_members().unwrap();
         assert_eq!(members.len(), 2);
         assert_eq!(group.group_name().unwrap(), "Group Name");
+        assert_eq!(group.group_image_url().unwrap(), "url");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1396,6 +1434,7 @@ mod tests {
                 FfiCreateGroupOptions {
                     permissions: None,
                     group_name: None,
+                    group_image_url: None,
                 },
             )
             .await
@@ -1411,6 +1450,7 @@ mod tests {
                 FfiCreateGroupOptions {
                     permissions: None,
                     group_name: None,
+                    group_image_url: None,
                 },
             )
             .await
@@ -1437,6 +1477,7 @@ mod tests {
                 FfiCreateGroupOptions {
                     permissions: None,
                     group_name: None,
+                    group_image_url: None,
                 },
             )
             .await
@@ -1461,6 +1502,7 @@ mod tests {
                 FfiCreateGroupOptions {
                     permissions: None,
                     group_name: None,
+                    group_image_url: None,
                 },
             )
             .await
@@ -1491,6 +1533,7 @@ mod tests {
                 FfiCreateGroupOptions {
                     permissions: None,
                     group_name: None,
+                    group_image_url: None,
                 },
             )
             .await
@@ -1532,6 +1575,7 @@ mod tests {
                 FfiCreateGroupOptions {
                     permissions: None,
                     group_name: None,
+                    group_image_url: None,
                 },
             )
             .await
@@ -1597,6 +1641,7 @@ mod tests {
                 FfiCreateGroupOptions {
                     permissions: None,
                     group_name: None,
+                    group_image_url: None,
                 },
             )
             .await
