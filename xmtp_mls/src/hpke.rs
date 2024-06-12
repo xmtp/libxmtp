@@ -26,6 +26,7 @@ pub enum HpkeError {
     KeyNotFound,
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 pub fn encrypt_welcome(welcome_payload: &[u8], hpke_key: &[u8]) -> Result<Vec<u8>, HpkeError> {
     let crypto = RustCrypto::default();
     let ciphertext = encrypt_with_label(

@@ -344,6 +344,7 @@ impl MutableApiSubscription for GrpcMutableSubscription {
 
 #[async_trait]
 impl XmtpMlsClient for Client {
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn register_installation(
         &self,
         req: RegisterInstallationRequest,
@@ -356,6 +357,7 @@ impl XmtpMlsClient for Client {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Error> {
         let client = &mut self.mls_client.clone();
         let res = client.upload_key_package(req).await;
@@ -365,6 +367,7 @@ impl XmtpMlsClient for Client {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn fetch_key_packages(
         &self,
         req: FetchKeyPackagesRequest,
@@ -376,6 +379,7 @@ impl XmtpMlsClient for Client {
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Error> {
         let client = &mut self.mls_client.clone();
         let res = client.send_group_messages(req).await;
@@ -386,6 +390,7 @@ impl XmtpMlsClient for Client {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn send_welcome_messages(&self, req: SendWelcomeMessagesRequest) -> Result<(), Error> {
         let client = &mut self.mls_client.clone();
         let res = client.send_welcome_messages(req).await;
@@ -396,6 +401,7 @@ impl XmtpMlsClient for Client {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn query_group_messages(
         &self,
         req: QueryGroupMessagesRequest,
@@ -407,6 +413,7 @@ impl XmtpMlsClient for Client {
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn query_welcome_messages(
         &self,
         req: QueryWelcomeMessagesRequest,
@@ -418,6 +425,7 @@ impl XmtpMlsClient for Client {
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn get_identity_updates(
         &self,
         req: GetIdentityUpdatesRequest,

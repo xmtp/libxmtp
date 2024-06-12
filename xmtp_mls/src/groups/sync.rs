@@ -16,7 +16,10 @@ use super::{
 use crate::{
     client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
-    configuration::{DELIMITER, MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
+    configuration::{
+        DELIMITER, GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS,
+        UPDATE_INSTALLATIONS_INTERVAL_NS,
+    },
     groups::{
         intents::UpdateMetadataIntentData,
         message_history::{decrypt_history_file, download_history_bundle},
@@ -38,6 +41,7 @@ use crate::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, Delete, Fetch, Store, XmtpApi,
 };
+use futures::future::try_join_all;
 use log::debug;
 use openmls::{
     credentials::BasicCredential,
@@ -85,6 +89,7 @@ impl MlsGroup {
         self.sync_with_conn(conn, client).await
     }
 
+    #[tracing::instrument(level = "trace", skip(client, conn))]
     pub(super) async fn sync_with_conn<ApiClient>(
         &self,
         conn: DbConnection,
@@ -129,6 +134,7 @@ impl MlsGroup {
      *
      * This method will retry up to `crate::configuration::MAX_GROUP_SYNC_RETRIES` times.
      */
+    #[tracing::instrument(level = "trace", skip(client, conn))]
     pub(super) async fn sync_until_intent_resolved<ApiClient>(
         &self,
         conn: DbConnection,
@@ -182,6 +188,7 @@ impl MlsGroup {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn process_own_message<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
@@ -309,6 +316,7 @@ impl MlsGroup {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn process_external_message<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
@@ -519,6 +527,7 @@ impl MlsGroup {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(super) async fn process_message<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
@@ -570,6 +579,7 @@ impl MlsGroup {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn consume_message<ApiClient>(
         &self,
         envelope: &GroupMessage,
@@ -599,6 +609,7 @@ impl MlsGroup {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn process_messages<ApiClient>(
         &self,
         messages: Vec<GroupMessage>,
@@ -634,6 +645,7 @@ impl MlsGroup {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(conn, client))]
     pub(super) async fn receive<ApiClient>(
         &self,
         conn: &DbConnection,
@@ -695,6 +707,7 @@ impl MlsGroup {
         Ok(Some(msg))
     }
 
+    #[tracing::instrument(level = "trace", skip(conn, client))]
     pub(super) async fn publish_intents<ClientApi>(
         &self,
         conn: DbConnection,
@@ -755,6 +768,7 @@ impl MlsGroup {
     }
 
     // Takes a StoredGroupIntent and returns the payload and post commit data as a tuple
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn get_publish_intent_data<ApiClient>(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -841,6 +855,7 @@ impl MlsGroup {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(conn, client))]
     pub(crate) async fn post_commit<ApiClient>(
         &self,
         conn: &DbConnection,
@@ -943,6 +958,7 @@ impl MlsGroup {
      *
      * Callers may also include a list of added or removed inboxes
      */
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(super) async fn get_membership_update_intent<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
@@ -1001,6 +1017,7 @@ impl MlsGroup {
         ))
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(super) async fn send_welcomes<ApiClient>(
         &self,
         action: SendWelcomesAction,
@@ -1018,7 +1035,6 @@ impl MlsGroup {
                     action.welcome_message.as_slice(),
                     installation.hpke_public_key.as_slice(),
                 )?;
-
                 Ok(WelcomeMessageInput {
                     version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
                         installation_key,
@@ -1029,8 +1045,29 @@ impl MlsGroup {
             })
             .collect::<Result<Vec<WelcomeMessageInput>, HpkeError>>()?;
 
-        client.api_client.send_welcome_messages(welcomes).await?;
+        let welcome = welcomes
+            .first()
+            .ok_or(GroupError::Generic("No welcomes to send".to_string()))?;
 
+        let chunk_size = GRPC_DATA_LIMIT
+            / welcome
+                .version
+                .as_ref()
+                .map(|w| match w {
+                    WelcomeMessageInputVersion::V1(w) => {
+                        let w = w.installation_key.len() + w.data.len() + w.hpke_public_key.len();
+                        log::debug!("total welcome message proto bytes={w}");
+                        w
+                    }
+                })
+                .unwrap_or(GRPC_DATA_LIMIT / usize::from(MAX_GROUP_SIZE));
+
+        log::debug!("welcome chunk_size={chunk_size}");
+        let mut futures = vec![];
+        for welcomes in welcomes.chunks(chunk_size) {
+            futures.push(client.api_client.send_welcome_messages(welcomes));
+        }
+        try_join_all(futures).await?;
         Ok(())
     }
 }
@@ -1061,6 +1098,7 @@ fn extract_message_sender(
 
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
 // returning the commit and post_commit_action
+#[tracing::instrument(level = "trace", skip_all)]
 async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
     client: &Client<ApiClient>,
     provider: &XmtpOpenMlsProvider,

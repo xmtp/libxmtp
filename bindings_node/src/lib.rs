@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 mod conversations;
 pub mod encoded_content;
 mod groups;

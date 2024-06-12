@@ -187,6 +187,7 @@ impl RetryableError for GroupError {
     }
 }
 
+#[derive(Debug)]
 pub struct MlsGroup {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
@@ -222,6 +223,7 @@ impl MlsGroup {
     }
 
     // Load the stored MLS group from the OpenMLS provider's keystore
+    #[tracing::instrument(level = "trace", skip_all)]
     fn load_mls_group(&self, provider: impl OpenMlsProvider) -> Result<OpenMlsGroup, GroupError> {
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
@@ -474,6 +476,7 @@ impl MlsGroup {
      * If any existing members have new installations that have not been added, the missing installations
      * will be added as part of this process as well.
      */
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members<ApiClient>(
         &self,
         client: &Client<ApiClient>,
@@ -506,6 +509,7 @@ impl MlsGroup {
             .await
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members_by_inbox_id<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
@@ -759,6 +763,7 @@ pub fn build_mutable_metadata_extension_default(
     ))
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 pub fn build_mutable_metadata_extensions_for_metadata_update(
     group: &OpenMlsGroup,
     field_name: String,
@@ -780,6 +785,7 @@ pub fn build_mutable_metadata_extensions_for_metadata_update(
     Ok(extensions)
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 pub fn build_mutable_metadata_extensions_for_admin_lists_update(
     group: &OpenMlsGroup,
     admin_lists_update: UpdateAdminListIntentData,
@@ -1057,7 +1063,6 @@ mod tests {
             .await
             .unwrap();
         // Check for messages
-        // println!("HERE: {:#?}", messages);
         let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);

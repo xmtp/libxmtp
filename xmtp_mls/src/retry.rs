@@ -154,7 +154,7 @@ macro_rules! retry_sync {
         #[allow(unused)]
         use $crate::retry::RetryableError;
         let mut attempts = 0;
-        loop {
+        tracing::trace_span!("retry").in_scope(|| loop {
             #[allow(clippy::redundant_closure_call)]
             match $code() {
                 Ok(v) => break Ok(v),
@@ -171,7 +171,7 @@ macro_rules! retry_sync {
                     }
                 }
             }
-        }
+        })
     }};
 }
 
@@ -221,12 +221,15 @@ macro_rules! retry_sync {
 #[macro_export]
 macro_rules! retry_async {
     ($retry: expr, $code: tt) => {{
+        use tracing::Instrument as _;
         #[allow(unused)]
         use $crate::retry::RetryableError;
         let mut attempts = 0;
+        let span = tracing::trace_span!("retry");
         loop {
+            let span = span.clone();
             #[allow(clippy::redundant_closure_call)]
-            match $code.await {
+            match $code.instrument(span).await {
                 Ok(v) => break Ok(v),
                 Err(e) => {
                     if (&e).is_retryable() && attempts < $retry.retries() {

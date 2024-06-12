@@ -12,6 +12,7 @@ use crate::Client;
 
 #[async_trait]
 impl XmtpIdentityClient for Client {
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,
@@ -28,6 +29,7 @@ impl XmtpIdentityClient for Client {
             .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn get_inbox_ids(
         &self,
         request: GetInboxIdsRequest,
@@ -44,6 +46,7 @@ impl XmtpIdentityClient for Client {
             .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn get_identity_updates_v2(
         &self,
         request: GetIdentityUpdatesV2Request,

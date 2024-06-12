@@ -40,10 +40,10 @@ impl MlsGroup {
             .members
             .into_iter()
             .map(|(inbox_id, sequence_id)| (inbox_id, sequence_id as i64))
-            .collect();
+            .collect::<Vec<_>>();
 
         let conn = provider.conn_ref();
-        let association_state_map = StoredAssociationState::batch_read_from_cache(conn, &requests)?;
+        let association_state_map = StoredAssociationState::batch_read_from_cache(conn, requests)?;
         let mutable_metadata = self.mutable_metadata()?;
         // TODO: Figure out what to do with missing members from the local DB. Do we go to the network? Load from identity updates?
         // Right now I am just omitting them
