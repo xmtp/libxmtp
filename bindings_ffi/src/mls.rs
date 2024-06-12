@@ -8,7 +8,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
-use tokio::sync::oneshot::Sender;
+use tokio::task::JoinHandle;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
@@ -409,20 +409,16 @@ impl FfiConversations {
         }))
     }
 
-    pub async fn stream_all_messages(
+    pub fn stream_all_messages(
         &self,
         message_callback: Box<dyn FfiMessageCallback>,
     ) -> Result<Arc<FfiStreamCloser>, GenericError> {
-        let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
+        let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             move |message| message_callback.on_message(message.into()),
-        )
-        .await?;
+        );
 
-        Ok(Arc::new(FfiStreamCloser {
-            close_fn: stream_closer.close_fn,
-            is_closed_atomic: stream_closer.is_closed_atomic,
-        }))
+        Ok(Arc::new(FfiStreamCloser { handle }))
     }
 }
 
@@ -879,25 +875,17 @@ impl From<StoredGroupMessage> for FfiMessage {
 
 #[derive(uniffi::Object)]
 pub struct FfiStreamCloser {
-    close_fn: Arc<Mutex<Option<Sender<()>>>>,
-    is_closed_atomic: Arc<AtomicBool>,
+    handle: JoinHandle<Result<(), GenericError>>,
 }
 
 #[uniffi::export]
 impl FfiStreamCloser {
     pub fn end(&self) {
-        match self.close_fn.lock() {
-            Ok(mut close_fn_option) => {
-                let _ = close_fn_option.take().map(|close_fn| close_fn.send(()));
-            }
-            _ => {
-                log::warn!("close_fn already closed");
-            }
-        }
+        self.handle.abort()
     }
 
     pub fn is_closed(&self) -> bool {
-        self.is_closed_atomic.load(Ordering::Relaxed)
+        self.handle.is_finished()
     }
 }
 

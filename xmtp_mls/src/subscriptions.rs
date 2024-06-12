@@ -12,7 +12,7 @@ use prost::Message;
 use tokio::{
     sync::{
         mpsc::{self, UnboundedSender},
-        oneshot::{self, Sender},
+        oneshot::Sender,
     },
     task::JoinHandle,
 };
@@ -97,7 +97,7 @@ where
 
         let subscription = self
             .api_client
-            .subscribe_welcome_messages(installation_key, Some(id_cursor as u64))
+            .subscribe_welcome_messages(installation_key, Some(id_cursor))
             .await?;
 
         let stream = subscription
@@ -178,36 +178,13 @@ where
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient>>,
         mut convo_callback: impl FnMut(MlsGroup) + Send + 'static,
-        mut on_close_callback: impl FnMut() + Send + 'static,
-    ) -> Result<StreamCloser, ClientError> {
-        let (close_sender, close_receiver) = oneshot::channel::<()>();
-        let is_closed = Arc::new(AtomicBool::new(false));
-        let is_closed_clone = is_closed.clone();
-
+    ) -> JoinHandle<Result<(), ClientError>> {
         tokio::spawn(async move {
             let mut stream = client.stream_conversations().await.unwrap();
-            let mut close_receiver = close_receiver;
-            loop {
-                tokio::select! {
-                    item = stream.next() => {
-                        match item {
-                            Some(convo) => { convo_callback(convo) },
-                            None => break
-                        }
-                    }
-                    _ = &mut close_receiver => {
-                        on_close_callback();
-                        break;
-                    }
-                }
+            while let Some(convo) = stream.next().await {
+                convo_callback(convo)
             }
-            is_closed_clone.store(true, Ordering::Relaxed);
-            log::info!("closing stream");
-        });
-
-        Ok(StreamCloser {
-            close_fn: Arc::new(Mutex::new(Some(close_sender))),
-            is_closed_atomic: is_closed,
+            Ok(())
         })
     }
 
@@ -215,36 +192,13 @@ where
         client: Arc<Client<ApiClient>>,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
-    ) -> Result<StreamCloser, ClientError> {
-        let (close_sender, close_receiver) = oneshot::channel::<()>();
-        let is_closed = Arc::new(AtomicBool::new(false));
-
-        let is_closed_clone = is_closed.clone();
+    ) -> JoinHandle<Result<(), ClientError>> {
         tokio::spawn(async move {
-            let mut stream = Self::stream_messages(client, group_id_to_info)
-                .await
-                .unwrap();
-            let mut close_receiver = close_receiver;
-            loop {
-                tokio::select! {
-                    item = stream.next() => {
-                        match item {
-                            Some(message) => callback(message),
-                            None => break
-                        }
-                    }
-                    _ = &mut close_receiver => {
-                        break;
-                    }
-                }
+            let mut stream = Self::stream_messages(client, group_id_to_info).await?;
+            while let Some(message) = stream.next().await {
+                callback(message)
             }
-            is_closed_clone.store(true, Ordering::Relaxed);
-            log::info!("closing stream");
-        });
-
-        Ok(StreamCloser {
-            close_fn: Arc::new(Mutex::new(Some(close_sender))),
-            is_closed_atomic: is_closed,
+            Ok(())
         })
     }
 
