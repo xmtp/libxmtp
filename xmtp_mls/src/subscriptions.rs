@@ -246,9 +246,17 @@ where
         client: Arc<Client<ApiClient>>,
         callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
     ) -> Result<StreamCloser, ClientError> {
+        client.sync_welcomes().await?; // TODO pipe cursor from welcomes sync into groups_stream
+        Self::stream_all_messages_with_callback_sync(client, callback)
+    }
+
+    /// Requires a sync welcomes before use
+    pub fn stream_all_messages_with_callback_sync(
+        client: Arc<Client<ApiClient>>,
+        callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
+    ) -> Result<StreamCloser, ClientError> {
         let callback = Arc::new(Mutex::new(callback));
 
-        client.sync_welcomes().await?; // TODO pipe cursor from welcomes sync into groups_stream
         let mut group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo> = client
             .store()
             .conn()?
@@ -369,6 +377,7 @@ mod tests {
         )
         .await
         .unwrap();
+
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         alix_group

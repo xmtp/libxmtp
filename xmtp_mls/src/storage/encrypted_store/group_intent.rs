@@ -146,7 +146,9 @@ impl DbConnection {
 
         match res {
             // If nothing matched the query, return an error. Either ID or state was wrong
-            0 => Err(StorageError::NotFound),
+            0 => Err(StorageError::NotFound(format!(
+                "ToPublish intent {intent_id} for publish"
+            ))),
             _ => Ok(()),
         }
     }
@@ -165,7 +167,9 @@ impl DbConnection {
 
         match res {
             // If nothing matched the query, return an error. Either ID or state was wrong
-            0 => Err(StorageError::NotFound),
+            0 => Err(StorageError::NotFound(format!(
+                "Published intent {intent_id} for commit"
+            ))),
             _ => Ok(()),
         }
     }
@@ -190,7 +194,9 @@ impl DbConnection {
 
         match res {
             // If nothing matched the query, return an error. Either ID or state was wrong
-            0 => Err(StorageError::NotFound),
+            0 => Err(StorageError::NotFound(format!(
+                "Published intent {intent_id} for ToPublish"
+            ))),
             _ => Ok(()),
         }
     }
@@ -207,7 +213,9 @@ impl DbConnection {
 
         match res {
             // If nothing matched the query, return an error. Either ID or state was wrong
-            0 => Err(StorageError::NotFound),
+            0 => Err(StorageError::NotFound(format!(
+                "state for intent {intent_id}"
+            ))),
             _ => Ok(()),
         }
     }
@@ -596,14 +604,14 @@ mod tests {
             assert!(commit_result.is_err());
             assert!(matches!(
                 commit_result.err().unwrap(),
-                StorageError::NotFound
+                StorageError::NotFound(_)
             ));
 
             let to_publish_result = conn.set_group_intent_to_publish(intent.id);
             assert!(to_publish_result.is_err());
             assert!(matches!(
                 to_publish_result.err().unwrap(),
-                StorageError::NotFound
+                StorageError::NotFound(_)
             ));
         })
     }

@@ -9,7 +9,7 @@ use diesel::{
     sql_types::Integer,
     sqlite::Sqlite,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{
     db_connection::DbConnection,
@@ -20,7 +20,7 @@ use crate::{impl_fetch, impl_store, StorageError};
 /// The Group ID type.
 pub type ID = Vec<u8>;
 
-#[derive(Debug, Clone, Serialize, PartialEq, Insertable, Identifiable, Queryable)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Insertable, Identifiable, Queryable)]
 #[diesel(table_name = groups)]
 #[diesel(primary_key(id))]
 /// A Unique group chat
@@ -154,7 +154,10 @@ impl DbConnection {
             Ok(ts)
         })?;
 
-        last_ts.ok_or(StorageError::NotFound)
+        last_ts.ok_or(StorageError::NotFound(format!(
+            "installation time for group {}",
+            hex::encode(group_id)
+        )))
     }
 
     /// Updates the 'last time checked' we checked for new installations.
@@ -188,7 +191,7 @@ impl DbConnection {
 }
 
 #[repr(i32)]
-#[derive(Debug, Copy, Clone, Serialize, Eq, PartialEq, AsExpression, FromSqlRow)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
 /// Status of membership in a group, once a user sends a request to join
 pub enum GroupMembershipState {
@@ -225,7 +228,7 @@ where
 }
 
 #[repr(i32)]
-#[derive(Debug, Copy, Clone, Serialize, Eq, PartialEq, AsExpression, FromSqlRow)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
 pub enum Purpose {
     Conversation = 1,

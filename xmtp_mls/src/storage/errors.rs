@@ -22,8 +22,8 @@ pub enum StorageError {
     Serialization(String),
     #[error("deserialization error")]
     Deserialization(String),
-    #[error("not found")]
-    NotFound,
+    #[error("{0} not found")]
+    NotFound(String),
     #[error("lock")]
     Lock(String),
     #[error("Pool needs to  reconnect before use")]

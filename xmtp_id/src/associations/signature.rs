@@ -224,13 +224,14 @@ impl Erc1271Signature {
 #[async_trait]
 impl Signature for Erc1271Signature {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
-        let verifier = crate::scw_verifier::ERC1271Verifier::new(self.chain_rpc_url.clone());
+        let verifier =
+            crate::scw_verifier::SmartContractWalletVerifier::new(self.chain_rpc_url.clone());
         let is_valid = verifier
-            .is_valid_signature(
+            .erc1271_is_valid_signature(
                 self.account_id.get_account_address().parse()?,
-                Some(BlockNumber::Number(U64::from(self.block_number))),
                 hash_message(self.signature_text.clone()).into(), // the hash function should match the one used by the user wallet
                 self.bytes().into(),
+                Some(BlockNumber::Number(U64::from(self.block_number))),
             )
             .await?;
         if is_valid {

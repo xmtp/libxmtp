@@ -314,7 +314,10 @@ where
                 group.id,
                 group.created_at_ns,
             )),
-            None => Err(ClientError::Storage(StorageError::NotFound)),
+            None => Err(ClientError::Storage(StorageError::NotFound(format!(
+                "group {}",
+                hex::encode(group_id)
+            )))),
         }
     }
 
