@@ -10,26 +10,28 @@ use std::sync::{
 };
 use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_id::associations::builder::SignatureRequest;
-use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
-use xmtp_id::associations::Erc1271Signature;
-use xmtp_id::associations::RecoverableEcdsaSignature;
-use xmtp_id::InboxId;
-use xmtp_mls::api::ApiClientWrapper;
-use xmtp_mls::groups::group_metadata::ConversationType;
-use xmtp_mls::groups::group_metadata::GroupMetadata;
-use xmtp_mls::groups::group_permissions::GroupMutablePermissions;
-use xmtp_mls::groups::PreconfiguredPolicies;
-use xmtp_mls::groups::UpdateAdminListType;
-use xmtp_mls::identity::IdentityStrategy;
-use xmtp_mls::retry::Retry;
+use xmtp_id::{
+    associations::{
+        builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id,
+        RecoverableEcdsaSignature, SmartContractWalletSignature,
+    },
+    InboxId,
+};
 use xmtp_mls::{
+    api::ApiClientWrapper,
     builder::ClientBuilder,
     client::Client as MlsClient,
-    groups::{members::PermissionLevel, MlsGroup},
+    groups::{
+        group_metadata::{ConversationType, GroupMetadata},
+        group_permissions::GroupMutablePermissions,
+        members::PermissionLevel,
+        MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
+    },
+    identity::IdentityStrategy,
+    retry::Retry,
     storage::{
-        group_message::DeliveryStatus, group_message::GroupMessageKind,
-        group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
+        group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+        EncryptedMessageStore, EncryptionKey, StorageOption,
     },
 };
 
@@ -176,7 +178,7 @@ impl FfiSignatureRequest {
         chain_rpc_url: String,
     ) -> Result<(), GenericError> {
         let mut inner = self.inner.lock().await;
-        let erc1271_signature = Erc1271Signature::new_with_rpc(
+        let erc1271_signature = SmartContractWalletSignature::new_with_rpc(
             inner.signature_text(),
             signature_bytes,
             address,

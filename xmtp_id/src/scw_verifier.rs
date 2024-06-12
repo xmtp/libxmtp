@@ -22,7 +22,6 @@ pub enum VerifierError {
     Provider(#[from] ethers::providers::ProviderError),
 }
 
-const EIP1271_MAGIC_VALUE: [u8; 4] = [0x16, 0x26, 0xba, 0x7e];
 // https://github.com/AmbireTech/signature-validator/blob/7706bda/index.ts#L13
 // Contract from AmbireTech that is also used by Viem.
 // Note that this is not a complete ERC-6492 implementation as it lacks Prepare/Side-effect logic compared to official reference implementation, so it might evolve in the future.
@@ -48,31 +47,6 @@ impl SmartContractWalletVerifier {
         Self { provider }
     }
 
-    /// Verifies an ERC-1271<https://eips.ethereum.org/EIPS/eip-1271> signature.
-    ///
-    /// # Arguments
-    ///
-    /// * `contract_address` - Address of the ERC1271 wallet.
-    /// * `block_number` - Block number to verify the signature at.
-    /// * `hash`, `signature` - Inputs to ERC-1271, used for signer verification.
-    pub async fn erc1271_is_valid_signature(
-        &self,
-        contract_address: Address,
-        hash: [u8; 32],
-        signature: Bytes,
-        block_number: Option<BlockNumber>,
-    ) -> Result<bool, VerifierError> {
-        let erc1271 = ERC1271::new(contract_address, self.provider.clone());
-
-        let res: [u8; 4] = erc1271
-            .is_valid_signature(hash, signature)
-            .block(block_number.unwrap_or_default())
-            .call()
-            .await?;
-
-        Ok(res == EIP1271_MAGIC_VALUE)
-    }
-
     /// Verifies an ERC-6492<https://eips.ethereum.org/EIPS/eip-6492> signature.
     ///
     /// # Arguments
@@ -81,7 +55,7 @@ impl SmartContractWalletVerifier {
     /// * `signer` - can be the smart wallet address or EOA address.
     /// * `hash` - Message digest for the signature.
     /// * `signature` - Could be encoded smart wallet signature or raw ECDSA signature.
-    pub async fn erc6492_is_valid_signature(
+    pub async fn is_valid_signature(
         &self,
         signer: Address,
         hash: [u8; 32],
@@ -245,10 +219,10 @@ pub mod tests {
                 // verify owner0 is a valid owner
                 let sig0 = owner0.sign_hash(replay_safe_hash.into()).unwrap();
                 let res = verifier
-                    .erc1271_is_valid_signature(
+                    .is_valid_signature(
                         smart_wallet_address,
                         hash,
-                        abi::encode(&[Token::Tuple(vec![
+                        &abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(0)),
                             Token::Bytes(sig0.to_vec()),
                         ])])
@@ -261,10 +235,10 @@ pub mod tests {
                 // verify owner1 is a valid owner
                 let sig1 = owner1.sign_hash(replay_safe_hash.into()).unwrap();
                 let res = verifier
-                    .erc1271_is_valid_signature(
+                    .is_valid_signature(
                         smart_wallet_address,
                         hash,
-                        abi::encode(&[Token::Tuple(vec![
+                        &abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(1)),
                             Token::Bytes(sig1.to_vec()),
                         ])])
@@ -276,10 +250,10 @@ pub mod tests {
                 assert!(res);
                 // owner0 siganture must not be used to verify owner1
                 let res = verifier
-                    .erc1271_is_valid_signature(
+                    .is_valid_signature(
                         smart_wallet_address,
                         hash,
-                        abi::encode(&[Token::Tuple(vec![
+                        &abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(1)),
                             Token::Bytes(sig0.to_vec()),
                         ])])
@@ -300,10 +274,10 @@ pub mod tests {
                 let _ = pending_tx.await.unwrap();
 
                 let res = verifier
-                    .erc1271_is_valid_signature(
+                    .is_valid_signature(
                         smart_wallet_address,
                         hash,
-                        abi::encode(&[Token::Tuple(vec![
+                        &abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(1)),
                             Token::Bytes(sig1.to_vec()),
                         ])])
@@ -315,10 +289,10 @@ pub mod tests {
 
                 // time travel to the pre-removel block number and verify owner1 WAS a valid owner
                 let res = verifier
-                    .erc1271_is_valid_signature(
+                    .is_valid_signature(
                         smart_wallet_address,
                         hash,
-                        abi::encode(&[Token::Tuple(vec![
+                        &abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(1)),
                             Token::Bytes(sig1.to_vec()),
                         ])])
@@ -335,7 +309,7 @@ pub mod tests {
 
     // Testing ERC-6492 with deployed / undeployed coinbase smart wallet(ERC-1271) contracts, and EOA.
     #[tokio::test]
-    async fn test_erc6492_coinbase_smart_wallet() {
+    async fn test_is_valid_signature() {
         with_smart_contracts(|anvil, _provider, client, smart_contracts| async move {
             // Create owner EOA wallet and then create smart contract wallet account from the factory.
             let owner: LocalWallet = anvil.keys()[0].clone().into();
@@ -372,20 +346,14 @@ pub mod tests {
 
             let verifier = SmartContractWalletVerifier::new(anvil.endpoint());
 
-            // As a precheck, it ensures that the signature is valid on ERC-1271
-            assert!(verifier
-                .erc1271_is_valid_signature(smart_wallet_address, hash, signature.clone(), None,)
-                .await
-                .unwrap());
-
             // Testing ERC-6492 signatures with deployed ERC-1271.
             assert!(verifier
-                .erc6492_is_valid_signature(smart_wallet_address, hash, &signature, None,)
+                .is_valid_signature(smart_wallet_address, hash, &signature, None,)
                 .await
                 .unwrap());
 
             assert!(!verifier
-                .erc6492_is_valid_signature(
+                .is_valid_signature(
                     smart_wallet_address,
                     H256::random().into(),
                     &signature,
@@ -394,24 +362,15 @@ pub mod tests {
                 .await
                 .unwrap());
 
-            // TODO: Testing ERC-6492 signatures with undeployed ERC-1271.
-
             // Testing if EOA wallet signature is valid on ERC-6492
             let signature = owner.sign_hash(hash.into()).unwrap();
-            assert!(
-                verifier
-                    .erc6492_is_valid_signature(
-                        owner.address(),
-                        hash,
-                        &signature.to_vec().into(),
-                        None,
-                    )
-                    .await
-                    .unwrap()
-            );
+            assert!(verifier
+                .is_valid_signature(owner.address(), hash, &signature.to_vec().into(), None,)
+                .await
+                .unwrap());
 
             assert!(!verifier
-                .erc6492_is_valid_signature(
+                .is_valid_signature(
                     owner.address(),
                     H256::random().into(),
                     &signature.to_vec().into(),
@@ -436,7 +395,7 @@ pub mod tests {
 
         let verifier = SmartContractWalletVerifier::new("https://polygon-rpc.com".to_string());
         assert!(verifier
-            .erc6492_is_valid_signature(signer, hash.into(), &signature, None)
+            .is_valid_signature(signer, hash.into(), &signature, None)
             .await
             .unwrap());
     }

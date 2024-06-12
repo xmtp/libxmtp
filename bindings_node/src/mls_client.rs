@@ -8,7 +8,7 @@ use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 use xmtp_id::associations::{
-  AccountId, Erc1271Signature, MemberIdentifier, RecoverableEcdsaSignature, Signature,
+  AccountId, MemberIdentifier, RecoverableEcdsaSignature, Signature, SmartContractWalletSignature,
 };
 use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::builder::ClientBuilder;
@@ -182,7 +182,7 @@ impl NapiClient {
 
     let account_id = AccountId::new(chain_id, account_address.clone());
 
-    let signature = Box::new(Erc1271Signature::new(
+    let signature = Box::new(SmartContractWalletSignature::new(
       signature_text,
       signature_bytes.deref().to_vec(),
       account_id,

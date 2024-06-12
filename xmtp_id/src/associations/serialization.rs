@@ -6,8 +6,8 @@ use super::{
     },
     member::Member,
     signature::{
-        AccountId, Erc1271Signature, InstallationKeySignature, LegacyDelegatedSignature,
-        RecoverableEcdsaSignature, ValidatedLegacySignedPublicKey,
+        AccountId, InstallationKeySignature, LegacyDelegatedSignature, RecoverableEcdsaSignature,
+        SmartContractWalletSignature, ValidatedLegacySignedPublicKey,
     },
     state::{AssociationState, AssociationStateDiff},
     unsigned_actions::{
@@ -230,13 +230,16 @@ fn from_signature_kind_proto(
             signature_text,
             erc191_signature.bytes,
         )),
-        SignatureKindProto::Erc1271(erc1271_signature) => Box::new(Erc1271Signature::new(
-            signature_text,
-            erc1271_signature.signature,
-            erc1271_signature.account_id.try_into()?,
-            "TODO: inject chain rpc url".to_string(),
-            erc1271_signature.block_number,
-        )),
+        SignatureKindProto::Erc1271(signature) => {
+            Box::new(SmartContractWalletSignature::new(
+                signature_text,
+                signature.signature,
+                signature.account_id.try_into()?,
+                // signature.chain_rpc_url,
+                "TODO: inject chain rpc url".to_string(),
+                signature.block_number,
+            ))
+        }
         SignatureKindProto::DelegatedErc191(delegated_erc191_signature) => {
             let signature_value = delegated_erc191_signature
                 .signature

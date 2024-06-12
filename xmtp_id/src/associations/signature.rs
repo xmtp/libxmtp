@@ -172,7 +172,7 @@ impl AccountId {
 }
 
 #[derive(Debug, Clone)]
-pub struct Erc1271Signature {
+pub struct SmartContractWalletSignature {
     signature_text: String,
     signature_bytes: Vec<u8>,
     account_id: AccountId,
@@ -180,9 +180,9 @@ pub struct Erc1271Signature {
     chain_rpc_url: String,
 }
 
-unsafe impl Send for Erc1271Signature {}
+unsafe impl Send for SmartContractWalletSignature {}
 
-impl Erc1271Signature {
+impl SmartContractWalletSignature {
     pub fn new(
         signature_text: String,
         signature_bytes: Vec<u8>,
@@ -190,7 +190,7 @@ impl Erc1271Signature {
         chain_rpc_url: String,
         block_number: u64,
     ) -> Self {
-        Erc1271Signature {
+        SmartContractWalletSignature {
             signature_text,
             signature_bytes,
             account_id,
@@ -211,7 +211,7 @@ impl Erc1271Signature {
         let block_number = provider.get_block_number().await?;
         let chain_id = provider.get_chainid().await?;
         let account_id = AccountId::new(chain_id.to_string(), account_address);
-        Ok(Erc1271Signature::new(
+        Ok(SmartContractWalletSignature::new(
             signature_text,
             signature_bytes,
             account_id,
@@ -222,15 +222,15 @@ impl Erc1271Signature {
 }
 
 #[async_trait]
-impl Signature for Erc1271Signature {
+impl Signature for SmartContractWalletSignature {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         let verifier =
             crate::scw_verifier::SmartContractWalletVerifier::new(self.chain_rpc_url.clone());
         let is_valid = verifier
-            .erc1271_is_valid_signature(
+            .is_valid_signature(
                 self.account_id.get_account_address().parse()?,
                 hash_message(self.signature_text.clone()).into(), // the hash function should match the one used by the user wallet
-                self.bytes().into(),
+                &self.bytes().into(),
                 Some(BlockNumber::Number(U64::from(self.block_number))),
             )
             .await?;
