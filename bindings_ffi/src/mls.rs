@@ -287,7 +287,7 @@ pub struct FfiConversations {
     inner_client: Arc<RustXmtpClient>,
 }
 
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Enum, Debug)]
 pub enum GroupPermissions {
     AllMembers,
     AdminOnly,
@@ -307,14 +307,14 @@ impl FfiConversations {
     pub async fn create_group(
         &self,
         account_addresses: Vec<String>,
-        permissions: Option<GroupPermissions>,
+        opts: FfiCreateGroupOptions,
     ) -> Result<Arc<FfiGroup>, GenericError> {
         log::info!(
             "creating group with account addresses: {}",
             account_addresses.join(", ")
         );
 
-        let group_permissions = match permissions {
+        let group_permissions = match opts.permissions {
             Some(GroupPermissions::AllMembers) => {
                 Some(xmtp_mls::groups::PreconfiguredPolicies::AllMembers)
             }
@@ -330,6 +330,15 @@ impl FfiConversations {
                 .add_members(&self.inner_client, account_addresses)
                 .await?;
         }
+
+        if let Some(ref name) = opts.group_name {
+            if !name.is_empty() {
+                convo
+                    .update_group_name(&self.inner_client, name.to_string())
+                    .await?;
+            }
+        }
+
         let out = Arc::new(FfiGroup {
             inner_client: self.inner_client.clone(),
             group_id: convo.group_id,
@@ -454,6 +463,12 @@ pub struct FfiListMessagesOptions {
     pub sent_after_ns: Option<i64>,
     pub limit: Option<i64>,
     pub delivery_status: Option<FfiDeliveryStatus>,
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiCreateGroupOptions {
+    pub permissions: Option<GroupPermissions>,
+    pub group_name: Option<String>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -947,7 +962,7 @@ impl FfiGroupPermissions {
 mod tests {
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
-        FfiConversationCallback, FfiInboxOwner,
+        FfiConversationCallback, FfiCreateGroupOptions, FfiInboxOwner, GroupPermissions,
     };
     use std::{
         env,
@@ -1233,12 +1248,40 @@ mod tests {
 
         let group = amal
             .conversations()
-            .create_group(vec![bola.account_address.clone()], None)
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions {
+                    permissions: None,
+                    group_name: None,
+                },
+            )
             .await
             .unwrap();
 
         let members = group.list_members().unwrap();
         assert_eq!(members.len(), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_create_group_with_metadata() {
+        let amal = new_test_client().await;
+        let bola = new_test_client().await;
+
+        let group = amal
+            .conversations()
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions {
+                    permissions: Some(GroupPermissions::AdminOnly),
+                    group_name: Some("Group Name".to_string()),
+                },
+            )
+            .await
+            .unwrap();
+
+        let members = group.list_members().unwrap();
+        assert_eq!(members.len(), 2);
+        assert_eq!(group.group_name().unwrap(), "Group Name");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1348,7 +1391,13 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         amal.conversations()
-            .create_group(vec![bola.account_address.clone()], None)
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions {
+                    permissions: None,
+                    group_name: None,
+                },
+            )
             .await
             .unwrap();
 
@@ -1357,7 +1406,13 @@ mod tests {
         assert_eq!(stream_callback.message_count(), 1);
         // Create another group and add bola
         amal.conversations()
-            .create_group(vec![bola.account_address.clone()], None)
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions {
+                    permissions: None,
+                    group_name: None,
+                },
+            )
             .await
             .unwrap();
 
@@ -1377,7 +1432,13 @@ mod tests {
 
         let alix_group = alix
             .conversations()
-            .create_group(vec![caro.account_address.clone()], None)
+            .create_group(
+                vec![caro.account_address.clone()],
+                FfiCreateGroupOptions {
+                    permissions: None,
+                    group_name: None,
+                },
+            )
             .await
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -1395,7 +1456,13 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let bo_group = bo
             .conversations()
-            .create_group(vec![caro.account_address.clone()], None)
+            .create_group(
+                vec![caro.account_address.clone()],
+                FfiCreateGroupOptions {
+                    permissions: None,
+                    group_name: None,
+                },
+            )
             .await
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
@@ -1419,7 +1486,13 @@ mod tests {
 
         let group = amal
             .conversations()
-            .create_group(vec![bola.account_address.clone()], None)
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions {
+                    permissions: None,
+                    group_name: None,
+                },
+            )
             .await
             .unwrap();
 
@@ -1454,7 +1527,13 @@ mod tests {
 
         let amal_group = amal
             .conversations()
-            .create_group(vec![bola.account_address.clone()], None)
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions {
+                    permissions: None,
+                    group_name: None,
+                },
+            )
             .await
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -1513,7 +1592,13 @@ mod tests {
 
         // Amal creates a group and adds Bola to the group
         amal.conversations()
-            .create_group(vec![bola.account_address.clone()], None)
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions {
+                    permissions: None,
+                    group_name: None,
+                },
+            )
             .await
             .unwrap();
 
