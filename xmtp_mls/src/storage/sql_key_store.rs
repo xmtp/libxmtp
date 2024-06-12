@@ -534,7 +534,14 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
             public_key,
         )?;
 
-        self.read(SIGNATURE_KEY_PAIR_LABEL, &key)
+        match self.read::<CURRENT_VERSION>(SIGNATURE_KEY_PAIR_LABEL, &key) {
+            Ok(Some(value)) => Ok(Some(serde_json::from_slice(&value)?)),
+            Ok(None) => Ok(None),
+            Err(e) => {
+                error!("Error reading signature_key_pair: {:?}", e);
+                Err(MemoryStorageError::None)
+            }
+        }
     }
 
     fn write_key_package<
