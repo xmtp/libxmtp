@@ -512,7 +512,14 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
     ) -> Result<Option<ConfirmationTag>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(CONFIRMATION_TAG_LABEL, group_id)?;
 
-        self.read(CONFIRMATION_TAG_LABEL, &key)
+        match self.read::<CURRENT_VERSION>(CONFIRMATION_TAG_LABEL, &key) {
+            Ok(Some(value)) => Ok(Some(serde_json::from_slice(&value)?)),
+            Ok(None) => Ok(None),
+            Err(e) => {
+                error!("Error reading confirmation_tag: {:?}", e);
+                Err(MemoryStorageError::None)
+            }
+        }
     }
 
     fn signature_key_pair<
