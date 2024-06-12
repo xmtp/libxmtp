@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 pub mod inbox_owner;
 pub mod logger;
 pub mod mls;
