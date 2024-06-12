@@ -43,3 +43,4 @@ pub const GROUP_PERMISSIONS_EXTENSION_ID: u16 = 0xff02;
 
 pub const DEFAULT_GROUP_NAME: &str = "";
 pub const DEFAULT_GROUP_DESCRIPTION: &str = "";
+pub const DEFAULT_GROUP_IMAGE_URL: &str = "";

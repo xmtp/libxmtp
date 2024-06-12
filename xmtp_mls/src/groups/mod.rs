@@ -607,6 +607,41 @@ impl MlsGroup {
         }
     }
 
+    pub async fn update_group_image_url<ApiClient>(
+        &self,
+        client: &Client<ApiClient>,
+        group_image_url: String,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let conn = self.context.store.conn()?;
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_update_group_image_url(group_image_url).into();
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::MetadataUpdate,
+            self.group_id.clone(),
+            intent_data,
+        ))?;
+
+        self.sync_until_intent_resolved(conn, intent.id, client)
+            .await
+    }
+
+    pub fn group_image_url(&self) -> Result<String, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        match mutable_metadata
+            .attributes
+            .get(&MetadataField::GroupImageUrl.to_string())
+        {
+            Some(group_image_url) => Ok(group_image_url.clone()),
+            None => Err(GroupError::GroupMutableMetadata(
+                GroupMutableMetadataError::MissingExtension,
+            )),
+        }
+    }
+
+
     pub fn admin_list(&self) -> Result<Vec<String>, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
         Ok(mutable_metadata.admin_list)

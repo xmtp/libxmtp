@@ -12,7 +12,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use crate::configuration::{
-    DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_NAME, MUTABLE_METADATA_EXTENSION_ID,
+    DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL, DEFAULT_GROUP_NAME, MUTABLE_METADATA_EXTENSION_ID,
 };
 
 #[derive(Debug, Error)]
@@ -38,6 +38,7 @@ pub enum GroupMutableMetadataError {
 pub enum MetadataField {
     GroupName,
     Description,
+    GroupImageUrl,
 }
 
 impl MetadataField {
@@ -45,6 +46,7 @@ impl MetadataField {
         match self {
             MetadataField::GroupName => "group_name",
             MetadataField::Description => "description",
+            MetadataField::GroupImageUrl => "group_image_url",
         }
     }
 }
@@ -86,6 +88,10 @@ impl GroupMutableMetadata {
             MetadataField::Description.to_string(),
             DEFAULT_GROUP_DESCRIPTION.to_string(),
         );
+        attributes.insert(
+            MetadataField::GroupImageUrl.to_string(),
+            DEFAULT_GROUP_IMAGE_URL.to_string(),
+        );
         let admin_list = vec![creator_inbox_id.clone()];
         let super_admin_list = vec![creator_inbox_id.clone()];
         Self {
@@ -97,7 +103,7 @@ impl GroupMutableMetadata {
 
     // These fields will receive default permission policies for new groups
     pub fn supported_fields() -> Vec<MetadataField> {
-        vec![MetadataField::GroupName, MetadataField::Description]
+        vec![MetadataField::GroupName, MetadataField::Description, MetadataField::GroupImageUrl]
     }
 
     pub fn is_admin(&self, inbox_id: &String) -> bool {
