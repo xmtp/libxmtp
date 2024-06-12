@@ -1011,7 +1011,14 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<MlsGroupJoinConfig>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(JOIN_CONFIG_LABEL, group_id)?;
-        self.read(JOIN_CONFIG_LABEL, &key)
+        match self.read::<CURRENT_VERSION>(JOIN_CONFIG_LABEL, &key) {
+            Ok(Some(value)) => Ok(Some(serde_json::from_slice(&value)?)),
+            Ok(None) => Ok(None),
+            Err(e) => {
+                error!("Error reading mls_group_join_config: {:?}", e);
+                Err(MemoryStorageError::None)
+            }
+        }
     }
 
     fn write_mls_join_config<
