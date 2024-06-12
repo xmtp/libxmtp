@@ -256,7 +256,7 @@ impl MlsGroup {
         let protected_metadata =
             build_protected_metadata_extension(&context.identity, Purpose::Conversation)?;
         let mutable_metadata = if !opts.is_empty() {
-            //TODO
+            build_mutable_metadata_extension_with_options(&context.identity, opts)?
         } else {
             build_mutable_metadata_extension_default(&context.identity)?
         };
@@ -768,6 +768,20 @@ fn build_mutable_permissions_extension(policies: PolicySet) -> Result<Extension,
 
 pub fn build_mutable_metadata_extension_default(
     identity: &Identity,
+) -> Result<Extension, GroupError> {
+    let mutable_metadata: Vec<u8> =
+        GroupMutableMetadata::new_default(identity.inbox_id.clone()).try_into()?;
+    let unknown_gc_extension = UnknownExtension(mutable_metadata);
+
+    Ok(Extension::Unknown(
+        MUTABLE_METADATA_EXTENSION_ID,
+        unknown_gc_extension,
+    ))
+}
+
+pub fn build_mutable_metadata_extension_with_options(
+    identity: &Identity,
+    opts: GroupMetadataOptions
 ) -> Result<Extension, GroupError> {
     let mutable_metadata: Vec<u8> =
         GroupMutableMetadata::new_default(identity.inbox_id.clone()).try_into()?;

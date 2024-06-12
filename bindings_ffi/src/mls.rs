@@ -19,6 +19,7 @@ use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::group_permissions::GroupMutablePermissions;
+use xmtp_mls::groups::GroupMetadataOptions;
 use xmtp_mls::groups::PreconfiguredPolicies;
 use xmtp_mls::groups::UpdateAdminListType;
 use xmtp_mls::identity::IdentityStrategy;
@@ -324,7 +325,7 @@ impl FfiConversations {
             _ => None,
         };
 
-        let convo = self.inner_client.create_group(group_permissions, opts.group_name)?;
+        let convo = self.inner_client.create_group(group_permissions, opts.into_group_metadata_options())?;
         if !account_addresses.is_empty() {
             convo
                 .add_members(&self.inner_client, account_addresses)
@@ -461,6 +462,14 @@ pub struct FfiListMessagesOptions {
 pub struct FfiCreateGroupOptions {
     pub permissions: Option<GroupPermissions>,
     pub group_name: Option<String>,
+}
+
+impl FfiCreateGroupOptions {
+    pub fn into_group_metadata_options(self) -> GroupMetadataOptions {
+        GroupMetadataOptions {
+            name: self.group_name,
+        }
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
