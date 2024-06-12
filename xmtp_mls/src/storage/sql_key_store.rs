@@ -5,10 +5,10 @@ use diesel::{
     {sql_query, RunQueryDsl},
 };
 use log::error;
+// use openmls::prelude::tls_codec::Serialize;
 use openmls_traits::storage::*;
-use openmls::prelude::tls_codec::{Serialize, Deserialize};
-// use serde::Serialize;
-// use serde_json::{from_slice, from_value, Value};
+use serde::Serialize;
+use serde_json::{from_slice, from_value, Value};
 
 const SELECT_QUERY: &str =
     "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
@@ -193,11 +193,12 @@ impl SqlKeyStore {
         }
     }
 
-    pub fn read<const VERSION: u16, V: Entity<VERSION>>(
+    pub fn read<const VERSION: u16>(
         &self,
         label: &[u8],
         key: &[u8],
-    ) -> Result<Option<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
+        // ) -> Result<Option<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
+    ) -> Result<Option<Vec<u8>>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         log::debug!("read {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
@@ -209,7 +210,8 @@ impl SqlKeyStore {
             Ok(data) => {
                 if let Some(entry) = data.into_iter().next() {
                     // TODO: replace with a custom/derived deserialization method
-                    match serde_json::from_slice::<V>(&entry.value_bytes) {
+                    // match serde_json::from_slice::<V>(&entry.value_bytes) {
+                    match serde_json::from_slice::<Vec<u8>>(&entry.value_bytes) {
                         Ok(deserialized) => Ok(Some(deserialized)),
                         Err(e) => {
                             eprintln!("Error occurred: {}", e);
@@ -242,7 +244,7 @@ impl SqlKeyStore {
                     // Read the values from the bytes in the list
                     let mut deserialized_list = Vec::new();
                     for v in list {
-                    // TODO: replace with a custom/derived deserialization method
+                        // TODO: replace with a custom/derived deserialization method
                         match serde_json::from_slice(&v) {
                             Ok(deserialized_value) => deserialized_list.push(deserialized_value),
                             Err(_) => return Err(MemoryStorageError::SerializationError),
@@ -762,7 +764,14 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<bool>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(USE_RATCHET_TREE_LABEL, group_id)?;
-        self.read(USE_RATCHET_TREE_LABEL, &key)
+        match self.read::<CURRENT_VERSION>(USE_RATCHET_TREE_LABEL, &key) {
+            Ok(Some(value)) => Ok(Some(serde_json::from_slice(&value)?)),
+            Ok(None) => Ok(None),
+            Err(e) => {
+                error!("Error reading use_ratchet_tree_extension: {:?}", e);
+                Err(MemoryStorageError::None)
+            }
+        }
     }
 
     fn set_use_ratchet_tree_extension<GroupId: traits::GroupId<CURRENT_VERSION>>(
@@ -978,7 +987,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Vec<u8>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(AAD_LABEL, group_id)?;
-        match self.read::<CURRENT_VERSION, Vec<u8>>(AAD_LABEL, &key) {
+        match self.read::<CURRENT_VERSION>(AAD_LABEL, &key) {
             Ok(Some(value)) => Ok(value),
             Ok(None) => Ok(Vec::new()),
             Err(e) => Err(e),
@@ -1079,12 +1088,13 @@ fn build_key_from_vec<const V: u16>(label: &[u8], key: Vec<u8>) -> Vec<u8> {
     key_out
 }
 
-/// Build a key with version and label.
+/// Build a key with version and label, using a custom tls serializer.
 fn build_key<const V: u16, K: Serialize>(
     label: &[u8],
     key: K,
 ) -> Result<Vec<u8>, MemoryStorageError> {
     let key_vec = serde_json::to_vec(&key)?;
+    // let key_vec = our_tls_serializer::to_vec(&key)?;
     Ok(build_key_from_vec::<V>(label, key_vec))
 }
 
