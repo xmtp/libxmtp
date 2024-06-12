@@ -493,7 +493,14 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
     ) -> Result<Option<InterimTranscriptHash>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(INTERIM_TRANSCRIPT_HASH_LABEL, group_id)?;
 
-        self.read(INTERIM_TRANSCRIPT_HASH_LABEL, &key)
+        match self.read::<CURRENT_VERSION>(INTERIM_TRANSCRIPT_HASH_LABEL, &key) {
+            Ok(Some(value)) => Ok(Some(serde_json::from_slice(&value)?)),
+            Ok(None) => Ok(None),
+            Err(e) => {
+                error!("Error reading interim_transcript_hash: {:?}", e);
+                Err(MemoryStorageError::None)
+            }
+        }
     }
 
     fn confirmation_tag<
