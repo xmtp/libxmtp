@@ -443,8 +443,11 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         refs.into_iter()
             .map(|proposal_ref| -> Result<_, _> {
                 let key = serde_json::to_vec(&(group_id, &proposal_ref))?;
-                match self.read(QUEUED_PROPOSAL_LABEL, &key)? {
-                    Some(proposal) => Ok((proposal_ref, proposal)),
+                match self.read::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key)? {
+                    Some(proposal) => {
+                        let proposal = serde_json::from_slice(&proposal)?;
+                        Ok((proposal_ref, proposal))
+                    }
                     None => Err(MemoryStorageError::SerializationError),
                 }
             })
