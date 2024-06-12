@@ -16,7 +16,7 @@ const NANOSECONDS_IN_HOUR: i64 = 3_600_000_000_000;
 
 pub const UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NANOSECONDS_IN_HOUR / 2; // 30 min
 
-pub const MAX_GROUP_SIZE: u8 = 400;
+pub const MAX_GROUP_SIZE: u16 = 400;
 
 pub const DELIMITER: char = '\x01';
 
