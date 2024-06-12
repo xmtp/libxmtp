@@ -460,7 +460,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
     ) -> Result<Option<TreeSync>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(TREE_LABEL, group_id)?;
 
-        self.read(TREE_LABEL, &key)
+        self.read::<CURRENT_VERSION>(TREE_LABEL, &key)
     }
 
     fn group_context<
@@ -586,7 +586,14 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
     ) -> Result<Option<HpkeKeyPair>, Self::Error> {
         let key =
             build_key::<CURRENT_VERSION, &EncryptionKey>(ENCRYPTION_KEY_PAIR_LABEL, public_key)?;
-        self.read(ENCRYPTION_KEY_PAIR_LABEL, &key)
+        match self.read::<CURRENT_VERSION>(ENCRYPTION_KEY_PAIR_LABEL, &key) {
+            Ok(Some(value)) => Ok(Some(serde_json::from_slice(&value)?)),
+            Ok(None) => Ok(None),
+            Err(e) => {
+                error!("Error reading encryption_key_pair: {:?}", e);
+                Err(MemoryStorageError::None)
+            }
+        }
     }
 
     fn delete_signature_key_pair<
