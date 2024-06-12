@@ -78,6 +78,8 @@ pub enum CommitValidationError {
     InstallationDiff(#[from] InstallationDiffError),
     #[error("Failed to parse group mutable permissions: {0}")]
     GroupMutablePermissions(#[from] GroupMutablePermissionsError),
+    #[error("PSKs are not support")]
+    NoPSKSupport,
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -186,6 +188,7 @@ impl MetadataFieldChange {
  * present in the [`AssociationState`] for the `inbox_id` presented in the credential at the `to_sequence_id` found in the
  * new [`GroupMembership`].
  * 5. All proposals in a commit must come from the same installation
+ * 6. No PSK proposals will be allowed
  */
 #[derive(Debug, Clone)]
 pub struct ValidatedCommit {
@@ -225,6 +228,11 @@ impl ValidatedCommit {
             &immutable_metadata,
             &mutable_metadata,
         )?;
+
+        // Block any psk proposals
+        if staged_commit.psk_proposals().any(|_| true) {
+            return Err(CommitValidationError::NoPSKSupport);
+        }
 
         // Get the installations actually added and removed in the commit
         let ProposalChanges {
