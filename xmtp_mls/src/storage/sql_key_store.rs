@@ -797,7 +797,14 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<LeafNodeIndex>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(OWN_LEAF_NODE_INDEX_LABEL, group_id)?;
-        self.read(OWN_LEAF_NODE_INDEX_LABEL, &key)
+        match self.read::<CURRENT_VERSION>(OWN_LEAF_NODE_INDEX_LABEL, &key) {
+            Ok(Some(value)) => Ok(Some(serde_json::from_slice(&value)?)),
+            Ok(None) => Ok(None),
+            Err(e) => {
+                error!("Error reading own_leaf_index: {:?}", e);
+                Err(MemoryStorageError::None)
+            }
+        }
     }
 
     fn write_own_leaf_index<
