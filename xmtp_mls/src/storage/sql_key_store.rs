@@ -7,7 +7,7 @@ use diesel::{
 use log::error;
 use openmls_traits::storage::*;
 use serde::Serialize;
-use serde_json::{from_slice, from_value, Value};
+use tls_codec::tls_codec_serde;
 
 const SELECT_QUERY: &str =
     "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";

@@ -5,7 +5,8 @@ edition = "2021"
 rust-version = "1.64"
 
 [dependencies]
-curve25519-dalek = "4"
+zeroize = "1.8.1"
+curve25519-dalek = { version = "4", features = ["zeroize"] }
 ecdsa = "0.15.1"
 ethers = { workspace = true }
 ethers-core = { workspace = true }

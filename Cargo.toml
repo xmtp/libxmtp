@@ -36,10 +36,10 @@ futures = "0.3.30"
 futures-core = "0.3.30"
 hex = "0.4.3"
 log = "0.4"
-openmls = { git = "https://github.com/xmtp/openmls", rev = "99b2d5e7d0e034ac57644395e2194c5a102afb9a" }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "99b2d5e7d0e034ac57644395e2194c5a102afb9a" }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "99b2d5e7d0e034ac57644395e2194c5a102afb9a" }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "99b2d5e7d0e034ac57644395e2194c5a102afb9a" }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "7e4375dff" }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "7e4375dff" }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "7e4375dff" }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "7e4375dff" }
 prost = "^0.12"
 prost-types = "^0.12"
 rand = "0.8.5"
@@ -49,11 +49,11 @@ serde = "1.0"
 serde_json = "1.0"
 sha2 = "0.10.8"
 thiserror = "1.0"
-tls_codec = "0.4.0"
 tokio = { version = "1.35.1", features = ["macros"] }
 tonic = "^0.11"
 tracing = "0.1"
 url = "2.5.0"
+tls_codec = { version = "0.4.2-pre.1", git = "https://github.com/nplasterer/formats", rev = "f1764ef5bc3fd028d899c8fc98b068cb047b4e1d" }
 
 # Internal Crate Dependencies
 xmtp_cryptography = { path = "xmtp_cryptography" }

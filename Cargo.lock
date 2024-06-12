@@ -3048,7 +3048,7 @@ dependencies = [
 [[package]]
 name = "openmls"
 version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?rev=99b2d5e7d0e034ac57644395e2194c5a102afb9a#99b2d5e7d0e034ac57644395e2194c5a102afb9a"
+source = "git+https://github.com/xmtp/openmls?rev=7e4375dff#7e4375dffd4ba0161a83779ceb722b377ed94688"
 dependencies = [
  "backtrace",
  "itertools 0.10.5",
@@ -3070,7 +3070,7 @@ dependencies = [
 [[package]]
 name = "openmls_basic_credential"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=99b2d5e7d0e034ac57644395e2194c5a102afb9a#99b2d5e7d0e034ac57644395e2194c5a102afb9a"
+source = "git+https://github.com/xmtp/openmls?rev=7e4375dff#7e4375dffd4ba0161a83779ceb722b377ed94688"
 dependencies = [
  "ed25519-dalek",
  "openmls_traits",
@@ -3078,12 +3078,13 @@ dependencies = [
  "rand",
  "serde",
  "tls_codec 0.4.2-pre.1",
+ "zeroize",
 ]
 
 [[package]]
 name = "openmls_memory_storage"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=99b2d5e7d0e034ac57644395e2194c5a102afb9a#99b2d5e7d0e034ac57644395e2194c5a102afb9a"
+source = "git+https://github.com/xmtp/openmls?rev=7e4375dff#7e4375dffd4ba0161a83779ceb722b377ed94688"
 dependencies = [
  "hex",
  "log",
@@ -3096,7 +3097,7 @@ dependencies = [
 [[package]]
 name = "openmls_rust_crypto"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=99b2d5e7d0e034ac57644395e2194c5a102afb9a#99b2d5e7d0e034ac57644395e2194c5a102afb9a"
+source = "git+https://github.com/xmtp/openmls?rev=7e4375dff#7e4375dffd4ba0161a83779ceb722b377ed94688"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -3120,7 +3121,7 @@ dependencies = [
 [[package]]
 name = "openmls_test"
 version = "0.1.0"
-source = "git+https://github.com/xmtp/openmls?rev=99b2d5e7d0e034ac57644395e2194c5a102afb9a#99b2d5e7d0e034ac57644395e2194c5a102afb9a"
+source = "git+https://github.com/xmtp/openmls?rev=7e4375dff#7e4375dffd4ba0161a83779ceb722b377ed94688"
 dependencies = [
  "ansi_term",
  "openmls_rust_crypto",
@@ -3135,7 +3136,7 @@ dependencies = [
 [[package]]
 name = "openmls_traits"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=99b2d5e7d0e034ac57644395e2194c5a102afb9a#99b2d5e7d0e034ac57644395e2194c5a102afb9a"
+source = "git+https://github.com/xmtp/openmls?rev=7e4375dff#7e4375dffd4ba0161a83779ceb722b377ed94688"
 dependencies = [
  "serde",
  "tls_codec 0.4.2-pre.1",
@@ -5062,10 +5063,10 @@ dependencies = [
 [[package]]
 name = "tls_codec"
 version = "0.4.2-pre.1"
-source = "git+https://github.com/rustcrypto/formats#6c42217ec681a073bfbdfffd78588306f9063de2"
+source = "git+https://github.com/nplasterer/formats?rev=f1764ef5bc3fd028d899c8fc98b068cb047b4e1d#f1764ef5bc3fd028d899c8fc98b068cb047b4e1d"
 dependencies = [
  "serde",
- "tls_codec_derive 0.4.1 (git+https://github.com/rustcrypto/formats)",
+ "tls_codec_derive 0.4.1 (git+https://github.com/nplasterer/formats?rev=f1764ef5bc3fd028d899c8fc98b068cb047b4e1d)",
  "zeroize",
 ]
 
@@ -5083,7 +5084,7 @@ dependencies = [
 [[package]]
 name = "tls_codec_derive"
 version = "0.4.1"
-source = "git+https://github.com/rustcrypto/formats#6c42217ec681a073bfbdfffd78588306f9063de2"
+source = "git+https://github.com/nplasterer/formats?rev=f1764ef5bc3fd028d899c8fc98b068cb047b4e1d#f1764ef5bc3fd028d899c8fc98b068cb047b4e1d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6202,6 +6203,7 @@ dependencies = [
  "sha3",
  "thiserror",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]
@@ -6273,7 +6275,7 @@ dependencies = [
  "smart-default",
  "tempfile",
  "thiserror",
- "tls_codec 0.4.1",
+ "tls_codec 0.4.2-pre.1",
  "tokio",
  "toml 0.8.13",
  "tracing",
@@ -6341,9 +6343,9 @@ checksum = "09041cd90cf85f7f8b2df60c646f853b7f535ce68f85244eb6731cf89fa498ec"
 
 [[package]]
 name = "zeroize"
-version = "1.7.0"
+version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "525b4ec142c6b68a2d10f01f7bbf6755599ca3f81ea53b8431b7dd348f5fdb2d"
+checksum = "ced3678a2879b30306d323f4542626697a464a97c0a07c9aebf7ebca65cd4dde"
 dependencies = [
  "zeroize_derive",
 ]
