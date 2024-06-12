@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 /*
 XLI is a Commandline client using XMTPv3.
 */

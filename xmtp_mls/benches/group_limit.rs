@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! Benchmarks for group limit
 //! using `RUST_LOG=trace` will additionally output a `tracing.folded` file, which
 //! may be used to generate a flamegraph of execution from tracing logs.
