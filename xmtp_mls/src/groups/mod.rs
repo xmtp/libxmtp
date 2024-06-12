@@ -641,7 +641,6 @@ impl MlsGroup {
         }
     }
 
-
     pub fn admin_list(&self) -> Result<Vec<String>, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
         Ok(mutable_metadata.admin_list)
@@ -1678,6 +1677,38 @@ mod tests {
             .get(&MetadataField::GroupName.to_string())
             .unwrap();
         assert_eq!(bola_group_name, "New Group Name 1");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_update_group_image_url() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Create a group and verify it has the default group name
+        let policies = Some(PreconfiguredPolicies::AdminsOnly);
+        let amal_group: MlsGroup = amal.create_group(policies).unwrap();
+        amal_group.sync(&amal).await.unwrap();
+
+        let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+        assert!(group_mutable_metadata
+            .attributes
+            .get(&MetadataField::GroupImageUrl.to_string())
+            .unwrap()
+            .eq(""));
+
+        // Update group name
+        amal_group
+            .update_group_image_url(&amal, "a url".to_string())
+            .await
+            .unwrap();
+
+        // Verify amal group sees update
+        amal_group.sync(&amal).await.unwrap();
+        let binding = amal_group.mutable_metadata().expect("msg");
+        let amal_group_image_url: &String = binding
+            .attributes
+            .get(&MetadataField::GroupImageUrl.to_string())
+            .unwrap();
+        assert_eq!(amal_group_image_url, "a url");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

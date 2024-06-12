@@ -12,7 +12,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use crate::configuration::{
-    DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL, DEFAULT_GROUP_NAME, MUTABLE_METADATA_EXTENSION_ID,
+    DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL, DEFAULT_GROUP_NAME,
+    MUTABLE_METADATA_EXTENSION_ID,
 };
 
 #[derive(Debug, Error)]
@@ -103,7 +104,11 @@ impl GroupMutableMetadata {
 
     // These fields will receive default permission policies for new groups
     pub fn supported_fields() -> Vec<MetadataField> {
-        vec![MetadataField::GroupName, MetadataField::Description, MetadataField::GroupImageUrl]
+        vec![
+            MetadataField::GroupName,
+            MetadataField::Description,
+            MetadataField::GroupImageUrl,
+        ]
     }
 
     pub fn is_admin(&self, inbox_id: &String) -> bool {
