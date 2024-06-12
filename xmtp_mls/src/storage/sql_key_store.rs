@@ -757,7 +757,14 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         &self,
         group_id: &GroupId,
     ) -> Result<Option<ResumptionPskStore>, Self::Error> {
-        self.read(RESUMPTION_PSK_STORE_LABEL, &serde_json::to_vec(group_id)?)
+        match self.read::<CURRENT_VERSION>(RESUMPTION_PSK_STORE_LABEL, &serde_json::to_vec(group_id)?) {
+            Ok(Some(value)) => Ok(Some(serde_json::from_slice(&value)?)),
+            Ok(None) => Ok(None),
+            Err(e) => {
+                error!("Error reading resumption_psk_store: {:?}", e);
+                Err(MemoryStorageError::None)
+            }
+        }
     }
 
     fn write_resumption_psk_store<
