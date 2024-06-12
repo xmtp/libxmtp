@@ -324,19 +324,11 @@ impl FfiConversations {
             _ => None,
         };
 
-        let convo = self.inner_client.create_group(group_permissions)?;
+        let convo = self.inner_client.create_group(group_permissions, opts.group_name)?;
         if !account_addresses.is_empty() {
             convo
                 .add_members(&self.inner_client, account_addresses)
                 .await?;
-        }
-
-        if let Some(ref name) = opts.group_name {
-            if !name.is_empty() {
-                convo
-                    .update_group_name(&self.inner_client, name.to_string())
-                    .await?;
-            }
         }
 
         let out = Arc::new(FfiGroup {

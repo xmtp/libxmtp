@@ -32,8 +32,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 use crate::{
     api::ApiClientWrapper,
     groups::{
-        validated_commit::CommitValidationError, GroupError, IntentError, MlsGroup,
-        PreconfiguredPolicies,
+        validated_commit::CommitValidationError, GroupError, GroupMetadataOptions, IntentError, MlsGroup, PreconfiguredPolicies
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::IdentityUpdateError,
@@ -282,6 +281,7 @@ where
     pub fn create_group(
         &self,
         permissions: Option<PreconfiguredPolicies>,
+        opts: GroupMetadataOptions,
     ) -> Result<MlsGroup, ClientError> {
         log::info!("creating group");
 
@@ -289,6 +289,7 @@ where
             self.context.clone(),
             GroupMembershipState::Allowed,
             permissions,
+            opts,
         )
         .map_err(Box::new)?;
 

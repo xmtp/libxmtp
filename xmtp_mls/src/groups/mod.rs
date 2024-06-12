@@ -194,6 +194,17 @@ pub struct MlsGroup {
     context: Arc<XmtpMlsLocalContext>,
 }
 
+#[derive(Default)]
+pub struct GroupMetadataOptions {
+    pub name: Option<String>,
+}
+
+impl GroupMetadataOptions {
+    fn is_empty(&self) -> bool {
+        self.name.is_none()
+    }
+}
+
 impl Clone for MlsGroup {
     fn clone(&self) -> Self {
         Self {
@@ -238,12 +249,17 @@ impl MlsGroup {
         context: Arc<XmtpMlsLocalContext>,
         membership_state: GroupMembershipState,
         permissions: Option<PreconfiguredPolicies>,
+        opts: GroupMetadataOptions,
     ) -> Result<Self, GroupError> {
         let conn = context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata =
             build_protected_metadata_extension(&context.identity, Purpose::Conversation)?;
-        let mutable_metadata = build_mutable_metadata_extension_default(&context.identity)?;
+        let mutable_metadata = if !opts.is_empty() {
+            //TODO
+        } else {
+            build_mutable_metadata_extension_default(&context.identity)?
+        };
         let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
         let mutable_permissions =
             build_mutable_permissions_extension(permissions.unwrap_or_default().to_policy_set())?;
@@ -942,12 +958,7 @@ mod tests {
         builder::ClientBuilder,
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
-            build_group_membership_extension,
-            group_membership::GroupMembership,
-            group_metadata::{ConversationType, GroupMetadata},
-            group_mutable_metadata::MetadataField,
-            members::{GroupMember, PermissionLevel},
-            PreconfiguredPolicies, UpdateAdminListType,
+            build_group_membership_extension, group_membership::GroupMembership, group_metadata::{ConversationType, GroupMetadata}, group_mutable_metadata::MetadataField, members::{GroupMember, PermissionLevel}, GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType
         },
         storage::{
             group_intent::IntentState,
@@ -1033,7 +1044,7 @@ mod tests {
     async fn test_send_message() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        let group = client.create_group(None).expect("create group");
+        let group = client.create_group(None, GroupMetadataOptions::default()).expect("create group");
         group
             .send_message(b"hello", &client)
             .await
