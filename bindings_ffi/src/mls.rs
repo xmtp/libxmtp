@@ -455,7 +455,7 @@ pub enum FfiPermissionLevel {
     SuperAdmin,
 }
 
-#[derive(uniffi::Record, Default)]
+#[derive(uniffi::Record, Clone)]
 pub struct FfiListMessagesOptions {
     pub sent_before_ns: Option<i64>,
     pub sent_after_ns: Option<i64>,
@@ -877,7 +877,7 @@ impl From<GroupMessageKind> for FfiGroupMessageKind {
     }
 }
 
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Enum, Clone)]
 pub enum FfiDeliveryStatus {
     Unpublished,
     Published,
@@ -998,7 +998,9 @@ impl FfiGroupPermissions {
 #[cfg(test)]
 mod tests {
     use crate::{
-        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConversationCallback, FfiCreateGroupOptions, FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, GroupPermissions
+        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
+        FfiConversationCallback, FfiInboxOwner, FfiListConversationsOptions,
+        FfiListMessagesOptions, GroupPermissions,
     };
     use std::{
         env,
@@ -1072,6 +1074,7 @@ mod tests {
 
     impl FfiMessageCallback for RustStreamCallback {
         fn on_message(&self, message: FfiMessage) {
+            println!("Got a message");
             let message = String::from_utf8(message.content).unwrap_or("<not UTF8>".to_string());
             log::info!("Received: {}", message);
             let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
@@ -1080,6 +1083,7 @@ mod tests {
 
     impl FfiConversationCallback for RustStreamCallback {
         fn on_conversation(&self, _: Arc<super::FfiGroup>) {
+            println!("received new conversation");
             let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
         }
     }
@@ -1711,7 +1715,7 @@ mod tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 12)]
     async fn test_forked_group_state() {
         let bo = new_test_client().await;
         let alix = new_test_client().await;
@@ -1799,5 +1803,7 @@ mod tests {
             .find_messages(list_messages_options.clone())
             .unwrap();
         assert_eq!(alix_messages.len(), 7);
+
+        assert_eq!(bo_message_counter.message_count(), 7)
     }
 }
