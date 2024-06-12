@@ -465,7 +465,7 @@ pub struct FfiListMessagesOptions {
     pub delivery_status: Option<FfiDeliveryStatus>,
 }
 
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Default)]
 pub struct FfiCreateGroupOptions {
     pub permissions: Option<GroupPermissions>,
     pub group_name: Option<String>,
@@ -1250,10 +1250,7 @@ mod tests {
             .conversations()
             .create_group(
                 vec![bola.account_address.clone()],
-                FfiCreateGroupOptions {
-                    permissions: None,
-                    group_name: None,
-                },
+                FfiCreateGroupOptions::default(),
             )
             .await
             .unwrap();
@@ -1393,10 +1390,7 @@ mod tests {
         amal.conversations()
             .create_group(
                 vec![bola.account_address.clone()],
-                FfiCreateGroupOptions {
-                    permissions: None,
-                    group_name: None,
-                },
+                FfiCreateGroupOptions::default(),
             )
             .await
             .unwrap();
@@ -1408,10 +1402,7 @@ mod tests {
         amal.conversations()
             .create_group(
                 vec![bola.account_address.clone()],
-                FfiCreateGroupOptions {
-                    permissions: None,
-                    group_name: None,
-                },
+                FfiCreateGroupOptions::default(),
             )
             .await
             .unwrap();
@@ -1434,10 +1425,7 @@ mod tests {
             .conversations()
             .create_group(
                 vec![caro.account_address.clone()],
-                FfiCreateGroupOptions {
-                    permissions: None,
-                    group_name: None,
-                },
+                FfiCreateGroupOptions::default(),
             )
             .await
             .unwrap();
@@ -1458,10 +1446,7 @@ mod tests {
             .conversations()
             .create_group(
                 vec![caro.account_address.clone()],
-                FfiCreateGroupOptions {
-                    permissions: None,
-                    group_name: None,
-                },
+                FfiCreateGroupOptions::default(),
             )
             .await
             .unwrap();
@@ -1488,10 +1473,7 @@ mod tests {
             .conversations()
             .create_group(
                 vec![bola.account_address.clone()],
-                FfiCreateGroupOptions {
-                    permissions: None,
-                    group_name: None,
-                },
+                FfiCreateGroupOptions::default(),
             )
             .await
             .unwrap();
@@ -1529,10 +1511,7 @@ mod tests {
             .conversations()
             .create_group(
                 vec![bola.account_address.clone()],
-                FfiCreateGroupOptions {
-                    permissions: None,
-                    group_name: None,
-                },
+                FfiCreateGroupOptions::default(),
             )
             .await
             .unwrap();
@@ -1594,10 +1573,7 @@ mod tests {
         amal.conversations()
             .create_group(
                 vec![bola.account_address.clone()],
-                FfiCreateGroupOptions {
-                    permissions: None,
-                    group_name: None,
-                },
+                FfiCreateGroupOptions::default(),
             )
             .await
             .unwrap();
