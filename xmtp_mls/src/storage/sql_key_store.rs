@@ -462,7 +462,6 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<TreeSync>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(TREE_LABEL, group_id)?;
-
         self.read::<CURRENT_VERSION>(TREE_LABEL, &key)
     }
 
@@ -475,7 +474,14 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
     ) -> Result<Option<GroupContext>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(GROUP_CONTEXT_LABEL, group_id)?;
 
-        self.read(GROUP_CONTEXT_LABEL, &key)
+        match self.read::<CURRENT_VERSION>(GROUP_CONTEXT_LABEL, &key) {
+            Ok(Some(value)) => Ok(Some(serde_json::from_slice(&value)?)),
+            Ok(None) => Ok(None),
+            Err(e) => {
+                error!("Error reading group_context: {:?}", e);
+                Err(MemoryStorageError::None)
+            }
+        }
     }
 
     fn interim_transcript_hash<
