@@ -1,5 +1,9 @@
 # @xmtp/mls-client-bindings-node
 
+## 0.0.4
+
+- Added `stream_all_messages`
+
 ## 0.0.3
 
 - Fixed default export value
