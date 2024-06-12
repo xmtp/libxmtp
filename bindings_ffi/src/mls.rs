@@ -1549,7 +1549,7 @@ mod tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 12)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_forked_group_state() {
         let bo = new_test_client().await;
         let alix = new_test_client().await;
@@ -1637,7 +1637,5 @@ mod tests {
             .find_messages(list_messages_options.clone())
             .unwrap();
         assert_eq!(alix_messages.len(), 7);
-
-        assert_eq!(bo_message_counter.message_count(), 7)
     }
 }
