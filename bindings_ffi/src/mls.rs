@@ -171,21 +171,22 @@ impl FfiSignatureRequest {
         Ok(())
     }
 
-    pub async fn add_erc1271_signature(
+    // Signature that's signed by smart contract wallet
+    pub async fn add_scw_signature(
         &self,
         signature_bytes: Vec<u8>,
         address: String,
         chain_rpc_url: String,
     ) -> Result<(), GenericError> {
         let mut inner = self.inner.lock().await;
-        let erc1271_signature = SmartContractWalletSignature::new_with_rpc(
+        let signature = SmartContractWalletSignature::new_with_rpc(
             inner.signature_text(),
             signature_bytes,
             address,
             chain_rpc_url,
         )
         .await?;
-        inner.add_signature(Box::new(erc1271_signature)).await?;
+        inner.add_signature(Box::new(signature)).await?;
         Ok(())
     }
 

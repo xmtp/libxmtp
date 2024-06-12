@@ -16,11 +16,12 @@ use thiserror::Error;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature};
 use xmtp_proto::xmtp::{
     identity::associations::{
-        signature::Signature as SignatureKindProto, Erc1271Signature as Erc1271SignatureProto,
+        signature::Signature as SignatureKindProto,
         LegacyDelegatedSignature as LegacyDelegatedSignatureProto,
         RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
         RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
         Signature as SignatureProto,
+        SmartContractWalletSignature as SmartContractWalletSignatureProto,
     },
     message_contents::{
         signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto,
@@ -171,6 +172,7 @@ impl AccountId {
     }
 }
 
+/// A ERC-6492 signature.
 #[derive(Debug, Clone)]
 pub struct SmartContractWalletSignature {
     signature_text: String,
@@ -256,11 +258,14 @@ impl Signature for SmartContractWalletSignature {
 
     fn to_proto(&self) -> SignatureProto {
         SignatureProto {
-            signature: Some(SignatureKindProto::Erc1271(Erc1271SignatureProto {
-                account_id: self.account_id.clone().into(),
-                block_number: self.block_number,
-                signature: self.bytes(),
-            })),
+            signature: Some(SignatureKindProto::Erc6492(
+                SmartContractWalletSignatureProto {
+                    account_id: self.account_id.clone().into(),
+                    block_number: self.block_number,
+                    signature: self.bytes(),
+                    chain_rpc_url: self.chain_rpc_url.clone(),
+                },
+            )),
         }
     }
 }

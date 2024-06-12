@@ -230,16 +230,13 @@ fn from_signature_kind_proto(
             signature_text,
             erc191_signature.bytes,
         )),
-        SignatureKindProto::Erc1271(signature) => {
-            Box::new(SmartContractWalletSignature::new(
-                signature_text,
-                signature.signature,
-                signature.account_id.try_into()?,
-                // signature.chain_rpc_url,
-                "TODO: inject chain rpc url".to_string(),
-                signature.block_number,
-            ))
-        }
+        SignatureKindProto::Erc6492(signature) => Box::new(SmartContractWalletSignature::new(
+            signature_text,
+            signature.signature,
+            signature.account_id.try_into()?,
+            signature.chain_rpc_url,
+            signature.block_number,
+        )),
         SignatureKindProto::DelegatedErc191(delegated_erc191_signature) => {
             let signature_value = delegated_erc191_signature
                 .signature

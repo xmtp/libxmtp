@@ -161,7 +161,7 @@ impl NapiClient {
   }
 
   #[napi]
-  pub fn add_erc1271_signature(
+  pub fn add_scw_signature(
     &mut self,
     signature_bytes: Uint8Array,
     chain_id: String,
