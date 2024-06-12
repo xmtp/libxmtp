@@ -22,6 +22,11 @@ use super::test::TestClient;
 
 pub const BENCH_ROOT_SPAN: &str = "xmtp-trace-bench";
 
+/// Re-export of functions in private modules for benchmarks
+pub mod re_export {
+    pub use crate::hpke::encrypt_welcome;
+}
+
 #[derive(Debug, Error)]
 pub enum BenchError {
     #[error(transparent)]

@@ -3,7 +3,7 @@ use openmls_rust_crypto::RustCrypto;
 use openmls_traits::{crypto::OpenMlsCrypto, random::OpenMlsRand};
 use rand::{rngs::OsRng, RngCore};
 use xmtp_mls::configuration::CIPHERSUITE;
-use xmtp_mls::hpke::encrypt_welcome;
+use xmtp_mls::utils::bench::re_export::encrypt_welcome;
 
 fn bench_encrypt_welcome(c: &mut Criterion) {
     let sizes = [
