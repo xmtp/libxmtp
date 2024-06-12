@@ -101,7 +101,6 @@ where
         if let Some(association_state) =
             StoredAssociationState::read_from_cache(conn, inbox_id.to_string(), last_sequence_id)?
         {
-            log::debug!("Loaded association state from cache");
             return Ok(association_state);
         }
 
@@ -117,7 +116,6 @@ where
             last_sequence_id,
             association_state.clone(),
         )?;
-        log::debug!("Wrote association state to cache");
 
         Ok(association_state)
     }
@@ -245,11 +243,6 @@ where
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
     ) -> Result<InstallationDiff, InstallationDiffError> {
-        log::info!(
-            "Getting installation diff. Old: {:?}. New {:?}",
-            old_group_membership,
-            new_group_membership
-        );
         let added_and_updated_members = membership_diff
             .added_inboxes
             .iter()
