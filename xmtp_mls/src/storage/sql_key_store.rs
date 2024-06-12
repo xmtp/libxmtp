@@ -597,7 +597,14 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         hash_ref: &HashReference,
     ) -> Result<Option<KeyPackage>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &HashReference>(KEY_PACKAGE_LABEL, hash_ref)?;
-        self.read(KEY_PACKAGE_LABEL, &key)
+        match self.read::<CURRENT_VERSION>(KEY_PACKAGE_LABEL, &key) {
+            Ok(Some(value)) => Ok(Some(serde_json::from_slice(&value)?)),
+            Ok(None) => Ok(None),
+            Err(e) => {
+                error!("Error reading key_package: {:?}", e);
+                Err(MemoryStorageError::None)
+            }
+        }
     }
 
     fn psk<PskBundle: traits::PskBundle<CURRENT_VERSION>, PskId: traits::PskId<CURRENT_VERSION>>(
