@@ -101,10 +101,9 @@ where
             .await?;
 
         let stream = subscription
-            .map(|welcome_result| async {
+            .map(|welcome| async {
                 log::info!("Received conversation streaming payload");
-                let welcome = welcome_result?;
-                self.process_streamed_welcome(welcome).await
+                self.process_streamed_welcome(welcome?).await
             })
             .filter_map(|res| async {
                 match res.await {
@@ -254,9 +253,11 @@ where
     ) -> Result<impl Stream<Item = StoredGroupMessage>, ClientError> {
         let mut handle;
 
+        //TODO:insipx backpressure
         let (tx, rx) = mpsc::unbounded_channel();
 
         client.sync_welcomes().await?;
+        log::debug!("Synced Welcomes!!!");
 
         let current_groups = client.store().conn()?.find_groups(None, None, None, None)?;
 
@@ -272,105 +273,78 @@ where
                 )
             })
             .collect();
+        log::info!("Groups len: {:?}", group_id_to_info.len());
+
         handle = Self::relay_messages(client.clone(), tx.clone(), group_id_to_info.clone());
 
         tokio::spawn(async move {
             let client_pointer = client.clone();
             let mut convo_stream = Self::stream_conversations(&client_pointer).await?;
 
-            while let Some(new_group) = convo_stream.next().await {
-                if group_id_to_info.contains_key(&new_group.group_id) {
-                    continue;
-                }
+            loop {
+                log::debug!("Selecting ....");
+                // TODO:insipx We should more closely investigate whether
+                // the stream mapping in `stream_conversations` is cancellation safe
+                // otherwise it could lead to hard-to-find bugs
+                tokio::select! {
+                    Some(new_group) = convo_stream.next() => {
+                        if group_id_to_info.contains_key(&new_group.group_id) {
+                            continue;
+                        }
 
-                handle.abort();
-                for info in group_id_to_info.values_mut() {
-                    info.cursor = 0;
-                }
-                group_id_to_info.insert(
-                    new_group.group_id,
-                    MessagesStreamInfo {
-                        convo_created_at_ns: new_group.created_at_ns,
-                        cursor: 1,
+                        handle.abort();
+                        for info in group_id_to_info.values_mut() {
+                            info.cursor = 0;
+                        }
+                        group_id_to_info.insert(
+                            new_group.group_id,
+                            MessagesStreamInfo {
+                                convo_created_at_ns: new_group.created_at_ns,
+                                cursor: 1,
+                            },
+                        );
+                        handle = Self::relay_messages(client.clone(), tx.clone(), group_id_to_info.clone());
                     },
-                );
-                handle = Self::relay_messages(client.clone(), tx.clone(), group_id_to_info.clone());
+                    maybe_finished = &mut handle => {
+                        match maybe_finished {
+                            // if all is well it means the stream closed (our receiver is dropped
+                            // or ended), our work is done
+                            Ok(_) => break,
+                            Err(e) => {
+                                // if we have an error, it probably means we need to try and
+                                // restart the stream.
+                                log::error!("{}", e.to_string());
+                                handle = Self::relay_messages(client.clone(), tx.clone(), group_id_to_info.clone());
+                            }
+                        }
+                    }
+                }
             }
+            Ok::<_, ClientError>(())
         });
 
         Ok(UnboundedReceiverStream::new(rx))
     }
 
-    pub async fn stream_all_messages_with_callback(
+    pub fn stream_all_messages_with_callback(
         client: Arc<Client<ApiClient>>,
-        callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
-    ) -> Result<StreamCloser, ClientError> {
-        let callback = Arc::new(Mutex::new(callback));
+        mut callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
+    ) -> JoinHandle<Result<(), ClientError>> {
+        // make this call block until it is ready
+        // otherwise we miss messages
+        let (tx, rx) = tokio::sync::oneshot::channel();
 
-        client.sync_welcomes().await?; // TODO pipe cursor from welcomes sync into groups_stream
-        let mut group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo> = client
-            .store()
-            .conn()?
-            .find_groups(None, None, None, None)?
-            .into_iter()
-            .map(|group| {
-                (
-                    group.id.clone(),
-                    MessagesStreamInfo {
-                        convo_created_at_ns: group.created_at_ns,
-                        cursor: 0,
-                    },
-                )
-            })
-            .collect();
+        let handle = tokio::spawn(async move {
+            let mut stream = Self::stream_all_messages(client).await?;
+            let _ = tx.send(());
+            while let Some(message) = stream.next().await {
+                callback(message)
+            }
+            Ok(())
+        });
 
-        let callback_clone = callback.clone();
-        let messages_stream_closer_mutex =
-            Arc::new(Mutex::new(Self::stream_messages_with_callback(
-                client.clone(),
-                group_id_to_info.clone(),
-                move |message| callback_clone.lock().unwrap()(message), // TODO fix unwrap
-            )?));
-        let messages_stream_closer_mutex_clone = messages_stream_closer_mutex.clone();
-        let groups_stream_closer = Self::stream_conversations_with_callback(
-            client.clone(),
-            move |convo| {
-                // TODO make sure key comparison works correctly
-                if group_id_to_info.contains_key(&convo.group_id) {
-                    return;
-                }
-                // Close existing message stream
-                // TODO remove unwrap
-                let mut messages_stream_closer = messages_stream_closer_mutex.lock().unwrap();
-                messages_stream_closer.end();
-
-                // Set up new stream. For existing groups, stream new messages only by unsetting the cursor
-                for info in group_id_to_info.values_mut() {
-                    info.cursor = 0;
-                }
-                group_id_to_info.insert(
-                    convo.group_id,
-                    MessagesStreamInfo {
-                        convo_created_at_ns: convo.created_at_ns,
-                        cursor: 1, // For the new group, stream all messages since the group was created
-                    },
-                );
-
-                // Open new message stream
-                let callback_clone = callback.clone();
-                *messages_stream_closer = Self::stream_messages_with_callback(
-                    client.clone(),
-                    group_id_to_info.clone(),
-                    move |message| callback_clone.lock().unwrap()(message), // TODO fix unwrap
-                )
-                .unwrap(); // TODO fix unwrap
-            },
-            move || {
-                messages_stream_closer_mutex_clone.lock().unwrap().end();
-            },
-        )?;
-
-        Ok(groups_stream_closer)
+        let _ = tokio::task::block_in_place(|| rx.blocking_recv());
+        handle
     }
 
     fn relay_messages(
@@ -382,9 +356,15 @@ where
             let mut stream = client.stream_messages(group_id_to_info).await?;
             while let Some(message) = stream.next().await {
                 // an error can only mean the receiver has been dropped or closed
+                log::debug!(
+                    "SENDING MESSAGE {}",
+                    String::from_utf8_lossy(&message.decrypted_message_bytes)
+                );
                 if tx.send(message).is_err() {
+                    log::debug!("CLOSING STREAM");
                     break;
                 }
+                log::debug!("Sent Message!");
             }
             Ok::<_, ClientError>(())
         })
@@ -437,15 +417,10 @@ mod tests {
 
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let messages_clone = messages.clone();
-        let stream = Client::<GrpcClient>::stream_all_messages_with_callback(
-            Arc::new(caro),
-            move |message| {
-                (*messages_clone.lock().unwrap()).push(message);
-            },
-        )
-        .await
-        .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        Client::<GrpcClient>::stream_all_messages_with_callback(Arc::new(caro), move |message| {
+            log::debug!("YOOO MESSAGES");
+            (*messages_clone.lock().unwrap()).push(message);
+        });
 
         alix_group
             .send_message("first".as_bytes(), &alix)
@@ -466,12 +441,16 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
         let messages = messages.lock().unwrap();
-        assert_eq!(messages[0].decrypted_message_bytes, "first".as_bytes());
-        assert_eq!(messages[1].decrypted_message_bytes, "second".as_bytes());
-        assert_eq!(messages[2].decrypted_message_bytes, "third".as_bytes());
-        assert_eq!(messages[3].decrypted_message_bytes, "fourth".as_bytes());
-
-        stream.end();
+        for message in messages.iter() {
+            println!(
+                "{}",
+                String::from_utf8_lossy(&message.decrypted_message_bytes)
+            );
+        }
+        assert_eq!(messages[0].decrypted_message_bytes, b"first");
+        assert_eq!(messages[1].decrypted_message_bytes, b"second");
+        assert_eq!(messages[2].decrypted_message_bytes, b"third");
+        assert_eq!(messages[3].decrypted_message_bytes, b"fourth");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
@@ -490,42 +469,34 @@ mod tests {
 
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let messages_clone = messages.clone();
-        let stream =
+        let handle =
             Client::<GrpcClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
                 let text = String::from_utf8(message.decrypted_message_bytes.clone())
                     .unwrap_or("<not UTF8>".to_string());
                 println!("Received: {}", text);
                 (*messages_clone.lock().unwrap()).push(message);
-            })
-            .await
-            .unwrap();
-
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            });
 
         alix_group
             .send_message("first".as_bytes(), &alix)
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         let bo_group = bo.create_group(None).unwrap();
         bo_group
             .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
         bo_group
             .send_message("second".as_bytes(), &bo)
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         alix_group
             .send_message("third".as_bytes(), &alix)
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         let alix_group_2 = alix.create_group(None).unwrap();
         alix_group_2
@@ -538,7 +509,7 @@ mod tests {
             .send_message("fourth".as_bytes(), &alix)
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
         alix_group_2
             .send_message("fifth".as_bytes(), &alix)
             .await
@@ -551,9 +522,9 @@ mod tests {
             assert_eq!(messages.len(), 5);
         }
 
-        stream.end();
+        handle.abort();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        assert!(stream.is_closed());
+        assert!(handle.is_finished());
 
         alix_group
             .send_message("first".as_bytes(), &alix)
