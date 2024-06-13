@@ -764,7 +764,7 @@ pub fn build_mutable_metadata_extension_default(
     opts: GroupMetadataOptions,
 ) -> Result<Extension, GroupError> {
     let mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new_opts(identity.inbox_id.clone(), opts).try_into()?;
+        GroupMutableMetadata::new_default(identity.inbox_id.clone(), opts).try_into()?;
     let unknown_gc_extension = UnknownExtension(mutable_metadata);
 
     Ok(Extension::Unknown(

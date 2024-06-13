@@ -78,26 +78,7 @@ impl GroupMutableMetadata {
         }
     }
 
-    pub fn new_default(creator_inbox_id: String) -> Self {
-        let mut attributes = HashMap::new();
-        attributes.insert(
-            MetadataField::GroupName.to_string(),
-            DEFAULT_GROUP_NAME.to_string(),
-        );
-        attributes.insert(
-            MetadataField::Description.to_string(),
-            DEFAULT_GROUP_DESCRIPTION.to_string(),
-        );
-        let admin_list = vec![creator_inbox_id.clone()];
-        let super_admin_list = vec![creator_inbox_id.clone()];
-        Self {
-            attributes,
-            admin_list,
-            super_admin_list,
-        }
-    }
-
-    pub fn new_opts(creator_inbox_id: String, opts: GroupMetadataOptions) -> Self {
+    pub fn new_default(creator_inbox_id: String, opts: GroupMetadataOptions) -> Self {
         let mut attributes = HashMap::new();
         attributes.insert(
             MetadataField::GroupName.to_string(),
