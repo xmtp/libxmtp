@@ -3063,7 +3063,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "tls_codec 0.4.2-pre.1",
+ "tls_codec 0.4.2-pre.1 (git+https://github.com/nplasterer/formats?rev=f1764ef5bc3fd028d899c8fc98b068cb047b4e1d)",
  "wasm-bindgen-test",
 ]
 
@@ -3077,7 +3077,7 @@ dependencies = [
  "p256",
  "rand",
  "serde",
- "tls_codec 0.4.2-pre.1",
+ "tls_codec 0.4.2-pre.1 (git+https://github.com/nplasterer/formats?rev=f1764ef5bc3fd028d899c8fc98b068cb047b4e1d)",
  "zeroize",
 ]
 
@@ -3115,7 +3115,7 @@ dependencies = [
  "serde",
  "sha2 0.10.8",
  "thiserror",
- "tls_codec 0.4.2-pre.1",
+ "tls_codec 0.4.2-pre.1 (git+https://github.com/nplasterer/formats?rev=f1764ef5bc3fd028d899c8fc98b068cb047b4e1d)",
 ]
 
 [[package]]
@@ -3139,7 +3139,7 @@ version = "0.2.0"
 source = "git+https://github.com/xmtp/openmls?rev=7e4375dff#7e4375dffd4ba0161a83779ceb722b377ed94688"
 dependencies = [
  "serde",
- "tls_codec 0.4.2-pre.1",
+ "tls_codec 0.4.2-pre.1 (git+https://github.com/nplasterer/formats?rev=f1764ef5bc3fd028d899c8fc98b068cb047b4e1d)",
 ]
 
 [[package]]
@@ -5063,6 +5063,15 @@ dependencies = [
 [[package]]
 name = "tls_codec"
 version = "0.4.2-pre.1"
+source = "git+https://github.com/RustCrypto/formats?branch=franziskus/tls_codec_serde#6f07e1f650ff99fd4b8e5e485514616f1d9f7471"
+dependencies = [
+ "tls_codec_derive 0.4.1 (git+https://github.com/RustCrypto/formats?branch=franziskus/tls_codec_serde)",
+ "zeroize",
+]
+
+[[package]]
+name = "tls_codec"
+version = "0.4.2-pre.1"
 source = "git+https://github.com/nplasterer/formats?rev=f1764ef5bc3fd028d899c8fc98b068cb047b4e1d#f1764ef5bc3fd028d899c8fc98b068cb047b4e1d"
 dependencies = [
  "serde",
@@ -5075,6 +5084,16 @@ name = "tls_codec_derive"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d9ef545650e79f30233c0003bcc2504d7efac6dad25fca40744de773fe2049c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.66",
+]
+
+[[package]]
+name = "tls_codec_derive"
+version = "0.4.1"
+source = "git+https://github.com/RustCrypto/formats?branch=franziskus/tls_codec_serde#6f07e1f650ff99fd4b8e5e485514616f1d9f7471"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6275,7 +6294,7 @@ dependencies = [
  "smart-default",
  "tempfile",
  "thiserror",
- "tls_codec 0.4.2-pre.1",
+ "tls_codec 0.4.2-pre.1 (git+https://github.com/RustCrypto/formats?branch=franziskus/tls_codec_serde)",
  "tokio",
  "toml 0.8.13",
  "tracing",
