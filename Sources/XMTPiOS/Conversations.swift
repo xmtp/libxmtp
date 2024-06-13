@@ -17,7 +17,7 @@ public enum ConversationError: Error, CustomStringConvertible {
 }
 
 public enum GroupError: Error, CustomStringConvertible {
-	case alphaMLSNotEnabled, memberCannotBeSelf, memberNotRegistered([String]), groupsRequireMessagePassed, notSupportedByGroups
+	case alphaMLSNotEnabled, memberCannotBeSelf, memberNotRegistered([String]), groupsRequireMessagePassed, notSupportedByGroups, streamingFailure
 
 	public var description: String {
 		switch self {
@@ -31,6 +31,8 @@ public enum GroupError: Error, CustomStringConvertible {
 			return "GroupError.groupsRequireMessagePassed you cannot call this method without passing a message instead of an envelope"
 		case .notSupportedByGroups:
 			return "GroupError.notSupportedByGroups this method is not supported by groups"
+		case .streamingFailure:
+			return "GroupError.streamingFailure a stream has failed"
 		}
 	}
 }
@@ -92,11 +94,18 @@ public actor Conversations {
 	public func streamGroups() async throws -> AsyncThrowingStream<Group, Error> {
 		AsyncThrowingStream { continuation in
 			Task {
-				self.streamHolder.stream = try await self.client.v3Client?.conversations().stream(
-					callback: GroupStreamCallback(client: self.client) { group in
-						continuation.yield(group)
-					}
-				)
+				let groupCallback = GroupStreamCallback(client: self.client) { group in
+					continuation.yield(group)
+				}
+				
+				guard let stream = try await self.client.v3Client?.conversations().stream(callback: groupCallback) else {
+					continuation.finish(throwing: GroupError.streamingFailure)
+					return
+				}
+				
+				continuation.onTermination = { @Sendable reason in
+					stream.end()
+				}
 			}
 		}
 	}
@@ -303,7 +312,7 @@ public actor Conversations {
 			@Sendable func forwardStreamToMerged(stream: AsyncThrowingStream<DecodedMessage, Error>) async {
 				do {
 					var iterator = stream.makeAsyncIterator()
-					while let element = try await  iterator.next() {
+					while let element = try await iterator.next() {
 						continuation.yield(element)
 					}
 					continuation.finish()
@@ -315,7 +324,7 @@ public actor Conversations {
 			Task {
 				await forwardStreamToMerged(stream: try streamAllV2Messages())
 			}
-			if (includeGroups) {
+			if includeGroups {
 				Task {
 					await forwardStreamToMerged(stream: streamAllGroupMessages())
 				}

@@ -562,6 +562,31 @@ class GroupTests: XCTestCase {
 		await waitForExpectations(timeout: 3)
 	}
 	
+	func testStreamGroupsAndAllMessages() async throws {
+		let fixtures = try await localFixtures()
+		
+		let expectation1 = expectation(description: "got a group")
+		let expectation2 = expectation(description: "got a message")
+
+
+		Task(priority: .userInitiated) {
+			for try await _ in try await fixtures.aliceClient.conversations.streamGroups() {
+				expectation1.fulfill()
+			}
+		}
+		
+		Task(priority: .userInitiated) {
+			for try await _ in try await fixtures.aliceClient.conversations.streamAllMessages(includeGroups: true) {
+				expectation2.fulfill()
+			}
+		}
+
+		let group = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		try await group.send(content: "hello")
+
+		await waitForExpectations(timeout: 3)
+	}
+	
 	func testCanStreamAllMessages() async throws {
 		let fixtures = try await localFixtures()
 
