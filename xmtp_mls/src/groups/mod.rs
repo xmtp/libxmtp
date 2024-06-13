@@ -199,12 +199,6 @@ pub struct GroupMetadataOptions {
     pub name: Option<String>,
 }
 
-impl GroupMetadataOptions {
-    fn is_empty(&self) -> bool {
-        self.name.is_none()
-    }
-}
-
 impl Clone for MlsGroup {
     fn clone(&self) -> Self {
         Self {
