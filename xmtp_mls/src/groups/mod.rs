@@ -194,6 +194,11 @@ pub struct MlsGroup {
     context: Arc<XmtpMlsLocalContext>,
 }
 
+#[derive(Default)]
+pub struct GroupMetadataOptions {
+    pub name: Option<String>,
+}
+
 impl Clone for MlsGroup {
     fn clone(&self) -> Self {
         Self {
@@ -238,12 +243,13 @@ impl MlsGroup {
         context: Arc<XmtpMlsLocalContext>,
         membership_state: GroupMembershipState,
         permissions: Option<PreconfiguredPolicies>,
+        opts: GroupMetadataOptions,
     ) -> Result<Self, GroupError> {
         let conn = context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata =
             build_protected_metadata_extension(&context.identity, Purpose::Conversation)?;
-        let mutable_metadata = build_mutable_metadata_extension_default(&context.identity)?;
+        let mutable_metadata = build_mutable_metadata_extension_default(&context.identity, opts)?;
         let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
         let mutable_permissions =
             build_mutable_permissions_extension(permissions.unwrap_or_default().to_policy_set())?;
@@ -358,7 +364,10 @@ impl MlsGroup {
         let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata =
             build_protected_metadata_extension(&context.identity, Purpose::Sync)?;
-        let mutable_metadata = build_mutable_metadata_extension_default(&context.identity)?;
+        let mutable_metadata = build_mutable_metadata_extension_default(
+            &context.identity,
+            GroupMetadataOptions::default(),
+        )?;
         let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
         let mutable_permissions =
             build_mutable_permissions_extension(PreconfiguredPolicies::default().to_policy_set())?;
@@ -752,9 +761,10 @@ fn build_mutable_permissions_extension(policies: PolicySet) -> Result<Extension,
 
 pub fn build_mutable_metadata_extension_default(
     identity: &Identity,
+    opts: GroupMetadataOptions,
 ) -> Result<Extension, GroupError> {
     let mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new_default(identity.inbox_id.clone()).try_into()?;
+        GroupMutableMetadata::new_default(identity.inbox_id.clone(), opts).try_into()?;
     let unknown_gc_extension = UnknownExtension(mutable_metadata);
 
     Ok(Extension::Unknown(
@@ -947,7 +957,7 @@ mod tests {
             group_metadata::{ConversationType, GroupMetadata},
             group_mutable_metadata::MetadataField,
             members::{GroupMember, PermissionLevel},
-            PreconfiguredPolicies, UpdateAdminListType,
+            GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
         },
         storage::{
             group_intent::IntentState,
@@ -1033,7 +1043,9 @@ mod tests {
     async fn test_send_message() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        let group = client.create_group(None).expect("create group");
+        let group = client
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
         group
             .send_message(b"hello", &client)
             .await
@@ -1051,7 +1063,9 @@ mod tests {
     async fn test_receive_self_message() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        let group = client.create_group(None).expect("create group");
+        let group = client
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
         let msg = b"hello";
         group
             .send_message(msg, &client)
@@ -1072,7 +1086,9 @@ mod tests {
     async fn test_receive_message_from_other() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let alix_group = alix.create_group(None).expect("create group");
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
         alix_group
             .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
             .await
@@ -1103,7 +1119,9 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal.create_group(None).unwrap();
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
@@ -1153,7 +1171,9 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal.create_group(None).unwrap();
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         // Add bola
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
@@ -1223,7 +1243,9 @@ mod tests {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alix_group: MlsGroup = alix.create_group(None).unwrap();
+        let alix_group: MlsGroup = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         let provider = alix.mls_provider(alix.store().conn().unwrap());
         // Doctor the group membership
         let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
@@ -1254,7 +1276,9 @@ mod tests {
     async fn test_add_inbox() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let group = client.create_group(None).expect("create group");
+        let group = client
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
 
         group
             .add_members_by_inbox_id(&client, vec![client_2.inbox_id()])
@@ -1275,7 +1299,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_add_invalid_member() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let group = client.create_group(None).expect("create group");
+        let group = client
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
 
         let result = group
             .add_members_by_inbox_id(&client, vec!["1234".to_string()])
@@ -1288,7 +1314,9 @@ mod tests {
     async fn test_add_unregistered_member() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let unconnected_wallet_address = generate_local_wallet().get_address();
-        let group = amal.create_group(None).unwrap();
+        let group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         let result = group
             .add_members(&amal, vec![unconnected_wallet_address])
             .await;
@@ -1302,7 +1330,9 @@ mod tests {
         // Add another client onto the network
         let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let group = client_1.create_group(None).expect("create group");
+        let group = client_1
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
         group
             .add_members_by_inbox_id(&client_1, vec![client_2.inbox_id()])
             .await
@@ -1337,7 +1367,9 @@ mod tests {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let group = client.create_group(None).expect("create group");
+        let group = client
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
         group
             .add_members_by_inbox_id(&client, vec![bola_client.inbox_id()])
             .await
@@ -1377,7 +1409,9 @@ mod tests {
     async fn test_post_commit() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let group = client.create_group(None).expect("create group");
+        let group = client
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
 
         group
             .add_members_by_inbox_id(&client, vec![client_2.inbox_id()])
@@ -1402,7 +1436,9 @@ mod tests {
         let charlie_wallet = &generate_local_wallet();
         let _charlie = ClientBuilder::new_test_client(charlie_wallet).await;
 
-        let group = amal.create_group(None).unwrap();
+        let group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         group
             .add_members(
                 &amal,
@@ -1450,7 +1486,9 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&amal_wallet).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let group = amal.create_group(None).unwrap();
+        let group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
@@ -1482,7 +1520,9 @@ mod tests {
         let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let dave_wallet = generate_local_wallet();
         let dave = ClientBuilder::new_test_client(&dave_wallet).await;
-        let amal_group = amal.create_group(None).unwrap();
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         // Add bola to the group
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
@@ -1530,7 +1570,10 @@ mod tests {
         let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let amal_group = amal
-            .create_group(Some(PreconfiguredPolicies::AdminsOnly))
+            .create_group(
+                Some(PreconfiguredPolicies::AdminsOnly),
+                GroupMetadataOptions::default(),
+            )
             .unwrap();
         // Add bola to the group
         amal_group
@@ -1547,13 +1590,38 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_group_options() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let amal_group = amal
+            .create_group(
+                None,
+                GroupMetadataOptions {
+                    name: Some("Group Name".to_string()),
+                },
+            )
+            .unwrap();
+
+        let binding = amal_group.mutable_metadata().expect("msg");
+        let amal_group_name: &String = binding
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap();
+
+        assert_eq!(amal_group_name, "Group Name");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     // TODO: Need to enforce limits on max wallets on `add_members_by_inbox_id` and break up
     // requests into multiple transactions
     #[ignore]
     async fn test_max_limit_add() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let amal_group = amal
-            .create_group(Some(PreconfiguredPolicies::AdminsOnly))
+            .create_group(
+                Some(PreconfiguredPolicies::AdminsOnly),
+                GroupMetadataOptions::default(),
+            )
             .unwrap();
         let mut clients = Vec::new();
         for _ in 0..249 {
@@ -1577,7 +1645,9 @@ mod tests {
 
         // Create a group and verify it has the default group name
         let policies = Some(PreconfiguredPolicies::AdminsOnly);
-        let amal_group: MlsGroup = amal.create_group(policies).unwrap();
+        let amal_group: MlsGroup = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
         let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
@@ -1653,7 +1723,9 @@ mod tests {
 
         // Create a group and verify it has the default group name
         let policies = Some(PreconfiguredPolicies::AllMembers);
-        let amal_group: MlsGroup = amal.create_group(policies).unwrap();
+        let amal_group: MlsGroup = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
         let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
@@ -1729,7 +1801,9 @@ mod tests {
         let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let policies = Some(PreconfiguredPolicies::AdminsOnly);
-        let amal_group = amal.create_group(policies).unwrap();
+        let amal_group = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
         // Add bola to the group
@@ -1814,7 +1888,9 @@ mod tests {
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let policies = Some(PreconfiguredPolicies::AdminsOnly);
-        let amal_group = amal.create_group(policies).unwrap();
+        let amal_group = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
         // Add bola to the group
@@ -1901,7 +1977,9 @@ mod tests {
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let policies = Some(PreconfiguredPolicies::AdminsOnly);
-        let amal_group = amal.create_group(policies).unwrap();
+        let amal_group = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
         // Add Bola and Caro to the group
@@ -1996,7 +2074,9 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Amal creates a group
-        let amal_group = amal.create_group(None).unwrap();
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
 
         // Amal adds Bola to the group
         amal_group
@@ -2031,7 +2111,9 @@ mod tests {
     async fn test_can_read_group_creator_inbox_id() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let policies = Some(PreconfiguredPolicies::AllMembers);
-        let amal_group = amal.create_group(policies).unwrap();
+        let amal_group = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
         let mutable_metadata = amal_group.mutable_metadata().unwrap();
@@ -2052,7 +2134,9 @@ mod tests {
         // Step 1: Amal creates a group
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let policies = Some(PreconfiguredPolicies::AllMembers);
-        let amal_group = amal.create_group(policies).unwrap();
+        let amal_group = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
         // Step 2:  Amal adds Bola to the group

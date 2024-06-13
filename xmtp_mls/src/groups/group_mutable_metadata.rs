@@ -15,6 +15,8 @@ use crate::configuration::{
     DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_NAME, MUTABLE_METADATA_EXTENSION_ID,
 };
 
+use super::GroupMetadataOptions;
+
 #[derive(Debug, Error)]
 pub enum GroupMutableMetadataError {
     #[error("serialization: {0}")]
@@ -76,11 +78,11 @@ impl GroupMutableMetadata {
         }
     }
 
-    pub fn new_default(creator_inbox_id: String) -> Self {
+    pub fn new_default(creator_inbox_id: String, opts: GroupMetadataOptions) -> Self {
         let mut attributes = HashMap::new();
         attributes.insert(
             MetadataField::GroupName.to_string(),
-            DEFAULT_GROUP_NAME.to_string(),
+            opts.name.unwrap_or_else(|| DEFAULT_GROUP_NAME.to_string()),
         );
         attributes.insert(
             MetadataField::Description.to_string(),

@@ -6,6 +6,7 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::JsFunction;
 use napi_derive::napi;
+use xmtp_mls::groups::GroupMetadataOptions;
 
 use crate::messages::NapiMessage;
 use crate::{
@@ -42,7 +43,7 @@ impl NapiConversations {
 
     let convo = self
       .inner_client
-      .create_group(group_permissions)
+      .create_group(group_permissions, GroupMetadataOptions::default())
       .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
     if !account_addresses.is_empty() {
       convo

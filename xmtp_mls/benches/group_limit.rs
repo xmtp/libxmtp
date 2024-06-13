@@ -10,6 +10,7 @@ use tracing::{trace_span, Instrument};
 use xmtp_cryptography::utils::rng;
 use xmtp_mls::{
     builder::ClientBuilder,
+    groups::GroupMetadataOptions,
     utils::{
         bench::{create_identities_if_dont_exist, init_logging, Identity, BENCH_ROOT_SPAN},
         test::TestClient,
@@ -83,7 +84,9 @@ fn add_to_empty_group(c: &mut Criterion) {
                 || {
                     (
                         client.clone(),
-                        client.create_group(None).unwrap(),
+                        client
+                            .create_group(None, GroupMetadataOptions::default())
+                            .unwrap(),
                         addrs.clone(),
                         span.clone(),
                     )
@@ -124,7 +127,9 @@ fn add_to_empty_group_by_inbox_id(c: &mut Criterion) {
                 || {
                     (
                         client.clone(),
-                        client.create_group(None).unwrap(),
+                        client
+                            .create_group(None, GroupMetadataOptions::default())
+                            .unwrap(),
                         span.clone(),
                         ids.clone(),
                     )
@@ -165,7 +170,9 @@ fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {
-                        let group = client.create_group(None).unwrap();
+                        let group = client
+                            .create_group(None, GroupMetadataOptions::default())
+                            .unwrap();
                         group
                             .add_members_by_inbox_id(
                                 &client,
@@ -215,7 +222,9 @@ fn remove_all_members_from_group(c: &mut Criterion) {
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {
-                        let group = client.create_group(None).unwrap();
+                        let group = client
+                            .create_group(None, GroupMetadataOptions::default())
+                            .unwrap();
                         group
                             .add_members_by_inbox_id(&client, ids.clone())
                             .await
@@ -259,7 +268,9 @@ fn remove_half_members_from_group(c: &mut Criterion) {
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {
-                        let group = client.create_group(None).unwrap();
+                        let group = client
+                            .create_group(None, GroupMetadataOptions::default())
+                            .unwrap();
                         group
                             .add_members_by_inbox_id(&client, ids.clone())
                             .await
@@ -308,7 +319,9 @@ fn add_1_member_to_group(c: &mut Criterion) {
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {
-                        let group = client.create_group(None).unwrap();
+                        let group = client
+                            .create_group(None, GroupMetadataOptions::default())
+                            .unwrap();
                         group
                             .add_members_by_inbox_id(&client, ids.clone())
                             .await
