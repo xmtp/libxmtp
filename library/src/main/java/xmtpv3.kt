@@ -841,7 +841,7 @@ internal interface UniffiLib : Library {
     ): Unit
 
     fun uniffi_xmtpv3_fn_method_fficonversations_create_group(
-        `ptr`: Pointer, `accountAddresses`: RustBuffer.ByValue, `permissions`: RustBuffer.ByValue,
+        `ptr`: Pointer, `accountAddresses`: RustBuffer.ByValue, `opts`: RustBuffer.ByValue,
     ): Long
 
     fun uniffi_xmtpv3_fn_method_fficonversations_list(
@@ -902,6 +902,10 @@ internal interface UniffiLib : Library {
 
     fun uniffi_xmtpv3_fn_method_ffigroup_find_messages(
         `ptr`: Pointer, `opts`: RustBuffer.ByValue, uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
+    fun uniffi_xmtpv3_fn_method_ffigroup_group_image_url_square(
+        `ptr`: Pointer, uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
 
     fun uniffi_xmtpv3_fn_method_ffigroup_group_metadata(
@@ -972,6 +976,10 @@ internal interface UniffiLib : Library {
         `ptr`: Pointer,
     ): Long
 
+    fun uniffi_xmtpv3_fn_method_ffigroup_update_group_image_url_square(
+        `ptr`: Pointer, `groupImageUrlSquare`: RustBuffer.ByValue,
+    ): Long
+
     fun uniffi_xmtpv3_fn_method_ffigroup_update_group_name(
         `ptr`: Pointer, `groupName`: RustBuffer.ByValue,
     ): Long
@@ -1016,7 +1024,7 @@ internal interface UniffiLib : Library {
         `ptr`: Pointer, `signatureBytes`: RustBuffer.ByValue,
     ): Long
 
-    fun uniffi_xmtpv3_fn_method_ffisignaturerequest_add_erc1271_signature(
+    fun uniffi_xmtpv3_fn_method_ffisignaturerequest_add_scw_signature(
         `ptr`: Pointer,
         `signatureBytes`: RustBuffer.ByValue,
         `address`: RustBuffer.ByValue,
@@ -1562,6 +1570,9 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_checksum_method_ffigroup_find_messages(
     ): Short
 
+    fun uniffi_xmtpv3_checksum_method_ffigroup_group_image_url_square(
+    ): Short
+
     fun uniffi_xmtpv3_checksum_method_ffigroup_group_metadata(
     ): Short
 
@@ -1613,6 +1624,9 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_checksum_method_ffigroup_sync(
     ): Short
 
+    fun uniffi_xmtpv3_checksum_method_ffigroup_update_group_image_url_square(
+    ): Short
+
     fun uniffi_xmtpv3_checksum_method_ffigroup_update_group_name(
     ): Short
 
@@ -1628,7 +1642,7 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_ecdsa_signature(
     ): Short
 
-    fun uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_erc1271_signature(
+    fun uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_scw_signature(
     ): Short
 
     fun uniffi_xmtpv3_checksum_method_ffisignaturerequest_is_ready(
@@ -1774,7 +1788,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_func_verify_k256_sha256() != 25521.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_fficonversations_create_group() != 1475.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversations_create_group() != 62996.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversations_list() != 10804.toShort()) {
@@ -1814,6 +1828,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_find_messages() != 14930.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffigroup_group_image_url_square() != 16754.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_group_metadata() != 13139.toShort()) {
@@ -1867,6 +1884,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_sync() != 24219.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_method_ffigroup_update_group_image_url_square() != 18878.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_update_group_name() != 550.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1882,7 +1902,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_ecdsa_signature() != 8706.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_erc1271_signature() != 27040.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_scw_signature() != 59425.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_is_ready() != 65051.toShort()) {
@@ -2379,7 +2399,7 @@ public interface FfiConversationsInterface {
 
     suspend fun `createGroup`(
         `accountAddresses`: List<kotlin.String>,
-        `permissions`: GroupPermissions?,
+        `opts`: FfiCreateGroupOptions,
     ): FfiGroup
 
     suspend fun `list`(`opts`: FfiListConversationsOptions): List<FfiGroup>
@@ -2481,14 +2501,14 @@ open class FfiConversations : Disposable, AutoCloseable, FfiConversationsInterfa
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
     override suspend fun `createGroup`(
         `accountAddresses`: List<kotlin.String>,
-        `permissions`: GroupPermissions?,
+        `opts`: FfiCreateGroupOptions,
     ): FfiGroup {
         return uniffiRustCallAsync(
             callWithPointer { thisPtr ->
                 UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversations_create_group(
                     thisPtr,
                     FfiConverterSequenceString.lower(`accountAddresses`),
-                    FfiConverterOptionalTypeGroupPermissions.lower(`permissions`),
+                    FfiConverterTypeFfiCreateGroupOptions.lower(`opts`),
                 )
             },
             { future, callback, continuation ->
@@ -2820,6 +2840,8 @@ public interface FfiGroupInterface {
 
     fun `findMessages`(`opts`: FfiListMessagesOptions): List<FfiMessage>
 
+    fun `groupImageUrlSquare`(): kotlin.String
+
     fun `groupMetadata`(): FfiGroupMetadata
 
     fun `groupName`(): kotlin.String
@@ -2853,6 +2875,8 @@ public interface FfiGroupInterface {
     fun `superAdminList`(): List<kotlin.String>
 
     suspend fun `sync`()
+
+    suspend fun `updateGroupImageUrlSquare`(`groupImageUrlSquare`: kotlin.String)
 
     suspend fun `updateGroupName`(`groupName`: kotlin.String)
 
@@ -3121,6 +3145,20 @@ open class FfiGroup : Disposable, AutoCloseable, FfiGroupInterface {
                 uniffiRustCallWithError(GenericException) { _status ->
                     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffigroup_find_messages(
                         it, FfiConverterTypeFfiListMessagesOptions.lower(`opts`), _status
+                    )
+                }
+            }
+        )
+    }
+
+
+    @Throws(GenericException::class)
+    override fun `groupImageUrlSquare`(): kotlin.String {
+        return FfiConverterString.lift(
+            callWithPointer {
+                uniffiRustCallWithError(GenericException) { _status ->
+                    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffigroup_group_image_url_square(
+                        it, _status
                     )
                 }
             }
@@ -3490,6 +3528,39 @@ open class FfiGroup : Disposable, AutoCloseable, FfiGroupInterface {
                     thisPtr,
 
                     )
+            },
+            { future, callback, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(
+                    future,
+                    callback,
+                    continuation
+                )
+            },
+            { future, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_void(
+                    future,
+                    continuation
+                )
+            },
+            { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_void(future) },
+            // lift function
+            { Unit },
+
+            // Error FFI converter
+            GenericException.ErrorHandler,
+        )
+    }
+
+
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `updateGroupImageUrlSquare`(`groupImageUrlSquare`: kotlin.String) {
+        return uniffiRustCallAsync(
+            callWithPointer { thisPtr ->
+                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffigroup_update_group_image_url_square(
+                    thisPtr,
+                    FfiConverterString.lower(`groupImageUrlSquare`),
+                )
             },
             { future, callback, continuation ->
                 UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(
@@ -4154,7 +4225,7 @@ public interface FfiSignatureRequestInterface {
 
     suspend fun `addEcdsaSignature`(`signatureBytes`: kotlin.ByteArray)
 
-    suspend fun `addErc1271Signature`(
+    suspend fun `addScwSignature`(
         `signatureBytes`: kotlin.ByteArray,
         `address`: kotlin.String,
         `chainRpcUrl`: kotlin.String,
@@ -4289,14 +4360,14 @@ open class FfiSignatureRequest : Disposable, AutoCloseable, FfiSignatureRequestI
 
     @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `addErc1271Signature`(
+    override suspend fun `addScwSignature`(
         `signatureBytes`: kotlin.ByteArray,
         `address`: kotlin.String,
         `chainRpcUrl`: kotlin.String,
     ) {
         return uniffiRustCallAsync(
             callWithPointer { thisPtr ->
-                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffisignaturerequest_add_erc1271_signature(
+                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffisignaturerequest_add_scw_signature(
                     thisPtr,
                     FfiConverterByteArray.lower(`signatureBytes`),
                     FfiConverterString.lower(`address`),
@@ -5763,6 +5834,39 @@ public object FfiConverterTypeFfiXmtpClient : FfiConverter<FfiXmtpClient, Pointe
         // The Rust code always expects pointers written as 8 bytes,
         // and will fail to compile if they don't fit.
         buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+data class FfiCreateGroupOptions(
+    var `permissions`: GroupPermissions?,
+    var `groupName`: kotlin.String?,
+    var `groupImageUrlSquare`: kotlin.String?,
+) {
+
+    companion object
+}
+
+public object FfiConverterTypeFfiCreateGroupOptions :
+    FfiConverterRustBuffer<FfiCreateGroupOptions> {
+    override fun read(buf: ByteBuffer): FfiCreateGroupOptions {
+        return FfiCreateGroupOptions(
+            FfiConverterOptionalTypeGroupPermissions.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiCreateGroupOptions) = (
+            FfiConverterOptionalTypeGroupPermissions.allocationSize(value.`permissions`) +
+                    FfiConverterOptionalString.allocationSize(value.`groupName`) +
+                    FfiConverterOptionalString.allocationSize(value.`groupImageUrlSquare`)
+            )
+
+    override fun write(value: FfiCreateGroupOptions, buf: ByteBuffer) {
+        FfiConverterOptionalTypeGroupPermissions.write(value.`permissions`, buf)
+        FfiConverterOptionalString.write(value.`groupName`, buf)
+        FfiConverterOptionalString.write(value.`groupImageUrlSquare`, buf)
     }
 }
 

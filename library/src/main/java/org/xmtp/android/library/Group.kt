@@ -44,6 +44,9 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
     val name: String
         get() = libXMTPGroup.groupName()
 
+    val imageUrlSquare: String
+        get() = libXMTPGroup.groupImageUrlSquare()
+
     suspend fun send(text: String): String {
         return send(prepareMessage(content = text, options = null))
     }
@@ -218,6 +221,10 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
 
     suspend fun updateGroupName(name: String) {
         return libXMTPGroup.updateGroupName(name)
+    }
+
+    suspend fun updateGroupImageUrlSquare(imageUrl: String) {
+        return libXMTPGroup.updateGroupImageUrlSquare(imageUrl)
     }
 
     fun isAdmin(inboxId: String): Boolean {

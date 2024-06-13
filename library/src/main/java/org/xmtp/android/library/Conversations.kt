@@ -41,6 +41,7 @@ import org.xmtp.proto.message.contents.Contact
 import org.xmtp.proto.message.contents.Invitation
 import uniffi.xmtpv3.FfiConversationCallback
 import uniffi.xmtpv3.FfiConversations
+import uniffi.xmtpv3.FfiCreateGroupOptions
 import uniffi.xmtpv3.FfiGroup
 import uniffi.xmtpv3.FfiListConversationsOptions
 import uniffi.xmtpv3.FfiMessage
@@ -107,6 +108,8 @@ data class Conversations(
     suspend fun newGroup(
         accountAddresses: List<String>,
         permissions: GroupPermissions = GroupPermissions.ALL_MEMBERS,
+        groupName: String = "",
+        groupImageUrlSquare: String = "",
     ): Group {
         if (accountAddresses.size == 1 &&
             accountAddresses.first().lowercase() == client.address.lowercase()
@@ -121,8 +124,14 @@ data class Conversations(
         }
 
         val group =
-            libXMTPConversations?.createGroup(accountAddresses, permissions = permissions)
-                ?: throw XMTPException("Client does not support Groups")
+            libXMTPConversations?.createGroup(
+                accountAddresses,
+                opts = FfiCreateGroupOptions(
+                    permissions = permissions,
+                    groupName = groupName,
+                    groupImageUrlSquare = groupImageUrlSquare
+                )
+            ) ?: throw XMTPException("Client does not support Groups")
         client.contacts.allowGroups(groupIds = listOf(group.id()))
 
         return Group(client, group)

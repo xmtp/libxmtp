@@ -207,11 +207,19 @@ class GroupTest {
     }
 
     @Test
-    fun testNameAGroup() {
-        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alix.walletAddress)) }
+    fun testGroupMetadata() {
+        val boGroup = runBlocking {
+            boClient.conversations.newGroup(
+                listOf(alix.walletAddress),
+                groupName = "Starting Name",
+                groupImageUrlSquare = "startingurl.com"
+            )
+        }
         runBlocking {
-            assertEquals("", boGroup.name)
+            assertEquals("Starting Name", boGroup.name)
+            assertEquals("startingurl.com", boGroup.imageUrlSquare)
             boGroup.updateGroupName("This Is A Great Group")
+            boGroup.updateGroupImageUrlSquare("thisisanewurl.com")
             boGroup.sync()
             alixClient.conversations.syncGroups()
         }
@@ -219,6 +227,8 @@ class GroupTest {
         runBlocking { alixGroup.sync() }
         assertEquals("This Is A Great Group", boGroup.name)
         assertEquals("This Is A Great Group", alixGroup.name)
+        assertEquals("thisisanewurl.com", boGroup.imageUrlSquare)
+        assertEquals("thisisanewurl.com", alixGroup.imageUrlSquare)
     }
 
     @Test
