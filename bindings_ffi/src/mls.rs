@@ -667,7 +667,7 @@ impl FfiGroup {
         Ok(group_name)
     }
 
-    pub async fn update_group_image_url(
+    pub async fn update_group_image_url_square(
         &self,
         group_image_url_square: String,
     ) -> Result<(), GenericError> {
@@ -678,7 +678,7 @@ impl FfiGroup {
         );
 
         group
-            .update_group_image_url(&self.inner_client, group_image_url_square)
+            .update_group_image_url_square(&self.inner_client, group_image_url_square)
             .await?;
 
         Ok(())

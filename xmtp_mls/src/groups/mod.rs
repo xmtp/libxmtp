@@ -617,7 +617,7 @@ impl MlsGroup {
         }
     }
 
-    pub async fn update_group_image_url<ApiClient>(
+    pub async fn update_group_image_url_square<ApiClient>(
         &self,
         client: &Client<ApiClient>,
         group_image_url_square: String,
@@ -627,7 +627,7 @@ impl MlsGroup {
     {
         let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> =
-            UpdateMetadataIntentData::new_update_group_image_url(group_image_url_square).into();
+            UpdateMetadataIntentData::new_update_group_image_url_square(group_image_url_square).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::MetadataUpdate,
             self.group_id.clone(),
@@ -1757,7 +1757,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_update_group_image_url() {
+    async fn test_update_group_image_url_square() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and verify it has the default group name
@@ -1776,7 +1776,7 @@ mod tests {
 
         // Update group name
         amal_group
-            .update_group_image_url(&amal, "a url".to_string())
+            .update_group_image_url_square(&amal, "a url".to_string())
             .await
             .unwrap();
 

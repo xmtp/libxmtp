@@ -163,7 +163,7 @@ impl UpdateMetadataIntentData {
         }
     }
 
-    pub fn new_update_group_image_url(group_image_url_square: String) -> Self {
+    pub fn new_update_group_image_url_square(group_image_url_square: String) -> Self {
         Self {
             field_name: MetadataField::GroupImageUrlSquare.to_string(),
             field_value: group_image_url_square,
