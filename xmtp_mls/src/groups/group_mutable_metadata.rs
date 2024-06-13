@@ -12,7 +12,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use crate::configuration::{
-    DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL, DEFAULT_GROUP_NAME,
+    DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL_SQUARE, DEFAULT_GROUP_NAME,
     MUTABLE_METADATA_EXTENSION_ID,
 };
 
@@ -93,7 +93,7 @@ impl GroupMutableMetadata {
         );
         attributes.insert(
             MetadataField::GroupImageUrlSquare.to_string(),
-            DEFAULT_GROUP_IMAGE_URL.to_string(),
+            opts.image_url_square.unwrap_or_else(|| DEFAULT_GROUP_IMAGE_URL_SQUARE.to_string()),
         );
         let admin_list = vec![creator_inbox_id.clone()];
         let super_admin_list = vec![creator_inbox_id.clone()];

@@ -197,6 +197,7 @@ pub struct MlsGroup {
 #[derive(Default)]
 pub struct GroupMetadataOptions {
     pub name: Option<String>,
+    pub image_url_square: Option<String>,
 }
 
 impl Clone for MlsGroup {
@@ -1632,6 +1633,7 @@ mod tests {
                 None,
                 GroupMetadataOptions {
                     name: Some("Group Name".to_string()),
+                    image_url_square: Some("url".to_string()),
                 },
             )
             .unwrap();
@@ -1641,8 +1643,13 @@ mod tests {
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap();
+        let amal_group_image_url: &String = binding
+            .attributes
+            .get(&MetadataField::GroupImageUrlSquare.to_string())
+            .unwrap();
 
         assert_eq!(amal_group_name, "Group Name");
+        assert_eq!(amal_group_image_url, "url");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1755,7 +1762,7 @@ mod tests {
 
         // Create a group and verify it has the default group name
         let policies = Some(PreconfiguredPolicies::AdminsOnly);
-        let amal_group: MlsGroup = amal.create_group(policies).unwrap();
+        let amal_group: MlsGroup = amal.create_group(policies, GroupMetadataOptions::default()).unwrap();
         amal_group.sync(&amal).await.unwrap();
 
         let group_mutable_metadata = amal_group.mutable_metadata().unwrap();

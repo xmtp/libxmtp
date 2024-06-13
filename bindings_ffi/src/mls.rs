@@ -474,6 +474,7 @@ impl FfiCreateGroupOptions {
     pub fn into_group_metadata_options(self) -> GroupMetadataOptions {
         GroupMetadataOptions {
             name: self.group_name,
+            image_url_square: self.group_image_url_square,
         }
     }
 }
