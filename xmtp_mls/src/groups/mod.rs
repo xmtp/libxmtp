@@ -1612,8 +1612,6 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_group_options() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let amal_group = amal
             .create_group(
