@@ -784,9 +784,9 @@ pub fn build_mutable_metadata_extension_with_options(
     opts: GroupMetadataOptions
 ) -> Result<Extension, GroupError> {
     let mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new_default(identity.inbox_id.clone()).try_into()?;
-    let unknown_gc_extension = UnknownExtension(mutable_metadata);
-
+        GroupMutableMetadata::new_opts(identity.inbox_id.clone(), opts).try_into()?;
+    let unknown_gc_extension: UnknownExtension = UnknownExtension(mutable_metadata);
+    
     Ok(Extension::Unknown(
         MUTABLE_METADATA_EXTENSION_ID,
         unknown_gc_extension,
@@ -1587,7 +1587,7 @@ mod tests {
             .get(&MetadataField::GroupName.to_string())
             .unwrap();
 
-        assert_eq!(amal_group_name, "Group Name".to_string());
+        assert_eq!(amal_group_name, "Group Name");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
