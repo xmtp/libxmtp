@@ -667,7 +667,10 @@ impl FfiGroup {
         Ok(group_name)
     }
 
-    pub async fn update_group_image_url(&self, group_image_url_square: String) -> Result<(), GenericError> {
+    pub async fn update_group_image_url(
+        &self,
+        group_image_url_square: String,
+    ) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
             self.group_id.clone(),

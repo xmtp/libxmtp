@@ -1762,7 +1762,9 @@ mod tests {
 
         // Create a group and verify it has the default group name
         let policies = Some(PreconfiguredPolicies::AdminsOnly);
-        let amal_group: MlsGroup = amal.create_group(policies, GroupMetadataOptions::default()).unwrap();
+        let amal_group: MlsGroup = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
         let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
