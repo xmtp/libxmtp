@@ -325,7 +325,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{builder::ClientBuilder, storage::group_message::StoredGroupMessage, Client};
+    use crate::{builder::ClientBuilder, groups::GroupMetadataOptions, storage::group_message::StoredGroupMessage, Client};
     use futures::StreamExt;
     use std::sync::{Arc, Mutex};
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
@@ -336,7 +336,7 @@ mod tests {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alice_bob_group = alice.create_group(None).unwrap();
+        let alice_bob_group = alice.create_group(None, GroupMetadataOptions::default()).unwrap();
 
         let mut bob_stream = bob.stream_conversations().await.unwrap();
         alice_bob_group
@@ -354,13 +354,13 @@ mod tests {
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alix_group = alix.create_group(None).unwrap();
+        let alix_group = alix.create_group(None, GroupMetadataOptions::default()).unwrap();
         alix_group
             .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
             .unwrap();
 
-        let bo_group = bo.create_group(None).unwrap();
+        let bo_group = bo.create_group(None, GroupMetadataOptions::default()).unwrap();
         bo_group
             .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
             .await
@@ -413,7 +413,7 @@ mod tests {
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let caro = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
 
-        let alix_group = alix.create_group(None).unwrap();
+        let alix_group = alix.create_group(None, GroupMetadataOptions::default()).unwrap();
         alix_group
             .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
@@ -441,7 +441,7 @@ mod tests {
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-        let bo_group = bo.create_group(None).unwrap();
+        let bo_group = bo.create_group(None, GroupMetadataOptions::default()).unwrap();
         bo_group
             .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
             .await
@@ -460,7 +460,7 @@ mod tests {
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-        let alix_group_2 = alix.create_group(None).unwrap();
+        let alix_group_2 = alix.create_group(None, GroupMetadataOptions::default()).unwrap();
         alix_group_2
             .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
