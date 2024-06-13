@@ -16,7 +16,7 @@ Pod::Spec.new do |spec|
   #
 
   spec.name         = "XMTP"
-  spec.version      = "0.11.6"
+  spec.version      = "0.11.7"
   spec.summary      = "XMTP SDK Cocoapod"
 
   # This description is used to generate tags and improve search results.
@@ -31,7 +31,7 @@ Pod::Spec.new do |spec|
   spec.homepage     	= "https://github.com/xmtp/xmtp-ios"
 
   spec.license      	= "MIT"
-  spec.author       	= { "Pat Nakajima" => "pat@xmtp.com" }
+  spec.author       	= { "XMTP" => "eng@xmtp.com" }
 
 	spec.platform      	= :ios, '14.0', :macos, '11.0'
 
@@ -44,5 +44,5 @@ Pod::Spec.new do |spec|
   spec.dependency "web3.swift"
   spec.dependency "GzipSwift"
   spec.dependency "Connect-Swift", "= 0.12.0"
-  spec.dependency 'LibXMTP', '= 0.5.1-beta1'
+  spec.dependency 'LibXMTP', '= 0.5.1-beta2'
 end

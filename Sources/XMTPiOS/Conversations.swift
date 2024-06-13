@@ -122,11 +122,14 @@ public actor Conversations {
 		}
 	}
 
-    public func newGroup(with addresses: [String], permissions: GroupPermissions = .allMembers) async throws -> Group {
+    public func newGroup(with addresses: [String],
+						 permissions: GroupPermissions = .allMembers,
+						 name: String = "",
+						 imageUrlSquare: String = ""
+	) async throws -> Group {
 		guard let v3Client = client.v3Client else {
 			throw GroupError.alphaMLSNotEnabled
 		}
-
 
 		if addresses.first(where: { $0.lowercased() == client.address.lowercased() }) != nil {
 			throw GroupError.memberCannotBeSelf
@@ -157,7 +160,11 @@ public actor Conversations {
 			throw GroupError.memberNotRegistered(erroredAddresses)
 		}
 
-		let group = try await v3Client.conversations().createGroup(accountAddresses: addresses, permissions: permissions).fromFFI(client: client)
+		let group = try await v3Client.conversations().createGroup(accountAddresses: addresses,
+																   opts: FfiCreateGroupOptions(permissions: permissions,
+																							   groupName: name,
+																							   groupImageUrlSquare: imageUrlSquare
+																							  )).fromFFI(client: client)
 
 		try await client.contacts.allowGroups(groupIds: [group.id])
 

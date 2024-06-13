@@ -664,20 +664,26 @@ class GroupTests: XCTestCase {
 		await waitForExpectations(timeout: 3)
 	}
     
-    func testCanUpdateGroupName() async throws {
+    func testCanUpdateGroupMetadata() async throws {
         let fixtures = try await localFixtures()
-        let group = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address])
+        let group = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address], name: "Start Name", imageUrlSquare: "starturl.com")
         
         var groupName = try group.groupName()
+		var groupImageUrlSquare = try group.groupImageUrlSquare()
         
-        XCTAssertEqual(groupName, "")
+        XCTAssertEqual(groupName, "Start Name")
+		XCTAssertEqual(groupImageUrlSquare, "starturl.com")
+
 
         try await group.updateGroupName(groupName: "Test Group Name 1")
+		try await group.updateGroupImageUrlSquare(imageUrlSquare: "newurl.com")
         
         groupName = try group.groupName()
-        
+		groupImageUrlSquare = try group.groupImageUrlSquare()
+
         XCTAssertEqual(groupName, "Test Group Name 1")
-        
+		XCTAssertEqual(groupImageUrlSquare, "newurl.com")
+		
         let bobConv = try await fixtures.bobClient.conversations.list(includeGroups: true)[0]
         let bobGroup: Group;
         switch bobConv {
@@ -691,11 +697,13 @@ class GroupTests: XCTestCase {
                 bobGroup = group
         }
         groupName = try bobGroup.groupName()
-        XCTAssertEqual(groupName, "")
+        XCTAssertEqual(groupName, "Start Name")
         
         try await bobGroup.sync()
         groupName = try bobGroup.groupName()
-        
+		groupImageUrlSquare = try bobGroup.groupImageUrlSquare()
+		
+		XCTAssertEqual(groupImageUrlSquare, "newurl.com")
         XCTAssertEqual(groupName, "Test Group Name 1")
     }
 	
