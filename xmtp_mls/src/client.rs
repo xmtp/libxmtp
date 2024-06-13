@@ -32,8 +32,8 @@ use xmtp_proto::xmtp::mls::api::v1::{
 use crate::{
     api::ApiClientWrapper,
     groups::{
-        validated_commit::CommitValidationError, GroupError, IntentError, MlsGroup,
-        PreconfiguredPolicies,
+        validated_commit::CommitValidationError, GroupError, GroupMetadataOptions, IntentError,
+        MlsGroup, PreconfiguredPolicies,
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::IdentityUpdateError,
@@ -282,6 +282,7 @@ where
     pub fn create_group(
         &self,
         permissions: Option<PreconfiguredPolicies>,
+        opts: GroupMetadataOptions,
     ) -> Result<MlsGroup, ClientError> {
         log::info!("creating group");
 
@@ -289,6 +290,7 @@ where
             self.context.clone(),
             GroupMembershipState::Allowed,
             permissions,
+            opts,
         )
         .map_err(Box::new)?;
 
@@ -580,6 +582,7 @@ mod tests {
 
     use crate::{
         builder::ClientBuilder,
+        groups::GroupMetadataOptions,
         hpke::{decrypt_welcome, encrypt_welcome},
     };
 
@@ -639,8 +642,12 @@ mod tests {
     #[tokio::test]
     async fn test_find_groups() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let group_1 = client.create_group(None).unwrap();
-        let group_2 = client.create_group(None).unwrap();
+        let group_1 = client
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        let group_2 = client
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
 
         let groups = client.find_groups(None, None, None, None).unwrap();
         assert_eq!(groups.len(), 2);
@@ -653,7 +660,9 @@ mod tests {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alice_bob_group = alice.create_group(None).unwrap();
+        let alice_bob_group = alice
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         alice_bob_group
             .add_members_by_inbox_id(&alice, vec![bob.inbox_id()])
             .await
@@ -725,7 +734,9 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and invite bola
-        let amal_group = amal.create_group(None).unwrap();
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await

@@ -10,26 +10,29 @@ use std::sync::{
 };
 use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_id::associations::builder::SignatureRequest;
-use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
-use xmtp_id::associations::Erc1271Signature;
-use xmtp_id::associations::RecoverableEcdsaSignature;
-use xmtp_id::InboxId;
-use xmtp_mls::api::ApiClientWrapper;
-use xmtp_mls::groups::group_metadata::ConversationType;
-use xmtp_mls::groups::group_metadata::GroupMetadata;
-use xmtp_mls::groups::group_permissions::GroupMutablePermissions;
-use xmtp_mls::groups::PreconfiguredPolicies;
-use xmtp_mls::groups::UpdateAdminListType;
-use xmtp_mls::identity::IdentityStrategy;
-use xmtp_mls::retry::Retry;
+use xmtp_id::{
+    associations::{
+        builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id,
+        RecoverableEcdsaSignature, SmartContractWalletSignature,
+    },
+    InboxId,
+};
+use xmtp_mls::groups::GroupMetadataOptions;
 use xmtp_mls::{
+    api::ApiClientWrapper,
     builder::ClientBuilder,
     client::Client as MlsClient,
-    groups::{members::PermissionLevel, MlsGroup},
+    groups::{
+        group_metadata::{ConversationType, GroupMetadata},
+        group_permissions::GroupMutablePermissions,
+        members::PermissionLevel,
+        MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
+    },
+    identity::IdentityStrategy,
+    retry::Retry,
     storage::{
-        group_message::DeliveryStatus, group_message::GroupMessageKind,
-        group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
+        group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+        EncryptedMessageStore, EncryptionKey, StorageOption,
     },
 };
 
@@ -169,21 +172,22 @@ impl FfiSignatureRequest {
         Ok(())
     }
 
-    pub async fn add_erc1271_signature(
+    // Signature that's signed by smart contract wallet
+    pub async fn add_scw_signature(
         &self,
         signature_bytes: Vec<u8>,
         address: String,
         chain_rpc_url: String,
     ) -> Result<(), GenericError> {
         let mut inner = self.inner.lock().await;
-        let erc1271_signature = Erc1271Signature::new_with_rpc(
+        let signature = SmartContractWalletSignature::new_with_rpc(
             inner.signature_text(),
             signature_bytes,
             address,
             chain_rpc_url,
         )
         .await?;
-        inner.add_signature(Box::new(erc1271_signature)).await?;
+        inner.add_signature(Box::new(signature)).await?;
         Ok(())
     }
 
@@ -324,27 +328,13 @@ impl FfiConversations {
             _ => None,
         };
 
-        let convo = self.inner_client.create_group(group_permissions)?;
+        let convo = self
+            .inner_client
+            .create_group(group_permissions, opts.into_group_metadata_options())?;
         if !account_addresses.is_empty() {
             convo
                 .add_members(&self.inner_client, account_addresses)
                 .await?;
-        }
-
-        if let Some(ref name) = opts.group_name {
-            if !name.is_empty() {
-                convo
-                    .update_group_name(&self.inner_client, name.to_string())
-                    .await?;
-            }
-        }
-
-        if let Some(ref image_url) = opts.group_image_url {
-            if !image_url.is_empty() {
-                convo
-                    .update_group_image_url(&self.inner_client, image_url.to_string())
-                    .await?;
-            }
         }
 
         let out = Arc::new(FfiGroup {
@@ -478,6 +468,14 @@ pub struct FfiCreateGroupOptions {
     pub permissions: Option<GroupPermissions>,
     pub group_name: Option<String>,
     pub group_image_url: Option<String>,
+}
+
+impl FfiCreateGroupOptions {
+    pub fn into_group_metadata_options(self) -> GroupMetadataOptions {
+        GroupMetadataOptions {
+            name: self.group_name,
+        }
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]

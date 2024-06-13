@@ -625,139 +625,6 @@ impl<'de> serde::Deserialize<'de> for CreateInbox {
         deserializer.deserialize_struct("xmtp.identity.associations.CreateInbox", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for Erc1271Signature {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if !self.account_id.is_empty() {
-            len += 1;
-        }
-        if self.block_number != 0 {
-            len += 1;
-        }
-        if !self.signature.is_empty() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.Erc1271Signature", len)?;
-        if !self.account_id.is_empty() {
-            struct_ser.serialize_field("accountId", &self.account_id)?;
-        }
-        if self.block_number != 0 {
-            #[allow(clippy::needless_borrow)]
-            struct_ser.serialize_field("blockNumber", ToString::to_string(&self.block_number).as_str())?;
-        }
-        if !self.signature.is_empty() {
-            #[allow(clippy::needless_borrow)]
-            struct_ser.serialize_field("signature", pbjson::private::base64::encode(&self.signature).as_str())?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for Erc1271Signature {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "account_id",
-            "accountId",
-            "block_number",
-            "blockNumber",
-            "signature",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            AccountId,
-            BlockNumber,
-            Signature,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "accountId" | "account_id" => Ok(GeneratedField::AccountId),
-                            "blockNumber" | "block_number" => Ok(GeneratedField::BlockNumber),
-                            "signature" => Ok(GeneratedField::Signature),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = Erc1271Signature;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.identity.associations.Erc1271Signature")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Erc1271Signature, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut account_id__ = None;
-                let mut block_number__ = None;
-                let mut signature__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::AccountId => {
-                            if account_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("accountId"));
-                            }
-                            account_id__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::BlockNumber => {
-                            if block_number__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("blockNumber"));
-                            }
-                            block_number__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::Signature => {
-                            if signature__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("signature"));
-                            }
-                            signature__ = 
-                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
-                            ;
-                        }
-                    }
-                }
-                Ok(Erc1271Signature {
-                    account_id: account_id__.unwrap_or_default(),
-                    block_number: block_number__.unwrap_or_default(),
-                    signature: signature__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("xmtp.identity.associations.Erc1271Signature", FIELDS, GeneratedVisitor)
-    }
-}
 impl serde::Serialize for IdentityAction {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1796,8 +1663,8 @@ impl serde::Serialize for Signature {
                 signature::Signature::Erc191(v) => {
                     struct_ser.serialize_field("erc191", v)?;
                 }
-                signature::Signature::Erc1271(v) => {
-                    struct_ser.serialize_field("erc1271", v)?;
+                signature::Signature::Erc6492(v) => {
+                    struct_ser.serialize_field("erc6492", v)?;
                 }
                 signature::Signature::InstallationKey(v) => {
                     struct_ser.serialize_field("installationKey", v)?;
@@ -1819,8 +1686,8 @@ impl<'de> serde::Deserialize<'de> for Signature {
         const FIELDS: &[&str] = &[
             "erc_191",
             "erc191",
-            "erc_1271",
-            "erc1271",
+            "erc_6492",
+            "erc6492",
             "installation_key",
             "installationKey",
             "delegated_erc_191",
@@ -1830,7 +1697,7 @@ impl<'de> serde::Deserialize<'de> for Signature {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Erc191,
-            Erc1271,
+            Erc6492,
             InstallationKey,
             DelegatedErc191,
         }
@@ -1855,7 +1722,7 @@ impl<'de> serde::Deserialize<'de> for Signature {
                     {
                         match value {
                             "erc191" | "erc_191" => Ok(GeneratedField::Erc191),
-                            "erc1271" | "erc_1271" => Ok(GeneratedField::Erc1271),
+                            "erc6492" | "erc_6492" => Ok(GeneratedField::Erc6492),
                             "installationKey" | "installation_key" => Ok(GeneratedField::InstallationKey),
                             "delegatedErc191" | "delegated_erc_191" => Ok(GeneratedField::DelegatedErc191),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
@@ -1887,11 +1754,11 @@ impl<'de> serde::Deserialize<'de> for Signature {
                             signature__ = map_.next_value::<::std::option::Option<_>>()?.map(signature::Signature::Erc191)
 ;
                         }
-                        GeneratedField::Erc1271 => {
+                        GeneratedField::Erc6492 => {
                             if signature__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("erc1271"));
+                                return Err(serde::de::Error::duplicate_field("erc6492"));
                             }
-                            signature__ = map_.next_value::<::std::option::Option<_>>()?.map(signature::Signature::Erc1271)
+                            signature__ = map_.next_value::<::std::option::Option<_>>()?.map(signature::Signature::Erc6492)
 ;
                         }
                         GeneratedField::InstallationKey => {
@@ -1916,5 +1783,156 @@ impl<'de> serde::Deserialize<'de> for Signature {
             }
         }
         deserializer.deserialize_struct("xmtp.identity.associations.Signature", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for SmartContractWalletSignature {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.account_id.is_empty() {
+            len += 1;
+        }
+        if self.block_number != 0 {
+            len += 1;
+        }
+        if !self.signature.is_empty() {
+            len += 1;
+        }
+        if !self.chain_rpc_url.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.SmartContractWalletSignature", len)?;
+        if !self.account_id.is_empty() {
+            struct_ser.serialize_field("accountId", &self.account_id)?;
+        }
+        if self.block_number != 0 {
+            #[allow(clippy::needless_borrow)]
+            struct_ser.serialize_field("blockNumber", ToString::to_string(&self.block_number).as_str())?;
+        }
+        if !self.signature.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            struct_ser.serialize_field("signature", pbjson::private::base64::encode(&self.signature).as_str())?;
+        }
+        if !self.chain_rpc_url.is_empty() {
+            struct_ser.serialize_field("chainRpcUrl", &self.chain_rpc_url)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SmartContractWalletSignature {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "account_id",
+            "accountId",
+            "block_number",
+            "blockNumber",
+            "signature",
+            "chain_rpc_url",
+            "chainRpcUrl",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            AccountId,
+            BlockNumber,
+            Signature,
+            ChainRpcUrl,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "accountId" | "account_id" => Ok(GeneratedField::AccountId),
+                            "blockNumber" | "block_number" => Ok(GeneratedField::BlockNumber),
+                            "signature" => Ok(GeneratedField::Signature),
+                            "chainRpcUrl" | "chain_rpc_url" => Ok(GeneratedField::ChainRpcUrl),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SmartContractWalletSignature;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.identity.associations.SmartContractWalletSignature")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SmartContractWalletSignature, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut account_id__ = None;
+                let mut block_number__ = None;
+                let mut signature__ = None;
+                let mut chain_rpc_url__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::AccountId => {
+                            if account_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("accountId"));
+                            }
+                            account_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::BlockNumber => {
+                            if block_number__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("blockNumber"));
+                            }
+                            block_number__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Signature => {
+                            if signature__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("signature"));
+                            }
+                            signature__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::ChainRpcUrl => {
+                            if chain_rpc_url__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("chainRpcUrl"));
+                            }
+                            chain_rpc_url__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(SmartContractWalletSignature {
+                    account_id: account_id__.unwrap_or_default(),
+                    block_number: block_number__.unwrap_or_default(),
+                    signature: signature__.unwrap_or_default(),
+                    chain_rpc_url: chain_rpc_url__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.identity.associations.SmartContractWalletSignature", FIELDS, GeneratedVisitor)
     }
 }
