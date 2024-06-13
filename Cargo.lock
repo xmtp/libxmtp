@@ -5065,6 +5065,7 @@ name = "tls_codec"
 version = "0.4.2-pre.1"
 source = "git+https://github.com/RustCrypto/formats?branch=franziskus/tls_codec_serde#6f07e1f650ff99fd4b8e5e485514616f1d9f7471"
 dependencies = [
+ "serde",
  "tls_codec_derive 0.4.1 (git+https://github.com/RustCrypto/formats?branch=franziskus/tls_codec_serde)",
  "zeroize",
 ]
