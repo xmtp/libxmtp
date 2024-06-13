@@ -467,7 +467,7 @@ pub struct FfiListMessagesOptions {
 pub struct FfiCreateGroupOptions {
     pub permissions: Option<GroupPermissions>,
     pub group_name: Option<String>,
-    pub group_image_url: Option<String>,
+    pub group_image_url_square: Option<String>,
 }
 
 impl FfiCreateGroupOptions {
@@ -666,7 +666,7 @@ impl FfiGroup {
         Ok(group_name)
     }
 
-    pub async fn update_group_image_url(&self, group_image_url: String) -> Result<(), GenericError> {
+    pub async fn update_group_image_url(&self, group_image_url_square: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
             self.group_id.clone(),
@@ -674,22 +674,22 @@ impl FfiGroup {
         );
 
         group
-            .update_group_image_url(&self.inner_client, group_image_url)
+            .update_group_image_url(&self.inner_client, group_image_url_square)
             .await?;
 
         Ok(())
     }
 
-    pub fn group_image_url(&self) -> Result<String, GenericError> {
+    pub fn group_image_url_square(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        let group_image_url = group.group_image_url()?;
+        let group_image_url_square = group.group_image_url_square()?;
 
-        Ok(group_image_url)
+        Ok(group_image_url_square)
     }
 
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
@@ -1304,7 +1304,7 @@ mod tests {
                 FfiCreateGroupOptions {
                     permissions: Some(GroupPermissions::AdminOnly),
                     group_name: Some("Group Name".to_string()),
-                    group_image_url: Some("url".to_string()),
+                    group_image_url_square: Some("url".to_string()),
                 },
             )
             .await
@@ -1313,7 +1313,7 @@ mod tests {
         let members = group.list_members().unwrap();
         assert_eq!(members.len(), 2);
         assert_eq!(group.group_name().unwrap(), "Group Name");
-        assert_eq!(group.group_image_url().unwrap(), "url");
+        assert_eq!(group.group_image_url_square().unwrap(), "url");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

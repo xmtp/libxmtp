@@ -619,14 +619,14 @@ impl MlsGroup {
     pub async fn update_group_image_url<ApiClient>(
         &self,
         client: &Client<ApiClient>,
-        group_image_url: String,
+        group_image_url_square: String,
     ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> =
-            UpdateMetadataIntentData::new_update_group_image_url(group_image_url).into();
+            UpdateMetadataIntentData::new_update_group_image_url(group_image_url_square).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::MetadataUpdate,
             self.group_id.clone(),
@@ -637,13 +637,13 @@ impl MlsGroup {
             .await
     }
 
-    pub fn group_image_url(&self) -> Result<String, GroupError> {
+    pub fn group_image_url_square(&self) -> Result<String, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
         match mutable_metadata
             .attributes
-            .get(&MetadataField::GroupImageUrl.to_string())
+            .get(&MetadataField::GroupImageUrlSquare.to_string())
         {
-            Some(group_image_url) => Ok(group_image_url.clone()),
+            Some(group_image_url_square) => Ok(group_image_url_square.clone()),
             None => Err(GroupError::GroupMutableMetadata(
                 GroupMutableMetadataError::MissingExtension,
             )),
@@ -1761,7 +1761,7 @@ mod tests {
         let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
         assert!(group_mutable_metadata
             .attributes
-            .get(&MetadataField::GroupImageUrl.to_string())
+            .get(&MetadataField::GroupImageUrlSquare.to_string())
             .unwrap()
             .eq(""));
 
@@ -1776,7 +1776,7 @@ mod tests {
         let binding = amal_group.mutable_metadata().expect("msg");
         let amal_group_image_url: &String = binding
             .attributes
-            .get(&MetadataField::GroupImageUrl.to_string())
+            .get(&MetadataField::GroupImageUrlSquare.to_string())
             .unwrap();
         assert_eq!(amal_group_image_url, "a url");
     }

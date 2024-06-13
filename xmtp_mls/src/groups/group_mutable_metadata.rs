@@ -41,7 +41,7 @@ pub enum GroupMutableMetadataError {
 pub enum MetadataField {
     GroupName,
     Description,
-    GroupImageUrl,
+    GroupImageUrlSquare,
 }
 
 impl MetadataField {
@@ -49,7 +49,7 @@ impl MetadataField {
         match self {
             MetadataField::GroupName => "group_name",
             MetadataField::Description => "description",
-            MetadataField::GroupImageUrl => "group_image_url",
+            MetadataField::GroupImageUrlSquare => "group_image_url_square",
         }
     }
 }
@@ -92,7 +92,7 @@ impl GroupMutableMetadata {
             DEFAULT_GROUP_DESCRIPTION.to_string(),
         );
         attributes.insert(
-            MetadataField::GroupImageUrl.to_string(),
+            MetadataField::GroupImageUrlSquare.to_string(),
             DEFAULT_GROUP_IMAGE_URL.to_string(),
         );
         let admin_list = vec![creator_inbox_id.clone()];
@@ -109,7 +109,7 @@ impl GroupMutableMetadata {
         vec![
             MetadataField::GroupName,
             MetadataField::Description,
-            MetadataField::GroupImageUrl,
+            MetadataField::GroupImageUrlSquare,
         ]
     }
 
