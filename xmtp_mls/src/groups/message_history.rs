@@ -776,8 +776,12 @@ mod tests {
     async fn test_prepare_groups_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let _group_a = amal_a.create_group(None, GroupMetadataOptions::default()).expect("create group");
-        let _group_b = amal_a.create_group(None, GroupMetadataOptions::default()).expect("create group");
+        let _group_a = amal_a
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
+        let _group_b = amal_a
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
 
         let result = amal_a.prepare_groups_to_sync().await.unwrap();
         assert_eq!(result.len(), 2);
@@ -787,8 +791,12 @@ mod tests {
     async fn test_prepare_group_messages_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let group_a = amal_a.create_group(None, GroupMetadataOptions::default()).expect("create group");
-        let group_b = amal_a.create_group(None, GroupMetadataOptions::default()).expect("create group");
+        let group_a = amal_a
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
+        let group_b = amal_a
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
 
         group_a
             .send_message(b"hi", &amal_a)
@@ -815,8 +823,12 @@ mod tests {
     async fn test_write_to_file() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let group_a = amal_a.create_group(None, GroupMetadataOptions::default()).expect("create group");
-        let group_b = amal_a.create_group(None, GroupMetadataOptions::default()).expect("create group");
+        let group_a = amal_a
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
+        let group_b = amal_a
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
 
         group_a
             .send_message(b"hi", &amal_a)
@@ -988,7 +1000,9 @@ mod tests {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        let group_a = amal_a.create_group(None, GroupMetadataOptions::default()).expect("create group");
+        let group_a = amal_a
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
 
         group_a
             .send_message(b"hi", &amal_a)

@@ -325,7 +325,9 @@ impl FfiConversations {
             _ => None,
         };
 
-        let convo = self.inner_client.create_group(group_permissions, opts.into_group_metadata_options())?;
+        let convo = self
+            .inner_client
+            .create_group(group_permissions, opts.into_group_metadata_options())?;
         if !account_addresses.is_empty() {
             convo
                 .add_members(&self.inner_client, account_addresses)

@@ -122,7 +122,10 @@ mod tests {
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{builder::ClientBuilder, groups::GroupMetadataOptions, storage::group_message::GroupMessageKind};
+    use crate::{
+        builder::ClientBuilder, groups::GroupMetadataOptions,
+        storage::group_message::GroupMessageKind,
+    };
     use futures::StreamExt;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -130,7 +133,9 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal.create_group(None, GroupMetadataOptions::default()).unwrap();
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         // Add bola
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
@@ -165,7 +170,9 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal.create_group(None, GroupMetadataOptions::default()).unwrap();
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         // Add bola
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
@@ -198,7 +205,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_multiple() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let group = amal.create_group(None, GroupMetadataOptions::default()).unwrap();
+        let group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
 
         let stream = group.stream(amal.clone()).await.unwrap();
 
@@ -227,7 +236,9 @@ mod tests {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal.create_group(None, GroupMetadataOptions::default()).unwrap();
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
 
         let mut stream = amal_group.stream(amal.clone()).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
