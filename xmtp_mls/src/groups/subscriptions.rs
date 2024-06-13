@@ -21,7 +21,9 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
+        
         let msgv1 = extract_message_v1(envelope)?;
+        log::info!("client [{}]  is about to process streamed envelope: [{}]", client.inbox_id(), msgv1.id);
         let created_ns = msgv1.created_ns;
 
         let client_pointer = client.clone();
@@ -247,5 +249,44 @@ mod tests {
             .unwrap();
         let second_val = stream.next().await.unwrap();
         assert_eq!(second_val.decrypted_message_bytes, "hello".as_bytes());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    async fn test_subscribe_metadata_update() {
+        let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let amal_group = amal.create_group(None).unwrap();
+
+        let mut stream = amal_group.stream(amal.clone()).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        amal_group
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        // Get bola's version of the same group
+        let bola_groups = bola.sync_welcomes().await.unwrap();
+        let bola_group = bola_groups.first().unwrap();
+
+        let first_val = stream.next().await.unwrap();
+        assert_eq!(first_val.kind, GroupMessageKind::MembershipChange);
+
+        amal_group
+            .send_message("hello".as_bytes(), &amal)
+            .await
+            .unwrap();
+        let second_val = stream.next().await.unwrap();
+        assert_eq!(second_val.decrypted_message_bytes, "hello".as_bytes());
+
+        amal_group.update_group_name(&amal, "new name".to_string()).await.unwrap();
+        // amal_group.sync(&amal).await.unwrap();
+        // bola_group.sync(&bola).await.unwrap();
+        let third_val = stream.next().await.unwrap();
+        assert_eq!(third_val.kind, GroupMessageKind::MembershipChange);
+
+        let group_name = bola_group.get_group_name().await.unwrap();
+        assert_eq!(group_name, "new name");
     }
 }

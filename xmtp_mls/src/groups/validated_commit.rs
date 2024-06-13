@@ -405,7 +405,7 @@ fn get_latest_group_membership(
     for proposal in staged_commit.queued_proposals() {
         match proposal.proposal() {
             Proposal::GroupContextExtensions(group_context_extensions) => {
-                let new_group_membership =
+                let new_group_membership: GroupMembership =
                     extract_group_membership(group_context_extensions.extensions())?;
                 log::info!(
                     "Group context extensions proposal found: {:?}",

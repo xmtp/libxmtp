@@ -1606,6 +1606,12 @@ mod tests {
             .await
             .unwrap();
 
+        amal_group
+            .send_message("hello".as_bytes(), &amal)
+            .await
+            .unwrap();
+        
+
         // Verify amal group sees update
         amal_group.sync(&amal).await.unwrap();
         let binding = amal_group.mutable_metadata().expect("msg");

@@ -1554,6 +1554,12 @@ mod tests {
         let bo = new_test_client().await;
         let alix = new_test_client().await;
 
+        let bo_message_counter = RustStreamCallback::new();
+        bo.conversations()
+            .stream_all_messages(Box::new(bo_message_counter.clone()))
+            .await
+            .unwrap();
+
         let alix_group = alix
             .conversations()
             .create_group(
@@ -1563,6 +1569,7 @@ mod tests {
             .await
             .unwrap();
 
+        alix_group.send("hello".as_bytes().to_vec()).await.unwrap();
         alix_group
             .update_group_name("hello".to_string())
             .await
@@ -1571,13 +1578,8 @@ mod tests {
         log::info!("Sent message");
 
         bo.conversations().sync().await.unwrap();
-
         log::info!("Synced bo's groups");
-        let bo_message_counter = RustStreamCallback::new();
-        bo.conversations()
-            .stream_all_messages(Box::new(bo_message_counter.clone()))
-            .await
-            .unwrap();
+
 
         let bo_groups = bo
             .conversations()
@@ -1605,7 +1607,7 @@ mod tests {
             .find_messages(list_messages_options.clone())
             .unwrap();
 
-        assert_eq!(bo_messages.len(), 2);
+        assert_eq!(bo_messages.len(), 3);
 
         bo_group.send("hello2".as_bytes().to_vec()).await.unwrap();
         bo_group.send("hello3".as_bytes().to_vec()).await.unwrap();
@@ -1614,7 +1616,7 @@ mod tests {
         let alix_messages = alix_group
             .find_messages(list_messages_options.clone())
             .unwrap();
-        assert_eq!(alix_messages.len(), 5);
+        assert_eq!(alix_messages.len(), 6);
 
         alix_group.send("hello4".as_bytes().to_vec()).await.unwrap();
 
@@ -1622,7 +1624,7 @@ mod tests {
         let bo_messages = bo_group
             .find_messages(list_messages_options.clone())
             .unwrap();
-        assert_eq!(bo_messages.len(), 5);
+        assert_eq!(bo_messages.len(), 6);
 
         alix_group.send("hello5".as_bytes().to_vec()).await.unwrap();
 
@@ -1630,12 +1632,12 @@ mod tests {
         let bo_messages = bo_group
             .find_messages(list_messages_options.clone())
             .unwrap();
-        assert_eq!(bo_messages.len(), 6);
+        assert_eq!(bo_messages.len(), 7);
 
         alix_group.sync().await.unwrap();
         let alix_messages = alix_group
             .find_messages(list_messages_options.clone())
             .unwrap();
-        assert_eq!(alix_messages.len(), 7);
+        assert_eq!(alix_messages.len(), 8);
     }
 }

@@ -327,7 +327,6 @@ impl MlsGroup {
         envelope_timestamp_ns: u64,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
-        log::info!("[{}] processing external message", self.context.inbox_id());
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
@@ -509,6 +508,7 @@ impl MlsGroup {
                 );
 
                 let sc = *staged_commit;
+                
                 // Validate the commit
                 let validated_commit = ValidatedCommit::from_staged_commit(
                     client,
@@ -518,7 +518,12 @@ impl MlsGroup {
                 )
                 .await?;
                 log::info!("[{}] staged commit is valid", self.context.inbox_id());
-                openmls_group.merge_staged_commit(provider, sc)?;
+                let maybe_merge_staged_commit = openmls_group.merge_staged_commit(provider, sc);
+                if let Err(e) = maybe_merge_staged_commit {
+                    log::error!("[{}] error merging staged commit: {e}", self.context.inbox_id());
+                } else {
+                    log::info!("[{}] staged commit merged successfully", self.context.inbox_id());
+                }
                 self.save_transcript_message(
                     provider.conn_ref(),
                     validated_commit,
@@ -554,6 +559,9 @@ impl MlsGroup {
         match intent {
             // Intent with the payload hash matches
             Ok(Some(intent)) => {
+
+                log::info!("client [{}] is  about to process own envelope [{}]", client.inbox_id(), envelope.id);
+                log::info!("envelope [{}] is equal to intent [{}]", envelope.id, intent.id);
                 self.process_own_message(
                     client,
                     intent,
@@ -567,6 +575,7 @@ impl MlsGroup {
             }
             // No matching intent found
             Ok(None) => {
+                log::info!("client [{}] is about to process external envelope [{}]", client.inbox_id(), envelope.id);
                 self.process_external_message(
                     client,
                     openmls_group,
