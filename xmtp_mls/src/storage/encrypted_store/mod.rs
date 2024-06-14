@@ -183,19 +183,23 @@ impl EncryptedMessageStore {
         match fun(&provider) {
             Ok(value) => {
                 conn.raw_query(|conn| {
-                    log::info!("Transaction being committed");
                     PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
                 })?;
+                log::info!("Transaction being committed");
                 Ok(value)
             }
-            Err(err) => match conn.raw_query(|conn| {
+            Err(err) => {
                 log::info!("Transaction being rolled back");
-                PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(&mut *conn)
-            }) {
-                Ok(()) => Err(err),
-                Err(Error::BrokenTransactionManager) => Err(err),
-                Err(rollback) => Err(rollback.into()),
-            },
+                match conn.raw_query(|conn| {
+                    PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(
+                        &mut *conn,
+                    )
+                }) {
+                    Ok(()) => Err(err),
+                    Err(Error::BrokenTransactionManager) => Err(err),
+                    Err(rollback) => Err(rollback.into()),
+                }
+            }
         }
     }
 
@@ -219,7 +223,7 @@ impl EncryptedMessageStore {
         Fut: futures::Future<Output = Result<T, E>>,
         E: From<diesel::result::Error> + From<StorageError>,
     {
-        log::info!("Transaction Async beginning");
+        log::info!("Transaction async beginning");
         let mut connection = self.raw_conn()?;
         AnsiTransactionManager::begin_transaction(&mut *connection)?;
 
@@ -235,19 +239,23 @@ impl EncryptedMessageStore {
         match result {
             Ok(value) => {
                 conn_ref.raw_query(|conn| {
-                    log::info!("Transaction Async being committed");
                     PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
                 })?;
+                log::info!("Transaction async being committed");
                 Ok(value)
             }
-            Err(err) => match conn_ref.raw_query(|conn| {
-                log::info!("Transaction Async being rolled back");
-                PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(&mut *conn)
-            }) {
-                Ok(()) => Err(err),
-                Err(Error::BrokenTransactionManager) => Err(err),
-                Err(rollback) => Err(rollback.into()),
-            },
+            Err(err) => {
+                log::info!("Transaction async being rolled back");
+                match conn_ref.raw_query(|conn| {
+                    PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(
+                        &mut *conn,
+                    )
+                }) {
+                    Ok(()) => Err(err),
+                    Err(Error::BrokenTransactionManager) => Err(err),
+                    Err(rollback) => Err(rollback.into()),
+                }
+            }
         }
     }
 

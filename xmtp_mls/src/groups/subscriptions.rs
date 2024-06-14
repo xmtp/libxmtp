@@ -22,7 +22,7 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let msgv1 = extract_message_v1(envelope)?;
-        let msg_id = msgv1.id.clone();
+        let msg_id = msgv1.id;
         let client_id = client.inbox_id().clone();
         let client_id_two = client.inbox_id().clone();
         log::info!(
