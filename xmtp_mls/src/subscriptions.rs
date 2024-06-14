@@ -58,8 +58,6 @@ where
         welcome: WelcomeMessage,
     ) -> Result<MlsGroup, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
-        // let conn = self.store().conn()?;
-        // let provider = self.mls_provider(conn);
 
         let creation_result = self
             .context
