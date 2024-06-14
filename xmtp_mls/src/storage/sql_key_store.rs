@@ -157,17 +157,18 @@ impl SqlKeyStore {
                     // The value in the storage is an array of array of bytes.
                     match bincode::deserialize::<Vec<Vec<u8>>>(&entry.value_bytes) {
                         Ok(mut deserialized) => {
-                                // Find and remove the value.
-                                let vpos = deserialized.iter().position(|v| {
+                            // Find and remove the value.
+                            let vpos =
+                                deserialized.iter().position(|v| {
                                     match bincode::deserialize::<Vec<u8>>(&v.clone()) {
                                         Ok(deserialized_value) => deserialized_value == value,
                                         Err(_) => false,
                                     }
                                 });
 
-                                if let Some(pos) = vpos {
-                                    deserialized.remove(pos);
-                                }
+                            if let Some(pos) = vpos {
+                                deserialized.remove(pos);
+                            }
                             let modified_data = bincode::serialize(&deserialized)
                                 .map_err(|_| MemoryStorageError::SerializationError)?;
 
