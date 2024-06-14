@@ -130,8 +130,6 @@ pub async fn get_inbox_id_for_address(
     is_secure: bool,
     account_address: String,
 ) -> Result<Option<String>, GenericError> {
-    init_logger(logger);
-
     let api_client = ApiClientWrapper::new(
         TonicApiClient::create(host.clone(), is_secure).await?,
         Retry::default(),
