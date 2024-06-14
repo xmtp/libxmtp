@@ -6,7 +6,7 @@ import {
   createUser,
   encodeTextMessage,
 } from '@test/helpers'
-import { NapiGroup, NapiMessage } from '../dist'
+import { GroupPermissions, NapiGroup, NapiMessage } from '../dist'
 
 describe('Conversations', () => {
   it('should not have initial conversations', async () => {
@@ -29,6 +29,9 @@ describe('Conversations', () => {
     expect(group.createdAtNs()).toBeTypeOf('number')
     expect(group.isActive()).toBe(true)
     expect(group.groupName()).toBe('')
+    expect(group.groupPermissions().policyType()).toBe(
+      GroupPermissions.EveryoneIsAdmin
+    )
     expect(group.addedByInboxId()).toBe(client1.inboxId())
     expect(group.findMessages().length).toBe(1)
     const members = group.listMembers()
@@ -50,6 +53,60 @@ describe('Conversations', () => {
     const group2 = await client2.conversations().list()
     expect(group2.length).toBe(1)
     expect(group2[0].id).toBe(group.id)
+  })
+
+  it('should create a new group with options', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const user3 = createUser()
+    const user4 = createUser()
+    const user5 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    await createRegisteredClient(user2)
+    await createRegisteredClient(user3)
+    await createRegisteredClient(user4)
+    await createRegisteredClient(user5)
+    const groupWithName = await client1
+      .conversations()
+      .createGroup([user2.account.address], {
+        groupName: 'foo',
+      })
+    expect(groupWithName).toBeDefined()
+    expect(groupWithName.groupName()).toBe('foo')
+    expect(groupWithName.groupImageUrlSquare()).toBe('')
+
+    const groupWithImageUrl = await client1
+      .conversations()
+      .createGroup([user3.account.address], {
+        groupImageUrlSquare: 'https://foo/bar.png',
+      })
+    expect(groupWithImageUrl).toBeDefined()
+    expect(groupWithImageUrl.groupName()).toBe('')
+    expect(groupWithImageUrl.groupImageUrlSquare()).toBe('https://foo/bar.png')
+
+    const groupWithNameAndImageUrl = await client1
+      .conversations()
+      .createGroup([user4.account.address], {
+        groupImageUrlSquare: 'https://foo/bar.png',
+        groupName: 'foo',
+      })
+    expect(groupWithNameAndImageUrl).toBeDefined()
+    expect(groupWithNameAndImageUrl.groupName()).toBe('foo')
+    expect(groupWithNameAndImageUrl.groupImageUrlSquare()).toBe(
+      'https://foo/bar.png'
+    )
+
+    const groupWithPermissions = await client1
+      .conversations()
+      .createGroup([user4.account.address], {
+        permissions: GroupPermissions.GroupCreatorIsAdmin,
+      })
+    expect(groupWithPermissions).toBeDefined()
+    expect(groupWithPermissions.groupName()).toBe('')
+    expect(groupWithPermissions.groupImageUrlSquare()).toBe('')
+    expect(groupWithPermissions.groupPermissions().policyType()).toBe(
+      GroupPermissions.GroupCreatorIsAdmin
+    )
   })
 
   it('should stream new groups', async () => {
