@@ -1421,6 +1421,8 @@ mod tests {
             .await
             .unwrap();
 
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
         let first_msg_check = 2;
         let second_msg_check = 5;
 
@@ -1433,6 +1435,8 @@ mod tests {
             )
             .await
             .unwrap();
+        
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
         alix_group
             .update_group_name("hello".to_string())
