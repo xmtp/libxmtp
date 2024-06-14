@@ -42,6 +42,7 @@ diesel::table! {
         installations_last_checked -> BigInt,
         purpose -> Integer,
         added_by_inbox_id -> Text,
+        welcome_id -> Nullable<BigInt>,
     }
 }
 

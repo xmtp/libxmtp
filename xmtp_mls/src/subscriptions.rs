@@ -58,17 +58,29 @@ where
         welcome: WelcomeMessage,
     ) -> Result<MlsGroup, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
-        let conn = self.store().conn()?;
-        let provider = self.mls_provider(conn);
+        // let conn = self.store().conn()?;
+        // let provider = self.mls_provider(conn);
 
-        MlsGroup::create_from_encrypted_welcome(
-            self,
-            &provider,
-            welcome_v1.hpke_public_key.as_slice(),
-            welcome_v1.data,
-        )
-        .await
-        .map_err(|e| ClientError::Generic(e.to_string()))
+        let creation_result = self
+            .context
+            .store
+            .transaction_async(|provider| async move {
+                MlsGroup::create_from_encrypted_welcome(
+                    self,
+                    &provider,
+                    welcome_v1.hpke_public_key.as_slice(),
+                    welcome_v1.data,
+                    welcome_v1.id as i64,
+                )
+                .await
+            })
+            .await;
+
+        if let Some(err) = creation_result.as_ref().err() {
+            return Err(ClientError::Generic(err.to_string()));
+        }
+
+        Ok(creation_result.unwrap())
     }
 
     pub async fn process_streamed_welcome_message(

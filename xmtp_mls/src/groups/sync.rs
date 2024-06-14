@@ -85,7 +85,11 @@ impl MlsGroup {
         let mls_provider = client.mls_provider(conn.clone());
 
         log::info!("[{}] syncing group", client.inbox_id());
-        log::info!("current epoch for [{}] in sync() is Epoch: [{}]", client.inbox_id(), self.load_mls_group(mls_provider).unwrap().epoch());
+        log::info!(
+            "current epoch for [{}] in sync() is Epoch: [{}]",
+            client.inbox_id(),
+            self.load_mls_group(mls_provider).unwrap().epoch()
+        );
         self.maybe_update_installations(conn.clone(), None, client)
             .await?;
 
@@ -519,7 +523,7 @@ impl MlsGroup {
                 );
 
                 let sc = *staged_commit;
-                
+
                 // Validate the commit
                 let validated_commit = ValidatedCommit::from_staged_commit(
                     client,
@@ -532,9 +536,15 @@ impl MlsGroup {
                 let maybe_merge_staged_commit = openmls_group.merge_staged_commit(provider, sc);
                 log::info!("[{}] merging staged commit", self.context.inbox_id());
                 if let Err(e) = maybe_merge_staged_commit {
-                    log::error!("[{}] error merging staged commit: {e}", self.context.inbox_id());
+                    log::error!(
+                        "[{}] error merging staged commit: {e}",
+                        self.context.inbox_id()
+                    );
                 } else {
-                    log::info!("[{}] staged commit merged successfully", self.context.inbox_id());
+                    log::info!(
+                        "[{}] staged commit merged successfully",
+                        self.context.inbox_id()
+                    );
                 }
                 self.save_transcript_message(
                     provider.conn_ref(),
@@ -572,9 +582,16 @@ impl MlsGroup {
         match intent {
             // Intent with the payload hash matches
             Ok(Some(intent)) => {
-
-                log::info!("client [{}] is  about to process own envelope [{}]", client.inbox_id(), envelope.id);
-                log::info!("envelope [{}] is equal to intent [{}]", envelope.id, intent.id);
+                log::info!(
+                    "client [{}] is  about to process own envelope [{}]",
+                    client.inbox_id(),
+                    envelope.id
+                );
+                log::info!(
+                    "envelope [{}] is equal to intent [{}]",
+                    envelope.id,
+                    intent.id
+                );
                 self.process_own_message(
                     client,
                     intent,
@@ -588,7 +605,11 @@ impl MlsGroup {
             }
             // No matching intent found
             Ok(None) => {
-                log::info!("client [{}] is about to process external envelope [{}]", client.inbox_id(), envelope.id);
+                log::info!(
+                    "client [{}] is about to process external envelope [{}]",
+                    client.inbox_id(),
+                    envelope.id
+                );
                 self.process_external_message(
                     client,
                     openmls_group,
@@ -779,7 +800,12 @@ impl MlsGroup {
                 .api_client
                 .send_group_messages(vec![payload_slice])
                 .await?;
-            log::info!("[{}] published intent [{}] of type [{}]", client.inbox_id(), intent.id, intent.kind);
+            log::info!(
+                "[{}] published intent [{}] of type [{}]",
+                client.inbox_id(),
+                intent.id,
+                intent.kind
+            );
             provider.conn().set_group_intent_published(
                 intent.id,
                 sha256(payload_slice),

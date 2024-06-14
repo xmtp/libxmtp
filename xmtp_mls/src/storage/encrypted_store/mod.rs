@@ -185,7 +185,6 @@ impl EncryptedMessageStore {
                 conn.raw_query(|conn| {
                     log::info!("Transaction being committed");
                     PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
-                    
                 })?;
                 Ok(value)
             }

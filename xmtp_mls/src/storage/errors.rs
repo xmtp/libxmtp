@@ -28,6 +28,8 @@ pub enum StorageError {
     Lock(String),
     #[error("Pool needs to  reconnect before use")]
     PoolNeedsConnection,
+    #[error("Conflict")]
+    Conflict(String),
 }
 
 impl<T> From<PoisonError<T>> for StorageError {

@@ -294,6 +294,7 @@ impl MlsGroup {
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
         added_by_inbox: String,
+        welcome_id: i64,
     ) -> Result<Self, GroupError> {
         let mls_welcome =
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
@@ -304,22 +305,27 @@ impl MlsGroup {
         let group_type = metadata.conversation_type;
 
         let to_store = match group_type {
-            ConversationType::Group | ConversationType::Dm => StoredGroup::new(
+            ConversationType::Group | ConversationType::Dm => StoredGroup::new_from_welcome(
                 group_id.clone(),
                 now_ns(),
                 GroupMembershipState::Pending,
                 added_by_inbox,
+                welcome_id,
+                Purpose::Conversation,
             ),
-            ConversationType::Sync => StoredGroup::new_sync_group(
+            ConversationType::Sync => StoredGroup::new_from_welcome(
                 group_id.clone(),
                 now_ns(),
                 GroupMembershipState::Allowed,
+                added_by_inbox,
+                welcome_id,
+                Purpose::Sync,
             ),
         };
 
         validate_initial_group_membership(client, provider.conn_ref(), &mls_group).await?;
 
-        let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
+        let stored_group = provider.conn().insert_or_replace_group(to_store)?;
 
         Ok(Self::new(
             client.context.clone(),
@@ -334,6 +340,7 @@ impl MlsGroup {
         provider: &XmtpOpenMlsProvider,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: Vec<u8>,
+        welcome_id: i64,
     ) -> Result<Self, GroupError> {
         let welcome_bytes = decrypt_welcome(provider, hpke_public_key, &encrypted_welcome_bytes)?;
 
@@ -354,7 +361,7 @@ impl MlsGroup {
         let added_by_credential = BasicCredential::try_from(added_by_node.credential().clone())?;
         let inbox_id = parse_credential(added_by_credential.identity())?;
 
-        Self::create_from_welcome(client, provider, welcome, inbox_id).await
+        Self::create_from_welcome(client, provider, welcome, inbox_id, welcome_id).await
     }
 
     pub(crate) fn create_and_insert_sync_group(
@@ -1727,7 +1734,6 @@ mod tests {
             .send_message("hello".as_bytes(), &amal)
             .await
             .unwrap();
-        
 
         // Verify amal group sees update
         amal_group.sync(&amal).await.unwrap();

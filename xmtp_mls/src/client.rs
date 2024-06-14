@@ -483,6 +483,7 @@ where
                             &provider,
                             welcome_v1.hpke_public_key.as_slice(),
                             welcome_v1.data,
+                            welcome_v1.id as i64,
                         )
                         .await
                         {
