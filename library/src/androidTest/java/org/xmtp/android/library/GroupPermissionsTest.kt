@@ -34,7 +34,7 @@ class GroupPermissionsTest {
             fixtures(
                 clientOptions = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
-                    enableAlphaMls = true,
+                    enableV3 = true,
                     appContext = context
                 )
             )

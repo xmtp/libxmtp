@@ -68,7 +68,7 @@ data class ClientOptions(
     val preCreateIdentityCallback: PreEventCallback? = null,
     val preEnableIdentityCallback: PreEventCallback? = null,
     val appContext: Context? = null,
-    val enableAlphaMls: Boolean = false,
+    val enableV3: Boolean = false,
     val dbDirectory: String? = null,
     val dbEncryptionKey: ByteArray? = null,
 ) {
@@ -88,7 +88,7 @@ class Client() {
     var logger: XMTPLogger = XMTPLogger()
     val libXMTPVersion: String = getVersionInfo()
     var installationId: String = ""
-    private var libXMTPClient: FfiXmtpClient? = null
+    private var v3Client: FfiXmtpClient? = null
     private var dbPath: String = ""
     var inboxId: String = ""
 
@@ -174,7 +174,7 @@ class Client() {
         this.privateKeyBundleV1 = privateKeyBundleV1
         this.apiClient = apiClient
         this.contacts = Contacts(client = this)
-        this.libXMTPClient = libXMTPClient
+        this.v3Client = libXMTPClient
         this.conversations =
             Conversations(client = this, libXMTPConversations = libXMTPClient?.conversations())
         this.dbPath = dbPath
@@ -267,7 +267,7 @@ class Client() {
                 environment = newOptions.api.env,
                 secure = newOptions.api.isSecure,
             )
-        val (v3Client, dbPath) = if (isAlphaMlsEnabled(options)) {
+        val (v3Client, dbPath) = if (isV3Enabled(options)) {
             runBlocking {
                 ffiXmtpClient(
                     options,
@@ -290,8 +290,8 @@ class Client() {
         )
     }
 
-    private fun isAlphaMlsEnabled(options: ClientOptions?): Boolean {
-        return (options != null && options.enableAlphaMls && options.api.env != XMTPEnvironment.PRODUCTION && options.appContext != null)
+    private fun isV3Enabled(options: ClientOptions?): Boolean {
+        return (options != null && options.enableV3 && options.appContext != null)
     }
 
     private suspend fun ffiXmtpClient(
@@ -304,7 +304,7 @@ class Client() {
         var dbPath = ""
         val accountAddress = address.lowercase()
         val v3Client: FfiXmtpClient? =
-            if (isAlphaMlsEnabled(options)) {
+            if (isV3Enabled(options)) {
                 var inboxId = getInboxIdForAddress(
                     logger = logger,
                     host = options!!.api.env.getUrl(),
@@ -603,7 +603,7 @@ class Client() {
     }
 
     suspend fun canMessageV3(addresses: List<String>): Map<String, Boolean> {
-        libXMTPClient?.let {
+        v3Client?.let {
             return it.canMessage(addresses)
         }
         throw XMTPException("Error no V3 client initialized")
@@ -617,11 +617,11 @@ class Client() {
         message = "This function is delicate and should be used with caution. App will error if database not properly reconnected. See: reconnectLocalDatabase()",
     )
     fun dropLocalDatabaseConnection() {
-        libXMTPClient?.releaseDbConnection()
+        v3Client?.releaseDbConnection()
     }
 
     suspend fun reconnectLocalDatabase() {
-        libXMTPClient?.dbReconnect() ?: throw XMTPException("Error no V3 client initialized")
+        v3Client?.dbReconnect() ?: throw XMTPException("Error no V3 client initialized")
     }
 
     val privateKeyBundle: PrivateKeyBundle

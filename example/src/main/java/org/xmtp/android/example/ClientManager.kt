@@ -22,7 +22,7 @@ object ClientManager {
                 appVersion = "XMTPAndroidExample/v1.0.0",
                 isSecure = true
             ),
-            enableAlphaMls = true,
+            enableV3 = true,
             appContext = appContext
         )
     }

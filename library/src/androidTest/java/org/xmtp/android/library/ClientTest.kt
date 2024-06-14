@@ -87,7 +87,7 @@ class ClientTest {
         val fakeWallet = PrivateKeyBuilder()
         val options = ClientOptions(
             ClientOptions.Api(XMTPEnvironment.LOCAL, false),
-            enableAlphaMls = true,
+            enableV3 = true,
             appContext = context
         )
         val client =
@@ -125,7 +125,7 @@ class ClientTest {
                 account = fakeWallet,
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
-                    enableAlphaMls = true,
+                    enableV3 = true,
                     appContext = context
                 )
             )
@@ -145,7 +145,7 @@ class ClientTest {
                 account = fakeWallet,
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
-                    enableAlphaMls = true,
+                    enableV3 = true,
                     appContext = context
                 )
             )
@@ -154,7 +154,7 @@ class ClientTest {
                 account = fakeWallet2,
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
-                    enableAlphaMls = true,
+                    enableV3 = true,
                     appContext = context
                 )
             )
@@ -172,7 +172,7 @@ class ClientTest {
                 account = fakeWallet,
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
-                    enableAlphaMls = true,
+                    enableV3 = true,
                     appContext = context
                 )
             )
@@ -192,7 +192,25 @@ class ClientTest {
                 account = fakeWallet,
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.DEV, true),
-                    enableAlphaMls = true,
+                    enableV3 = true,
+                    appContext = context
+                )
+            )
+        runBlocking {
+            client.canMessageV3(listOf(client.address))[client.address]?.let { assert(it) }
+        }
+    }
+
+    @Test
+    fun testCreatesAV3ProductionClient() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val fakeWallet = PrivateKeyBuilder()
+        val client =
+            Client().create(
+                account = fakeWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.PRODUCTION, true),
+                    enableV3 = true,
                     appContext = context
                 )
             )
@@ -291,7 +309,7 @@ class ClientTest {
                 account = fakeWallet,
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
-                    enableAlphaMls = true,
+                    enableV3 = true,
                     appContext = context
                 )
             )
@@ -300,7 +318,7 @@ class ClientTest {
                 account = fakeWallet2,
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
-                    enableAlphaMls = true,
+                    enableV3 = true,
                     appContext = context
                 )
             )
