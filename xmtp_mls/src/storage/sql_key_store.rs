@@ -154,7 +154,7 @@ impl SqlKeyStore {
         match current_data {
             Ok(data) => {
                 if let Some(entry) = data.into_iter().next() {
-                    // The value in the storage is an array of array of bytes, encoded as json.
+                    // The value in the storage is an array of array of bytes.
                     match bincode::deserialize::<Vec<Vec<u8>>>(&entry.value_bytes) {
                         Ok(mut deserialized) => {
                                 // Find and remove the value.
