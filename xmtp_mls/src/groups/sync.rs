@@ -532,20 +532,11 @@ impl MlsGroup {
                     openmls_group,
                 )
                 .await?;
-                log::info!("[{}] staged commit is valid", self.context.inbox_id());
-                let maybe_merge_staged_commit = openmls_group.merge_staged_commit(provider, sc);
-                log::info!("[{}] merging staged commit", self.context.inbox_id());
-                if let Err(e) = maybe_merge_staged_commit {
-                    log::error!(
-                        "[{}] error merging staged commit: {e}",
-                        self.context.inbox_id()
-                    );
-                } else {
-                    log::info!(
-                        "[{}] staged commit merged successfully",
-                        self.context.inbox_id()
-                    );
-                }
+                log::info!(
+                    "[{}] staged commit is valid, will attempt to merge",
+                    self.context.inbox_id()
+                );
+                openmls_group.merge_staged_commit(provider, sc)?;
                 self.save_transcript_message(
                     provider.conn_ref(),
                     validated_commit,
