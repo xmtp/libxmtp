@@ -83,6 +83,7 @@ impl MlsGroup {
     {
         let conn = self.context.store.conn()?;
 
+        log::info!("[{}] syncing group", client.inbox_id());
         self.maybe_update_installations(conn.clone(), None, client)
             .await?;
 
@@ -527,6 +528,7 @@ impl MlsGroup {
                 .await?;
                 log::info!("[{}] staged commit is valid", self.context.inbox_id());
                 let maybe_merge_staged_commit = openmls_group.merge_staged_commit(provider, sc);
+                log::info!("[{}] merging staged commit", self.context.inbox_id());
                 if let Err(e) = maybe_merge_staged_commit {
                     log::error!("[{}] error merging staged commit: {e}", self.context.inbox_id());
                 } else {
@@ -775,7 +777,7 @@ impl MlsGroup {
                 .api_client
                 .send_group_messages(vec![payload_slice])
                 .await?;
-
+            log::info!("[{}] published intent [{}] of type [{}]", client.inbox_id(), intent.id, intent.kind);
             provider.conn().set_group_intent_published(
                 intent.id,
                 sha256(payload_slice),

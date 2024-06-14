@@ -1421,6 +1421,7 @@ mod tests {
         let bo = new_test_client().await;
 
         // Stream all group messages
+        println!("***BEGIN BO STREAM***");
         let message_callbacks = RustStreamCallback::new();
         let stream_messages = bo
             .conversations()
@@ -1434,6 +1435,7 @@ mod tests {
         let second_msg_check = 5;
 
         // Create group and send first message
+        println!("***ALIX CREATES GROUP***");
         let alix_group = alix
             .conversations()
             .create_group(
@@ -1445,23 +1447,30 @@ mod tests {
         
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
+        println!("***ALIX UPDATES GROUP NAME***");
         alix_group
             .update_group_name("hello".to_string())
             .await
             .unwrap();
+        println!("***ALIX SENDS FIRST MSG***");
         alix_group.send("hello1".as_bytes().to_vec()).await.unwrap();
         bo.conversations().sync().await.unwrap();
 
+        println!("***BO LISTS GROUPS***");
         let bo_groups = bo.conversations().list(FfiListConversationsOptions::default()).await.unwrap();
         assert_eq!(bo_groups.len(), 1);
         let bo_group = bo_groups[0].clone();
+        println!("***BO GROUP SYNC***");
         bo_group.sync().await.unwrap();
 
+        println!("***BO FIND MESSAGES***");
         let bo_messages1 = bo_group.find_messages(FfiListMessagesOptions::default()).unwrap();
         assert_eq!(bo_messages1.len(), first_msg_check);
 
+        println!("***BO SENDS TWO MESSAGES***");
         bo_group.send("hello2".as_bytes().to_vec()).await.unwrap();
         bo_group.send("hello3".as_bytes().to_vec()).await.unwrap();
+        println!("***ALIX SYNC***");
         alix_group.sync().await.unwrap();
 
         let alix_messages = alix_group.find_messages(FfiListMessagesOptions::default()).unwrap();
