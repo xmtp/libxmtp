@@ -4689,6 +4689,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "thread-id"
+version = "4.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0ec81c46e9eb50deaa257be2f148adf052d1fb7701cfd55ccfab2525280b70b"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "time"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5972,6 +5982,7 @@ dependencies = [
  "log",
  "tempfile",
  "thiserror",
+ "thread-id",
  "tokio",
  "tokio-test",
  "uniffi",

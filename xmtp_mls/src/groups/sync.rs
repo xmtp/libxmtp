@@ -82,8 +82,10 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
+        let mls_provider = client.mls_provider(conn.clone());
 
         log::info!("[{}] syncing group", client.inbox_id());
+        log::info!("current epoch for [{}] in sync() is Epoch: [{}]", client.inbox_id(), self.load_mls_group(mls_provider).unwrap().epoch());
         self.maybe_update_installations(conn.clone(), None, client)
             .await?;
 

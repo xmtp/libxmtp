@@ -71,6 +71,7 @@ pub async fn create_client(
     nonce: u64,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
+    init_logger(logger);
     log::info!(
         "Creating API client for host: {}, isSecure: {}",
         host,
@@ -1047,11 +1048,13 @@ mod tests {
         }
     }
 
-    pub struct MockLogger {}
+    pub struct MockLogger {
+        inbox_id: String,
+    }
 
     impl FfiLogger for MockLogger {
         fn log(&self, _level: u32, level_label: String, message: String) {
-            println!("{}: {}", level_label, message)
+            println!("[{}][t:{}]: {}", level_label, thread_id::get(), message)
         }
     }
 
@@ -1120,7 +1123,7 @@ mod tests {
         let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
 
         let client = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger { inbox_id: inbox_id.clone() }),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(tmp_path()),
@@ -1142,7 +1145,7 @@ mod tests {
         let real_inbox_id = client.inbox_id();
 
         let from_network = get_inbox_id_for_address(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger { inbox_id: real_inbox_id.clone() }),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             client.account_address.clone(),
@@ -1170,7 +1173,7 @@ mod tests {
         let inbox_id = generate_inbox_id(&account_address, &nonce);
 
         let client = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger { inbox_id: inbox_id.clone() }),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(tmp_path()),
@@ -1195,7 +1198,7 @@ mod tests {
         let path = tmp_path();
 
         let client_a = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger { inbox_id: inbox_id.clone() }),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -1213,7 +1216,7 @@ mod tests {
         drop(client_a);
 
         let client_b = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger { inbox_id: inbox_id.clone() }),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path),
@@ -1246,7 +1249,7 @@ mod tests {
         let key = static_enc_key().to_vec();
 
         let client_a = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger { inbox_id: inbox_id.clone() }),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -1265,7 +1268,7 @@ mod tests {
         other_key[31] = 1;
 
         let result_errored = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger { inbox_id: inbox_id.clone() }),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path),
@@ -1331,7 +1334,7 @@ mod tests {
         let path = tmp_path();
 
         let client = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger { inbox_id: inbox_id.clone() }),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -1358,7 +1361,7 @@ mod tests {
         let path = tmp_path();
 
         let client_amal = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger { inbox_id: amal_inbox_id.clone() }),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -1384,7 +1387,7 @@ mod tests {
         );
 
         let client_bola = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger { inbox_id: bola_inbox_id.clone() }),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -1480,10 +1483,10 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_can_stream_and_update_name_without_forking_group() {
-        let _ = env_logger::builder()
-            .is_test(true)
-            .filter_level(log::LevelFilter::Info)
-            .try_init();
+        // let _ = env_logger::builder()
+        // .is_test(true)
+        // .filter_level(log::LevelFilter::Info)
+        // .try_init();
 
         let alix = new_test_client().await;
         let bo = new_test_client().await;
@@ -1522,6 +1525,7 @@ mod tests {
             .unwrap();
         println!("***ALIX SENDS FIRST MSG***");
         alix_group.send("hello1".as_bytes().to_vec()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         bo.conversations().sync().await.unwrap();
 
         println!("***BO LISTS GROUPS***");
