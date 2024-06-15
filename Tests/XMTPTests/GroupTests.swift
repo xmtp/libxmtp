@@ -52,8 +52,8 @@ class GroupTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: false),
 				codecs: [GroupUpdatedCodec()],
-				mlsAlpha: true,
-				mlsEncryptionKey: key
+				enableV3: true,
+				encryptionKey: key
 			)
 		)
 		let bob = try PrivateKey.generate()
@@ -62,8 +62,8 @@ class GroupTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: false),
 				codecs: [GroupUpdatedCodec()],
-				mlsAlpha: true,
-				mlsEncryptionKey: key
+				enableV3: true,
+				encryptionKey: key
 			)
 		)
 		let fred = try PrivateKey.generate()
@@ -72,8 +72,8 @@ class GroupTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: false),
 				codecs: [GroupUpdatedCodec()],
-				mlsAlpha: true,
-				mlsEncryptionKey: key
+				enableV3: true,
+				encryptionKey: key
 			)
 		)
 

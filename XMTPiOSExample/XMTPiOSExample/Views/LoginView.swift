@@ -166,7 +166,7 @@ struct LoginView: View {
 						options: .init(
 							api: .init(env: .local, isSecure: false),
 							codecs: [GroupUpdatedCodec()],
-							mlsAlpha: true
+							enableV3: true
 						)
 					)
 

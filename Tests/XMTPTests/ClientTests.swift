@@ -29,8 +29,8 @@ class ClientTests: XCTestCase {
 				account: bo,
 				options: .init(
 					api: .init(env: .local, isSecure: false),
-					mlsAlpha: true,
-					mlsEncryptionKey: key
+					enableV3: true,
+					encryptionKey: key
 				)
 			)
 		} catch {
@@ -45,8 +45,8 @@ class ClientTests: XCTestCase {
 			account: bo,
 			options: .init(
 				api: .init(env: .local, isSecure: false),
-				mlsAlpha: true,
-				mlsEncryptionKey: key
+				enableV3: true,
+				encryptionKey: key
 			)
 		)
 
@@ -56,15 +56,15 @@ class ClientTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: false),
 				// Should not need to pass the signer again
-				mlsAlpha: true,
-				mlsEncryptionKey: key
+				enableV3: true,
+				encryptionKey: key
 			)
 		)
 
 		XCTAssertEqual(client.address, otherClient.address)
 	}
 
-	func testPassingMLSEncryptionKey() async throws {
+	func testPassingencryptionKey() async throws {
 		let bo = try PrivateKey.generate()
 		let key = try Crypto.secureRandomBytes(count: 32)
 
@@ -72,8 +72,8 @@ class ClientTests: XCTestCase {
 			account: bo,
 			options: .init(
 				api: .init(env: .local, isSecure: false),
-				mlsAlpha: true,
-				mlsEncryptionKey: key
+				enableV3: true,
+				encryptionKey: key
 			)
 		)
 
@@ -82,8 +82,8 @@ class ClientTests: XCTestCase {
 				account: bo,
 				options: .init(
 					api: .init(env: .local, isSecure: false),
-					mlsAlpha: true,
-					mlsEncryptionKey: nil // No key should error
+					enableV3: true,
+					encryptionKey: nil // No key should error
 				)
 			)
 
@@ -100,7 +100,7 @@ class ClientTests: XCTestCase {
 			account: bo,
 			options: .init(
 				api: .init(env: .local, isSecure: false),
-				mlsAlpha: true
+				enableV3: true
 			)
 		)
 	
@@ -108,7 +108,7 @@ class ClientTests: XCTestCase {
 			account: alix,
 			options: .init(
 				api: .init(env: .local, isSecure: false),
-				mlsAlpha: true
+				enableV3: true
 			)
 		)
 
@@ -124,7 +124,7 @@ class ClientTests: XCTestCase {
 			account: bo,
 			options: .init(
 				api: .init(env: .local, isSecure: false),
-				mlsAlpha: true
+				enableV3: true
 			)
 		)
 
@@ -140,7 +140,7 @@ class ClientTests: XCTestCase {
 			account: bo,
 			options: .init(
 				api: .init(env: .local, isSecure: false),
-				mlsAlpha: true
+				enableV3: true
 			)
 		)
 	
@@ -148,7 +148,7 @@ class ClientTests: XCTestCase {
 			account: alix,
 			options: .init(
 				api: .init(env: .local, isSecure: false),
-				mlsAlpha: true
+				enableV3: true
 			)
 		)
 
@@ -285,7 +285,7 @@ class ClientTests: XCTestCase {
 		}
 	}
 	
-	func testPassingMLSEncryptionKeyAndDatabaseDirectory() async throws {
+	func testPassingencryptionKeyAndDatabaseDirectory() async throws {
 		let bo = try PrivateKey.generate()
 		let key = try Crypto.secureRandomBytes(count: 32)
 
@@ -293,9 +293,9 @@ class ClientTests: XCTestCase {
 			account: bo,
 			options: .init(
 				api: .init(env: .local, isSecure: false),
-				mlsAlpha: true,
-				mlsEncryptionKey: key,
-				mlsDbDirectory: "xmtp_db"
+				enableV3: true,
+				encryptionKey: key,
+				dbDirectory: "xmtp_db"
 			)
 		)
 
@@ -304,9 +304,9 @@ class ClientTests: XCTestCase {
 			bundle: keys,
 			options: .init(
 				api: .init(env: .local, isSecure: false),
-				mlsAlpha: true,
-				mlsEncryptionKey: key,
-				mlsDbDirectory: "xmtp_db"
+				enableV3: true,
+				encryptionKey: key,
+				dbDirectory: "xmtp_db"
 			)
 		)
 
@@ -319,9 +319,9 @@ class ClientTests: XCTestCase {
 				bundle: keys,
 				options: .init(
 					api: .init(env: .local, isSecure: false),
-					mlsAlpha: true,
-					mlsEncryptionKey: nil,
-					mlsDbDirectory: "xmtp_db"
+					enableV3: true,
+					encryptionKey: nil,
+					dbDirectory: "xmtp_db"
 				)
 			)
 		)
@@ -331,9 +331,9 @@ class ClientTests: XCTestCase {
 				bundle: keys,
 				options: .init(
 					api: .init(env: .local, isSecure: false),
-					mlsAlpha: true,
-					mlsEncryptionKey: key,
-					mlsDbDirectory: nil
+					enableV3: true,
+					encryptionKey: key,
+					dbDirectory: nil
 				)
 			)
 		)

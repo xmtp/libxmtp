@@ -52,7 +52,7 @@ struct ContentView: View {
 									options: .init(
 										api: .init(env: .local, isSecure: false),
 										codecs: [GroupUpdatedCodec()],
-										mlsAlpha: true
+										enableV3: true
 									)
 								)
 								await MainActor.run {
@@ -97,7 +97,7 @@ struct ContentView: View {
 					options: .init(
 						api: .init(env: .local, isSecure: false, appVersion: "XMTPTest/v1.0.0"),
 						codecs: [GroupUpdatedCodec()],
-						mlsAlpha: true
+						enableV3: true
 					)
 				)
 

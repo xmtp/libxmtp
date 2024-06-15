@@ -24,10 +24,6 @@ public enum XMTPEnvironment: String, Sendable {
 		}
 	}
 
-	public var supportsMLS: Bool {
-		self != .production
-	}
-
 	public var isSecure: Bool {
 		url.starts(with: "https")
 	}
