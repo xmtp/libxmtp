@@ -279,7 +279,7 @@ impl FfiXmtpClient {
     }
 }
 
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Default)]
 pub struct FfiListConversationsOptions {
     pub created_after_ns: Option<i64>,
     pub created_before_ns: Option<i64>,
@@ -455,7 +455,7 @@ pub enum FfiPermissionLevel {
     SuperAdmin,
 }
 
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Default)]
 pub struct FfiListMessagesOptions {
     pub sent_before_ns: Option<i64>,
     pub sent_after_ns: Option<i64>,
@@ -999,7 +999,8 @@ impl FfiGroupPermissions {
 mod tests {
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
-        FfiConversationCallback, FfiCreateGroupOptions, FfiInboxOwner, GroupPermissions,
+        FfiConversationCallback, FfiCreateGroupOptions, FfiInboxOwner, FfiListConversationsOptions,
+        FfiListMessagesOptions, GroupPermissions,
     };
     use std::{
         env,
@@ -1407,6 +1408,121 @@ mod tests {
                 .unwrap_or(false),
             "Expected the can_message result to be true for the address"
         );
+    }
+
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_stream_group_messages_for_updates() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Stream all group messages
+        let message_callbacks = RustStreamCallback::new();
+        let stream_messages = bo
+            .conversations()
+            .stream_all_messages(Box::new(message_callbacks.clone()))
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Create group and send first message
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        alix_group
+            .update_group_name("Old Name".to_string())
+            .await
+            .unwrap();
+
+        let bo_groups = bo
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
+        let bo_group = &bo_groups[0];
+        bo_group.sync().await.unwrap();
+        bo_group
+            .update_group_name("Old Name2".to_string())
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        // Uncomment the following lines to add more group name updates
+        // alix_group.update_group_name("Again Name".to_string()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        bo_group.update_group_name("Old Name2".to_string()).await.unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+        assert_eq!(message_callbacks.message_count(), 3);
+
+        stream_messages.end();
+        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        assert!(stream_messages.is_closed());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_stream_and_update_name_without_forking_group() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Stream all group messages
+        let message_callbacks = RustStreamCallback::new();
+        let stream_messages = bo
+            .conversations()
+            .stream_all_messages(Box::new(message_callbacks.clone()))
+            .await
+            .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Create group and send first message
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        alix_group
+            .update_group_name("hello".to_string())
+            .await
+            .unwrap();
+        alix_group.send("hello1".as_bytes().to_vec()).await.unwrap();
+        bo.conversations().sync().await.unwrap();
+
+        let bo_groups = bo
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(bo_groups.len(), 1);
+        let bo_group = bo_groups[0].clone();
+        bo_group.sync().await.unwrap();
+        bo_group.send("hello2".as_bytes().to_vec()).await.unwrap();
+        alix_group
+            .update_group_name("New Group Name".to_string())
+            .await
+            .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        assert_eq!(message_callbacks.message_count(), 3);
+
+        stream_messages.end();
+        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        assert!(stream_messages.is_closed());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
