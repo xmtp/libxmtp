@@ -24,7 +24,6 @@ impl MlsGroup {
         let msgv1 = extract_message_v1(envelope)?;
         let msg_id = msgv1.id;
         let client_id = client.inbox_id().clone();
-        let client_id_two = client.inbox_id().clone();
         log::info!(
             "client [{}]  is about to process streamed envelope: [{}]",
             &client_id.clone(),
@@ -59,11 +58,6 @@ impl MlsGroup {
             .await;
 
         if let Some(GroupError::ReceiveError(_)) = process_result.err() {
-            log::info!(
-                "client [{}] failed to process streamed envelope: [{}], will sync",
-                &client_id_two,
-                &msg_id
-            );
             self.sync(&client).await?;
         }
 
