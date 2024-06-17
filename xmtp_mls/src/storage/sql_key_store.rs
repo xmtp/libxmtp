@@ -5,7 +5,6 @@ use diesel::{
     sql_types::Binary,
     {sql_query, RunQueryDsl},
 };
-use log::error;
 use openmls_traits::storage::*;
 use serde::Serialize;
 
@@ -117,9 +116,7 @@ impl SqlKeyStore {
                     match bincode::deserialize::<Vec<Vec<u8>>>(&entry.value_bytes) {
                         Ok(mut deserialized) => {
                             deserialized.push(value.to_vec());
-
-                            let modified_data = bincode::serialize(&deserialized)
-                                .map_err(|_| MemoryStorageError::SerializationError)?;
+                            let modified_data = bincode::serialize(&deserialized)?;
 
                             let _ = self.update_query::<VERSION>(&storage_key, &modified_data);
                             Ok(())
@@ -128,8 +125,7 @@ impl SqlKeyStore {
                     }
                 } else {
                     // Add a first entry
-                    let value_bytes = &bincode::serialize(&[value])
-                        .map_err(|_| MemoryStorageError::SerializationError)?;
+                    let value_bytes = &bincode::serialize(&vec![value])?;
                     let _ = self.replace_query::<VERSION>(&storage_key, value_bytes);
 
                     Ok(())
@@ -158,19 +154,12 @@ impl SqlKeyStore {
                     match bincode::deserialize::<Vec<Vec<u8>>>(&entry.value_bytes) {
                         Ok(mut deserialized) => {
                             // Find and remove the value.
-                            let vpos =
-                                deserialized.iter().position(|v| {
-                                    match bincode::deserialize::<Vec<u8>>(&v.clone()) {
-                                        Ok(deserialized_value) => deserialized_value == value,
-                                        Err(_) => false,
-                                    }
-                                });
+                            let vpos = deserialized.iter().position(|v| v == value);
 
                             if let Some(pos) = vpos {
                                 deserialized.remove(pos);
                             }
-                            let modified_data = bincode::serialize(&deserialized)
-                                .map_err(|_| MemoryStorageError::SerializationError)?;
+                            let modified_data = bincode::serialize(&deserialized)?;
 
                             let _ = self.update_query::<VERSION>(&storage_key, &modified_data);
                             Ok(())
@@ -179,8 +168,7 @@ impl SqlKeyStore {
                     }
                 } else {
                     // Add a first entry
-                    let value_bytes = bincode::serialize(&[value])
-                        .map_err(|_| MemoryStorageError::SerializationError)?;
+                    let value_bytes = bincode::serialize(&[value])?;
                     let _ = self.replace_query::<VERSION>(&storage_key, &value_bytes);
                     Ok(())
                 }
@@ -231,15 +219,17 @@ impl SqlKeyStore {
         match self.select_query::<VERSION>(&storage_key) {
             Ok(results) => {
                 if let Some(entry) = results.into_iter().next() {
-                    let list = bincode::deserialize::<Vec<Vec<u8>>>(&entry.value_bytes)
-                        .map_err(|_| MemoryStorageError::SerializationError)?;
+                    let list = bincode::deserialize::<Vec<Vec<u8>>>(&entry.value_bytes)?;
 
                     // Read the values from the bytes in the list
                     let mut deserialized_list = Vec::new();
                     for v in list {
                         match bincode::deserialize::<V>(&v) {
                             Ok(deserialized_value) => deserialized_list.push(deserialized_value),
-                            Err(_) => return Err(MemoryStorageError::SerializationError),
+                            Err(e) => {
+                                log::error!("Error occurred: {}", e);
+                                return Err(MemoryStorageError::SerializationError);
+                            }
                         }
                     }
                     Ok(deserialized_list)
@@ -1216,12 +1206,14 @@ mod tests {
                     &ProposalRef(i),
                     proposal,
                 )
-                .unwrap();
+                .expect("Failed to queue proposal");
         }
 
+        log::debug!("Finished with queued proposals");
         // Read proposal refs
-        let proposal_refs_read: Vec<ProposalRef> =
-            key_store.queued_proposal_refs(&group_id).unwrap();
+        let proposal_refs_read: Vec<ProposalRef> = key_store
+            .queued_proposal_refs(&group_id)
+            .expect("Failed to read proposal refs");
         assert_eq!(
             (0..10).map(ProposalRef).collect::<Vec<_>>(),
             proposal_refs_read
