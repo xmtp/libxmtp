@@ -82,7 +82,14 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
+        let mls_provider = client.mls_provider(conn.clone());
 
+        log::info!("[{}] syncing group", client.inbox_id());
+        log::info!(
+            "current epoch for [{}] in sync() is Epoch: [{}]",
+            client.inbox_id(),
+            self.load_mls_group(mls_provider).unwrap().epoch()
+        );
         self.maybe_update_installations(conn.clone(), None, client)
             .await?;
 
@@ -232,7 +239,12 @@ impl MlsGroup {
                     // Return OK here, because an error will roll back the transaction
                     return Ok(());
                 }
-                debug!("Has a validated commit");
+                log::info!(
+                    "[{}] Validating commit for intent {}. Message timestamp: {}",
+                    self.context.inbox_id(),
+                    intent.id,
+                    envelope_timestamp_ns
+                );
                 let maybe_validated_commit = ValidatedCommit::from_staged_commit(
                     client,
                     &conn,
@@ -242,7 +254,7 @@ impl MlsGroup {
                 .await;
 
                 if maybe_validated_commit.is_err() {
-                    debug!("error validating commit: {:?}", maybe_validated_commit);
+                    log::warn!("error validating commit: {:?}", maybe_validated_commit);
                     match openmls_group.clear_pending_commit(provider.storage()) {
                         Ok(_) => (),
                         Err(_) => {
@@ -259,7 +271,11 @@ impl MlsGroup {
 
                 let validated_commit = maybe_validated_commit.unwrap();
 
-                debug!("[{}] merging pending commit", self.context.inbox_id());
+                log::info!(
+                    "[{}] merging pending commit for intent {}",
+                    self.context.inbox_id(),
+                    intent.id
+                );
                 if let Err(err) = openmls_group.merge_pending_commit(&provider) {
                     log::error!("error merging commit: {}", err);
                     match openmls_group.clear_pending_commit(provider.storage()) {
@@ -326,23 +342,23 @@ impl MlsGroup {
         envelope_timestamp_ns: u64,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
-        debug!("[{}] processing external message", self.context.inbox_id());
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
-        debug!(
-            "[{}] extracted sender sender inbox id: {}",
+        log::info!(
+            "[{}] extracted sender inbox id: {}",
             self.context.inbox_id(),
             sender_inbox_id
         );
         match decrypted_message.into_content() {
             ProcessedMessageContent::ApplicationMessage(application_message) => {
+                log::info!("[{}] decoding application message", self.context.inbox_id());
                 let message_bytes = application_message.into_bytes();
 
                 let mut bytes = Bytes::from(message_bytes.clone());
                 let envelope = PlaintextEnvelope::decode(&mut bytes)
                     .map_err(MessageProcessingError::DecodeError)?;
-                log::debug!("Decoded plaintext envelope {:?}", envelope);
+
                 match envelope.content {
                     Some(Content::V1(V1 {
                         idempotency_key,
@@ -501,12 +517,13 @@ impl MlsGroup {
                 if !allow_epoch_increment {
                     return Err(MessageProcessingError::EpochIncrementNotAllowed);
                 }
-                debug!(
+                log::info!(
                     "[{}] received staged commit. Merging and clearing any pending commits",
                     self.context.inbox_id()
                 );
 
                 let sc = *staged_commit;
+
                 // Validate the commit
                 let validated_commit = ValidatedCommit::from_staged_commit(
                     client,
@@ -515,6 +532,10 @@ impl MlsGroup {
                     openmls_group,
                 )
                 .await?;
+                log::info!(
+                    "[{}] staged commit is valid, will attempt to merge",
+                    self.context.inbox_id()
+                );
                 openmls_group.merge_staged_commit(provider, sc)?;
                 self.save_transcript_message(
                     provider.conn_ref(),
@@ -552,6 +573,16 @@ impl MlsGroup {
         match intent {
             // Intent with the payload hash matches
             Ok(Some(intent)) => {
+                log::info!(
+                    "client [{}] is  about to process own envelope [{}]",
+                    client.inbox_id(),
+                    envelope.id
+                );
+                log::info!(
+                    "envelope [{}] is equal to intent [{}]",
+                    envelope.id,
+                    intent.id
+                );
                 self.process_own_message(
                     client,
                     intent,
@@ -565,6 +596,11 @@ impl MlsGroup {
             }
             // No matching intent found
             Ok(None) => {
+                log::info!(
+                    "client [{}] is about to process external envelope [{}]",
+                    client.inbox_id(),
+                    envelope.id
+                );
                 self.process_external_message(
                     client,
                     openmls_group,
@@ -621,7 +657,6 @@ impl MlsGroup {
     {
         let provider = self.context.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
-        log::debug!("  loaded openmls group");
 
         let mut receive_errors = vec![];
         for message in messages.into_iter() {
@@ -640,7 +675,7 @@ impl MlsGroup {
         if receive_errors.is_empty() {
             Ok(())
         } else {
-            debug!("Message processing errors: {:?}", receive_errors);
+            log::error!("Message processing errors: {:?}", receive_errors);
             Err(GroupError::ReceiveErrors(receive_errors))
         }
     }
@@ -756,7 +791,12 @@ impl MlsGroup {
                 .api_client
                 .send_group_messages(vec![payload_slice])
                 .await?;
-
+            log::info!(
+                "[{}] published intent [{}] of type [{}]",
+                client.inbox_id(),
+                intent.id,
+                intent.kind
+            );
             provider.conn().set_group_intent_published(
                 intent.id,
                 sha256(payload_slice),

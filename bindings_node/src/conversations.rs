@@ -22,6 +22,22 @@ pub struct NapiListConversationsOptions {
   pub limit: Option<i64>,
 }
 
+#[napi(object)]
+pub struct NapiCreateGroupOptions {
+  pub permissions: Option<GroupPermissions>,
+  pub group_name: Option<String>,
+  pub group_image_url_square: Option<String>,
+}
+
+impl NapiCreateGroupOptions {
+  pub fn into_group_metadata_options(self) -> GroupMetadataOptions {
+    GroupMetadataOptions {
+      name: self.group_name,
+      image_url_square: self.group_image_url_square,
+    }
+  }
+}
+
 #[napi]
 pub struct NapiConversations {
   inner_client: Arc<RustXmtpClient>,
@@ -37,13 +53,24 @@ impl NapiConversations {
   pub async fn create_group(
     &self,
     account_addresses: Vec<String>,
-    permissions: Option<GroupPermissions>,
+    options: Option<NapiCreateGroupOptions>,
   ) -> Result<NapiGroup> {
-    let group_permissions = permissions.map(|group_permissions| group_permissions.into());
+    let options = match options {
+      Some(options) => options,
+      None => NapiCreateGroupOptions {
+        permissions: None,
+        group_name: None,
+        group_image_url_square: None,
+      },
+    };
+
+    let group_permissions = options
+      .permissions
+      .map(|group_permissions| group_permissions.into());
 
     let convo = self
       .inner_client
-      .create_group(group_permissions, GroupMetadataOptions::default())
+      .create_group(group_permissions, options.into_group_metadata_options())
       .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
     if !account_addresses.is_empty() {
       convo
