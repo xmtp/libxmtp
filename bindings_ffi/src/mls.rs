@@ -1536,6 +1536,7 @@ mod tests {
         bo_group.send("hello3".as_bytes().to_vec()).await.unwrap();
         alix_group.sync().await.unwrap();
 
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
         let alix_messages = alix_group
             .find_messages(FfiListMessagesOptions::default())
             .unwrap();
