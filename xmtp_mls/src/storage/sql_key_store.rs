@@ -195,7 +195,7 @@ impl SqlKeyStore {
                     match bincode::deserialize::<V>(&entry.value_bytes) {
                         Ok(deserialized) => Ok(Some(deserialized)),
                         Err(e) => {
-                            eprintln!("Error occurred: {}", e);
+                            log::error!("Error occurred: {e}");
                             Err(MemoryStorageError::SerializationError)
                         }
                     }
