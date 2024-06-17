@@ -3,6 +3,7 @@ package org.xmtp.android.library
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import app.cash.turbine.test
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.catch
@@ -23,6 +24,7 @@ import org.xmtp.android.library.codecs.Reaction
 import org.xmtp.android.library.codecs.ReactionAction
 import org.xmtp.android.library.codecs.ReactionCodec
 import org.xmtp.android.library.codecs.ReactionSchema
+import org.xmtp.android.library.codecs.id
 import org.xmtp.android.library.messages.MessageDeliveryStatus
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
@@ -430,6 +432,60 @@ class GroupTest {
         runBlocking { group.sync() }
         assert(boClient.contacts.isGroupAllowed(group.id))
         assertEquals(boClient.contacts.consentList.groupState(group.id), ConsentState.ALLOWED)
+    }
+
+    @Test
+    fun testCanStreamAndUpdateNameWithoutForkingGroup() {
+        val firstMsgCheck = 2
+        val secondMsgCheck = 5
+        var messageCallbacks = 0
+
+        val job = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                boClient.conversations.streamAllGroupMessages().collect { message ->
+                    messageCallbacks++
+                }
+            } catch (e: Exception) {
+            }
+        }
+
+        val alixGroup = runBlocking { alixClient.conversations.newGroup(listOf(bo.walletAddress)) }
+
+        runBlocking {
+            alixGroup.send("hello1")
+            alixGroup.updateGroupName("hello")
+            boClient.conversations.syncGroups()
+        }
+
+        val boGroups = runBlocking { boClient.conversations.listGroups() }
+        assertEquals(boGroups.size, 1)
+        val boGroup = boGroups[0]
+        runBlocking {
+            boGroup.sync()
+        }
+
+        val boMessages1 = boGroup.messages()
+        assertEquals(boMessages1.size, firstMsgCheck)
+
+        runBlocking {
+            boGroup.send("hello2")
+            boGroup.send("hello3")
+            alixGroup.sync()
+        }
+        Thread.sleep(1000)
+        val alixMessages = alixGroup.messages()
+        assertEquals(alixMessages.size, secondMsgCheck)
+        runBlocking {
+            alixGroup.send("hello4")
+            boGroup.sync()
+        }
+
+        val boMessages2 = boGroup.messages()
+        assertEquals(boMessages2.size, secondMsgCheck)
+
+        Thread.sleep(1000)
+
+        assertEquals(4, messageCallbacks)
     }
 
     @Test
