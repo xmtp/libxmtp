@@ -227,7 +227,7 @@ where
             match db_entry {
                 SyncableTables::StoredGroup(group) => {
                     // alternatively consider: group.store(&conn)?
-                    conn.insert_or_ignore_group(group)?;
+                    conn.insert_or_replace_group(group)?;
                 }
                 SyncableTables::StoredGroupMessage(group_message) => {
                     group_message.store(&conn)?;

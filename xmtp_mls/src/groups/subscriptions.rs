@@ -22,6 +22,13 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let msgv1 = extract_message_v1(envelope)?;
+        let msg_id = msgv1.id;
+        let client_id = client.inbox_id().clone();
+        log::info!(
+            "client [{}]  is about to process streamed envelope: [{}]",
+            &client_id.clone(),
+            &msg_id
+        );
         let created_ns = msgv1.created_ns;
 
         let client_pointer = client.clone();
@@ -33,6 +40,11 @@ impl MlsGroup {
 
                 // Attempt processing immediately, but fail if the message is not an Application Message
                 // Returning an error should roll back the DB tx
+                log::info!(
+                    "current epoch for [{}] in process_stream_entry() is Epoch: [{}]",
+                    &client_id.clone(),
+                    self.load_mls_group(&provider).unwrap().epoch()
+                );
                 self.process_message(
                     client_pointer.as_ref(),
                     &mut openmls_group,

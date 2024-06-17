@@ -28,6 +28,19 @@ pub enum IntentKind {
     UpdateAdminList = 5,
 }
 
+impl std::fmt::Display for IntentKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let description = match self {
+            IntentKind::SendMessage => "SendMessage",
+            IntentKind::KeyUpdate => "KeyUpdate",
+            IntentKind::MetadataUpdate => "MetadataUpdate",
+            IntentKind::UpdateGroupMembership => "UpdateGroupMembership",
+            IntentKind::UpdateAdminList => "UpdateAdminList",
+        };
+        write!(f, "{}", description)
+    }
+}
+
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
