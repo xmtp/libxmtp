@@ -297,22 +297,24 @@ public actor Conversations {
 	public func streamAllGroupMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
 		AsyncThrowingStream { continuation in
 			Task {
-				do {
-					self.streamHolder.stream = try await self.client.v3Client?.conversations().streamAllMessages(
-						messageCallback: MessageCallback(client: self.client) { message in
-							do {
-								continuation.yield(try MessageV3(client: self.client, ffiMessage: message).decode())
-							} catch {
-								print("Error onMessage \(error)")
-							}
-						}
-					)
-				} catch {
-					print("STREAM ERR: \(error)")
+				let messageCallback = MessageCallback(client: self.client) { message in
+					if let decodedMessage = MessageV3(client: self.client, ffiMessage: message).decodeOrNull() {
+						continuation.yield(decodedMessage)
+					}
+				}
+				
+				guard let stream = try await client.v3Client?.conversations().streamAllMessages(messageCallback: messageCallback) else {
+					continuation.finish(throwing: GroupError.streamingFailure)
+					return
+				}
+				
+				continuation.onTermination = { @Sendable reason in
+					stream.end()
 				}
 			}
 		}
 	}
+
 	
 	public func streamAllMessages(includeGroups: Bool = false) async throws -> AsyncThrowingStream<DecodedMessage, Error> {
 		AsyncThrowingStream<DecodedMessage, Error> { continuation in

@@ -587,6 +587,54 @@ class GroupTests: XCTestCase {
 		await waitForExpectations(timeout: 3)
 	}
 	
+	func testCanStreamAndUpdateNameWithoutForkingGroup() async throws {
+		let fixtures = try await localFixtures()
+		
+		let expectation = expectation(description: "got a message")
+		expectation.expectedFulfillmentCount = 5
+
+		Task(priority: .userInitiated) {
+			for try await _ in try await fixtures.bobClient.conversations.streamAllGroupMessages(){
+				expectation.fulfill()
+			}
+		}
+
+		let alixGroup = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address])
+		try await alixGroup.updateGroupName(groupName: "hello")
+		try await alixGroup.send(content: "hello1")
+		
+		try await fixtures.bobClient.conversations.sync()
+
+		let boGroups = try await fixtures.bobClient.conversations.groups()
+		XCTAssertEqual(boGroups.count, 1, "bo should have 1 group")
+		let boGroup = boGroups[0]
+		try await boGroup.sync()
+		
+		let boMessages1 = try await boGroup.messages()
+		XCTAssertEqual(boMessages1.count, 2, "should have 2 messages on first load received \(boMessages1.count)")
+		
+		try await boGroup.send(content: "hello2")
+		try await boGroup.send(content: "hello3")
+		try await alixGroup.sync()
+
+		let alixMessages = try await alixGroup.messages()
+		for message in alixMessages {
+			print("message", message.encodedContent.type, message.encodedContent.type.typeID)
+		}
+		XCTAssertEqual(alixMessages.count, 5, "should have 5 messages on first load received \(alixMessages.count)")
+
+		try await alixGroup.send(content: "hello4")
+		try await boGroup.sync()
+
+		let boMessages2 = try await boGroup.messages()
+		for message in boMessages2 {
+			print("message", message.encodedContent.type, message.encodedContent.type.typeID)
+		}
+		XCTAssertEqual(boMessages2.count, 5, "should have 5 messages on second load received \(boMessages2.count)")
+
+		await waitForExpectations(timeout: 3)
+	}
+	
 	func testCanStreamAllMessages() async throws {
 		let fixtures = try await localFixtures()
 
