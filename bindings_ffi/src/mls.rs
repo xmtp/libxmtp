@@ -1046,9 +1046,7 @@ mod tests {
         }
     }
 
-    pub struct MockLogger {
-        inbox_id: String,
-    }
+    pub struct MockLogger {}
 
     impl FfiLogger for MockLogger {
         fn log(&self, _level: u32, level_label: String, message: String) {
@@ -1121,9 +1119,7 @@ mod tests {
         let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
 
         let client = create_client(
-            Box::new(MockLogger {
-                inbox_id: inbox_id.clone(),
-            }),
+            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(tmp_path()),
@@ -1145,9 +1141,7 @@ mod tests {
         let real_inbox_id = client.inbox_id();
 
         let from_network = get_inbox_id_for_address(
-            Box::new(MockLogger {
-                inbox_id: real_inbox_id.clone(),
-            }),
+            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             client.account_address.clone(),
@@ -1175,9 +1169,7 @@ mod tests {
         let inbox_id = generate_inbox_id(&account_address, &nonce);
 
         let client = create_client(
-            Box::new(MockLogger {
-                inbox_id: inbox_id.clone(),
-            }),
+            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(tmp_path()),
@@ -1202,9 +1194,7 @@ mod tests {
         let path = tmp_path();
 
         let client_a = create_client(
-            Box::new(MockLogger {
-                inbox_id: inbox_id.clone(),
-            }),
+            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -1222,9 +1212,7 @@ mod tests {
         drop(client_a);
 
         let client_b = create_client(
-            Box::new(MockLogger {
-                inbox_id: inbox_id.clone(),
-            }),
+            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path),
@@ -1257,9 +1245,7 @@ mod tests {
         let key = static_enc_key().to_vec();
 
         let client_a = create_client(
-            Box::new(MockLogger {
-                inbox_id: inbox_id.clone(),
-            }),
+            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -1278,9 +1264,7 @@ mod tests {
         other_key[31] = 1;
 
         let result_errored = create_client(
-            Box::new(MockLogger {
-                inbox_id: inbox_id.clone(),
-            }),
+            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path),
@@ -1346,9 +1330,7 @@ mod tests {
         let path = tmp_path();
 
         let client = create_client(
-            Box::new(MockLogger {
-                inbox_id: inbox_id.clone(),
-            }),
+            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -1375,9 +1357,7 @@ mod tests {
         let path = tmp_path();
 
         let client_amal = create_client(
-            Box::new(MockLogger {
-                inbox_id: amal_inbox_id.clone(),
-            }),
+            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -1403,9 +1383,7 @@ mod tests {
         );
 
         let client_bola = create_client(
-            Box::new(MockLogger {
-                inbox_id: bola_inbox_id.clone(),
-            }),
+            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
