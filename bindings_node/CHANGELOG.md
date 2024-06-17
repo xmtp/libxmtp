@@ -1,5 +1,9 @@
 # @xmtp/mls-client-bindings-node
 
+## 0.0.6
+
+- Fixed some group syncing issues
+
 ## 0.0.5
 
 - Added ability to set group name and image URL during creation
