@@ -1514,8 +1514,9 @@ mod tests {
             .await
             .unwrap();
         alix_group.send("hello1".as_bytes().to_vec()).await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
         bo.conversations().sync().await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
         let bo_groups = bo
             .conversations()
