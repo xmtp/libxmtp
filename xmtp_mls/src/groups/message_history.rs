@@ -82,7 +82,8 @@ impl<ApiClient> Client<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    pub async fn allow_history_sync(&self) -> Result<(), GroupError> {
+    pub async fn allow_history_sync(&mut self, url: &str) -> Result<(), GroupError> {
+        self.history_sync_url = Some(url.into());
         let history_sync_group = self.create_sync_group()?;
         history_sync_group.sync(self).await?;
         Ok(())
@@ -600,8 +601,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_allow_history_sync() {
         let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(client.allow_history_sync().await);
+        let mut client = ClientBuilder::new_test_client(&wallet).await;
+        assert_ok!(client.allow_history_sync("localhost").await);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -609,8 +610,8 @@ mod tests {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        let amal_c = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_c.allow_history_sync().await);
+        let mut amal_c = ClientBuilder::new_test_client(&wallet).await;
+        assert_ok!(amal_c.allow_history_sync("localhost").await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
         amal_b.sync_welcomes().await.expect("sync_welcomes");
@@ -635,8 +636,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_send_history_request() {
         let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(client.allow_history_sync().await);
+        let mut client = ClientBuilder::new_test_client(&wallet).await;
+        assert_ok!(client.allow_history_sync("localhost").await);
 
         // test that the request is sent, and that the pin code is returned
         let pin_code = client
@@ -649,8 +650,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_send_history_reply() {
         let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(client.allow_history_sync().await);
+        let mut client = ClientBuilder::new_test_client(&wallet).await;
+        assert_ok!(client.allow_history_sync("localhost").await);
 
         let request_id = new_request_id();
         let url = "https://test.com/abc-123";
@@ -666,8 +667,8 @@ mod tests {
     async fn test_history_messages_stored_correctly() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_b.allow_history_sync().await);
+        let mut amal_b = ClientBuilder::new_test_client(&wallet).await;
+        assert_ok!(amal_b.allow_history_sync("localhost").await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
@@ -699,8 +700,8 @@ mod tests {
     async fn test_provide_pin_challenge() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_b.allow_history_sync().await);
+        let mut amal_b = ClientBuilder::new_test_client(&wallet).await;
+        assert_ok!(amal_b.allow_history_sync("localhost").await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
@@ -726,8 +727,8 @@ mod tests {
     async fn test_request_reply_roundtrip() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_b.allow_history_sync().await);
+        let mut amal_b = ClientBuilder::new_test_client(&wallet).await;
+        assert_ok!(amal_b.allow_history_sync("localhost").await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
@@ -967,8 +968,8 @@ mod tests {
     async fn test_prepare_history_reply() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_b.allow_history_sync().await);
+        let mut amal_b = ClientBuilder::new_test_client(&wallet).await;
+        assert_ok!(amal_b.allow_history_sync("localhost").await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
