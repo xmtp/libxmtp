@@ -107,7 +107,7 @@ pub async fn create_client(
         nonce,
         legacy_signed_private_key_proto,
     );
-    
+
     let xmtp_client: RustXmtpClient = match history_sync_url {
         Some(url) => {
             ClientBuilder::new(identity_strategy)
@@ -290,6 +290,11 @@ impl FfiXmtpClient {
 
         Ok(())
     }
+
+    pub async fn request_history_sync(&self) -> Result<(), GenericError> {
+        self.inner_client.send_history_request().await?;
+        Ok(())
+    }
 }
 
 #[derive(uniffi::Record, Default)]
@@ -443,11 +448,6 @@ impl FfiConversations {
             close_fn: stream_closer.close_fn,
             is_closed_atomic: stream_closer.is_closed_atomic,
         }))
-    }
-
-    pub async fn request_history_sync(&self) -> Result<(), GenericError> {
-        self.inner_client.send_history_request().await?;
-        Ok(())
     }
 }
 
@@ -1198,7 +1198,7 @@ mod tests {
             account_address.to_string(),
             nonce,
             Some(legacy_keys),
-            None
+            None,
         )
         .await
         .unwrap();
@@ -1364,7 +1364,7 @@ mod tests {
             inbox_owner.get_address(),
             nonce,
             None, // v2_signed_private_key_proto
-            None, 
+            None,
         )
         .await
         .unwrap();
