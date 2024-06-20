@@ -418,7 +418,8 @@ mod tests {
 
     use super::*;
 
-    const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
+    const CIPHERSUITE: Ciphersuite =
+        Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519;
 
     fn generate_identity() -> (Vec<u8>, SignatureKeyPair, String) {
         let rng = &mut rand::thread_rng();
@@ -563,7 +564,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_validate_key_packages_happy_path() {
         let (identity, keypair, account_address) = generate_identity();
 

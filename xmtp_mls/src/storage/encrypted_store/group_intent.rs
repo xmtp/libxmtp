@@ -28,6 +28,19 @@ pub enum IntentKind {
     UpdateAdminList = 5,
 }
 
+impl std::fmt::Display for IntentKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let description = match self {
+            IntentKind::SendMessage => "SendMessage",
+            IntentKind::KeyUpdate => "KeyUpdate",
+            IntentKind::MetadataUpdate => "MetadataUpdate",
+            IntentKind::UpdateGroupMembership => "UpdateGroupMembership",
+            IntentKind::UpdateAdminList => "UpdateAdminList",
+        };
+        write!(f, "{}", description)
+    }
+}
+
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
@@ -85,6 +98,7 @@ impl NewGroupIntent {
 }
 
 impl DbConnection {
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn insert_group_intent(
         &self,
         to_save: NewGroupIntent,
@@ -97,6 +111,7 @@ impl DbConnection {
     }
 
     // Query for group_intents by group_id, optionally filtering by state and kind
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn find_group_intents(
         &self,
         group_id: Vec<u8>,
@@ -144,7 +159,9 @@ impl DbConnection {
 
         match res {
             // If nothing matched the query, return an error. Either ID or state was wrong
-            0 => Err(StorageError::NotFound),
+            0 => Err(StorageError::NotFound(format!(
+                "ToPublish intent {intent_id} for publish"
+            ))),
             _ => Ok(()),
         }
     }
@@ -163,7 +180,9 @@ impl DbConnection {
 
         match res {
             // If nothing matched the query, return an error. Either ID or state was wrong
-            0 => Err(StorageError::NotFound),
+            0 => Err(StorageError::NotFound(format!(
+                "Published intent {intent_id} for commit"
+            ))),
             _ => Ok(()),
         }
     }
@@ -188,25 +207,28 @@ impl DbConnection {
 
         match res {
             // If nothing matched the query, return an error. Either ID or state was wrong
-            0 => Err(StorageError::NotFound),
+            0 => Err(StorageError::NotFound(format!(
+                "Published intent {intent_id} for ToPublish"
+            ))),
             _ => Ok(()),
         }
     }
 
-    // Set the intent with the given ID to `Committed`
+    /// Set the intent with the given ID to `Error`
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn set_group_intent_error(&self, intent_id: ID) -> Result<(), StorageError> {
         let res = self.raw_query(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
-                // State machine requires that the only valid state transition to Committed is from
-                // Published
                 .set(dsl::state.eq(IntentState::Error))
                 .execute(conn)
         })?;
 
         match res {
             // If nothing matched the query, return an error. Either ID or state was wrong
-            0 => Err(StorageError::NotFound),
+            0 => Err(StorageError::NotFound(format!(
+                "state for intent {intent_id}"
+            ))),
             _ => Ok(()),
         }
     }
@@ -595,14 +617,14 @@ mod tests {
             assert!(commit_result.is_err());
             assert!(matches!(
                 commit_result.err().unwrap(),
-                StorageError::NotFound
+                StorageError::NotFound(_)
             ));
 
             let to_publish_result = conn.set_group_intent_to_publish(intent.id);
             assert!(to_publish_result.is_err());
             assert!(matches!(
                 to_publish_result.err().unwrap(),
-                StorageError::NotFound
+                StorageError::NotFound(_)
             ));
         })
     }

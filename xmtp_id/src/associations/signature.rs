@@ -16,11 +16,12 @@ use thiserror::Error;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature};
 use xmtp_proto::xmtp::{
     identity::associations::{
-        signature::Signature as SignatureKindProto, Erc1271Signature as Erc1271SignatureProto,
+        signature::Signature as SignatureKindProto,
         LegacyDelegatedSignature as LegacyDelegatedSignatureProto,
         RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
         RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
         Signature as SignatureProto,
+        SmartContractWalletSignature as SmartContractWalletSignatureProto,
     },
     message_contents::{
         signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto,
@@ -171,8 +172,9 @@ impl AccountId {
     }
 }
 
+/// A ERC-6492 signature.
 #[derive(Debug, Clone)]
-pub struct Erc1271Signature {
+pub struct SmartContractWalletSignature {
     signature_text: String,
     signature_bytes: Vec<u8>,
     account_id: AccountId,
@@ -180,9 +182,9 @@ pub struct Erc1271Signature {
     chain_rpc_url: String,
 }
 
-unsafe impl Send for Erc1271Signature {}
+unsafe impl Send for SmartContractWalletSignature {}
 
-impl Erc1271Signature {
+impl SmartContractWalletSignature {
     pub fn new(
         signature_text: String,
         signature_bytes: Vec<u8>,
@@ -190,7 +192,7 @@ impl Erc1271Signature {
         chain_rpc_url: String,
         block_number: u64,
     ) -> Self {
-        Erc1271Signature {
+        SmartContractWalletSignature {
             signature_text,
             signature_bytes,
             account_id,
@@ -211,7 +213,7 @@ impl Erc1271Signature {
         let block_number = provider.get_block_number().await?;
         let chain_id = provider.get_chainid().await?;
         let account_id = AccountId::new(chain_id.to_string(), account_address);
-        Ok(Erc1271Signature::new(
+        Ok(SmartContractWalletSignature::new(
             signature_text,
             signature_bytes,
             account_id,
@@ -222,15 +224,16 @@ impl Erc1271Signature {
 }
 
 #[async_trait]
-impl Signature for Erc1271Signature {
+impl Signature for SmartContractWalletSignature {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
-        let verifier = crate::scw_verifier::ERC1271Verifier::new(self.chain_rpc_url.clone());
+        let verifier =
+            crate::scw_verifier::SmartContractWalletVerifier::new(self.chain_rpc_url.clone());
         let is_valid = verifier
             .is_valid_signature(
                 self.account_id.get_account_address().parse()?,
-                Some(BlockNumber::Number(U64::from(self.block_number))),
                 hash_message(self.signature_text.clone()).into(), // the hash function should match the one used by the user wallet
-                self.bytes().into(),
+                &self.bytes().into(),
+                Some(BlockNumber::Number(U64::from(self.block_number))),
             )
             .await?;
         if is_valid {
@@ -255,11 +258,14 @@ impl Signature for Erc1271Signature {
 
     fn to_proto(&self) -> SignatureProto {
         SignatureProto {
-            signature: Some(SignatureKindProto::Erc1271(Erc1271SignatureProto {
-                account_id: self.account_id.clone().into(),
-                block_number: self.block_number,
-                signature: self.bytes(),
-            })),
+            signature: Some(SignatureKindProto::Erc6492(
+                SmartContractWalletSignatureProto {
+                    account_id: self.account_id.clone().into(),
+                    block_number: self.block_number,
+                    signature: self.bytes(),
+                    chain_rpc_url: self.chain_rpc_url.clone(),
+                },
+            )),
         }
     }
 }
@@ -379,7 +385,7 @@ impl Signature for LegacyDelegatedSignature {
     }
 }
 
-/// Decode the `legacy_signed_private_key` to legacy private / public key pairs & sign the `signature_text` with theprivate key.
+/// Decode the `legacy_signed_private_key` to legacy private / public key pairs & sign the `signature_text` with the private key.
 pub async fn sign_with_legacy_key(
     signature_text: String,
     legacy_signed_private_key: Vec<u8>,
@@ -433,7 +439,7 @@ impl ValidatedLegacySignedPublicKey {
         "For more info: https://xmtp.org/signatures/".to_string()
     }
 
-    pub(crate) fn text(serialized_legacy_key: &[u8]) -> String {
+    pub fn text(serialized_legacy_key: &[u8]) -> String {
         format!(
             "{}\n{}\n\n{}",
             Self::header_text(),
@@ -539,7 +545,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn recover_signer_erc1271() {
         let wallet: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
 
@@ -584,7 +589,7 @@ mod tests {
     async fn recover_signer_legacy() {
         let signature_text = "test_legacy_signature".to_string();
         let account_address = "0x0bd00b21af9a2d538103c3aaf95cb507f8af1b28".to_string();
-        let legacy_signed_private_key = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001".to_string()).unwrap();
+        let legacy_signed_private_key = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
 
         // happy path
         let legacy_signature =

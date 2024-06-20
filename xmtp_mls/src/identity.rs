@@ -38,21 +38,19 @@ use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
         generate_inbox_id, sign_with_legacy_key, InstallationKeySignature, MemberIdentifier,
-        ValidatedLegacySignedPublicKey,
     },
     constants::INSTALLATION_KEY_SIGNATURE_CONTEXT,
     InboxId,
 };
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::{
-        identity::MlsCredential, message_contents::SignedPrivateKey as LegacySignedPrivateKeyProto,
-    },
+    xmtp::identity::MlsCredential,
 };
 
+#[derive(Debug, Clone)]
 pub enum IdentityStrategy {
     /// Tries to get an identity from the disk store. If not found, getting one from backend.
-    CreateIfNotFound(String, Option<Vec<u8>>), // (address, legacy_signed_private_key)
+    CreateIfNotFound(InboxId, String, u64, Option<Vec<u8>>), // (inbox_id, address, nonce, legacy_signed_private_key)
     /// Identity that is already in the disk store
     CachedOnly,
     /// An already-built Identity for testing purposes
@@ -60,7 +58,6 @@ pub enum IdentityStrategy {
     ExternalIdentity(Identity),
 }
 
-#[allow(dead_code)]
 impl IdentityStrategy {
     pub(crate) async fn initialize_identity<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
         self,
@@ -74,32 +71,36 @@ impl IdentityStrategy {
             .conn()
             .fetch(&())?
             .map(|i: StoredIdentity| i.into());
-        debug!("Existing identity in store: {:?}", stored_identity);
+        debug!("identity in store: {:?}", stored_identity);
         match self {
             IdentityStrategy::CachedOnly => {
                 stored_identity.ok_or(IdentityError::RequiredIdentityNotFound)
             }
-            IdentityStrategy::CreateIfNotFound(address, legacy_signed_private_key) => {
-                if let Some(identity) = stored_identity {
-                    let ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
-                    let inbox_id = ids.get(&address);
-
-                    if inbox_id.is_none() {
-                        return Err(IdentityError::NoAssociatedInboxId(address));
-                    };
-                    let inbox_id = inbox_id.expect("Checked for none");
-
-                    if inbox_id != &identity.inbox_id {
+            IdentityStrategy::CreateIfNotFound(
+                inbox_id,
+                address,
+                nonce,
+                legacy_signed_private_key,
+            ) => {
+                if let Some(stored_identity) = stored_identity {
+                    if inbox_id != stored_identity.inbox_id {
                         return Err(IdentityError::InboxIdMismatch {
                             id: inbox_id.clone(),
-                            address: address.clone(),
-                            stored: identity.inbox_id,
+                            stored: stored_identity.inbox_id,
                         });
                     }
 
-                    Ok(identity)
+                    Ok(stored_identity)
                 } else {
-                    Identity::new(address, legacy_signed_private_key, api_client).await
+                    Identity::new(
+                        inbox_id,
+                        address,
+                        nonce,
+                        legacy_signed_private_key,
+                        api_client,
+                        &provider,
+                    )
+                    .await
                 }
             }
             #[cfg(test)]
@@ -152,16 +153,14 @@ pub enum IdentityError {
     KeyPackageGenerationError(#[from] openmls::key_packages::errors::KeyPackageNewError),
     #[error(transparent)]
     ED25519Error(#[from] ed25519_dalek::ed25519::Error),
-    #[error("The InboxID {id}, associated with the given address, {address} does not match the stored InboxId {stored}.")]
-    InboxIdMismatch {
-        id: InboxId,
-        address: String,
-        stored: InboxId,
-    },
+    #[error("The InboxID {id}, associated does not match the stored InboxId {stored}.")]
+    InboxIdMismatch { id: InboxId, stored: InboxId },
     #[error("The address {0} has no associated InboxID")]
     NoAssociatedInboxId(String),
     #[error("Required identity was not found in cache.")]
     RequiredIdentityNotFound,
+    #[error("error creating new identity: {0}")]
+    NewIdentity(String),
 }
 
 #[derive(Debug, Clone)]
@@ -172,7 +171,6 @@ pub struct Identity {
     pub(crate) signature_request: Option<SignatureRequest>,
 }
 
-#[allow(dead_code)]
 impl Identity {
     /// Create a new [Identity] instance.
     ///
@@ -181,14 +179,16 @@ impl Identity {
     ///
     /// If the address is NOT associated with an inbox_id, a new inbox_id will be generated.
     /// Prioritize legacy key if provided, otherwise use wallet to sign.
-    ///
-    ///
     pub(crate) async fn new<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+        inbox_id: InboxId,
         address: String,
+        nonce: u64,
         legacy_signed_private_key: Option<Vec<u8>>,
         api_client: &ApiClientWrapper<ApiClient>,
+        provider: &XmtpOpenMlsProvider,
     ) -> Result<Self, IdentityError> {
         // check if address is already associated with an inbox_id
+        let address = address.to_lowercase();
         let inbox_ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
         let associated_inbox_id = inbox_ids.get(&address);
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
@@ -196,8 +196,11 @@ impl Identity {
         let member_identifier: MemberIdentifier = address.clone().to_lowercase().into();
 
         if let Some(associated_inbox_id) = associated_inbox_id {
-            // If an inbox is associated, we just need to associate the installation key
-            // Only wallet is allowed to sign the installation key
+            // If an inbox is associated with address, we'd use it to create Identity and ignore the nonce.
+            // We would need a signature from user's wallet.
+            if associated_inbox_id != &inbox_id {
+                return Err(IdentityError::NewIdentity("Inbox ID mismatch".to_string()));
+            }
             let builder = SignatureRequestBuilder::new(associated_inbox_id.clone());
             let mut signature_request = builder
                 .add_association(installation_public_key.to_vec().into(), member_identifier)
@@ -222,14 +225,16 @@ impl Identity {
 
             Ok(identity)
         } else if let Some(legacy_signed_private_key) = legacy_signed_private_key {
-            // sanity check if address matches the one derived from legacy_signed_private_key
-            let legacy_key_address = legacy_key_to_address(legacy_signed_private_key.clone())?;
-            if address != legacy_key_address {
-                return Err(IdentityError::LegacyKeyMismatch);
+            if nonce != 0 {
+                return Err(IdentityError::NewIdentity(
+                    "Nonce must be 0 if legacy key is provided".to_string(),
+                ));
             }
-
-            let nonce = 0;
-            let inbox_id = generate_inbox_id(&address, &nonce);
+            if inbox_id != generate_inbox_id(&address, &nonce) {
+                return Err(IdentityError::NewIdentity(
+                    "Inbox ID doesn't match nonce & address".to_string(),
+                ));
+            }
             let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
             builder = builder.create_inbox(member_identifier.clone(), nonce);
             let mut signature_request = builder
@@ -254,7 +259,6 @@ impl Identity {
                     .await?,
                 ))
                 .await?;
-
             let identity_update = signature_request.build_identity_update()?;
             api_client.publish_identity_update(identity_update).await?;
 
@@ -264,9 +268,16 @@ impl Identity {
                 credential: create_credential(inbox_id)?,
                 signature_request: None,
             };
+
+            identity.register(provider, api_client).await?;
+
             Ok(identity)
         } else {
-            let nonce = rand::random::<u64>();
+            if inbox_id != generate_inbox_id(&address, &nonce) {
+                return Err(IdentityError::NewIdentity(
+                    "Inbox ID doesn't match nonce & address".to_string(),
+                ));
+            }
             let inbox_id = generate_inbox_id(&address, &nonce);
             let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
             builder = builder.create_inbox(member_identifier.clone(), nonce);
@@ -305,6 +316,7 @@ impl Identity {
         conn.get_latest_sequence_id_for_inbox(self.inbox_id.as_str())
     }
 
+    #[allow(dead_code)]
     fn is_ready(&self) -> bool {
         self.signature_request.is_none()
     }
@@ -428,21 +440,6 @@ async fn sign_with_installation_key(
     );
 
     Ok(installation_key_sig)
-}
-
-/// Convert a legacy signed private key(secp256k1) to an address.
-fn legacy_key_to_address(legacy_signed_private_key: Vec<u8>) -> Result<String, IdentityError> {
-    let legacy_signed_private_key_proto =
-        LegacySignedPrivateKeyProto::decode(legacy_signed_private_key.as_slice())?;
-    let validated_legacy_public_key: ValidatedLegacySignedPublicKey =
-        legacy_signed_private_key_proto
-            .public_key
-            .ok_or(IdentityError::MalformedLegacyKey(
-                "Missing public_key field".to_string(),
-            ))?
-            .try_into()?;
-
-    Ok(validated_legacy_public_key.account_address())
 }
 
 fn sized_installation_key(installation_key: &[u8]) -> Result<&[u8; 32], IdentityError> {

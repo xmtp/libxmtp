@@ -9,7 +9,7 @@ use diesel::{
     sql_types::Integer,
     sqlite::Sqlite,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{
     db_connection::DbConnection,
@@ -20,7 +20,7 @@ use crate::{impl_fetch, impl_store, StorageError};
 /// The Group ID type.
 pub type ID = Vec<u8>;
 
-#[derive(Debug, Clone, Serialize, PartialEq, Insertable, Identifiable, Queryable)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Insertable, Identifiable, Queryable)]
 #[diesel(table_name = groups)]
 #[diesel(primary_key(id))]
 /// A Unique group chat
@@ -38,6 +38,8 @@ pub struct StoredGroup {
 
     /// The inbox_id of who added the user to a group.
     pub added_by_inbox_id: String,
+    /// The sequence id of the welcome message
+    pub welcome_id: Option<i64>,
     pub rotated_at_ns: i64,
 }
 
@@ -45,6 +47,27 @@ impl_fetch!(StoredGroup, groups, Vec<u8>);
 impl_store!(StoredGroup, groups);
 
 impl StoredGroup {
+    /// Create a new group from a welcome message
+    pub fn new_from_welcome(
+        id: ID,
+        created_at_ns: i64,
+        membership_state: GroupMembershipState,
+        added_by_inbox_id: String,
+        welcome_id: i64,
+        purpose: Purpose,
+    ) -> Self {
+        Self {
+            id,
+            created_at_ns,
+            membership_state,
+            installations_last_checked: 0,
+            purpose,
+            added_by_inbox_id,
+            welcome_id: Some(welcome_id),
+            rotated_at_ns: 0,
+        }
+    }
+
     /// Create a new [`Purpose::Conversation`] group. This is the default type of group.
     pub fn new(
         id: ID,
@@ -59,6 +82,7 @@ impl StoredGroup {
             installations_last_checked: 0,
             purpose: Purpose::Conversation,
             added_by_inbox_id,
+            welcome_id: None,
             rotated_at_ns: 0,
         }
     }
@@ -77,6 +101,7 @@ impl StoredGroup {
             installations_last_checked: 0,
             purpose: Purpose::Sync,
             added_by_inbox_id: "".into(),
+            welcome_id: None,
             rotated_at_ns: 0,
         }
     }
@@ -158,7 +183,10 @@ impl DbConnection {
             Ok(ts)
         })?;
 
-        last_ts.ok_or(StorageError::NotFound)
+        last_ts.ok_or(StorageError::NotFound(format!(
+            "installation time for group {}",
+            hex::encode(group_id)
+        )))
     }
 
     pub fn get_rotated_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
@@ -171,7 +199,10 @@ impl DbConnection {
             Ok(ts)
         })?;
 
-        last_ts.ok_or(StorageError::NotFound)
+        last_ts.ok_or(StorageError::NotFound(format!(
+            "installation time for group {}",
+            hex::encode(group_id)
+        )))
     }
 
     /// Update the 'rotated time' once we checked in pre_intent_hook
@@ -196,13 +227,26 @@ impl DbConnection {
         Ok(())
     }
 
-    pub fn insert_or_ignore_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
+    pub fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
         let stored_group = self.raw_query(|conn| {
             let maybe_inserted_group: Option<StoredGroup> = diesel::insert_into(dsl::groups)
                 .values(&group)
                 .on_conflict_do_nothing()
                 .get_result(conn)
                 .optional()?;
+
+            if maybe_inserted_group.is_none() {
+                let existing_group: StoredGroup = dsl::groups.find(group.id).first(conn).unwrap();
+                if existing_group.welcome_id == group.welcome_id {
+                    // Error so OpenMLS db transaction are rolled back on duplicate welcomes
+                    return Err(diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::UniqueViolation,
+                        Box::new("welcome id already exists".to_string()),
+                    ));
+                } else {
+                    return Ok(existing_group);
+                }
+            }
 
             match maybe_inserted_group {
                 Some(group) => Ok(group),
@@ -215,7 +259,7 @@ impl DbConnection {
 }
 
 #[repr(i32)]
-#[derive(Debug, Copy, Clone, Serialize, Eq, PartialEq, AsExpression, FromSqlRow)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
 /// Status of membership in a group, once a user sends a request to join
 pub enum GroupMembershipState {
@@ -252,7 +296,7 @@ where
 }
 
 #[repr(i32)]
-#[derive(Debug, Copy, Clone, Serialize, Eq, PartialEq, AsExpression, FromSqlRow)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
 pub enum Purpose {
     Conversation = 1,

@@ -1,13 +1,14 @@
 use rand::{distributions::Alphanumeric, Rng};
-use xmtp_proto::{
-    xmtp::identity::associations::{
-        signature::Signature as SignatureKindProto, Erc1271Signature as Erc1271SignatureProto,
+use xmtp_proto::xmtp::{
+    identity::associations::{
+        signature::Signature as SignatureKindProto,
         LegacyDelegatedSignature as LegacyDelegatedSignatureProto,
         RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
         RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
         Signature as SignatureProto,
+        SmartContractWalletSignature as SmartContractWalletSignatureProto,
     },
-    xmtp::message_contents::{
+    message_contents::{
         Signature as LegacySignatureProto, SignedPublicKey as LegacySignedPublicKeyProto,
     },
 };
@@ -87,11 +88,14 @@ impl Signature for MockSignature {
                 })),
             },
             SignatureKind::Erc1271 => SignatureProto {
-                signature: Some(SignatureKindProto::Erc1271(Erc1271SignatureProto {
-                    account_id: "eip155:1:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb".into(),
-                    block_number: 0,
-                    signature: vec![0],
-                })),
+                signature: Some(SignatureKindProto::Erc6492(
+                    SmartContractWalletSignatureProto {
+                        account_id: "eip155:1:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb".into(),
+                        block_number: 0,
+                        signature: vec![0],
+                        chain_rpc_url: "https://example.com".to_string(),
+                    },
+                )),
             },
             SignatureKind::InstallationKey => SignatureProto {
                 signature: Some(SignatureKindProto::InstallationKey(

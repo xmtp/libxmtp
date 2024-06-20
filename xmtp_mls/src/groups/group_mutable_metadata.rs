@@ -12,8 +12,11 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use crate::configuration::{
-    DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_NAME, MUTABLE_METADATA_EXTENSION_ID,
+    DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL_SQUARE, DEFAULT_GROUP_NAME,
+    MUTABLE_METADATA_EXTENSION_ID,
 };
+
+use super::GroupMetadataOptions;
 
 #[derive(Debug, Error)]
 pub enum GroupMutableMetadataError {
@@ -38,6 +41,7 @@ pub enum GroupMutableMetadataError {
 pub enum MetadataField {
     GroupName,
     Description,
+    GroupImageUrlSquare,
 }
 
 impl MetadataField {
@@ -45,6 +49,7 @@ impl MetadataField {
         match self {
             MetadataField::GroupName => "group_name",
             MetadataField::Description => "description",
+            MetadataField::GroupImageUrlSquare => "group_image_url_square",
         }
     }
 }
@@ -76,15 +81,20 @@ impl GroupMutableMetadata {
         }
     }
 
-    pub fn new_default(creator_inbox_id: String) -> Self {
+    pub fn new_default(creator_inbox_id: String, opts: GroupMetadataOptions) -> Self {
         let mut attributes = HashMap::new();
         attributes.insert(
             MetadataField::GroupName.to_string(),
-            DEFAULT_GROUP_NAME.to_string(),
+            opts.name.unwrap_or_else(|| DEFAULT_GROUP_NAME.to_string()),
         );
         attributes.insert(
             MetadataField::Description.to_string(),
             DEFAULT_GROUP_DESCRIPTION.to_string(),
+        );
+        attributes.insert(
+            MetadataField::GroupImageUrlSquare.to_string(),
+            opts.image_url_square
+                .unwrap_or_else(|| DEFAULT_GROUP_IMAGE_URL_SQUARE.to_string()),
         );
         let admin_list = vec![creator_inbox_id.clone()];
         let super_admin_list = vec![creator_inbox_id.clone()];
@@ -97,7 +107,11 @@ impl GroupMutableMetadata {
 
     // These fields will receive default permission policies for new groups
     pub fn supported_fields() -> Vec<MetadataField> {
-        vec![MetadataField::GroupName, MetadataField::Description]
+        vec![
+            MetadataField::GroupName,
+            MetadataField::Description,
+            MetadataField::GroupImageUrlSquare,
+        ]
     }
 
     pub fn is_admin(&self, inbox_id: &String) -> bool {

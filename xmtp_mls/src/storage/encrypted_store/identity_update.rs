@@ -72,6 +72,7 @@ impl DbConnection {
     }
 
     /// Batch insert identity updates, ignoring duplicates.
+    #[tracing::instrument(level = "trace", skip(updates))]
     pub fn insert_or_ignore_identity_updates(
         &self,
         updates: &[StoredIdentityUpdate],
@@ -97,6 +98,7 @@ impl DbConnection {
     }
 
     /// Given a list of inbox_ids return a hashamp of each inbox ID -> highest known sequence ID
+    #[tracing::instrument(level = "trace", skip_all)]
     pub fn get_latest_sequence_id(
         &self,
         inbox_ids: &[String],

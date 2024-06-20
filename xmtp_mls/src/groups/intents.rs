@@ -162,6 +162,13 @@ impl UpdateMetadataIntentData {
             field_value: group_name,
         }
     }
+
+    pub fn new_update_group_image_url_square(group_image_url_square: String) -> Self {
+        Self {
+            field_name: MetadataField::GroupImageUrlSquare.to_string(),
+            field_value: group_image_url_square,
+        }
+    }
 }
 
 impl From<UpdateMetadataIntentData> for Vec<u8> {
@@ -501,7 +508,7 @@ mod tests {
         let intent =
             UpdateGroupMembershipIntentData::new(membership_updates, vec!["bar".to_string()]);
 
-        let as_bytes: Vec<u8> = intent.clone().try_into().unwrap();
+        let as_bytes: Vec<u8> = intent.clone().into();
         let restored_intent: UpdateGroupMembershipIntentData = as_bytes.try_into().unwrap();
 
         assert_eq!(

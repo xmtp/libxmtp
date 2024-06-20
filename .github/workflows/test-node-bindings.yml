@@ -1,0 +1,71 @@
+name: Test Node Bindings
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    # only run tests when related changes are made
+    paths:
+      - ".github/workflows/test-node-bindings.yml"
+      - "bindings_node/**"
+      - "dev/**"
+      - "mls_validation_service/**"
+      - "xmtp_api_grpc/**"
+      - "xmtp_cryptography/**"
+      - "xmtp_id/**"
+      - "xmtp_mls/**"
+      - "xmtp_proto/**"
+      - "xmtp_v2/**"
+      - ".node-version"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain"
+
+jobs:
+  test:
+    runs-on: warp-ubuntu-latest-x64-16x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            bindings_node
+
+      - name: Update rust toolchain from rust-toolchain file
+        run: rustup update
+
+      - name: Start Docker containers
+        run: dev/up
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".node-version"
+          cache-dependency-path: "bindings_node/yarn.lock"
+          cache: "yarn"
+        env:
+          SKIP_YARN_COREPACK_CHECK: "1"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: |
+          cd bindings_node
+          yarn
+
+      - name: Build release
+        run: |
+          cd bindings_node
+          yarn build:release
+
+      - name: Run tests
+        run: |
+          cd bindings_node
+          yarn test

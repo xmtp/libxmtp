@@ -58,17 +58,27 @@ where
         welcome: WelcomeMessage,
     ) -> Result<MlsGroup, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
-        let conn = self.store().conn()?;
-        let provider = self.mls_provider(conn);
 
-        MlsGroup::create_from_encrypted_welcome(
-            self,
-            &provider,
-            welcome_v1.hpke_public_key.as_slice(),
-            welcome_v1.data,
-        )
-        .await
-        .map_err(|e| ClientError::Generic(e.to_string()))
+        let creation_result = self
+            .context
+            .store
+            .transaction_async(|provider| async move {
+                MlsGroup::create_from_encrypted_welcome(
+                    self,
+                    &provider,
+                    welcome_v1.hpke_public_key.as_slice(),
+                    welcome_v1.data,
+                    welcome_v1.id as i64,
+                )
+                .await
+            })
+            .await;
+
+        if let Some(err) = creation_result.as_ref().err() {
+            return Err(ClientError::Generic(err.to_string()));
+        }
+
+        Ok(creation_result.unwrap())
     }
 
     pub async fn process_streamed_welcome_message(
@@ -246,9 +256,17 @@ where
         client: Arc<Client<ApiClient>>,
         callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
     ) -> Result<StreamCloser, ClientError> {
+        client.sync_welcomes().await?; // TODO pipe cursor from welcomes sync into groups_stream
+        Self::stream_all_messages_with_callback_sync(client, callback)
+    }
+
+    /// Requires a sync welcomes before use
+    pub fn stream_all_messages_with_callback_sync(
+        client: Arc<Client<ApiClient>>,
+        callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
+    ) -> Result<StreamCloser, ClientError> {
         let callback = Arc::new(Mutex::new(callback));
 
-        client.sync_welcomes().await?; // TODO pipe cursor from welcomes sync into groups_stream
         let mut group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo> = client
             .store()
             .conn()?
@@ -317,7 +335,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{builder::ClientBuilder, storage::group_message::StoredGroupMessage, Client};
+    use crate::{
+        builder::ClientBuilder, groups::GroupMetadataOptions,
+        storage::group_message::StoredGroupMessage, Client,
+    };
     use futures::StreamExt;
     use std::sync::{Arc, Mutex};
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
@@ -328,7 +349,9 @@ mod tests {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alice_bob_group = alice.create_group(None).unwrap();
+        let alice_bob_group = alice
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
 
         let mut bob_stream = bob.stream_conversations().await.unwrap();
         alice_bob_group
@@ -346,13 +369,17 @@ mod tests {
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alix_group = alix.create_group(None).unwrap();
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         alix_group
             .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
             .unwrap();
 
-        let bo_group = bo.create_group(None).unwrap();
+        let bo_group = bo
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         bo_group
             .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
             .await
@@ -369,6 +396,7 @@ mod tests {
         )
         .await
         .unwrap();
+
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         alix_group
@@ -404,7 +432,9 @@ mod tests {
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let caro = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
 
-        let alix_group = alix.create_group(None).unwrap();
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         alix_group
             .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
@@ -432,7 +462,9 @@ mod tests {
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-        let bo_group = bo.create_group(None).unwrap();
+        let bo_group = bo
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         bo_group
             .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
             .await
@@ -451,7 +483,9 @@ mod tests {
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-        let alix_group_2 = alix.create_group(None).unwrap();
+        let alix_group_2 = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         alix_group_2
             .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
@@ -470,9 +504,10 @@ mod tests {
 
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-        // FIXME: This mutex is held accross `.await` which might cause issues
-        let messages = messages.lock().unwrap();
-        assert_eq!(messages.len(), 5);
+        {
+            let messages = messages.lock().unwrap();
+            assert_eq!(messages.len(), 5);
+        }
 
         stream.end();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -484,6 +519,7 @@ mod tests {
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
+        let messages = messages.lock().unwrap();
         assert_eq!(messages.len(), 5);
     }
 }

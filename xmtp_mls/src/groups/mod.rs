@@ -18,7 +18,10 @@ use openmls::{
         Extension, ExtensionType, Extensions, Metadata, RequiredCapabilitiesExtension,
         UnknownExtension,
     },
-    group::{CreateGroupContextExtProposalError, MlsGroupCreateConfig, MlsGroupJoinConfig},
+    group::{
+        CreateGroupContextExtProposalError, MlsGroupCreateConfig, MlsGroupJoinConfig,
+        ProcessedWelcome,
+    },
     messages::proposals::ProposalType,
     prelude::{
         BasicCredentialError, Capabilities, CredentialWithKey, Error as TlsCodecError, GroupId,
@@ -162,9 +165,11 @@ pub enum GroupError {
     #[error("LeafNode error")]
     LeafNodeError(#[from] LibraryError),
     #[error("Message History error: {0}")]
-    MessageHistory(#[from] MessageHistoryError),
+    MessageHistory(#[from] Box<MessageHistoryError>),
     #[error("Installation diff error: {0}")]
     InstallationDiff(#[from] InstallationDiffError),
+    #[error("PSKs are not support")]
+    NoPSKSupport,
 }
 
 impl RetryableError for GroupError {
@@ -182,10 +187,17 @@ impl RetryableError for GroupError {
     }
 }
 
+#[derive(Debug)]
 pub struct MlsGroup {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
     context: Arc<XmtpMlsLocalContext>,
+}
+
+#[derive(Default)]
+pub struct GroupMetadataOptions {
+    pub name: Option<String>,
+    pub image_url_square: Option<String>,
 }
 
 impl Clone for MlsGroup {
@@ -217,6 +229,7 @@ impl MlsGroup {
     }
 
     // Load the stored MLS group from the OpenMLS provider's keystore
+    #[tracing::instrument(level = "trace", skip_all)]
     fn load_mls_group(&self, provider: impl OpenMlsProvider) -> Result<OpenMlsGroup, GroupError> {
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
@@ -231,12 +244,13 @@ impl MlsGroup {
         context: Arc<XmtpMlsLocalContext>,
         membership_state: GroupMembershipState,
         permissions: Option<PreconfiguredPolicies>,
+        opts: GroupMetadataOptions,
     ) -> Result<Self, GroupError> {
         let conn = context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata =
             build_protected_metadata_extension(&context.identity, Purpose::Conversation)?;
-        let mutable_metadata = build_mutable_metadata_extension_default(&context.identity)?;
+        let mutable_metadata = build_mutable_metadata_extension_default(&context.identity, opts)?;
         let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
         let mutable_permissions =
             build_mutable_permissions_extension(permissions.unwrap_or_default().to_policy_set())?;
@@ -280,6 +294,7 @@ impl MlsGroup {
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
         added_by_inbox: String,
+        welcome_id: i64,
     ) -> Result<Self, GroupError> {
         let mls_welcome =
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
@@ -290,22 +305,27 @@ impl MlsGroup {
         let group_type = metadata.conversation_type;
 
         let to_store = match group_type {
-            ConversationType::Group | ConversationType::Dm => StoredGroup::new(
+            ConversationType::Group | ConversationType::Dm => StoredGroup::new_from_welcome(
                 group_id.clone(),
                 now_ns(),
                 GroupMembershipState::Pending,
                 added_by_inbox,
+                welcome_id,
+                Purpose::Conversation,
             ),
-            ConversationType::Sync => StoredGroup::new_sync_group(
+            ConversationType::Sync => StoredGroup::new_from_welcome(
                 group_id.clone(),
                 now_ns(),
                 GroupMembershipState::Allowed,
+                added_by_inbox,
+                welcome_id,
+                Purpose::Sync,
             ),
         };
 
         validate_initial_group_membership(client, provider.conn_ref(), &mls_group).await?;
 
-        let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
+        let stored_group = provider.conn().insert_or_replace_group(to_store)?;
 
         Ok(Self::new(
             client.context.clone(),
@@ -320,21 +340,28 @@ impl MlsGroup {
         provider: &XmtpOpenMlsProvider,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: Vec<u8>,
+        welcome_id: i64,
     ) -> Result<Self, GroupError> {
         let welcome_bytes = decrypt_welcome(provider, hpke_public_key, &encrypted_welcome_bytes)?;
 
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
         let join_config = build_group_join_config();
-        let staged_welcome =
-            StagedWelcome::new_from_welcome(provider, &join_config, welcome.clone(), None)?;
+
+        let processed_welcome =
+            ProcessedWelcome::new_from_welcome(provider, &join_config, welcome.clone())?;
+        let psks = processed_welcome.psks();
+        if !psks.is_empty() {
+            return Err(GroupError::NoPSKSupport);
+        }
+        let staged_welcome = processed_welcome.into_staged_welcome(provider, None)?;
 
         let added_by_node = staged_welcome.welcome_sender()?;
 
         let added_by_credential = BasicCredential::try_from(added_by_node.credential().clone())?;
         let inbox_id = parse_credential(added_by_credential.identity())?;
 
-        Self::create_from_welcome(client, provider, welcome, inbox_id).await
+        Self::create_from_welcome(client, provider, welcome, inbox_id, welcome_id).await
     }
 
     pub(crate) fn create_and_insert_sync_group(
@@ -345,7 +372,10 @@ impl MlsGroup {
         let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata =
             build_protected_metadata_extension(&context.identity, Purpose::Sync)?;
-        let mutable_metadata = build_mutable_metadata_extension_default(&context.identity)?;
+        let mutable_metadata = build_mutable_metadata_extension_default(
+            &context.identity,
+            GroupMetadataOptions::default(),
+        )?;
         let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
         let mutable_permissions =
             build_mutable_permissions_extension(PreconfiguredPolicies::default().to_policy_set())?;
@@ -419,7 +449,7 @@ impl MlsGroup {
 
         // Skipping a full sync here and instead just firing and forgetting
         if let Err(err) = self.publish_intents(conn, client).await {
-            println!("error publishing intents: {:?}", err);
+            log::error!("Send: error publishing intents: {:?}", err);
         }
         Ok(message_id)
     }
@@ -462,6 +492,7 @@ impl MlsGroup {
      * If any existing members have new installations that have not been added, the missing installations
      * will be added as part of this process as well.
      */
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members<ApiClient>(
         &self,
         client: &Client<ApiClient>,
@@ -495,7 +526,9 @@ impl MlsGroup {
             .await
     }
 
+
     // Before calling this function, please verify pre_intent_hook has been called.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members_by_inbox_id<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
@@ -590,6 +623,41 @@ impl MlsGroup {
             .get(&MetadataField::GroupName.to_string())
         {
             Some(group_name) => Ok(group_name.clone()),
+            None => Err(GroupError::GroupMutableMetadata(
+                GroupMutableMetadataError::MissingExtension,
+            )),
+        }
+    }
+
+    pub async fn update_group_image_url_square<ApiClient>(
+        &self,
+        client: &Client<ApiClient>,
+        group_image_url_square: String,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let conn = self.context.store.conn()?;
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_update_group_image_url_square(group_image_url_square)
+                .into();
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::MetadataUpdate,
+            self.group_id.clone(),
+            intent_data,
+        ))?;
+
+        self.sync_until_intent_resolved(conn, intent.id, client)
+            .await
+    }
+
+    pub fn group_image_url_square(&self) -> Result<String, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        match mutable_metadata
+            .attributes
+            .get(&MetadataField::GroupImageUrlSquare.to_string())
+        {
+            Some(group_image_url_square) => Ok(group_image_url_square.clone()),
             None => Err(GroupError::GroupMutableMetadata(
                 GroupMutableMetadataError::MissingExtension,
             )),
@@ -764,9 +832,10 @@ fn build_mutable_permissions_extension(policies: PolicySet) -> Result<Extension,
 
 pub fn build_mutable_metadata_extension_default(
     identity: &Identity,
+    opts: GroupMetadataOptions,
 ) -> Result<Extension, GroupError> {
     let mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new_default(identity.inbox_id.clone()).try_into()?;
+        GroupMutableMetadata::new_default(identity.inbox_id.clone(), opts).try_into()?;
     let unknown_gc_extension = UnknownExtension(mutable_metadata);
 
     Ok(Extension::Unknown(
@@ -775,6 +844,7 @@ pub fn build_mutable_metadata_extension_default(
     ))
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 pub fn build_mutable_metadata_extensions_for_metadata_update(
     group: &OpenMlsGroup,
     field_name: String,
@@ -796,6 +866,7 @@ pub fn build_mutable_metadata_extensions_for_metadata_update(
     Ok(extensions)
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 pub fn build_mutable_metadata_extensions_for_admin_lists_update(
     group: &OpenMlsGroup,
     admin_lists_update: UpdateAdminListIntentData,
@@ -960,9 +1031,10 @@ mod tests {
         groups::{
             build_group_membership_extension,
             group_membership::GroupMembership,
+            group_metadata::{ConversationType, GroupMetadata},
             group_mutable_metadata::MetadataField,
             members::{GroupMember, PermissionLevel},
-            PreconfiguredPolicies, UpdateAdminListType,
+            GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
         },
         storage::{
             group_intent::IntentState,
@@ -1048,7 +1120,9 @@ mod tests {
     async fn test_send_message() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        let group = client.create_group(None).expect("create group");
+        let group = client
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
         group
             .send_message(b"hello", &client)
             .await
@@ -1066,7 +1140,9 @@ mod tests {
     async fn test_receive_self_message() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        let group = client.create_group(None).expect("create group");
+        let group = client
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
         let msg = b"hello";
         group
             .send_message(msg, &client)
@@ -1078,7 +1154,6 @@ mod tests {
             .await
             .unwrap();
         // Check for messages
-        // println!("HERE: {:#?}", messages);
         let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
@@ -1088,7 +1163,9 @@ mod tests {
     async fn test_receive_message_from_other() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let alix_group = alix.create_group(None).expect("create group");
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
         alix_group
             .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
             .await
@@ -1119,7 +1196,9 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal.create_group(None).unwrap();
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
@@ -1135,7 +1214,7 @@ mod tests {
 
         // Verify bola can see the group name
         let bola_group_name = bola_group.group_name().unwrap();
-        assert_eq!(bola_group_name, "New Group");
+        assert_eq!(bola_group_name, "");
 
         // Check if both clients can see the members correctly
         let amal_members: Vec<GroupMember> = amal_group.members().unwrap();
@@ -1169,7 +1248,9 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal.create_group(None).unwrap();
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         // Add bola
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
@@ -1239,7 +1320,9 @@ mod tests {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alix_group: MlsGroup = alix.create_group(None).unwrap();
+        let alix_group: MlsGroup = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         let provider = alix.mls_provider(alix.store().conn().unwrap());
         // Doctor the group membership
         let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
@@ -1270,7 +1353,9 @@ mod tests {
     async fn test_add_inbox() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let group = client.create_group(None).expect("create group");
+        let group = client
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
 
         group
             .add_members_by_inbox_id(&client, vec![client_2.inbox_id()])
@@ -1291,7 +1376,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_add_invalid_member() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let group = client.create_group(None).expect("create group");
+        let group = client
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
 
         let result = group
             .add_members_by_inbox_id(&client, vec!["1234".to_string()])
@@ -1304,7 +1391,9 @@ mod tests {
     async fn test_add_unregistered_member() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let unconnected_wallet_address = generate_local_wallet().get_address();
-        let group = amal.create_group(None).unwrap();
+        let group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         let result = group
             .add_members(&amal, vec![unconnected_wallet_address])
             .await;
@@ -1318,7 +1407,9 @@ mod tests {
         // Add another client onto the network
         let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let group = client_1.create_group(None).expect("create group");
+        let group = client_1
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
         group
             .add_members_by_inbox_id(&client_1, vec![client_2.inbox_id()])
             .await
@@ -1353,7 +1444,9 @@ mod tests {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let group = client.create_group(None).expect("create group");
+        let group = client
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
         group
             .add_members_by_inbox_id(&client, vec![bola_client.inbox_id()])
             .await
@@ -1452,7 +1545,9 @@ mod tests {
     async fn test_post_commit() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let group = client.create_group(None).expect("create group");
+        let group = client
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
 
         group
             .add_members_by_inbox_id(&client, vec![client_2.inbox_id()])
@@ -1477,7 +1572,9 @@ mod tests {
         let charlie_wallet = &generate_local_wallet();
         let _charlie = ClientBuilder::new_test_client(charlie_wallet).await;
 
-        let group = amal.create_group(None).unwrap();
+        let group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         group
             .add_members(
                 &amal,
@@ -1525,7 +1622,9 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&amal_wallet).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let group = amal.create_group(None).unwrap();
+        let group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
@@ -1557,7 +1656,9 @@ mod tests {
         let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let dave_wallet = generate_local_wallet();
         let dave = ClientBuilder::new_test_client(&dave_wallet).await;
-        let amal_group = amal.create_group(None).unwrap();
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         // Add bola to the group
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
@@ -1605,7 +1706,10 @@ mod tests {
         let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let amal_group = amal
-            .create_group(Some(PreconfiguredPolicies::AdminsOnly))
+            .create_group(
+                Some(PreconfiguredPolicies::AdminsOnly),
+                GroupMetadataOptions::default(),
+            )
             .unwrap();
         // Add bola to the group
         amal_group
@@ -1622,13 +1726,44 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_group_options() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let amal_group = amal
+            .create_group(
+                None,
+                GroupMetadataOptions {
+                    name: Some("Group Name".to_string()),
+                    image_url_square: Some("url".to_string()),
+                },
+            )
+            .unwrap();
+
+        let binding = amal_group.mutable_metadata().expect("msg");
+        let amal_group_name: &String = binding
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap();
+        let amal_group_image_url: &String = binding
+            .attributes
+            .get(&MetadataField::GroupImageUrlSquare.to_string())
+            .unwrap();
+
+        assert_eq!(amal_group_name, "Group Name");
+        assert_eq!(amal_group_image_url, "url");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     // TODO: Need to enforce limits on max wallets on `add_members_by_inbox_id` and break up
     // requests into multiple transactions
     #[ignore]
     async fn test_max_limit_add() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let amal_group = amal
-            .create_group(Some(PreconfiguredPolicies::AdminsOnly))
+            .create_group(
+                Some(PreconfiguredPolicies::AdminsOnly),
+                GroupMetadataOptions::default(),
+            )
             .unwrap();
         let mut clients = Vec::new();
         for _ in 0..249 {
@@ -1652,16 +1787,18 @@ mod tests {
 
         // Create a group and verify it has the default group name
         let policies = Some(PreconfiguredPolicies::AdminsOnly);
-        let amal_group: MlsGroup = amal.create_group(policies).unwrap();
+        let amal_group: MlsGroup = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
         let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
-        assert!(group_mutable_metadata.attributes.len().eq(&2));
+        assert!(group_mutable_metadata.attributes.len().eq(&3));
         assert!(group_mutable_metadata
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap()
-            .eq("New Group"));
+            .eq(""));
 
         // Add bola to the group
         amal_group
@@ -1678,11 +1815,16 @@ mod tests {
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap()
-            .eq("New Group"));
+            .eq(""));
 
         // Update group name
         amal_group
             .update_group_name(&amal, "New Group Name 1".to_string())
+            .await
+            .unwrap();
+
+        amal_group
+            .send_message("hello".as_bytes(), &amal)
             .await
             .unwrap();
 
@@ -1721,6 +1863,40 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_update_group_image_url_square() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Create a group and verify it has the default group name
+        let policies = Some(PreconfiguredPolicies::AdminsOnly);
+        let amal_group: MlsGroup = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group.sync(&amal).await.unwrap();
+
+        let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+        assert!(group_mutable_metadata
+            .attributes
+            .get(&MetadataField::GroupImageUrlSquare.to_string())
+            .unwrap()
+            .eq(""));
+
+        // Update group name
+        amal_group
+            .update_group_image_url_square(&amal, "a url".to_string())
+            .await
+            .unwrap();
+
+        // Verify amal group sees update
+        amal_group.sync(&amal).await.unwrap();
+        let binding = amal_group.mutable_metadata().expect("msg");
+        let amal_group_image_url: &String = binding
+            .attributes
+            .get(&MetadataField::GroupImageUrlSquare.to_string())
+            .unwrap();
+        assert_eq!(amal_group_image_url, "a url");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_group_mutable_data_group_permissions() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
@@ -1728,7 +1904,9 @@ mod tests {
 
         // Create a group and verify it has the default group name
         let policies = Some(PreconfiguredPolicies::AllMembers);
-        let amal_group: MlsGroup = amal.create_group(policies).unwrap();
+        let amal_group: MlsGroup = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
         let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
@@ -1736,7 +1914,7 @@ mod tests {
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap()
-            .eq("New Group"));
+            .eq(""));
 
         // Add bola to the group
         amal_group
@@ -1753,7 +1931,7 @@ mod tests {
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap()
-            .eq("New Group"));
+            .eq(""));
 
         // Update group name
         amal_group
@@ -1804,7 +1982,9 @@ mod tests {
         let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let policies = Some(PreconfiguredPolicies::AdminsOnly);
-        let amal_group = amal.create_group(policies).unwrap();
+        let amal_group = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
         // Add bola to the group
@@ -1889,7 +2069,9 @@ mod tests {
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let policies = Some(PreconfiguredPolicies::AdminsOnly);
-        let amal_group = amal.create_group(policies).unwrap();
+        let amal_group = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
         // Add bola to the group
@@ -1976,7 +2158,9 @@ mod tests {
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let policies = Some(PreconfiguredPolicies::AdminsOnly);
-        let amal_group = amal.create_group(policies).unwrap();
+        let amal_group = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
         // Add Bola and Caro to the group
@@ -2071,7 +2255,9 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Amal creates a group
-        let amal_group = amal.create_group(None).unwrap();
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
 
         // Amal adds Bola to the group
         amal_group
@@ -2100,5 +2286,87 @@ mod tests {
             added_by_inbox,
             "The Inviter and added_by_address do not match!"
         );
+    }
+
+    #[tokio::test]
+    async fn test_can_read_group_creator_inbox_id() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let policies = Some(PreconfiguredPolicies::AllMembers);
+        let amal_group = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group.sync(&amal).await.unwrap();
+
+        let mutable_metadata = amal_group.mutable_metadata().unwrap();
+        assert_eq!(mutable_metadata.admin_list.len(), 1);
+        assert_eq!(mutable_metadata.admin_list[0], amal.inbox_id());
+
+        let protected_metadata: GroupMetadata = amal_group.metadata().unwrap();
+        assert_eq!(
+            protected_metadata.conversation_type,
+            ConversationType::Group
+        );
+
+        assert_eq!(protected_metadata.creator_inbox_id, amal.inbox_id());
+    }
+
+    #[tokio::test]
+    async fn test_can_update_gce_after_failed_commit() {
+        // Step 1: Amal creates a group
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let policies = Some(PreconfiguredPolicies::AllMembers);
+        let amal_group = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group.sync(&amal).await.unwrap();
+
+        // Step 2:  Amal adds Bola to the group
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        amal_group
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .await
+            .unwrap();
+
+        // Step 3: Verify that Bola can update the group name, and amal sees the update
+        bola.sync_welcomes().await.unwrap();
+        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_group: &MlsGroup = bola_groups.first().unwrap();
+        bola_group.sync(&bola).await.unwrap();
+        bola_group
+            .update_group_name(&bola, "Name Update 1".to_string())
+            .await
+            .unwrap();
+        amal_group.sync(&amal).await.unwrap();
+        let name = amal_group.group_name().unwrap();
+        assert_eq!(name, "Name Update 1");
+
+        // Step 4:  Bola attempts an action that they do not have permissions for like add admin, fails as expected
+        let result = bola_group
+            .update_admin_list(&bola, UpdateAdminListType::Add, bola.inbox_id())
+            .await;
+        if let Err(e) = &result {
+            eprintln!("Error updating admin list: {:?}", e);
+        }
+        // Step 5: Now have Bola attempt to update the group name again
+        bola_group
+            .update_group_name(&bola, "Name Update 2".to_string())
+            .await
+            .unwrap();
+
+        // Step 6: Verify that both clients can sync without error and that the group name has been updated
+        amal_group.sync(&amal).await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
+        let binding = amal_group.mutable_metadata().expect("msg");
+        let amal_group_name: &String = binding
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap();
+        assert_eq!(amal_group_name, "Name Update 2");
+        let binding = bola_group.mutable_metadata().expect("msg");
+        let bola_group_name: &String = binding
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap();
+        assert_eq!(bola_group_name, "Name Update 2");
     }
 }

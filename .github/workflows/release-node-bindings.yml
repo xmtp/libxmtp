@@ -1,0 +1,255 @@
+name: Release Node Bindings
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: warp-ubuntu-latest-x64-8x
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-gnu
+          - aarch64-unknown-linux-musl
+        include:
+          - target: x86_64-unknown-linux-gnu
+            output_target: linux-x64-gnu
+          - target: x86_64-unknown-linux-musl
+            output_target: linux-x64-musl
+          - target: aarch64-unknown-linux-gnu
+            output_target: linux-arm64-gnu
+          - target: aarch64-unknown-linux-musl
+            output_target: linux-arm64-musl
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: "Cache"
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ./target/${{ matrix.target }}
+          key: ${{ matrix.target }}-${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
+      - name: Configure aarch64 toolchain
+        if: startsWith(matrix.target, 'aarch64')
+        run: |
+          sudo apt-get install -qq crossbuild-essential-arm64 crossbuild-essential-armhf
+          cat >>~/.cargo/config <<EOF
+          [target.aarch64-unknown-linux-gnu]
+          linker = "aarch64-linux-gnu-gcc"
+          [target.aarch64-unknown-linux-musl]
+          linker = "aarch64-linux-gnu-gcc"
+          EOF
+      - name: Configure x86_64-unknown-linux-musl toolchain
+        if: ${{ matrix.target == 'x86_64-unknown-linux-musl' }}
+        run: |
+          sudo apt-get install -qq musl-tools
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ matrix.target }}
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".node-version"
+          cache-dependency-path: "bindings_node/yarn.lock"
+          cache: "yarn"
+        env:
+          SKIP_YARN_COREPACK_CHECK: "1"
+      - name: Enable corepack
+        run: corepack enable
+      - name: Install dependencies
+        run: |
+          cd bindings_node
+          yarn
+      - name: Build target
+        if: ${{ ! startsWith(matrix.target, 'aarch64') }}
+        run: |
+          cd bindings_node
+          yarn build --target ${{ matrix.target }}
+      - name: Build target (aaarch64)
+        if: startsWith(matrix.target, 'aarch64')
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
+          CC: aarch64-linux-gnu-gcc
+        run: |
+          cd bindings_node
+          yarn build --target ${{ matrix.target }}
+      - name: Upload JS
+        # only upload the JS files once, target doesn't matter
+        if: ${{ matrix.target == 'x86_64-unknown-linux-gnu' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings_node_js
+          path: |
+            bindings_node/index.js
+            bindings_node/index.d.ts
+          retention-days: 1
+      - name: Upload binding
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings_node_${{ matrix.output_target }}
+          path: bindings_node/bindings_node.${{ matrix.output_target }}.node
+          retention-days: 1
+
+  build-macos:
+    runs-on: warp-macos-latest-arm64-6x
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+        include:
+          - target: x86_64-apple-darwin
+            output_target: darwin-x64
+          - target: aarch64-apple-darwin
+            output_target: darwin-arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ./target/${{ matrix.target }}
+          key: ${{ matrix.target }}-${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ matrix.target }}
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".node-version"
+          cache-dependency-path: "bindings_node/yarn.lock"
+          cache: "yarn"
+        env:
+          SKIP_YARN_COREPACK_CHECK: "1"
+      - name: Enable corepack
+        run: corepack enable
+      - name: Install dependencies
+        run: |
+          cd bindings_node
+          yarn
+      - name: Build target
+        run: |
+          cd bindings_node
+          yarn build --target ${{ matrix.target }}
+      - name: Upload binding
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings_node_${{ matrix.output_target }}
+          path: bindings_node/bindings_node.${{ matrix.output_target }}.node
+          retention-days: 1
+
+  build-windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-pc-windows-msvc
+          # TODO: fix the build on this target
+          # - aarch64-pc-windows-msvc
+        include:
+          - target: x86_64-pc-windows-msvc
+            output_target: win32-x64-msvc
+          # - target: aarch64-pc-windows-msvc
+          #   output_target: win32-arm64-msvc
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ./target/${{ matrix.target }}
+          key: ${{ matrix.target }}-${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
+      - name: Install Visual Studio 2022 build tools
+        uses: crazy-max/ghaction-chocolatey@v3
+        with:
+          args: install visualstudio2022buildtools
+      - name: Setup aarch64 toolchain
+        if: ${{ matrix.target == 'aarch64-pc-windows-msvc' }}
+        run: |
+          echo "C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\x64\bin" >> $GITHUB_PATH
+        shell: bash
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ matrix.target }}
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".node-version"
+          cache-dependency-path: "bindings_node/yarn.lock"
+          cache: "yarn"
+        env:
+          SKIP_YARN_COREPACK_CHECK: "1"
+      - name: Enable corepack
+        run: corepack enable
+      - name: Install dependencies
+        run: |
+          cd bindings_node
+          yarn
+      - name: Build target
+        run: |
+          cd bindings_node
+          yarn build --target ${{ matrix.target }}
+      - name: Upload binding
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings_node_${{ matrix.output_target }}
+          path: bindings_node/bindings_node.${{ matrix.output_target }}.node
+          retention-days: 1
+
+  publish:
+    permissions:
+      id-token: write
+    runs-on: ubuntu-latest
+    needs: [build-linux, build-macos, build-windows]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bindings_node_*
+          merge-multiple: true
+          path: bindings_node/dist
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".node-version"
+          cache-dependency-path: "bindings_node/yarn.lock"
+          cache: "yarn"
+        env:
+          SKIP_YARN_COREPACK_CHECK: "1"
+      - name: Enable corepack
+        run: corepack enable
+      - name: Publish to NPM
+        uses: JS-DevTools/npm-publish@v3
+        with:
+          token: ${{ secrets.NPM_TOKEN }}
+          package: bindings_node
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

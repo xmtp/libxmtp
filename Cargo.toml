@@ -12,7 +12,12 @@ members = [
   "xmtp_id",
 ]
 
-exclude = ["bindings_ffi", "bindings_wasm", "xmtp_api_grpc_gateway"]
+exclude = [
+  "bindings_ffi",
+  "bindings_wasm",
+  "xmtp_api_grpc_gateway",
+  "bindings_node",
+]
 
 # Make the feature resolver explicit.
 # See https://doc.rust-lang.org/edition-guide/rust-2021/default-cargo-resolver.html#details
@@ -30,11 +35,11 @@ ethers-core = "2.0.4"
 futures = "0.3.30"
 futures-core = "0.3.30"
 hex = "0.4.3"
-log = "0.4"
-openmls = { git = "https://github.com/xmtp/openmls", rev = "606bf92" }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "606bf92" }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "606bf92" }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "606bf92" }
+log = { version = "0.4", features = ["release_max_level_debug"] }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "99b2d5e7d0e034ac57644395e2194c5a102afb9a" }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "99b2d5e7d0e034ac57644395e2194c5a102afb9a" }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "99b2d5e7d0e034ac57644395e2194c5a102afb9a" }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "99b2d5e7d0e034ac57644395e2194c5a102afb9a" }
 prost = "^0.12"
 prost-types = "^0.12"
 rand = "0.8.5"
@@ -47,7 +52,8 @@ thiserror = "1.0"
 tls_codec = "0.4.0"
 tokio = { version = "1.35.1", features = ["macros"] }
 tonic = "^0.11"
-tracing = "0.1"
+tracing = { version = "0.1", features = ["release_max_level_debug"] }
+tracing-subscriber = "0.3"
 url = "2.5.0"
 
 # Internal Crate Dependencies

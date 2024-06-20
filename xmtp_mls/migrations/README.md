@@ -24,4 +24,4 @@ Edit the `up.sql` and `down.sql` files created
 cargo run --bin update-schema
 ```
 
-This updates the generated `schema.rs` file. You can now update `models.rs` to reference it and `encrypted_store/mod.rs` to define queries against the model.
+This updates the generated `schema.rs` file. You can now update the models and queries to reference it in `xmtp_mls/src/storage/encrypted_store/`.

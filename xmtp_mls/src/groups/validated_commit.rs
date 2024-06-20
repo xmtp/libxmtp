@@ -78,6 +78,8 @@ pub enum CommitValidationError {
     InstallationDiff(#[from] InstallationDiffError),
     #[error("Failed to parse group mutable permissions: {0}")]
     GroupMutablePermissions(#[from] GroupMutablePermissionsError),
+    #[error("PSKs are not support")]
+    NoPSKSupport,
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -186,6 +188,7 @@ impl MetadataFieldChange {
  * present in the [`AssociationState`] for the `inbox_id` presented in the credential at the `to_sequence_id` found in the
  * new [`GroupMembership`].
  * 5. All proposals in a commit must come from the same installation
+ * 6. No PSK proposals will be allowed
  */
 #[derive(Debug, Clone)]
 pub struct ValidatedCommit {
@@ -225,6 +228,11 @@ impl ValidatedCommit {
             &immutable_metadata,
             &mutable_metadata,
         )?;
+
+        // Block any psk proposals
+        if staged_commit.psk_proposals().any(|_| true) {
+            return Err(CommitValidationError::NoPSKSupport);
+        }
 
         // Get the installations actually added and removed in the commit
         let ProposalChanges {
@@ -397,7 +405,7 @@ fn get_latest_group_membership(
     for proposal in staged_commit.queued_proposals() {
         match proposal.proposal() {
             Proposal::GroupContextExtensions(group_context_extensions) => {
-                let new_group_membership =
+                let new_group_membership: GroupMembership =
                     extract_group_membership(group_context_extensions.extensions())?;
                 log::info!(
                     "Group context extensions proposal found: {:?}",
@@ -563,6 +571,7 @@ fn extract_commit_participant(
 
 /// Get the [`GroupMembership`] from a [`GroupContext`] struct by iterating through all extensions
 /// until a match is found
+#[tracing::instrument(level = "trace", skip_all)]
 pub fn extract_group_membership(
     extensions: &Extensions,
 ) -> Result<GroupMembership, CommitValidationError> {

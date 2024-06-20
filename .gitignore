@@ -154,3 +154,9 @@ libxmtp-version.txt
 # Directories from v2 branch
 bindings_swift/
 ecies_bindings_wasm/
+
+# Locally Generated Stuff
+*.generated
+**/test_output.jsonl
+**/tracing.folded
+**/tracing-flamegraph.svg

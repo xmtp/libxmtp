@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use super::{ApiClientWrapper, WrappedApiError};
 use crate::XmtpApi;
+use futures::future::try_join_all;
 use xmtp_id::{
     associations::{DeserializationError, IdentityUpdate},
     InboxId,
@@ -10,9 +11,11 @@ use xmtp_proto::xmtp::identity::api::v1::{
     get_identity_updates_request::Request as GetIdentityUpdatesV2RequestProto,
     get_identity_updates_response::IdentityUpdateLog,
     get_inbox_ids_request::Request as GetInboxIdsRequestProto,
-    GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetInboxIdsRequest,
-    PublishIdentityUpdateRequest,
+    GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetIdentityUpdatesResponse,
+    GetInboxIdsRequest, PublishIdentityUpdateRequest,
 };
+
+const GET_IDENTITY_UPDATES_CHUNK_SIZE: usize = 50;
 
 /// A filter for querying identity updates. `sequence_id` is the starting sequence, and only later updates will be returned.
 pub struct GetIdentityUpdatesV2Filter {
@@ -20,10 +23,10 @@ pub struct GetIdentityUpdatesV2Filter {
     pub sequence_id: Option<u64>,
 }
 
-impl From<GetIdentityUpdatesV2Filter> for GetIdentityUpdatesV2RequestProto {
-    fn from(filter: GetIdentityUpdatesV2Filter) -> Self {
+impl From<&GetIdentityUpdatesV2Filter> for GetIdentityUpdatesV2RequestProto {
+    fn from(filter: &GetIdentityUpdatesV2Filter) -> Self {
         Self {
-            inbox_id: filter.inbox_id,
+            inbox_id: filter.inbox_id.clone(),
             sequence_id: filter.sequence_id.unwrap_or(0),
         }
     }
@@ -75,41 +78,53 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_identity_updates_v2(
         &self,
         filters: Vec<GetIdentityUpdatesV2Filter>,
     ) -> Result<InboxUpdateMap, WrappedApiError> {
-        let result = self
-            .api_client
-            .get_identity_updates_v2(GetIdentityUpdatesV2Request {
-                requests: filters.into_iter().map(|filter| filter.into()).collect(),
-            })
-            .await?;
+        let chunks = filters.chunks(GET_IDENTITY_UPDATES_CHUNK_SIZE);
 
-        result
-            .responses
-            .into_iter()
-            .map(|response| {
-                let deserialized_updates = response
-                    .updates
-                    .into_iter()
-                    .map(|update| {
-                        let deserialized: InboxUpdate = update.try_into()?;
-
-                        Ok(deserialized)
+        let chunked_results: Result<Vec<GetIdentityUpdatesResponse>, WrappedApiError> =
+            try_join_all(chunks.map(|chunk| async move {
+                let result = self
+                    .api_client
+                    .get_identity_updates_v2(GetIdentityUpdatesV2Request {
+                        requests: chunk.iter().map(|filter| filter.into()).collect(),
                     })
-                    .collect::<Result<Vec<InboxUpdate>, WrappedApiError>>()?;
+                    .await?;
 
-                Ok((response.inbox_id, deserialized_updates))
+                Ok(result)
+            }))
+            .await;
+
+        let inbox_map = chunked_results?
+            .into_iter()
+            .flat_map(|response| {
+                response.responses.into_iter().map(|item| {
+                    let deserialized_updates = item
+                        .updates
+                        .into_iter()
+                        .map(|update| update.try_into().map_err(WrappedApiError::from))
+                        .collect::<Result<Vec<InboxUpdate>, WrappedApiError>>()?;
+
+                    Ok((item.inbox_id, deserialized_updates))
+                })
             })
-            .collect::<Result<InboxUpdateMap, WrappedApiError>>()
+            .collect::<Result<InboxUpdateMap, WrappedApiError>>()?;
+
+        Ok(inbox_map)
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_inbox_ids(
         &self,
         account_addresses: Vec<String>,
     ) -> Result<AddressToInboxIdMap, WrappedApiError> {
-        log::info!("Asked for account addresses: {:?}", &account_addresses);
+        log::info!(
+            "Getting inbox_ids for account addresses: {:?}",
+            &account_addresses
+        );
         let result = self
             .api_client
             .get_inbox_ids(GetInboxIdsRequest {
@@ -133,17 +148,7 @@ where
 mod tests {
     use super::super::test_utils::*;
     use super::GetIdentityUpdatesV2Filter;
-    use crate::{
-        api::ApiClientWrapper,
-        identity::{Identity, IdentityError, IdentityStrategy},
-        retry::Retry,
-        storage::{identity::StoredIdentity, EncryptedMessageStore, StorageOption},
-        utils::test::{rand_vec, tmp_path},
-        Store as _,
-    };
-    use openmls::credentials::{Credential, CredentialType};
-    use openmls_basic_credential::SignatureKeyPair;
-    use openmls_traits::types::SignatureScheme;
+    use crate::{api::ApiClientWrapper, retry::Retry};
     use xmtp_id::associations::{test_utils::rand_string, Action, CreateInbox, IdentityUpdate};
     use xmtp_proto::xmtp::identity::api::v1::{
         get_identity_updates_response::{
@@ -250,136 +255,5 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result.get(&address).unwrap(), &inbox_id_clone_2);
-    }
-
-    #[tokio::test]
-    async fn test_initialize_identity() {
-        let mut mock_api = MockApiClient::new();
-        let tmpdb = tmp_path();
-
-        let store =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
-        let address = rand_string();
-        let inbox_id = "inbox_id".to_string();
-
-        let keypair = SignatureKeyPair::new(SignatureScheme::ED25519).unwrap();
-        let credential = Credential::new(CredentialType::Basic, rand_vec());
-        let stored: StoredIdentity = (&Identity {
-            inbox_id: inbox_id.clone(),
-            installation_keys: keypair,
-            credential,
-            signature_request: None,
-        })
-            .into();
-
-        stored.store(&store.conn().unwrap()).unwrap();
-
-        let address_cloned = address.clone();
-        mock_api.expect_get_inbox_ids().returning(move |_| {
-            Ok(GetInboxIdsResponse {
-                responses: vec![GetInboxIdsResponseItem {
-                    address: address_cloned.clone(),
-                    inbox_id: Some(inbox_id.clone()),
-                }],
-            })
-        });
-
-        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
-
-        let identity = IdentityStrategy::CreateIfNotFound(address, None);
-        identity
-            .initialize_identity(&wrapper, &store)
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn identity_should_fail_if_inbox_id_does_not_exist() {
-        let mut mock_api = MockApiClient::new();
-
-        let address = rand_string();
-        let inbox_id = "inbox_id".to_string();
-
-        let tmpdb = tmp_path();
-        let store =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
-
-        let keypair = SignatureKeyPair::new(SignatureScheme::ED25519).unwrap();
-        let credential = Credential::new(CredentialType::Basic, rand_vec());
-        let stored: StoredIdentity = (&Identity {
-            inbox_id: inbox_id.clone(),
-            installation_keys: keypair,
-            credential,
-            signature_request: None,
-        })
-            .into();
-
-        stored.store(&store.conn().unwrap()).unwrap();
-
-        mock_api.expect_get_inbox_ids().returning(move |_| {
-            let wrong_address = "wrong".to_string();
-            Ok(GetInboxIdsResponse {
-                responses: vec![GetInboxIdsResponseItem {
-                    address: wrong_address,
-                    inbox_id: Some(inbox_id.clone()),
-                }],
-            })
-        });
-
-        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
-
-        let identity = IdentityStrategy::CreateIfNotFound(address.clone(), None);
-        let err = identity
-            .initialize_identity(&wrapper, &store)
-            .await
-            .unwrap_err();
-
-        assert!(matches!(err, IdentityError::NoAssociatedInboxId(addr) if addr == address));
-    }
-
-    #[tokio::test]
-    async fn identity_should_fail_on_wrong_inbox_id() {
-        let mut mock_api = MockApiClient::new();
-
-        let network_address = rand_string();
-        let inbox_id = "inbox_id".to_string();
-
-        let tmpdb = tmp_path();
-        let store =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
-
-        let keypair = SignatureKeyPair::new(SignatureScheme::ED25519).unwrap();
-        let credential = Credential::new(CredentialType::Basic, rand_vec());
-        let stored: StoredIdentity = (&Identity {
-            inbox_id: inbox_id.clone(),
-            installation_keys: keypair,
-            credential,
-            signature_request: None,
-        })
-            .into();
-
-        stored.store(&store.conn().unwrap()).unwrap();
-
-        let network_address_clone = network_address.clone();
-        mock_api.expect_get_inbox_ids().returning(move |_| {
-            Ok(GetInboxIdsResponse {
-                responses: vec![GetInboxIdsResponseItem {
-                    address: network_address_clone.clone(),
-                    inbox_id: Some("other".into()),
-                }],
-            })
-        });
-
-        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
-
-        let identity = IdentityStrategy::CreateIfNotFound(network_address.clone(), None);
-        let err = identity
-            .initialize_identity(&wrapper, &store)
-            .await
-            .unwrap_err();
-
-        assert!(
-            matches!(err, IdentityError::InboxIdMismatch{ id, address, stored} if id == "other" && address == network_address && stored == inbox_id)
-        );
     }
 }

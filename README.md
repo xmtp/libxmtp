@@ -4,7 +4,7 @@
 
 LibXMTP is a shared library encapsulating the core functionality of the XMTP messaging protocol, such as cryptography, networking, and language bindings.
 
-> **Important**  
+> **Important**
 > This software is in **alpha** status and ready for you to start experimenting with. However, we do not recommend using alpha software in production apps. Expect frequent changes as we add features and iterate based on feedback.
 
 ## Requirements
@@ -70,3 +70,23 @@ libxmtp/
 ├ [`xmtp_proto`](./xmtp_proto): Generated code for handling XMTP protocol buffers
 
 └ [`xmtp_v2`](./xmtp_v2): Version 2 of XMTP which uses a [user key bundle](https://xmtp.org/docs/concepts/key-generation-and-usage) to encrypt and exchange messages.
+
+
+### Run the benchmarks
+
+**possible benchmarks include:**
+
+- `group_limit`: benchmarks surrounding maximum members adding/removed from
+  group
+- `crypto`: benchmarks surrounding cryptographic functions
+
+**Example Commands**
+
+- **Run a specific category of benchmark**
+  `cargo bench --features bench -p xmtp_mls --bench group_limit`
+- **Run against dev grpc** DEV_GRPC=1 cargo bench --features bench -p xmtp_mls
+  --bench group_limit
+- **Just run all benchmarks** ./dev/bench
+- **Run one specific benchmark** ./dev/bench add_1_member_to_group
+- **Generate flamegraph from one benchmark** ./dev/flamegraph
+  add_1_member_to_group

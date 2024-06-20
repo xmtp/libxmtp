@@ -10,48 +10,53 @@ use std::sync::{
 };
 use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_id::associations::builder::SignatureRequest;
-use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
-use xmtp_id::associations::Erc1271Signature;
-use xmtp_id::associations::RecoverableEcdsaSignature;
-use xmtp_id::InboxId;
-use xmtp_mls::api::ApiClientWrapper;
-use xmtp_mls::groups::group_metadata::ConversationType;
-use xmtp_mls::groups::group_metadata::GroupMetadata;
-use xmtp_mls::groups::group_permissions::GroupMutablePermissions;
-use xmtp_mls::groups::PreconfiguredPolicies;
-use xmtp_mls::groups::UpdateAdminListType;
-use xmtp_mls::identity::IdentityStrategy;
-use xmtp_mls::retry::Retry;
+use xmtp_id::{
+    associations::{
+        builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id,
+        RecoverableEcdsaSignature, SmartContractWalletSignature,
+    },
+    InboxId,
+};
+use xmtp_mls::groups::GroupMetadataOptions;
 use xmtp_mls::{
+    api::ApiClientWrapper,
     builder::ClientBuilder,
     client::Client as MlsClient,
-    groups::{MlsGroup, members::PermissionLevel},
+    groups::{
+        group_metadata::{ConversationType, GroupMetadata},
+        group_permissions::GroupMutablePermissions,
+        members::PermissionLevel,
+        MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
+    },
+    identity::IdentityStrategy,
+    retry::Retry,
     storage::{
-        group_message::DeliveryStatus, group_message::GroupMessageKind,
-        group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
+        group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+        EncryptedMessageStore, EncryptionKey, StorageOption,
     },
 };
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
-/// XMTP SDK's may embed libxmtp (v3) alongside existing v2 protocol logic
-/// for backwards-compatibility purposes. In this case, the client may already
-/// have a wallet-signed v2 key. Depending on the source of this key,
-/// libxmtp may choose to bootstrap v3 installation keys using the existing
-/// legacy key.
-#[derive(uniffi::Enum)]
-pub enum LegacyIdentitySource {
-    // A client with no support for v2 messages
-    None,
-    // A cached v2 key was provided on client initialization
-    Static,
-    // A private bundle exists on the network from which the v2 key was fetched
-    Network,
-    // A new v2 key was generated on client initialization
-    KeyGenerator,
-}
-
+/// It returns a new client of the specified `inbox_id`.
+/// Note that the `inbox_id` must be either brand new or already associated with the `account_address`.
+/// i.e. `inbox_id` cannot be associated with another account address.
+///
+/// Prior to calling this function, it's suggested to form `inbox_id`, `account_address`, and `nonce` like below.
+///
+/// ```text
+/// inbox_id = get_inbox_id_for_address(account_address)
+/// nonce = 0
+///
+/// // if inbox_id is not associated, we will create new one.
+/// if !inbox_id {
+///     if !legacy_key { nonce = random_u64() }
+///     inbox_id = generate_inbox_id(account_address, nonce)
+/// } // Otherwise, we will just use the inbox and ignore the nonce.
+/// db_path = $inbox_id-$env
+///
+/// xmtp.create_client(account_address, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
+/// ```
 #[allow(clippy::too_many_arguments)]
 #[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]
@@ -61,10 +66,12 @@ pub async fn create_client(
     is_secure: bool,
     db: Option<String>,
     encryption_key: Option<Vec<u8>>,
+    inbox_id: &InboxId,
     account_address: String,
-    legacy_identity_source: LegacyIdentitySource,
+    nonce: u64,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
+    init_logger(logger);
     log::info!(
         "Creating API client for host: {}, isSecure: {}",
         host,
@@ -92,19 +99,13 @@ pub async fn create_client(
         }
         None => EncryptedMessageStore::new_unencrypted(storage_option)?,
     };
-
     log::info!("Creating XMTP client");
-    let legacy_key_result =
-        legacy_signed_private_key_proto.ok_or("No legacy key provided".to_string());
-    // TODO: uncomment
-    // let legacy_identity = match legacy_identity_source {
-    //     LegacyIdentitySource::None => LegacyIdentity::None,
-    //     LegacyIdentitySource::Static => LegacyIdentity::Static(legacy_key_result?),
-    //     LegacyIdentitySource::Network => LegacyIdentity::Network(legacy_key_result?),
-    //     LegacyIdentitySource::KeyGenerator => LegacyIdentity::KeyGenerator(legacy_key_result?),
-    // };
-    let identity_strategy =
-        IdentityStrategy::CreateIfNotFound(account_address.clone().to_lowercase(), None);
+    let identity_strategy = IdentityStrategy::CreateIfNotFound(
+        inbox_id.clone(),
+        account_address.clone(),
+        nonce,
+        legacy_signed_private_key_proto,
+    );
     let xmtp_client: RustXmtpClient = ClientBuilder::new(identity_strategy)
         .api_client(api_client)
         .store(store)
@@ -129,8 +130,6 @@ pub async fn get_inbox_id_for_address(
     is_secure: bool,
     account_address: String,
 ) -> Result<Option<String>, GenericError> {
-    init_logger(logger);
-
     let api_client = ApiClientWrapper::new(
         TonicApiClient::create(host.clone(), is_secure).await?,
         Retry::default(),
@@ -172,22 +171,27 @@ impl FfiSignatureRequest {
         Ok(())
     }
 
-    pub async fn add_erc1271_signature(
+    // Signature that's signed by smart contract wallet
+    pub async fn add_scw_signature(
         &self,
         signature_bytes: Vec<u8>,
         address: String,
         chain_rpc_url: String,
     ) -> Result<(), GenericError> {
         let mut inner = self.inner.lock().await;
-        let erc1271_signature = Erc1271Signature::new_with_rpc(
+        let signature = SmartContractWalletSignature::new_with_rpc(
             inner.signature_text(),
             signature_bytes,
             address,
             chain_rpc_url,
         )
         .await?;
-        inner.add_signature(Box::new(erc1271_signature)).await?;
+        inner.add_signature(Box::new(signature)).await?;
         Ok(())
+    }
+
+    pub async fn is_ready(&self) -> bool {
+        self.inner.lock().await.is_ready()
     }
 
     pub async fn signature_text(&self) -> Result<String, GenericError> {
@@ -274,7 +278,7 @@ impl FfiXmtpClient {
     }
 }
 
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Default)]
 pub struct FfiListConversationsOptions {
     pub created_after_ns: Option<i64>,
     pub created_before_ns: Option<i64>,
@@ -286,7 +290,7 @@ pub struct FfiConversations {
     inner_client: Arc<RustXmtpClient>,
 }
 
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Enum, Debug)]
 pub enum GroupPermissions {
     AllMembers,
     AdminOnly,
@@ -306,14 +310,14 @@ impl FfiConversations {
     pub async fn create_group(
         &self,
         account_addresses: Vec<String>,
-        permissions: Option<GroupPermissions>,
+        opts: FfiCreateGroupOptions,
     ) -> Result<Arc<FfiGroup>, GenericError> {
         log::info!(
             "creating group with account addresses: {}",
             account_addresses.join(", ")
         );
 
-        let group_permissions = match permissions {
+        let group_permissions = match opts.permissions {
             Some(GroupPermissions::AllMembers) => {
                 Some(xmtp_mls::groups::PreconfiguredPolicies::AllMembers)
             }
@@ -323,12 +327,15 @@ impl FfiConversations {
             _ => None,
         };
 
-        let convo = self.inner_client.create_group(group_permissions)?;
+        let convo = self
+            .inner_client
+            .create_group(group_permissions, opts.into_group_metadata_options())?;
         if !account_addresses.is_empty() {
             convo
                 .add_members(&self.inner_client, account_addresses)
                 .await?;
         }
+
         let out = Arc::new(FfiGroup {
             inner_client: self.inner_client.clone(),
             group_id: convo.group_id,
@@ -447,12 +454,28 @@ pub enum FfiPermissionLevel {
     SuperAdmin,
 }
 
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone, Default)]
 pub struct FfiListMessagesOptions {
     pub sent_before_ns: Option<i64>,
     pub sent_after_ns: Option<i64>,
     pub limit: Option<i64>,
     pub delivery_status: Option<FfiDeliveryStatus>,
+}
+
+#[derive(uniffi::Record, Default)]
+pub struct FfiCreateGroupOptions {
+    pub permissions: Option<GroupPermissions>,
+    pub group_name: Option<String>,
+    pub group_image_url_square: Option<String>,
+}
+
+impl FfiCreateGroupOptions {
+    pub fn into_group_metadata_options(self) -> GroupMetadataOptions {
+        GroupMetadataOptions {
+            name: self.group_name,
+            image_url_square: self.group_image_url_square,
+        }
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -643,6 +666,35 @@ impl FfiGroup {
         Ok(group_name)
     }
 
+    pub async fn update_group_image_url_square(
+        &self,
+        group_image_url_square: String,
+    ) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        group
+            .update_group_image_url_square(&self.inner_client, group_image_url_square)
+            .await?;
+
+        Ok(())
+    }
+
+    pub fn group_image_url_square(&self) -> Result<String, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let group_image_url_square = group.group_image_url_square()?;
+
+        Ok(group_image_url_square)
+    }
+
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
@@ -683,7 +735,9 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
         );
-        group.update_admin_list(&self.inner_client,  UpdateAdminListType::Add, inbox_id).await?;
+        group
+            .update_admin_list(&self.inner_client, UpdateAdminListType::Add, inbox_id)
+            .await?;
 
         Ok(())
     }
@@ -694,7 +748,9 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
         );
-        group.update_admin_list(&self.inner_client,  UpdateAdminListType::Remove, inbox_id).await?;
+        group
+            .update_admin_list(&self.inner_client, UpdateAdminListType::Remove, inbox_id)
+            .await?;
 
         Ok(())
     }
@@ -705,7 +761,9 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
         );
-        group.update_admin_list(&self.inner_client,  UpdateAdminListType::AddSuper, inbox_id).await?;
+        group
+            .update_admin_list(&self.inner_client, UpdateAdminListType::AddSuper, inbox_id)
+            .await?;
 
         Ok(())
     }
@@ -716,7 +774,13 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
         );
-        group.update_admin_list(&self.inner_client,  UpdateAdminListType::RemoveSuper, inbox_id).await?;
+        group
+            .update_admin_list(
+                &self.inner_client,
+                UpdateAdminListType::RemoveSuper,
+                inbox_id,
+            )
+            .await?;
 
         Ok(())
     }
@@ -812,7 +876,7 @@ impl From<GroupMessageKind> for FfiGroupMessageKind {
     }
 }
 
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Enum, Clone)]
 pub enum FfiDeliveryStatus {
     Unpublished,
     Published,
@@ -934,7 +998,8 @@ impl FfiGroupPermissions {
 mod tests {
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
-        FfiConversationCallback, FfiInboxOwner, LegacyIdentitySource,
+        FfiConversationCallback, FfiCreateGroupOptions, FfiInboxOwner, FfiListConversationsOptions,
+        FfiListMessagesOptions, GroupPermissions,
     };
     use std::{
         env,
@@ -951,6 +1016,7 @@ mod tests {
         distributions::{Alphanumeric, DistString},
     };
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
+    use xmtp_id::associations::generate_inbox_id;
     use xmtp_mls::{storage::EncryptionKey, InboxOwner};
 
     #[derive(Clone)]
@@ -984,7 +1050,7 @@ mod tests {
 
     impl FfiLogger for MockLogger {
         fn log(&self, _level: u32, level_label: String, message: String) {
-            println!("{}: {}", level_label, message)
+            println!("[{}][t:{}]: {}", level_label, thread_id::get(), message)
         }
     }
 
@@ -1007,6 +1073,7 @@ mod tests {
 
     impl FfiMessageCallback for RustStreamCallback {
         fn on_message(&self, message: FfiMessage) {
+            println!("Got a message");
             let message = String::from_utf8(message.content).unwrap_or("<not UTF8>".to_string());
             log::info!("Received: {}", message);
             let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
@@ -1015,6 +1082,7 @@ mod tests {
 
     impl FfiConversationCallback for RustStreamCallback {
         fn on_conversation(&self, _: Arc<super::FfiGroup>) {
+            println!("received new conversation");
             let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
         }
     }
@@ -1047,6 +1115,8 @@ mod tests {
 
     async fn new_test_client() -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
+        let nonce = 1;
+        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
 
         let client = create_client(
             Box::new(MockLogger {}),
@@ -1054,14 +1124,15 @@ mod tests {
             false,
             Some(tmp_path()),
             None,
+            &inbox_id,
             ffi_inbox_owner.get_address(),
-            LegacyIdentitySource::None,
+            nonce,
             None,
         )
         .await
         .unwrap();
         register_client(&ffi_inbox_owner, &client).await;
-        return client;
+        client
     }
 
     #[tokio::test]
@@ -1086,7 +1157,7 @@ mod tests {
     #[tokio::test]
     async fn test_client_creation() {
         let client = new_test_client().await;
-        assert!(!client.signature_request().is_none());
+        assert!(client.signature_request().is_some());
     }
 
     #[tokio::test]
@@ -1094,6 +1165,8 @@ mod tests {
     async fn test_legacy_identity() {
         let account_address = "0x0bD00B21aF9a2D538103c3AAf95Cb507f8AF1B28".to_lowercase();
         let legacy_keys = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
+        let nonce = 0;
+        let inbox_id = generate_inbox_id(&account_address, &nonce);
 
         let client = create_client(
             Box::new(MockLogger {}),
@@ -1101,8 +1174,9 @@ mod tests {
             false,
             Some(tmp_path()),
             None,
+            &inbox_id,
             account_address.to_string(),
-            LegacyIdentitySource::KeyGenerator,
+            nonce,
             Some(legacy_keys),
         )
         .await
@@ -1114,6 +1188,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_client_with_storage() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
+        let nonce = 1;
+        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
 
         let path = tmp_path();
 
@@ -1123,8 +1199,9 @@ mod tests {
             false,
             Some(path.clone()),
             None,
+            &inbox_id,
             ffi_inbox_owner.get_address(),
-            LegacyIdentitySource::None,
+            nonce,
             None,
         )
         .await
@@ -1140,8 +1217,9 @@ mod tests {
             false,
             Some(path),
             None,
+            &inbox_id,
             ffi_inbox_owner.get_address(),
-            LegacyIdentitySource::None,
+            nonce,
             None,
         )
         .await
@@ -1159,6 +1237,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_client_with_key() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
+        let nonce = 1;
+        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
 
         let path = tmp_path();
 
@@ -1170,8 +1250,9 @@ mod tests {
             false,
             Some(path.clone()),
             Some(key),
+            &inbox_id,
             ffi_inbox_owner.get_address(),
-            LegacyIdentitySource::None,
+            nonce,
             None,
         )
         .await
@@ -1188,8 +1269,9 @@ mod tests {
             false,
             Some(path),
             Some(other_key.to_vec()),
+            &inbox_id,
             ffi_inbox_owner.get_address(),
-            LegacyIdentitySource::None,
+            nonce,
             None,
         )
         .await
@@ -1205,7 +1287,10 @@ mod tests {
 
         let group = amal
             .conversations()
-            .create_group(vec![bola.account_address.clone()], None)
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
             .await
             .unwrap();
 
@@ -1214,8 +1299,34 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_create_group_with_metadata() {
+        let amal = new_test_client().await;
+        let bola = new_test_client().await;
+
+        let group = amal
+            .conversations()
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions {
+                    permissions: Some(GroupPermissions::AdminOnly),
+                    group_name: Some("Group Name".to_string()),
+                    group_image_url_square: Some("url".to_string()),
+                },
+            )
+            .await
+            .unwrap();
+
+        let members = group.list_members().unwrap();
+        assert_eq!(members.len(), 2);
+        assert_eq!(group.group_name().unwrap(), "Group Name");
+        assert_eq!(group.group_image_url_square().unwrap(), "url");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_invalid_external_signature() {
         let inbox_owner = LocalWalletInboxOwner::new();
+        let nonce = 1;
+        let inbox_id = generate_inbox_id(&inbox_owner.get_address(), &nonce);
         let path = tmp_path();
 
         let client = create_client(
@@ -1224,8 +1335,9 @@ mod tests {
             false,
             Some(path.clone()),
             None, // encryption_key
+            &inbox_id,
             inbox_owner.get_address(),
-            LegacyIdentitySource::None,
+            nonce,
             None, // v2_signed_private_key_proto
         )
         .await
@@ -1238,7 +1350,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_can_message() {
         let amal = LocalWalletInboxOwner::new();
+        let nonce = 1;
+        let amal_inbox_id = generate_inbox_id(&amal.get_address(), &nonce);
         let bola = LocalWalletInboxOwner::new();
+        let bola_inbox_id = generate_inbox_id(&bola.get_address(), &nonce);
         let path = tmp_path();
 
         let client_amal = create_client(
@@ -1247,8 +1362,9 @@ mod tests {
             false,
             Some(path.clone()),
             None,
+            &amal_inbox_id,
             amal.get_address(),
-            LegacyIdentitySource::None,
+            nonce,
             None,
         )
         .await
@@ -1272,8 +1388,9 @@ mod tests {
             false,
             Some(path.clone()),
             None,
+            &bola_inbox_id,
             bola.get_address(),
-            LegacyIdentitySource::None,
+            nonce,
             None,
         )
         .await
@@ -1294,6 +1411,153 @@ mod tests {
         );
     }
 
+    // Looks like this test might be a separate issue
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[ignore]
+    async fn test_can_stream_group_messages_for_updates() {
+        let _ = env_logger::builder()
+            .is_test(true)
+            .filter_level(log::LevelFilter::Info)
+            .try_init();
+
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Stream all group messages
+        let message_callbacks = RustStreamCallback::new();
+        let stream_messages = bo
+            .conversations()
+            .stream_all_messages(Box::new(message_callbacks.clone()))
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Create group and send first message
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        alix_group
+            .update_group_name("Old Name".to_string())
+            .await
+            .unwrap();
+
+        let bo_groups = bo
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
+        let bo_group = &bo_groups[0];
+        bo_group.sync().await.unwrap();
+        bo_group
+            .update_group_name("Old Name2".to_string())
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        // Uncomment the following lines to add more group name updates
+        // alix_group.update_group_name("Again Name".to_string()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        bo_group
+            .update_group_name("Old Name2".to_string())
+            .await
+            .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+        assert_eq!(message_callbacks.message_count(), 3);
+
+        stream_messages.end();
+        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        assert!(stream_messages.is_closed());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_stream_and_update_name_without_forking_group() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Stream all group messages
+        let message_callbacks = RustStreamCallback::new();
+        let stream_messages = bo
+            .conversations()
+            .stream_all_messages(Box::new(message_callbacks.clone()))
+            .await
+            .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let first_msg_check = 2;
+        let second_msg_check = 5;
+
+        // Create group and send first message
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        alix_group
+            .update_group_name("hello".to_string())
+            .await
+            .unwrap();
+        alix_group.send("hello1".as_bytes().to_vec()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+        bo.conversations().sync().await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        let bo_groups = bo
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(bo_groups.len(), 1);
+        let bo_group = bo_groups[0].clone();
+        bo_group.sync().await.unwrap();
+
+        let bo_messages1 = bo_group
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        assert_eq!(bo_messages1.len(), first_msg_check);
+
+        bo_group.send("hello2".as_bytes().to_vec()).await.unwrap();
+        bo_group.send("hello3".as_bytes().to_vec()).await.unwrap();
+        alix_group.sync().await.unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+        let alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        assert_eq!(alix_messages.len(), second_msg_check);
+
+        alix_group.send("hello4".as_bytes().to_vec()).await.unwrap();
+        bo_group.sync().await.unwrap();
+
+        let bo_messages2 = bo_group
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        assert_eq!(bo_messages2.len(), second_msg_check);
+
+        // tokio::time::sleep(tokio::time::Duration::from_millis(10000)).await;
+        // assert_eq!(message_callbacks.message_count(), 5);
+
+        stream_messages.end();
+        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        assert!(stream_messages.is_closed());
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     // This one is flaky for me. Passes reliably locally and fails on CI
     #[ignore]
@@ -1312,7 +1576,10 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         amal.conversations()
-            .create_group(vec![bola.account_address.clone()], None)
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
             .await
             .unwrap();
 
@@ -1321,7 +1588,10 @@ mod tests {
         assert_eq!(stream_callback.message_count(), 1);
         // Create another group and add bola
         amal.conversations()
-            .create_group(vec![bola.account_address.clone()], None)
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
             .await
             .unwrap();
 
@@ -1341,7 +1611,10 @@ mod tests {
 
         let alix_group = alix
             .conversations()
-            .create_group(vec![caro.account_address.clone()], None)
+            .create_group(
+                vec![caro.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
             .await
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -1359,7 +1632,10 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let bo_group = bo
             .conversations()
-            .create_group(vec![caro.account_address.clone()], None)
+            .create_group(
+                vec![caro.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
             .await
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
@@ -1383,7 +1659,10 @@ mod tests {
 
         let group = amal
             .conversations()
-            .create_group(vec![bola.account_address.clone()], None)
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
             .await
             .unwrap();
 
@@ -1418,7 +1697,10 @@ mod tests {
 
         let amal_group = amal
             .conversations()
-            .create_group(vec![bola.account_address.clone()], None)
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
             .await
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -1477,7 +1759,10 @@ mod tests {
 
         // Amal creates a group and adds Bola to the group
         amal.conversations()
-            .create_group(vec![bola.account_address.clone()], None)
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
             .await
             .unwrap();
 
