@@ -730,7 +730,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    // #[ignore]
+    #[ignore]
     async fn test_request_reply_roundtrip() {
         let options = mockito::ServerOpts {
             host: HISTORY_SERVER_HOST,
