@@ -386,12 +386,11 @@ impl Identity {
             Err(_) => return Err(IdentityError::UninitializedIdentity),
         };
 
-        // Serialize the hash reference
-        let hash_ref = match serde_json::to_vec(&key_package_hash_ref) {
+        // Serialize the hash reference (with bincode)
+        let hash_ref = match bincode::serialize(&key_package_hash_ref) {
             Ok(hash_ref) => hash_ref,
             Err(_) => return Err(IdentityError::UninitializedIdentity),
         };
-
         // Store the hash reference, keyed with the public init key
         provider
             .storage()
