@@ -1413,13 +1413,7 @@ mod tests {
 
     // Looks like this test might be a separate issue
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    #[ignore]
     async fn test_can_stream_group_messages_for_updates() {
-        let _ = env_logger::builder()
-            .is_test(true)
-            .filter_level(log::LevelFilter::Info)
-            .try_init();
-
         let alix = new_test_client().await;
         let bo = new_test_client().await;
 
