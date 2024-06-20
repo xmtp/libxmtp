@@ -111,12 +111,9 @@ where
         )
         .await?;
 
-        let mut client = Client::new(api_client_wrapper, identity, store);
-        if let Some(url) = self.history_sync_url {
-            client.allow_history_sync(&url).await?;
-        } 
+        let client = Client::new(api_client_wrapper, identity, store, self.history_sync_url);
         
-        Ok(client)
+         Ok(client)
     }
 }
 

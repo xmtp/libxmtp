@@ -231,16 +231,14 @@ where
         api_client: ApiClientWrapper<ApiClient>,
         identity: Identity,
         store: EncryptedMessageStore,
+        history_sync_url: Option<String>,
     ) -> Self {
-
         let context = XmtpMlsLocalContext { identity, store };
-        let client = Self {
+        Self {
             api_client,
             context: Arc::new(context),
-            history_sync_url: None,
-        };
-
-        client
+            history_sync_url,
+        }
     }
 
     pub fn installation_public_key(&self) -> Vec<u8> {
