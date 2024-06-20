@@ -79,8 +79,8 @@ where
         self
     }
 
-    pub fn history_sync_url(mut self, url: String) -> Self {
-        self.history_sync_url = Some(url);
+    pub fn history_sync_url(mut self, url: &str) -> Self {
+        self.history_sync_url = Some(url.into());
         self
     }
 
