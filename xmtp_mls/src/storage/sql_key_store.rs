@@ -961,14 +961,6 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         self.append::<CURRENT_VERSION>(OWN_LEAF_NODES_LABEL, &key, &value)
     }
 
-    fn clear_own_leaf_nodes<GroupId: traits::GroupId<CURRENT_VERSION>>(
-        &self,
-        group_id: &GroupId,
-    ) -> Result<(), Self::Error> {
-        let key = build_key::<CURRENT_VERSION, &GroupId>(OWN_LEAF_NODES_LABEL, group_id)?;
-        self.delete::<CURRENT_VERSION>(OWN_LEAF_NODES_LABEL, &key)
-    }
-
     fn aad<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
