@@ -1,0 +1,151 @@
+running 1 test
+test mls::tests::test_can_stream_group_messages_for_updates ... FAILED
+
+failures:
+
+---- mls::tests::test_can_stream_group_messages_for_updates stdout ----
+[INFO][t:5217532]: [libxmtp] Logger initialized
+[INFO][t:5217532]: [libxmtp] Creating API client for host: http://localhost:5556, isSecure: false
+[INFO][t:5217532]: [libxmtp] Creating message store with path: Some("/var/folders/hq/3sn46wqj68505bw_xg67wd040000gn/T//clNpu4zWjBkTbMdH0c4lK2Oa.db3") and encryption key: false
+[INFO][t:5217532]: [libxmtp] Setting up DB connection pool
+[INFO][t:5217532]: [libxmtp] Running DB migrations
+[INFO][t:5217532]: [libxmtp] Migrations successful
+[INFO][t:5217532]: [libxmtp] Creating XMTP client
+[INFO][t:5217532]: [libxmtp] Initializing identity
+[INFO][t:5217532]: [libxmtp] Getting inbox_ids for account addresses: ["0x2dfb62af0c56004045d774059741ef0b7cff1061"]
+[INFO][t:5217532]: [libxmtp] Provided Signer: 95ac5a7d620a2f35ac2cf233d75a4747f2904daa2c96b6b830591a1f49db4516
+[INFO][t:5217532]: [libxmtp] Missing Signatures: [Installation([149, 172, 90, 125, 98, 10, 47, 53, 172, 44, 242, 51, 215, 90, 71, 71, 242, 144, 77, 170, 44, 150, 182, 184, 48, 89, 26, 31, 73, 219, 69, 22]), Address("0x2dfb62af0c56004045d774059741ef0b7cff1061")]
+[INFO][t:5217532]: [libxmtp] Created XMTP client for inbox_id: c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3
+[INFO][t:5217532]: [libxmtp] Provided Signer: 0x2dfb62af0c56004045d774059741ef0b7cff1061
+[INFO][t:5217532]: [libxmtp] Missing Signatures: [Address("0x2dfb62af0c56004045d774059741ef0b7cff1061")]
+[INFO][t:5217532]: [libxmtp] registering identity
+[INFO][t:5217532]: [libxmtp] Creating API client for host: http://localhost:5556, isSecure: false
+[INFO][t:5217532]: [libxmtp] Creating message store with path: Some("/var/folders/hq/3sn46wqj68505bw_xg67wd040000gn/T//2gHR9XSqrqQDv1XB92NvUCkj.db3") and encryption key: false
+[INFO][t:5217532]: [libxmtp] Setting up DB connection pool
+[INFO][t:5217532]: [libxmtp] Running DB migrations
+[INFO][t:5217532]: [libxmtp] Migrations successful
+[INFO][t:5217532]: [libxmtp] Creating XMTP client
+[INFO][t:5217532]: [libxmtp] Initializing identity
+[INFO][t:5217532]: [libxmtp] Getting inbox_ids for account addresses: ["0xcefbb3ce874d0b45366b2c574d6ab641eddd24aa"]
+[INFO][t:5217532]: [libxmtp] Provided Signer: 446efae79da508b8d6e436d9a87b1c66a609c35aaa80665350f63ec49da76676
+[INFO][t:5217532]: [libxmtp] Missing Signatures: [Address("0xcefbb3ce874d0b45366b2c574d6ab641eddd24aa"), Installation([68, 110, 250, 231, 157, 165, 8, 184, 214, 228, 54, 217, 168, 123, 28, 102, 166, 9, 195, 90, 170, 128, 102, 83, 80, 246, 62, 196, 157, 167, 102, 118])]
+[INFO][t:5217532]: [libxmtp] Created XMTP client for inbox_id: 2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe
+[INFO][t:5217532]: [libxmtp] Provided Signer: 0xcefbb3ce874d0b45366b2c574d6ab641eddd24aa
+[INFO][t:5217532]: [libxmtp] Missing Signatures: [Address("0xcefbb3ce874d0b45366b2c574d6ab641eddd24aa")]
+[INFO][t:5217532]: [libxmtp] registering identity
+[INFO][t:5217532]: [libxmtp] creating group with account addresses: 0xcefbb3ce874d0b45366b2c574d6ab641eddd24aa
+[INFO][t:5217532]: [libxmtp] creating group
+[INFO][t:5217532]: [libxmtp] Getting inbox_ids for account addresses: ["0xcefbb3ce874d0b45366b2c574d6ab641eddd24aa"]
+[INFO][t:5217532]: [libxmtp] old group membership: {"c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 0}
+[INFO][t:5217532]: [libxmtp] updated group membership: {"2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe": 324, "c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 323}
+[INFO][t:5217532]: [libxmtp] Getting installation diff. Old: GroupMembership { members: {"c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 0} }. New GroupMembership { members: {"2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe": 324, "c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 323} }
+[INFO][t:5217532]: [libxmtp] [c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3] published intent [1] of type [UpdateGroupMembership]
+[INFO][t:5217532]: [libxmtp] client [c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3] is about to process own envelope [398]
+[INFO][t:5217532]: [libxmtp] envelope [398] is equal to intent [1]
+[INFO][t:5217532]: [libxmtp] [c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3] Validating commit for intent 1. Message timestamp: 1718916901380280000
+[INFO][t:5217532]: [libxmtp] Group context extensions proposal found: GroupMembership { members: {"c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 323, "2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe": 324} }
+[INFO][t:5217532]: [libxmtp] Getting installation diff. Old: GroupMembership { members: {"c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 0} }. New GroupMembership { members: {"c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 323, "2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe": 324} }
+[INFO][t:5217532]: [libxmtp] [c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3] merging pending commit for intent 1
+[INFO][t:5217532]: [libxmtp] c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3: Storing a transcript message with 1 members added and 0 members removed and 0 metadata changes
+[INFO][t:5217533]: [libxmtp] Received conversation streaming payload
+[INFO][t:5217533]: [libxmtp] closing stream
+[INFO][t:5217537]: [libxmtp] Received message streaming payload
+[INFO][t:5217537]: [libxmtp] client [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] is about to process streamed envelope: [398]
+[INFO][t:5217537]: [libxmtp] current epoch for [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] in process_stream_entry() is Epoch: [1]
+[INFO][t:5217537]: [libxmtp] client [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] is about to process external envelope [398]
+[ERROR][t:5217537]: [libxmtp] Wrong Epoch: message.epoch() 0 != 1 self.group_context().epoch()
+[INFO][t:5217537]: [libxmtp] [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] syncing group
+[INFO][t:5217537]: [libxmtp] current epoch for [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] in sync() is Epoch: [1]
+[INFO][t:5217535]: [libxmtp] client [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] is about to process external envelope [398]
+[ERROR][t:5217535]: [libxmtp] Wrong Epoch: message.epoch() 0 != 1 self.group_context().epoch()
+[ERROR][t:5217535]: [libxmtp] Message processing errors: [OpenMlsProcessMessage(ValidationError(WrongEpoch))]
+[ERROR][t:5217535]: [libxmtp] receive error ReceiveErrors([OpenMlsProcessMessage(ValidationError(WrongEpoch))])
+[INFO][t:5217535]: [libxmtp] Skipped message streaming payload
+[INFO][t:5217532]: [libxmtp] [c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3] published intent [2] of type [MetadataUpdate]
+[INFO][t:5217535]: [libxmtp] Received message streaming payload
+[INFO][t:5217535]: [libxmtp] client [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] is about to process streamed envelope: [399]
+[INFO][t:5217535]: [libxmtp] current epoch for [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] in process_stream_entry() is Epoch: [1]
+[INFO][t:5217535]: [libxmtp] client [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] is about to process external envelope [399]
+[INFO][t:5217535]: [libxmtp] [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] extracted sender inbox id: c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3
+[INFO][t:5217535]: [libxmtp] [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] syncing group
+[INFO][t:5217535]: [libxmtp] current epoch for [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] in sync() is Epoch: [1]
+[INFO][t:5217532]: [libxmtp] client [c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3] is about to process own envelope [399]
+[INFO][t:5217532]: [libxmtp] envelope [399] is equal to intent [2]
+[INFO][t:5217532]: [libxmtp] [c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3] Validating commit for intent 2. Message timestamp: 1718916902458478000
+[INFO][t:5217532]: [libxmtp] Group context extensions proposal found: GroupMembership { members: {"c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 323, "2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe": 324} }
+[INFO][t:5217532]: [libxmtp] Getting installation diff. Old: GroupMembership { members: {"2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe": 324, "c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 323} }. New GroupMembership { members: {"c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 323, "2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe": 324} }
+[INFO][t:5217532]: [libxmtp] [c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3] merging pending commit for intent 2
+[INFO][t:5217532]: [libxmtp] c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3: Storing a transcript message with 0 members added and 0 members removed and 1 metadata changes
+[INFO][t:5217532]: [libxmtp] [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] syncing group
+[INFO][t:5217532]: [libxmtp] current epoch for [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] in sync() is Epoch: [1]
+[INFO][t:5217533]: [libxmtp] client [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] is about to process external envelope [398]
+[ERROR][t:5217533]: [libxmtp] Wrong Epoch: message.epoch() 0 != 1 self.group_context().epoch()
+[INFO][t:5217533]: [libxmtp] client [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] is about to process external envelope [399]
+[INFO][t:5217533]: [libxmtp] [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] extracted sender inbox id: c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3
+[INFO][t:5217533]: [libxmtp] [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] received staged commit. Merging and clearing any pending commits
+[INFO][t:5217533]: [libxmtp] Group context extensions proposal found: GroupMembership { members: {"2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe": 324, "c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 323} }
+[INFO][t:5217533]: [libxmtp] Getting installation diff. Old: GroupMembership { members: {"2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe": 324, "c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 323} }. New GroupMembership { members: {"2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe": 324, "c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 323} }
+[INFO][t:5217533]: [libxmtp] [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] staged commit is valid, will attempt to merge
+[INFO][t:5217533]: [libxmtp] 2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe: Storing a transcript message with 0 members added and 0 members removed and 1 metadata changes
+[ERROR][t:5217533]: [libxmtp] Message processing errors: [OpenMlsProcessMessage(ValidationError(WrongEpoch))]
+[ERROR][t:5217533]: [libxmtp] receive error ReceiveErrors([OpenMlsProcessMessage(ValidationError(WrongEpoch))])
+Got a message
+[INFO][t:5217533]: [libxmtp] Received:
+
+group_updated"\
+@c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3"
+
+group_namOld Name
+[ERROR][t:5217532]: [libxmtp] Message processing errors: [AlreadyProcessed(398), AlreadyProcessed(399)]
+[ERROR][t:5217532]: [libxmtp] receive error ReceiveErrors([AlreadyProcessed(398), AlreadyProcessed(399)])
+[INFO][t:5217532]: [libxmtp] [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] published intent [1] of type [MetadataUpdate]
+[INFO][t:5217533]: [libxmtp] Received message streaming payload
+[INFO][t:5217533]: [libxmtp] client [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] is about to process streamed envelope: [400]
+[INFO][t:5217533]: [libxmtp] current epoch for [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] in process_stream_entry() is Epoch: [2]
+[INFO][t:5217533]: [libxmtp] client [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] is about to process own envelope [400]
+[INFO][t:5217533]: [libxmtp] envelope [400] is equal to intent [1]
+[INFO][t:5217533]: [libxmtp] [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] syncing group
+[INFO][t:5217533]: [libxmtp] current epoch for [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] in sync() is Epoch: [2]
+[INFO][t:5217532]: [libxmtp] client [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] is about to process own envelope [400]
+[INFO][t:5217532]: [libxmtp] envelope [400] is equal to intent [1]
+[INFO][t:5217532]: [libxmtp] [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] Validating commit for intent 1. Message timestamp: 1718916902595409000
+[INFO][t:5217532]: [libxmtp] Group context extensions proposal found: GroupMembership { members: {"c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 323, "2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe": 324} }
+[INFO][t:5217532]: [libxmtp] Getting installation diff. Old: GroupMembership { members: {"2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe": 324, "c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 323} }. New GroupMembership { members: {"c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 323, "2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe": 324} }
+[INFO][t:5217532]: [libxmtp] [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] merging pending commit for intent 1
+[INFO][t:5217532]: [libxmtp] 2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe: Storing a transcript message with 0 members added and 0 members removed and 1 metadata changes
+[ERROR][t:5217533]: [libxmtp] Message processing errors: [AlreadyProcessed(400)]
+[ERROR][t:5217533]: [libxmtp] receive error ReceiveErrors([AlreadyProcessed(400)])
+Got a message
+[INFO][t:5217533]: [libxmtp] Received:
+
+group_updated"e
+@2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe"!
+
+group_namOld Name Old Name2
+[INFO][t:5217532]: [libxmtp] [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] published intent [2] of type [MetadataUpdate]
+[INFO][t:5217533]: [libxmtp] Received message streaming payload
+[INFO][t:5217533]: [libxmtp] client [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] is about to process streamed envelope: [401]
+[INFO][t:5217533]: [libxmtp] current epoch for [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] in process_stream_entry() is Epoch: [3]
+[INFO][t:5217533]: [libxmtp] client [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] is about to process own envelope [401]
+[INFO][t:5217533]: [libxmtp] envelope [401] is equal to intent [2]
+[INFO][t:5217533]: [libxmtp] [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] syncing group
+[INFO][t:5217533]: [libxmtp] current epoch for [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] in sync() is Epoch: [3]
+[INFO][t:5217532]: [libxmtp] client [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] is about to process own envelope [401]
+[INFO][t:5217532]: [libxmtp] envelope [401] is equal to intent [2]
+[INFO][t:5217532]: [libxmtp] [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] Validating commit for intent 2. Message timestamp: 1718916904664399000
+[INFO][t:5217532]: [libxmtp] Group context extensions proposal found: GroupMembership { members: {"2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe": 324, "c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 323} }
+[INFO][t:5217532]: [libxmtp] Getting installation diff. Old: GroupMembership { members: {"c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 323, "2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe": 324} }. New GroupMembership { members: {"2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe": 324, "c996e0c73218abbfae12ed356eb9f2a31f17527ceec7bdccc78a2e04e4aec4f3": 323} }
+[INFO][t:5217532]: [libxmtp] [2b08cb8ae10939e3ddd45872719a5f03aa0a749fc1db535c513a841a97cf89fe] merging pending commit for intent 2
+[ERROR][t:5217537]: [libxmtp] Message processing errors: [AlreadyProcessed(401)]
+[ERROR][t:5217537]: [libxmtp] receive error ReceiveErrors([AlreadyProcessed(401)])
+[INFO][t:5217537]: [libxmtp] Skipped message streaming payload
+thread 'mls::tests::test_can_stream_group_messages_for_updates' panicked at src/mls.rs:1469:9:
+assertion `left == right` failed
+left: 2
+right: 3
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+[INFO][t:5217537]: [libxmtp] closing stream
+[INFO][t:5217537]: [libxmtp] closing stream
+
+failures:
+mls::tests::test_can_stream_group_messages_for_updates
