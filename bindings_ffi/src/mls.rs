@@ -444,6 +444,11 @@ impl FfiConversations {
             is_closed_atomic: stream_closer.is_closed_atomic,
         }))
     }
+
+    pub async fn request_history_sync(&self) -> Result<(), GenericError> {
+        self.inner_client.send_history_request().await?;
+        Ok(())
+    }
 }
 
 #[derive(uniffi::Object)]

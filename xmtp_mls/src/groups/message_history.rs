@@ -99,7 +99,7 @@ where
         Ok(())
     }
 
-    pub(crate) async fn send_history_request(&self) -> Result<String, GroupError> {
+    pub async fn send_history_request(&self) -> Result<String, GroupError> {
         // find the sync group
         let conn = self.store().conn()?;
         let sync_group_id = conn
