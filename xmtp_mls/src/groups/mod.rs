@@ -1488,7 +1488,7 @@ mod tests {
         let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // client A makes a group with client B.
-        let group = client_a.create_group(None).expect("create group");
+        let group = client_a.create_group(None, GroupMetadataOptions::default()).expect("create group");
         group
             .add_members_by_inbox_id(&client_a, vec![client_b.inbox_id()])
             .await
