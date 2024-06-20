@@ -112,8 +112,8 @@ where
         .await?;
 
         let client = Client::new(api_client_wrapper, identity, store, self.history_sync_url);
-        
-         Ok(client)
+
+        Ok(client)
     }
 }
 

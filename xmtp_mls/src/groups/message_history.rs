@@ -699,7 +699,7 @@ mod tests {
     async fn test_provide_pin_challenge() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let  amal_b = ClientBuilder::new_test_client(&wallet).await;
+        let amal_b = ClientBuilder::new_test_client(&wallet).await;
         assert_ok!(amal_b.allow_history_sync().await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
@@ -722,7 +722,6 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    #[ignore]
     async fn test_request_reply_roundtrip() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
