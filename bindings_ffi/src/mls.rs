@@ -1792,7 +1792,9 @@ mod tests {
         );
     }
 
+    // TODO: Test current fails 50% of the time with db locking messages
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[ignore]
     async fn test_stream_groups_gets_callback_when_streaming_messages() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
