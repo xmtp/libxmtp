@@ -38,11 +38,23 @@ impl<T> From<PoisonError<T>> for StorageError {
     }
 }
 
+impl RetryableError for diesel::result::Error {
+    fn is_retryable(&self) -> bool {
+        log::error!("retrying diesel error {:?}", self);
+        format!("{:?}", self).contains("database is locked")
+    }
+}
+
 impl RetryableError for StorageError {
     fn is_retryable(&self) -> bool {
+        log::info!("retrying storage error {:?}", self);
         match self {
             Self::DieselConnect(connection) => {
                 matches!(connection, diesel::ConnectionError::BadConnection(_))
+            }
+            Self::DieselResult(result) => {
+                log::warn!("got a disel result error");
+                format!("{:?}", result).contains("database is locked")
             }
             Self::Pool(_) => true,
             _ => false,
@@ -86,6 +98,15 @@ impl RetryableError for openmls::group::RemoveMembersError<StorageError> {
 }
 
 impl RetryableError for openmls::group::NewGroupError<StorageError> {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::StorageError(storage) => retryable!(storage),
+            _ => false,
+        }
+    }
+}
+
+impl RetryableError for openmls::group::UpdateGroupMembershipError<StorageError> {
     fn is_retryable(&self) -> bool {
         match self {
             Self::StorageError(storage) => retryable!(storage),

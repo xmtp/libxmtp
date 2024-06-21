@@ -232,11 +232,13 @@ macro_rules! retry_async {
             match $code.instrument(span).await {
                 Ok(v) => break Ok(v),
                 Err(e) => {
+                    log::error!("retrying async error {:?}", e);
                     if (&e).is_retryable() && attempts < $retry.retries() {
-                        log::debug!("retrying function that failed with error={}", e.to_string());
+                        log::warn!("retrying function that failed with error={}", e.to_string());
                         attempts += 1;
                         tokio::time::sleep($retry.duration()).await;
                     } else {
+                        log::info!("error is not retryable");
                         break Err(e);
                     }
                 }

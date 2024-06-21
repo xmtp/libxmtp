@@ -58,16 +58,17 @@ where
         welcome: WelcomeMessage,
     ) -> Result<MlsGroup, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
-
+        let welcome_data = welcome_v1.data.clone();
+        let hpke_public_key = welcome_v1.hpke_public_key.as_slice();
         let creation_result = self
             .context
             .store
-            .transaction_async(|provider| async move {
+            .transaction_async_with_retry(|provider| async move {
                 MlsGroup::create_from_encrypted_welcome(
                     self,
                     &provider,
-                    welcome_v1.hpke_public_key.as_slice(),
-                    welcome_v1.data,
+                    hpke_public_key,
+                    welcome_data.clone(),
                     welcome_v1.id as i64,
                 )
                 .await
