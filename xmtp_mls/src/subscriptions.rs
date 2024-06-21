@@ -84,7 +84,7 @@ where
                         self.context.clone(),
                         group.id,
                         group.created_at_ns,
-                    ))
+                    ));
                 }
                 Ok(None) => return Err(ClientError::Generic(err.to_string())),
                 Err(e) => return Err(ClientError::Generic(e.to_string())),
