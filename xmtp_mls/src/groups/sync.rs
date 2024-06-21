@@ -410,10 +410,12 @@ impl MlsGroup {
                                 .map_err(|e| MessageProcessingError::Group(Box::new(e)));
 
                             // prepare and send the reply
-                            match client
-                                .prepare_history_reply(&request_id, "https://example.com")
-                                .await
-                            {
+                            let Some(ref url) = client.history_sync_url else {
+                                return Err(MessageProcessingError::Generic(
+                                    "history sync url not set".to_string(),
+                                ));
+                            };
+                            match client.prepare_history_reply(&request_id, url).await {
                                 Ok(history_reply) => client
                                     .send_history_reply(history_reply.into())
                                     .await
@@ -436,22 +438,18 @@ impl MlsGroup {
                             signing_key,
                             bundle_hash,
                         })) => {
-                            if signing_key.is_none() {
+                            let Some(sign_key) = signing_key else {
                                 return Err(MessageProcessingError::InvalidPayload);
-                            }
+                            };
 
-                            if encryption_key.is_none() {
+                            let Some(enc_key) = encryption_key else {
                                 return Err(MessageProcessingError::InvalidPayload);
-                            }
-
-                            let signing_key = signing_key.unwrap();
-
-                            let encryption_key = encryption_key.unwrap();
+                            };
 
                             // store the reply message
                             let contents = format!(
                                 "{url}{DELIMITER}{:?}{DELIMITER}{:?}{DELIMITER}{:?}",
-                                encryption_key, signing_key, bundle_hash
+                                enc_key, sign_key, bundle_hash
                             )
                             .into_bytes();
                             let message_id =
@@ -470,13 +468,13 @@ impl MlsGroup {
 
                             // handle the reply and fetch the history
                             let enc_file_path =
-                                download_history_bundle(&url, bundle_hash, signing_key)
+                                download_history_bundle(&url, bundle_hash, sign_key)
                                     .await
                                     .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
 
                             let messages_path = std::env::temp_dir().join("messages.jsonl");
 
-                            decrypt_history_file(&enc_file_path, &messages_path, encryption_key)
+                            decrypt_history_file(&enc_file_path, &messages_path, enc_key)
                                 .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
 
                             client

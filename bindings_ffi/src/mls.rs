@@ -70,6 +70,7 @@ pub async fn create_client(
     account_address: String,
     nonce: u64,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
+    history_sync_url: Option<String>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     init_logger(logger);
     log::info!(
@@ -106,11 +107,24 @@ pub async fn create_client(
         nonce,
         legacy_signed_private_key_proto,
     );
-    let xmtp_client: RustXmtpClient = ClientBuilder::new(identity_strategy)
-        .api_client(api_client)
-        .store(store)
-        .build()
-        .await?;
+
+    let xmtp_client: RustXmtpClient = match history_sync_url {
+        Some(url) => {
+            ClientBuilder::new(identity_strategy)
+                .api_client(api_client)
+                .store(store)
+                .history_sync_url(&url)
+                .build()
+                .await?
+        }
+        None => {
+            ClientBuilder::new(identity_strategy)
+                .api_client(api_client)
+                .store(store)
+                .build()
+                .await?
+        }
+    };
 
     log::info!(
         "Created XMTP client for inbox_id: {}",
@@ -274,6 +288,11 @@ impl FfiXmtpClient {
             .register_identity(signature_request.clone())
             .await?;
 
+        Ok(())
+    }
+
+    pub async fn request_history_sync(&self) -> Result<(), GenericError> {
+        self.inner_client.send_history_request().await?;
         Ok(())
     }
 }
@@ -1128,6 +1147,7 @@ mod tests {
             ffi_inbox_owner.get_address(),
             nonce,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1178,6 +1198,7 @@ mod tests {
             account_address.to_string(),
             nonce,
             Some(legacy_keys),
+            None,
         )
         .await
         .unwrap();
@@ -1203,6 +1224,7 @@ mod tests {
             ffi_inbox_owner.get_address(),
             nonce,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1220,6 +1242,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.get_address(),
             nonce,
+            None,
             None,
         )
         .await
@@ -1254,6 +1277,7 @@ mod tests {
             ffi_inbox_owner.get_address(),
             nonce,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1272,6 +1296,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.get_address(),
             nonce,
+            None,
             None,
         )
         .await
@@ -1339,6 +1364,7 @@ mod tests {
             inbox_owner.get_address(),
             nonce,
             None, // v2_signed_private_key_proto
+            None,
         )
         .await
         .unwrap();
@@ -1366,6 +1392,7 @@ mod tests {
             amal.get_address(),
             nonce,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1391,6 +1418,7 @@ mod tests {
             &bola_inbox_id,
             bola.get_address(),
             nonce,
+            None,
             None,
         )
         .await

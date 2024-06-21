@@ -34,6 +34,7 @@ pub async fn create_client(
   inbox_id: String,
   account_address: String,
   encryption_key: Option<Uint8Array>,
+  history_sync_url: Option<String>,
 ) -> Result<NapiClient> {
   let api_client = TonicApiClient::create(host.clone(), is_secure)
     .await
@@ -62,12 +63,21 @@ pub async fn create_client(
     None,
   );
 
-  let xmtp_client = ClientBuilder::new(identity_strategy)
-    .api_client(api_client)
-    .store(store)
-    .build()
-    .await
-    .map_err(|e| Error::from_reason(format!("{}", e)))?;
+  let xmtp_client = match history_sync_url {
+    Some(url) => ClientBuilder::new(identity_strategy)
+      .api_client(api_client)
+      .store(store)
+      .history_sync_url(&url)
+      .build()
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?,
+    None => ClientBuilder::new(identity_strategy)
+      .api_client(api_client)
+      .store(store)
+      .build()
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?,
+  };
 
   Ok(NapiClient {
     inner_client: Arc::new(xmtp_client),
@@ -247,5 +257,16 @@ impl NapiClient {
   #[napi]
   pub fn conversations(&self) -> NapiConversations {
     NapiConversations::new(self.inner_client.clone())
+  }
+
+  #[napi]
+  pub async fn request_history_sync(&self) -> Result<()> {
+    let _ = self
+      .inner_client
+      .send_history_request()
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)));
+
+    Ok(())
   }
 }

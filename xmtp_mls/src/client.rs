@@ -179,6 +179,7 @@ impl From<&str> for ClientError {
 pub struct Client<ApiClient> {
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
+    pub(crate) history_sync_url: Option<String>,
 }
 
 /// The local context a XMTP MLS needs to function:
@@ -230,11 +231,13 @@ where
         api_client: ApiClientWrapper<ApiClient>,
         identity: Identity,
         store: EncryptedMessageStore,
+        history_sync_url: Option<String>,
     ) -> Self {
         let context = XmtpMlsLocalContext { identity, store };
         Self {
             api_client,
             context: Arc::new(context),
+            history_sync_url,
         }
     }
 
