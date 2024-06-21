@@ -8,14 +8,14 @@ on:
 
 jobs:
   build-macos:
-    runs-on: macos-12
+    runs-on: macos-14
     strategy:
       fail-fast: false
       matrix:
         target: [aarch64-apple-ios, x86_64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-darwin, aarch64-apple-darwin]
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
 
       - name: "Cache"
         uses: actions/cache@v3
@@ -57,10 +57,10 @@ jobs:
           retention-days: 1
 
   swift:
-    runs-on: macos-12
+    runs-on: macos-14
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
       - name: Cache
         uses: actions/cache@v3
         with:
@@ -91,10 +91,10 @@ jobs:
 
   package-swift:
     needs: [build-macos, swift]
-    runs-on: macos-12
+    runs-on: macos-14
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
 
       - name: Download artifacts
         uses: actions/download-artifact@v3
