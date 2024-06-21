@@ -99,7 +99,7 @@ where
         Ok(())
     }
 
-    pub(crate) async fn send_history_request(&self) -> Result<String, GroupError> {
+    pub async fn send_history_request(&self) -> Result<String, GroupError> {
         // find the sync group
         let conn = self.store().conn()?;
         let sync_group_id = conn
@@ -381,11 +381,10 @@ pub(crate) fn decrypt_history_file(
     Ok(())
 }
 
-async fn upload_history_bundle(
-    url: &str,
+fn create_bundle_hash(
     file_path: PathBuf,
     signing_key: &[u8],
-) -> Result<(), MessageHistoryError> {
+) -> Result<(Vec<u8>, String), MessageHistoryError> {
     let mut file = File::open(file_path)?;
     let mut content = Vec::new();
     file.read_to_end(&mut content)?;
@@ -393,6 +392,15 @@ async fn upload_history_bundle(
     let key = hmac::Key::new(hmac::HMAC_SHA256, signing_key);
     let tag = hmac::sign(&key, &content);
     let hmac_hex = hex::encode(tag.as_ref());
+    Ok((content, hmac_hex))
+}
+
+async fn upload_history_bundle(
+    url: &str,
+    file_path: PathBuf,
+    signing_key: &[u8],
+) -> Result<(), MessageHistoryError> {
+    let (content, hmac_hex) = create_bundle_hash(file_path, signing_key)?;
 
     let client = reqwest::Client::new();
     let _response = client
@@ -724,8 +732,57 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     #[ignore]
     async fn test_request_reply_roundtrip() {
+        let options = mockito::ServerOpts {
+            host: HISTORY_SERVER_HOST,
+            port: HISTORY_SERVER_PORT + 1,
+            ..Default::default()
+        };
+        let mut server = mockito::Server::new_with_opts_async(options).await;
+
+        let _m = server
+            .mock("POST", "/upload")
+            .with_status(201)
+            .with_body("File uploaded")
+            .create();
+
+        let history_sync_url = format!(
+            "http://{}:{}/upload",
+            HISTORY_SERVER_HOST,
+            HISTORY_SERVER_PORT + 1
+        );
+
+        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let signing_key_bytes = signing_key.as_bytes();
+
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let _group_a = amal_a
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
+
+        let groups = amal_a.prepare_groups_to_sync().await.unwrap();
+
+        let input_file = NamedTempFile::new().unwrap();
+        let input_path = input_file.path();
+        write_to_file(input_path, groups).unwrap();
+
+        let output_file = NamedTempFile::new().unwrap();
+        let output_path = output_file.path();
+        let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
+        encrypt_history_file(input_path, output_path, encryption_key.as_bytes()).unwrap();
+
+        let (content, hmac_hex) =
+            create_bundle_hash(output_path.to_path_buf(), signing_key_bytes).unwrap();
+
+        let _m = server
+            .mock("GET", "/upload")
+            .with_status(201)
+            .with_body(content)
+            .create();
+
+        let wallet = generate_local_wallet();
+        let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
+        amal_a.history_sync_url = Some(history_sync_url.clone());
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
         assert_ok!(amal_b.allow_history_sync().await);
 
@@ -745,11 +802,11 @@ mod tests {
 
         // amal_a builds and sends a message history reply back
         let history_reply = HistoryReply::new(
-            "test",
-            "https://test.com/abc-123",
-            b"ABC123".into(),
-            HistoryKeyType::new_chacha20_poly1305_key(),
-            HistoryKeyType::new_chacha20_poly1305_key(),
+            &new_request_id(),
+            &history_sync_url,
+            hmac_hex.into(),
+            signing_key,
+            encryption_key,
         );
         amal_a
             .send_history_reply(history_reply.into())
@@ -798,22 +855,10 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
 
-        group_a
-            .send_message(b"hi", &amal_a)
-            .await
-            .expect("send message");
-        group_a
-            .send_message(b"hi x2", &amal_a)
-            .await
-            .expect("send message");
-        group_b
-            .send_message(b"hi", &amal_a)
-            .await
-            .expect("send message");
-        group_b
-            .send_message(b"hi x2", &amal_a)
-            .await
-            .expect("send message");
+        group_a.send_message(b"hi", &amal_a).await.expect("send");
+        group_a.send_message(b"hi x2", &amal_a).await.expect("send");
+        group_b.send_message(b"hi", &amal_a).await.expect("send");
+        group_b.send_message(b"hi x2", &amal_a).await.expect("send");
 
         let messages_result = amal_a.prepare_messages_to_sync().await.unwrap();
         assert_eq!(messages_result.len(), 4);
@@ -830,22 +875,10 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
 
-        group_a
-            .send_message(b"hi", &amal_a)
-            .await
-            .expect("send message");
-        group_a
-            .send_message(b"hi", &amal_a)
-            .await
-            .expect("send message");
-        group_b
-            .send_message(b"hi", &amal_a)
-            .await
-            .expect("send message");
-        group_b
-            .send_message(b"hi", &amal_a)
-            .await
-            .expect("send message");
+        group_a.send_message(b"hi", &amal_a).await.expect("send");
+        group_a.send_message(b"hi", &amal_a).await.expect("send");
+        group_b.send_message(b"hi", &amal_a).await.expect("send");
+        group_b.send_message(b"hi", &amal_a).await.expect("send");
 
         let groups = amal_a.prepare_groups_to_sync().await.unwrap();
         let messages = amal_a.prepare_messages_to_sync().await.unwrap();
@@ -909,12 +942,13 @@ mod tests {
 
         let _m = server
             .mock("POST", "/upload")
-            .with_status(200)
+            .with_status(201)
             .with_body("File uploaded")
             .create();
 
-        let signing_key = b"test_signing_key";
-        let file_content = b"test file content";
+        let key = HistoryKeyType::new_chacha20_poly1305_key();
+        let signing_key = key.as_bytes();
+        let file_content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'";
 
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(file_content).unwrap();
