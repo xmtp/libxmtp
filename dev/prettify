@@ -1,0 +1,36 @@
+#!/bin/bash
+
+# Prettifies an XMTP log file by replacing the first two mentioned inbox ID's with "ALIX" and "BO" respectively.
+# Could be generalized to support an arbitrary number of identities
+# Mainly useful for debugging unit tests involving multiple users
+# Credit to cvoell
+
+# Ensure a log file is provided as an argument
+if [ -z "$1" ]; then
+    echo "Usage: $0 <logfile>"
+    exit 1
+fi
+
+logfile="$1"
+
+# Extract the creator_id from the first occurrence
+alix_id=$(awk '/Created XMTP client for inbox_id:/ {print $NF; exit}' "$logfile")
+if [ -z "$alix_id" ]; then
+    echo "Error: Could not find the alix_id in the log file."
+    exit 1
+fi
+
+# Extract the user2_id from the second occurrence
+bo_id=$(awk '/Created XMTP client for inbox_id:/ {count++; if (count == 2) print $NF}' "$logfile")
+if [ -z "$bo_id" ]; then
+    echo "Error: Could not find the bo_id in the log file."
+    exit 1
+fi
+
+echo "ALIX ID: $alix_id"
+echo "BO ID: $bo_id"
+
+# Replace all instances of alix_id with "ALIX" and bo_id with "BO"
+sed -i.bak -e "s/$alix_id/*ALIX*/g" -e "s/$bo_id/*BO*/g" "$logfile"
+
+echo "Replacements completed. Backup of the original file saved as ${logfile}.bak"
