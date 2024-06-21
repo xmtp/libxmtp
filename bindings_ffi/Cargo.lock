@@ -5893,6 +5893,7 @@ dependencies = [
  "aes",
  "aes-gcm",
  "async-trait",
+ "bincode",
  "chrono",
  "diesel",
  "diesel_migrations",
