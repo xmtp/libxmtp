@@ -2,9 +2,6 @@ name: Release Swift Bindings
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - cv/build-swift-macos-12
 
 jobs:
   build-macos:
