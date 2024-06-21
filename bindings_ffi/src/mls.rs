@@ -1455,6 +1455,7 @@ mod tests {
             .await
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+        assert_eq!(message_callbacks.message_count(), 2);
 
         // Uncomment the following lines to add more group name updates
         // alix_group.update_group_name("Again Name".to_string()).await.unwrap();
@@ -1466,7 +1467,8 @@ mod tests {
             .unwrap();
 
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-        assert_eq!(message_callbacks.message_count(), 3);
+        // This is the same group name, so no new transcript message is created
+        assert_eq!(message_callbacks.message_count(), 2);
 
         stream_messages.end();
         tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;

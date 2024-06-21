@@ -702,6 +702,10 @@ impl MlsGroup {
         timestamp_ns: u64,
     ) -> Result<Option<StoredGroupMessage>, MessageProcessingError> {
         if validated_commit.is_empty() {
+            log::info!(
+                "{}: Skipping transcript message because commit is empty",
+                self.context.inbox_id()
+            );
             return Ok(None);
         }
 
