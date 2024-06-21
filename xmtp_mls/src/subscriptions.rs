@@ -75,7 +75,19 @@ where
             .await;
 
         if let Some(err) = creation_result.as_ref().err() {
-            return Err(ClientError::Generic(err.to_string()));
+            let conn = self.context.store.conn()?;
+            let result = conn.find_group_by_welcome_id(welcome_v1.id as i64);
+            match result {
+                Ok(Some(group)) => {
+                    return Ok(MlsGroup::new(
+                        self.context.clone(),
+                        group.id,
+                        group.created_at_ns,
+                    ))
+                }
+                Ok(None) => return Err(ClientError::Generic(err.to_string())),
+                Err(e) => return Err(ClientError::Generic(e.to_string())),
+            }
         }
 
         Ok(creation_result.unwrap())
