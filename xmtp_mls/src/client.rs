@@ -37,6 +37,8 @@ use crate::{
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::IdentityUpdateError,
+    retry::Retry,
+    retry_async,
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
@@ -92,6 +94,16 @@ pub enum ClientError {
     Group(#[from] Box<GroupError>),
     #[error("generic:{0}")]
     Generic(String),
+}
+
+impl crate::retry::RetryableError for ClientError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::Storage(s) => s.is_retryable(),
+            Self::Generic(err) => err.contains("database is locked"),
+            _ => false,
+        }
+    }
 }
 
 /// An enum of errors that can occur when reading and processing a message off the network
@@ -157,6 +169,7 @@ impl crate::retry::RetryableError for MessageProcessingError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Storage(s) => s.is_retryable(),
+            Self::Generic(err) => err.contains("database is locked"),
             _ => false,
         }
     }
@@ -472,30 +485,38 @@ where
                     }
                 };
 
-                self.process_for_id(
-                    &id,
-                    EntityKind::Welcome,
-                    welcome_v1.id,
-                    |provider| async move {
-                        // TODO: Abort if error is retryable
-                        match MlsGroup::create_from_encrypted_welcome(
-                            self,
-                            &provider,
-                            welcome_v1.hpke_public_key.as_slice(),
-                            welcome_v1.data,
-                            welcome_v1.id as i64,
+                retry_async!(
+                    Retry::default(),
+                    (async {
+                        let welcome_v1 = welcome_v1.clone();
+                        self.process_for_id(
+                            &id,
+                            EntityKind::Welcome,
+                            welcome_v1.id,
+                            |provider| async move {
+                                // TODO: Abort if error is retryable
+                                match MlsGroup::create_from_encrypted_welcome(
+                                    self,
+                                    &provider,
+                                    welcome_v1.hpke_public_key.as_slice(),
+                                    welcome_v1.data,
+                                    welcome_v1.id as i64,
+                                )
+                                .await
+                                {
+                                    Ok(mls_group) => Ok(Some(mls_group)),
+                                    Err(err) => {
+                                        log::error!("failed to create group from welcome: {}", err);
+                                        Err(MessageProcessingError::WelcomeProcessing(
+                                            err.to_string(),
+                                        ))
+                                    }
+                                }
+                            },
                         )
                         .await
-                        {
-                            Ok(mls_group) => Ok(Some(mls_group)),
-                            Err(err) => {
-                                log::error!("failed to create group from welcome: {}", err);
-                                Err(MessageProcessingError::WelcomeProcessing(err.to_string()))
-                            }
-                        }
-                    },
+                    })
                 )
-                .await
                 .ok()
                 .flatten()
             })

@@ -24,7 +24,6 @@ pub mod schema;
 use std::{
     borrow::Cow,
     sync::{Arc, RwLock},
-    time::Duration,
 };
 
 use diesel::{
@@ -36,18 +35,12 @@ use diesel::{
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use log::warn;
 use rand::RngCore;
-use tokio::time::sleep;
 use xmtp_cryptography::utils as crypto_utils;
 
 use self::db_connection::DbConnection;
 
 use super::StorageError;
-use crate::{
-    retry::{Retry, RetryBuilder, RetryableError},
-    retry_async,
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Store,
-};
+use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Store};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -263,33 +256,6 @@ impl EncryptedMessageStore {
                     Ok(()) => Err(err),
                     Err(Error::BrokenTransactionManager) => Err(err),
                     Err(rollback) => Err(rollback.into()),
-                }
-            }
-        }
-    }
-
-    pub async fn transaction_async_with_retry<T, F, E, Fut>(&self, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(XmtpOpenMlsProvider) -> Fut + Clone,
-        Fut: futures::Future<Output = Result<T, E>>,
-        E: From<diesel::result::Error> + From<StorageError> + RetryableError,
-    {
-        // retry_async!(
-        //     RetryBuilder::default().build(),
-        //     (async { self.transaction_async(fun.clone()).await })
-        // )
-        let mut retries = 0;
-        loop {
-            match self.transaction_async(fun.clone()).await {
-                Ok(result) => return Ok(result),
-                Err(e) => {
-                    if format!("{:?}", e).contains("database is locked") && retries < 5 {
-                        let sleep_duration = Duration::from_millis(2u64.pow(retries) * 50);
-                        sleep(sleep_duration).await;
-                        retries += 1;
-                    } else {
-                        return Err(e);
-                    }
                 }
             }
         }

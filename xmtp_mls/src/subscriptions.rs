@@ -16,6 +16,8 @@ use crate::{
     api::GroupFilter,
     client::{extract_welcome_message, ClientError},
     groups::{extract_group_id, GroupError, MlsGroup},
+    retry::Retry,
+    retry_async,
     storage::group_message::StoredGroupMessage,
     Client, XmtpApi,
 };
@@ -58,17 +60,15 @@ where
         welcome: WelcomeMessage,
     ) -> Result<MlsGroup, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
-        let welcome_data = welcome_v1.data.clone();
-        let hpke_public_key = welcome_v1.hpke_public_key.as_slice();
-        let creation_result = self
+        let creation_result: Result<MlsGroup, GroupError> = self
             .context
             .store
-            .transaction_async_with_retry(|provider| async move {
+            .transaction_async(|provider| async move {
                 MlsGroup::create_from_encrypted_welcome(
                     self,
                     &provider,
-                    hpke_public_key,
-                    welcome_data.clone(),
+                    welcome_v1.hpke_public_key.as_slice(),
+                    welcome_v1.data,
                     welcome_v1.id as i64,
                 )
                 .await
@@ -102,7 +102,10 @@ where
         let envelope = WelcomeMessage::decode(envelope_bytes.as_slice())
             .map_err(|e| ClientError::Generic(e.to_string()))?;
 
-        let welcome = self.process_streamed_welcome(envelope).await?;
+        let welcome = retry_async!(
+            Retry::default(),
+            (async { self.process_streamed_welcome(envelope.clone()).await })
+        )?;
         Ok(welcome)
     }
 
@@ -121,7 +124,10 @@ where
             .map(|welcome_result| async {
                 log::info!("Received conversation streaming payload");
                 let welcome = welcome_result?;
-                self.process_streamed_welcome(welcome).await
+                retry_async!(
+                    Retry::default(),
+                    (async { self.process_streamed_welcome(welcome.clone()).await })
+                )
             })
             .filter_map(|res| async {
                 match res.await {
@@ -162,10 +168,17 @@ where
                                     "Received message for a non-subscribed group".to_string(),
                                 ),
                             )?;
-                            // TODO update cursor
-                            MlsGroup::new(context, group_id, stream_info.convo_created_at_ns)
-                                .process_stream_entry(envelope, client)
-                                .await
+                            let mls_group =
+                                MlsGroup::new(context, group_id, stream_info.convo_created_at_ns);
+
+                            retry_async!(
+                                Retry::default(),
+                                (async {
+                                    mls_group
+                                        .process_stream_entry(envelope.clone(), client.clone())
+                                        .await
+                                })
+                            )
                         }
                         Err(err) => Err(GroupError::Api(err)),
                     }
