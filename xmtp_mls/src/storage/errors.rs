@@ -59,7 +59,7 @@ impl RetryableError for StorageError {
             Self::DieselConnect(connection) => {
                 matches!(connection, diesel::ConnectionError::BadConnection(_))
             }
-            Self::DieselResult(result) => result.is_retryable(),
+            Self::DieselResult(result) => retryable!(result),
             Self::Pool(_) => true,
             _ => false,
         }

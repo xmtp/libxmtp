@@ -253,11 +253,11 @@ macro_rules! retryable {
     ($error: ident) => {{
         #[allow(unused)]
         use $crate::retry::RetryableError;
-        (&$error).is_retryable()
+        $error.is_retryable()
     }};
     ($error: expr) => {{
         use $crate::retry::RetryableError;
-        (&$error).is_retryable()
+        $error.is_retryable()
     }};
 }
 

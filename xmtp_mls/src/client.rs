@@ -38,7 +38,7 @@ use crate::{
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::IdentityUpdateError,
     retry::Retry,
-    retry_async,
+    retry_async, retryable,
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
@@ -98,12 +98,11 @@ pub enum ClientError {
 
 impl crate::retry::RetryableError for ClientError {
     fn is_retryable(&self) -> bool {
-        log::info!("Client error retryable?");
         match self {
-            ClientError::Group(group_error) => group_error.is_retryable(),
-            ClientError::Diesel(diesel_error) => diesel_error.is_retryable(),
-            ClientError::Api(api_error) => api_error.is_retryable(),
-            ClientError::Storage(s) => s.is_retryable(),
+            ClientError::Group(group_error) => retryable!(group_error),
+            ClientError::Diesel(diesel_error) => retryable!(diesel_error),
+            ClientError::Api(api_error) => retryable!(api_error),
+            ClientError::Storage(storage_error) => retryable!(storage_error),
             ClientError::Generic(err) => err.contains("database is locked"),
             _ => false,
         }
