@@ -1,5 +1,6 @@
 use std::sync::PoisonError;
 
+use diesel::result::DatabaseErrorKind;
 use thiserror::Error;
 
 use crate::{retry::RetryableError, retryable};
@@ -40,17 +41,20 @@ impl<T> From<PoisonError<T>> for StorageError {
 
 impl RetryableError for diesel::result::Error {
     fn is_retryable(&self) -> bool {
-        // TODO: Figure out the full list of non-retryable errors.
-        // The diesel code has a comment that "this type is not meant to be exhaustively matched"
-        // so best is probably to return true here and map known errors to something else
-        // that is not retryable.
-        true
+        match self {
+            Self::DatabaseError(DatabaseErrorKind::Unknown, _) => true,
+            Self::DatabaseError(_, _) => false,
+            // TODO: Figure out the full list of non-retryable errors.
+            // The diesel code has a comment that "this type is not meant to be exhaustively matched"
+            // so best is probably to return true here and map known errors to something else
+            // that is not retryable.
+            _ => true,
+        }
     }
 }
 
 impl RetryableError for StorageError {
     fn is_retryable(&self) -> bool {
-        log::info!("retrying storage error {:?}", self);
         match self {
             Self::DieselConnect(connection) => {
                 matches!(connection, diesel::ConnectionError::BadConnection(_))

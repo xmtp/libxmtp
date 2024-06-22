@@ -24,6 +24,7 @@ use smart_default::SmartDefault;
 /// All Errors are not retryable by-default.
 pub trait RetryableError: std::error::Error {
     fn is_retryable(&self) -> bool {
+        log::info!("Default retriable error");
         false
     }
 }
@@ -232,13 +233,13 @@ macro_rules! retry_async {
             match $code.instrument(span).await {
                 Ok(v) => break Ok(v),
                 Err(e) => {
-                    log::error!("retrying async error {:?}", e);
+                    log::error!("maybe retrying async error {:?}", e);
                     if (&e).is_retryable() && attempts < $retry.retries() {
                         log::warn!("retrying function that failed with error={}", e.to_string());
                         attempts += 1;
                         tokio::time::sleep($retry.duration()).await;
                     } else {
-                        log::debug!("error is not retryable");
+                        log::info!("error is not retryable. {:?}", e);
                         break Err(e);
                     }
                 }
