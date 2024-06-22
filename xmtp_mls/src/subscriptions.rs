@@ -79,7 +79,10 @@ where
             let result = conn.find_group_by_welcome_id(welcome_v1.id as i64);
             match result {
                 Ok(Some(group)) => {
-                    log::info!("Loading existing group by welcome id");
+                    log::info!(
+                        "Loading existing group for welcome_id: {:?}",
+                        group.welcome_id
+                    );
                     return Ok(MlsGroup::new(
                         self.context.clone(),
                         group.id,
