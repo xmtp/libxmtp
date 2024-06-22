@@ -181,7 +181,8 @@ public final class Client {
 				inboxId: inboxId,
 				accountAddress: address,
 				nonce: 0,
-				legacySignedPrivateKeyProto: try privateKeyBundleV1.toV2().identityKey.serializedData()
+				legacySignedPrivateKeyProto: try privateKeyBundleV1.toV2().identityKey.serializedData(),
+				historySyncUrl: nil
 			)
 			
 			if let signatureRequest = v3Client.signatureRequest() {
