@@ -99,6 +99,9 @@ pub enum ClientError {
 impl crate::retry::RetryableError for ClientError {
     fn is_retryable(&self) -> bool {
         match self {
+            Self::Group(group_error) => group_error.is_retryable(),
+            Self::Diesel(diesel_error) => diesel_error.is_retryable(),
+            Self::Api(api_error) => api_error.is_retryable(),
             Self::Storage(s) => s.is_retryable(),
             Self::Generic(err) => err.contains("database is locked"),
             _ => false,

@@ -40,8 +40,11 @@ impl<T> From<PoisonError<T>> for StorageError {
 
 impl RetryableError for diesel::result::Error {
     fn is_retryable(&self) -> bool {
-        log::error!("retrying diesel error {:?}", self);
-        format!("{:?}", self).contains("database is locked")
+        // TODO: Figure out the full list of non-retryable errors.
+        // The diesel code has a comment that "this type is not meant to be exhaustively matched"
+        // so best is probably to return true here and map known errors to something else
+        // that is not retryable.
+        true
     }
 }
 
@@ -52,10 +55,7 @@ impl RetryableError for StorageError {
             Self::DieselConnect(connection) => {
                 matches!(connection, diesel::ConnectionError::BadConnection(_))
             }
-            Self::DieselResult(result) => {
-                log::warn!("got a disel result error");
-                format!("{:?}", result).contains("database is locked")
-            }
+            Self::DieselResult(result) => result.is_retryable(),
             Self::Pool(_) => true,
             _ => false,
         }

@@ -238,7 +238,7 @@ macro_rules! retry_async {
                         attempts += 1;
                         tokio::time::sleep($retry.duration()).await;
                     } else {
-                        log::info!("error is not retryable");
+                        log::debug!("error is not retryable");
                         break Err(e);
                     }
                 }

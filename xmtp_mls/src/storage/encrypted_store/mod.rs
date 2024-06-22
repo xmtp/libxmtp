@@ -146,7 +146,7 @@ impl EncryptedMessageStore {
             conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
         }
 
-        conn.batch_execute("PRAGMA busy_timeout = 60000;")?;
+        conn.batch_execute("PRAGMA busy_timeout = 5000;")?;
 
         Ok(conn)
     }

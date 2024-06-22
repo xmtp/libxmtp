@@ -60,20 +60,25 @@ where
         welcome: WelcomeMessage,
     ) -> Result<MlsGroup, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
-        let creation_result: Result<MlsGroup, GroupError> = self
-            .context
-            .store
-            .transaction_async(|provider| async move {
-                MlsGroup::create_from_encrypted_welcome(
-                    self,
-                    &provider,
-                    welcome_v1.hpke_public_key.as_slice(),
-                    welcome_v1.data,
-                    welcome_v1.id as i64,
-                )
-                .await
+        let creation_result = retry_async!(
+            Retry::default(),
+            (async {
+                let welcome_v1 = welcome_v1.clone();
+                self.context
+                    .store
+                    .transaction_async(|provider| async move {
+                        MlsGroup::create_from_encrypted_welcome(
+                            self,
+                            &provider,
+                            welcome_v1.hpke_public_key.as_slice(),
+                            welcome_v1.data,
+                            welcome_v1.id as i64,
+                        )
+                        .await
+                    })
+                    .await
             })
-            .await;
+        );
 
         if let Some(err) = creation_result.as_ref().err() {
             let conn = self.context.store.conn()?;
@@ -105,10 +110,7 @@ where
         let envelope = WelcomeMessage::decode(envelope_bytes.as_slice())
             .map_err(|e| ClientError::Generic(e.to_string()))?;
 
-        let welcome = retry_async!(
-            Retry::default(),
-            (async { self.process_streamed_welcome(envelope.clone()).await })
-        )?;
+        let welcome = self.process_streamed_welcome(envelope).await?;
         Ok(welcome)
     }
 
@@ -127,10 +129,7 @@ where
             .map(|welcome_result| async {
                 log::info!("Received conversation streaming payload");
                 let welcome = welcome_result?;
-                retry_async!(
-                    Retry::default(),
-                    (async { self.process_streamed_welcome(welcome.clone()).await })
-                )
+                self.process_streamed_welcome(welcome).await
             })
             .filter_map(|res| async {
                 match res.await {
@@ -174,14 +173,9 @@ where
                             let mls_group =
                                 MlsGroup::new(context, group_id, stream_info.convo_created_at_ns);
 
-                            retry_async!(
-                                Retry::default(),
-                                (async {
-                                    mls_group
-                                        .process_stream_entry(envelope.clone(), client.clone())
-                                        .await
-                                })
-                            )
+                            mls_group
+                                .process_stream_entry(envelope.clone(), client.clone())
+                                .await
                         }
                         Err(err) => Err(GroupError::Api(err)),
                     }
