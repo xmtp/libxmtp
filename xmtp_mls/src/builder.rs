@@ -38,6 +38,8 @@ pub enum ClientBuilderError {
     Identity(#[from] crate::identity::IdentityError),
     #[error(transparent)]
     WrappedApiError(#[from] crate::api::WrappedApiError),
+    #[error(transparent)]
+    GroupError(#[from] crate::groups::GroupError),
 }
 
 pub struct ClientBuilder<ApiClient> {
@@ -45,18 +47,20 @@ pub struct ClientBuilder<ApiClient> {
     identity: Option<Identity>,
     store: Option<EncryptedMessageStore>,
     identity_strategy: IdentityStrategy,
+    history_sync_url: Option<String>,
 }
 
 impl<ApiClient> ClientBuilder<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    pub fn new(strat: IdentityStrategy) -> Self {
+    pub fn new(strategy: IdentityStrategy) -> Self {
         Self {
             api_client: None,
             identity: None,
             store: None,
-            identity_strategy: strat,
+            identity_strategy: strategy,
+            history_sync_url: None,
         }
     }
 
@@ -72,6 +76,11 @@ where
 
     pub fn store(mut self, store: EncryptedMessageStore) -> Self {
         self.store = Some(store);
+        self
+    }
+
+    pub fn history_sync_url(mut self, url: &str) -> Self {
+        self.history_sync_url = Some(url.into());
         self
     }
 
@@ -102,7 +111,9 @@ where
         )
         .await?;
 
-        Ok(Client::new(api_client_wrapper, identity, store))
+        let client = Client::new(api_client_wrapper, identity, store, self.history_sync_url);
+
+        Ok(client)
     }
 }
 
