@@ -24,10 +24,7 @@ pub enum WrappedApiError {
 
 impl RetryableError for WrappedApiError {
     fn is_retryable(&self) -> bool {
-        match self {
-            Self::Api(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::Api(_))
     }
 }
 

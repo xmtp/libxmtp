@@ -501,15 +501,16 @@ where
                             EntityKind::Welcome,
                             welcome_v1.id,
                             |provider| async move {
-                                match MlsGroup::create_from_encrypted_welcome(
+                                let result = MlsGroup::create_from_encrypted_welcome(
                                     self,
                                     &provider,
                                     welcome_v1.hpke_public_key.as_slice(),
                                     welcome_v1.data,
                                     welcome_v1.id as i64,
                                 )
-                                .await
-                                {
+                                .await;
+
+                                match result {
                                     Ok(mls_group) => Ok(Some(mls_group)),
                                     Err(err) => {
                                         log::error!("failed to create group from welcome: {}", err);
@@ -683,7 +684,7 @@ mod tests {
         assert_eq!(groups[1].group_id, group_2.group_id);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_sync_welcomes() {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
