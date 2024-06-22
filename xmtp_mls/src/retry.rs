@@ -230,7 +230,8 @@ macro_rules! retry_async {
         loop {
             let span = span.clone();
             #[allow(clippy::redundant_closure_call)]
-            match $code.instrument(span).await {
+            let res = $code.instrument(span).await;
+            match res {
                 Ok(v) => break Ok(v),
                 Err(e) => {
                     if (&e).is_retryable() && attempts < $retry.retries() {
