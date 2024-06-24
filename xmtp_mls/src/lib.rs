@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 pub mod api;
 pub mod builder;
 pub mod client;
@@ -59,6 +60,7 @@ pub trait Delete<Model> {
 
 #[cfg(test)]
 mod tests {
+    use log::LevelFilter;
     use tracing_test::traced_test;
 
     // Execute once before any tests are run
@@ -67,7 +69,7 @@ mod tests {
     #[traced_test]
     fn setup() {
         // Capture logs (e.g. log::info!()) as traces too
-        let _ = tracing_log::LogTracer::init();
+        let _ = tracing_log::LogTracer::init_with_filter(LevelFilter::Debug);
     }
 
     /// Note: tests that use this must have the #[traced_test] attribute

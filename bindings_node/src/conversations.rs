@@ -88,6 +88,34 @@ impl NapiConversations {
   }
 
   #[napi]
+  pub fn find_group_by_id(&self, group_id: String) -> Result<NapiGroup> {
+    let group_id = hex::decode(group_id).map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    let group = self
+      .inner_client
+      .group(group_id)
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(NapiGroup::new(
+      self.inner_client.clone(),
+      group.group_id,
+      group.created_at_ns,
+    ))
+  }
+
+  #[napi]
+  pub fn find_message_by_id(&self, message_id: String) -> Result<NapiMessage> {
+    let message_id = hex::decode(message_id).map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    let message = self
+      .inner_client
+      .message(message_id)
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(NapiMessage::from(message))
+  }
+
+  #[napi]
   pub async fn process_streamed_welcome_message(
     &self,
     envelope_bytes: Uint8Array,

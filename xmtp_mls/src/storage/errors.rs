@@ -1,5 +1,6 @@
 use std::sync::PoisonError;
 
+use diesel::result::DatabaseErrorKind;
 use thiserror::Error;
 
 use crate::{retry::RetryableError, retryable};
@@ -38,12 +39,27 @@ impl<T> From<PoisonError<T>> for StorageError {
     }
 }
 
+impl RetryableError for diesel::result::Error {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::DatabaseError(DatabaseErrorKind::Unknown, _) => true,
+            Self::DatabaseError(_, _) => false,
+            // TODO: Figure out the full list of non-retryable errors.
+            // The diesel code has a comment that "this type is not meant to be exhaustively matched"
+            // so best is probably to return true here and map known errors to something else
+            // that is not retryable.
+            _ => true,
+        }
+    }
+}
+
 impl RetryableError for StorageError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::DieselConnect(connection) => {
                 matches!(connection, diesel::ConnectionError::BadConnection(_))
             }
+            Self::DieselResult(result) => retryable!(result),
             Self::Pool(_) => true,
             _ => false,
         }
@@ -86,6 +102,15 @@ impl RetryableError for openmls::group::RemoveMembersError<StorageError> {
 }
 
 impl RetryableError for openmls::group::NewGroupError<StorageError> {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::StorageError(storage) => retryable!(storage),
+            _ => false,
+        }
+    }
+}
+
+impl RetryableError for openmls::group::UpdateGroupMembershipError<StorageError> {
     fn is_retryable(&self) -> bool {
         match self {
             Self::StorageError(storage) => retryable!(storage),

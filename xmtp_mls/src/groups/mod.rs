@@ -75,7 +75,6 @@ use crate::{
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, InstallationDiffError},
     retry::RetryableError,
-    retryable,
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, Purpose, StoredGroup},
@@ -175,13 +174,15 @@ pub enum GroupError {
 impl RetryableError for GroupError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::Diesel(diesel) => retryable!(diesel),
-            Self::Storage(storage) => retryable!(storage),
-            Self::ReceiveError(msg) => retryable!(msg),
-            Self::UpdateGroupMembership(update) => retryable!(update),
-            Self::GroupCreate(group) => retryable!(group),
-            Self::SelfUpdate(update) => retryable!(update),
-            Self::WelcomeError(welcome) => retryable!(welcome),
+            Self::Api(api_error) => api_error.is_retryable(),
+            Self::Client(client_error) => client_error.is_retryable(),
+            Self::Diesel(diesel) => diesel.is_retryable(),
+            Self::Storage(storage) => storage.is_retryable(),
+            Self::ReceiveError(msg) => msg.is_retryable(),
+            Self::UpdateGroupMembership(update) => update.is_retryable(),
+            Self::GroupCreate(group) => group.is_retryable(),
+            Self::SelfUpdate(update) => update.is_retryable(),
+            Self::WelcomeError(welcome) => welcome.is_retryable(),
             _ => false,
         }
     }

@@ -269,4 +269,15 @@ impl NapiClient {
 
     Ok(())
   }
+
+  #[napi]
+  pub async fn find_inbox_id_by_address(&self, address: String) -> Result<Option<String>> {
+    let inbox_id = self
+      .inner_client
+      .find_inbox_id_from_address(address)
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(inbox_id)
+  }
 }

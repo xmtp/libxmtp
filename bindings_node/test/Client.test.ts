@@ -24,4 +24,11 @@ describe('Client', () => {
     const canMessage = await client.canMessage([user.account.address])
     expect(canMessage).toEqual({ [user.account.address.toLowerCase()]: true })
   })
+
+  it('should find an inbox ID from an address', async () => {
+    const user = createUser()
+    const client = await createRegisteredClient(user)
+    const inboxId = await client.findInboxIdByAddress(user.account.address)
+    expect(inboxId).toBe(client.inboxId())
+  })
 })
