@@ -17,6 +17,7 @@ import org.junit.Before
 import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.web3j.utils.Numeric
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
 import org.xmtp.android.library.codecs.ContentTypeReaction
 import org.xmtp.android.library.codecs.GroupUpdatedCodec
@@ -24,7 +25,6 @@ import org.xmtp.android.library.codecs.Reaction
 import org.xmtp.android.library.codecs.ReactionAction
 import org.xmtp.android.library.codecs.ReactionCodec
 import org.xmtp.android.library.codecs.ReactionSchema
-import org.xmtp.android.library.codecs.id
 import org.xmtp.android.library.messages.MessageDeliveryStatus
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
@@ -788,5 +788,40 @@ class GroupTest {
 
         assert(!boClient.contacts.isInboxAllowed(alixClient.inboxId))
         assert(boClient.contacts.isInboxDenied(alixClient.inboxId))
+    }
+
+    @Test
+    fun testCanFetchGroupById() {
+        val boGroup = runBlocking {
+            boClient.conversations.newGroup(
+                listOf(
+                    alix.walletAddress,
+                    caro.walletAddress
+                )
+            )
+        }
+        runBlocking { alixClient.conversations.syncGroups() }
+        val alixGroup = alixClient.findGroup(boGroup.id)
+
+        assertEquals(alixGroup?.id?.toHex(), boGroup.id.toHex())
+    }
+
+    @Test
+    fun testCanFetchMessageById() {
+        val boGroup = runBlocking {
+            boClient.conversations.newGroup(
+                listOf(
+                    alix.walletAddress,
+                    caro.walletAddress
+                )
+            )
+        }
+        val boMessageId = runBlocking { boGroup.send("Hello") }
+        runBlocking { alixClient.conversations.syncGroups() }
+        val alixGroup = alixClient.findGroup(boGroup.id)
+        runBlocking { alixGroup?.sync() }
+        val alixMessage = alixClient.findMessage(Numeric.hexStringToByteArray(boMessageId))
+
+        assertEquals(alixMessage?.id?.toHex(), boMessageId)
     }
 }

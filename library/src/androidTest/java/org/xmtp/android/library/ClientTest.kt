@@ -345,4 +345,33 @@ class ClientTest {
             assertEquals(boClient.conversations.listGroups().size, 1)
         }
     }
+
+    @Test
+    fun testCanGetAnInboxIdFromAddress() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val alixWallet = PrivateKeyBuilder()
+        val boWallet = PrivateKeyBuilder()
+        val alixClient =
+            Client().create(
+                account = alixWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    enableV3 = true,
+                    appContext = context
+                )
+            )
+        val boClient =
+            Client().create(
+                account = boWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    enableV3 = true,
+                    appContext = context
+                )
+            )
+        val boInboxId = runBlocking {
+            alixClient.inboxIdFromAddress(boClient.address)
+        }
+        assertEquals(boClient.inboxId, boInboxId)
+    }
 }
