@@ -81,7 +81,7 @@ use crate::{
         group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-        sql_key_store, StorageError,
+        sql_key_store,
     },
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
