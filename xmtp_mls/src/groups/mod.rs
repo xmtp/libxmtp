@@ -81,7 +81,7 @@ use crate::{
         group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-        sql_key_store,
+        sql_key_store, StorageError,
     },
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -485,6 +485,20 @@ impl MlsGroup {
         )?;
 
         Ok(messages)
+    }
+
+    /// Look up a message by its ID
+    /// Returns a [`StoredGroupMessage`] if the message exists, or an error if it does not
+    pub fn message(&self, message_id: Vec<u8>) -> Result<StoredGroupMessage, GroupError> {
+        let conn = self.context.store.conn()?;
+        let message = conn.get_group_message(&message_id)?;
+        match message {
+            Some(message) => Ok(message),
+            None => Err(GroupError::Storage(StorageError::NotFound(format!(
+                "message {}",
+                hex::encode(message_id)
+            )))),
+        }
     }
 
     /**

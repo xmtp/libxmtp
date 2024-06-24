@@ -249,6 +249,14 @@ where
         self.context.inbox_id()
     }
 
+    pub async fn find_inbox_id_from_address(
+        &self,
+        address: String,
+    ) -> Result<Option<String>, ClientError> {
+        let mut results = self.api_client.get_inbox_ids(vec![address.clone()]).await?;
+        Ok(results.remove(&address))
+    }
+
     /// Get sequence id, may not be consistent with the backend
     pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
         self.context.inbox_sequence_id(conn)
