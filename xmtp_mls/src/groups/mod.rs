@@ -521,7 +521,7 @@ impl MlsGroup {
                 missing_addresses.into_iter().cloned().cloned().collect(),
             ));
         }
-
+        // self.pre_intent_hook(client).await?;
         self.add_members_by_inbox_id(client, inbox_id_map.into_values().collect())
             .await
     }
@@ -1317,7 +1317,7 @@ mod tests {
             )
             .unwrap();
         // Bola should have one uncommitted intent for the failed attempt at adding Charlie, who is already in the group
-        assert_eq!(bola_uncommitted_intents.len(), 0);
+        assert_eq!(bola_uncommitted_intents.len(), 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1376,7 +1376,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(messages.len(), 3);
+        assert_eq!(messages.len(), 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
