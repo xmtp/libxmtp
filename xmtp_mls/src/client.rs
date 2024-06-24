@@ -177,7 +177,7 @@ impl From<&str> for ClientError {
 /// Clients manage access to the network, identity, and data store
 #[derive(Debug)]
 pub struct Client<ApiClient> {
-    pub api_client: ApiClientWrapper<ApiClient>,
+    pub(crate) api_client: ApiClientWrapper<ApiClient>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
     pub(crate) history_sync_url: Option<String>,
 }
@@ -247,6 +247,14 @@ where
 
     pub fn inbox_id(&self) -> String {
         self.context.inbox_id()
+    }
+
+    pub async fn find_inbox_id_from_address(
+        &self,
+        address: String,
+    ) -> Result<Option<String>, ClientError> {
+        let results = self.api_client.get_inbox_ids(vec![address.clone()]).await?;
+        Ok(results.get(&address).cloned())
     }
 
     /// Get sequence id, may not be consistent with the backend
