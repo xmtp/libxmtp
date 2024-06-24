@@ -536,8 +536,8 @@ impl MlsGroup {
     ) -> Result<(), GroupError> {
         let conn = client.store().conn()?;
         let provider = client.mls_provider(conn);
-        self.pre_intent_hook(client).await?;
         
+        self.pre_intent_hook(client).await?;
         let intent_data = self
             .get_membership_update_intent(client, &provider, inbox_ids, vec![])
             .await?;
@@ -578,6 +578,8 @@ impl MlsGroup {
     ) -> Result<(), GroupError> {
         let conn = client.store().conn()?;
         let provider = client.mls_provider(conn);
+        
+        self.pre_intent_hook(client).await?;
         let intent_data = self
             .get_membership_update_intent(client, &provider, vec![], inbox_ids)
             .await?;
@@ -640,6 +642,8 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
+        
+        self.pre_intent_hook(client).await?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_image_url_square(group_image_url_square)
                 .into();
@@ -1135,7 +1139,7 @@ mod tests {
             .query_group_messages(group.group_id, None)
             .await
             .expect("read topic");
-        assert_eq!(messages.len(), 2);
+        assert_eq!(messages.len(), 3);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1313,7 +1317,7 @@ mod tests {
             )
             .unwrap();
         // Bola should have one uncommitted intent for the failed attempt at adding Charlie, who is already in the group
-        assert_eq!(bola_uncommitted_intents.len(), 1);
+        assert_eq!(bola_uncommitted_intents.len(), 0);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1372,7 +1376,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(messages.len(), 1);
+        assert_eq!(messages.len(), 3);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1438,7 +1442,7 @@ mod tests {
             .await
             .expect("read topic");
 
-        assert_eq!(messages.len(), 3);
+        assert_eq!(messages.len(), 4);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1461,7 +1465,7 @@ mod tests {
             .query_group_messages(group.group_id.clone(), None)
             .await
             .unwrap();
-        assert_eq!(messages.len(), 2);
+        assert_eq!(messages.len(), 4);
 
         let conn = &client.context.store.conn().unwrap();
         let provider = super::XmtpOpenMlsProvider::new(conn.clone());
