@@ -242,6 +242,15 @@ impl FfiXmtpClient {
         })
     }
 
+    pub fn group(&self, group_id: Vec<u8>) -> Result<FfiGroup, GenericError> {
+        let convo = self.inner_client.group(group_id)?;
+        Ok(FfiGroup {
+            inner_client: self.inner_client.clone(),
+            group_id: convo.group_id,
+            created_at_ns: convo.created_at_ns,
+        })
+    }
+
     pub async fn can_message(
         &self,
         account_addresses: Vec<String>,
@@ -522,6 +531,17 @@ impl FfiGroup {
         group.sync(&self.inner_client).await?;
 
         Ok(())
+    }
+
+    pub async fn message(&self, message_id: Vec<u8>) -> Result<FfiMessage, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let message = group.message(message_id)?;
+        Ok(message.into())
     }
 
     pub fn find_messages(
@@ -1575,7 +1595,7 @@ mod tests {
             .unwrap();
         assert_eq!(bo_messages2.len(), second_msg_check);
 
-        // TODO: message_callbacks should eventually come through here, why does this 
+        // TODO: message_callbacks should eventually come through here, why does this
         // not work?
         // tokio::time::sleep(tokio::time::Duration::from_millis(10000)).await;
         // assert_eq!(message_callbacks.message_count(), second_msg_check as u32);
@@ -1860,7 +1880,7 @@ mod tests {
 
         alix_group.send("hello1".as_bytes().to_vec()).await.unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-        
+
         assert_eq!(group_callbacks.message_count(), 1);
         assert_eq!(message_callbacks.message_count(), 1);
 
