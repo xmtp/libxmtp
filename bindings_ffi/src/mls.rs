@@ -273,6 +273,21 @@ impl FfiXmtpClient {
     pub async fn db_reconnect(&self) -> Result<(), GenericError> {
         Ok(self.inner_client.reconnect_db()?)
     }
+
+    pub async fn find_inbox_id(
+        &self,
+        account_address: String,
+    ) -> Result<Option<String>, GenericError> {
+        let inner = self.inner_client.as_ref();
+
+        let results = inner
+            .api_client
+            .get_inbox_ids(vec![account_address.clone()])
+            .await
+            .map_err(GenericError::from_error)?;
+
+        Ok(results.get(&account_address).cloned())
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]

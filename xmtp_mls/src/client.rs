@@ -177,7 +177,7 @@ impl From<&str> for ClientError {
 /// Clients manage access to the network, identity, and data store
 #[derive(Debug)]
 pub struct Client<ApiClient> {
-    pub(crate) api_client: ApiClientWrapper<ApiClient>,
+    pub api_client: ApiClientWrapper<ApiClient>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
     pub(crate) history_sync_url: Option<String>,
 }
