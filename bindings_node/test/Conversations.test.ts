@@ -55,6 +55,37 @@ describe('Conversations', () => {
     expect(group2[0].id).toBe(group.id)
   })
 
+  it('should find a group by ID', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+    const group = await client1
+      .conversations()
+      .createGroup([user2.account.address])
+    expect(group).toBeDefined()
+    expect(group.id()).toBeDefined()
+    const foundGroup = client1.conversations().findGroupById(group.id())
+    expect(foundGroup).toBeDefined()
+    expect(foundGroup!.id()).toBe(group.id())
+  })
+
+  it('should find a message by ID', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    await createRegisteredClient(user2)
+    const group = await client1
+      .conversations()
+      .createGroup([user2.account.address])
+    const messageId = await group.send(encodeTextMessage('gm!'))
+    expect(messageId).toBeDefined()
+
+    const message = client1.conversations().findMessageById(messageId)
+    expect(message).toBeDefined()
+    expect(message!.id).toBe(messageId)
+  })
+
   it('should create a new group with options', async () => {
     const user1 = createUser()
     const user2 = createUser()
