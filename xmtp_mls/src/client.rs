@@ -270,8 +270,15 @@ where
         &self,
         address: String,
     ) -> Result<Option<String>, ClientError> {
-        let mut results = self.api_client.get_inbox_ids(vec![address.clone()]).await?;
-        Ok(results.remove(&address))
+        if let Some(sanitized_address) = sanitize_evm_addresses(vec![address])?.pop() {
+            let mut results = self
+                .api_client
+                .get_inbox_ids(vec![sanitized_address.clone()])
+                .await?;
+            Ok(results.remove(&sanitized_address))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Get sequence id, may not be consistent with the backend
