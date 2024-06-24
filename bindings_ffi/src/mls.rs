@@ -251,6 +251,11 @@ impl FfiXmtpClient {
         })
     }
 
+    pub fn message(&self, message_id: Vec<u8>) -> Result<FfiMessage, GenericError> {
+        let message = self.inner_client.message(message_id)?;
+        Ok(message.into())
+    }
+
     pub async fn can_message(
         &self,
         account_addresses: Vec<String>,
@@ -538,17 +543,6 @@ impl FfiGroup {
         group.sync(&self.inner_client).await?;
 
         Ok(())
-    }
-
-    pub async fn message(&self, message_id: Vec<u8>) -> Result<FfiMessage, GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.context().clone(),
-            self.group_id.clone(),
-            self.created_at_ns,
-        );
-
-        let message = group.message(message_id)?;
-        Ok(message.into())
     }
 
     pub fn find_messages(

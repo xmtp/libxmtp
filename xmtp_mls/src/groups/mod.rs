@@ -487,20 +487,6 @@ impl MlsGroup {
         Ok(messages)
     }
 
-    /// Look up a message by its ID
-    /// Returns a [`StoredGroupMessage`] if the message exists, or an error if it does not
-    pub fn message(&self, message_id: Vec<u8>) -> Result<StoredGroupMessage, GroupError> {
-        let conn = self.context.store.conn()?;
-        let message = conn.get_group_message(&message_id)?;
-        match message {
-            Some(message) => Ok(message),
-            None => Err(GroupError::Storage(StorageError::NotFound(format!(
-                "message {}",
-                hex::encode(message_id)
-            )))),
-        }
-    }
-
     /**
      * Add members to the group by account address
      *

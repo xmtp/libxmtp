@@ -40,6 +40,7 @@ use crate::{
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
+        group_message::StoredGroupMessage,
         refresh_state::EntityKind,
         sql_key_store, EncryptedMessageStore, StorageError,
     },
@@ -330,6 +331,20 @@ where
             None => Err(ClientError::Storage(StorageError::NotFound(format!(
                 "group {}",
                 hex::encode(group_id)
+            )))),
+        }
+    }
+
+    /// Look up a message by its ID
+    /// Returns a [`StoredGroupMessage`] if the message exists, or an error if it does not
+    pub fn message(&self, message_id: Vec<u8>) -> Result<StoredGroupMessage, ClientError> {
+        let conn = &mut self.store().conn()?;
+        let message = conn.get_group_message(&message_id)?;
+        match message {
+            Some(message) => Ok(message),
+            None => Err(ClientError::Storage(StorageError::NotFound(format!(
+                "message {}",
+                hex::encode(message_id)
             )))),
         }
     }
