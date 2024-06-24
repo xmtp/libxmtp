@@ -338,4 +338,26 @@ class ClientTests: XCTestCase {
 			)
 		)
 	}
+	
+	func testCanGetAnInboxIdFromAddress() async throws {
+		let bo = try PrivateKey.generate()
+		let alix = try PrivateKey.generate()
+		let boClient = try await Client.create(
+			account: bo,
+			options: .init(
+				api: .init(env: .local, isSecure: false),
+				enableV3: true
+			)
+		)
+	
+		let alixClient = try await Client.create(
+			account: alix,
+			options: .init(
+				api: .init(env: .local, isSecure: false),
+				enableV3: true
+			)
+		)
+		let boInboxId = try await alixClient.inboxIdFromAddress(address: boClient.address)
+		XCTAssertEqual(boClient.inboxID, boInboxId)
+	}
 }

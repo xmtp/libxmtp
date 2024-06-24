@@ -777,4 +777,28 @@ class GroupTests: XCTestCase {
 		XCTAssert(!isAllowed3)
 		XCTAssert(isDenied3)
 	}
+	
+	func testCanFetchGroupById() async throws {
+		let fixtures = try await localFixtures()
+
+		let boGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		try await fixtures.aliceClient.conversations.sync()
+		let alixGroup = try fixtures.aliceClient.findGroup(groupId: boGroup.id)
+
+		XCTAssertEqual(alixGroup?.id.toHex, boGroup.id.toHex)
+	}
+
+	func testCanFetchMessageById() async throws {
+		let fixtures = try await localFixtures()
+
+		let boGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+
+		let boMessageId = try await boGroup.send(content: "Hello")
+		try await fixtures.aliceClient.conversations.sync()
+		let alixGroup = try fixtures.aliceClient.findGroup(groupId: boGroup.id)
+		try await alixGroup?.sync()
+		let alixMessage = try fixtures.aliceClient.findMessage(messageId: Data(boMessageId.web3.bytesFromHex!))
+
+		XCTAssertEqual(alixGroup?.id.toHex, boGroup.id.toHex)
+	}
 }

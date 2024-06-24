@@ -57,6 +57,7 @@ public struct ClientOptions {
 	public var enableV3 = false
 	public var dbEncryptionKey: Data?
 	public var dbDirectory: String?
+	public var historySyncUrl: String?
 
 	public init(
 		api: Api = Api(),
@@ -65,7 +66,8 @@ public struct ClientOptions {
 		preCreateIdentityCallback: PreEventCallback? = nil,
 		enableV3: Bool = false,
 		encryptionKey: Data? = nil,
-		dbDirectory: String? = nil
+		dbDirectory: String? = nil,
+		historySyncUrl: String? = nil
 	) {
 		self.api = api
 		self.codecs = codecs
@@ -74,6 +76,7 @@ public struct ClientOptions {
 		self.enableV3 = enableV3
 		self.dbEncryptionKey = encryptionKey
 		self.dbDirectory = dbDirectory
+		self.historySyncUrl = historySyncUrl
 	}
 }
 
@@ -182,7 +185,7 @@ public final class Client {
 				accountAddress: address,
 				nonce: 0,
 				legacySignedPrivateKeyProto: try privateKeyBundleV1.toV2().identityKey.serializedData(),
-				historySyncUrl: nil
+				historySyncUrl: options?.historySyncUrl
 			)
 			
 			if let signatureRequest = v3Client.signatureRequest() {
@@ -517,5 +520,41 @@ public final class Client {
 	func getUserContact(peerAddress: String) async throws -> ContactBundle? {
 		let peerAddress = EthereumAddress(peerAddress).toChecksumAddress()
 		return try await contacts.find(peerAddress)
+	}
+	
+	public func inboxIdFromAddress(address: String) async throws -> String? {
+		guard let client = v3Client else {
+			throw ClientError.noV3Client("Error no V3 client initialized")
+		}
+		return try await client.findInboxId(address: address.lowercased())
+	}
+	
+	public func findGroup(groupId: Data) throws -> Group? {
+		guard let client = v3Client else {
+			throw ClientError.noV3Client("Error no V3 client initialized")
+		}
+		do {
+			return Group(ffiGroup: try client.group(groupId: groupId), client: self)
+		} catch {
+			return nil
+		}
+	}
+
+	public func findMessage(messageId: Data) throws -> MessageV3? {
+		guard let client = v3Client else {
+			throw ClientError.noV3Client("Error no V3 client initialized")
+		}
+		do {
+			return MessageV3(client: self, ffiMessage: try client.message(messageId: messageId))
+		} catch {
+			return nil
+		}
+	}
+	
+	public func requestMessageHistorySync() async throws {
+		guard let client = v3Client else {
+			throw ClientError.noV3Client("Error no V3 client initialized")
+		}
+		try await client.requestHistorySync()
 	}
 }
