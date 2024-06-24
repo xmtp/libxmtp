@@ -96,7 +96,7 @@ impl MlsGroup {
         self.sync_with_conn(conn, client).await
     }
 
-    #[tracing::instrument(level = "trace", skip(client, conn))]
+    #[tracing::instrument(level = "trace", skip(client, self, conn))]
     pub(super) async fn sync_with_conn<ApiClient>(
         &self,
         conn: DbConnection,
@@ -141,7 +141,7 @@ impl MlsGroup {
      *
      * This method will retry up to `crate::configuration::MAX_GROUP_SYNC_RETRIES` times.
      */
-    #[tracing::instrument(level = "trace", skip(client, conn))]
+    #[tracing::instrument(level = "trace", skip(client, self, conn))]
     pub(super) async fn sync_until_intent_resolved<ApiClient>(
         &self,
         conn: DbConnection,
@@ -678,7 +678,7 @@ impl MlsGroup {
         }
     }
 
-    #[tracing::instrument(level = "trace", skip(conn, client))]
+    #[tracing::instrument(level = "trace", skip(conn, client, self))]
     pub(super) async fn receive<ApiClient>(
         &self,
         conn: &DbConnection,
@@ -740,7 +740,7 @@ impl MlsGroup {
         Ok(Some(msg))
     }
 
-    #[tracing::instrument(level = "trace", skip(conn, client))]
+    #[tracing::instrument(level = "trace", skip(conn, self, client))]
     pub(super) async fn publish_intents<ClientApi>(
         &self,
         conn: DbConnection,
