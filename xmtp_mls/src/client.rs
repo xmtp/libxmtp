@@ -270,8 +270,15 @@ where
         &self,
         address: String,
     ) -> Result<Option<String>, ClientError> {
-        let mut results = self.api_client.get_inbox_ids(vec![address.clone()]).await?;
-        Ok(results.remove(&address))
+        if let Some(sanitized_address) = sanitize_evm_addresses(vec![address])?.pop() {
+            let mut results = self
+                .api_client
+                .get_inbox_ids(vec![sanitized_address.clone()])
+                .await?;
+            Ok(results.remove(&sanitized_address))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Get sequence id, may not be consistent with the backend
@@ -630,6 +637,7 @@ pub fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientErr
 #[cfg(test)]
 mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_id::InboxOwner;
 
     use crate::{
         builder::ClientBuilder,
@@ -704,6 +712,19 @@ mod tests {
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].group_id, group_1.group_id);
         assert_eq!(groups[1].group_id, group_2.group_id);
+    }
+
+    #[tokio::test]
+    async fn test_find_inbox_id() {
+        let wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(&wallet).await;
+        assert_eq!(
+            client
+                .find_inbox_id_from_address(wallet.get_address())
+                .await
+                .unwrap(),
+            Some(client.inbox_id())
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
