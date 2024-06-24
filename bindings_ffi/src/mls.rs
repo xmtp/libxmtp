@@ -1719,15 +1719,11 @@ mod tests {
             .stream(Box::new(stream_callback.clone()))
             .await
             .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         group.send("hello".as_bytes().to_vec()).await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         group.send("goodbye".as_bytes().to_vec()).await.unwrap();
-        // Because of the event loop, I need to make the test give control
-        // back to the stream before it can process each message. Using sleep to do that.
-        // I think this will work fine in practice
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
         assert_eq!(stream_callback.message_count(), 2);
 
         stream_closer.end();
@@ -1845,7 +1841,6 @@ mod tests {
 
     // TODO: Test current fails 50% of the time with db locking messages
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    #[ignore]
     async fn test_stream_groups_gets_callback_when_streaming_messages() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;

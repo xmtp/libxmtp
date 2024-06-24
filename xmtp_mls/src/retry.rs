@@ -24,6 +24,7 @@ use smart_default::SmartDefault;
 /// All Errors are not retryable by-default.
 pub trait RetryableError: std::error::Error {
     fn is_retryable(&self) -> bool {
+        log::info!("Default retriable error");
         false
     }
 }
@@ -229,14 +230,16 @@ macro_rules! retry_async {
         loop {
             let span = span.clone();
             #[allow(clippy::redundant_closure_call)]
-            match $code.instrument(span).await {
+            let res = $code.instrument(span).await;
+            match res {
                 Ok(v) => break Ok(v),
                 Err(e) => {
                     if (&e).is_retryable() && attempts < $retry.retries() {
-                        log::debug!("retrying function that failed with error={}", e.to_string());
+                        log::warn!("retrying function that failed with error={}", e.to_string());
                         attempts += 1;
                         tokio::time::sleep($retry.duration()).await;
                     } else {
+                        log::info!("error is not retryable. {:?}", e);
                         break Err(e);
                     }
                 }
@@ -250,11 +253,11 @@ macro_rules! retryable {
     ($error: ident) => {{
         #[allow(unused)]
         use $crate::retry::RetryableError;
-        (&$error).is_retryable()
+        $error.is_retryable()
     }};
     ($error: expr) => {{
         use $crate::retry::RetryableError;
-        (&$error).is_retryable()
+        $error.is_retryable()
     }};
 }
 
