@@ -253,7 +253,7 @@ where
         &self,
         address: String,
     ) -> Result<Option<String>, ClientError> {
-        let results = self.api_client.get_inbox_ids(vec![address.clone()]).await?;
+        let mut results = self.api_client.get_inbox_ids(vec![address.clone()]).await?;
         Ok(results.get(&address).cloned())
     }
 
