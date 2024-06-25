@@ -100,6 +100,8 @@ class GroupTests: XCTestCase {
 
 		XCTAssertEqual(try aliceGroup.members.count, 3)
 		XCTAssertEqual(try bobGroup.members.count, 3)
+        
+        try await bobGroup.addAdmin(inboxId: fixtures.aliceClient.inboxID)
 
 		try await aliceGroup.removeMembers(addresses: [fixtures.fred.address])
 		try await bobGroup.sync()
@@ -109,6 +111,9 @@ class GroupTests: XCTestCase {
 
 		try await bobGroup.addMembers(addresses: [fixtures.fred.address])
 		try await aliceGroup.sync()
+        
+        try await bobGroup.removeAdmin(inboxId: fixtures.aliceClient.inboxID)
+        try await aliceGroup.sync()
 
 		XCTAssertEqual(try aliceGroup.members.count, 3)
 		XCTAssertEqual(try bobGroup.members.count, 3)
