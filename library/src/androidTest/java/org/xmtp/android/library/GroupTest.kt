@@ -88,18 +88,14 @@ class GroupTest {
         assertEquals(alixGroup.members().size, 3)
         assertEquals(boGroup.members().size, 3)
 
-        runBlocking {
-            alixGroup.removeMembers(listOf(caro.walletAddress))
-            boGroup.sync()
+        // All members also defaults remove to admin only now.
+        assertThrows(XMTPException::class.java) {
+            runBlocking {
+                alixGroup.removeMembers(listOf(caro.walletAddress))
+                boGroup.sync()
+            }
         }
 
-        assertEquals(alixGroup.members().size, 2)
-        assertEquals(boGroup.members().size, 2)
-
-        runBlocking {
-            boGroup.addMembers(listOf(caro.walletAddress))
-            alixGroup.sync()
-        }
         assertEquals(alixGroup.members().size, 3)
         assertEquals(boGroup.members().size, 3)
 
@@ -277,7 +273,10 @@ class GroupTest {
                 )
             )
         }
-        runBlocking { alixClient.conversations.syncGroups() }
+        runBlocking {
+            boGroup.addAdmin(alixClient.inboxId)
+            alixClient.conversations.syncGroups()
+        }
         val group = runBlocking {
             alixClient.conversations.syncGroups()
             alixClient.conversations.listGroups().first()
@@ -485,7 +484,7 @@ class GroupTest {
 
         Thread.sleep(1000)
 
-        assertEquals(4, messageCallbacks)
+        assertEquals(secondMsgCheck, messageCallbacks)
     }
 
     @Test
