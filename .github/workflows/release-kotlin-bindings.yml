@@ -1,0 +1,65 @@
+name: Release Kotlin Bindings
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: warp-ubuntu-latest-x64-8x
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-linux-android
+          - i686-linux-android
+          - armv7-linux-androideabi
+          - aarch64-linux-android
+        include:
+          - target: x86_64-linux-android
+            output_target: x86_64
+          - target: i686-linux-android
+            output_target: x86
+          - target: armv7-linux-androideabi
+            output_target: armeabi-v7a
+          - target: aarch64-linux-android
+            output_target: arm64-v8a
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: "Cache"
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ./target/${{ matrix.target }}
+          key: ${{ matrix.target }}-${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
+
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ matrix.target }}
+
+      # Install latest cross to mitigate unwind linking issue on android builds.
+      # See https://github.com/cross-rs/cross/issues/1222
+      - name: Install rust cross
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build target
+        uses: actions-rs/cargo@v1
+        env: 
+          CROSS_NO_WARNINGS: "0"
+        with:
+          use-cross: true
+          command: build
+          args: --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml --target-dir bindings_ffi/target
+      - name: Upload binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.target }}
+          path: bindings_ffi/target/${{ matrix.target }}/release/libxmtpv3.so
+          retention-days: 1
