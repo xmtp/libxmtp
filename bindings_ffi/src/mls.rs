@@ -334,6 +334,7 @@ pub struct FfiConversations {
 pub enum GroupPermissions {
     AllMembers,
     AdminOnly,
+    CustomPolicy,
 }
 
 impl From<PreconfiguredPolicies> for GroupPermissions {
@@ -1030,7 +1031,11 @@ pub struct FfiGroupPermissions {
 #[uniffi::export]
 impl FfiGroupPermissions {
     pub fn policy_type(&self) -> Result<GroupPermissions, GenericError> {
-        Ok(self.inner.preconfigured_policy()?.into())
+        if let Ok(preconfigured_policy) = self.inner.preconfigured_policy() {
+            Ok(preconfigured_policy.into())
+        } else {
+            Ok(GroupPermissions::CustomPolicy)
+        }
     }
 }
 

@@ -233,11 +233,11 @@ impl TryFrom<MetadataPolicyProto> for MetadataPolicies {
                 2 => Ok(MetadataPolicies::deny()),
                 3 => Ok(MetadataPolicies::allow_if_actor_admin()),
                 4 => Ok(MetadataPolicies::allow_if_actor_super_admin()),
-                _ => Err(PolicyError::InvalidPolicy),
+                _ => Err(PolicyError::InvalidMetadataPolicy),
             },
             Some(MetadataPolicyKindProto::AndCondition(inner)) => {
                 if inner.policies.is_empty() {
-                    return Err(PolicyError::InvalidPolicy);
+                    return Err(PolicyError::InvalidMetadataPolicy);
                 }
                 let policies = inner
                     .policies
@@ -249,7 +249,7 @@ impl TryFrom<MetadataPolicyProto> for MetadataPolicies {
             }
             Some(MetadataPolicyKindProto::AnyCondition(inner)) => {
                 if inner.policies.is_empty() {
-                    return Err(PolicyError::InvalidPolicy);
+                    return Err(PolicyError::InvalidMetadataPolicy);
                 }
 
                 let policies = inner
@@ -260,7 +260,7 @@ impl TryFrom<MetadataPolicyProto> for MetadataPolicies {
 
                 Ok(MetadataPolicies::any(policies))
             }
-            None => Err(PolicyError::InvalidPolicy),
+            None => Err(PolicyError::InvalidMetadataPolicy),
         }
     }
 }
@@ -436,11 +436,11 @@ impl TryFrom<PermissionsPolicyProto> for PermissionsPolicies {
                 1 => Ok(PermissionsPolicies::deny()),
                 2 => Ok(PermissionsPolicies::allow_if_actor_admin()),
                 3 => Ok(PermissionsPolicies::allow_if_actor_super_admin()),
-                _ => Err(PolicyError::InvalidPolicy),
+                _ => Err(PolicyError::InvalidPermissionsPolicy),
             },
             Some(PermissionsPolicyKindProto::AndCondition(inner)) => {
                 if inner.policies.is_empty() {
-                    return Err(PolicyError::InvalidPolicy);
+                    return Err(PolicyError::InvalidPermissionsPolicy);
                 }
                 let policies = inner
                     .policies
@@ -452,7 +452,7 @@ impl TryFrom<PermissionsPolicyProto> for PermissionsPolicies {
             }
             Some(PermissionsPolicyKindProto::AnyCondition(inner)) => {
                 if inner.policies.is_empty() {
-                    return Err(PolicyError::InvalidPolicy);
+                    return Err(PolicyError::InvalidPermissionsPolicy);
                 }
 
                 let policies = inner
@@ -463,7 +463,7 @@ impl TryFrom<PermissionsPolicyProto> for PermissionsPolicies {
 
                 Ok(PermissionsPolicies::any(policies))
             }
-            None => Err(PolicyError::InvalidPolicy),
+            None => Err(PolicyError::InvalidPermissionsPolicy),
         }
     }
 }
@@ -565,6 +565,24 @@ pub enum PolicyError {
     Deserialization(#[from] prost::DecodeError),
     #[error("invalid policy")]
     InvalidPolicy,
+    #[error("unexpected preset policy")]
+    InvalidPresetPolicy,
+    #[error("invalid metadata policy")]
+    InvalidMetadataPolicy,
+    #[error("invalid membership policy")]
+    InvalidMembershipPolicy,
+    #[error("invalid permissions policy")]
+    InvalidPermissionsPolicy,
+    #[error("from proto add member invalid policy")]
+    FromProtoAddMemberInvalidPolicy,
+    #[error("from proto remove member invalid policy")]
+    FromProtoRemoveMemberInvalidPolicy,
+    #[error("from proto add admin invalid policy")]
+    FromProtoAddAdminInvalidPolicy,
+    #[error("from proto remove admin invalid policy")]
+    FromProtoRemoveAdminInvalidPolicy,
+    #[error("from proto update permissions invalid policy")]
+    FromProtoUpdatePermissionsInvalidPolicy,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -658,11 +676,11 @@ impl TryFrom<MembershipPolicyProto> for MembershipPolicies {
                 2 => Ok(MembershipPolicies::deny()),
                 3 => Ok(MembershipPolicies::allow_if_actor_admin()),
                 4 => Ok(MembershipPolicies::allow_if_actor_super_admin()),
-                _ => Err(PolicyError::InvalidPolicy),
+                _ => Err(PolicyError::InvalidMembershipPolicy),
             },
             Some(PolicyKindProto::AndCondition(inner)) => {
                 if inner.policies.is_empty() {
-                    return Err(PolicyError::InvalidPolicy);
+                    return Err(PolicyError::InvalidMembershipPolicy);
                 }
                 let policies = inner
                     .policies
@@ -674,7 +692,7 @@ impl TryFrom<MembershipPolicyProto> for MembershipPolicies {
             }
             Some(PolicyKindProto::AnyCondition(inner)) => {
                 if inner.policies.is_empty() {
-                    return Err(PolicyError::InvalidPolicy);
+                    return Err(PolicyError::InvalidMembershipPolicy);
                 }
 
                 let policies = inner
@@ -685,7 +703,7 @@ impl TryFrom<MembershipPolicyProto> for MembershipPolicies {
 
                 Ok(MembershipPolicies::any(policies))
             }
-            None => Err(PolicyError::InvalidPolicy),
+            None => Err(PolicyError::InvalidMembershipPolicy),
         }
     }
 }
@@ -937,25 +955,29 @@ impl PolicySet {
 
     pub(crate) fn from_proto(proto: PolicySetProto) -> Result<Self, PolicyError> {
         let add_member_policy = MembershipPolicies::try_from(
-            proto.add_member_policy.ok_or(PolicyError::InvalidPolicy)?,
+            proto
+                .add_member_policy
+                .ok_or(PolicyError::FromProtoAddMemberInvalidPolicy)?,
         )?;
         let remove_member_policy = MembershipPolicies::try_from(
             proto
                 .remove_member_policy
-                .ok_or(PolicyError::InvalidPolicy)?,
+                .ok_or(PolicyError::FromProtoRemoveMemberInvalidPolicy)?,
         )?;
         let add_admin_policy = PermissionsPolicies::try_from(
-            proto.add_admin_policy.ok_or(PolicyError::InvalidPolicy)?,
+            proto
+                .add_admin_policy
+                .ok_or(PolicyError::FromProtoAddAdminInvalidPolicy)?,
         )?;
         let remove_admin_policy = PermissionsPolicies::try_from(
             proto
                 .remove_admin_policy
-                .ok_or(PolicyError::InvalidPolicy)?,
+                .ok_or(PolicyError::FromProtoRemoveAdminInvalidPolicy)?,
         )?;
         let update_permissions_policy = PermissionsPolicies::try_from(
             proto
                 .update_permissions_policy
-                .ok_or(PolicyError::InvalidPolicy)?,
+                .ok_or(PolicyError::FromProtoUpdatePermissionsInvalidPolicy)?,
         )?;
 
         let mut update_metadata_policy = HashMap::new();
@@ -986,6 +1008,44 @@ impl PolicySet {
     }
 }
 
+// Depending on if the client is on a newer or older version of libxmtp
+// since the group was created, the number of metadata policies might not match
+// the default All Members Policy Set. As long as all metadata policies are allow, we will
+// match against All Members Preconfigured Policy
+pub fn is_policy_all_members(policy: &PolicySet) -> bool {
+    let mut metadata_policies_equal = true;
+    for field_name in policy.update_metadata_policy.keys() {
+        let metadata_policy = policy.update_metadata_policy.get(field_name).unwrap();
+        metadata_policies_equal =
+            metadata_policies_equal && metadata_policy.eq(&MetadataPolicies::allow());
+    }
+    metadata_policies_equal
+        && policy.add_member_policy == MembershipPolicies::allow()
+        && policy.remove_member_policy == MembershipPolicies::allow_if_actor_admin()
+        && policy.add_admin_policy == PermissionsPolicies::allow_if_actor_super_admin()
+        && policy.remove_admin_policy == PermissionsPolicies::allow_if_actor_super_admin()
+        && policy.update_permissions_policy == PermissionsPolicies::allow_if_actor_super_admin()
+}
+
+// Depending on if the client is on a newer or older version of libxmtp
+// since the group was created, the number of metadata policies might not match
+// the default Admin Only Policy Set. As long as all metadata policies are admin only, we will
+// match against Admin Only Preconfigured Policy
+pub fn is_policy_admin_only(policy: &PolicySet) -> bool {
+    let mut metadata_policies_equal = true;
+    for field_name in policy.update_metadata_policy.keys() {
+        let metadata_policy = policy.update_metadata_policy.get(field_name).unwrap();
+        metadata_policies_equal = metadata_policies_equal
+            && metadata_policy.eq(&MetadataPolicies::allow_if_actor_admin());
+    }
+    metadata_policies_equal
+        && policy.add_member_policy == MembershipPolicies::allow_if_actor_admin()
+        && policy.remove_member_policy == MembershipPolicies::allow_if_actor_admin()
+        && policy.add_admin_policy == PermissionsPolicies::allow_if_actor_super_admin()
+        && policy.remove_admin_policy == PermissionsPolicies::allow_if_actor_super_admin()
+        && policy.update_permissions_policy == PermissionsPolicies::allow_if_actor_super_admin()
+}
+
 /// A policy where any member can add or remove any other member
 pub(crate) fn policy_all_members() -> PolicySet {
     let mut metadata_policies_map: HashMap<String, MetadataPolicies> = HashMap::new();
@@ -994,7 +1054,7 @@ pub(crate) fn policy_all_members() -> PolicySet {
     }
     PolicySet::new(
         MembershipPolicies::allow(),
-        MembershipPolicies::allow(),
+        MembershipPolicies::allow_if_actor_admin(),
         metadata_policies_map,
         PermissionsPolicies::allow_if_actor_super_admin(),
         PermissionsPolicies::allow_if_actor_super_admin(),
@@ -1034,12 +1094,12 @@ impl PreconfiguredPolicies {
     }
 
     pub fn from_policy_set(policy_set: &PolicySet) -> Result<Self, PolicyError> {
-        if policy_set.eq(&policy_all_members()) {
+        if is_policy_all_members(policy_set) {
             Ok(PreconfiguredPolicies::AllMembers)
-        } else if policy_set.eq(&policy_admin_only()) {
+        } else if is_policy_admin_only(policy_set) {
             Ok(PreconfiguredPolicies::AdminsOnly)
         } else {
-            Err(PolicyError::InvalidPolicy)
+            Err(PolicyError::InvalidPresetPolicy)
         }
     }
 }
@@ -1325,5 +1385,38 @@ mod tests {
                 .unwrap(),
             PreconfiguredPolicies::AdminsOnly
         );
+    }
+
+    #[test]
+    fn test_preconfigured_policy_equality_new_metadata() {
+        let mut metadata_policies_map = MetadataPolicies::default_map(MetadataPolicies::allow());
+        metadata_policies_map.insert("new_metadata_field".to_string(), MetadataPolicies::allow());
+        let policy_set_new_metadata_permission = PolicySet {
+            add_member_policy: MembershipPolicies::allow(),
+            remove_member_policy: MembershipPolicies::allow_if_actor_admin(),
+            update_metadata_policy: metadata_policies_map,
+            add_admin_policy: PermissionsPolicies::allow_if_actor_super_admin(),
+            remove_admin_policy: PermissionsPolicies::allow_if_actor_super_admin(),
+            update_permissions_policy: PermissionsPolicies::allow_if_actor_super_admin(),
+        };
+
+        assert!(is_policy_all_members(&policy_set_new_metadata_permission));
+
+        let mut metadata_policies_map =
+            MetadataPolicies::default_map(MetadataPolicies::allow_if_actor_admin());
+        metadata_policies_map.insert(
+            "new_metadata_field_2".to_string(),
+            MetadataPolicies::allow_if_actor_admin(),
+        );
+        let policy_set_new_metadata_permission = PolicySet {
+            add_member_policy: MembershipPolicies::allow_if_actor_admin(),
+            remove_member_policy: MembershipPolicies::allow_if_actor_admin(),
+            update_metadata_policy: metadata_policies_map,
+            add_admin_policy: PermissionsPolicies::allow_if_actor_super_admin(),
+            remove_admin_policy: PermissionsPolicies::allow_if_actor_super_admin(),
+            update_permissions_policy: PermissionsPolicies::allow_if_actor_super_admin(),
+        };
+
+        assert!(is_policy_admin_only(&policy_set_new_metadata_permission));
     }
 }
