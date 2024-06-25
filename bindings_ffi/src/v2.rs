@@ -8,7 +8,8 @@ use xmtp_proto::api_client::{
 use xmtp_proto::xmtp::message_api::v1::IndexCursor;
 use xmtp_v2::{hashes, k256_helper};
 
-use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
+use tokio::{sync::mpsc, task::JoinHandle};
+use xmtp_api_grpc::grpc_api_helper::{Client as GrpcClient, GrpcMutableSubscription};
 use xmtp_proto::xmtp::message_api::v1::{
     cursor::Cursor as InnerCursor, BatchQueryRequest, Cursor, Envelope, PublishRequest,
     QueryRequest, SortDirection,
@@ -67,7 +68,7 @@ pub struct FfiV2QueryRequest {
     paging_info: Option<FfiPagingInfo>,
 }
 
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct FfiEnvelope {
     content_topic: String,
     timestamp_ns: u64,
@@ -279,46 +280,67 @@ impl From<FfiV2SubscribeRequest> for SubscribeRequest {
     }
 }
 
-#[derive(uniffi::Object)]
-pub struct FfiV2Subscription {
-    inner_subscription:
-        Arc<futures::lock::Mutex<xmtp_api_grpc::grpc_api_helper::GrpcMutableSubscription>>,
+#[uniffi::export(callback_interface)]
+pub trait FfiV2SubscriptionCallback: Send + Sync {
+    fn on_message(&self, message: FfiEnvelope);
 }
 
-impl From<xmtp_api_grpc::grpc_api_helper::GrpcMutableSubscription> for FfiV2Subscription {
-    fn from(subscription: xmtp_api_grpc::grpc_api_helper::GrpcMutableSubscription) -> Self {
-        Self {
-            inner_subscription: Arc::new(futures::lock::Mutex::new(subscription)),
-        }
-    }
+#[derive(uniffi::Object)]
+pub struct FfiV2Subscription {
+    tx: mpsc::Sender<FfiV2SubscribeRequest>,
+    handle: JoinHandle<Result<(), GenericError>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiV2Subscription {
-    pub async fn next(&self) -> Result<FfiEnvelope, GenericError> {
-        let mut sub = self.inner_subscription.lock().await;
+    pub fn end(&self) {
+        self.handle.abort()
+    }
 
-        let result = sub.next().await;
-        match result {
-            Some(Ok(envelope)) => Ok(envelope.into()),
-            Some(Err(err)) => Err(GenericError::Generic {
-                err: err.to_string(),
-            }),
-            None => Err(GenericError::Generic {
-                err: "stream closed".to_string(),
-            }),
-        }
+    pub fn is_closed(&self) -> bool {
+        self.handle.is_finished()
     }
 
     pub async fn update(&self, req: FfiV2SubscribeRequest) -> Result<(), GenericError> {
-        let mut sub = self.inner_subscription.lock().await;
-        sub.update(req.into()).await?;
+        self.tx.send(req).await.map_err(|_| GenericError::Generic {
+            err: "stream closed".into(),
+        })?;
         Ok(())
     }
+}
 
-    pub async fn end(&self) {
-        let sub = self.inner_subscription.lock().await;
-        sub.close();
+impl FfiV2Subscription {
+    pub fn subscribe(
+        mut subscription: GrpcMutableSubscription,
+        callback: Box<dyn FfiV2SubscriptionCallback>,
+    ) -> Result<Self, GenericError> {
+        let (tx, mut rx): (_, mpsc::Receiver<FfiV2SubscribeRequest>) = mpsc::channel(10);
+
+        let handle = tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    item = subscription.next() => {
+                        match item {
+                            Some(Ok(envelope)) => callback.on_message(envelope.into()),
+                            Some(Err(e)) => log::error!("Stream error {}", e),
+                            None => {
+                                log::debug!("stream closed");
+                                break;
+                            }
+                        }
+                    },
+                    update = rx.recv() => {
+                        if let Some(update) = update {
+                            let _ = subscription.update(update.into()).await.map_err(|e| log::error!("{}", e)).ok();
+                        }
+
+                    }
+                }
+            }
+            Ok(())
+        });
+
+        Ok(Self { tx, handle })
     }
 }
 
@@ -366,9 +388,10 @@ impl FfiV2ApiClient {
     pub async fn subscribe(
         &self,
         request: FfiV2SubscribeRequest,
-    ) -> Result<Arc<FfiV2Subscription>, GenericError> {
-        let result = self.inner_client.subscribe2(request.into()).await?;
-        Ok(Arc::new(result.into()))
+        callback: Box<dyn FfiV2SubscriptionCallback>,
+    ) -> Result<FfiV2Subscription, GenericError> {
+        let subscription = self.inner_client.subscribe2(request.into()).await?;
+        FfiV2Subscription::subscribe(subscription, callback)
     }
 }
 
@@ -497,7 +520,11 @@ pub fn verify_k256_sha256(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use async_barrier::Barrier;
+    use std::sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc, Mutex,
+    };
 
     use futures::stream;
     use xmtp_proto::api_client::{Envelope, Error as ApiError};
@@ -505,6 +532,37 @@ mod tests {
     use crate::v2::{
         create_v2_client, FfiEnvelope, FfiPublishRequest, FfiV2SubscribeRequest, FfiV2Subscription,
     };
+
+    use super::FfiV2SubscriptionCallback;
+
+    #[derive(Clone)]
+    pub struct TestStreamCallback {
+        message_count: Arc<AtomicU32>,
+        messages: Arc<Mutex<Vec<FfiEnvelope>>>,
+        barrier: Arc<Barrier>,
+    }
+
+    impl TestStreamCallback {
+        pub fn new(barrier_size: usize) -> Self {
+            Self {
+                barrier: Arc::new(Barrier::new(barrier_size)),
+                messages: Default::default(),
+                message_count: Default::default(),
+            }
+        }
+    }
+
+    impl FfiV2SubscriptionCallback for TestStreamCallback {
+        fn on_message(&self, message: FfiEnvelope) {
+            tokio::task::block_in_place(move || {
+                let runtime = tokio::runtime::Handle::current();
+                runtime.block_on(async { self.barrier.wait().await });
+            });
+            self.message_count.fetch_add(1, Ordering::SeqCst);
+            let mut messages = self.messages.lock().unwrap();
+            messages.push(message);
+        }
+    }
 
     // Try a query on a test topic, and make sure we get a response
     #[tokio::test]
@@ -535,18 +593,23 @@ mod tests {
         ];
         let stream = stream::iter(items);
         let (tx, _) = futures::channel::mpsc::unbounded();
-        let stream_handler = FfiV2Subscription {
-            inner_subscription: Arc::new(futures::lock::Mutex::new(
-                xmtp_api_grpc::grpc_api_helper::GrpcMutableSubscription::new(Box::pin(stream), tx),
-            )),
-        };
 
-        let first = stream_handler.next().await.unwrap();
-        assert_eq!(first.content_topic, "test1");
-        let second = stream_handler.next().await.unwrap();
-        assert_eq!(second.content_topic, "test2");
-        let third = stream_handler.next().await;
-        assert!(third.is_err());
+        let callback = TestStreamCallback::new(1);
+        let local_data = callback.clone();
+        FfiV2Subscription::subscribe(
+            xmtp_api_grpc::grpc_api_helper::GrpcMutableSubscription::new(Box::pin(stream), tx),
+            Box::new(callback),
+        )
+        .unwrap();
+
+        local_data.barrier.wait().await;
+        local_data.barrier.wait().await;
+
+        let messages = local_data.messages.lock().unwrap();
+        let message_count = local_data.message_count.clone();
+        assert_eq!(message_count.load(Ordering::SeqCst), 2);
+        assert_eq!(messages[0].content_topic, "test1");
+        assert_eq!(messages[1].content_topic, "test2");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -565,19 +628,23 @@ mod tests {
         ];
         let stream = stream::iter(items);
         let (tx, _) = futures::channel::mpsc::unbounded();
-        let stream_handler = FfiV2Subscription {
-            inner_subscription: Arc::new(futures::lock::Mutex::new(
-                xmtp_api_grpc::grpc_api_helper::GrpcMutableSubscription::new(Box::pin(stream), tx),
-            )),
-        };
 
-        let first = stream_handler.next().await.unwrap();
-        assert_eq!(first.content_topic, "test1");
+        let callback = TestStreamCallback::new(0);
+        let local_data = callback.clone();
+        let sub = FfiV2Subscription::subscribe(
+            xmtp_api_grpc::grpc_api_helper::GrpcMutableSubscription::new(Box::pin(stream), tx),
+            Box::new(callback),
+        )
+        .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        let messages = local_data.messages.lock().unwrap();
+        assert_eq!(messages[0].content_topic, "test1");
 
         // Close the subscription
-        stream_handler.end().await;
-        let second = stream_handler.next().await;
-        assert!(second.is_err());
+        sub.end();
+        assert!(sub.is_closed());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -587,10 +654,15 @@ mod tests {
             .unwrap();
         let content_topic = "/xmtp/0/foo";
 
-        let subscription = client
-            .subscribe(FfiV2SubscribeRequest {
-                content_topics: vec![content_topic.to_string()],
-            })
+        let callback = TestStreamCallback::new(0);
+        let local_data = callback.clone();
+        let _ = client
+            .subscribe(
+                FfiV2SubscribeRequest {
+                    content_topics: vec![content_topic.to_string()],
+                },
+                Box::new(callback),
+            )
             .await
             .unwrap();
 
@@ -608,7 +680,90 @@ mod tests {
             .await
             .unwrap();
 
-        let sub_result = subscription.next().await.unwrap();
-        assert_eq!(sub_result.content_topic, content_topic.to_string());
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+        let messages = local_data.messages.lock().unwrap();
+        let message_count = local_data.message_count.load(Ordering::SeqCst);
+        assert_eq!(message_count, 1);
+        assert_eq!(messages[0].content_topic, content_topic);
+        assert_eq!(messages[0].timestamp_ns, 3);
+        assert_eq!(messages[0].message, vec![1, 2, 3]);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_update_e2e() {
+        let client = create_v2_client("http://localhost:5556".to_string(), false)
+            .await
+            .unwrap();
+        let content_topic = "/xmtp/0/foo";
+        let other_topic = "/xmtp/1/foo";
+
+        let callback = TestStreamCallback::new(0);
+        let local_data = callback.clone();
+        let sub = client
+            .subscribe(
+                FfiV2SubscribeRequest {
+                    content_topics: vec![content_topic.to_string()],
+                },
+                Box::new(callback),
+            )
+            .await
+            .unwrap();
+
+        client
+            .publish(
+                FfiPublishRequest {
+                    envelopes: vec![FfiEnvelope {
+                        content_topic: content_topic.to_string(),
+                        timestamp_ns: 3,
+                        message: vec![1, 2, 3],
+                    }],
+                },
+                "".to_string(),
+            )
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+        {
+            let messages = local_data.messages.lock().unwrap();
+            let message_count = local_data.message_count.load(Ordering::SeqCst);
+            assert_eq!(message_count, 1);
+            assert_eq!(messages[0].content_topic, content_topic);
+            assert_eq!(messages[0].timestamp_ns, 3);
+            assert_eq!(messages[0].message, vec![1, 2, 3]);
+        }
+
+        sub.update(FfiV2SubscribeRequest {
+            content_topics: vec![other_topic.to_string()],
+        })
+        .await
+        .unwrap();
+
+        client
+            .publish(
+                FfiPublishRequest {
+                    envelopes: vec![FfiEnvelope {
+                        content_topic: other_topic.to_string(),
+                        timestamp_ns: 3,
+                        message: vec![1, 2, 3],
+                    }],
+                },
+                "".to_string(),
+            )
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+        {
+            let messages = local_data.messages.lock().unwrap();
+            let message_count = local_data.message_count.load(Ordering::SeqCst);
+            assert_eq!(message_count, 2);
+            assert_eq!(messages[1].content_topic, other_topic);
+            assert_eq!(messages[1].timestamp_ns, 3);
+            assert_eq!(messages[1].message, vec![1, 2, 3]);
+        }
     }
 }
