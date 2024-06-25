@@ -16,6 +16,8 @@ use crate::{
     api::GroupFilter,
     client::{extract_welcome_message, ClientError},
     groups::{extract_group_id, GroupError, MlsGroup},
+    retry::Retry,
+    retry_async,
     storage::group_message::StoredGroupMessage,
     Client, XmtpApi,
 };
@@ -58,24 +60,44 @@ where
         welcome: WelcomeMessage,
     ) -> Result<MlsGroup, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
-
-        let creation_result = self
-            .context
-            .store
-            .transaction_async(|provider| async move {
-                MlsGroup::create_from_encrypted_welcome(
-                    self,
-                    &provider,
-                    welcome_v1.hpke_public_key.as_slice(),
-                    welcome_v1.data,
-                    welcome_v1.id as i64,
-                )
-                .await
+        let creation_result = retry_async!(
+            Retry::default(),
+            (async {
+                let welcome_v1 = welcome_v1.clone();
+                self.context
+                    .store
+                    .transaction_async(|provider| async move {
+                        MlsGroup::create_from_encrypted_welcome(
+                            self,
+                            &provider,
+                            welcome_v1.hpke_public_key.as_slice(),
+                            welcome_v1.data,
+                            welcome_v1.id as i64,
+                        )
+                        .await
+                    })
+                    .await
             })
-            .await;
+        );
 
         if let Some(err) = creation_result.as_ref().err() {
-            return Err(ClientError::Generic(err.to_string()));
+            let conn = self.context.store.conn()?;
+            let result = conn.find_group_by_welcome_id(welcome_v1.id as i64);
+            match result {
+                Ok(Some(group)) => {
+                    log::info!(
+                        "Loading existing group for welcome_id: {:?}",
+                        group.welcome_id
+                    );
+                    return Ok(MlsGroup::new(
+                        self.context.clone(),
+                        group.id,
+                        group.created_at_ns,
+                    ));
+                }
+                Ok(None) => return Err(ClientError::Generic(err.to_string())),
+                Err(e) => return Err(ClientError::Generic(e.to_string())),
+            }
         }
 
         Ok(creation_result.unwrap())
@@ -148,9 +170,11 @@ where
                                     "Received message for a non-subscribed group".to_string(),
                                 ),
                             )?;
-                            // TODO update cursor
-                            MlsGroup::new(context, group_id, stream_info.convo_created_at_ns)
-                                .process_stream_entry(envelope, client)
+                            let mls_group =
+                                MlsGroup::new(context, group_id, stream_info.convo_created_at_ns);
+
+                            mls_group
+                                .process_stream_entry(envelope.clone(), client.clone())
                                 .await
                         }
                         Err(err) => Err(GroupError::Api(err)),

@@ -153,6 +153,21 @@ impl DbConnection {
         Ok(groups.into_iter().next())
     }
 
+    /// Return a single group that matches the given welcome ID
+    pub fn find_group_by_welcome_id(
+        &self,
+        welcome_id: i64,
+    ) -> Result<Option<StoredGroup>, StorageError> {
+        let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
+        query = query.filter(dsl::welcome_id.eq(welcome_id));
+        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
+        if groups.len() > 1 {
+            log::error!("More than one group found for welcome_id {}", welcome_id);
+        }
+        // Manually extract the first element
+        Ok(groups.into_iter().next())
+    }
+
     /// Updates group membership state
     pub fn update_group_membership<GroupId: AsRef<[u8]>>(
         &self,
