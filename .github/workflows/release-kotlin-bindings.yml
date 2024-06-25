@@ -3,8 +3,8 @@ name: Release Kotlin Bindings
 on:
   workflow_dispatch:
   push:
-  branches:
-    - np/update-android-bindings
+    branches:
+      - np/update-android-bindings
 
 jobs:
   build-linux:
