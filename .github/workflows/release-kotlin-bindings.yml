@@ -61,18 +61,18 @@ jobs:
           command: build
           args: --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml --target-dir bindings_ffi/target
      
-      - name: Upload binary
-        uses: actions/upload-artifact@v3
-        with:
-          name: ${{ matrix.target }}
-          path: bindings_ffi/target/${{ matrix.target }}/release/libxmtpv3.so
-          retention-days: 1
-
       - name: Prepare JNI libs
         run: |
           mkdir -p bindings_ffi/jniLibs/${{ matrix.output_target }}/ && \
           cp bindings_ffi/target/${{ matrix.target }}/release/libxmtpv3.so bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so && \
           ls bindings_ffi/jniLibs
+     
+      - name: Upload binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.output_target }}
+          path: bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
+          retention-days: 1
 
   package-kotlin:
       needs: [build-linux]
