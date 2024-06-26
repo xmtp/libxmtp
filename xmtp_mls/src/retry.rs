@@ -18,6 +18,7 @@
 
 use std::time::Duration;
 
+use rand::Rng;
 use smart_default::SmartDefault;
 
 /// Specifies which errors are retryable.
@@ -31,8 +32,13 @@ pub trait RetryableError: std::error::Error {
 pub struct Retry {
     #[default = 5]
     retries: usize,
-    #[default(_code = "std::time::Duration::from_millis(200)")]
+    #[default(_code = "std::time::Duration::from_millis(50)")]
     duration: std::time::Duration,
+    #[default = 3]
+    // The amount to multiply the duration on each subsequent attempt
+    multiplier: u32,
+    #[default = 25]
+    max_jitter_ms: usize,
 }
 
 impl Retry {
@@ -42,8 +48,16 @@ impl Retry {
     }
 
     /// Get the duration to wait between retries.
-    pub fn duration(&self) -> Duration {
-        self.duration
+    /// Multiples the duration by the multiplier for each subsequent attempt
+    /// and adds a random jitter to avoid repeated collisions
+    pub fn duration(&self, attempts: usize) -> Duration {
+        let mut duration = self.duration;
+        for _ in 0..attempts - 1 {
+            duration *= self.multiplier;
+        }
+
+        let jitter = rand::thread_rng().gen_range(0..=self.max_jitter_ms);
+        duration + Duration::from_millis(jitter as u64)
     }
 }
 
@@ -155,12 +169,12 @@ macro_rules! retry_sync {
                 Ok(v) => break Ok(v),
                 Err(e) => {
                     if (&e).is_retryable() && attempts < $retry.retries() {
-                        log::debug!(
+                        log::info!(
                             "retrying function that failed with error=`{}`",
                             e.to_string()
                         );
                         attempts += 1;
-                        std::thread::sleep($retry.duration());
+                        std::thread::sleep($retry.duration(attempts));
                     } else {
                         break Err(e);
                     }
@@ -231,7 +245,7 @@ macro_rules! retry_async {
                     if (&e).is_retryable() && attempts < $retry.retries() {
                         log::warn!("retrying function that failed with error={}", e.to_string());
                         attempts += 1;
-                        tokio::time::sleep($retry.duration()).await;
+                        tokio::time::sleep($retry.duration(attempts)).await;
                     } else {
                         log::info!("error is not retryable. {:?}", e);
                         break Err(e);
@@ -387,5 +401,14 @@ mod tests {
             (async { retryable_async_fn(&mut data).await })
         )
         .unwrap();
+    }
+
+    #[test]
+    fn backoff_retry() {
+        let backoff_retry = Retry::default();
+
+        assert!(backoff_retry.duration(1).as_millis() - 50 <= 25);
+        assert!(backoff_retry.duration(2).as_millis() - 150 <= 25);
+        assert!(backoff_retry.duration(3).as_millis() - 450 <= 25);
     }
 }

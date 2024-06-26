@@ -2683,7 +2683,6 @@ name = "openmls"
 version = "0.5.0"
 source = "git+https://github.com/xmtp/openmls?rev=9cb3207#9cb3207b077fcf6bc327408dfcf3df6237aec49c"
 dependencies = [
- "backtrace",
  "itertools 0.10.5",
  "log",
  "once_cell",
