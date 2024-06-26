@@ -79,6 +79,10 @@ jobs:
           with:
             path: bindings_ffi/target
 
+        - name: Get short SHA
+          id: slug
+          run: echo "::set-output name=sha7::$(echo ${GITHUB_SHA} | cut -c1-7)"
+
         - name: Create Release
           id: create_release
           uses: actions/create-release@v1
