@@ -257,11 +257,7 @@ impl MlsGroup {
                     log::warn!("error validating commit: {:?}", maybe_validated_commit);
                     match openmls_group.clear_pending_commit(provider.storage()) {
                         Ok(_) => (),
-                        Err(_) => {
-                            return Err(MessageProcessingError::Generic(
-                                "Error clearing pending commit after failed validation".to_string(),
-                            ))
-                        }
+                        Err(err) => return Err(MessageProcessingError::ClearPendingCommit(err)),
                     }
                     conn.set_group_intent_error(intent.id)?;
                     // Return before merging commit since it does not pass validation
@@ -280,11 +276,7 @@ impl MlsGroup {
                     log::error!("error merging commit: {}", err);
                     match openmls_group.clear_pending_commit(provider.storage()) {
                         Ok(_) => (),
-                        Err(_) => {
-                            return Err(MessageProcessingError::Generic(
-                                "Error clearing pending commit".to_string(),
-                            ))
-                        }
+                        Err(err) => return Err(MessageProcessingError::ClearPendingCommit(err)),
                     }
 
                     conn.set_group_intent_to_publish(intent.id)?;

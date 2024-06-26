@@ -24,6 +24,8 @@ use xmtp_proto::xmtp::{
 use crate::{
     configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
     identity_updates::{InstallationDiff, InstallationDiffError},
+    retry::RetryableError,
+    retryable,
     storage::db_connection::DbConnection,
     Client, XmtpApi,
 };
@@ -80,6 +82,15 @@ pub enum CommitValidationError {
     GroupMutablePermissions(#[from] GroupMutablePermissionsError),
     #[error("PSKs are not support")]
     NoPSKSupport,
+}
+
+impl RetryableError for CommitValidationError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            CommitValidationError::InstallationDiff(diff_error) => retryable!(diff_error),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
