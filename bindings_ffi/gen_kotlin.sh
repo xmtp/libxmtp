@@ -11,3 +11,7 @@ bindings_ffi/target/release/ffi-uniffi-bindgen generate \
 popd > /dev/null
 make libxmtp-version
 cp libxmtp-version.txt src/uniffi/$PROJECT_NAME/
+
+# Assumes libxmtp is in a peer directory of xmtp-android
+cp src/uniffi/xmtpv3/xmtpv3.kt ../../xmtp-android/library/src/main/java/xmtpv3.kt
+cp src/uniffi/xmtpv3/libxmtp-version.txt ../../xmtp-android/library/src/main/java/libxmtp-version.txt
