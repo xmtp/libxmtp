@@ -1575,7 +1575,7 @@ mod tests {
             .unwrap();
         assert_eq!(bo_messages2.len(), second_msg_check);
 
-        // TODO: message_callbacks should eventually come through here, why does this 
+        // TODO: message_callbacks should eventually come through here, why does this
         // not work?
         // tokio::time::sleep(tokio::time::Duration::from_millis(10000)).await;
         // assert_eq!(message_callbacks.message_count(), second_msg_check as u32);
@@ -1860,7 +1860,7 @@ mod tests {
 
         alix_group.send("hello1".as_bytes().to_vec()).await.unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-        
+
         assert_eq!(group_callbacks.message_count(), 1);
         assert_eq!(message_callbacks.message_count(), 1);
 

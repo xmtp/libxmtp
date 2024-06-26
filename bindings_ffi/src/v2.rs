@@ -288,17 +288,21 @@ pub trait FfiV2SubscriptionCallback: Send + Sync {
     fn on_message(&self, message: FfiEnvelope);
 }
 
+/// Subscription to a stream of V2 Messages
 #[derive(uniffi::Object)]
 pub struct FfiV2Subscription {
     tx: mpsc::Sender<FfiV2SubscribeRequest>,
     abort: AbortHandle,
     // we require Arc<Mutex<>> here because uniffi doesn't like &mut or self in impl
     #[allow(clippy::type_complexity)]
-    handle: Arc<Mutex<Option<JoinHandle<Result<(), GenericError>>>>>,
+    handle: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiV2Subscription {
+    /// End the subscription, waiting for the subscription to close entirely.
+    /// # Errors
+    /// * Errors if subscription event task encounters join error
     pub async fn end(&self) -> Result<(), GenericError> {
         if self.abort.is_finished() {
             return Ok(());
@@ -310,15 +314,17 @@ impl FfiV2Subscription {
             h.abort();
             h.await.map_err(|_| GenericError::Generic {
                 err: "subscription event loop join error".into(),
-            })??;
+            })?;
         }
         Ok(())
     }
 
+    /// Check if the subscription is closed
     pub fn is_closed(&self) -> bool {
         self.abort.is_finished()
     }
 
+    /// Update subscription with new topics
     pub async fn update(&self, req: FfiV2SubscribeRequest) -> Result<(), GenericError> {
         self.tx.send(req).await.map_err(|_| GenericError::Generic {
             err: "stream closed".into(),
@@ -331,7 +337,7 @@ impl FfiV2Subscription {
     pub async fn subscribe(
         mut subscription: GrpcMutableSubscription,
         callback: Box<dyn FfiV2SubscriptionCallback>,
-    ) -> Result<Self, GenericError> {
+    ) -> Self {
         let (tx, mut rx): (_, mpsc::Receiver<FfiV2SubscribeRequest>) = mpsc::channel(10);
 
         let handle = tokio::spawn(async move {
@@ -354,14 +360,13 @@ impl FfiV2Subscription {
                     },
                 }
             }
-            Ok(())
         });
 
-        Ok(Self {
+        Self {
             tx,
             abort: handle.abort_handle(),
             handle: Arc::new(Mutex::new(Some(handle))),
-        })
+        }
     }
 }
 
@@ -412,7 +417,7 @@ impl FfiV2ApiClient {
         callback: Box<dyn FfiV2SubscriptionCallback>,
     ) -> Result<FfiV2Subscription, GenericError> {
         let subscription = self.inner_client.subscribe2(request.into()).await?;
-        FfiV2Subscription::subscribe(subscription, callback).await
+        Ok(FfiV2Subscription::subscribe(subscription, callback).await)
     }
 }
 
@@ -608,8 +613,7 @@ mod tests {
             xmtp_api_grpc::grpc_api_helper::GrpcMutableSubscription::new(Box::pin(stream), tx),
             Box::new(callback),
         )
-        .await
-        .unwrap();
+        .await;
 
         for _ in 0..2 {
             local_data.notify.notified().await;
@@ -645,8 +649,7 @@ mod tests {
             xmtp_api_grpc::grpc_api_helper::GrpcMutableSubscription::new(Box::pin(stream), tx),
             Box::new(callback),
         )
-        .await
-        .unwrap();
+        .await;
 
         for _ in 0..2 {
             local_data.notify.notified().await;
