@@ -158,6 +158,7 @@ impl RetryableError for openmls::group::SelfUpdateError<StorageError> {
 
 impl RetryableError for openmls::prelude::CreationFromExternalError<StorageError> {
     fn is_retryable(&self) -> bool {
+        log::info!("checking if creation from external error is retryable");
         match self {
             Self::WriteToStorageError(storage) => retryable!(storage),
             _ => false,
