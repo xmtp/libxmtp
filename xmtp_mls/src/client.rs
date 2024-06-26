@@ -128,12 +128,12 @@ pub enum MessageProcessingError {
     Identity(#[from] IdentityError),
     #[error("openmls process message error: {0}")]
     OpenMlsProcessMessage(
-        #[from] openmls::prelude::ProcessMessageError<sql_key_store::MemoryStorageError>,
+        #[from] openmls::prelude::ProcessMessageError<sql_key_store::SqlKeyStoreError>,
     ),
     #[error("merge pending commit: {0}")]
     MergePendingCommit(#[from] openmls::group::MergePendingCommitError<StorageError>),
     #[error("merge staged commit: {0}")]
-    MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::MemoryStorageError>),
+    MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::SqlKeyStoreError>),
     #[error(
         "no pending commit to merge. group epoch is {group_epoch:?} and got {message_epoch:?}"
     )]
@@ -163,6 +163,8 @@ pub enum MessageProcessingError {
     WrongCredentialType(#[from] BasicCredentialError),
     #[error("proto decode error: {0}")]
     DecodeError(#[from] prost::DecodeError),
+    #[error("clear pending commit error: {0}")]
+    ClearPendingCommit(#[from] sql_key_store::SqlKeyStoreError),
     #[error(transparent)]
     Group(#[from] Box<GroupError>),
     #[error("generic:{0}")]
@@ -173,7 +175,7 @@ impl crate::retry::RetryableError for MessageProcessingError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Group(group_error) => retryable!(group_error),
-            Self::Identity(identity_error) => retryable!(identity_error),
+            // Self::Identity(identity_error) => false,
             Self::Diesel(diesel_error) => retryable!(diesel_error),
             Self::Storage(s) => retryable!(s),
             Self::Generic(err) => err.contains("database is locked"),
