@@ -37,12 +37,34 @@ pub struct StoredGroup {
     pub purpose: Purpose,
     /// The inbox_id of who added the user to a group.
     pub added_by_inbox_id: String,
+    /// The sequence id of the welcome message
+    pub welcome_id: Option<i64>,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
 impl_store!(StoredGroup, groups);
 
 impl StoredGroup {
+    /// Create a new group from a welcome message
+    pub fn new_from_welcome(
+        id: ID,
+        created_at_ns: i64,
+        membership_state: GroupMembershipState,
+        added_by_inbox_id: String,
+        welcome_id: i64,
+        purpose: Purpose,
+    ) -> Self {
+        Self {
+            id,
+            created_at_ns,
+            membership_state,
+            installations_last_checked: 0,
+            purpose,
+            added_by_inbox_id,
+            welcome_id: Some(welcome_id),
+        }
+    }
+
     /// Create a new [`Purpose::Conversation`] group. This is the default type of group.
     pub fn new(
         id: ID,
@@ -57,6 +79,7 @@ impl StoredGroup {
             installations_last_checked: 0,
             purpose: Purpose::Conversation,
             added_by_inbox_id,
+            welcome_id: None,
         }
     }
 
@@ -74,6 +97,7 @@ impl StoredGroup {
             installations_last_checked: 0,
             purpose: Purpose::Sync,
             added_by_inbox_id: "".into(),
+            welcome_id: None,
         }
     }
 }
@@ -129,6 +153,21 @@ impl DbConnection {
         Ok(groups.into_iter().next())
     }
 
+    /// Return a single group that matches the given welcome ID
+    pub fn find_group_by_welcome_id(
+        &self,
+        welcome_id: i64,
+    ) -> Result<Option<StoredGroup>, StorageError> {
+        let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
+        query = query.filter(dsl::welcome_id.eq(welcome_id));
+        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
+        if groups.len() > 1 {
+            log::error!("More than one group found for welcome_id {}", welcome_id);
+        }
+        // Manually extract the first element
+        Ok(groups.into_iter().next())
+    }
+
     /// Updates group membership state
     pub fn update_group_membership<GroupId: AsRef<[u8]>>(
         &self,
@@ -154,7 +193,10 @@ impl DbConnection {
             Ok(ts)
         })?;
 
-        last_ts.ok_or(StorageError::NotFound)
+        last_ts.ok_or(StorageError::NotFound(format!(
+            "installation time for group {}",
+            hex::encode(group_id)
+        )))
     }
 
     /// Updates the 'last time checked' we checked for new installations.
@@ -169,13 +211,26 @@ impl DbConnection {
         Ok(())
     }
 
-    pub fn insert_or_ignore_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
+    pub fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
         let stored_group = self.raw_query(|conn| {
             let maybe_inserted_group: Option<StoredGroup> = diesel::insert_into(dsl::groups)
                 .values(&group)
                 .on_conflict_do_nothing()
                 .get_result(conn)
                 .optional()?;
+
+            if maybe_inserted_group.is_none() {
+                let existing_group: StoredGroup = dsl::groups.find(group.id).first(conn).unwrap();
+                if existing_group.welcome_id == group.welcome_id {
+                    // Error so OpenMLS db transaction are rolled back on duplicate welcomes
+                    return Err(diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::UniqueViolation,
+                        Box::new("welcome id already exists".to_string()),
+                    ));
+                } else {
+                    return Ok(existing_group);
+                }
+            }
 
             match maybe_inserted_group {
                 Some(group) => Ok(group),

@@ -1,0 +1,8 @@
+#!/bin/bash
+set -eou pipefail
+
+if [[ -z "${1-}" ]]; then
+  cargo bench --no-fail-fast --features bench
+else
+  cargo bench --no-fail-fast --features bench -- $1
+fi

@@ -1,0 +1,15 @@
+#!/bin/bash
+set -eou pipefail
+
+
+if [[ "${OSTYPE}" == "darwin"* ]]; then 
+  if ! which inferno-flamegraph &>/dev/null; then cargo install inferno; fi
+fi
+
+if [[ -z "${1-}" ]]; then 
+  XMTP_FLAMEGRAPH=trace cargo bench --no-fail-fast --features bench
+else
+  XMTP_FLAMEGRAPH=trace cargo bench --no-fail-fast --features bench -- $1
+fi
+
+cat xmtp_mls/tracing.folded | inferno-flamegraph > tracing-flamegraph.svg

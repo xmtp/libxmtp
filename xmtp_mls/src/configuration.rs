@@ -16,7 +16,11 @@ const NANOSECONDS_IN_HOUR: i64 = 3_600_000_000_000;
 
 pub const UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NANOSECONDS_IN_HOUR / 2; // 30 min
 
-pub const MAX_GROUP_SIZE: u8 = 250;
+pub const MAX_GROUP_SIZE: u16 = 400;
+
+/// the max amount of data that can be sent in one gRPC call
+/// we leave 5 * 1024 * 1024 as extra buffer room
+pub const GRPC_DATA_LIMIT: usize = 45 * 1024 * 1024;
 
 pub const DELIMITER: char = '\x01';
 
@@ -39,3 +43,4 @@ pub const GROUP_PERMISSIONS_EXTENSION_ID: u16 = 0xff02;
 
 pub const DEFAULT_GROUP_NAME: &str = "";
 pub const DEFAULT_GROUP_DESCRIPTION: &str = "";
+pub const DEFAULT_GROUP_IMAGE_URL_SQUARE: &str = "";

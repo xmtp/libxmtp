@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::storage::association_state::StoredAssociationState;
+use crate::{retry::RetryableError, retryable, storage::association_state::StoredAssociationState};
 use prost::Message;
 use thiserror::Error;
 use xmtp_id::associations::{
@@ -34,6 +34,14 @@ pub struct InstallationDiff {
 pub enum InstallationDiffError {
     #[error(transparent)]
     Client(#[from] ClientError),
+}
+
+impl RetryableError for InstallationDiffError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            InstallationDiffError::Client(client_error) => retryable!(client_error),
+        }
+    }
 }
 
 impl<'a, ApiClient> Client<ApiClient>
@@ -318,6 +326,7 @@ where
 }
 
 /// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id`, write them in the db, and return the updates
+#[tracing::instrument(level = "trace", skip_all)]
 pub async fn load_identity_updates<ApiClient: XmtpApi>(
     api_client: &ApiClientWrapper<ApiClient>,
     conn: &DbConnection,
@@ -333,7 +342,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
         .map(|inbox_id| GetIdentityUpdatesV2Filter {
             sequence_id: existing_sequence_ids
                 .get(&inbox_id)
-                .cloned()
+                .copied()
                 .map(|i| i as u64),
             inbox_id,
         })

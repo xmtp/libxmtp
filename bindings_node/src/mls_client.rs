@@ -8,7 +8,7 @@ use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 use xmtp_id::associations::{
-  AccountId, Erc1271Signature, MemberIdentifier, RecoverableEcdsaSignature, Signature,
+  AccountId, MemberIdentifier, RecoverableEcdsaSignature, Signature, SmartContractWalletSignature,
 };
 use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::builder::ClientBuilder;
@@ -34,6 +34,7 @@ pub async fn create_client(
   inbox_id: String,
   account_address: String,
   encryption_key: Option<Uint8Array>,
+  history_sync_url: Option<String>,
 ) -> Result<NapiClient> {
   let api_client = TonicApiClient::create(host.clone(), is_secure)
     .await
@@ -62,12 +63,21 @@ pub async fn create_client(
     None,
   );
 
-  let xmtp_client = ClientBuilder::new(identity_strategy)
-    .api_client(api_client)
-    .store(store)
-    .build()
-    .await
-    .map_err(|e| Error::from_reason(format!("{}", e)))?;
+  let xmtp_client = match history_sync_url {
+    Some(url) => ClientBuilder::new(identity_strategy)
+      .api_client(api_client)
+      .store(store)
+      .history_sync_url(&url)
+      .build()
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?,
+    None => ClientBuilder::new(identity_strategy)
+      .api_client(api_client)
+      .store(store)
+      .build()
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?,
+  };
 
   Ok(NapiClient {
     inner_client: Arc::new(xmtp_client),
@@ -161,7 +171,7 @@ impl NapiClient {
   }
 
   #[napi]
-  pub fn add_erc1271_signature(
+  pub fn add_scw_signature(
     &mut self,
     signature_bytes: Uint8Array,
     chain_id: String,
@@ -182,7 +192,7 @@ impl NapiClient {
 
     let account_id = AccountId::new(chain_id, account_address.clone());
 
-    let signature = Box::new(Erc1271Signature::new(
+    let signature = Box::new(SmartContractWalletSignature::new(
       signature_text,
       signature_bytes.deref().to_vec(),
       account_id,
@@ -247,5 +257,27 @@ impl NapiClient {
   #[napi]
   pub fn conversations(&self) -> NapiConversations {
     NapiConversations::new(self.inner_client.clone())
+  }
+
+  #[napi]
+  pub async fn request_history_sync(&self) -> Result<()> {
+    let _ = self
+      .inner_client
+      .send_history_request()
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)));
+
+    Ok(())
+  }
+
+  #[napi]
+  pub async fn find_inbox_id_by_address(&self, address: String) -> Result<Option<String>> {
+    let inbox_id = self
+      .inner_client
+      .find_inbox_id_from_address(address)
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(inbox_id)
   }
 }

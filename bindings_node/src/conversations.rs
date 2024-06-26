@@ -6,8 +6,9 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::JsFunction;
 use napi_derive::napi;
+use xmtp_mls::groups::GroupMetadataOptions;
 
-// use crate::messages::NapiMessage;
+use crate::messages::NapiMessage;
 use crate::{
   groups::{GroupPermissions, NapiGroup},
   mls_client::RustXmtpClient,
@@ -19,6 +20,22 @@ pub struct NapiListConversationsOptions {
   pub created_after_ns: Option<i64>,
   pub created_before_ns: Option<i64>,
   pub limit: Option<i64>,
+}
+
+#[napi(object)]
+pub struct NapiCreateGroupOptions {
+  pub permissions: Option<GroupPermissions>,
+  pub group_name: Option<String>,
+  pub group_image_url_square: Option<String>,
+}
+
+impl NapiCreateGroupOptions {
+  pub fn into_group_metadata_options(self) -> GroupMetadataOptions {
+    GroupMetadataOptions {
+      name: self.group_name,
+      image_url_square: self.group_image_url_square,
+    }
+  }
 }
 
 #[napi]
@@ -36,13 +53,24 @@ impl NapiConversations {
   pub async fn create_group(
     &self,
     account_addresses: Vec<String>,
-    permissions: Option<GroupPermissions>,
+    options: Option<NapiCreateGroupOptions>,
   ) -> Result<NapiGroup> {
-    let group_permissions = permissions.map(|group_permissions| group_permissions.into());
+    let options = match options {
+      Some(options) => options,
+      None => NapiCreateGroupOptions {
+        permissions: None,
+        group_name: None,
+        group_image_url_square: None,
+      },
+    };
+
+    let group_permissions = options
+      .permissions
+      .map(|group_permissions| group_permissions.into());
 
     let convo = self
       .inner_client
-      .create_group(group_permissions)
+      .create_group(group_permissions, options.into_group_metadata_options())
       .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
     if !account_addresses.is_empty() {
       convo
@@ -57,6 +85,34 @@ impl NapiConversations {
     );
 
     Ok(out)
+  }
+
+  #[napi]
+  pub fn find_group_by_id(&self, group_id: String) -> Result<NapiGroup> {
+    let group_id = hex::decode(group_id).map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    let group = self
+      .inner_client
+      .group(group_id)
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(NapiGroup::new(
+      self.inner_client.clone(),
+      group.group_id,
+      group.created_at_ns,
+    ))
+  }
+
+  #[napi]
+  pub fn find_message_by_id(&self, message_id: String) -> Result<NapiMessage> {
+    let message_id = hex::decode(message_id).map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    let message = self
+      .inner_client
+      .message(message_id)
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(NapiMessage::from(message))
   }
 
   #[napi]
@@ -147,23 +203,21 @@ impl NapiConversations {
     ))
   }
 
-  // TODO: this fn needs to be sync for it to work with NAPI
-  // #[napi(ts_args_type = "callback: (err: null | Error, result: NapiGroup) => void")]
-  // pub async fn stream_all_messages(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
-  //   let tsfn: ThreadsafeFunction<NapiMessage, ErrorStrategy::CalleeHandled> =
-  //     callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-  //   let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
-  //     self.inner_client.clone(),
-  //     move |message| {
-  //       tsfn.call(Ok(message.into()), ThreadsafeFunctionCallMode::Blocking);
-  //     },
-  //   )
-  //   .await
-  //   .map_err(|e| Error::from_reason(format!("{}", e)))?;
+  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage) => void")]
+  pub fn stream_all_messages(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
+    let tsfn: ThreadsafeFunction<NapiMessage, ErrorStrategy::CalleeHandled> =
+      callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    let stream_closer = RustXmtpClient::stream_all_messages_with_callback_sync(
+      self.inner_client.clone(),
+      move |message| {
+        tsfn.call(Ok(message.into()), ThreadsafeFunctionCallMode::Blocking);
+      },
+    )
+    .map_err(|e| Error::from_reason(format!("{}", e)))?;
 
-  //   Ok(NapiStreamCloser::new(
-  //     stream_closer.close_fn,
-  //     stream_closer.is_closed_atomic,
-  //   ))
-  // }
+    Ok(NapiStreamCloser::new(
+      stream_closer.close_fn,
+      stream_closer.is_closed_atomic,
+    ))
+  }
 }

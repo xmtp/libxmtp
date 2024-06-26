@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 /*
 XLI is a Commandline client using XMTPv3.
 */
@@ -33,7 +34,7 @@ use xmtp_mls::{
     builder::ClientBuilderError,
     client::ClientError,
     codecs::{text::TextCodec, ContentCodec},
-    groups::MlsGroup,
+    groups::{GroupMetadataOptions, MlsGroup},
     identity::IdentityStrategy,
     storage::{
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
@@ -313,7 +314,7 @@ async fn main() {
                 .unwrap();
 
             let group = client
-                .create_group(Some(group_permissions))
+                .create_group(Some(group_permissions), GroupMetadataOptions::default())
                 .expect("failed to create group");
             let group_id = hex::encode(group.group_id);
             info!("Created group {}", group_id, { command_output: true, group_id: group_id})

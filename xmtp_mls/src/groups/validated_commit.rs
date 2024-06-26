@@ -24,6 +24,8 @@ use xmtp_proto::xmtp::{
 use crate::{
     configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
     identity_updates::{InstallationDiff, InstallationDiffError},
+    retry::RetryableError,
+    retryable,
     storage::db_connection::DbConnection,
     Client, XmtpApi,
 };
@@ -80,6 +82,15 @@ pub enum CommitValidationError {
     GroupMutablePermissions(#[from] GroupMutablePermissionsError),
     #[error("PSKs are not support")]
     NoPSKSupport,
+}
+
+impl RetryableError for CommitValidationError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            CommitValidationError::InstallationDiff(diff_error) => retryable!(diff_error),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -405,7 +416,7 @@ fn get_latest_group_membership(
     for proposal in staged_commit.queued_proposals() {
         match proposal.proposal() {
             Proposal::GroupContextExtensions(group_context_extensions) => {
-                let new_group_membership =
+                let new_group_membership: GroupMembership =
                     extract_group_membership(group_context_extensions.extensions())?;
                 log::info!(
                     "Group context extensions proposal found: {:?}",
@@ -571,6 +582,7 @@ fn extract_commit_participant(
 
 /// Get the [`GroupMembership`] from a [`GroupContext`] struct by iterating through all extensions
 /// until a match is found
+#[tracing::instrument(level = "trace", skip_all)]
 pub fn extract_group_membership(
     extensions: &Extensions,
 ) -> Result<GroupMembership, CommitValidationError> {

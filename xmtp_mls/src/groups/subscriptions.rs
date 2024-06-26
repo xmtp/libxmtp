@@ -8,8 +8,8 @@ use tokio::task::JoinHandle;
 use super::{extract_message_v1, GroupError, MlsGroup};
 use crate::storage::group_message::StoredGroupMessage;
 use crate::subscriptions::MessagesStreamInfo;
-use crate::Client;
 use crate::XmtpApi;
+use crate::{retry_async, retry::Retry, Client};
 use prost::Message;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
@@ -23,28 +23,49 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let msgv1 = extract_message_v1(envelope)?;
+        let msg_id = msgv1.id;
+        let client_id = client.inbox_id();
+        log::info!(
+            "client [{}]  is about to process streamed envelope: [{}]",
+            &client_id.clone(),
+            &msg_id
+        );
         let created_ns = msgv1.created_ns;
 
         let client_pointer = client.clone();
-        let process_result = self
-            .context
-            .store
-            .transaction_async(|provider| async move {
-                let mut openmls_group = self.load_mls_group(&provider)?;
 
-                // Attempt processing immediately, but fail if the message is not an Application Message
-                // Returning an error should roll back the DB tx
-                self.process_message(
-                    client_pointer.as_ref(),
-                    &mut openmls_group,
-                    &provider,
-                    &msgv1,
-                    false,
-                )
-                .await
-                .map_err(GroupError::ReceiveError)
+        let process_result = retry_async!(
+            Retry::default(),
+            (async {
+                let client_pointer = client_pointer.clone();
+                let client_id = client_id.clone();
+                let msgv1 = msgv1.clone();
+                self.context
+                    .store
+                    .transaction_async(|provider| async move {
+                        let mut openmls_group = self.load_mls_group(&provider)?;
+
+                        // Attempt processing immediately, but fail if the message is not an Application Message
+                        // Returning an error should roll back the DB tx
+                        log::info!(
+                            "current epoch for [{}] in process_stream_entry() is Epoch: [{}]",
+                            client_id,
+                            openmls_group.epoch()
+                        );
+
+                        self.process_message(
+                            client_pointer.as_ref(),
+                            &mut openmls_group,
+                            &provider,
+                            &msgv1,
+                            false,
+                        )
+                        .await
+                        .map_err(GroupError::ReceiveError)
+                    })
+                    .await
             })
-            .await;
+        );
 
         if let Some(GroupError::ReceiveError(_)) = process_result.err() {
             self.sync(&client).await?;
@@ -123,7 +144,10 @@ mod tests {
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{builder::ClientBuilder, storage::group_message::GroupMessageKind};
+    use crate::{
+        builder::ClientBuilder, groups::GroupMetadataOptions,
+        storage::group_message::GroupMessageKind,
+    };
     use futures::StreamExt;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -131,7 +155,9 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal.create_group(None).unwrap();
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         // Add bola
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
@@ -166,7 +192,9 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal.create_group(None).unwrap();
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         // Add bola
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
@@ -199,7 +227,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_multiple() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let group = amal.create_group(None).unwrap();
+        let group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
 
         let stream = group.stream(amal.clone()).await.unwrap();
 
@@ -228,7 +258,9 @@ mod tests {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal.create_group(None).unwrap();
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
 
         let mut stream = amal_group.stream(amal.clone()).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;

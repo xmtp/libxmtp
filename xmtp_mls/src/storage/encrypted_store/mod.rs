@@ -146,6 +146,8 @@ impl EncryptedMessageStore {
             conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
         }
 
+        conn.batch_execute("PRAGMA busy_timeout = 5000;")?;
+
         Ok(conn)
     }
 
@@ -172,6 +174,7 @@ impl EncryptedMessageStore {
         F: FnOnce(&XmtpOpenMlsProvider) -> Result<T, E>,
         E: From<diesel::result::Error> + From<StorageError>,
     {
+        log::debug!("Transaction beginning");
         let mut connection = self.raw_conn()?;
         AnsiTransactionManager::begin_transaction(&mut *connection)?;
 
@@ -184,15 +187,21 @@ impl EncryptedMessageStore {
                 conn.raw_query(|conn| {
                     PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
                 })?;
+                log::debug!("Transaction being committed");
                 Ok(value)
             }
-            Err(err) => match conn.raw_query(|conn| {
-                PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(&mut *conn)
-            }) {
-                Ok(()) => Err(err),
-                Err(Error::BrokenTransactionManager) => Err(err),
-                Err(rollback) => Err(rollback.into()),
-            },
+            Err(err) => {
+                log::debug!("Transaction being rolled back");
+                match conn.raw_query(|conn| {
+                    PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(
+                        &mut *conn,
+                    )
+                }) {
+                    Ok(()) => Err(err),
+                    Err(Error::BrokenTransactionManager) => Err(err),
+                    Err(rollback) => Err(rollback.into()),
+                }
+            }
         }
     }
 
@@ -216,6 +225,7 @@ impl EncryptedMessageStore {
         Fut: futures::Future<Output = Result<T, E>>,
         E: From<diesel::result::Error> + From<StorageError>,
     {
+        log::debug!("Transaction async beginning");
         let mut connection = self.raw_conn()?;
         AnsiTransactionManager::begin_transaction(&mut *connection)?;
 
@@ -233,15 +243,21 @@ impl EncryptedMessageStore {
                 conn_ref.raw_query(|conn| {
                     PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
                 })?;
+                log::debug!("Transaction async being committed");
                 Ok(value)
             }
-            Err(err) => match conn_ref.raw_query(|conn| {
-                PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(&mut *conn)
-            }) {
-                Ok(()) => Err(err),
-                Err(Error::BrokenTransactionManager) => Err(err),
-                Err(rollback) => Err(rollback.into()),
-            },
+            Err(err) => {
+                log::debug!("Transaction async being rolled back");
+                match conn_ref.raw_query(|conn| {
+                    PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(
+                        &mut *conn,
+                    )
+                }) {
+                    Ok(()) => Err(err),
+                    Err(Error::BrokenTransactionManager) => Err(err),
+                    Err(rollback) => Err(rollback.into()),
+                }
+            }
         }
     }
 

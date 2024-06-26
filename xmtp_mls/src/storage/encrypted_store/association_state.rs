@@ -71,20 +71,23 @@ impl StoredAssociationState {
 
     pub fn batch_read_from_cache(
         conn: &DbConnection,
-        identifiers: &Vec<(InboxId, i64)>,
+        identifiers: Vec<(InboxId, i64)>,
     ) -> Result<Vec<AssociationState>, StorageError> {
         // If no identifier provided, return empty hash map
         if identifiers.is_empty() {
             return Ok(vec![]);
         }
-        let mut query = dsl::association_state.into_boxed();
-        for (inbox_id, sequence_id) in identifiers {
-            query = query.or_filter(
+
+        let (inbox_ids, sequence_ids): (Vec<InboxId>, Vec<i64>) = identifiers.into_iter().unzip();
+
+        let query = dsl::association_state
+            .select((dsl::inbox_id, dsl::sequence_id, dsl::state))
+            .filter(
                 dsl::inbox_id
-                    .eq(inbox_id)
-                    .and(dsl::sequence_id.eq(sequence_id)),
+                    .eq_any(inbox_ids)
+                    .and(dsl::sequence_id.eq_any(sequence_ids)),
             );
-        }
+
         let association_states =
             conn.raw_query(|query_conn| query.load::<StoredAssociationState>(query_conn))?;
 
@@ -127,7 +130,7 @@ mod tests {
 
             let first_association_state = StoredAssociationState::batch_read_from_cache(
                 conn,
-                &vec![(inbox_id.to_string(), 1)],
+                vec![(inbox_id.to_string(), 1)],
             )
             .unwrap();
             assert_eq!(first_association_state.len(), 1);
@@ -135,7 +138,7 @@ mod tests {
 
             let both_association_states = StoredAssociationState::batch_read_from_cache(
                 conn,
-                &vec![(inbox_id.to_string(), 1), (inbox_id_2.to_string(), 2)],
+                vec![(inbox_id.to_string(), 1), (inbox_id_2.to_string(), 2)],
             )
             .unwrap();
 
@@ -144,7 +147,7 @@ mod tests {
             let no_results = StoredAssociationState::batch_read_from_cache(
                 conn,
                 // Mismatched inbox_id and sequence_id
-                &vec![(inbox_id.to_string(), 2)],
+                vec![(inbox_id.to_string(), 2)],
             )
             .unwrap();
             assert_eq!(no_results.len(), 0);

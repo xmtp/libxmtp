@@ -16,7 +16,10 @@ use super::{
 use crate::{
     client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
-    configuration::{DELIMITER, MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
+    configuration::{
+        DELIMITER, GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS,
+        UPDATE_INSTALLATIONS_INTERVAL_NS,
+    },
     groups::{
         intents::UpdateMetadataIntentData,
         message_history::{decrypt_history_file, download_history_bundle},
@@ -38,6 +41,7 @@ use crate::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, Delete, Fetch, Store, XmtpApi,
 };
+use futures::future::try_join_all;
 use log::debug;
 use openmls::{
     credentials::BasicCredential,
@@ -78,13 +82,21 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
+        let mls_provider = client.mls_provider(conn.clone());
 
+        log::info!("[{}] syncing group", client.inbox_id());
+        log::info!(
+            "current epoch for [{}] in sync() is Epoch: [{}]",
+            client.inbox_id(),
+            self.load_mls_group(mls_provider).unwrap().epoch()
+        );
         self.maybe_update_installations(conn.clone(), None, client)
             .await?;
 
         self.sync_with_conn(conn, client).await
     }
 
+    #[tracing::instrument(level = "trace", skip(client, self, conn))]
     pub(super) async fn sync_with_conn<ApiClient>(
         &self,
         conn: DbConnection,
@@ -97,7 +109,7 @@ impl MlsGroup {
 
         // Even if publish fails, continue to receiving
         if let Err(publish_error) = self.publish_intents(conn.clone(), client).await {
-            log::error!("error publishing intents {:?}", publish_error);
+            log::error!("Sync: error publishing intents {:?}", publish_error);
             errors.push(publish_error);
         }
 
@@ -129,6 +141,7 @@ impl MlsGroup {
      *
      * This method will retry up to `crate::configuration::MAX_GROUP_SYNC_RETRIES` times.
      */
+    #[tracing::instrument(level = "trace", skip(client, self, conn))]
     pub(super) async fn sync_until_intent_resolved<ApiClient>(
         &self,
         conn: DbConnection,
@@ -182,6 +195,7 @@ impl MlsGroup {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn process_own_message<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
@@ -225,7 +239,12 @@ impl MlsGroup {
                     // Return OK here, because an error will roll back the transaction
                     return Ok(());
                 }
-                debug!("Has a validated commit");
+                log::info!(
+                    "[{}] Validating commit for intent {}. Message timestamp: {}",
+                    self.context.inbox_id(),
+                    intent.id,
+                    envelope_timestamp_ns
+                );
                 let maybe_validated_commit = ValidatedCommit::from_staged_commit(
                     client,
                     &conn,
@@ -235,14 +254,10 @@ impl MlsGroup {
                 .await;
 
                 if maybe_validated_commit.is_err() {
-                    debug!("error validating commit: {:?}", maybe_validated_commit);
+                    log::warn!("error validating commit: {:?}", maybe_validated_commit);
                     match openmls_group.clear_pending_commit(provider.storage()) {
                         Ok(_) => (),
-                        Err(_) => {
-                            return Err(MessageProcessingError::Generic(
-                                "Error clearing pending commit after failed validation".to_string(),
-                            ))
-                        }
+                        Err(err) => return Err(MessageProcessingError::ClearPendingCommit(err)),
                     }
                     conn.set_group_intent_error(intent.id)?;
                     // Return before merging commit since it does not pass validation
@@ -252,16 +267,16 @@ impl MlsGroup {
 
                 let validated_commit = maybe_validated_commit.unwrap();
 
-                debug!("[{}] merging pending commit", self.context.inbox_id());
+                log::info!(
+                    "[{}] merging pending commit for intent {}",
+                    self.context.inbox_id(),
+                    intent.id
+                );
                 if let Err(err) = openmls_group.merge_pending_commit(&provider) {
                     log::error!("error merging commit: {}", err);
                     match openmls_group.clear_pending_commit(provider.storage()) {
                         Ok(_) => (),
-                        Err(_) => {
-                            return Err(MessageProcessingError::Generic(
-                                "Error clearing pending commit".to_string(),
-                            ))
-                        }
+                        Err(err) => return Err(MessageProcessingError::ClearPendingCommit(err)),
                     }
 
                     conn.set_group_intent_to_publish(intent.id)?;
@@ -309,6 +324,7 @@ impl MlsGroup {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn process_external_message<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
@@ -318,23 +334,23 @@ impl MlsGroup {
         envelope_timestamp_ns: u64,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
-        debug!("[{}] processing external message", self.context.inbox_id());
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
-        debug!(
-            "[{}] extracted sender sender inbox id: {}",
+        log::info!(
+            "[{}] extracted sender inbox id: {}",
             self.context.inbox_id(),
             sender_inbox_id
         );
         match decrypted_message.into_content() {
             ProcessedMessageContent::ApplicationMessage(application_message) => {
+                log::info!("[{}] decoding application message", self.context.inbox_id());
                 let message_bytes = application_message.into_bytes();
 
                 let mut bytes = Bytes::from(message_bytes.clone());
                 let envelope = PlaintextEnvelope::decode(&mut bytes)
                     .map_err(MessageProcessingError::DecodeError)?;
-                log::debug!("Decoded plaintext envelope {:?}", envelope);
+
                 match envelope.content {
                     Some(Content::V1(V1 {
                         idempotency_key,
@@ -386,10 +402,12 @@ impl MlsGroup {
                                 .map_err(|e| MessageProcessingError::Group(Box::new(e)));
 
                             // prepare and send the reply
-                            match client
-                                .prepare_history_reply(&request_id, "https://example.com")
-                                .await
-                            {
+                            let Some(ref url) = client.history_sync_url else {
+                                return Err(MessageProcessingError::Generic(
+                                    "history sync url not set".to_string(),
+                                ));
+                            };
+                            match client.prepare_history_reply(&request_id, url).await {
                                 Ok(history_reply) => client
                                     .send_history_reply(history_reply.into())
                                     .await
@@ -412,22 +430,18 @@ impl MlsGroup {
                             signing_key,
                             bundle_hash,
                         })) => {
-                            if signing_key.is_none() {
+                            let Some(sign_key) = signing_key else {
                                 return Err(MessageProcessingError::InvalidPayload);
-                            }
+                            };
 
-                            if encryption_key.is_none() {
+                            let Some(enc_key) = encryption_key else {
                                 return Err(MessageProcessingError::InvalidPayload);
-                            }
-
-                            let signing_key = signing_key.unwrap();
-
-                            let encryption_key = encryption_key.unwrap();
+                            };
 
                             // store the reply message
                             let contents = format!(
                                 "{url}{DELIMITER}{:?}{DELIMITER}{:?}{DELIMITER}{:?}",
-                                encryption_key, signing_key, bundle_hash
+                                enc_key, sign_key, bundle_hash
                             )
                             .into_bytes();
                             let message_id =
@@ -446,13 +460,13 @@ impl MlsGroup {
 
                             // handle the reply and fetch the history
                             let enc_file_path =
-                                download_history_bundle(&url, bundle_hash, signing_key)
+                                download_history_bundle(&url, bundle_hash, sign_key)
                                     .await
                                     .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
 
                             let messages_path = std::env::temp_dir().join("messages.jsonl");
 
-                            decrypt_history_file(&enc_file_path, &messages_path, encryption_key)
+                            decrypt_history_file(&enc_file_path, &messages_path, enc_key)
                                 .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
 
                             client
@@ -493,12 +507,13 @@ impl MlsGroup {
                 if !allow_epoch_increment {
                     return Err(MessageProcessingError::EpochIncrementNotAllowed);
                 }
-                debug!(
+                log::info!(
                     "[{}] received staged commit. Merging and clearing any pending commits",
                     self.context.inbox_id()
                 );
 
                 let sc = *staged_commit;
+
                 // Validate the commit
                 let validated_commit = ValidatedCommit::from_staged_commit(
                     client,
@@ -507,6 +522,10 @@ impl MlsGroup {
                     openmls_group,
                 )
                 .await?;
+                log::info!(
+                    "[{}] staged commit is valid, will attempt to merge",
+                    self.context.inbox_id()
+                );
                 openmls_group.merge_staged_commit(provider, sc)?;
                 self.save_transcript_message(
                     provider.conn_ref(),
@@ -519,6 +538,7 @@ impl MlsGroup {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(super) async fn process_message<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
@@ -543,6 +563,16 @@ impl MlsGroup {
         match intent {
             // Intent with the payload hash matches
             Ok(Some(intent)) => {
+                log::info!(
+                    "client [{}] is  about to process own envelope [{}]",
+                    client.inbox_id(),
+                    envelope.id
+                );
+                log::info!(
+                    "envelope [{}] is equal to intent [{}]",
+                    envelope.id,
+                    intent.id
+                );
                 self.process_own_message(
                     client,
                     intent,
@@ -556,6 +586,11 @@ impl MlsGroup {
             }
             // No matching intent found
             Ok(None) => {
+                log::info!(
+                    "client [{}] is about to process external envelope [{}]",
+                    client.inbox_id(),
+                    envelope.id
+                );
                 self.process_external_message(
                     client,
                     openmls_group,
@@ -570,6 +605,7 @@ impl MlsGroup {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn consume_message<ApiClient>(
         &self,
         envelope: &GroupMessage,
@@ -599,6 +635,7 @@ impl MlsGroup {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn process_messages<ApiClient>(
         &self,
         messages: Vec<GroupMessage>,
@@ -610,7 +647,6 @@ impl MlsGroup {
     {
         let provider = self.context.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
-        log::debug!("  loaded openmls group");
 
         let mut receive_errors = vec![];
         for message in messages.into_iter() {
@@ -629,11 +665,12 @@ impl MlsGroup {
         if receive_errors.is_empty() {
             Ok(())
         } else {
-            debug!("Message processing errors: {:?}", receive_errors);
+            log::error!("Message processing errors: {:?}", receive_errors);
             Err(GroupError::ReceiveErrors(receive_errors))
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(conn, client, self))]
     pub(super) async fn receive<ApiClient>(
         &self,
         conn: &DbConnection,
@@ -695,6 +732,7 @@ impl MlsGroup {
         Ok(Some(msg))
     }
 
+    #[tracing::instrument(level = "trace", skip(conn, self, client))]
     pub(super) async fn publish_intents<ClientApi>(
         &self,
         conn: DbConnection,
@@ -743,7 +781,12 @@ impl MlsGroup {
                 .api_client
                 .send_group_messages(vec![payload_slice])
                 .await?;
-
+            log::info!(
+                "[{}] published intent [{}] of type [{}]",
+                client.inbox_id(),
+                intent.id,
+                intent.kind
+            );
             provider.conn().set_group_intent_published(
                 intent.id,
                 sha256(payload_slice),
@@ -755,6 +798,7 @@ impl MlsGroup {
     }
 
     // Takes a StoredGroupIntent and returns the payload and post commit data as a tuple
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn get_publish_intent_data<ApiClient>(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -841,6 +885,7 @@ impl MlsGroup {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(conn, client))]
     pub(crate) async fn post_commit<ApiClient>(
         &self,
         conn: &DbConnection,
@@ -943,6 +988,7 @@ impl MlsGroup {
      *
      * Callers may also include a list of added or removed inboxes
      */
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(super) async fn get_membership_update_intent<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
@@ -1001,6 +1047,7 @@ impl MlsGroup {
         ))
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(super) async fn send_welcomes<ApiClient>(
         &self,
         action: SendWelcomesAction,
@@ -1018,7 +1065,6 @@ impl MlsGroup {
                     action.welcome_message.as_slice(),
                     installation.hpke_public_key.as_slice(),
                 )?;
-
                 Ok(WelcomeMessageInput {
                     version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
                         installation_key,
@@ -1029,8 +1075,29 @@ impl MlsGroup {
             })
             .collect::<Result<Vec<WelcomeMessageInput>, HpkeError>>()?;
 
-        client.api_client.send_welcome_messages(welcomes).await?;
+        let welcome = welcomes
+            .first()
+            .ok_or(GroupError::Generic("No welcomes to send".to_string()))?;
 
+        let chunk_size = GRPC_DATA_LIMIT
+            / welcome
+                .version
+                .as_ref()
+                .map(|w| match w {
+                    WelcomeMessageInputVersion::V1(w) => {
+                        let w = w.installation_key.len() + w.data.len() + w.hpke_public_key.len();
+                        log::debug!("total welcome message proto bytes={w}");
+                        w
+                    }
+                })
+                .unwrap_or(GRPC_DATA_LIMIT / usize::from(MAX_GROUP_SIZE));
+
+        log::debug!("welcome chunk_size={chunk_size}");
+        let mut futures = vec![];
+        for welcomes in welcomes.chunks(chunk_size) {
+            futures.push(client.api_client.send_welcome_messages(welcomes));
+        }
+        try_join_all(futures).await?;
         Ok(())
     }
 }
@@ -1061,6 +1128,7 @@ fn extract_message_sender(
 
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
 // returning the commit and post_commit_action
+#[tracing::instrument(level = "trace", skip_all)]
 async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
     client: &Client<ApiClient>,
     provider: &XmtpOpenMlsProvider,

@@ -1,19 +1,13 @@
 use std::{
     collections::HashMap,
     pin::Pin,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::Arc,
 };
 
 use futures::{Stream, StreamExt};
 use prost::Message;
 use tokio::{
-    sync::{
-        mpsc::{self, UnboundedSender},
-        oneshot::Sender,
-    },
+    sync::mpsc::{self, UnboundedSender},
     task::JoinHandle,
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -23,32 +17,11 @@ use crate::{
     api::GroupFilter,
     client::{extract_welcome_message, ClientError},
     groups::{extract_group_id, GroupError, MlsGroup},
+    retry::Retry,
+    retry_async,
     storage::group_message::StoredGroupMessage,
     Client, XmtpApi,
 };
-
-// TODO simplify FfiStreamCloser + StreamCloser duplication
-pub struct StreamCloser {
-    pub close_fn: Arc<Mutex<Option<Sender<()>>>>,
-    pub is_closed_atomic: Arc<AtomicBool>,
-}
-
-impl StreamCloser {
-    pub fn end(&self) {
-        match self.close_fn.lock() {
-            Ok(mut close_fn_option) => {
-                let _ = close_fn_option.take().map(|close_fn| close_fn.send(()));
-            }
-            _ => {
-                log::warn!("close_fn already closed");
-            }
-        }
-    }
-
-    pub fn is_closed(&self) -> bool {
-        self.is_closed_atomic.load(Ordering::Relaxed)
-    }
-}
 
 #[derive(Clone)]
 pub(crate) struct MessagesStreamInfo {
@@ -65,17 +38,47 @@ where
         welcome: WelcomeMessage,
     ) -> Result<MlsGroup, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
-        let conn = self.store().conn()?;
-        let provider = self.mls_provider(conn);
+        let creation_result = retry_async!(
+            Retry::default(),
+            (async {
+                let welcome_v1 = welcome_v1.clone();
+                self.context
+                    .store
+                    .transaction_async(|provider| async move {
+                        MlsGroup::create_from_encrypted_welcome(
+                            self,
+                            &provider,
+                            welcome_v1.hpke_public_key.as_slice(),
+                            welcome_v1.data,
+                            welcome_v1.id as i64,
+                        )
+                        .await
+                    })
+                    .await
+            })
+        );
 
-        MlsGroup::create_from_encrypted_welcome(
-            self,
-            &provider,
-            welcome_v1.hpke_public_key.as_slice(),
-            welcome_v1.data,
-        )
-        .await
-        .map_err(|e| ClientError::Generic(e.to_string()))
+        if let Some(err) = creation_result.as_ref().err() {
+            let conn = self.context.store.conn()?;
+            let result = conn.find_group_by_welcome_id(welcome_v1.id as i64);
+            match result {
+                Ok(Some(group)) => {
+                    log::info!(
+                        "Loading existing group for welcome_id: {:?}",
+                        group.welcome_id
+                    );
+                    return Ok(MlsGroup::new(
+                        self.context.clone(),
+                        group.id,
+                        group.created_at_ns,
+                    ));
+                }
+                Ok(None) => return Err(ClientError::Generic(err.to_string())),
+                Err(e) => return Err(ClientError::Generic(e.to_string())),
+            }
+        }
+
+        Ok(creation_result.unwrap())
     }
 
     pub async fn process_streamed_welcome_message(
@@ -144,9 +147,11 @@ where
                                     "Received message for a non-subscribed group".to_string(),
                                 ),
                             )?;
-                            // TODO update cursor
-                            MlsGroup::new(context, group_id, stream_info.convo_created_at_ns)
-                                .process_stream_entry(envelope, client)
+                            let mls_group =
+                                MlsGroup::new(context, group_id, stream_info.convo_created_at_ns);
+
+                            mls_group
+                                .process_stream_entry(envelope.clone(), client.clone())
                                 .await
                         }
                         Err(err) => Err(GroupError::Api(err)),
@@ -205,8 +210,6 @@ where
     pub async fn stream_all_messages(
         client: Arc<Client<ApiClient>>,
     ) -> Result<impl Stream<Item = StoredGroupMessage>, ClientError> {
-        let mut handle;
-
         //TODO:insipx backpressure
         let (tx, rx) = mpsc::unbounded_channel();
 
@@ -216,6 +219,7 @@ where
         let current_groups = client.store().conn()?.find_groups(None, None, None, None)?;
 
         let mut group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo> = current_groups
+
             .into_iter()
             .map(|group| {
                 (
@@ -229,9 +233,9 @@ where
             .collect();
         log::info!("Groups len: {:?}", group_id_to_info.len());
 
-        handle = Self::relay_messages(client.clone(), tx.clone(), group_id_to_info.clone());
-
         tokio::spawn(async move {
+            let mut handle = Self::relay_messages(client.clone(), tx.clone(), group_id_to_info.clone());
+            
             let client_pointer = client.clone();
             let mut convo_stream = Self::stream_conversations(&client_pointer).await?;
 
@@ -329,7 +333,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{builder::ClientBuilder, storage::group_message::StoredGroupMessage, Client};
+    use crate::{
+        builder::ClientBuilder, groups::GroupMetadataOptions,
+        storage::group_message::StoredGroupMessage, Client,
+    };
     use futures::StreamExt;
     use std::sync::{Arc, Mutex};
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
@@ -340,7 +347,9 @@ mod tests {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alice_bob_group = alice.create_group(None).unwrap();
+        let alice_bob_group = alice
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
 
         let mut bob_stream = bob.stream_conversations().await.unwrap();
         alice_bob_group
@@ -358,13 +367,17 @@ mod tests {
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alix_group = alix.create_group(None).unwrap();
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         alix_group
             .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
             .unwrap();
 
-        let bo_group = bo.create_group(None).unwrap();
+        let bo_group = bo
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         bo_group
             .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
             .await
@@ -373,10 +386,13 @@ mod tests {
 
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let messages_clone = messages.clone();
+        
         Client::<GrpcClient>::stream_all_messages_with_callback(Arc::new(caro), move |message| {
             log::debug!("YOOO MESSAGES");
             (*messages_clone.lock().unwrap()).push(message);
         });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         alix_group
             .send_message("first".as_bytes(), &alix)
@@ -415,7 +431,9 @@ mod tests {
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let caro = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
 
-        let alix_group = alix.create_group(None).unwrap();
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         alix_group
             .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
@@ -438,7 +456,9 @@ mod tests {
             .await
             .unwrap();
 
-        let bo_group = bo.create_group(None).unwrap();
+        let bo_group = bo
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         bo_group
             .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
             .await
@@ -454,7 +474,9 @@ mod tests {
             .await
             .unwrap();
 
-        let alix_group_2 = alix.create_group(None).unwrap();
+        let alix_group_2 = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
         alix_group_2
             .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await

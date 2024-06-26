@@ -69,6 +69,7 @@ impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpApi,
 {
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn query_group_messages(
         &self,
         group_id: Vec<u8>,
@@ -112,6 +113,7 @@ where
         Ok(out)
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn query_welcome_messages(
         &self,
         installation_id: Vec<u8>,
@@ -159,6 +161,7 @@ where
     /// New InboxID clients should set `is_inbox_id_credential` to true.
     /// V3 clients should have `is_inbox_id_credential` to `false`.
     /// Not indicating your client version will result in validation failure.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn register_installation(
         &self,
         key_package: Vec<u8>,
@@ -185,6 +188,7 @@ where
     /// New InboxID clients should set `is_inbox_id_credential` to true.
     /// V3 clients should have `is_inbox_id_credential` to `false`.
     /// Not indicating your client version will result in validation failure.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn upload_key_package(
         &self,
         key_package: Vec<u8>,
@@ -207,6 +211,7 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn fetch_key_packages(
         &self,
         installation_keys: Vec<Vec<u8>>,
@@ -242,16 +247,17 @@ where
         Ok(mapping)
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn send_welcome_messages(
         &self,
-        messages: Vec<WelcomeMessageInput>,
+        messages: &[WelcomeMessageInput],
     ) -> Result<(), ApiError> {
         retry_async!(
             self.retry_strategy,
             (async {
                 self.api_client
                     .send_welcome_messages(SendWelcomeMessagesRequest {
-                        messages: messages.clone(),
+                        messages: messages.to_vec(),
                     })
                     .await
             })
@@ -260,6 +266,7 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_identity_updates(
         &self,
         start_time_ns: u64,
@@ -319,6 +326,7 @@ where
         Ok(mapping)
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn send_group_messages(&self, group_messages: Vec<&[u8]>) -> Result<(), ApiError> {
         let to_send: Vec<GroupMessageInput> = group_messages
             .iter()

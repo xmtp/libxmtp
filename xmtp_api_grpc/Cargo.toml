@@ -25,6 +25,7 @@ tower = "0.4.13"
 webpki-roots = "0.23.0"
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
 xmtp_v2 = { path = "../xmtp_v2" }
+tracing.workspace = true
 
 [dev-dependencies]
 uuid = { version = "1.3.1", features = ["v4"] }

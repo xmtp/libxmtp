@@ -50,3 +50,18 @@ export const createRegisteredClient = async (user: User) => {
   }
   return client
 }
+
+export const encodeTextMessage = (text: string) => {
+  return {
+    type: {
+      authorityId: 'xmtp.org',
+      typeId: 'text',
+      versionMajor: 1,
+      versionMinor: 0,
+    },
+    parameters: {
+      encoding: 'UTF-8',
+    },
+    content: new TextEncoder().encode(text),
+  }
+}

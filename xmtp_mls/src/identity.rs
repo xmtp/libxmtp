@@ -3,7 +3,7 @@ use std::array::TryFromSliceError;
 use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
-use crate::storage::sql_key_store::{MemoryStorageError, KEY_PACKAGE_REFERENCES};
+use crate::storage::sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
 use crate::storage::EncryptedMessageStore;
 use crate::{
     api::{ApiClientWrapper, WrappedApiError},
@@ -148,7 +148,7 @@ pub enum IdentityError {
     #[error(transparent)]
     StorageError(#[from] crate::storage::StorageError),
     #[error(transparent)]
-    OpenMlsStorageError(#[from] MemoryStorageError),
+    OpenMlsStorageError(#[from] SqlKeyStoreError),
     #[error(transparent)]
     KeyPackageGenerationError(#[from] openmls::key_packages::errors::KeyPackageNewError),
     #[error(transparent)]
@@ -386,12 +386,11 @@ impl Identity {
             Err(_) => return Err(IdentityError::UninitializedIdentity),
         };
 
-        // Serialize the hash reference
-        let hash_ref = match serde_json::to_vec(&key_package_hash_ref) {
+        // Serialize the hash reference (with bincode)
+        let hash_ref = match bincode::serialize(&key_package_hash_ref) {
             Ok(hash_ref) => hash_ref,
             Err(_) => return Err(IdentityError::UninitializedIdentity),
         };
-
         // Store the hash reference, keyed with the public init key
         provider
             .storage()
