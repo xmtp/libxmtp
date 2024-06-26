@@ -23,21 +23,15 @@ use smart_default::SmartDefault;
 /// Specifies which errors are retryable.
 /// All Errors are not retryable by-default.
 pub trait RetryableError: std::error::Error {
-    fn is_retryable(&self) -> bool {
-        log::info!("Default retriable error");
-        false
-    }
+    fn is_retryable(&self) -> bool;
 }
-
-// we use &T and make use of autoref specialization
-impl<T> RetryableError for &T where T: std::error::Error {}
 
 /// Options to specify how to retry a function
 #[derive(SmartDefault, Debug, PartialEq, Eq, Copy, Clone)]
 pub struct Retry {
-    #[default = 3]
+    #[default = 5]
     retries: usize,
-    #[default(_code = "std::time::Duration::from_millis(100)")]
+    #[default(_code = "std::time::Duration::from_millis(200)")]
     duration: std::time::Duration,
 }
 

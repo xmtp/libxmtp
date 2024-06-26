@@ -175,7 +175,7 @@ impl crate::retry::RetryableError for MessageProcessingError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Group(group_error) => retryable!(group_error),
-            Self::Identity(identity_error) => retryable!(identity_error),
+            // Self::Identity(identity_error) => false,
             Self::Diesel(diesel_error) => retryable!(diesel_error),
             Self::Storage(s) => retryable!(s),
             Self::Generic(err) => err.contains("database is locked"),
