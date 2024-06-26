@@ -2,6 +2,9 @@ name: Release Kotlin Bindings
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - np/update-android-bindings
 
 jobs:
   build-linux:
@@ -61,7 +64,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.output_target }}
-          path: bindings_ffi/target/${{ matrix.target }}/release/libxmtpv3.so
+          path: bindings_ffi/target/${{ matrix.output_target }}/release/libxmtpv3.so
           retention-days: 1
 
   package-kotlin:
