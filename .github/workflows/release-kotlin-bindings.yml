@@ -72,7 +72,7 @@ jobs:
         working-directory: bindings_ffi
         run: |
           mkdir -p jniLibs/${{ matrix.output_target }}/ && \
-          cp target/${{ matrix.target }}/release/libxmtpv3.so jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so && \
+          cp target/${{ matrix.target }}/release/libxmtpv3.so jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
 
   package-kotlin:
       needs: [build-linux]
