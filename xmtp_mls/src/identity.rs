@@ -3,7 +3,7 @@ use std::array::TryFromSliceError;
 use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
-use crate::storage::sql_key_store::{MemoryStorageError, KEY_PACKAGE_REFERENCES};
+use crate::storage::sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
 use crate::storage::EncryptedMessageStore;
 use crate::{
     api::{ApiClientWrapper, WrappedApiError},
@@ -148,7 +148,7 @@ pub enum IdentityError {
     #[error(transparent)]
     StorageError(#[from] crate::storage::StorageError),
     #[error(transparent)]
-    OpenMlsStorageError(#[from] MemoryStorageError),
+    OpenMlsStorageError(#[from] SqlKeyStoreError),
     #[error(transparent)]
     KeyPackageGenerationError(#[from] openmls::key_packages::errors::KeyPackageNewError),
     #[error(transparent)]

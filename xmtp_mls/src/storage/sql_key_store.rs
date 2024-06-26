@@ -92,7 +92,7 @@ impl SqlKeyStore {
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
 
-        let _ = self.replace_query::<VERSION>(&storage_key, value);
+        let _ = self.replace_query::<VERSION>(&storage_key, value)?;
 
         Ok(())
     }
@@ -106,32 +106,26 @@ impl SqlKeyStore {
         log::debug!("append {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        let current_data: Result<Vec<StorageData>, diesel::result::Error> =
-            self.select_query::<VERSION>(&storage_key);
+        let data = self.select_query::<VERSION>(&storage_key)?;
 
-        match current_data {
-            Ok(data) => {
-                if let Some(entry) = data.into_iter().next() {
-                    // The value in the storage is an array of array of bytes
-                    match bincode::deserialize::<Vec<Vec<u8>>>(&entry.value_bytes) {
-                        Ok(mut deserialized) => {
-                            deserialized.push(value.to_vec());
-                            let modified_data = bincode::serialize(&deserialized)?;
+        if let Some(entry) = data.into_iter().next() {
+            // The value in the storage is an array of array of bytes
+            match bincode::deserialize::<Vec<Vec<u8>>>(&entry.value_bytes) {
+                Ok(mut deserialized) => {
+                    deserialized.push(value.to_vec());
+                    let modified_data = bincode::serialize(&deserialized)?;
 
-                            let _ = self.update_query::<VERSION>(&storage_key, &modified_data);
-                            Ok(())
-                        }
-                        Err(_e) => Err(MemoryStorageError::SerializationError),
-                    }
-                } else {
-                    // Add a first entry
-                    let value_bytes = &bincode::serialize(&vec![value])?;
-                    let _ = self.replace_query::<VERSION>(&storage_key, value_bytes);
-
+                    let _ = self.update_query::<VERSION>(&storage_key, &modified_data)?;
                     Ok(())
                 }
+                Err(_e) => Err(SqlKeyStoreError::SerializationError),
             }
-            Err(_) => Err(MemoryStorageError::None),
+        } else {
+            // Add a first entry
+            let value_bytes = &bincode::serialize(&vec![value])?;
+            let _ = self.replace_query::<VERSION>(&storage_key, value_bytes)?;
+
+            Ok(())
         }
     }
 
@@ -144,36 +138,28 @@ impl SqlKeyStore {
         log::debug!("remove_item {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        let current_data: Result<Vec<StorageData>, diesel::result::Error> =
-            self.select_query::<VERSION>(&storage_key);
+        let data: Vec<StorageData> = self.select_query::<VERSION>(&storage_key)?;
 
-        match current_data {
-            Ok(data) => {
-                if let Some(entry) = data.into_iter().next() {
-                    // The value in the storage is an array of array of bytes.
-                    match bincode::deserialize::<Vec<Vec<u8>>>(&entry.value_bytes) {
-                        Ok(mut deserialized) => {
-                            // Find and remove the value.
-                            let vpos = deserialized.iter().position(|v| v == value);
+        if let Some(entry) = data.into_iter().next() {
+            // The value in the storage is an array of array of bytes.
+            let mut deserialized = bincode::deserialize::<Vec<Vec<u8>>>(&entry.value_bytes)
+                .map_err(|_| SqlKeyStoreError::SerializationError)?;
+            let vpos = deserialized.iter().position(|v| v == value);
 
-                            if let Some(pos) = vpos {
-                                deserialized.remove(pos);
-                            }
-                            let modified_data = bincode::serialize(&deserialized)?;
-
-                            let _ = self.update_query::<VERSION>(&storage_key, &modified_data);
-                            Ok(())
-                        }
-                        Err(_) => Err(MemoryStorageError::SerializationError),
-                    }
-                } else {
-                    // Add a first entry
-                    let value_bytes = bincode::serialize(&[value])?;
-                    let _ = self.replace_query::<VERSION>(&storage_key, &value_bytes);
-                    Ok(())
-                }
+            if let Some(pos) = vpos {
+                deserialized.remove(pos);
             }
-            Err(_) => Err(MemoryStorageError::None),
+            let modified_data = bincode::serialize(&deserialized)
+                .map_err(|_| SqlKeyStoreError::SerializationError)?;
+
+            let _ = self.update_query::<VERSION>(&storage_key, &modified_data)?;
+            Ok(())
+        } else {
+            // Add a first entry
+            let value_bytes =
+                bincode::serialize(&[value]).map_err(|_| SqlKeyStoreError::SerializationError)?;
+            let _ = self.replace_query::<VERSION>(&storage_key, &value_bytes)?;
+            Ok(())
         }
     }
 
@@ -186,24 +172,18 @@ impl SqlKeyStore {
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
 
-        let results: Result<Vec<StorageData>, diesel::result::Error> =
-            self.select_query::<VERSION>(&storage_key);
+        let data = self.select_query::<VERSION>(&storage_key)?;
 
-        match results {
-            Ok(data) => {
-                if let Some(entry) = data.into_iter().next() {
-                    match bincode::deserialize::<V>(&entry.value_bytes) {
-                        Ok(deserialized) => Ok(Some(deserialized)),
-                        Err(e) => {
-                            log::error!("Error occurred: {e}");
-                            Err(MemoryStorageError::SerializationError)
-                        }
-                    }
-                } else {
-                    Ok(None)
+        if let Some(entry) = data.into_iter().next() {
+            match bincode::deserialize::<V>(&entry.value_bytes) {
+                Ok(deserialized) => Ok(Some(deserialized)),
+                Err(e) => {
+                    log::error!("Error occurred: {e}");
+                    Err(SqlKeyStoreError::SerializationError)
                 }
             }
-            Err(_e) => Err(MemoryStorageError::None),
+        } else {
+            Ok(None)
         }
     }
 
@@ -215,29 +195,25 @@ impl SqlKeyStore {
         log::debug!("read_list {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
+        let results = self.select_query::<VERSION>(&storage_key)?;
 
-        match self.select_query::<VERSION>(&storage_key) {
-            Ok(results) => {
-                if let Some(entry) = results.into_iter().next() {
-                    let list = bincode::deserialize::<Vec<Vec<u8>>>(&entry.value_bytes)?;
+        if let Some(entry) = results.into_iter().next() {
+            let list = bincode::deserialize::<Vec<Vec<u8>>>(&entry.value_bytes)?;
 
-                    // Read the values from the bytes in the list
-                    let mut deserialized_list = Vec::new();
-                    for v in list {
-                        match bincode::deserialize::<V>(&v) {
-                            Ok(deserialized_value) => deserialized_list.push(deserialized_value),
-                            Err(e) => {
-                                log::error!("Error occurred: {}", e);
-                                return Err(MemoryStorageError::SerializationError);
-                            }
-                        }
+            // Read the values from the bytes in the list
+            let mut deserialized_list = Vec::new();
+            for v in list {
+                match bincode::deserialize::<V>(&v) {
+                    Ok(deserialized_value) => deserialized_list.push(deserialized_value),
+                    Err(e) => {
+                        log::error!("Error occurred: {}", e);
+                        return Err(SqlKeyStoreError::SerializationError);
                     }
-                    Ok(deserialized_list)
-                } else {
-                    Ok(vec![])
                 }
             }
-            Err(_e) => Err(MemoryStorageError::None),
+            Ok(deserialized_list)
+        } else {
+            Ok(vec![])
         }
     }
 
@@ -253,14 +229,14 @@ impl SqlKeyStore {
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                 .execute(conn)
-        });
+        })?;
         Ok(())
     }
 }
 
 /// Errors thrown by the key store.
-#[derive(thiserror::Error, Debug, Copy, Clone, PartialEq, Eq)]
-pub enum MemoryStorageError {
+#[derive(thiserror::Error, Debug, PartialEq)]
+pub enum SqlKeyStoreError {
     #[error("The key store does not allow storing serialized values.")]
     UnsupportedValueTypeBytes,
     #[error("Updating is not supported by this key store.")]
@@ -269,6 +245,8 @@ pub enum MemoryStorageError {
     SerializationError,
     #[error("Value does not exist.")]
     None,
+    #[error("database error: {0}")]
+    Database(#[from] diesel::result::Error),
 }
 
 const KEY_PACKAGE_LABEL: &[u8] = b"KeyPackage";
@@ -299,7 +277,7 @@ const PROPOSAL_QUEUE_REFS_LABEL: &[u8] = b"ProposalQueueRefs";
 const RESUMPTION_PSK_STORE_LABEL: &[u8] = b"ResumptionPskStore";
 
 impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
-    type Error = MemoryStorageError;
+    type Error = SqlKeyStoreError;
 
     fn queue_proposal<
         GroupId: traits::GroupId<CURRENT_VERSION>,
@@ -362,9 +340,8 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(GROUP_CONTEXT_LABEL, group_id)?;
         let value = bincode::serialize(&group_context)?;
-        let _ = self.write::<CURRENT_VERSION>(GROUP_CONTEXT_LABEL, &key, &value);
 
-        Ok(())
+        self.write::<CURRENT_VERSION>(GROUP_CONTEXT_LABEL, &key, &value)
     }
 
     fn write_confirmation_tag<
@@ -377,9 +354,8 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(CONFIRMATION_TAG_LABEL, group_id)?;
         let value = bincode::serialize(&confirmation_tag)?;
-        let _ = self.write::<CURRENT_VERSION>(CONFIRMATION_TAG_LABEL, &key, &value);
 
-        Ok(())
+        self.write::<CURRENT_VERSION>(CONFIRMATION_TAG_LABEL, &key, &value)
     }
 
     fn write_signature_key_pair<
@@ -395,9 +371,8 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
             public_key,
         )?;
         let value = bincode::serialize(&signature_key_pair)?;
-        let _ = self.write::<CURRENT_VERSION>(SIGNATURE_KEY_PAIR_LABEL, &key, &value);
 
-        Ok(())
+        self.write::<CURRENT_VERSION>(SIGNATURE_KEY_PAIR_LABEL, &key, &value)
     }
 
     fn queued_proposal_refs<
@@ -427,7 +402,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
                 let key = bincode::serialize(&(group_id, &proposal_ref))?;
                 match self.read(QUEUED_PROPOSAL_LABEL, &key)? {
                     Some(proposal) => Ok((proposal_ref, proposal)),
-                    None => Err(MemoryStorageError::SerializationError),
+                    None => Err(SqlKeyStoreError::None),
                 }
             })
             .collect::<Result<Vec<_>, _>>()
@@ -508,9 +483,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         let value = bincode::serialize(&key_package)?;
 
         // Store the key package
-        self.write::<CURRENT_VERSION>(KEY_PACKAGE_LABEL, &key, &value)?;
-
-        Ok(())
+        self.write::<CURRENT_VERSION>(KEY_PACKAGE_LABEL, &key, &value)
     }
 
     fn write_psk<
@@ -534,6 +507,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
     ) -> Result<(), Self::Error> {
         let key =
             build_key::<CURRENT_VERSION, &EncryptionKey>(ENCRYPTION_KEY_PAIR_LABEL, public_key)?;
+
         self.write::<CURRENT_VERSION>(
             ENCRYPTION_KEY_PAIR_LABEL,
             &key,
@@ -549,6 +523,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         hash_ref: &HashReference,
     ) -> Result<Option<KeyPackage>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &HashReference>(KEY_PACKAGE_LABEL, hash_ref)?;
+
         self.read(KEY_PACKAGE_LABEL, &key)
     }
 
@@ -568,6 +543,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
     ) -> Result<Option<HpkeKeyPair>, Self::Error> {
         let key =
             build_key::<CURRENT_VERSION, &EncryptionKey>(ENCRYPTION_KEY_PAIR_LABEL, public_key)?;
+
         self.read(ENCRYPTION_KEY_PAIR_LABEL, &key)
     }
 
@@ -581,6 +557,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
             SIGNATURE_KEY_PAIR_LABEL,
             public_key,
         )?;
+
         self.delete::<CURRENT_VERSION>(SIGNATURE_KEY_PAIR_LABEL, &key)
     }
 
@@ -590,6 +567,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
     ) -> Result<(), Self::Error> {
         let key =
             build_key::<CURRENT_VERSION, &EncryptionKey>(ENCRYPTION_KEY_PAIR_LABEL, public_key)?;
+
         self.delete::<CURRENT_VERSION>(ENCRYPTION_KEY_PAIR_LABEL, &key)
     }
 
@@ -605,7 +583,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         &self,
         _psk_id: &PskKey,
     ) -> Result<(), Self::Error> {
-        Err(MemoryStorageError::UnsupportedMethod)
+        Err(SqlKeyStoreError::UnsupportedMethod)
     }
 
     fn group_state<
@@ -616,6 +594,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<GroupState>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(GROUP_STATE_LABEL, group_id)?;
+
         self.read(GROUP_STATE_LABEL, &key)
     }
 
@@ -628,6 +607,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_state: &GroupState,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(GROUP_STATE_LABEL, group_id)?;
+
         self.write::<CURRENT_VERSION>(GROUP_STATE_LABEL, &key, &bincode::serialize(group_state)?)
     }
 
@@ -636,6 +616,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(GROUP_STATE_LABEL, group_id)?;
+
         self.delete::<CURRENT_VERSION>(GROUP_STATE_LABEL, &key)
     }
 
@@ -647,6 +628,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<MessageSecrets>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(MESSAGE_SECRETS_LABEL, group_id)?;
+
         self.read(MESSAGE_SECRETS_LABEL, &key)
     }
 
@@ -659,6 +641,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         message_secrets: &MessageSecrets,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(MESSAGE_SECRETS_LABEL, group_id)?;
+
         self.write::<CURRENT_VERSION>(
             MESSAGE_SECRETS_LABEL,
             &key,
@@ -671,6 +654,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(MESSAGE_SECRETS_LABEL, group_id)?;
+
         self.delete::<CURRENT_VERSION>(MESSAGE_SECRETS_LABEL, &key)
     }
 
@@ -839,29 +823,23 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
 
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
-        let results: Result<Vec<StorageData>, diesel::result::Error> =
-            self.conn().raw_query(|conn| {
-                sql_query(query)
-                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                    .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
-                    .load(conn)
-            });
+        let data: Vec<StorageData> = self.conn().raw_query(|conn| {
+            sql_query(query)
+                .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
+                .load(conn)
+        })?;
 
-        match results {
-            Ok(data) => {
-                if let Some(entry) = data.into_iter().next() {
-                    match bincode::deserialize::<Vec<HpkeKeyPair>>(&entry.value_bytes) {
-                        Ok(deserialized) => Ok(deserialized),
-                        Err(e) => {
-                            eprintln!("Error occurred: {}", e);
-                            Err(MemoryStorageError::SerializationError)
-                        }
-                    }
-                } else {
-                    Ok(vec![])
+        if let Some(entry) = data.into_iter().next() {
+            match bincode::deserialize::<Vec<HpkeKeyPair>>(&entry.value_bytes) {
+                Ok(deserialized) => Ok(deserialized),
+                Err(e) => {
+                    eprintln!("Error occurred: {}", e);
+                    Err(SqlKeyStoreError::SerializationError)
                 }
             }
-            Err(_e) => Err(MemoryStorageError::None),
+        } else {
+            Ok(vec![])
         }
     }
 
@@ -875,6 +853,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         leaf_index: u32,
     ) -> Result<(), Self::Error> {
         let key = epoch_key_pairs_id(group_id, epoch, leaf_index)?;
+
         self.delete::<CURRENT_VERSION>(EPOCH_KEY_PAIRS_LABEL, &key)
     }
 
@@ -890,13 +869,12 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
 
         for proposal_ref in proposal_refs {
             let key = bincode::serialize(&(group_id, proposal_ref))?;
-            let _ = self.delete::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key);
+            let _ = self.delete::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key)?;
         }
 
         let key = build_key::<CURRENT_VERSION, &GroupId>(PROPOSAL_QUEUE_REFS_LABEL, group_id)?;
-        let _ = self.delete::<CURRENT_VERSION>(PROPOSAL_QUEUE_REFS_LABEL, &key);
 
-        Ok(())
+        self.delete::<CURRENT_VERSION>(PROPOSAL_QUEUE_REFS_LABEL, &key)
     }
 
     fn mls_group_join_config<
@@ -907,6 +885,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<MlsGroupJoinConfig>, Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(JOIN_CONFIG_LABEL, group_id)?;
+
         self.read(JOIN_CONFIG_LABEL, &key)
     }
 
@@ -933,6 +912,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
     ) -> Result<Vec<LeafNode>, Self::Error> {
         log::debug!("own_leaf_nodes");
         let key = build_key::<CURRENT_VERSION, &GroupId>(OWN_LEAF_NODES_LABEL, group_id)?;
+
         self.read_list(OWN_LEAF_NODES_LABEL, &key)
     }
 
@@ -946,6 +926,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(OWN_LEAF_NODES_LABEL, group_id)?;
         let value = bincode::serialize(leaf_node)?;
+
         self.append::<CURRENT_VERSION>(OWN_LEAF_NODES_LABEL, &key, &value)
     }
 
@@ -1001,6 +982,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(TREE_LABEL, group_id)?;
+
         self.delete::<CURRENT_VERSION>(TREE_LABEL, &key)
     }
 
@@ -1009,6 +991,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(CONFIRMATION_TAG_LABEL, group_id)?;
+
         self.delete::<CURRENT_VERSION>(CONFIRMATION_TAG_LABEL, &key)
     }
 
@@ -1017,6 +1000,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(GROUP_CONTEXT_LABEL, group_id)?;
+
         self.delete::<CURRENT_VERSION>(GROUP_CONTEXT_LABEL, &key)
     }
 
@@ -1025,6 +1009,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let key = build_key::<CURRENT_VERSION, &GroupId>(INTERIM_TRANSCRIPT_HASH_LABEL, group_id)?;
+
         self.delete::<CURRENT_VERSION>(INTERIM_TRANSCRIPT_HASH_LABEL, &key)
     }
 
@@ -1059,7 +1044,7 @@ fn build_key_from_vec<const V: u16>(label: &[u8], key: Vec<u8>) -> Vec<u8> {
 fn build_key<const V: u16, K: Serialize>(
     label: &[u8],
     key: K,
-) -> Result<Vec<u8>, MemoryStorageError> {
+) -> Result<Vec<u8>, SqlKeyStoreError> {
     let key_vec = bincode::serialize(&key)?;
     Ok(build_key_from_vec::<V>(label, key_vec))
 }
@@ -1068,14 +1053,14 @@ fn epoch_key_pairs_id(
     group_id: &impl traits::GroupId<CURRENT_VERSION>,
     epoch: &impl traits::EpochKey<CURRENT_VERSION>,
     leaf_index: u32,
-) -> Result<Vec<u8>, MemoryStorageError> {
+) -> Result<Vec<u8>, SqlKeyStoreError> {
     let mut key = bincode::serialize(group_id)?;
     key.extend_from_slice(&bincode::serialize(epoch)?);
     key.extend_from_slice(&bincode::serialize(&leaf_index)?);
     Ok(key)
 }
 
-impl From<bincode::Error> for MemoryStorageError {
+impl From<bincode::Error> for SqlKeyStoreError {
     fn from(_: bincode::Error) -> Self {
         Self::SerializationError
     }
@@ -1094,7 +1079,7 @@ mod tests {
     use super::SqlKeyStore;
     use crate::{
         configuration::CIPHERSUITE,
-        storage::{sql_key_store::MemoryStorageError, EncryptedMessageStore, StorageOption},
+        storage::{sql_key_store::SqlKeyStoreError, EncryptedMessageStore, StorageOption},
         utils::test::tmp_path,
         xmtp_openmls_provider::XmtpOpenMlsProvider,
     };
@@ -1244,11 +1229,11 @@ mod tests {
         key_store
             .clear_proposal_queue::<GroupId, ProposalRef>(&group_id)
             .unwrap();
-        let proposal_refs_read: Result<Vec<ProposalRef>, MemoryStorageError> =
+        let proposal_refs_read: Result<Vec<ProposalRef>, SqlKeyStoreError> =
             key_store.queued_proposal_refs(&group_id);
         assert!(proposal_refs_read.unwrap().is_empty());
 
-        let proposals_read: Result<Vec<(ProposalRef, Proposal)>, MemoryStorageError> =
+        let proposals_read: Result<Vec<(ProposalRef, Proposal)>, SqlKeyStoreError> =
             key_store.queued_proposals(&group_id);
         assert!(proposals_read.unwrap().is_empty());
     }
