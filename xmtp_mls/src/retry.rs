@@ -51,7 +51,7 @@ impl Retry {
     /// Multiples the duration by the multiplier for each subsequent attempt
     /// and adds a random jitter to avoid repeated collisions
     pub fn duration(&self, attempts: usize) -> Duration {
-        let mut duration = self.duration.clone();
+        let mut duration = self.duration;
         for _ in 0..attempts - 1 {
             duration *= self.multiplier;
         }
