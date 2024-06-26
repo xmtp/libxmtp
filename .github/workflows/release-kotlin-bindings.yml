@@ -66,3 +66,36 @@ jobs:
           name: ${{ matrix.target }}
           path: bindings_ffi/target/${{ matrix.target }}/release/libxmtpv3.so
           retention-days: 1
+
+  package-kotlin:
+      needs: [build-linux]
+      runs-on: warp-ubuntu-latest-x64-8x
+      steps:
+        - name: Checkout
+          uses: actions/checkout@v4
+
+        - name: Download artifacts
+          uses: actions/download-artifact@v3
+          with:
+            path: bindings_ffi/target
+
+        - name: Create Release
+          id: create_release
+          uses: actions/create-release@v1
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          with:
+            tag_name: kotlin-bindings-${{ steps.slug.outputs.sha7 }}
+            release_name: Kotlin-Bindings-${{ steps.slug.outputs.sha7 }}
+            draft: false
+            prerelease: true
+
+        - name: Upload Release Asset
+          uses: actions/upload-release-asset@v1
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          with:
+            upload_url: ${{ steps.create_release.outputs.upload_url }}
+            asset_path: ./bindings_ffi/LibXMTPKotlinFFI.zip
+            asset_name: LibXMTPKotlinFFI.zip
+            asset_content_type: application/zip
