@@ -67,12 +67,12 @@ jobs:
           name: ${{ matrix.target }}
           path: bindings_ffi/target/${{ matrix.target }}/release/libxmtpv3.so
           retention-days: 1
-      
+
       - name: Prepare JNI libs
-        working-directory: bindings_ffi
         run: |
-          mkdir -p jniLibs/${{ matrix.output_target }}/ && \
-          mv target/${{ matrix.target }}/release/libxmtpv3.so jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
+          mkdir -p bindings_ffi/jniLibs/${{ matrix.output_target }}/ && \
+          cp bindings_ffi/target/${{ matrix.target }}/release/libxmtpv3.so bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so && \
+          ls bindings_ffi/jniLibs
 
   package-kotlin:
       needs: [build-linux]
