@@ -81,11 +81,6 @@ jobs:
         - name: Checkout
           uses: actions/checkout@v4
 
-        - name: Download artifacts
-          uses: actions/download-artifact@v3
-          with:
-            path: bindings_ffi/jniLibs
-
         - name: Build archive
           working-directory: bindings_ffi
           run: |
