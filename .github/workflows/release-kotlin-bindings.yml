@@ -69,20 +69,10 @@ jobs:
           retention-days: 1
       
       - name: Prepare JNI libs
+        working-directory: bindings_ffi
         run: |
-          LIBRARY_NAME="libxmtpv3"
-          TARGET_NAME="libuniffi_xmtpv3"
-          cd bindings_ffi
-          rm -rf jniLibs/
-          mkdir -p jniLibs/armeabi-v7a/ && \
-              cp target/armv7-linux-androideabi/release/$LIBRARY_NAME.so jniLibs/armeabi-v7a/$TARGET_NAME.so && \
-            mkdir -p jniLibs/x86/ && \
-              cp target/i686-linux-android/release/$LIBRARY_NAME.so jniLibs/x86/$TARGET_NAME.so && \
-            mkdir -p jniLibs/x86_64/ && \
-              cp target/x86_64-linux-android/release/$LIBRARY_NAME.so jniLibs/x86_64/$TARGET_NAME.so && \
-            mkdir -p jniLibs/arm64-v8a/ && \
-              cp target/aarch64-linux-android/release/$LIBRARY_NAME.so jniLibs/arm64-v8a/$TARGET_NAME.so
-
+          mkdir -p jniLibs/${{ matrix.output_target }}/ && \
+          cp target/${{ matrix.target }}/release/libxmtpv3.so jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so && \
 
   package-kotlin:
       needs: [build-linux]
