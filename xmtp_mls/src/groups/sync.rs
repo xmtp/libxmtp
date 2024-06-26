@@ -28,7 +28,7 @@ use crate::{
     hpke::{encrypt_welcome, HpkeError},
     identity::parse_credential,
     identity_updates::load_identity_updates,
-    retry::Retry,
+    retry::BackoffRetry,
     retry_async,
     storage::{
         db_connection::DbConnection,
@@ -651,7 +651,7 @@ impl MlsGroup {
         let mut receive_errors = vec![];
         for message in messages.into_iter() {
             let result = retry_async!(
-                Retry::default(),
+                BackoffRetry::default(),
                 (async {
                     self.consume_message(&message, &mut openmls_group, client)
                         .await
@@ -752,7 +752,7 @@ impl MlsGroup {
 
         for intent in intents {
             let result = retry_async!(
-                Retry::default(),
+                BackoffRetry::default(),
                 (async {
                     self.get_publish_intent_data(&provider, client, &mut openmls_group, &intent)
                         .await

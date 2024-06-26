@@ -183,3 +183,30 @@ impl RetryableError for openmls::prelude::WelcomeError<sql_key_store::SqlKeyStor
         }
     }
 }
+
+impl RetryableError for openmls::group::MergeCommitError<sql_key_store::SqlKeyStoreError> {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::StorageError(storage) => retryable!(storage),
+            _ => false,
+        }
+    }
+}
+
+impl RetryableError for openmls::group::MergePendingCommitError<sql_key_store::SqlKeyStoreError> {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::MlsGroupStateError(err) => retryable!(err),
+            Self::MergeCommitError(err) => retryable!(err),
+        }
+    }
+}
+
+impl RetryableError for openmls::prelude::ProcessMessageError<sql_key_store::SqlKeyStoreError> {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::GroupStateError(err) => retryable!(err),
+            _ => false,
+        }
+    }
+}

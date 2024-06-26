@@ -37,7 +37,7 @@ use crate::{
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::IdentityUpdateError,
-    retry::Retry,
+    retry::BackoffRetry,
     retry_async, retryable,
     storage::{
         db_connection::DbConnection,
@@ -131,7 +131,9 @@ pub enum MessageProcessingError {
         #[from] openmls::prelude::ProcessMessageError<sql_key_store::SqlKeyStoreError>,
     ),
     #[error("merge pending commit: {0}")]
-    MergePendingCommit(#[from] openmls::group::MergePendingCommitError<StorageError>),
+    MergePendingCommit(
+        #[from] openmls::group::MergePendingCommitError<sql_key_store::SqlKeyStoreError>,
+    ),
     #[error("merge staged commit: {0}")]
     MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::SqlKeyStoreError>),
     #[error(
@@ -175,7 +177,10 @@ impl crate::retry::RetryableError for MessageProcessingError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Group(group_error) => retryable!(group_error),
-            // Self::Identity(identity_error) => false,
+            Self::Identity(identity_error) => retryable!(identity_error),
+            Self::OpenMlsProcessMessage(err) => retryable!(err),
+            Self::MergePendingCommit(err) => retryable!(err),
+            Self::MergeStagedCommit(err) => retryable!(err),
             Self::Diesel(diesel_error) => retryable!(diesel_error),
             Self::Storage(s) => retryable!(s),
             Self::Generic(err) => err.contains("database is locked"),
@@ -525,9 +530,9 @@ where
                         return None;
                     }
                 };
-
+                let mut retrier = BackoffRetry::default();
                 retry_async!(
-                    Retry::default(),
+                    retrier,
                     (async {
                         let welcome_v1 = welcome_v1.clone();
                         self.process_for_id(

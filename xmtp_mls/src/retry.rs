@@ -16,8 +16,9 @@
 //! }
 //! ```
 
-use std::time::Duration;
+use std::{ops::Add, time::Duration};
 
+use rand::Rng;
 use smart_default::SmartDefault;
 
 /// Specifies which errors are retryable.
@@ -44,6 +45,30 @@ impl Retry {
     /// Get the duration to wait between retries.
     pub fn duration(&self) -> Duration {
         self.duration
+    }
+}
+
+#[derive(SmartDefault, Debug, PartialEq, Eq, Copy, Clone)]
+pub struct BackoffRetry {
+    #[default = 5]
+    max_retries: usize,
+    #[default(_code = "std::time::Duration::from_millis(50)")]
+    duration: std::time::Duration,
+    #[default = 3]
+    multiplier: u32,
+}
+
+impl BackoffRetry {
+    pub fn retries(&self) -> usize {
+        self.max_retries
+    }
+
+    pub fn duration(&mut self) -> Duration {
+        let jitter = rand::thread_rng().gen_range(0..=25);
+        let duration = self.duration.clone();
+        self.duration *= self.multiplier;
+
+        duration + Duration::from_millis(jitter)
     }
 }
 
@@ -155,12 +180,10 @@ macro_rules! retry_sync {
                 Ok(v) => break Ok(v),
                 Err(e) => {
                     if (&e).is_retryable() && attempts < $retry.retries() {
-                        log::debug!(
                             "retrying function that failed with error=`{}`",
                             e.to_string()
                         );
                         attempts += 1;
-                        std::thread::sleep($retry.duration());
                     } else {
                         break Err(e);
                     }
@@ -229,9 +252,7 @@ macro_rules! retry_async {
                 Ok(v) => break Ok(v),
                 Err(e) => {
                     if (&e).is_retryable() && attempts < $retry.retries() {
-                        log::warn!("retrying function that failed with error={}", e.to_string());
                         attempts += 1;
-                        tokio::time::sleep($retry.duration()).await;
                     } else {
                         log::info!("error is not retryable. {:?}", e);
                         break Err(e);
@@ -387,5 +408,21 @@ mod tests {
             (async { retryable_async_fn(&mut data).await })
         )
         .unwrap();
+    }
+
+    #[test]
+    fn backoff_retry() {
+        let mut backoff_retry = BackoffRetry::default();
+
+        let duration = backoff_retry.duration();
+
+        assert!(duration.as_millis() - 50 <= 25);
+
+        let duration = backoff_retry.duration();
+
+        assert!(duration.as_millis() - 150 <= 25);
+
+        let duration = backoff_retry.duration();
+        assert!(duration.as_millis() - 450 <= 25);
     }
 }
