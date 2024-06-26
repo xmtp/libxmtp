@@ -1,3 +1,5 @@
+use crate::{retry::RetryableError, retryable};
+
 use super::encrypted_store::db_connection::DbConnection;
 use bincode;
 use diesel::{
@@ -175,13 +177,10 @@ impl SqlKeyStore {
         let data = self.select_query::<VERSION>(&storage_key)?;
 
         if let Some(entry) = data.into_iter().next() {
-            match bincode::deserialize::<V>(&entry.value_bytes) {
-                Ok(deserialized) => Ok(Some(deserialized)),
-                Err(e) => {
-                    log::error!("Error occurred: {e}");
-                    Err(SqlKeyStoreError::SerializationError)
-                }
-            }
+            let deserialized = bincode::deserialize::<V>(&entry.value_bytes)
+                .map_err(|_| SqlKeyStoreError::SerializationError)?;
+
+            Ok(Some(deserialized))
         } else {
             Ok(None)
         }
@@ -244,9 +243,18 @@ pub enum SqlKeyStoreError {
     #[error("Error serializing value.")]
     SerializationError,
     #[error("Value does not exist.")]
-    None,
+    NotFound,
     #[error("database error: {0}")]
-    Database(#[from] diesel::result::Error),
+    Storage(#[from] diesel::result::Error),
+}
+
+impl RetryableError for SqlKeyStoreError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            SqlKeyStoreError::Storage(err) => retryable!(err),
+            _ => false,
+        }
+    }
 }
 
 const KEY_PACKAGE_LABEL: &[u8] = b"KeyPackage";
@@ -402,7 +410,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
                 let key = bincode::serialize(&(group_id, &proposal_ref))?;
                 match self.read(QUEUED_PROPOSAL_LABEL, &key)? {
                     Some(proposal) => Ok((proposal_ref, proposal)),
-                    None => Err(SqlKeyStoreError::None),
+                    None => Err(SqlKeyStoreError::NotFound),
                 }
             })
             .collect::<Result<Vec<_>, _>>()

@@ -1,6 +1,7 @@
 use std::sync::PoisonError;
 
 use diesel::result::DatabaseErrorKind;
+use openmls::prelude::CreationFromExternalError;
 use thiserror::Error;
 
 use crate::{retry::RetryableError, retryable};
@@ -71,6 +72,8 @@ impl RetryableError for openmls::group::AddMembersError<StorageError> {
     fn is_retryable(&self) -> bool {
         match self {
             Self::CreateCommitError(commit) => retryable!(commit),
+            Self::StorageError(storage) => retryable!(storage),
+            Self::GroupStateError(group_state) => retryable!(group_state),
             _ => false,
         }
     }
@@ -96,6 +99,8 @@ impl RetryableError for openmls::group::RemoveMembersError<StorageError> {
     fn is_retryable(&self) -> bool {
         match self {
             Self::CreateCommitError(commit) => retryable!(commit),
+            Self::GroupStateError(group_state) => retryable!(group_state),
+            Self::StorageError(storage) => retryable!(storage),
             _ => false,
         }
     }
@@ -113,6 +118,28 @@ impl RetryableError for openmls::group::NewGroupError<StorageError> {
 impl RetryableError for openmls::group::UpdateGroupMembershipError<StorageError> {
     fn is_retryable(&self) -> bool {
         match self {
+            Self::CreateCommitError(create_commit) => retryable!(create_commit),
+            Self::GroupStateError(group_state) => retryable!(group_state),
+            Self::StorageError(storage) => retryable!(storage),
+            _ => false,
+        }
+    }
+}
+
+impl RetryableError for openmls::prelude::MlsGroupStateError<StorageError> {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::StorageError(storage) => retryable!(storage),
+            _ => false,
+        }
+    }
+}
+
+impl RetryableError for openmls::prelude::CreateGroupContextExtProposalError<StorageError> {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::CreateCommitError(create_commit) => retryable!(create_commit),
+            Self::MlsGroupStateError(group_state) => retryable!(group_state),
             Self::StorageError(storage) => retryable!(storage),
             _ => false,
         }
@@ -123,7 +150,17 @@ impl RetryableError for openmls::group::SelfUpdateError<StorageError> {
     fn is_retryable(&self) -> bool {
         match self {
             Self::CreateCommitError(commit) => retryable!(commit),
+            Self::GroupStateError(group_state) => retryable!(group_state),
             Self::StorageError(storage) => retryable!(storage),
+            _ => false,
+        }
+    }
+}
+
+impl RetryableError for openmls::prelude::CreationFromExternalError<StorageError> {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::WriteToStorageError(storage) => retryable!(storage),
             _ => false,
         }
     }
@@ -132,6 +169,7 @@ impl RetryableError for openmls::group::SelfUpdateError<StorageError> {
 impl RetryableError for openmls::group::WelcomeError<StorageError> {
     fn is_retryable(&self) -> bool {
         match self {
+            Self::PublicGroupError(creation_err) => retryable!(creation_err),
             Self::StorageError(storage) => retryable!(storage),
             _ => false,
         }
