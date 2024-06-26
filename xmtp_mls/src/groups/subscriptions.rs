@@ -5,7 +5,7 @@ use std::sync::Arc;
 use futures::Stream;
 
 use super::{extract_message_v1, GroupError, MlsGroup};
-use crate::retry::BackoffRetry;
+use crate::retry::Retry;
 use crate::storage::group_message::StoredGroupMessage;
 use crate::subscriptions::{MessagesStreamInfo, StreamCloser};
 use crate::XmtpApi;
@@ -33,9 +33,8 @@ impl MlsGroup {
         let created_ns = msgv1.created_ns;
 
         let client_pointer = client.clone();
-
         let process_result = retry_async!(
-            BackoffRetry::default(),
+            Retry::default(),
             (async {
                 let client_pointer = client_pointer.clone();
                 let client_id = client_id.clone();

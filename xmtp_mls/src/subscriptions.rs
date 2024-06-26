@@ -16,7 +16,7 @@ use crate::{
     api::GroupFilter,
     client::{extract_welcome_message, ClientError},
     groups::{extract_group_id, GroupError, MlsGroup},
-    retry::BackoffRetry,
+    retry::Retry,
     retry_async,
     storage::group_message::StoredGroupMessage,
     Client, XmtpApi,
@@ -60,9 +60,8 @@ where
         welcome: WelcomeMessage,
     ) -> Result<MlsGroup, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
-        let mut retrier = BackoffRetry::default();
         let creation_result = retry_async!(
-            retrier,
+            Retry::default(),
             (async {
                 let welcome_v1 = welcome_v1.clone();
                 self.context

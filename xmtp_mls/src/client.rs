@@ -37,7 +37,7 @@ use crate::{
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::IdentityUpdateError,
-    retry::BackoffRetry,
+    retry::Retry,
     retry_async, retryable,
     storage::{
         db_connection::DbConnection,
@@ -530,9 +530,8 @@ where
                         return None;
                     }
                 };
-                let mut retrier = BackoffRetry::default();
                 retry_async!(
-                    retrier,
+                    Retry::default(),
                     (async {
                         let welcome_v1 = welcome_v1.clone();
                         self.process_for_id(

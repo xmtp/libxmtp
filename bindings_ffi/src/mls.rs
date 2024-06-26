@@ -1858,7 +1858,7 @@ mod tests {
             .stream(Box::new(group_callbacks.clone()))
             .await
             .unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
         let stream_messages = bo
             .conversations()
             .stream_all_messages(Box::new(message_callbacks.clone()))
@@ -1876,8 +1876,6 @@ mod tests {
             )
             .await
             .unwrap();
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
         alix_group.send("hello1".as_bytes().to_vec()).await.unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
