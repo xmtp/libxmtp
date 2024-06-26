@@ -82,7 +82,7 @@ jobs:
         - name: Build archive
           working-directory: bindings_ffi
           run: |
-            zip -r LibXMTPSwiftFFI.zip target
+            zip -r LibXMTPKotlinFFI.zip target
 
         - name: Get short SHA
           id: slug
