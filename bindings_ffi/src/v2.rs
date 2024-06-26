@@ -293,7 +293,7 @@ pub trait FfiV2SubscriptionCallback: Send + Sync {
 pub struct FfiV2Subscription {
     tx: mpsc::Sender<FfiV2SubscribeRequest>,
     abort: AbortHandle,
-    // we require Arc<Mutex<>> here because uniffi doesn't like &mut or self in impl
+    // we require Arc<Mutex<>> here because uniffi doesn't like &mut self, or the owned version of self on exported methods 
     #[allow(clippy::type_complexity)]
     handle: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
@@ -334,7 +334,7 @@ impl FfiV2Subscription {
 }
 
 impl FfiV2Subscription {
-    pub async fn subscribe(
+    async fn subscribe(
         mut subscription: GrpcMutableSubscription,
         callback: Box<dyn FfiV2SubscriptionCallback>,
     ) -> Self {
