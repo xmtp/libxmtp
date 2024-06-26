@@ -1711,11 +1711,10 @@ mod tests {
             .stream(Box::new(stream_callback.clone()))
             .await;
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
-
         group.send("hello".as_bytes().to_vec()).await.unwrap();
+        stream_callback.notify.notified().await;
         group.send("goodbye".as_bytes().to_vec()).await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+        stream_callback.notify.notified().await;
         assert_eq!(stream_callback.message_count(), 2);
 
         stream_closer.end();
@@ -1739,7 +1738,6 @@ mod tests {
             )
             .await
             .unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let stream_callback = RustStreamCallback::default();
         let stream_closer = bola
@@ -1747,12 +1745,11 @@ mod tests {
             .stream_all_messages(Box::new(stream_callback.clone()))
             .unwrap();
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
         amal_group.send("hello1".as_bytes().to_vec()).await.unwrap();
+        stream_callback.notify.notified().await;
         amal_group.send("hello2".as_bytes().to_vec()).await.unwrap();
+        stream_callback.notify.notified().await;
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         assert_eq!(stream_callback.message_count(), 2);
         assert!(!stream_closer.is_closed());
 
@@ -1760,11 +1757,12 @@ mod tests {
             .remove_members_by_inbox_id(vec![bola.inbox_id().clone()])
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+        
+        stream_callback.notify.notified().await;
         assert_eq!(stream_callback.message_count(), 3); // Member removal transcript message
 
         amal_group.send("hello3".as_bytes().to_vec()).await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        stream_callback.notify.notified().await;
         assert_eq!(stream_callback.message_count(), 3); // Don't receive messages while removed
         assert!(!stream_closer.is_closed());
 
@@ -1777,7 +1775,7 @@ mod tests {
         assert_eq!(stream_callback.message_count(), 3); // Don't receive transcript messages while removed
 
         amal_group.send("hello4".as_bytes().to_vec()).await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        stream_callback.notify.notified().await;
         assert_eq!(stream_callback.message_count(), 4); // Receiving messages again
         assert!(!stream_closer.is_closed());
 
