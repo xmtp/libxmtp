@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::storage::association_state::StoredAssociationState;
+use crate::{retry::RetryableError, retryable, storage::association_state::StoredAssociationState};
 use prost::Message;
 use thiserror::Error;
 use xmtp_id::associations::{
@@ -34,6 +34,14 @@ pub struct InstallationDiff {
 pub enum InstallationDiffError {
     #[error(transparent)]
     Client(#[from] ClientError),
+}
+
+impl RetryableError for InstallationDiffError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            InstallationDiffError::Client(client_error) => retryable!(client_error),
+        }
+    }
 }
 
 impl<'a, ApiClient> Client<ApiClient>

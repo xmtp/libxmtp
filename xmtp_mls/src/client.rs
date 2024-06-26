@@ -37,9 +37,12 @@ use crate::{
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::IdentityUpdateError,
+    retry::Retry,
+    retry_async, retryable,
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
+        group_message::StoredGroupMessage,
         refresh_state::EntityKind,
         sql_key_store, EncryptedMessageStore, StorageError,
     },
@@ -94,6 +97,19 @@ pub enum ClientError {
     Generic(String),
 }
 
+impl crate::retry::RetryableError for ClientError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            ClientError::Group(group_error) => retryable!(group_error),
+            ClientError::Diesel(diesel_error) => retryable!(diesel_error),
+            ClientError::Api(api_error) => retryable!(api_error),
+            ClientError::Storage(storage_error) => retryable!(storage_error),
+            ClientError::Generic(err) => err.contains("database is locked"),
+            _ => false,
+        }
+    }
+}
+
 /// An enum of errors that can occur when reading and processing a message off the network
 #[derive(Debug, Error)]
 pub enum MessageProcessingError {
@@ -112,12 +128,12 @@ pub enum MessageProcessingError {
     Identity(#[from] IdentityError),
     #[error("openmls process message error: {0}")]
     OpenMlsProcessMessage(
-        #[from] openmls::prelude::ProcessMessageError<sql_key_store::MemoryStorageError>,
+        #[from] openmls::prelude::ProcessMessageError<sql_key_store::SqlKeyStoreError>,
     ),
     #[error("merge pending commit: {0}")]
     MergePendingCommit(#[from] openmls::group::MergePendingCommitError<StorageError>),
     #[error("merge staged commit: {0}")]
-    MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::MemoryStorageError>),
+    MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::SqlKeyStoreError>),
     #[error(
         "no pending commit to merge. group epoch is {group_epoch:?} and got {message_epoch:?}"
     )]
@@ -147,6 +163,8 @@ pub enum MessageProcessingError {
     WrongCredentialType(#[from] BasicCredentialError),
     #[error("proto decode error: {0}")]
     DecodeError(#[from] prost::DecodeError),
+    #[error("clear pending commit error: {0}")]
+    ClearPendingCommit(#[from] sql_key_store::SqlKeyStoreError),
     #[error(transparent)]
     Group(#[from] Box<GroupError>),
     #[error("generic:{0}")]
@@ -156,7 +174,11 @@ pub enum MessageProcessingError {
 impl crate::retry::RetryableError for MessageProcessingError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::Storage(s) => s.is_retryable(),
+            Self::Group(group_error) => retryable!(group_error),
+            // Self::Identity(identity_error) => false,
+            Self::Diesel(diesel_error) => retryable!(diesel_error),
+            Self::Storage(s) => retryable!(s),
+            Self::Generic(err) => err.contains("database is locked"),
             _ => false,
         }
     }
@@ -249,6 +271,21 @@ where
         self.context.inbox_id()
     }
 
+    pub async fn find_inbox_id_from_address(
+        &self,
+        address: String,
+    ) -> Result<Option<String>, ClientError> {
+        if let Some(sanitized_address) = sanitize_evm_addresses(vec![address])?.pop() {
+            let mut results = self
+                .api_client
+                .get_inbox_ids(vec![sanitized_address.clone()])
+                .await?;
+            Ok(results.remove(&sanitized_address))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Get sequence id, may not be consistent with the backend
     pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
         self.context.inbox_sequence_id(conn)
@@ -322,6 +359,20 @@ where
             None => Err(ClientError::Storage(StorageError::NotFound(format!(
                 "group {}",
                 hex::encode(group_id)
+            )))),
+        }
+    }
+
+    /// Look up a message by its ID
+    /// Returns a [`StoredGroupMessage`] if the message exists, or an error if it does not
+    pub fn message(&self, message_id: Vec<u8>) -> Result<StoredGroupMessage, ClientError> {
+        let conn = &mut self.store().conn()?;
+        let message = conn.get_group_message(&message_id)?;
+        match message {
+            Some(message) => Ok(message),
+            None => Err(ClientError::Storage(StorageError::NotFound(format!(
+                "message {}",
+                hex::encode(message_id)
             )))),
         }
     }
@@ -475,30 +526,38 @@ where
                     }
                 };
 
-                self.process_for_id(
-                    &id,
-                    EntityKind::Welcome,
-                    welcome_v1.id,
-                    |provider| async move {
-                        // TODO: Abort if error is retryable
-                        match MlsGroup::create_from_encrypted_welcome(
-                            self,
-                            &provider,
-                            welcome_v1.hpke_public_key.as_slice(),
-                            welcome_v1.data,
-                            welcome_v1.id as i64,
+                retry_async!(
+                    Retry::default(),
+                    (async {
+                        let welcome_v1 = welcome_v1.clone();
+                        self.process_for_id(
+                            &id,
+                            EntityKind::Welcome,
+                            welcome_v1.id,
+                            |provider| async move {
+                                let result = MlsGroup::create_from_encrypted_welcome(
+                                    self,
+                                    &provider,
+                                    welcome_v1.hpke_public_key.as_slice(),
+                                    welcome_v1.data,
+                                    welcome_v1.id as i64,
+                                )
+                                .await;
+
+                                match result {
+                                    Ok(mls_group) => Ok(Some(mls_group)),
+                                    Err(err) => {
+                                        log::error!("failed to create group from welcome: {}", err);
+                                        Err(MessageProcessingError::WelcomeProcessing(
+                                            err.to_string(),
+                                        ))
+                                    }
+                                }
+                            },
                         )
                         .await
-                        {
-                            Ok(mls_group) => Ok(Some(mls_group)),
-                            Err(err) => {
-                                log::error!("failed to create group from welcome: {}", err);
-                                Err(MessageProcessingError::WelcomeProcessing(err.to_string()))
-                            }
-                        }
-                    },
+                    })
                 )
-                .await
                 .ok()
                 .flatten()
             })
@@ -583,6 +642,7 @@ pub fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientErr
 #[cfg(test)]
 mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_id::InboxOwner;
 
     use crate::{
         builder::ClientBuilder,
@@ -659,7 +719,20 @@ mod tests {
         assert_eq!(groups[1].group_id, group_2.group_id);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
+    async fn test_find_inbox_id() {
+        let wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(&wallet).await;
+        assert_eq!(
+            client
+                .find_inbox_id_from_address(wallet.get_address())
+                .await
+                .unwrap(),
+            Some(client.inbox_id())
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_sync_welcomes() {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;

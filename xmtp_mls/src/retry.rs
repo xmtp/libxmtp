@@ -23,20 +23,15 @@ use smart_default::SmartDefault;
 /// Specifies which errors are retryable.
 /// All Errors are not retryable by-default.
 pub trait RetryableError: std::error::Error {
-    fn is_retryable(&self) -> bool {
-        false
-    }
+    fn is_retryable(&self) -> bool;
 }
-
-// we use &T and make use of autoref specialization
-impl<T> RetryableError for &T where T: std::error::Error {}
 
 /// Options to specify how to retry a function
 #[derive(SmartDefault, Debug, PartialEq, Eq, Copy, Clone)]
 pub struct Retry {
-    #[default = 3]
+    #[default = 5]
     retries: usize,
-    #[default(_code = "std::time::Duration::from_millis(100)")]
+    #[default(_code = "std::time::Duration::from_millis(200)")]
     duration: std::time::Duration,
 }
 
@@ -229,14 +224,16 @@ macro_rules! retry_async {
         loop {
             let span = span.clone();
             #[allow(clippy::redundant_closure_call)]
-            match $code.instrument(span).await {
+            let res = $code.instrument(span).await;
+            match res {
                 Ok(v) => break Ok(v),
                 Err(e) => {
                     if (&e).is_retryable() && attempts < $retry.retries() {
-                        log::debug!("retrying function that failed with error={}", e.to_string());
+                        log::warn!("retrying function that failed with error={}", e.to_string());
                         attempts += 1;
                         tokio::time::sleep($retry.duration()).await;
                     } else {
+                        log::info!("error is not retryable. {:?}", e);
                         break Err(e);
                     }
                 }
@@ -250,11 +247,11 @@ macro_rules! retryable {
     ($error: ident) => {{
         #[allow(unused)]
         use $crate::retry::RetryableError;
-        (&$error).is_retryable()
+        $error.is_retryable()
     }};
     ($error: expr) => {{
         use $crate::retry::RetryableError;
-        (&$error).is_retryable()
+        $error.is_retryable()
     }};
 }
 

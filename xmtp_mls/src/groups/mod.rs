@@ -75,7 +75,6 @@ use crate::{
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, InstallationDiffError},
     retry::RetryableError,
-    retryable,
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, Purpose, StoredGroup},
@@ -105,7 +104,7 @@ pub enum GroupError {
     #[error("intent error: {0}")]
     Intent(#[from] IntentError),
     #[error("create message: {0}")]
-    CreateMessage(#[from] openmls::prelude::CreateMessageError<sql_key_store::MemoryStorageError>),
+    CreateMessage(#[from] openmls::prelude::CreateMessageError<sql_key_store::SqlKeyStoreError>),
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
     #[error("No changes found in commit")]
@@ -114,14 +113,14 @@ pub enum GroupError {
     AddressNotFound(Vec<String>),
     #[error("add members: {0}")]
     UpdateGroupMembership(
-        #[from] openmls::prelude::UpdateGroupMembershipError<sql_key_store::MemoryStorageError>,
+        #[from] openmls::prelude::UpdateGroupMembershipError<sql_key_store::SqlKeyStoreError>,
     ),
     #[error("group create: {0}")]
-    GroupCreate(#[from] openmls::group::NewGroupError<sql_key_store::MemoryStorageError>),
+    GroupCreate(#[from] openmls::group::NewGroupError<sql_key_store::SqlKeyStoreError>),
     #[error("self update: {0}")]
-    SelfUpdate(#[from] openmls::group::SelfUpdateError<sql_key_store::MemoryStorageError>),
+    SelfUpdate(#[from] openmls::group::SelfUpdateError<sql_key_store::SqlKeyStoreError>),
     #[error("welcome error: {0}")]
-    WelcomeError(#[from] openmls::prelude::WelcomeError<sql_key_store::MemoryStorageError>),
+    WelcomeError(#[from] openmls::prelude::WelcomeError<sql_key_store::SqlKeyStoreError>),
     #[error("Invalid extension {0}")]
     InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
     #[error("Invalid signature: {0}")]
@@ -158,7 +157,7 @@ pub enum GroupError {
     EncodeError(#[from] prost::EncodeError),
     #[error("create group context proposal error: {0}")]
     CreateGroupContextExtProposalError(
-        #[from] CreateGroupContextExtProposalError<sql_key_store::MemoryStorageError>,
+        #[from] CreateGroupContextExtProposalError<sql_key_store::SqlKeyStoreError>,
     ),
     #[error("Credential error")]
     CredentialError(#[from] BasicCredentialError),
@@ -175,13 +174,15 @@ pub enum GroupError {
 impl RetryableError for GroupError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::Diesel(diesel) => retryable!(diesel),
-            Self::Storage(storage) => retryable!(storage),
-            Self::ReceiveError(msg) => retryable!(msg),
-            Self::UpdateGroupMembership(update) => retryable!(update),
-            Self::GroupCreate(group) => retryable!(group),
-            Self::SelfUpdate(update) => retryable!(update),
-            Self::WelcomeError(welcome) => retryable!(welcome),
+            Self::Api(api_error) => api_error.is_retryable(),
+            Self::Client(client_error) => client_error.is_retryable(),
+            Self::Diesel(diesel) => diesel.is_retryable(),
+            Self::Storage(storage) => storage.is_retryable(),
+            Self::ReceiveError(msg) => msg.is_retryable(),
+            Self::UpdateGroupMembership(update) => update.is_retryable(),
+            Self::GroupCreate(group) => group.is_retryable(),
+            Self::SelfUpdate(update) => update.is_retryable(),
+            Self::WelcomeError(welcome) => welcome.is_retryable(),
             _ => false,
         }
     }

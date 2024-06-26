@@ -1,5 +1,13 @@
 # @xmtp/mls-client-bindings-node
 
+## 0.0.7
+
+- Improved streaming welcomes
+- Improved DB retries
+- Changed encoding of the MLS database to `bincode` for performance
+- Added `find_inbox_id_by_address` to client
+- Added `find_group_by_id` and `find_message_by_id` to conversations
+
 ## 0.0.6
 
 - Fixed some group syncing issues
