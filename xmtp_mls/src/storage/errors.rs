@@ -1,7 +1,6 @@
 use std::sync::PoisonError;
 
 use diesel::result::DatabaseErrorKind;
-use openmls::prelude::CreationFromExternalError;
 use thiserror::Error;
 
 use crate::{retry::RetryableError, retryable};
