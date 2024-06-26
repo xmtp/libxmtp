@@ -869,7 +869,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
 
         for proposal_ref in proposal_refs {
             let key = bincode::serialize(&(group_id, proposal_ref))?;
-            let _ = self.delete::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key)?;
+            self.delete::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key)?;
         }
 
         let key = build_key::<CURRENT_VERSION, &GroupId>(PROPOSAL_QUEUE_REFS_LABEL, group_id)?;
