@@ -289,6 +289,7 @@ where
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         let handle = tokio::spawn(async move {
+            log::debug!("Spawning one");
             let mut stream = Self::stream_all_messages(client).await?;
             let _ = tx.send(());
             while let Some(message) = stream.next().await {
@@ -296,7 +297,8 @@ where
             }
             Ok(())
         });
-
+        
+        //TODO: dont need this?
         let _ = tokio::task::block_in_place(|| rx.blocking_recv());
         handle
     }

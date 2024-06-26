@@ -4,10 +4,7 @@ use crate::logger::FfiLogger;
 use crate::GenericError;
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
+use std::sync::Arc;
 use tokio::task::JoinHandle;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
@@ -23,6 +20,7 @@ use xmtp_mls::groups::PreconfiguredPolicies;
 use xmtp_mls::groups::UpdateAdminListType;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::retry::Retry;
+use xmtp_mls::client::ClientError;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -389,9 +387,9 @@ impl FfiConversations {
     pub async fn stream(
         &self,
         callback: Box<dyn FfiConversationCallback>,
-    ) -> Result<Arc<FfiStreamCloser>, GenericError> {
+    ) -> Arc<FfiStreamCloser> {
         let client = self.inner_client.clone();
-        let stream_closer = RustXmtpClient::stream_conversations_with_callback(
+        let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
             move |convo| {
                 callback.on_conversation(Arc::new(FfiGroup {
@@ -400,13 +398,11 @@ impl FfiConversations {
                     created_at_ns: convo.created_at_ns,
                 }))
             },
-            || {}, // on_close_callback
-        )?;
+        );
 
-        Ok(Arc::new(FfiStreamCloser {
-            close_fn: stream_closer.close_fn,
-            is_closed_atomic: stream_closer.is_closed_atomic,
-        }))
+        Arc::new(FfiStreamCloser {
+            handle,
+        })
     }
 
     pub fn stream_all_messages(
@@ -746,19 +742,18 @@ impl FfiGroup {
     pub async fn stream(
         &self,
         message_callback: Box<dyn FfiMessageCallback>,
-    ) -> Result<Arc<FfiStreamCloser>, GenericError> {
+    ) -> Arc<FfiStreamCloser> {
         let inner_client = Arc::clone(&self.inner_client);
         let stream_closer = MlsGroup::stream_with_callback(
             inner_client,
             self.group_id.clone(),
             self.created_at_ns,
             move |message| message_callback.on_message(message.into()),
-        )?;
+        );
 
-        Ok(Arc::new(FfiStreamCloser {
-            close_fn: stream_closer.close_fn,
-            is_closed_atomic: stream_closer.is_closed_atomic,
-        }))
+        Arc::new(FfiStreamCloser {
+            handle: stream_closer
+        })
     }
 
     pub fn created_at_ns(&self) -> i64 {
@@ -875,7 +870,7 @@ impl From<StoredGroupMessage> for FfiMessage {
 
 #[derive(uniffi::Object)]
 pub struct FfiStreamCloser {
-    handle: JoinHandle<Result<(), GenericError>>,
+    handle: JoinHandle<Result<(), ClientError>>,
 }
 
 #[uniffi::export]
@@ -935,12 +930,12 @@ impl FfiGroupPermissions {
 mod tests {
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
-        FfiConversationCallback, FfiInboxOwner,
+        FfiConversationCallback, FfiInboxOwner, FfiGroup,
     };
     use std::{
         env,
         sync::{
-            atomic::{AtomicU32, Ordering},
+            atomic::{AtomicU32, Ordering}, Mutex,
             Arc,
         },
     };
@@ -990,18 +985,15 @@ mod tests {
         }
     }
 
-    #[derive(Clone)]
+    #[derive(Default, Clone)]
     struct RustStreamCallback {
         num_messages: Arc<AtomicU32>,
+        messages: Arc<Mutex<Vec<FfiMessage>>>,
+        conversations: Arc<Mutex<Vec<Arc<FfiGroup>>>>,
+        notify: Arc<tokio::sync::Notify>,
     }
 
     impl RustStreamCallback {
-        pub fn new() -> Self {
-            Self {
-                num_messages: Arc::new(AtomicU32::new(0)),
-            }
-        }
-
         pub fn message_count(&self) -> u32 {
             self.num_messages.load(Ordering::SeqCst)
         }
@@ -1009,15 +1001,22 @@ mod tests {
 
     impl FfiMessageCallback for RustStreamCallback {
         fn on_message(&self, message: FfiMessage) {
-            let message = String::from_utf8(message.content).unwrap_or("<not UTF8>".to_string());
-            log::info!("Received: {}", message);
+            log::debug!("On message called");
+            let mut messages = self.messages.lock().unwrap();
+            log::info!("Received: {}", String::from_utf8_lossy(&message.content));
+            messages.push(message);
             let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
+            self.notify.notify_one();
         }
     }
 
     impl FfiConversationCallback for RustStreamCallback {
-        fn on_conversation(&self, _: Arc<super::FfiGroup>) {
+        fn on_conversation(&self, group: Arc<super::FfiGroup>) {
+            log::debug!("on convo called");
             let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
+            let mut convos = self.conversations.lock().unwrap();
+            convos.push(group);
+            self.notify.notify_one();
         }
     }
 
@@ -1325,22 +1324,20 @@ mod tests {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
 
-        let stream_callback = RustStreamCallback::new();
+        let stream_callback = RustStreamCallback::default();
+        let local_data = stream_callback.clone();
 
         let stream = bola
             .conversations()
             .stream(Box::new(stream_callback.clone()))
-            .await
-            .unwrap();
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
+            .await;
+        
         amal.conversations()
             .create_group(vec![bola.account_address.clone()], None)
             .await
             .unwrap();
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+        
+        local_data.notify.notified().await;
 
         assert_eq!(stream_callback.message_count(), 1);
         // Create another group and add bola
@@ -1348,8 +1345,9 @@ mod tests {
             .create_group(vec![bola.account_address.clone()], None)
             .await
             .unwrap();
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        
+        local_data.notify.notified().await;
+        
         assert_eq!(stream_callback.message_count(), 2);
 
         stream.end();
@@ -1359,6 +1357,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_all_messages() {
+        let _ = tracing_subscriber::fmt::try_init();
+
         let alix = new_test_client().await;
         let bo = new_test_client().await;
         let caro = new_test_client().await;
@@ -1368,31 +1368,41 @@ mod tests {
             .create_group(vec![caro.account_address.clone()], None)
             .await
             .unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        let stream_callback = RustStreamCallback::new();
+        let stream_callback = RustStreamCallback::default();
 
         let stream = caro
             .conversations()
             .stream_all_messages(Box::new(stream_callback.clone()))
-            .await
             .unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         alix_group.send("first".as_bytes().to_vec()).await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        
+        println!("Waiting on first");
+        stream_callback.notify.notified().await;
+
         let bo_group = bo
             .conversations()
             .create_group(vec![caro.account_address.clone()], None)
             .await
             .unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        
+        println!("Waiting on second");
+        stream_callback.notify.notified().await;
+
         bo_group.send("second".as_bytes().to_vec()).await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        
+        println!("Waiting on third");
+        stream_callback.notify.notified().await;
+
         alix_group.send("third".as_bytes().to_vec()).await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        
+        println!("Waiting on fourth");
+        stream_callback.notify.notified().await;
+
         bo_group.send("fourth".as_bytes().to_vec()).await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+        println!("Waiting on fifth");
+        stream_callback.notify.notified().await;
 
         assert_eq!(stream_callback.message_count(), 4);
         stream.end();
@@ -1411,11 +1421,10 @@ mod tests {
             .await
             .unwrap();
 
-        let stream_callback = RustStreamCallback::new();
+        let stream_callback = RustStreamCallback::default();
         let stream_closer = group
             .stream(Box::new(stream_callback.clone()))
-            .await
-            .unwrap();
+            .await;
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         group.send("hello".as_bytes().to_vec()).await.unwrap();
@@ -1447,11 +1456,10 @@ mod tests {
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        let stream_callback = RustStreamCallback::new();
+        let stream_callback = RustStreamCallback::default();
         let stream_closer = bola
             .conversations()
             .stream_all_messages(Box::new(stream_callback.clone()))
-            .await
             .unwrap();
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
