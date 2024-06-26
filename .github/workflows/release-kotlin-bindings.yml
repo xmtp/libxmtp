@@ -63,7 +63,7 @@ jobs:
       - name: Upload binary
         uses: actions/upload-artifact@v3
         with:
-          name: ${{ matrix.target }}
+          name: ${{ matrix.output_target }}
           path: bindings_ffi/target/${{ matrix.target }}/release/libxmtpv3.so
           retention-days: 1
 
