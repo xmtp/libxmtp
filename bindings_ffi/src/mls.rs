@@ -1665,7 +1665,6 @@ mod tests {
 
         alix_group.send("first".as_bytes().to_vec()).await.unwrap();
         
-        println!("Waiting on first");
         stream_callback.notify.notified().await;
 
         let bo_group = bo
@@ -1676,22 +1675,15 @@ mod tests {
             )
             .await
             .unwrap();
-         
-        println!("Waiting on second");
-        stream_callback.notify.notified().await;
-
+        let _ = caro.inner_client.sync_welcomes().await.unwrap(); 
+       
         bo_group.send("second".as_bytes().to_vec()).await.unwrap();
-        
-        println!("Waiting on third");
         stream_callback.notify.notified().await;
 
         alix_group.send("third".as_bytes().to_vec()).await.unwrap();
-        
-        println!("Waiting on fourth");
         stream_callback.notify.notified().await;
 
         bo_group.send("fourth".as_bytes().to_vec()).await.unwrap();
-        println!("Waiting on fifth");
         stream_callback.notify.notified().await;
 
         assert_eq!(stream_callback.message_count(), 4);
