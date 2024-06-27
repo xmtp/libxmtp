@@ -257,6 +257,8 @@ where
                                 cursor: 1, // For the new group, stream all messages since the group was created
                             },
                         );
+                        // TODO:insipx Can remove the indiretion in `relay_messages` and just use
+                        // `stream_messages` directly?
                         handle = Self::relay_messages(client.clone(), tx.clone(), group_id_to_info.clone());
                     },
                     maybe_finished = &mut handle => {
