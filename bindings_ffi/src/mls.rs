@@ -992,9 +992,12 @@ impl FfiStreamCloser {
         let handle = handle.take();
         if let Some(h) = handle {
             h.abort();
-            h.await.map_err(|_| GenericError::Generic {
-                err: "subscription event loop join error".into(),
-            })??;
+            let join_result = h.await;
+            if matches!(join_result, Err(ref e) if !e.is_cancelled()) {
+                return Err(GenericError::Generic {
+                    err: format!("subscription event loop join error {}", join_result.unwrap_err()),
+                })
+            }
         } else {
             log::warn!("subscription already closed");
         }
@@ -1139,9 +1142,7 @@ mod tests {
             log::info!("Received: {}", String::from_utf8_lossy(&message.content));
             messages.push(message);
             let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
-            log::debug!("NOTIFYING");
             self.notify.notify_one();
-            log::debug!("NOTIFIED");
 
         }
     }

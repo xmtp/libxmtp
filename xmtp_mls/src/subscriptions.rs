@@ -487,10 +487,11 @@ mod tests {
             let messages = messages.lock().unwrap();
             assert_eq!(messages.len(), 5);
         }
-
-        handle.abort();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        assert!(handle.is_finished());
+        
+        let a = handle.abort_handle();
+        a.abort();
+        handle.await.unwrap();
+        assert!(a.is_finished());
 
         alix_group
             .send_message("first".as_bytes(), &alix)
