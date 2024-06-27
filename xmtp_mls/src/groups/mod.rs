@@ -2401,7 +2401,7 @@ mod tests {
         if let Err(e) = &result {
             eprintln!("Error adding member: {:?}", e);
         } else {
-            assert!(false, "Expected error adding member");
+            panic!("Expected error adding member");
         }
 
         // Step 4: Bola attempts to update permissions but fails because they are not a super admin
@@ -2411,7 +2411,7 @@ mod tests {
         if let Err(e) = &result {
             eprintln!("Error updating permissions: {:?}", e);
         } else {
-            assert!(false, "Expected error updating permissions");
+            panic!("Expected error updating permissions");
         }
 
         // Step 5: Amal updates group permissions so that all members can add
