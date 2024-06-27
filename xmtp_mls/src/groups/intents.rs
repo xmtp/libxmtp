@@ -19,9 +19,10 @@ use xmtp_proto::xmtp::mls::database::{
         Version as UpdateGroupMembershipVersion, V1 as UpdateGroupMembershipV1,
     },
     update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
+    update_permission_data::{Version as UpdatePermissionVersion, V1 as UpdatePermissionV1},
     AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
     InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
-    UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData,
+    UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
 };
 
 use crate::{
@@ -29,7 +30,11 @@ use crate::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 
-use super::{group_membership::GroupMembership, group_mutable_metadata::MetadataField};
+use super::{
+    group_membership::GroupMembership,
+    group_mutable_metadata::MetadataField,
+    group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
+};
 
 #[derive(Debug, Error)]
 pub enum IntentError {
@@ -370,6 +375,174 @@ impl TryFrom<Vec<u8>> for UpdateAdminListIntentData {
         };
 
         Ok(Self::new(action_type, inbox_id))
+    }
+}
+
+#[repr(i32)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum PermissionUpdateType {
+    AddMember = 1,      // Matches ADD_MEMBER in Protobuf
+    RemoveMember = 2,   // Matches REMOVE_MEMBER in Protobuf
+    AddAdmin = 3,       // Matches ADD_ADMIN in Protobuf
+    RemoveAdmin = 4,    // Matches REMOVE_ADMIN in Protobuf
+    UpdateMetadata = 5, // Matches UPDATE_METADATA in Protobuf
+}
+
+impl TryFrom<i32> for PermissionUpdateType {
+    type Error = &'static str;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(PermissionUpdateType::AddMember),
+            2 => Ok(PermissionUpdateType::RemoveMember),
+            3 => Ok(PermissionUpdateType::AddAdmin),
+            4 => Ok(PermissionUpdateType::RemoveAdmin),
+            5 => Ok(PermissionUpdateType::UpdateMetadata),
+            _ => Err("Unknown value for PermissionUpdateType"),
+        }
+    }
+}
+
+#[repr(i32)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum PermissionPolicyOption {
+    Allow = 1,          // Matches ADD_MEMBER in Protobuf
+    Deny = 2,           // Matches REMOVE_MEMBER in Protobuf
+    AdminOnly = 3,      // Matches ADD_ADMIN in Protobuf
+    SuperAdminOnly = 4, // Matches REMOVE_ADMIN in Protobuf
+}
+
+impl TryFrom<i32> for PermissionPolicyOption {
+    type Error = &'static str;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(PermissionPolicyOption::Allow),
+            2 => Ok(PermissionPolicyOption::Deny),
+            3 => Ok(PermissionPolicyOption::AdminOnly),
+            4 => Ok(PermissionPolicyOption::SuperAdminOnly),
+            _ => Err("Unknown value for PermissionPolicyOption"),
+        }
+    }
+}
+
+impl From<PermissionPolicyOption> for MembershipPolicies {
+    fn from(value: PermissionPolicyOption) -> Self {
+        match value {
+            PermissionPolicyOption::Allow => MembershipPolicies::allow(),
+            PermissionPolicyOption::Deny => MembershipPolicies::deny(),
+            PermissionPolicyOption::AdminOnly => MembershipPolicies::allow_if_actor_admin(),
+            PermissionPolicyOption::SuperAdminOnly => {
+                MembershipPolicies::allow_if_actor_super_admin()
+            }
+        }
+    }
+}
+
+impl From<PermissionPolicyOption> for MetadataPolicies {
+    fn from(value: PermissionPolicyOption) -> Self {
+        match value {
+            PermissionPolicyOption::Allow => MetadataPolicies::allow(),
+            PermissionPolicyOption::Deny => MetadataPolicies::deny(),
+            PermissionPolicyOption::AdminOnly => MetadataPolicies::allow_if_actor_admin(),
+            PermissionPolicyOption::SuperAdminOnly => {
+                MetadataPolicies::allow_if_actor_super_admin()
+            }
+        }
+    }
+}
+
+impl From<PermissionPolicyOption> for PermissionsPolicies {
+    fn from(value: PermissionPolicyOption) -> Self {
+        match value {
+            PermissionPolicyOption::Allow => {
+                log::error!("PermissionPolicyOption::Allow is not allowed for PermissionsPolicies, set to super_admin only instead");
+                PermissionsPolicies::allow_if_actor_super_admin()
+            }
+            PermissionPolicyOption::Deny => PermissionsPolicies::deny(),
+            PermissionPolicyOption::AdminOnly => PermissionsPolicies::allow_if_actor_admin(),
+            PermissionPolicyOption::SuperAdminOnly => {
+                PermissionsPolicies::allow_if_actor_super_admin()
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdatePermissionIntentData {
+    pub update_type: PermissionUpdateType,
+    pub policy_option: PermissionPolicyOption,
+    pub metadata_field_name: Option<String>,
+}
+
+impl UpdatePermissionIntentData {
+    pub fn new(
+        update_type: PermissionUpdateType,
+        policy_option: PermissionPolicyOption,
+        metadata_field_name: Option<String>,
+    ) -> Self {
+        Self {
+            update_type,
+            policy_option,
+            metadata_field_name,
+        }
+    }
+}
+
+impl From<UpdatePermissionIntentData> for Vec<u8> {
+    fn from(intent: UpdatePermissionIntentData) -> Self {
+        let mut buf = Vec::new();
+        let update_type = intent.update_type as i32;
+        let policy_option = intent.policy_option as i32;
+
+        UpdatePermissionData {
+            version: Some(UpdatePermissionVersion::V1(UpdatePermissionV1 {
+                permission_update_type: update_type,
+                permission_policy_option: policy_option,
+                metadata_field_name: intent.metadata_field_name,
+            })),
+        }
+        .encode(&mut buf)
+        .expect("encode error");
+
+        buf
+    }
+}
+
+impl TryFrom<Vec<u8>> for UpdatePermissionIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
+        let msg = UpdatePermissionData::decode(Bytes::from(data))?;
+
+        let update_type: PermissionUpdateType = match msg.version {
+            Some(UpdatePermissionVersion::V1(ref v1)) => {
+                PermissionUpdateType::try_from(v1.permission_update_type)
+                    .map_err(|e| IntentError::Generic(e.to_string()))?
+            }
+            None => {
+                return Err(IntentError::Generic(
+                    "missing update permission version".to_string(),
+                ))
+            }
+        };
+        let policy_option: PermissionPolicyOption = match msg.version {
+            Some(UpdatePermissionVersion::V1(ref v1)) => {
+                PermissionPolicyOption::try_from(v1.permission_policy_option)
+                    .map_err(|e| IntentError::Generic(e.to_string()))?
+            }
+            None => {
+                return Err(IntentError::Generic(
+                    "missing update permission version".to_string(),
+                ))
+            }
+        };
+        let metadata_field_name = match msg.version {
+            Some(UpdatePermissionVersion::V1(ref v1)) => v1.metadata_field_name.clone(),
+            None => None,
+        };
+
+        Ok(Self::new(update_type, policy_option, metadata_field_name))
     }
 }
 

@@ -17,6 +17,12 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::groups::group_permissions::BasePolicies;
+use xmtp_mls::groups::group_permissions::MembershipPolicies;
+use xmtp_mls::groups::group_permissions::MetadataBasePolicies;
+use xmtp_mls::groups::group_permissions::MetadataPolicies;
+use xmtp_mls::groups::group_permissions::PermissionsBasePolicies;
+use xmtp_mls::groups::group_permissions::PermissionsPolicies;
 use xmtp_mls::groups::GroupMetadataOptions;
 use xmtp_mls::{
     api::ApiClientWrapper,
@@ -337,6 +343,33 @@ pub enum GroupPermissions {
     CustomPolicy,
 }
 
+#[derive(uniffi::Enum, Debug, PartialEq, Eq)]
+pub enum PermissionPolicy {
+    Allow,
+    Deny,
+    Admin,
+    SuperAdmin,
+    DoesNotExist,
+    Other,
+}
+
+#[derive(uniffi::Enum, Debug)]
+pub enum MetadataField {
+    GroupName,
+    Description,
+    GroupImageUrlSquare,
+}
+
+impl MetadataField {
+    fn as_str(&self) -> &'static str {
+        match self {
+            MetadataField::GroupName => "group_name",
+            MetadataField::Description => "description",
+            MetadataField::GroupImageUrlSquare => "group_image_url_square",
+        }
+    }
+}
+
 impl From<PreconfiguredPolicies> for GroupPermissions {
     fn from(policy: PreconfiguredPolicies) -> Self {
         match policy {
@@ -650,6 +683,27 @@ impl FfiGroup {
         Ok(())
     }
 
+    pub fn add_members_permission_policy(&self) -> Result<PermissionPolicy, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+        let add_member_policy: MembershipPolicies =
+            group.permissions()?.policies.add_member_policy;
+        if let MembershipPolicies::Standard(policy) = add_member_policy {
+            match policy {
+                BasePolicies::Allow => Ok(PermissionPolicy::Allow),
+                BasePolicies::Deny => Ok(PermissionPolicy::Deny),
+                BasePolicies::AllowSameMember => Ok(PermissionPolicy::Other),
+                BasePolicies::AllowIfAdminOrSuperAdmin => Ok(PermissionPolicy::Admin),
+                BasePolicies::AllowIfSuperAdmin => Ok(PermissionPolicy::SuperAdmin),
+            }
+        } else {
+            Ok(PermissionPolicy::Other)
+        }
+    }
+
     pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
@@ -679,6 +733,27 @@ impl FfiGroup {
             .await?;
 
         Ok(())
+    }
+
+    pub fn remove_members_permission_policy(&self) -> Result<PermissionPolicy, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+        let remove_member_policy: MembershipPolicies =
+            group.permissions()?.policies.remove_member_policy;
+        if let MembershipPolicies::Standard(policy) = remove_member_policy {
+            match policy {
+                BasePolicies::Allow => Ok(PermissionPolicy::Allow),
+                BasePolicies::Deny => Ok(PermissionPolicy::Deny),
+                BasePolicies::AllowSameMember => Ok(PermissionPolicy::Other),
+                BasePolicies::AllowIfAdminOrSuperAdmin => Ok(PermissionPolicy::Admin),
+                BasePolicies::AllowIfSuperAdmin => Ok(PermissionPolicy::SuperAdmin),
+            }
+        } else {
+            Ok(PermissionPolicy::Other)
+        }
     }
 
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GenericError> {
@@ -736,6 +811,36 @@ impl FfiGroup {
         Ok(group_image_url_square)
     }
 
+    pub fn metadata_permission_policy(
+        &self,
+        field: MetadataField,
+    ) -> Result<PermissionPolicy, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+        let metadata_policy_map = group.permissions()?.policies.update_metadata_policy;
+        if let Some(metadata_policy) = metadata_policy_map.get(field.as_str()) {
+            if let MetadataPolicies::Standard(policy) = metadata_policy {
+                match policy {
+                    MetadataBasePolicies::Allow => Ok(PermissionPolicy::Allow),
+                    MetadataBasePolicies::Deny => Ok(PermissionPolicy::Deny),
+                    MetadataBasePolicies::AllowIfActorAdminOrSuperAdmin => {
+                        Ok(PermissionPolicy::Admin)
+                    }
+                    MetadataBasePolicies::AllowIfActorSuperAdmin => {
+                        Ok(PermissionPolicy::SuperAdmin)
+                    }
+                }
+            } else {
+                Ok(PermissionPolicy::Other)
+            }
+        } else {
+            Ok(PermissionPolicy::DoesNotExist)
+        }
+    }
+
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
@@ -783,6 +888,26 @@ impl FfiGroup {
         Ok(())
     }
 
+    pub fn add_admin_permission_policy(&self) -> Result<PermissionPolicy, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+        let add_admin_policy: PermissionsPolicies = group.permissions()?.policies.add_admin_policy;
+        if let PermissionsPolicies::Standard(policy) = add_admin_policy {
+            match policy {
+                PermissionsBasePolicies::Deny => Ok(PermissionPolicy::Deny),
+                PermissionsBasePolicies::AllowIfActorAdminOrSuperAdmin => {
+                    Ok(PermissionPolicy::Admin)
+                }
+                PermissionsBasePolicies::AllowIfActorSuperAdmin => Ok(PermissionPolicy::SuperAdmin),
+            }
+        } else {
+            Ok(PermissionPolicy::Other)
+        }
+    }
+
     pub async fn remove_admin(&self, inbox_id: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
@@ -796,6 +921,27 @@ impl FfiGroup {
         Ok(())
     }
 
+    pub fn remove_admin_permission_policy(&self) -> Result<PermissionPolicy, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+        let remove_admin_policy: PermissionsPolicies =
+            group.permissions()?.policies.remove_admin_policy;
+        if let PermissionsPolicies::Standard(policy) = remove_admin_policy {
+            match policy {
+                PermissionsBasePolicies::Deny => Ok(PermissionPolicy::Deny),
+                PermissionsBasePolicies::AllowIfActorAdminOrSuperAdmin => {
+                    Ok(PermissionPolicy::Admin)
+                }
+                PermissionsBasePolicies::AllowIfActorSuperAdmin => Ok(PermissionPolicy::SuperAdmin),
+            }
+        } else {
+            Ok(PermissionPolicy::Other)
+        }
+    }
+
     pub async fn add_super_admin(&self, inbox_id: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
@@ -807,6 +953,12 @@ impl FfiGroup {
             .await?;
 
         Ok(())
+    }
+
+    pub async fn add_super_admin_permission_policy(
+        &self,
+    ) -> Result<PermissionPolicy, GenericError> {
+        Ok(PermissionPolicy::SuperAdmin)
     }
 
     pub async fn remove_super_admin(&self, inbox_id: String) -> Result<(), GenericError> {
@@ -824,6 +976,16 @@ impl FfiGroup {
             .await?;
 
         Ok(())
+    }
+
+    pub async fn remove_super_admin_permission_policy(
+        &self,
+    ) -> Result<PermissionPolicy, GenericError> {
+        Ok(PermissionPolicy::SuperAdmin)
+    }
+
+    pub async fn update_permissions_policy(&self) -> Result<PermissionPolicy, GenericError> {
+        Ok(PermissionPolicy::SuperAdmin)
     }
 
     pub fn group_permissions(&self) -> Result<Arc<FfiGroupPermissions>, GenericError> {
@@ -1042,9 +1204,7 @@ impl FfiGroupPermissions {
 #[cfg(test)]
 mod tests {
     use crate::{
-        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
-        FfiConversationCallback, FfiCreateGroupOptions, FfiInboxOwner, FfiListConversationsOptions,
-        FfiListMessagesOptions, GroupPermissions,
+        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConversationCallback, FfiCreateGroupOptions, FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, GroupPermissions, MetadataField, PermissionPolicy
     };
     use std::{
         env,
@@ -1891,5 +2051,54 @@ mod tests {
         stream_groups.end();
         tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
         assert!(stream_groups.is_closed());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_permissions_show_expected_values() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+        // Create admin_only group
+        let admin_only_options = FfiCreateGroupOptions {
+            permissions: Some(GroupPermissions::AdminOnly),
+            ..Default::default()
+        };
+        let alix_group_admin_only = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                admin_only_options,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(alix_group_admin_only.add_members_permission_policy().unwrap(), PermissionPolicy::Admin);
+        assert_eq!(alix_group_admin_only.remove_members_permission_policy().unwrap(), PermissionPolicy::Admin);
+        assert_eq!(alix_group_admin_only.add_admin_permission_policy().unwrap(), PermissionPolicy::SuperAdmin);
+        assert_eq!(alix_group_admin_only.remove_admin_permission_policy().unwrap(), PermissionPolicy::SuperAdmin);
+        assert_eq!(alix_group_admin_only.metadata_permission_policy(MetadataField::GroupName).unwrap(), PermissionPolicy::Admin);
+        assert_eq!(alix_group_admin_only.metadata_permission_policy(MetadataField::Description).unwrap(), PermissionPolicy::Admin);
+        assert_eq!(alix_group_admin_only.metadata_permission_policy(MetadataField::GroupImageUrlSquare).unwrap(), PermissionPolicy::Admin);
+
+        // Create all_members group
+        let all_members_options = FfiCreateGroupOptions {
+            permissions: Some(GroupPermissions::AllMembers),
+            ..Default::default()
+        };
+        let alix_group_all_members = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                all_members_options,
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(alix_group_all_members.add_members_permission_policy().unwrap(), PermissionPolicy::Allow);
+            assert_eq!(alix_group_all_members.remove_members_permission_policy().unwrap(), PermissionPolicy::Admin);
+            assert_eq!(alix_group_all_members.add_admin_permission_policy().unwrap(), PermissionPolicy::SuperAdmin);
+            assert_eq!(alix_group_all_members.remove_admin_permission_policy().unwrap(), PermissionPolicy::SuperAdmin);
+            assert_eq!(alix_group_all_members.metadata_permission_policy(MetadataField::GroupName).unwrap(), PermissionPolicy::Allow);
+            assert_eq!(alix_group_all_members.metadata_permission_policy(MetadataField::Description).unwrap(), PermissionPolicy::Allow);
+            assert_eq!(alix_group_all_members.metadata_permission_policy(MetadataField::GroupImageUrlSquare).unwrap(), PermissionPolicy::Allow);
     }
 }

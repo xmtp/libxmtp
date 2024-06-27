@@ -41,7 +41,10 @@ use self::{
     group_permissions::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
-    intents::{AdminListActionType, UpdateAdminListIntentData, UpdateMetadataIntentData},
+    intents::{
+        AdminListActionType, PermissionPolicyOption, PermissionUpdateType,
+        UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
+    },
     validated_commit::extract_group_membership,
 };
 use self::{
@@ -616,6 +619,30 @@ impl MlsGroup {
             .await
     }
 
+    pub async fn update_add_members_permission_policy<ApiClient: XmtpApi>(
+        &self,
+        client: &Client<ApiClient>,
+        permission_policy: PermissionPolicyOption,
+    ) -> Result<(), GroupError> {
+        let conn = client.store().conn()?;
+
+        let intent_data: Vec<u8> = UpdatePermissionIntentData::new(
+            PermissionUpdateType::AddMember,
+            permission_policy,
+            None,
+        )
+        .into();
+
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::UpdatePermission,
+            self.group_id.clone(),
+            intent_data,
+        ))?;
+
+        self.sync_until_intent_resolved(conn, intent.id, client)
+            .await
+    }
+
     pub fn group_name(&self) -> Result<String, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
         match mutable_metadata
@@ -822,7 +849,7 @@ pub fn build_mutable_metadata_extension_default(
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-pub fn build_mutable_metadata_extensions_for_metadata_update(
+pub fn build_extensions_for_metadata_update(
     group: &OpenMlsGroup,
     field_name: String,
     field_value: String,
@@ -844,7 +871,71 @@ pub fn build_mutable_metadata_extensions_for_metadata_update(
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-pub fn build_mutable_metadata_extensions_for_admin_lists_update(
+pub fn build_extensions_for_permissions_update(
+    group: &OpenMlsGroup,
+    update_permissions_intent: UpdatePermissionIntentData,
+) -> Result<Extensions, GroupError> {
+    let existing_permissions: GroupMutablePermissions = group.try_into()?;
+    let existing_policy_set = existing_permissions.policies.clone();
+    let new_policy_set = match update_permissions_intent.update_type {
+        PermissionUpdateType::AddMember => PolicySet::new(
+            update_permissions_intent.policy_option.into(),
+            existing_policy_set.remove_member_policy,
+            existing_policy_set.update_metadata_policy,
+            existing_policy_set.add_admin_policy,
+            existing_policy_set.remove_admin_policy,
+            existing_policy_set.update_permissions_policy,
+        ),
+        PermissionUpdateType::RemoveMember => PolicySet::new(
+            existing_policy_set.add_member_policy,
+            update_permissions_intent.policy_option.into(),
+            existing_policy_set.update_metadata_policy,
+            existing_policy_set.add_admin_policy,
+            existing_policy_set.remove_admin_policy,
+            existing_policy_set.update_permissions_policy,
+        ),
+        PermissionUpdateType::AddAdmin => PolicySet::new(
+            existing_policy_set.add_member_policy,
+            existing_policy_set.remove_member_policy,
+            existing_policy_set.update_metadata_policy,
+            update_permissions_intent.policy_option.into(),
+            existing_policy_set.remove_admin_policy,
+            existing_policy_set.update_permissions_policy,
+        ),
+        PermissionUpdateType::RemoveAdmin => PolicySet::new(
+            existing_policy_set.add_member_policy,
+            existing_policy_set.remove_member_policy,
+            existing_policy_set.update_metadata_policy,
+            existing_policy_set.add_admin_policy,
+            update_permissions_intent.policy_option.into(),
+            existing_policy_set.update_permissions_policy,
+        ),
+        PermissionUpdateType::UpdateMetadata => {
+            let mut metadata_policy = existing_policy_set.update_metadata_policy.clone();
+            metadata_policy.insert(
+                update_permissions_intent.metadata_field_name.unwrap(),
+                update_permissions_intent.policy_option.into(),
+            );
+            PolicySet::new(
+                existing_policy_set.add_member_policy,
+                existing_policy_set.remove_member_policy,
+                metadata_policy,
+                existing_policy_set.add_admin_policy,
+                existing_policy_set.remove_admin_policy,
+                existing_policy_set.update_permissions_policy,
+            )
+        }
+    };
+    let new_group_permissions: Vec<u8> = GroupMutablePermissions::new(new_policy_set).try_into()?;
+    let unknown_gc_extension = UnknownExtension(new_group_permissions);
+    let extension = Extension::Unknown(GROUP_PERMISSIONS_EXTENSION_ID, unknown_gc_extension);
+    let mut extensions = group.extensions().clone();
+    extensions.add_or_replace(extension);
+    Ok(extensions)
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+pub fn build_extensions_for_admin_lists_update(
     group: &OpenMlsGroup,
     admin_lists_update: UpdateAdminListIntentData,
 ) -> Result<Extensions, GroupError> {
@@ -1004,6 +1095,7 @@ mod tests {
             group_membership::GroupMembership,
             group_metadata::{ConversationType, GroupMetadata},
             group_mutable_metadata::MetadataField,
+            intents::PermissionPolicyOption,
             members::{GroupMember, PermissionLevel},
             GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
         },
@@ -2280,5 +2372,61 @@ mod tests {
             .get(&MetadataField::GroupName.to_string())
             .unwrap();
         assert_eq!(bola_group_name, "Name Update 2");
+    }
+
+    #[tokio::test]
+    async fn test_can_update_permissions_after_group_creation() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let policies = Some(PreconfiguredPolicies::AdminsOnly);
+        let amal_group: MlsGroup = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
+
+        // Step 2:  Amal adds Bola to the group
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        amal_group
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .await
+            .unwrap();
+
+        // Step 3: Bola attemps to add Caro, but fails because group is admin only
+        let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        bola.sync_welcomes().await.unwrap();
+        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_group: &MlsGroup = bola_groups.first().unwrap();
+        bola_group.sync(&bola).await.unwrap();
+        let result = bola_group
+            .add_members_by_inbox_id(&bola, vec![caro.inbox_id()])
+            .await;
+        if let Err(e) = &result {
+            eprintln!("Error adding member: {:?}", e);
+        } else {
+            assert!(false, "Expected error adding member");
+        }
+
+        // Step 4: Bola attempts to update permissions but fails because they are not a super admin
+        let result = bola_group
+            .update_add_members_permission_policy(&bola, PermissionPolicyOption::Allow)
+            .await;
+        if let Err(e) = &result {
+            eprintln!("Error updating permissions: {:?}", e);
+        } else {
+            assert!(false, "Expected error updating permissions");
+        }
+
+        // Step 5: Amal updates group permissions so that all members can add
+        amal_group
+            .update_add_members_permission_policy(&amal, PermissionPolicyOption::Allow)
+            .await
+            .unwrap();
+
+        // Step 6: Bola can now add Caro to the group
+        bola_group
+            .add_members_by_inbox_id(&bola, vec![caro.inbox_id()])
+            .await
+            .unwrap();
+        bola_group.sync(&bola).await.unwrap();
+        let members = bola_group.members().unwrap();
+        assert_eq!(members.len(), 3);
     }
 }
