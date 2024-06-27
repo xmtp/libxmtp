@@ -1,0 +1,57 @@
+name: Test FFI Bindings
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    # only run tests when related changes are made
+    paths:
+      - ".github/workflows/test-ffi-bindings.yml"
+      - "bindings_ffi/**"
+      - "dev/**"
+      - "mls_validation_service/**"
+      - "xmtp_api_grpc/**"
+      - "xmtp_cryptography/**"
+      - "xmtp_id/**"
+      - "xmtp_mls/**"
+      - "xmtp_proto/**"
+      - "xmtp_v2/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain"
+
+jobs:
+  test:
+    name: Test
+    runs-on: warp-ubuntu-latest-x64-16x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update rust toolchains
+        run: rustup update
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            bindings_ffi
+
+      - name: Start Docker containers
+        run: dev/up
+
+      - name: Setup Kotlin
+        run: |
+          sudo apt update -q
+          sudo apt install -y openjdk-11-jdk
+          sudo snap install --classic kotlin
+          cd bindings_ffi
+          make install-jar
+          echo "$(make echo-jar | tail -n 1 | sed -e 's/\.*export //')" >> "$GITHUB_ENV"
+
+      - name: Run cargo test on FFI bindings
+        run: |
+          export CLASSPATH="${{ env.CLASSPATH }}"
+          cargo test --manifest-path bindings_ffi/Cargo.toml -- --test-threads=2
