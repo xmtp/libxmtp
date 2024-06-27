@@ -8,10 +8,14 @@ on:
 
 jobs:
   lint:
+    name: Lint
     runs-on: warp-ubuntu-latest-x64-8x
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Update rust toolchains
+        run: rustup update
 
       - name: Cache
         uses: Swatinem/rust-cache@v2
@@ -26,12 +30,6 @@ jobs:
       - name: Run format check
         run: cargo fmt --manifest-path bindings_node/Cargo.toml --check
 
-  prettier:
-    runs-on: warp-ubuntu-latest-x64-8x
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Setup node
         uses: actions/setup-node@v4
         with:
@@ -45,11 +43,11 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
+        working-directory: bindings_node
         run: |
-          cd bindings_node
           yarn
 
       - name: Format check
+        working-directory: bindings_node
         run: |
-          cd bindings_node
           yarn format:check
