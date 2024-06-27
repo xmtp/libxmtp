@@ -1,8 +1,10 @@
-name: GitHub Pages
+name: Deploy Docs to GitHub Pages
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - main
+
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
@@ -22,26 +24,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Setup Pages
         uses: actions/configure-pages@v2
 
-      - name: Install rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
+      - name: Update rust toolchains
+        run: rustup update
 
       - name: Invoke cargo doc
         run: ./dev/docs
         id: docgen
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v2
+      - name: Upload pages artifact
+        uses: actions/upload-pages-artifact@v3
 
   # Deployment job
   deploy:
@@ -53,4 +51,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v3
+        uses: actions/deploy-pages@v4
