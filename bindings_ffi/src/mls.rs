@@ -689,8 +689,7 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
         );
-        let add_member_policy: MembershipPolicies =
-            group.permissions()?.policies.add_member_policy;
+        let add_member_policy: MembershipPolicies = group.permissions()?.policies.add_member_policy;
         if let MembershipPolicies::Standard(policy) = add_member_policy {
             match policy {
                 BasePolicies::Allow => Ok(PermissionPolicy::Allow),
@@ -1204,7 +1203,9 @@ impl FfiGroupPermissions {
 #[cfg(test)]
 mod tests {
     use crate::{
-        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConversationCallback, FfiCreateGroupOptions, FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, GroupPermissions, MetadataField, PermissionPolicy
+        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
+        FfiConversationCallback, FfiCreateGroupOptions, FfiInboxOwner, FfiListConversationsOptions,
+        FfiListMessagesOptions, GroupPermissions, MetadataField, PermissionPolicy,
     };
     use std::{
         env,
@@ -2064,20 +2065,50 @@ mod tests {
         };
         let alix_group_admin_only = alix
             .conversations()
-            .create_group(
-                vec![bo.account_address.clone()],
-                admin_only_options,
-            )
+            .create_group(vec![bo.account_address.clone()], admin_only_options)
             .await
             .unwrap();
 
-        assert_eq!(alix_group_admin_only.add_members_permission_policy().unwrap(), PermissionPolicy::Admin);
-        assert_eq!(alix_group_admin_only.remove_members_permission_policy().unwrap(), PermissionPolicy::Admin);
-        assert_eq!(alix_group_admin_only.add_admin_permission_policy().unwrap(), PermissionPolicy::SuperAdmin);
-        assert_eq!(alix_group_admin_only.remove_admin_permission_policy().unwrap(), PermissionPolicy::SuperAdmin);
-        assert_eq!(alix_group_admin_only.metadata_permission_policy(MetadataField::GroupName).unwrap(), PermissionPolicy::Admin);
-        assert_eq!(alix_group_admin_only.metadata_permission_policy(MetadataField::Description).unwrap(), PermissionPolicy::Admin);
-        assert_eq!(alix_group_admin_only.metadata_permission_policy(MetadataField::GroupImageUrlSquare).unwrap(), PermissionPolicy::Admin);
+        assert_eq!(
+            alix_group_admin_only
+                .add_members_permission_policy()
+                .unwrap(),
+            PermissionPolicy::Admin
+        );
+        assert_eq!(
+            alix_group_admin_only
+                .remove_members_permission_policy()
+                .unwrap(),
+            PermissionPolicy::Admin
+        );
+        assert_eq!(
+            alix_group_admin_only.add_admin_permission_policy().unwrap(),
+            PermissionPolicy::SuperAdmin
+        );
+        assert_eq!(
+            alix_group_admin_only
+                .remove_admin_permission_policy()
+                .unwrap(),
+            PermissionPolicy::SuperAdmin
+        );
+        assert_eq!(
+            alix_group_admin_only
+                .metadata_permission_policy(MetadataField::GroupName)
+                .unwrap(),
+            PermissionPolicy::Admin
+        );
+        assert_eq!(
+            alix_group_admin_only
+                .metadata_permission_policy(MetadataField::Description)
+                .unwrap(),
+            PermissionPolicy::Admin
+        );
+        assert_eq!(
+            alix_group_admin_only
+                .metadata_permission_policy(MetadataField::GroupImageUrlSquare)
+                .unwrap(),
+            PermissionPolicy::Admin
+        );
 
         // Create all_members group
         let all_members_options = FfiCreateGroupOptions {
@@ -2086,19 +2117,51 @@ mod tests {
         };
         let alix_group_all_members = alix
             .conversations()
-            .create_group(
-                vec![bo.account_address.clone()],
-                all_members_options,
-            )
+            .create_group(vec![bo.account_address.clone()], all_members_options)
             .await
             .unwrap();
 
-            assert_eq!(alix_group_all_members.add_members_permission_policy().unwrap(), PermissionPolicy::Allow);
-            assert_eq!(alix_group_all_members.remove_members_permission_policy().unwrap(), PermissionPolicy::Admin);
-            assert_eq!(alix_group_all_members.add_admin_permission_policy().unwrap(), PermissionPolicy::SuperAdmin);
-            assert_eq!(alix_group_all_members.remove_admin_permission_policy().unwrap(), PermissionPolicy::SuperAdmin);
-            assert_eq!(alix_group_all_members.metadata_permission_policy(MetadataField::GroupName).unwrap(), PermissionPolicy::Allow);
-            assert_eq!(alix_group_all_members.metadata_permission_policy(MetadataField::Description).unwrap(), PermissionPolicy::Allow);
-            assert_eq!(alix_group_all_members.metadata_permission_policy(MetadataField::GroupImageUrlSquare).unwrap(), PermissionPolicy::Allow);
+        assert_eq!(
+            alix_group_all_members
+                .add_members_permission_policy()
+                .unwrap(),
+            PermissionPolicy::Allow
+        );
+        assert_eq!(
+            alix_group_all_members
+                .remove_members_permission_policy()
+                .unwrap(),
+            PermissionPolicy::Admin
+        );
+        assert_eq!(
+            alix_group_all_members
+                .add_admin_permission_policy()
+                .unwrap(),
+            PermissionPolicy::SuperAdmin
+        );
+        assert_eq!(
+            alix_group_all_members
+                .remove_admin_permission_policy()
+                .unwrap(),
+            PermissionPolicy::SuperAdmin
+        );
+        assert_eq!(
+            alix_group_all_members
+                .metadata_permission_policy(MetadataField::GroupName)
+                .unwrap(),
+            PermissionPolicy::Allow
+        );
+        assert_eq!(
+            alix_group_all_members
+                .metadata_permission_policy(MetadataField::Description)
+                .unwrap(),
+            PermissionPolicy::Allow
+        );
+        assert_eq!(
+            alix_group_all_members
+                .metadata_permission_policy(MetadataField::GroupImageUrlSquare)
+                .unwrap(),
+            PermissionPolicy::Allow
+        );
     }
 }
