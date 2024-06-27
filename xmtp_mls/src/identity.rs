@@ -1,6 +1,7 @@
 use std::array::TryFromSliceError;
 
 use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
+use crate::retry::RetryableError;
 use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
 use crate::storage::sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
@@ -12,7 +13,7 @@ use crate::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     XmtpApi,
 };
-use crate::{Fetch, Store};
+use crate::{retryable, Fetch, Store};
 use ed25519_dalek::SigningKey;
 use ethers::signers::WalletError;
 use log::debug;
@@ -117,10 +118,10 @@ pub enum IdentityError {
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
     WrappedApi(#[from] WrappedApiError),
-    #[error("installation not found: {0}")]
-    InstallationIdNotFound(String),
     #[error(transparent)]
     Api(#[from] xmtp_proto::api_client::Error),
+    #[error("installation not found: {0}")]
+    InstallationIdNotFound(String),
     #[error(transparent)]
     SignatureRequestBuilder(#[from] SignatureRequestError),
     #[error(transparent)]
@@ -161,6 +162,18 @@ pub enum IdentityError {
     RequiredIdentityNotFound,
     #[error("error creating new identity: {0}")]
     NewIdentity(String),
+}
+
+impl RetryableError for IdentityError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::Api(_) => true,
+            Self::WrappedApi(err) => retryable!(err),
+            Self::StorageError(err) => retryable!(err),
+            Self::OpenMlsStorageError(err) => retryable!(err),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

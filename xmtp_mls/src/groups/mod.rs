@@ -179,10 +179,14 @@ impl RetryableError for GroupError {
             Self::Diesel(diesel) => diesel.is_retryable(),
             Self::Storage(storage) => storage.is_retryable(),
             Self::ReceiveError(msg) => msg.is_retryable(),
+            Self::Hpke(hpke) => hpke.is_retryable(),
+            Self::Identity(identity) => identity.is_retryable(),
             Self::UpdateGroupMembership(update) => update.is_retryable(),
             Self::GroupCreate(group) => group.is_retryable(),
             Self::SelfUpdate(update) => update.is_retryable(),
             Self::WelcomeError(welcome) => welcome.is_retryable(),
+            Self::InstallationDiff(diff) => diff.is_retryable(),
+            Self::CreateGroupContextExtProposalError(create) => create.is_retryable(),
             _ => false,
         }
     }

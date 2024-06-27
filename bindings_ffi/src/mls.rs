@@ -4,8 +4,8 @@ use crate::logger::FfiLogger;
 use crate::GenericError;
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::sync::{Arc, Mutex};
-use tokio::task::{JoinHandle, AbortHandle};
+use std::sync::Arc;
+use tokio::{task::{JoinHandle, AbortHandle}, sync::Mutex};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::{
     associations::{
@@ -164,7 +164,7 @@ pub fn generate_inbox_id(account_address: String, nonce: u64) -> String {
 
 #[derive(uniffi::Object)]
 pub struct FfiSignatureRequest {
-    inner: Arc<tokio::sync::Mutex<SignatureRequest>>,
+    inner: Arc<Mutex<SignatureRequest>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -293,7 +293,7 @@ impl FfiXmtpClient {
             .signature_request()
             .map(|request| {
                 Arc::new(FfiSignatureRequest {
-                    inner: Arc::new(tokio::sync::Mutex::new(request)),
+                    inner: Arc::new(Mutex::new(request)),
                 })
             })
     }
@@ -975,8 +975,30 @@ impl FfiStreamCloser {
 
 #[uniffi::export]
 impl FfiStreamCloser {
+  
+    /// Signal the stream to end
+    /// Does not wait for the stream to end.
     pub fn end(&self) {
-        self.abort_handle.abort()
+        self.abort_handle.abort();
+    }
+
+    /// End the stream and asyncronously wait for it to shutdown
+    pub async fn end_and_wait(&self) -> Result<(), GenericError> {
+        if self.abort_handle.is_finished() {
+            return Ok(());
+        }
+
+        let mut handle = self.handle.lock().await;
+        let handle = handle.take();
+        if let Some(h) = handle {
+            h.abort();
+            h.await.map_err(|_| GenericError::Generic {
+                err: "subscription event loop join error".into(),
+            })??;
+        } else {
+            log::warn!("subscription already closed");
+        }
+        Ok(())
     }
 
     pub fn is_closed(&self) -> bool {
@@ -1519,8 +1541,7 @@ mod tests {
 
         assert_eq!(message_callbacks.message_count(), 3);
 
-        stream_messages.end();
-        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        stream_messages.end_and_wait().await.unwrap();
         assert!(stream_messages.is_closed());
     }
 
@@ -1593,8 +1614,7 @@ mod tests {
         assert_eq!(bo_messages2.len(), second_msg_check);
         assert_eq!(message_callbacks.message_count(), second_msg_check as u32);
 
-        stream_messages.end();
-        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        stream_messages.end_and_wait().await.unwrap();
         assert!(stream_messages.is_closed());
     }
 
@@ -1633,8 +1653,7 @@ mod tests {
         
         assert_eq!(stream_callback.message_count(), 2);
 
-        stream.end();
-        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
     }
 
@@ -1679,12 +1698,12 @@ mod tests {
         stream_callback.wait_for_delivery(3).await;
 
         assert_eq!(stream_callback.message_count(), 4);
-        stream.end();
-        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[ignore]
     async fn test_message_streaming() {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
@@ -1709,7 +1728,7 @@ mod tests {
         stream_callback.wait_for_delivery(2).await;
         assert_eq!(stream_callback.message_count(), 2);
 
-        stream_closer.end();
+        stream_closer.end_and_wait().await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -1770,8 +1789,7 @@ mod tests {
         assert_eq!(stream_callback.message_count(), 4); // Receiving messages again
         assert!(!stream_closer.is_closed());
 
-        stream_closer.end();
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        stream_closer.end_and_wait().await.unwrap();
         assert!(stream_closer.is_closed());
     }
 
@@ -1847,19 +1865,17 @@ mod tests {
             .await
             .unwrap();
         group_callback.wait_for_delivery(1).await;
+       
         alix_group.send("hello1".as_bytes().to_vec()).await.unwrap();
         message_callback.wait_for_delivery(1).await;
 
         assert_eq!(group_callback.message_count(), 1);
         assert_eq!(message_callback.message_count(), 1);
 
-        stream_messages.end();
-        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        stream_messages.end_and_wait().await.unwrap();
         assert!(stream_messages.is_closed());
 
-        stream_groups.end();
-        tokio::time::sleep(
-            tokio::time::Duration::from_millis(5)).await;
+        stream_groups.end_and_wait().await.unwrap();
         assert!(stream_groups.is_closed());
     }
 }

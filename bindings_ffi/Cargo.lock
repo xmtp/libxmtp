@@ -206,16 +206,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-barrier"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04b50fe84d0aea412a4e751cb01b9e26e2be533b2708607c2a2a739b192ee45a"
-dependencies = [
- "async-mutex",
- "event-listener",
-]
-
-[[package]]
 name = "async-compat"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -226,15 +216,6 @@ dependencies = [
  "once_cell",
  "pin-project-lite",
  "tokio",
-]
-
-[[package]]
-name = "async-mutex"
-version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "479db852db25d9dbf6204e6cb6253698f175c15726470f78af0d918e99d6156e"
-dependencies = [
- "event-listener",
 ]
 
 [[package]]
@@ -1313,7 +1294,7 @@ dependencies = [
  "sha2",
  "sha3",
  "thiserror",
- "uuid",
+ "uuid 0.8.2",
 ]
 
 [[package]]
@@ -1611,12 +1592,6 @@ dependencies = [
  "walkdir",
  "yansi",
 ]
-
-[[package]]
-name = "event-listener"
-version = "2.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0206175f82b8d6bf6652ff7d71a1e27fd2e4efde587fd368662814d6ec1d9ce0"
 
 [[package]]
 name = "eyre"
@@ -2854,7 +2829,6 @@ name = "openmls"
 version = "0.5.0"
 source = "git+https://github.com/xmtp/openmls?rev=9cb3207#9cb3207b077fcf6bc327408dfcf3df6237aec49c"
 dependencies = [
- "backtrace",
  "itertools 0.10.5",
  "log",
  "once_cell",
@@ -5437,6 +5411,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "uuid"
+version = "1.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5de17fd2f7da591098415cff336e12965a28061ddace43b59cb3c430179c9439"
+dependencies = [
+ "getrandom",
+ "rand",
+]
+
+[[package]]
 name = "valuable"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6044,7 +6028,6 @@ dependencies = [
 name = "xmtpv3"
 version = "0.1.0"
 dependencies = [
- "async-barrier",
  "env_logger",
  "ethers",
  "ethers-core",
@@ -6058,6 +6041,7 @@ dependencies = [
  "tracing-subscriber",
  "uniffi",
  "uniffi_macros",
+ "uuid 1.9.1",
  "xmtp_api_grpc",
  "xmtp_cryptography",
  "xmtp_id",

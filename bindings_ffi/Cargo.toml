@@ -40,7 +40,6 @@ name = "ffi-uniffi-bindgen"
 path = "src/bin.rs"
 
 [dev-dependencies]
-async-barrier = "1.1"
 ethers = "2.0.13"
 ethers-core = "2.0.13"
 tempfile = "3.5.0"
@@ -48,6 +47,7 @@ tokio = { version = "1.28.1", features = ["full"] }
 tokio-test = "0.4"
 uniffi = { version = "0.27.2", features = ["bindgen-tests"] }
 tracing-subscriber = "0.3"
+uuid = { version = "1.9", features = ["v4", "fast-rng" ] }
 
 # NOTE: The release profile reduces bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093

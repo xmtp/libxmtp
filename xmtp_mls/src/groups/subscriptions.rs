@@ -33,7 +33,6 @@ impl MlsGroup {
         let created_ns = msgv1.created_ns;
 
         let client_pointer = client.clone();
-
         let process_result = retry_async!(
             Retry::default(),
             (async {

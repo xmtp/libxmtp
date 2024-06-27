@@ -2687,7 +2687,6 @@ source = "git+https://github.com/xmtp/openmls?rev=99b2d5e7d0e034ac57644395e2194c
 source = "git+https://github.com/xmtp/openmls?rev=9cb3207#9cb3207b077fcf6bc327408dfcf3df6237aec49c"
 >>>>>>> dd206b6ad4c7d454ce73f736b9f59ea92728d551
 dependencies = [
- "backtrace",
  "itertools 0.10.5",
  "log",
  "once_cell",

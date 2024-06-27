@@ -1,6 +1,8 @@
 use crate::{
     configuration::{CIPHERSUITE, WELCOME_HPKE_LABEL},
-    storage::sql_key_store::KEY_PACKAGE_REFERENCES,
+    retry::RetryableError,
+    retryable,
+    storage::sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
 use openmls::{
@@ -22,8 +24,19 @@ pub enum HpkeError {
     Hpke(#[from] OpenmlsHpkeError),
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
+    #[error("Storage error: {0}")]
+    StorageError(#[from] SqlKeyStoreError),
     #[error("Key not found")]
     KeyNotFound,
+}
+
+impl RetryableError for HpkeError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::StorageError(storage) => retryable!(storage),
+            _ => false,
+        }
+    }
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -52,21 +65,13 @@ pub fn decrypt_welcome(
 
     let serialized_hpke_public_key = hpke_public_key.tls_serialize_detached()?;
 
-    let hash_ref: Option<KeyPackageRef> = match provider
+    let hash_ref: Option<KeyPackageRef> = provider
         .storage()
-        .read(KEY_PACKAGE_REFERENCES, &serialized_hpke_public_key)
-    {
-        Ok(hash_ref) => hash_ref,
-        Err(_) => return Err(HpkeError::KeyNotFound),
-    };
+        .read(KEY_PACKAGE_REFERENCES, &serialized_hpke_public_key)?;
 
     if let Some(hash_ref) = hash_ref {
         // With the hash reference we can read the key package.
-        let key_package: Option<KeyPackageBundle> = match provider.storage().key_package(&hash_ref)
-        {
-            Ok(key_package) => key_package,
-            Err(_) => return Err(HpkeError::KeyNotFound),
-        };
+        let key_package: Option<KeyPackageBundle> = provider.storage().key_package(&hash_ref)?;
 
         if let Some(kp) = key_package {
             return Ok(decrypt_with_label(
