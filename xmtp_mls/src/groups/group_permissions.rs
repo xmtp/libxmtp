@@ -46,6 +46,8 @@ pub enum GroupMutablePermissionsError {
     MissingPolicies,
     #[error("missing extension")]
     MissingExtension,
+    #[error("invalid permission policy option")]
+    InvalidPermissionPolicyOption,
 }
 
 #[derive(Debug, Clone, PartialEq)]

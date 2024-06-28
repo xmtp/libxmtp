@@ -2,7 +2,7 @@ pub mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
 pub mod group_permissions;
-mod intents;
+pub mod intents;
 pub mod members;
 #[allow(dead_code)]
 pub(crate) mod message_history;
@@ -172,6 +172,8 @@ pub enum GroupError {
     InstallationDiff(#[from] InstallationDiffError),
     #[error("PSKs are not support")]
     NoPSKSupport,
+    #[error("Metadata update must specify a metadata field")]
+    InvalidPermissionUpdate,
 }
 
 impl RetryableError for GroupError {
@@ -619,17 +621,27 @@ impl MlsGroup {
             .await
     }
 
-    pub async fn update_add_members_permission_policy<ApiClient: XmtpApi>(
+    pub async fn update_permission_policy<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
+        permission_update_type: PermissionUpdateType,
         permission_policy: PermissionPolicyOption,
+        metadata_field: Option<MetadataField>,
     ) -> Result<(), GroupError> {
         let conn = client.store().conn()?;
 
+        if permission_update_type == PermissionUpdateType::UpdateMetadata
+            && metadata_field.is_none()
+        {
+            return Err(GroupError::InvalidPermissionUpdate);
+        }
+
         let intent_data: Vec<u8> = UpdatePermissionIntentData::new(
-            PermissionUpdateType::AddMember,
+            permission_update_type,
             permission_policy,
-            None,
+            metadata_field
+                .as_ref()
+                .map_or(None, |field| Some(field.to_string())),
         )
         .into();
 
@@ -1095,7 +1107,7 @@ mod tests {
             group_membership::GroupMembership,
             group_metadata::{ConversationType, GroupMetadata},
             group_mutable_metadata::MetadataField,
-            intents::PermissionPolicyOption,
+            intents::{PermissionPolicyOption, PermissionUpdateType},
             members::{GroupMember, PermissionLevel},
             GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
         },
@@ -2406,7 +2418,7 @@ mod tests {
 
         // Step 4: Bola attempts to update permissions but fails because they are not a super admin
         let result = bola_group
-            .update_add_members_permission_policy(&bola, PermissionPolicyOption::Allow)
+            .update_permission_policy(&bola, PermissionUpdateType::AddMember, PermissionPolicyOption::Allow, None)
             .await;
         if let Err(e) = &result {
             eprintln!("Error updating permissions: {:?}", e);
@@ -2416,7 +2428,7 @@ mod tests {
 
         // Step 5: Amal updates group permissions so that all members can add
         amal_group
-            .update_add_members_permission_policy(&amal, PermissionPolicyOption::Allow)
+            .update_permission_policy(&amal, PermissionUpdateType::AddMember, PermissionPolicyOption::Allow, None)
             .await
             .unwrap();
 
