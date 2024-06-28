@@ -639,9 +639,7 @@ impl MlsGroup {
         let intent_data: Vec<u8> = UpdatePermissionIntentData::new(
             permission_update_type,
             permission_policy,
-            metadata_field
-                .as_ref()
-                .map_or(None, |field| Some(field.to_string())),
+            metadata_field.as_ref().map(|field| field.to_string()),
         )
         .into();
 
