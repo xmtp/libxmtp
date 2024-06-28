@@ -515,13 +515,11 @@ impl MlsGroup {
         if inbox_id_map.len() != account_addresses.len() {
             let found_addresses: HashSet<&String> = inbox_id_map.keys().collect();
             let to_add_hashset = HashSet::from_iter(account_addresses.iter());
-            // self.pre_intent_hook(client).await?;
             let missing_addresses = found_addresses.difference(&to_add_hashset);
             return Err(GroupError::AddressNotFound(
                 missing_addresses.into_iter().cloned().cloned().collect(),
             ));
         }
-        // self.pre_intent_hook(client).await?;
         self.add_members_by_inbox_id(client, inbox_id_map.into_values().collect())
             .await
     }
@@ -1488,64 +1486,69 @@ mod tests {
         assert_eq!(bola_messages.len(), 1);
     }
 
-    // #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    // async fn test_pre_intent_hook() {
-    //     let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    //     let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_pre_intent_hook() {
+        let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-    //     // client A makes a group with client B.
-    //     let group = client_a.create_group(None, GroupMetadataOptions::default()).expect("create group");
-    //     group
-    //         .add_members_by_inbox_id(&client_a, vec![client_b.inbox_id()])
-    //         .await
-    //         .unwrap();
+        // client A makes a group with client B.
+        let group = client_a.create_group(None, GroupMetadataOptions::default()).expect("create group");
+        let mut messages = client_a.api_client.query_group_messages(group.group_id.clone(), None).await.unwrap();
+        assert_eq!(messages.len(), 0);
 
-    //     // client B creates it from welcome.
-    //     let client_b_group = receive_group_invite(&client_b).await;
-    //     client_b_group.sync(&client_b).await.unwrap();
 
-    //     // verify no new payloads on client A.
-    //     let mut messages = client_a.api_client.query_group_messages(group.group_id.clone(), None).await.unwrap();
-    //     assert_eq!(messages.len(), 0);
+        group
+            .add_members_by_inbox_id(&client_a, vec![client_b.inbox_id()])
+            .await
+            .unwrap();
 
-    //     // call pre_intent_hook on client B.
-    //     group.pre_intent_hook(&client_b).await.unwrap();
+        // client B creates it from welcome.
+        let client_b_group = receive_group_invite(&client_b).await;
+        client_b_group.sync(&client_b).await.unwrap();
+
+        // verify no new payloads on client A.
+        messages = client_a.api_client.query_group_messages(group.group_id.clone(), None).await.unwrap();
+        assert_eq!(messages.len(), 3);
+
+        // call pre_intent_hook on client B. No new message request because we have updated the `rotated_time` which is not equal to 0 now.
+        group.pre_intent_hook(&client_b).await.unwrap();
+        messages = client_a.api_client.query_group_messages(group.group_id.clone(), None).await.unwrap();
+        assert_eq!(messages.len(),3);
+
+        // can key_update on client B. We have one more queried message. 
+        group.key_update(&client_b).await.unwrap();
+        messages = client_a.api_client.query_group_messages(group.group_id.clone(), None).await.unwrap();
+        assert_eq!(messages.len(),4);
         
-    //     // Verify client A receives a key rotation payload
-    //     messages = client_a.api_client.query_group_messages(group.group_id.clone(), None).await.unwrap();
-    //     assert_eq!(messages.len(), 1);
+        // Verify client A receives a key rotation payload
 
-    //     let first_message = &messages[0];
+        let first_message = &messages[messages.len()-1];
 
-    //     let msgv1 = match &first_message.version {
-    //         Some(GroupMessageVersion::V1(value)) => value,
-    //         _ => panic!("error msgv1"),
-    //     };
+        let msgv1 = match &first_message.version {
+            Some(GroupMessageVersion::V1(value)) => value,
+            _ => panic!("error msgv1"),
+        };
         
-    //     let mls_message_in = MlsMessageIn::tls_deserialize_exact(&msgv1.data).unwrap();
-    //     let deserialized_message = match mls_message_in.extract() {
-    //          MlsMessageBodyIn::PrivateMessage(deserialized_message) => deserialized_message,
-    //          _ => panic!("error decentralized message"),
-    //     };
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&msgv1.data).unwrap();
+        let mls_message = match mls_message_in.extract() {
+             MlsMessageBodyIn::PrivateMessage(mls_message) => mls_message,
+             _ => panic!("error mls_message"),
+        };
 
-    //     let conn = &client_a.context.store.conn().unwrap();
-    //     let provider = super::XmtpOpenMlsProvider::new(conn.clone());
-    //     let mut openmls_group = group.load_mls_group(provider.clone()).unwrap();
-    //     let openmls_group_ref: &mut OpenMlsGroup = &mut openmls_group;
-    //     let decrypted_message = openmls_group_ref.process_message(&provider, deserialized_message).unwrap();
+        let conn = &client_a.context.store.conn().unwrap();
+        let provider = client_a.mls_provider(conn.clone());
+        let mut openmls_group = group.load_mls_group(&provider).unwrap();
+        let decrypted_message = openmls_group.process_message(&provider, mls_message).unwrap();
 
-    //     let staged_commit = match decrypted_message.into_content(){
-    //         ProcessedMessageContent::StagedCommitMessage(staged_commit) => *staged_commit,
-    //         _ => panic!("error staged_commit"),
-    //     };
+        // let staged_commit = match decrypted_message.into_content(){
+        //     ProcessedMessageContent::StagedCommitMessage(staged_commit) => *staged_commit,
+        //     _ => panic!("error staged_commit"),
+        // };
 
-    //     for proposal in staged_commit.queued_proposals() {
-    //         match proposal.proposal() {
-    //             Proposal::Update(_) => {},
-    //             _ => panic!("error proposal"),
-    //         }
-    //     };
-    // }
+        // let leaf_node = match staged_commit.update_path_leaf_node(){
+        //     Some()
+        // };
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_post_commit() {
