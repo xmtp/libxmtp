@@ -884,12 +884,6 @@ impl FfiGroup {
         Ok(())
     }
 
-    pub async fn add_super_admin_permission_policy(
-        &self,
-    ) -> Result<FfiPermissionPolicy, GenericError> {
-        Ok(FfiPermissionPolicy::SuperAdmin)
-    }
-
     pub async fn remove_super_admin(&self, inbox_id: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
@@ -905,16 +899,6 @@ impl FfiGroup {
             .await?;
 
         Ok(())
-    }
-
-    pub async fn remove_super_admin_permission_policy(
-        &self,
-    ) -> Result<FfiPermissionPolicy, GenericError> {
-        Ok(FfiPermissionPolicy::SuperAdmin)
-    }
-
-    pub async fn update_permissions_policy(&self) -> Result<FfiPermissionPolicy, GenericError> {
-        Ok(FfiPermissionPolicy::SuperAdmin)
     }
 
     pub fn group_permissions(&self) -> Result<Arc<FfiGroupPermissions>, GenericError> {
