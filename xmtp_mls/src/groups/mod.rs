@@ -2418,7 +2418,12 @@ mod tests {
 
         // Step 4: Bola attempts to update permissions but fails because they are not a super admin
         let result = bola_group
-            .update_permission_policy(&bola, PermissionUpdateType::AddMember, PermissionPolicyOption::Allow, None)
+            .update_permission_policy(
+                &bola,
+                PermissionUpdateType::AddMember,
+                PermissionPolicyOption::Allow,
+                None,
+            )
             .await;
         if let Err(e) = &result {
             eprintln!("Error updating permissions: {:?}", e);
@@ -2428,7 +2433,12 @@ mod tests {
 
         // Step 5: Amal updates group permissions so that all members can add
         amal_group
-            .update_permission_policy(&amal, PermissionUpdateType::AddMember, PermissionPolicyOption::Allow, None)
+            .update_permission_policy(
+                &amal,
+                PermissionUpdateType::AddMember,
+                PermissionPolicyOption::Allow,
+                None,
+            )
             .await
             .unwrap();
 
