@@ -4,6 +4,7 @@ on:
   pull_request:
     # ignore code and some workflow changes
     paths:
+      - "**"
       - "!.github/workflows/lint-ffi-bindings.yml"
       - "!.github/workflows/lint-node-bindings.yml"
       - "!.github/workflows/lint-workspace.yml"
@@ -20,6 +21,7 @@ on:
       - "!xmtp_mls/**"
       - "!xmtp_proto/**"
       - "!xmtp_v2/**"
+      - "!.node-version"
       - "!Cargo.toml"
       - "!Cargo.lock"
       - "!rust-toolchain"
