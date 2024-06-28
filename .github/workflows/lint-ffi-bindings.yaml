@@ -8,6 +8,7 @@ on:
     paths:
       - "bindings_ffi/**"
       - ".github/workflows/lint-ffi-bindings.yaml"
+      - "rustfmt.toml"
 
 jobs:
   lint:

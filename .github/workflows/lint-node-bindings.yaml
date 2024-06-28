@@ -5,6 +5,7 @@ on:
     paths:
       - "bindings_node/**"
       - ".github/workflows/lint-node-bindings.yaml"
+      - "rustfmt.toml"
 
 jobs:
   lint:

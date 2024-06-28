@@ -18,6 +18,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain"
+      - "rustfmt.toml"
 
 jobs:
   lint:
