@@ -34,6 +34,12 @@ jobs:
       - name: Update rust toolchains
         run: rustup update
 
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+
       - name: Invoke cargo doc
         run: ./dev/docs
         id: docgen
