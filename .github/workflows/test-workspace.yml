@@ -32,6 +32,9 @@ jobs:
       - name: Update rust toolchains
         run: rustup update
 
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
