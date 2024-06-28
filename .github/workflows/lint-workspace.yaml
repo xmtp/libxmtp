@@ -41,4 +41,4 @@ jobs:
         run: cargo clippy --all-features --all-targets --no-deps -- -Dwarnings
 
       - name: Run format check
-        run: cargo fmt -- -Dwarnings
+        run: cargo fmt --check
