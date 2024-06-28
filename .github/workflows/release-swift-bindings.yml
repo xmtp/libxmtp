@@ -9,45 +9,42 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [aarch64-apple-ios, x86_64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-darwin, aarch64-apple-darwin]
+        target:
+          - aarch64-apple-ios
+          - x86_64-apple-ios
+          - aarch64-apple-ios-sim
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
 
-      - name: "Cache"
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ./target/${{ matrix.target }}
-          key: ${{ matrix.target }}-${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
+      - name: Update rust toolchains, add target
+        run: |
+          rustup update
+          rustup target add ${{ matrix.target }}
 
-      - name: Install rust
-        uses: actions-rs/toolchain@v1
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
         with:
-          toolchain: stable
-          profile: minimal
-          override: true
-          target: ${{ matrix.target }}
+          workspaces: |
+            .
+            bindings_ffi
 
       # Install latest cross to mitigate unwind linking issue on android builds.
       # See https://github.com/cross-rs/cross/issues/1222
-      - name: Install rust cross
+      - name: Install cross
         run: |
           cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Build target
-        uses: actions-rs/cargo@v1
-        env: 
+        env:
           CROSS_NO_WARNINGS: "0"
-        with:
-          use-cross: true
-          command: build
-          args: --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml --target-dir bindings_ffi/target
+        run: |
+          cross build --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml --target-dir bindings_ffi/target
 
       - name: Upload binary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
           path: bindings_ffi/target/${{ matrix.target }}/release/libxmtpv3.a
@@ -57,30 +54,30 @@ jobs:
     runs-on: warp-macos-13-arm64-6x
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
+
+      - name: Update rust toolchains, add target
+        run: |
+          rustup update
+          rustup target add x86_64-apple-darwin
+
       - name: Cache
-        uses: actions/cache@v3
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ./target/release
-          key: ${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
-      - name: Install rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-          target: x86_64-apple-darwin
+          workspaces: |
+            .
+            bindings_ffi
+
       - name: Install swift
         run: brew install swiftformat
+
       - name: Generate bindings
         working-directory: bindings_ffi
         run: |
           make swift
+
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: swift
           path: bindings_ffi/build/swift/
@@ -91,10 +88,10 @@ jobs:
     runs-on: warp-macos-13-arm64-6x
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
 
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: bindings_ffi/build
 
@@ -117,7 +114,7 @@ jobs:
         id: slug
         run: echo "::set-output name=sha7::$(echo ${GITHUB_SHA} | cut -c1-7)"
 
-      - name: Create Release
+      - name: Create release
         id: create_release
         uses: actions/create-release@v1
         env:
@@ -129,7 +126,7 @@ jobs:
           draft: false
           prerelease: true
 
-      - name: Upload Release Asset
+      - name: Upload release asset
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

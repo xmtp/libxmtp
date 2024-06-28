@@ -1,0 +1,36 @@
+name: Lint FFI Bindings
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    paths:
+      - "bindings_ffi/**"
+      - ".github/workflows/lint-ffi-bindings.yaml"
+      - "rustfmt.toml"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: warp-ubuntu-latest-x64-16x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update rust toolchains
+        run: rustup update
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            bindings_ffi
+
+      - name: Run clippy and fail on warnings
+        run: cargo clippy --manifest-path bindings_ffi/Cargo.toml --all-features --all-targets --no-deps -- -Dwarnings
+
+      - name: Run format check
+        run: cargo fmt --manifest-path bindings_ffi/Cargo.toml --check
