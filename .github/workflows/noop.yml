@@ -1,0 +1,37 @@
+name: No Op
+
+on:
+  pull_request:
+    # ignore code changes
+    paths-ignore:
+      - "bindings_ffi/**"
+      - "bindings_node/**"
+      - "dev/**"
+      - "mls_validation_service/**"
+      - "xmtp_api_grpc/**"
+      - "xmtp_cryptography/**"
+      - "xmtp_id/**"
+      - "xmtp_mls/**"
+      - "xmtp_proto/**"
+      - "xmtp_v2/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain"
+      - "rustfmt.toml"
+
+# Test and Lint steps are required for pull requests, but some file changes
+# don't require them to run. These jobs define the required steps for these
+# cases, but don't actually do anything.
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Nothing to test"
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Nothing to lint"
