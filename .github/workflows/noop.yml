@@ -2,7 +2,7 @@ name: No Op
 
 on:
   pull_request:
-    # ignore code changes
+    # ignore code and some workflow changes
     paths:
       - "!.github/workflows/lint-ffi-bindings.yml"
       - "!.github/workflows/lint-node-bindings.yml"
