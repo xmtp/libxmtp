@@ -69,7 +69,7 @@ mod tests {
     // #[traced_test]
     fn setup() {
         // Capture logs (e.g. log::info!()) as traces too
-        let _ = tracing_subscriber::fmt::try_init();
+        let _ = tracing_log::LogTracer::init_with_filter(LevelFilter::Debug); 
     }
 
     /// Note: tests that use this must have the #[traced_test] attribute
