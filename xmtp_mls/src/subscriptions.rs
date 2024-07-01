@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt, FutureExt};
 use prost::Message;
 use tokio::{
     sync::mpsc::self,
@@ -23,7 +23,7 @@ use crate::{
     Client, XmtpApi,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct MessagesStreamInfo {
     pub convo_created_at_ns: i64,
     pub cursor: u64,
@@ -131,7 +131,8 @@ where
 
         Ok(Box::pin(stream))
     }
-
+    
+    #[tracing::instrument(skip(self, group_id_to_info))]
     pub(crate) async fn stream_messages(
         self: Arc<Self>,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
@@ -221,6 +222,7 @@ where
     pub async fn stream_all_messages(
         client: Arc<Client<ApiClient>>,
     ) -> Result<impl Stream<Item = StoredGroupMessage>, ClientError> {
+        
         //TODO:insipx backpressure
         let (tx, rx) = mpsc::unbounded_channel();
 
@@ -232,7 +234,7 @@ where
             let client = client.clone();
             let mut messages_stream = client.clone().stream_messages(group_id_to_info.clone()).await?;
             let mut convo_stream = Self::stream_conversations(&client).await?;
-
+            
             loop {
                 tokio::select! {
                     // biased enforces an order to select!. If a message and a group are both ready
@@ -243,18 +245,24 @@ where
                     Some(message) = messages_stream.next() => {
                         // an error can only mean the receiver has been dropped or closed so we're
                         // safe to end the stream
+                        println!("MESSAGE {}", String::from_utf8_lossy(&message.decrypted_message_bytes));
                         if tx.send(message).is_err() {
                             break;
                         }
                     }
                     Some(new_group) = convo_stream.next() => {
+                        if tx.is_closed() {
+                            break;
+                        }
+                        println!("NEW GROUP ID: {:?}", new_group.group_id);
                         if group_id_to_info.contains_key(&new_group.group_id) {
                             continue;
                         }
-                        // messages_stream.cancel(); 
+                        
                         for info in group_id_to_info.values_mut() {
                             info.cursor = 0;
                         }
+                        println!("STREAMING MESSAGES FROM NEW GROUP");
                         group_id_to_info.insert(
                             new_group.group_id,
                             MessagesStreamInfo {
@@ -262,7 +270,11 @@ where
                                 cursor: 1, // For the new group, stream all messages since the group was created
                             },
                         );
+                        
+                        let is_there = messages_stream.next().now_or_never();
+                        println!("IS THERE {:?}", is_there);
                         messages_stream = client.clone().stream_messages(group_id_to_info.clone()).await?;
+                        println!("SETUP NEW STREAM");
                     },
                 }
             }
@@ -351,29 +363,33 @@ mod tests {
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let messages_clone = messages.clone();
         
+        let notify = Arc::new(tokio::sync::Notify::new());
+        let notify_pointer = notify.clone();
         Client::<GrpcClient>::stream_all_messages_with_callback(Arc::new(caro), move |message| {
             (*messages_clone.lock().unwrap()).push(message);
+            notify_pointer.notify_one();
         });
-
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         alix_group
             .send_message("first".as_bytes(), &alix)
             .await
             .unwrap();
+        notify.notified().await;
         bo_group
             .send_message("second".as_bytes(), &bo)
             .await
             .unwrap();
+        notify.notified().await;
         alix_group
             .send_message("third".as_bytes(), &alix)
             .await
             .unwrap();
+        notify.notified().await;
         bo_group
             .send_message("fourth".as_bytes(), &bo)
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        notify.notified().await;
 
         let messages = messages.lock().unwrap();
         for message in messages.iter() {
@@ -388,7 +404,7 @@ mod tests {
         assert_eq!(messages[3].decrypted_message_bytes, b"fourth");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_stream_all_messages_changing_group_list() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -440,7 +456,7 @@ mod tests {
             .await
             .unwrap();
         notify.notified().await;
-
+        
         let alix_group_2 = alix
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
@@ -448,6 +464,9 @@ mod tests {
             .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
             .unwrap();
+        // theres missed messages here, both in new & old stream_all_messages
+        // if a
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         alix_group
             .send_message("fourth".as_bytes(), &alix)
@@ -472,7 +491,7 @@ mod tests {
         assert!(a.is_finished());
 
         alix_group
-            .send_message("first".as_bytes(), &alix)
+            .send_message("should not show up".as_bytes(), &alix)
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
