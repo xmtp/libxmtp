@@ -24,5 +24,4 @@ thiserror = { workspace = true }
 ws = ["ethers/ws"]
 
 [dev-dependencies]
-
 tokio = { version = "1.28.1", features = ["rt", "macros"] }

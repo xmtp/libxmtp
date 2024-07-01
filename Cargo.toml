@@ -36,7 +36,7 @@ futures = "0.3.30"
 futures-core = "0.3.30"
 hex = "0.4.3"
 log = { version = "0.4", features = ["release_max_level_debug"] }
-openmls = { git = "https://github.com/xmtp/openmls", rev = "9cb3207", default_features = false }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "9cb3207", default-features = false }
 openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "9cb3207" }
 openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "9cb3207" }
 openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "9cb3207" }
