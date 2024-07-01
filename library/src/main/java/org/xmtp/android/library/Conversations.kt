@@ -2,16 +2,13 @@ package org.xmtp.android.library
 
 import android.util.Log
 import com.google.protobuf.kotlin.toByteString
-import io.grpc.StatusException
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.launch
 import org.xmtp.android.library.GRPCApiClient.Companion.makeQueryRequest
-import org.xmtp.android.library.GRPCApiClient.Companion.makeSubscribeRequest
+import org.xmtp.android.library.Util.Companion.envelopeFromFFi
 import org.xmtp.android.library.libxmtp.MessageV3
 import org.xmtp.android.library.messages.DecryptedMessage
 import org.xmtp.android.library.messages.Envelope
@@ -42,11 +39,16 @@ import org.xmtp.proto.message.contents.Invitation
 import uniffi.xmtpv3.FfiConversationCallback
 import uniffi.xmtpv3.FfiConversations
 import uniffi.xmtpv3.FfiCreateGroupOptions
+import uniffi.xmtpv3.FfiEnvelope
 import uniffi.xmtpv3.FfiGroup
 import uniffi.xmtpv3.FfiListConversationsOptions
 import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
+import uniffi.xmtpv3.FfiV2SubscribeRequest
+import uniffi.xmtpv3.FfiV2Subscription
+import uniffi.xmtpv3.FfiV2SubscriptionCallback
 import uniffi.xmtpv3.GroupPermissions
+import uniffi.xmtpv3.NoPointer
 import java.util.Date
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.DurationUnit
@@ -354,23 +356,24 @@ data class Conversations(
             }.toMutableMap()
         }
 
-        topics.forEach {
+        topics.iterator().forEach {
             val conversation = it.value
             val hmacKeys = HmacKeys.newBuilder()
             if (conversation.keyMaterial != null) {
-                (thirtyDayPeriodsSinceEpoch - 1..thirtyDayPeriodsSinceEpoch + 1).forEach { value ->
-                    val info = "$value-${client.address}"
-                    val hmacKey =
-                        Crypto.deriveKey(
-                            conversation.keyMaterial!!,
-                            ByteArray(0),
-                            info.toByteArray(Charsets.UTF_8),
-                        )
-                    val hmacKeyData = HmacKeyData.newBuilder()
-                    hmacKeyData.hmacKey = hmacKey.toByteString()
-                    hmacKeyData.thirtyDayPeriodsSinceEpoch = value
-                    hmacKeys.addValues(hmacKeyData)
-                }
+                (thirtyDayPeriodsSinceEpoch - 1..thirtyDayPeriodsSinceEpoch + 1).iterator()
+                    .forEach { value ->
+                        val info = "$value-${client.address}"
+                        val hmacKey =
+                            Crypto.deriveKey(
+                                conversation.keyMaterial!!,
+                                ByteArray(0),
+                                info.toByteArray(Charsets.UTF_8),
+                            )
+                        val hmacKeyData = HmacKeyData.newBuilder()
+                        hmacKeyData.hmacKey = hmacKey.toByteString()
+                        hmacKeyData.thirtyDayPeriodsSinceEpoch = value
+                        hmacKeys.addValues(hmacKeyData)
+                    }
                 hmacKeysResponse.putHmacKeys(conversation.topic, hmacKeys.build())
             }
         }
@@ -555,30 +558,40 @@ data class Conversations(
      * of the information of those conversations according to the topics
      * @return Stream of data information for the conversations
      */
-    fun stream(): Flow<Conversation> = flow {
+    fun stream(): Flow<Conversation> = callbackFlow {
         val streamedConversationTopics: MutableSet<String> = mutableSetOf()
-        client.subscribe(
-            listOf(
-                Topic.userIntro(client.address).description,
-                Topic.userInvite(client.address).description
-            )
-        ).collect { envelope ->
-            if (envelope.contentTopic == Topic.userIntro(client.address).description) {
-                val conversationV1 = fromIntro(envelope = envelope)
-                if (!streamedConversationTopics.contains(conversationV1.topic)) {
-                    streamedConversationTopics.add(conversationV1.topic)
-                    emit(conversationV1)
+        val subscriptionCallback = object : FfiV2SubscriptionCallback {
+            override fun onMessage(message: FfiEnvelope) {
+                val envelope = envelopeFromFFi(message)
+                if (envelope.contentTopic == Topic.userIntro(client.address).description) {
+                    val conversationV1 = fromIntro(envelope = envelope)
+                    if (!streamedConversationTopics.contains(conversationV1.topic)) {
+                        streamedConversationTopics.add(conversationV1.topic)
+                        trySend(conversationV1)
+                    }
                 }
-            }
 
-            if (envelope.contentTopic == Topic.userInvite(client.address).description) {
-                val conversationV2 = fromInvite(envelope = envelope)
-                if (!streamedConversationTopics.contains(conversationV2.topic)) {
-                    streamedConversationTopics.add(conversationV2.topic)
-                    emit(conversationV2)
+                if (envelope.contentTopic == Topic.userInvite(client.address).description) {
+                    val conversationV2 = fromInvite(envelope = envelope)
+                    if (!streamedConversationTopics.contains(conversationV2.topic)) {
+                        streamedConversationTopics.add(conversationV2.topic)
+                        trySend(conversationV2)
+                    }
                 }
             }
         }
+
+        val stream = client.subscribe2(
+            FfiV2SubscribeRequest(
+                listOf(
+                    Topic.userIntro(client.address).description,
+                    Topic.userInvite(client.address).description
+                )
+            ),
+            subscriptionCallback
+        )
+
+        awaitClose { launch { stream.end() } }
     }
 
     fun streamAll(): Flow<Conversation> {
@@ -640,7 +653,7 @@ data class Conversations(
      * @return Flow object of [DecodedMessage] that represents all the messages of the
      * current [Client] as userInvite and userIntro
      */
-    private fun streamAllV2Messages(): Flow<DecodedMessage> = flow {
+    private fun streamAllV2Messages(): Flow<DecodedMessage> = callbackFlow {
         val topics = mutableListOf(
             Topic.userInvite(client.address).description,
             Topic.userIntro(client.address).description,
@@ -650,49 +663,44 @@ data class Conversations(
             topics.add(conversation.topic)
         }
 
-        val subscribeFlow = MutableStateFlow(makeSubscribeRequest(topics))
+        val subscriptionRequest = FfiV2SubscribeRequest(topics)
+        var stream = FfiV2Subscription(NoPointer)
 
-        while (true) {
-            try {
-                client.subscribe2(request = subscribeFlow).collect { envelope ->
-                    when {
-                        conversationsByTopic.containsKey(envelope.contentTopic) -> {
-                            val conversation = conversationsByTopic[envelope.contentTopic]
-                            val decoded = conversation?.decode(envelope)
-                            decoded?.let { emit(it) }
-                        }
-
-                        envelope.contentTopic.startsWith("/xmtp/0/invite-") -> {
-                            val conversation = fromInvite(envelope = envelope)
-                            conversationsByTopic[conversation.topic] = conversation
-                            topics.add(conversation.topic)
-                            subscribeFlow.value = makeSubscribeRequest(topics)
-                        }
-
-                        envelope.contentTopic.startsWith("/xmtp/0/intro-") -> {
-                            val conversation = fromIntro(envelope = envelope)
-                            conversationsByTopic[conversation.topic] = conversation
-                            val decoded = conversation.decode(envelope)
-                            emit(decoded)
-                            topics.add(conversation.topic)
-                            subscribeFlow.value = makeSubscribeRequest(topics)
-                        }
-
-                        else -> {}
+        val subscriptionCallback = object : FfiV2SubscriptionCallback {
+            override fun onMessage(message: FfiEnvelope) {
+                when {
+                    conversationsByTopic.containsKey(message.contentTopic) -> {
+                        val conversation = conversationsByTopic[message.contentTopic]
+                        val decoded = conversation?.decode(envelopeFromFFi(message))
+                        decoded?.let { trySend(it) }
                     }
+
+                    message.contentTopic.startsWith("/xmtp/0/invite-") -> {
+                        val conversation = fromInvite(envelope = envelopeFromFFi(message))
+                        conversationsByTopic[conversation.topic] = conversation
+                        topics.add(conversation.topic)
+                        subscriptionRequest.contentTopics = topics
+                        launch { stream.update(subscriptionRequest) }
+                    }
+
+                    message.contentTopic.startsWith("/xmtp/0/intro-") -> {
+                        val conversation = fromIntro(envelope = envelopeFromFFi(message))
+                        conversationsByTopic[conversation.topic] = conversation
+                        val decoded = conversation.decode(envelopeFromFFi(message))
+                        trySend(decoded)
+                        topics.add(conversation.topic)
+                        subscriptionRequest.contentTopics = topics
+                        launch { stream.update(subscriptionRequest) }
+                    }
+
+                    else -> {}
                 }
-            } catch (error: CancellationException) {
-                break
-            } catch (error: StatusException) {
-                if (error.status.code == io.grpc.Status.Code.UNAVAILABLE) {
-                    continue
-                } else {
-                    break
-                }
-            } catch (error: Exception) {
-                continue
             }
         }
+
+        stream = client.subscribe2(subscriptionRequest, subscriptionCallback)
+
+        awaitClose { launch { stream.end() } }
     }
 
     fun streamAllMessages(includeGroups: Boolean = false): Flow<DecodedMessage> {
@@ -711,7 +719,7 @@ data class Conversations(
         }
     }
 
-    private fun streamAllV2DecryptedMessages(): Flow<DecryptedMessage> = flow {
+    private fun streamAllV2DecryptedMessages(): Flow<DecryptedMessage> = callbackFlow {
         val topics = mutableListOf(
             Topic.userInvite(client.address).description,
             Topic.userIntro(client.address).description,
@@ -721,48 +729,43 @@ data class Conversations(
             topics.add(conversation.topic)
         }
 
-        val subscribeFlow = MutableStateFlow(makeSubscribeRequest(topics))
+        val subscriptionRequest = FfiV2SubscribeRequest(topics)
+        var stream = FfiV2Subscription(NoPointer)
 
-        while (true) {
-            try {
-                client.subscribe2(request = subscribeFlow).collect { envelope ->
-                    when {
-                        conversationsByTopic.containsKey(envelope.contentTopic) -> {
-                            val conversation = conversationsByTopic[envelope.contentTopic]
-                            val decrypted = conversation?.decrypt(envelope)
-                            decrypted?.let { emit(it) }
-                        }
-
-                        envelope.contentTopic.startsWith("/xmtp/0/invite-") -> {
-                            val conversation = fromInvite(envelope = envelope)
-                            conversationsByTopic[conversation.topic] = conversation
-                            topics.add(conversation.topic)
-                            subscribeFlow.value = makeSubscribeRequest(topics)
-                        }
-
-                        envelope.contentTopic.startsWith("/xmtp/0/intro-") -> {
-                            val conversation = fromIntro(envelope = envelope)
-                            conversationsByTopic[conversation.topic] = conversation
-                            val decrypted = conversation.decrypt(envelope)
-                            emit(decrypted)
-                            topics.add(conversation.topic)
-                            subscribeFlow.value = makeSubscribeRequest(topics)
-                        }
-
-                        else -> {}
+        val subscriptionCallback = object : FfiV2SubscriptionCallback {
+            override fun onMessage(message: FfiEnvelope) {
+                when {
+                    conversationsByTopic.containsKey(message.contentTopic) -> {
+                        val conversation = conversationsByTopic[message.contentTopic]
+                        val decrypted = conversation?.decrypt(envelopeFromFFi(message))
+                        decrypted?.let { trySend(it) }
                     }
+
+                    message.contentTopic.startsWith("/xmtp/0/invite-") -> {
+                        val conversation = fromInvite(envelope = envelopeFromFFi(message))
+                        conversationsByTopic[conversation.topic] = conversation
+                        topics.add(conversation.topic)
+                        subscriptionRequest.contentTopics = topics
+                        launch { stream.update(subscriptionRequest) }
+                    }
+
+                    message.contentTopic.startsWith("/xmtp/0/intro-") -> {
+                        val conversation = fromIntro(envelope = envelopeFromFFi(message))
+                        conversationsByTopic[conversation.topic] = conversation
+                        val decrypted = conversation.decrypt(envelopeFromFFi(message))
+                        trySend(decrypted)
+                        topics.add(conversation.topic)
+                        subscriptionRequest.contentTopics = topics
+                        launch { stream.update(subscriptionRequest) }
+                    }
+
+                    else -> {}
                 }
-            } catch (error: CancellationException) {
-                break
-            } catch (error: StatusException) {
-                if (error.status.code == io.grpc.Status.Code.UNAVAILABLE) {
-                    continue
-                } else {
-                    break
-                }
-            } catch (error: Exception) {
-                continue
             }
         }
+
+        stream = client.subscribe2(subscriptionRequest, subscriptionCallback)
+
+        awaitClose { launch { stream.end() } }
     }
 }

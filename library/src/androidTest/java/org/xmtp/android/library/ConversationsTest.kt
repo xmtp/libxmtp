@@ -36,7 +36,6 @@ import java.util.Date
 
 @RunWith(AndroidJUnit4::class)
 class ConversationsTest {
-    lateinit var fakeApiClient: FakeApiClient
     lateinit var alixWallet: PrivateKeyBuilder
     lateinit var boWallet: PrivateKeyBuilder
     lateinit var alix: PrivateKey
@@ -53,7 +52,6 @@ class ConversationsTest {
         alix = fixtures.alice
         boWallet = fixtures.bobAccount
         bo = fixtures.bob
-        fakeApiClient = fixtures.fakeApiClient
         alixClient = fixtures.aliceClient
         boClient = fixtures.bobClient
         caroClient = fixtures.caroClient
@@ -128,7 +126,7 @@ class ConversationsTest {
             runBlocking { boConversation.send(text = "Message $i") }
             sleep(1000)
         }
-        assertEquals(allMessages.size, 5)
+        assertEquals(5, allMessages.size)
 
         val caroConversation =
             runBlocking { caroClient.conversations.newConversation(alixClient.address) }
@@ -139,7 +137,7 @@ class ConversationsTest {
             sleep(1000)
         }
 
-        assertEquals(allMessages.size, 10)
+        assertEquals(10, allMessages.size)
 
         job.cancel()
 
@@ -158,7 +156,7 @@ class ConversationsTest {
             sleep(1000)
         }
 
-        assertEquals(allMessages.size, 15)
+        assertEquals(15, allMessages.size)
     }
 
     @Test

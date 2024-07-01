@@ -1,9 +1,10 @@
 package org.xmtp.android.library
 
 import android.util.Log
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import org.web3j.crypto.Hash
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.EncodedContent
@@ -21,6 +22,8 @@ import org.xmtp.android.library.messages.getPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.contents.Invitation
+import uniffi.xmtpv3.FfiEnvelope
+import uniffi.xmtpv3.FfiV2SubscriptionCallback
 import java.util.Date
 
 data class ConversationV2(
@@ -137,10 +140,16 @@ data class ConversationV2(
         )
     }
 
-    fun streamMessages(): Flow<DecodedMessage> = flow {
-        client.subscribe(listOf(topic)).mapNotNull { decodeEnvelopeOrNull(envelope = it) }.collect {
-            emit(it)
+    fun streamMessages(): Flow<DecodedMessage> = callbackFlow {
+        val streamCallback = object : FfiV2SubscriptionCallback {
+            override fun onMessage(message: FfiEnvelope) {
+                decodeEnvelopeOrNull(envelope = Util.envelopeFromFFi(message))?.let {
+                    trySend(it)
+                }
+            }
         }
+        val stream = client.subscribe(listOf(topic), streamCallback)
+        awaitClose { launch { stream.end() } }
     }
 
     /**
@@ -268,15 +277,23 @@ data class ConversationV2(
     val ephemeralTopic: String
         get() = topic.replace("/xmtp/0/m", "/xmtp/0/mE")
 
-    fun streamEphemeral(): Flow<Envelope> = flow {
-        client.subscribe(listOf(ephemeralTopic)).collect {
-            emit(it)
+    fun streamEphemeral(): Flow<Envelope> = callbackFlow {
+        val streamCallback = object : FfiV2SubscriptionCallback {
+            override fun onMessage(message: FfiEnvelope) {
+                trySend(Util.envelopeFromFFi(message))
+            }
         }
+        val stream = client.subscribe(listOf(ephemeralTopic), streamCallback)
+        awaitClose { launch { stream.end() } }
     }
 
-    fun streamDecryptedMessages(): Flow<DecryptedMessage> = flow {
-        client.subscribe(listOf(topic)).collect {
-            emit(decrypt(envelope = it))
+    fun streamDecryptedMessages(): Flow<DecryptedMessage> = callbackFlow {
+        val streamCallback = object : FfiV2SubscriptionCallback {
+            override fun onMessage(message: FfiEnvelope) {
+                trySend(decrypt(envelope = Util.envelopeFromFFi(message)))
+            }
         }
+        val stream = client.subscribe(listOf(topic), streamCallback)
+        awaitClose { launch { stream.end() } }
     }
 }

@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
@@ -182,6 +183,7 @@ class MainActivity : AppCompatActivity(),
 
     private fun showError(message: String) {
         val error = message.ifBlank { resources.getString(R.string.error) }
+        Log.e("MainActivity", message)
         Toast.makeText(this, error, Toast.LENGTH_SHORT).show()
     }
 

@@ -127,7 +127,7 @@ class ConsentList(
 
     suspend fun publish(entries: List<ConsentListEntry>) {
         val payload = PrivatePreferencesAction.newBuilder().also {
-            entries.forEach { entry ->
+            entries.iterator().forEach { entry ->
                 when (entry.entryType) {
                     ConsentListEntry.EntryType.ADDRESS -> {
                         when (entry.consentType) {

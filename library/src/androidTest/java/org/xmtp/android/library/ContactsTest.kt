@@ -28,19 +28,6 @@ class ContactsTest {
     }
 
     @Test
-    fun testCachesContacts() {
-        val fixtures = fixtures()
-        runBlocking { fixtures.bobClient.ensureUserContactPublished() }
-        // Look up the first time
-        fixtures.aliceClient.contacts.find(fixtures.bob.walletAddress)
-        fixtures.fakeApiClient.assertNoQuery {
-            val contactBundle = fixtures.aliceClient.contacts.find(fixtures.bob.walletAddress)
-            assertEquals(contactBundle?.walletAddress, fixtures.bob.walletAddress)
-        }
-        assert(fixtures.aliceClient.contacts.has(fixtures.bob.walletAddress))
-    }
-
-    @Test
     fun testAllowAddress() {
         val fixtures = fixtures()
 

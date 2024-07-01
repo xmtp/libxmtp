@@ -8,13 +8,10 @@ import android.util.Log
 import com.google.crypto.tink.subtle.Base64
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.web3j.crypto.Keys
 import org.web3j.crypto.Keys.toChecksumAddress
-import org.xmtp.android.library.GRPCApiClient.Companion.makeSubscribeRequest
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.libxmtp.MessageV3
@@ -44,8 +41,12 @@ import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.BatchQueryResponse
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryRequest
+import uniffi.xmtpv3.FfiV2SubscribeRequest
+import uniffi.xmtpv3.FfiV2Subscription
+import uniffi.xmtpv3.FfiV2SubscriptionCallback
 import uniffi.xmtpv3.FfiXmtpClient
 import uniffi.xmtpv3.createClient
+import uniffi.xmtpv3.createV2Client
 import uniffi.xmtpv3.generateInboxId
 import uniffi.xmtpv3.getInboxIdForAddress
 import uniffi.xmtpv3.getVersionInfo
@@ -150,16 +151,17 @@ class Client() {
             )
         }
 
-        fun canMessage(peerAddress: String, options: ClientOptions? = null): Boolean {
+        suspend fun canMessage(peerAddress: String, options: ClientOptions? = null): Boolean {
             val clientOptions = options ?: ClientOptions()
-            val api = GRPCApiClient(
-                environment = clientOptions.api.env,
-                secure = clientOptions.api.isSecure,
-            )
-            return runBlocking {
-                val topics = api.queryTopic(Topic.contact(peerAddress)).envelopesList
-                topics.isNotEmpty()
-            }
+            val v2Client =
+                createV2Client(
+                    host = clientOptions.api.env.getUrl(),
+                    isSecure = clientOptions.api.isSecure
+                )
+            clientOptions.api.appVersion?.let { v2Client.setAppVersion(it) }
+            val api = GRPCApiClient(environment = clientOptions.api.env, rustV2Client = v2Client)
+            val topics = api.queryTopic(Topic.contact(peerAddress)).envelopesList
+            return topics.isNotEmpty()
         }
     }
 
@@ -197,11 +199,14 @@ class Client() {
         options: ClientOptions? = null,
     ): Client {
         val clientOptions = options ?: ClientOptions()
-        val apiClient =
-            GRPCApiClient(
-                environment = clientOptions.api.env,
-                secure = clientOptions.api.isSecure,
+        val v2Client = runBlocking {
+            createV2Client(
+                host = clientOptions.api.env.getUrl(),
+                isSecure = clientOptions.api.isSecure
             )
+        }
+        clientOptions.api.appVersion?.let { v2Client.setAppVersion(it) }
+        val apiClient = GRPCApiClient(environment = clientOptions.api.env, rustV2Client = v2Client)
         return create(
             account = account,
             apiClient = apiClient,
@@ -264,11 +269,14 @@ class Client() {
     ): Client {
         val address = v1Bundle.identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress
         val newOptions = options ?: ClientOptions()
-        val apiClient =
-            GRPCApiClient(
-                environment = newOptions.api.env,
-                secure = newOptions.api.isSecure,
+        val v2Client = runBlocking {
+            createV2Client(
+                host = newOptions.api.env.getUrl(),
+                isSecure = newOptions.api.isSecure
             )
+        }
+        newOptions.api.appVersion?.let { v2Client.setAppVersion(it) }
+        val apiClient = GRPCApiClient(environment = newOptions.api.env, rustV2Client = v2Client)
         val (v3Client, dbPath) = if (isV3Enabled(options)) {
             runBlocking {
                 ffiXmtpClient(
@@ -500,12 +508,18 @@ class Client() {
         return apiClient.batchQuery(requests)
     }
 
-    suspend fun subscribe(topics: List<String>): Flow<Envelope> {
-        return subscribe2(flowOf(makeSubscribeRequest(topics)))
+    suspend fun subscribe(
+        topics: List<String>,
+        callback: FfiV2SubscriptionCallback,
+    ): FfiV2Subscription {
+        return subscribe2(FfiV2SubscribeRequest(topics), callback)
     }
 
-    suspend fun subscribe2(request: Flow<MessageApiOuterClass.SubscribeRequest>): Flow<Envelope> {
-        return apiClient.subscribe(request = request)
+    suspend fun subscribe2(
+        request: FfiV2SubscribeRequest,
+        callback: FfiV2SubscriptionCallback,
+    ): FfiV2Subscription {
+        return apiClient.subscribe(request, callback)
     }
 
     suspend fun fetchConversation(
@@ -540,7 +554,7 @@ class Client() {
         throw XMTPException("Error no V3 client initialized")
     }
 
-    suspend fun publish(envelopes: List<Envelope>): PublishResponse {
+    suspend fun publish(envelopes: List<Envelope>) {
         val authorized = AuthorizedIdentity(
             address = address,
             authorized = privateKeyBundleV1.identityKey.publicKey,
@@ -549,7 +563,7 @@ class Client() {
         val authToken = authorized.createAuthToken()
         apiClient.setAuthToken(authToken)
 
-        return apiClient.publish(envelopes = envelopes)
+        apiClient.publish(envelopes = envelopes)
     }
 
     suspend fun ensureUserContactPublished() {
@@ -623,8 +637,8 @@ class Client() {
      * @return false when [peerAddress] has never signed up for XMTP
      * or when the message is addressed to the sender (no self-messaging).
      */
-    fun canMessage(peerAddress: String): Boolean {
-        return runBlocking { query(Topic.contact(peerAddress)).envelopesList.size > 0 }
+    suspend fun canMessage(peerAddress: String): Boolean {
+        return query(Topic.contact(peerAddress)).envelopesList.size > 0
     }
 
     suspend fun canMessageV3(addresses: List<String>): Map<String, Boolean> {

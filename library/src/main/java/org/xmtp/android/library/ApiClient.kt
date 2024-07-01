@@ -1,23 +1,30 @@
 package org.xmtp.android.library
 
-import io.grpc.ManagedChannel
-import io.grpc.ManagedChannelBuilder
-import io.grpc.Metadata
-import kotlinx.coroutines.flow.Flow
+import com.google.protobuf.kotlin.toByteString
+import org.xmtp.android.library.Util.Companion.envelopeFromFFi
 import org.xmtp.android.library.messages.Pagination
 import org.xmtp.android.library.messages.Topic
-import org.xmtp.proto.message.api.v1.MessageApiGrpcKt
-import org.xmtp.proto.message.api.v1.MessageApiOuterClass.BatchQueryRequest
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.BatchQueryResponse
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.Cursor
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.Envelope
-import org.xmtp.proto.message.api.v1.MessageApiOuterClass.PublishRequest
-import org.xmtp.proto.message.api.v1.MessageApiOuterClass.PublishResponse
+import org.xmtp.proto.message.api.v1.MessageApiOuterClass.PagingInfo
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryRequest
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryResponse
-import org.xmtp.proto.message.api.v1.MessageApiOuterClass.SubscribeRequest
+import org.xmtp.proto.message.api.v1.MessageApiOuterClass.SortDirection
+import uniffi.xmtpv3.FfiCursor
+import uniffi.xmtpv3.FfiEnvelope
+import uniffi.xmtpv3.FfiPagingInfo
+import uniffi.xmtpv3.FfiPublishRequest
+import uniffi.xmtpv3.FfiSortDirection
+import uniffi.xmtpv3.FfiV2ApiClient
+import uniffi.xmtpv3.FfiV2BatchQueryRequest
+import uniffi.xmtpv3.FfiV2BatchQueryResponse
+import uniffi.xmtpv3.FfiV2QueryRequest
+import uniffi.xmtpv3.FfiV2QueryResponse
+import uniffi.xmtpv3.FfiV2SubscribeRequest
+import uniffi.xmtpv3.FfiV2Subscription
+import uniffi.xmtpv3.FfiV2SubscriptionCallback
 import java.io.Closeable
-import java.util.concurrent.TimeUnit
 
 interface ApiClient {
     val environment: XMTPEnvironment
@@ -31,25 +38,19 @@ interface ApiClient {
     suspend fun queryTopic(topic: Topic, pagination: Pagination? = null): QueryResponse
     suspend fun batchQuery(requests: List<QueryRequest>): BatchQueryResponse
     suspend fun envelopes(topic: String, pagination: Pagination? = null): List<Envelope>
-    suspend fun publish(envelopes: List<Envelope>): PublishResponse
-    suspend fun subscribe(request: Flow<SubscribeRequest>): Flow<Envelope>
+    suspend fun publish(envelopes: List<Envelope>)
+    suspend fun subscribe(
+        request: FfiV2SubscribeRequest,
+        callback: FfiV2SubscriptionCallback,
+    ): FfiV2Subscription
 }
 
 data class GRPCApiClient(
     override val environment: XMTPEnvironment,
-    val secure: Boolean = true,
-    val appVersion: String? = null,
+    val rustV2Client: FfiV2ApiClient,
 ) :
     ApiClient, Closeable {
     companion object {
-        val AUTHORIZATION_HEADER_KEY: Metadata.Key<String> =
-            Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER)
-
-        val CLIENT_VERSION_HEADER_KEY: Metadata.Key<String> =
-            Metadata.Key.of("X-Client-Version", Metadata.ASCII_STRING_MARSHALLER)
-
-        val APP_VERSION_HEADER_KEY: Metadata.Key<String> =
-            Metadata.Key.of("X-App-Version", Metadata.ASCII_STRING_MARSHALLER)
 
         fun makeQueryRequest(
             topic: String,
@@ -79,44 +80,8 @@ data class GRPCApiClient(
                         }.build()
                     }
                 }.build()
-
-        fun makeSubscribeRequest(
-            topics: List<String>,
-        ): SubscribeRequest = SubscribeRequest.newBuilder().addAllContentTopics(topics).build()
     }
 
-    private val retryPolicy = mapOf(
-        "methodConfig" to listOf(
-            mapOf(
-                "retryPolicy" to mapOf(
-                    "maxAttempts" to 4.0,
-                    "initialBackoff" to "0.5s",
-                    "maxBackoff" to "30s",
-                    "backoffMultiplier" to 2.0,
-                    "retryableStatusCodes" to listOf(
-                        "UNAVAILABLE",
-                    )
-                )
-            )
-        )
-    )
-
-    private val channel: ManagedChannel =
-        ManagedChannelBuilder.forAddress(
-            environment.getValue(),
-            if (environment == XMTPEnvironment.LOCAL) 5556 else 443
-        ).apply {
-            if (environment != XMTPEnvironment.LOCAL) {
-                useTransportSecurity()
-            } else {
-                usePlaintext()
-            }
-            defaultServiceConfig(retryPolicy)
-            enableRetry()
-        }.build()
-
-    private val client: MessageApiGrpcKt.MessageApiCoroutineStub =
-        MessageApiGrpcKt.MessageApiCoroutineStub(channel)
     private var authToken: String? = null
 
     override fun setAuthToken(token: String) {
@@ -129,16 +94,7 @@ data class GRPCApiClient(
         cursor: Cursor?,
     ): QueryResponse {
         val request = makeQueryRequest(topic, pagination, cursor)
-        val headers = Metadata()
-
-        authToken?.let { token ->
-            headers.put(AUTHORIZATION_HEADER_KEY, "Bearer $token")
-        }
-        headers.put(CLIENT_VERSION_HEADER_KEY, Constants.VERSION)
-        if (appVersion != null) {
-            headers.put(APP_VERSION_HEADER_KEY, appVersion)
-        }
-        return client.query(request, headers = headers)
+        return queryResponseFromFFi(rustV2Client.query(queryRequestToFFi(request)))
     }
 
     /**
@@ -175,47 +131,107 @@ data class GRPCApiClient(
     override suspend fun batchQuery(
         requests: List<QueryRequest>,
     ): BatchQueryResponse {
-        val batchRequest = BatchQueryRequest.newBuilder().addAllRequests(requests).build()
-        val headers = Metadata()
-
-        authToken?.let { token ->
-            headers.put(AUTHORIZATION_HEADER_KEY, "Bearer $token")
-        }
-        headers.put(CLIENT_VERSION_HEADER_KEY, Constants.VERSION)
-        if (appVersion != null) {
-            headers.put(APP_VERSION_HEADER_KEY, appVersion)
-        }
-        return client.batchQuery(batchRequest, headers = headers)
+        val batchRequest = requests.map { queryRequestToFFi(it) }
+        return batchQueryResponseFromFFi(rustV2Client.batchQuery(FfiV2BatchQueryRequest(requests = batchRequest)))
     }
 
-    override suspend fun publish(envelopes: List<Envelope>): PublishResponse {
-        val request = PublishRequest.newBuilder().addAllEnvelopes(envelopes).build()
-        val headers = Metadata()
+    override suspend fun publish(envelopes: List<Envelope>) {
+        val ffiEnvelopes = envelopes.map { envelopeToFFi(it) }
+        val request = FfiPublishRequest(envelopes = ffiEnvelopes)
 
-        authToken?.let { token ->
-            headers.put(AUTHORIZATION_HEADER_KEY, "Bearer $token")
-        }
-
-        headers.put(CLIENT_VERSION_HEADER_KEY, Constants.VERSION)
-        if (appVersion != null) {
-            headers.put(APP_VERSION_HEADER_KEY, appVersion)
-        }
-
-        return client.publish(request, headers)
+        rustV2Client.publish(request = request, authToken = authToken ?: "")
     }
 
-    override suspend fun subscribe(request: Flow<SubscribeRequest>): Flow<Envelope> {
-        val headers = Metadata()
-
-        headers.put(CLIENT_VERSION_HEADER_KEY, Constants.VERSION)
-        if (appVersion != null) {
-            headers.put(APP_VERSION_HEADER_KEY, appVersion)
-        }
-
-        return client.subscribe2(request, headers)
+    override suspend fun subscribe(
+        request: FfiV2SubscribeRequest,
+        callback: FfiV2SubscriptionCallback,
+    ): FfiV2Subscription {
+        return rustV2Client.subscribe(request, callback)
     }
 
     override fun close() {
-        channel.shutdown().awaitTermination(5, TimeUnit.SECONDS)
+        rustV2Client.close()
+    }
+
+    private fun envelopeToFFi(envelope: Envelope): FfiEnvelope {
+        return FfiEnvelope(
+            contentTopic = envelope.contentTopic,
+            timestampNs = envelope.timestampNs.toULong(),
+            message = envelope.message.toByteArray()
+        )
+    }
+
+    private fun queryRequestToFFi(request: QueryRequest): FfiV2QueryRequest {
+        return FfiV2QueryRequest(
+            contentTopics = request.contentTopicsList,
+            startTimeNs = request.startTimeNs.toULong(),
+            endTimeNs = request.endTimeNs.toULong(),
+            pagingInfo = pagingInfoToFFi(request.pagingInfo)
+        )
+    }
+
+    private fun queryResponseFromFFi(response: FfiV2QueryResponse): QueryResponse {
+        return QueryResponse.newBuilder().also { queryResponse ->
+            queryResponse.addAllEnvelopes(response.envelopes.map { envelopeFromFFi(it) })
+            response.pagingInfo?.let {
+                queryResponse.pagingInfo = pagingInfoFromFFi(it)
+            }
+        }.build()
+    }
+
+    private fun batchQueryResponseFromFFi(response: FfiV2BatchQueryResponse): BatchQueryResponse {
+        return BatchQueryResponse.newBuilder().also { queryResponse ->
+            queryResponse.addAllResponses(response.responses.map { queryResponseFromFFi(it) })
+        }.build()
+    }
+
+    private fun pagingInfoFromFFi(info: FfiPagingInfo): PagingInfo {
+        return PagingInfo.newBuilder().also {
+            it.limit = info.limit.toInt()
+            info.cursor?.let { cursor ->
+                it.cursor = cursorFromFFi(cursor)
+            }
+            it.direction = directionFromFfi(info.direction)
+        }.build()
+    }
+
+    private fun pagingInfoToFFi(info: PagingInfo): FfiPagingInfo {
+        return FfiPagingInfo(
+            limit = info.limit.toUInt(),
+            cursor = cursorToFFi(info.cursor),
+            direction = directionToFfi(info.direction)
+        )
+    }
+
+    private fun directionToFfi(direction: SortDirection): FfiSortDirection {
+        return when (direction) {
+            SortDirection.SORT_DIRECTION_ASCENDING -> FfiSortDirection.ASCENDING
+            SortDirection.SORT_DIRECTION_DESCENDING -> FfiSortDirection.DESCENDING
+            else -> FfiSortDirection.UNSPECIFIED
+        }
+    }
+
+    private fun directionFromFfi(direction: FfiSortDirection): SortDirection {
+        return when (direction) {
+            FfiSortDirection.ASCENDING -> SortDirection.SORT_DIRECTION_ASCENDING
+            FfiSortDirection.DESCENDING -> SortDirection.SORT_DIRECTION_DESCENDING
+            else -> SortDirection.SORT_DIRECTION_UNSPECIFIED
+        }
+    }
+
+    private fun cursorToFFi(cursor: Cursor): FfiCursor {
+        return FfiCursor(
+            digest = cursor.index.digest.toByteArray(),
+            senderTimeNs = cursor.index.senderTimeNs.toULong()
+        )
+    }
+
+    private fun cursorFromFFi(cursor: FfiCursor): Cursor {
+        return Cursor.newBuilder().also {
+            it.index.toBuilder().also { index ->
+                index.digest = cursor.digest.toByteString()
+                index.senderTimeNs = cursor.senderTimeNs.toLong()
+            }.build()
+        }.build()
     }
 }

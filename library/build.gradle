@@ -85,15 +85,15 @@ dependencies {
     implementation 'io.grpc:grpc-kotlin-stub:1.4.1'
     implementation 'io.grpc:grpc-okhttp:1.62.2'
     implementation 'io.grpc:grpc-protobuf-lite:1.62.2'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0'
     implementation 'org.web3j:crypto:5.0.0'
     implementation "net.java.dev.jna:jna:5.14.0@aar"
     api 'com.google.protobuf:protobuf-kotlin-lite:3.22.3'
     api 'org.xmtp:proto-kotlin:3.61.1'
 
     testImplementation 'junit:junit:4.13.2'
-    androidTestImplementation 'app.cash.turbine:turbine:0.12.1'
-    androidTestImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3'
+    androidTestImplementation 'app.cash.turbine:turbine:1.1.0'
+    androidTestImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }

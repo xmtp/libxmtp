@@ -234,8 +234,8 @@ class ClientTest {
     fun testCanMessage() {
         val fixtures = fixtures()
         val notOnNetwork = PrivateKeyBuilder()
-        val canMessage = fixtures.aliceClient.canMessage(fixtures.bobClient.address)
-        val cannotMessage = fixtures.aliceClient.canMessage(notOnNetwork.address)
+        val canMessage = runBlocking { fixtures.aliceClient.canMessage(fixtures.bobClient.address) }
+        val cannotMessage = runBlocking { fixtures.aliceClient.canMessage(notOnNetwork.address) }
         assert(canMessage)
         assert(!cannotMessage)
     }
@@ -248,8 +248,8 @@ class ClientTest {
         val aliceClient = Client().create(aliceWallet, opts)
         runBlocking { aliceClient.ensureUserContactPublished() }
 
-        val canMessage = Client.canMessage(aliceWallet.address, opts)
-        val cannotMessage = Client.canMessage(notOnNetwork.address, opts)
+        val canMessage = runBlocking { Client.canMessage(aliceWallet.address, opts) }
+        val cannotMessage = runBlocking { Client.canMessage(notOnNetwork.address, opts) }
 
         assert(canMessage)
         assert(!cannotMessage)

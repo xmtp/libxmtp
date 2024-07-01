@@ -5,19 +5,13 @@ import androidx.test.platform.app.InstrumentationRegistry
 import app.cash.turbine.test
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Before
-import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.web3j.utils.Numeric
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
 import org.xmtp.android.library.codecs.ContentTypeReaction
 import org.xmtp.android.library.codecs.GroupUpdatedCodec
@@ -25,6 +19,7 @@ import org.xmtp.android.library.codecs.Reaction
 import org.xmtp.android.library.codecs.ReactionAction
 import org.xmtp.android.library.codecs.ReactionCodec
 import org.xmtp.android.library.codecs.ReactionSchema
+import org.xmtp.android.library.messages.DecryptedMessage
 import org.xmtp.android.library.messages.MessageDeliveryStatus
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
@@ -447,6 +442,7 @@ class GroupTest {
             } catch (e: Exception) {
             }
         }
+        Thread.sleep(1000)
 
         val alixGroup = runBlocking { alixClient.conversations.newGroup(listOf(bo.walletAddress)) }
 
@@ -581,56 +577,72 @@ class GroupTest {
     }
 
     @Test
-    fun testCanStreamAllGroupMessages() = kotlinx.coroutines.test.runTest {
-        val group = caroClient.conversations.newGroup(listOf(alix.walletAddress))
-        alixClient.conversations.syncGroups()
-        val flow = alixClient.conversations.streamAllGroupMessages()
+    fun testCanStreamAllGroupMessages() {
+        val group = runBlocking { caroClient.conversations.newGroup(listOf(alix.walletAddress)) }
+        runBlocking { alixClient.conversations.syncGroups() }
 
-        withContext(Dispatchers.Default.limitedParallelism(1)) {
-            withTimeout(5000) { // Set a timeout to avoid long running tests
-                val job = launch {
-                    flow.catch { e ->
-                        throw Exception("Error collecting flow: $e")
-                    }.collect { message ->
-                        assertEquals("hi", message.encodedContent.content.toStringUtf8())
-                        this.cancel() // Cancel the collection after the assertion
-                    }
+        val allMessages = mutableListOf<DecodedMessage>()
+
+        val job = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                alixClient.conversations.streamAllGroupMessages().collect { message ->
+                    allMessages.add(message)
                 }
-
-                group.send("hi")
-
-                job.join()
+            } catch (e: Exception) {
             }
         }
+        Thread.sleep(2500)
+
+        for (i in 0 until 2) {
+            runBlocking { group.send(text = "Message $i") }
+            Thread.sleep(100)
+        }
+        assertEquals(2, allMessages.size)
+
+        val caroGroup =
+            runBlocking { caroClient.conversations.newGroup(listOf(alixClient.address)) }
+        Thread.sleep(2500)
+
+        for (i in 0 until 2) {
+            runBlocking { caroGroup.send(text = "Message $i") }
+            Thread.sleep(100)
+        }
+
+        assertEquals(4, allMessages.size)
+
+        job.cancel()
     }
 
     @Test
-    fun testCanStreamAllMessages() = kotlinx.coroutines.test.runTest {
-        val group = caroClient.conversations.newGroup(listOf(alix.walletAddress))
-        val conversation = boClient.conversations.newConversation(alix.walletAddress)
-        alixClient.conversations.syncGroups()
+    fun testCanStreamAllMessages() {
+        val group = runBlocking { caroClient.conversations.newGroup(listOf(alix.walletAddress)) }
+        val conversation =
+            runBlocking { boClient.conversations.newConversation(alix.walletAddress) }
+        runBlocking { alixClient.conversations.syncGroups() }
 
-        val flow = alixClient.conversations.streamAllMessages(includeGroups = true)
-        var counter = 0
+        val allMessages = mutableListOf<DecodedMessage>()
 
-        withContext(Dispatchers.Default.limitedParallelism(1)) {
-            withTimeout(5000) { // Set a timeout to avoid long running tests
-                val job = launch {
-                    flow.catch { e ->
-                        throw Exception("Error collecting flow: $e")
-                    }.collect { message ->
-                        counter++
-                        assertEquals("hi", message.encodedContent.content.toStringUtf8())
-                        if (counter == 2) this.cancel() // Cancel the collection after receiving the second "hi"
+        val job = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                alixClient.conversations.streamAllMessages(includeGroups = true)
+                    .collect { message ->
+                        allMessages.add(message)
                     }
-                }
-
-                group.send("hi")
-                conversation.send("hi")
-
-                job.join()
+            } catch (e: Exception) {
             }
         }
+        Thread.sleep(2500)
+
+        runBlocking {
+            group.send("hi")
+            conversation.send("hi")
+        }
+
+        Thread.sleep(1000)
+
+        assertEquals(2, allMessages.size)
+
+        job.cancel()
     }
 
     @Test
@@ -647,66 +659,72 @@ class GroupTest {
     }
 
     @Test
-    fun testCanStreamAllDecryptedGroupMessages() = kotlinx.coroutines.test.runTest {
-        Client.register(codec = GroupUpdatedCodec())
-        val membershipChange = TranscriptMessages.GroupUpdated.newBuilder().build()
-        val group = caroClient.conversations.newGroup(listOf(alix.walletAddress))
-        alixClient.conversations.syncGroups()
+    fun testCanStreamAllDecryptedGroupMessages() {
+        val group = runBlocking { caroClient.conversations.newGroup(listOf(alix.walletAddress)) }
+        runBlocking { alixClient.conversations.syncGroups() }
 
-        val flow = alixClient.conversations.streamAllGroupDecryptedMessages()
-        var counter = 0
+        val allMessages = mutableListOf<DecryptedMessage>()
 
-        withContext(Dispatchers.Default.limitedParallelism(1)) {
-            withTimeout(5000) { // Set a timeout to avoid long running tests
-                val job = launch {
-                    flow.catch { e ->
-                        throw Exception("Error collecting flow: $e")
-                    }.collect { message ->
-                        counter++
-                        assertEquals("hi", message.encodedContent.content.toStringUtf8())
-                        if (counter == 2) this.cancel() // Cancel the collection after receiving the second "hi"
-                    }
+        val job = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                alixClient.conversations.streamAllGroupDecryptedMessages().collect { message ->
+                    allMessages.add(message)
                 }
-
-                group.send("hi")
-                group.send(
-                    content = membershipChange,
-                    options = SendOptions(contentType = ContentTypeGroupUpdated),
-                )
-                group.send("hi")
-
-                job.join()
+            } catch (e: Exception) {
             }
         }
+        Thread.sleep(2500)
+
+        for (i in 0 until 2) {
+            runBlocking { group.send(text = "Message $i") }
+            Thread.sleep(100)
+        }
+        assertEquals(2, allMessages.size)
+
+        val caroGroup =
+            runBlocking { caroClient.conversations.newGroup(listOf(alixClient.address)) }
+        Thread.sleep(2500)
+
+        for (i in 0 until 2) {
+            runBlocking { caroGroup.send(text = "Message $i") }
+            Thread.sleep(100)
+        }
+
+        assertEquals(4, allMessages.size)
+
+        job.cancel()
     }
 
     @Test
-    fun testCanStreamAllDecryptedMessages() = kotlinx.coroutines.test.runTest {
-        val group = caroClient.conversations.newGroup(listOf(alix.walletAddress))
-        val conversation = boClient.conversations.newConversation(alix.walletAddress)
-        alixClient.conversations.syncGroups()
+    fun testCanStreamAllDecryptedMessages() {
+        val group = runBlocking { caroClient.conversations.newGroup(listOf(alix.walletAddress)) }
+        val conversation =
+            runBlocking { boClient.conversations.newConversation(alix.walletAddress) }
+        runBlocking { alixClient.conversations.syncGroups() }
 
-        val flow = alixClient.conversations.streamAllDecryptedMessages(includeGroups = true)
-        var counter = 0
+        val allMessages = mutableListOf<DecryptedMessage>()
 
-        withContext(Dispatchers.Default.limitedParallelism(1)) {
-            withTimeout(5000) { // Set a timeout to avoid long running tests
-                val job = launch {
-                    flow.catch { e ->
-                        throw Exception("Error collecting flow: $e")
-                    }.collect { message ->
-                        counter++
-                        assertEquals("hi", message.encodedContent.content.toStringUtf8())
-                        if (counter == 2) this.cancel() // Cancel the collection after receiving the second "hi"
+        val job = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                alixClient.conversations.streamAllDecryptedMessages(includeGroups = true)
+                    .collect { message ->
+                        allMessages.add(message)
                     }
-                }
-
-                group.send("hi")
-                conversation.send("hi")
-
-                job.join()
+            } catch (e: Exception) {
             }
         }
+        Thread.sleep(2500)
+
+        runBlocking {
+            group.send("hi")
+            conversation.send("hi")
+        }
+
+        Thread.sleep(1000)
+
+        assertEquals(2, allMessages.size)
+
+        job.cancel()
     }
 
     @Test
@@ -722,16 +740,30 @@ class GroupTest {
     }
 
     @Test
-    @Ignore("Flaky: CI")
-    fun testCanStreamGroupsAndConversations() = kotlinx.coroutines.test.runTest {
-        boClient.conversations.streamAll().test {
-            val group =
-                caroClient.conversations.newGroup(listOf(bo.walletAddress))
-            assertEquals(group.topic, awaitItem().topic)
-            val conversation =
-                alixClient.conversations.newConversation(bo.walletAddress)
-            assertEquals(conversation.topic, awaitItem().topic)
+    fun testCanStreamGroupsAndConversations() {
+        val allMessages = mutableListOf<String>()
+
+        val job = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                alixClient.conversations.streamAll()
+                    .collect { message ->
+                        allMessages.add(message.topic)
+                    }
+            } catch (e: Exception) {}
         }
+        Thread.sleep(2500)
+
+        runBlocking {
+            alixClient.conversations.newConversation(bo.walletAddress)
+            Thread.sleep(2500)
+            caroClient.conversations.newGroup(listOf(alix.walletAddress))
+        }
+
+        Thread.sleep(2500)
+
+        assertEquals(2, allMessages.size)
+
+        job.cancel()
     }
 
     @Test
@@ -819,8 +851,23 @@ class GroupTest {
         runBlocking { alixClient.conversations.syncGroups() }
         val alixGroup = alixClient.findGroup(boGroup.id)
         runBlocking { alixGroup?.sync() }
-        val alixMessage = alixClient.findMessage(Numeric.hexStringToByteArray(boMessageId))
+        val alixMessage = alixClient.findMessage(boMessageId.hexToByteArray())
 
         assertEquals(alixMessage?.id?.toHex(), boMessageId)
+    }
+
+    @Test
+    fun testTranslatingIds() {
+        val boGroup = runBlocking {
+            boClient.conversations.newGroup(
+                listOf(
+                    alix.walletAddress,
+                    caro.walletAddress
+                )
+            )
+        }
+        val hex = boGroup.id.toHex()
+
+        assert(hex.hexToByteArray().contentEquals(boGroup.id))
     }
 }
