@@ -1,8 +1,10 @@
 name: Release CLI
+
 on:
   push:
     branches:
       - main
+
 jobs:
   build:
     strategy:
@@ -15,37 +17,34 @@ jobs:
           - macos-aarch64
         include:
           - build: linux-x86_64
-            os: warp-ubuntu-latest-x64-16x
+            runner: warp-ubuntu-latest-x64-16x
             target: x86_64-unknown-linux-musl
           - build: macos-aarch64
-            os: warp-macos-13-arm64-6x
+            runner: warp-macos-13-arm64-6x
             target: aarch64-apple-darwin
         #   - build: windows-x86_64-gnu
-        #     os: windows-latest
+        #     runner: windows-latest
         #     target: x86_64-pc-windows-gnu
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
 
-      - name: "Cache"
-        uses: actions/cache@v3
+      - name: Update rust toolchains
+        run: |
+          rustup update
+          rustup target add ${{ matrix.target }}
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ./examples/cli/target/${{ matrix.target }}
-          key: ${{ matrix.target }}-${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
+          workspaces: |
+            .
 
-      - run: sudo apt install musl-tools
+      - name: Configure x86_64-unknown-linux-musl toolchain
         if: ${{ matrix.target == 'x86_64-unknown-linux-musl' }}
-      - name: Install rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-          target: ${{ matrix.target }}
+        run: |
+          sudo apt-get install -y musl-tools
 
       - name: Install openssl windows
         if: ${{ matrix.build == 'windows-x86_64-gnu' }}
@@ -54,29 +53,25 @@ jobs:
           args: install openssl
 
       - name: Build target
-        uses: actions-rs/cargo@v1
-        if:
-        with:
-          use-cross: false
-          command: build
-          args: --release --target ${{ matrix.target }} --manifest-path examples/cli/Cargo.toml --target-dir examples/cli/target
+        run: |
+          cargo build --release --target ${{ matrix.target }} --manifest-path examples/cli/Cargo.toml --target-dir examples/cli/target
 
       - name: Upload binary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.build }}
           path: examples/cli/target/${{ matrix.target }}/release/xmtp_cli*
           retention-days: 1
 
   release:
-    needs: ["build"]
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
 
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: ./artifacts
 
