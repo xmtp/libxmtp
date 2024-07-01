@@ -5,7 +5,7 @@ use crate::GenericError;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::Arc;
-use tokio::{task::AbortHandle, sync::Mutex};
+use tokio::{sync::Mutex, task::AbortHandle};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::{
     associations::{
@@ -29,6 +29,7 @@ use xmtp_mls::{
     api::ApiClientWrapper,
     builder::ClientBuilder,
     client::Client as MlsClient,
+    client::ClientError,
     groups::{
         group_metadata::{ConversationType, GroupMetadata},
         group_permissions::GroupMutablePermissions,
@@ -41,7 +42,6 @@ use xmtp_mls::{
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         EncryptedMessageStore, EncryptionKey, StorageOption,
     },
-    client::ClientError,
     subscriptions::StreamHandle,
 };
 
@@ -561,21 +561,16 @@ impl FfiConversations {
         Ok(convo_list)
     }
 
-    pub async fn stream(
-        &self,
-        callback: Box<dyn FfiConversationCallback>,
-    ) -> FfiStreamCloser {
+    pub async fn stream(&self, callback: Box<dyn FfiConversationCallback>) -> FfiStreamCloser {
         let client = self.inner_client.clone();
-        let handle = RustXmtpClient::stream_conversations_with_callback(
-            client.clone(),
-            move |convo| {
+        let handle =
+            RustXmtpClient::stream_conversations_with_callback(client.clone(), move |convo| {
                 callback.on_conversation(Arc::new(FfiGroup {
                     inner_client: client.clone(),
                     group_id: convo.group_id,
                     created_at_ns: convo.created_at_ns,
                 }))
-            },
-        );
+            });
 
         FfiStreamCloser::new(handle)
     }
@@ -1014,10 +1009,7 @@ impl FfiGroup {
         Ok(())
     }
 
-    pub async fn stream(
-        &self,
-        message_callback: Box<dyn FfiMessageCallback>,
-    ) -> FfiStreamCloser {
+    pub async fn stream(&self, message_callback: Box<dyn FfiMessageCallback>) -> FfiStreamCloser {
         let inner_client = Arc::clone(&self.inner_client);
         let handle = MlsGroup::stream_with_callback(
             inner_client,
@@ -1176,7 +1168,6 @@ impl FfiStreamCloser {
 
     /// End the stream and asyncronously wait for it to shutdown
     pub async fn end_and_wait(&self) -> Result<(), GenericError> {
-
         if self.abort_handle.is_finished() {
             return Ok(());
         }
@@ -1188,8 +1179,11 @@ impl FfiStreamCloser {
             let join_result = h.handle.await;
             if matches!(join_result, Err(ref e) if !e.is_cancelled()) {
                 return Err(GenericError::Generic {
-                    err: format!("subscription event loop join error {}", join_result.unwrap_err()),
-                })
+                    err: format!(
+                        "subscription event loop join error {}",
+                        join_result.unwrap_err()
+                    ),
+                });
             }
         } else {
             log::warn!("subscription already closed");
@@ -1274,15 +1268,15 @@ impl FfiGroupPermissions {
 mod tests {
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
-        FfiConversationCallback, FfiCreateGroupOptions, FfiGroupPermissionsOptions, FfiInboxOwner,
-        FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy,
-        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiGroup
+        FfiConversationCallback, FfiCreateGroupOptions, FfiGroup, FfiGroupPermissionsOptions,
+        FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField,
+        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType,
     };
     use std::{
         env,
         sync::{
-            atomic::{AtomicU32, Ordering}, Mutex,
-            Arc,
+            atomic::{AtomicU32, Ordering},
+            Arc, Mutex,
         },
     };
 
@@ -1357,7 +1351,6 @@ mod tests {
             messages.push(message);
             let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
             self.notify.notify_one();
-
         }
     }
 
@@ -1795,7 +1788,7 @@ mod tests {
         message_callbacks.wait_for_delivery().await;
         alix_group.send("hello1".as_bytes().to_vec()).await.unwrap();
         message_callbacks.wait_for_delivery().await;
-        
+
         bo.conversations().sync().await.unwrap();
 
         let bo_groups = bo
@@ -1816,7 +1809,7 @@ mod tests {
         message_callbacks.wait_for_delivery().await;
         bo_group.send("hello3".as_bytes().to_vec()).await.unwrap();
         message_callbacks.wait_for_delivery().await;
-        
+
         alix_group.sync().await.unwrap();
 
         let alix_messages = alix_group
@@ -1849,7 +1842,7 @@ mod tests {
             .conversations()
             .stream(Box::new(stream_callback.clone()))
             .await;
-        
+
         amal.conversations()
             .create_group(
                 vec![bola.account_address.clone()],
@@ -1857,7 +1850,7 @@ mod tests {
             )
             .await
             .unwrap();
-       
+
         stream_callback.wait_for_delivery().await;
 
         assert_eq!(stream_callback.message_count(), 1);
@@ -1870,7 +1863,7 @@ mod tests {
             .await
             .unwrap();
         stream_callback.wait_for_delivery().await;
-        
+
         assert_eq!(stream_callback.message_count(), 2);
 
         stream.end_and_wait().await.unwrap();
@@ -1910,8 +1903,8 @@ mod tests {
             )
             .await
             .unwrap();
-        let _ = caro.inner_client.sync_welcomes().await.unwrap(); 
-       
+        let _ = caro.inner_client.sync_welcomes().await.unwrap();
+
         bo_group.send("second".as_bytes().to_vec()).await.unwrap();
         stream_callback.wait_for_delivery().await;
         alix_group.send("third".as_bytes().to_vec()).await.unwrap();
@@ -1939,9 +1932,7 @@ mod tests {
             .unwrap();
 
         let stream_callback = RustStreamCallback::default();
-        let stream_closer = group
-            .stream(Box::new(stream_callback.clone()))
-            .await;
+        let stream_closer = group.stream(Box::new(stream_callback.clone())).await;
 
         group.send("hello".as_bytes().to_vec()).await.unwrap();
         stream_callback.wait_for_delivery().await;
@@ -2003,7 +1994,7 @@ mod tests {
             .add_members(vec![bola.account_address.clone()])
             .await
             .unwrap();
-        
+
         // TODO: could check for LOG message with a Eviction error on receive
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         assert_eq!(stream_callback.message_count(), 3); // Don't receive transcript messages while removed
@@ -2090,7 +2081,7 @@ mod tests {
             .await
             .unwrap();
         group_callback.wait_for_delivery().await;
-       
+
         alix_group.send("hello1".as_bytes().to_vec()).await.unwrap();
         message_callback.wait_for_delivery().await;
 
