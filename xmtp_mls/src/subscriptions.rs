@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use futures::{Stream, StreamExt, FutureExt};
+use futures::{Stream, StreamExt};
 use prost::Message;
 use tokio::{
     sync::mpsc::self,

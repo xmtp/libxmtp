@@ -1128,10 +1128,8 @@ mod tests {
             self.num_messages.load(Ordering::SeqCst)
         }
 
-        pub async fn wait_for_delivery(&self, messages: usize) {
-            for _ in 0..messages {
-                self.notify.notified().await
-            }
+        pub async fn wait_for_delivery(&self) {
+            self.notify.notified().await
         }
     }
 
@@ -1518,7 +1516,7 @@ mod tests {
             .update_group_name("Old Name".to_string())
             .await
             .unwrap();
-        message_callbacks.wait_for_delivery(1).await;
+        message_callbacks.wait_for_delivery().await;
 
         let bo_groups = bo
             .conversations()
@@ -1531,14 +1529,14 @@ mod tests {
             .update_group_name("Old Name2".to_string())
             .await
             .unwrap();
-        message_callbacks.wait_for_delivery(1).await;
+        message_callbacks.wait_for_delivery().await;
 
         // Uncomment the following lines to add more group name updates
         bo_group
             .update_group_name("Old Name3".to_string())
             .await
             .unwrap();
-        message_callbacks.wait_for_delivery(1).await;
+        message_callbacks.wait_for_delivery().await;
 
         assert_eq!(message_callbacks.message_count(), 3);
 
@@ -1575,8 +1573,9 @@ mod tests {
             .update_group_name("hello".to_string())
             .await
             .unwrap();
+        message_callbacks.wait_for_delivery().await;
         alix_group.send("hello1".as_bytes().to_vec()).await.unwrap();
-        message_callbacks.wait_for_delivery(2).await;
+        message_callbacks.wait_for_delivery().await;
         
         bo.conversations().sync().await.unwrap();
 
@@ -1595,8 +1594,9 @@ mod tests {
         assert_eq!(bo_messages1.len(), first_msg_check);
 
         bo_group.send("hello2".as_bytes().to_vec()).await.unwrap();
+        message_callbacks.wait_for_delivery().await;
         bo_group.send("hello3".as_bytes().to_vec()).await.unwrap();
-        message_callbacks.wait_for_delivery(2).await;
+        message_callbacks.wait_for_delivery().await;
         
         alix_group.sync().await.unwrap();
 
@@ -1606,7 +1606,7 @@ mod tests {
         assert_eq!(alix_messages.len(), second_msg_check);
 
         alix_group.send("hello4".as_bytes().to_vec()).await.unwrap();
-        message_callbacks.wait_for_delivery(1).await;
+        message_callbacks.wait_for_delivery().await;
         bo_group.sync().await.unwrap();
 
         let bo_messages2 = bo_group
@@ -1639,7 +1639,7 @@ mod tests {
             .await
             .unwrap();
        
-        stream_callback.wait_for_delivery(1).await;
+        stream_callback.wait_for_delivery().await;
 
         assert_eq!(stream_callback.message_count(), 1);
         // Create another group and add bola
@@ -1650,7 +1650,7 @@ mod tests {
             )
             .await
             .unwrap();
-        stream_callback.wait_for_delivery(1).await;
+        stream_callback.wait_for_delivery().await;
         
         assert_eq!(stream_callback.message_count(), 2);
 
@@ -1680,8 +1680,7 @@ mod tests {
             .stream_all_messages(Box::new(stream_callback.clone()));
 
         alix_group.send("first".as_bytes().to_vec()).await.unwrap();
-       
-        stream_callback.wait_for_delivery(1).await;
+        stream_callback.wait_for_delivery().await;
 
         let bo_group = bo
             .conversations()
@@ -1694,9 +1693,11 @@ mod tests {
         let _ = caro.inner_client.sync_welcomes().await.unwrap(); 
        
         bo_group.send("second".as_bytes().to_vec()).await.unwrap();
+        stream_callback.wait_for_delivery().await;
         alix_group.send("third".as_bytes().to_vec()).await.unwrap();
+        stream_callback.wait_for_delivery().await;
         bo_group.send("fourth".as_bytes().to_vec()).await.unwrap();
-        stream_callback.wait_for_delivery(3).await;
+        stream_callback.wait_for_delivery().await;
 
         assert_eq!(stream_callback.message_count(), 4);
         stream.end_and_wait().await.unwrap();
@@ -1724,9 +1725,10 @@ mod tests {
             .await;
 
         group.send("hello".as_bytes().to_vec()).await.unwrap();
+        stream_callback.wait_for_delivery().await;
         group.send("goodbye".as_bytes().to_vec()).await.unwrap();
-        
-        stream_callback.wait_for_delivery(2).await;
+        stream_callback.wait_for_delivery().await;
+
         assert_eq!(stream_callback.message_count(), 2);
 
         stream_closer.end_and_wait().await.unwrap();
@@ -1757,8 +1759,9 @@ mod tests {
             .stream_all_messages(Box::new(stream_callback.clone()));
 
         amal_group.send(b"hello1".to_vec()).await.unwrap();
+        stream_callback.wait_for_delivery().await;
         amal_group.send(b"hello2".to_vec()).await.unwrap();
-        stream_callback.wait_for_delivery(2).await;
+        stream_callback.wait_for_delivery().await;
 
         assert_eq!(stream_callback.message_count(), 2);
         assert!(!stream_closer.is_closed());
@@ -1767,9 +1770,9 @@ mod tests {
             .remove_members_by_inbox_id(vec![bola.inbox_id().clone()])
             .await
             .unwrap();
-        
-        stream_callback.wait_for_delivery(1).await;
+        stream_callback.wait_for_delivery().await;
         assert_eq!(stream_callback.message_count(), 3); // Member removal transcript message
+                                                        //
         amal_group.send(b"hello3".to_vec()).await.unwrap();
         //TODO: could verify with a log message
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -1786,7 +1789,7 @@ mod tests {
         assert_eq!(stream_callback.message_count(), 3); // Don't receive transcript messages while removed
 
         amal_group.send("hello4".as_bytes().to_vec()).await.unwrap();
-        stream_callback.wait_for_delivery(1).await;
+        stream_callback.wait_for_delivery().await;
         assert_eq!(stream_callback.message_count(), 4); // Receiving messages again
         assert!(!stream_closer.is_closed());
 
@@ -1865,10 +1868,10 @@ mod tests {
             )
             .await
             .unwrap();
-        group_callback.wait_for_delivery(1).await;
+        group_callback.wait_for_delivery().await;
        
         alix_group.send("hello1".as_bytes().to_vec()).await.unwrap();
-        message_callback.wait_for_delivery(1).await;
+        message_callback.wait_for_delivery().await;
 
         assert_eq!(group_callback.message_count(), 1);
         assert_eq!(message_callback.message_count(), 1);
