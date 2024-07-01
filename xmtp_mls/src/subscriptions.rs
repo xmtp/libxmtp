@@ -446,6 +446,7 @@ mod tests {
             .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
             .unwrap();
+        
         // TODO:
         // theres missed messages here IF:
         //  message is sent & intent published  _right before_ the new stream is initalized.
