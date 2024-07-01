@@ -1,6 +1,5 @@
 package org.xmtp.android.library
 
-import com.google.protobuf.kotlin.toByteString
 import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.messages.ContactBundle
 import org.xmtp.android.library.messages.ContactBundleBuilder
@@ -38,10 +37,10 @@ data class ConsentListEntry(
         }
 
         fun groupId(
-            groupId: ByteArray,
+            groupId: String,
             type: ConsentState = ConsentState.UNKNOWN,
         ): ConsentListEntry {
-            return ConsentListEntry(groupId.toHex(), EntryType.GROUP_ID, type)
+            return ConsentListEntry(groupId, EntryType.GROUP_ID, type)
         }
 
         fun inboxId(
@@ -108,10 +107,10 @@ class ConsentList(
                 deny(address)
             }
             preference.allowGroup?.groupIdsList?.forEach { groupId ->
-                allowGroup(groupId.toByteArray())
+                allowGroup(groupId)
             }
             preference.denyGroup?.groupIdsList?.forEach { groupId ->
-                denyGroup(groupId.toByteArray())
+                denyGroup(groupId)
             }
 
             preference.allowInboxId?.inboxIdsList?.forEach { inboxId ->
@@ -152,13 +151,13 @@ class ConsentList(
                             ConsentState.ALLOWED ->
                                 it.setAllowGroup(
                                     PrivatePreferencesAction.AllowGroup.newBuilder()
-                                        .addGroupIds(entry.value.hexToByteArray().toByteString()),
+                                        .addGroupIds(entry.value),
                                 )
 
                             ConsentState.DENIED ->
                                 it.setDenyGroup(
                                     PrivatePreferencesAction.DenyGroup.newBuilder()
-                                        .addGroupIds(entry.value.hexToByteArray().toByteString()),
+                                        .addGroupIds(entry.value),
                                 )
 
                             ConsentState.UNKNOWN -> it.clearMessageType()
@@ -216,14 +215,14 @@ class ConsentList(
         return entry
     }
 
-    fun allowGroup(groupId: ByteArray): ConsentListEntry {
+    fun allowGroup(groupId: String): ConsentListEntry {
         val entry = ConsentListEntry.groupId(groupId, ConsentState.ALLOWED)
         entries[entry.key] = entry
 
         return entry
     }
 
-    fun denyGroup(groupId: ByteArray): ConsentListEntry {
+    fun denyGroup(groupId: String): ConsentListEntry {
         val entry = ConsentListEntry.groupId(groupId, ConsentState.DENIED)
         entries[entry.key] = entry
 
@@ -251,7 +250,7 @@ class ConsentList(
     }
 
     fun groupState(groupId: ByteArray): ConsentState {
-        val entry = entries[ConsentListEntry.groupId(groupId).key]
+        val entry = entries[ConsentListEntry.groupId(groupId.toHex()).key]
 
         return entry?.consentType ?: ConsentState.UNKNOWN
     }
@@ -291,14 +290,14 @@ data class Contacts(
 
     suspend fun allowGroups(groupIds: List<ByteArray>) {
         val entries = groupIds.map {
-            consentList.allowGroup(it)
+            consentList.allowGroup(it.toHex())
         }
         consentList.publish(entries)
     }
 
     suspend fun denyGroups(groupIds: List<ByteArray>) {
         val entries = groupIds.map {
-            consentList.denyGroup(it)
+            consentList.denyGroup(it.toHex())
         }
         consentList.publish(entries)
     }
