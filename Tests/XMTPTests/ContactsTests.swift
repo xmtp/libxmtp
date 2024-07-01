@@ -33,27 +33,6 @@ class ContactsTests: XCTestCase {
 		XCTAssertEqual(contactBundle.walletAddress, fixtures.bob.walletAddress)
 	}
 
-	func testCachesContacts() async throws {
-		let fixtures = await fixtures()
-
-		try await fixtures.bobClient.ensureUserContactPublished()
-
-		// Look up the first time
-		_ = try await fixtures.aliceClient.contacts.find(fixtures.bob.walletAddress)
-
-		try await fixtures.fakeApiClient.assertNoQuery {
-			guard let contactBundle = try await fixtures.aliceClient.contacts.find(fixtures.bob.walletAddress) else {
-				XCTFail("did not find contact bundle")
-				return
-			}
-
-			XCTAssertEqual(contactBundle.walletAddress, fixtures.bob.walletAddress)
-		}
-
-		let hasContact = await fixtures.aliceClient.contacts.has(fixtures.bob.walletAddress)
-		XCTAssert(hasContact)
-	}
-
 	func testAllowAddress() async throws {
 		let fixtures = await fixtures()
 
@@ -85,8 +64,7 @@ class ContactsTests: XCTestCase {
     func testHandleMultipleAddresses() async throws {
         let fixtures = await fixtures()
         let caro = try PrivateKey.generate()
-        let fakeApiClient = FakeApiClient()
-        let caroClient = try await Client.create(account: caro, apiClient: fakeApiClient)
+		let caroClient = try await Client.create(account: caro, options: fixtures.clientOptions)
 
         let contacts = fixtures.bobClient.contacts
         var result = await contacts.isAllowed(fixtures.alice.address)

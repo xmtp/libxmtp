@@ -179,7 +179,6 @@ class ClientTests: XCTestCase {
 	}
 
 		func testStaticCanMessage() async throws {
-				try TestConfig.skip(because: "run manually against local")
 				let opts = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
 
 				let aliceWallet = try PrivateKey.generate()
@@ -193,8 +192,9 @@ class ClientTests: XCTestCase {
 		}
 
 	func testHasPrivateKeyBundleV1() async throws {
+		let opts = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
 		let fakeWallet = try PrivateKey.generate()
-		let client = try await Client.create(account: fakeWallet, apiClient: FakeApiClient())
+		let client = try await Client.create(account: fakeWallet, options: opts)
 
 		XCTAssertEqual(1, client.privateKeyBundleV1.preKeys.count)
 

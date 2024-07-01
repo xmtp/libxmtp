@@ -51,6 +51,34 @@ final class GroupStreamCallback: FfiConversationCallback {
 	}
 }
 
+final class V2SubscriptionCallback: FfiV2SubscriptionCallback {
+	let callback: (Envelope) -> Void
+
+	init(callback: @escaping (Envelope) -> Void) {
+		self.callback = callback
+	}
+	
+	func onMessage(message: LibXMTP.FfiEnvelope) {
+		self.callback(message.fromFFI)
+	}
+}
+
+class StreamManager {
+	var stream: FfiV2Subscription?
+
+	func updateStream(with request: FfiV2SubscribeRequest) async throws {
+		try await stream?.update(req: request)
+	}
+
+	func endStream() async throws {
+		try await stream?.end()
+	}
+
+	func setStream(_ newStream: FfiV2Subscription?) {
+		self.stream = newStream
+	}
+}
+
 /// Handles listing and creating Conversations.
 public actor Conversations {
 	var client: Client
@@ -240,38 +268,56 @@ public actor Conversations {
 		return messages
 	}
 
-	func streamAllV2Messages() async throws -> AsyncThrowingStream<DecodedMessage, Error> {
-		return AsyncThrowingStream { continuation in
+	func streamAllV2Messages() -> AsyncThrowingStream<DecodedMessage, Error> {
+		AsyncThrowingStream { continuation in
+			let streamManager = StreamManager()
+			
 			Task {
-				while true {
-					var topics: [String] = [
-						Topic.userInvite(client.address).description,
-						Topic.userIntro(client.address).description,
-					]
-					for conversation in try await list() {
-						topics.append(conversation.topic)
-					}
-					do {
-						for try await envelope in client.subscribe(topics: topics) {
-							if let conversation = conversationsByTopic[envelope.contentTopic] {
+				var topics: [String] = [
+					Topic.userInvite(client.address).description,
+					Topic.userIntro(client.address).description
+				]
+
+				for conversation in try await list() {
+					topics.append(conversation.topic)
+				}
+
+				var subscriptionRequest = FfiV2SubscribeRequest(contentTopics: topics)
+
+				let subscriptionCallback = V2SubscriptionCallback { envelope in
+					Task {
+						do {
+							if let conversation = self.conversationsByTopic[envelope.contentTopic] {
 								let decoded = try conversation.decode(envelope)
 								continuation.yield(decoded)
 							} else if envelope.contentTopic.hasPrefix("/xmtp/0/invite-") {
-								let conversation = try fromInvite(envelope: envelope)
+								let conversation = try self.fromInvite(envelope: envelope)
 								await self.addConversation(conversation)
-								break // Break so we can resubscribe with the new conversation
+								topics.append(conversation.topic)
+								subscriptionRequest = FfiV2SubscribeRequest(contentTopics: topics)
+								try await streamManager.updateStream(with: subscriptionRequest)
 							} else if envelope.contentTopic.hasPrefix("/xmtp/0/intro-") {
-								let conversation = try fromIntro(envelope: envelope)
+								let conversation = try self.fromIntro(envelope: envelope)
 								await self.addConversation(conversation)
 								let decoded = try conversation.decode(envelope)
 								continuation.yield(decoded)
-								break // Break so we can resubscribe with the new conversation
+								topics.append(conversation.topic)
+								subscriptionRequest = FfiV2SubscribeRequest(contentTopics: topics)
+								try await streamManager.updateStream(with: subscriptionRequest)
 							} else {
 								print("huh \(envelope)")
 							}
+						} catch {
+							continuation.finish(throwing: error)
 						}
-					} catch {
-						continuation.finish(throwing: error)
+					}
+				}
+				let newStream = try await client.subscribe2(request: subscriptionRequest, callback: subscriptionCallback)
+				streamManager.setStream(newStream)
+				
+				continuation.onTermination = { @Sendable reason in
+					Task {
+						try await streamManager.endStream()
 					}
 				}
 			}
@@ -311,7 +357,7 @@ public actor Conversations {
 				}
 			}
 			Task {
-				await forwardStreamToMerged(stream: try streamAllV2Messages())
+				await forwardStreamToMerged(stream: streamAllV2Messages())
 			}
 			if includeGroups {
 				Task {
@@ -364,39 +410,58 @@ public actor Conversations {
 			}
 		}
 	}
-
-	func streamAllV2DecryptedMessages() async throws -> AsyncThrowingStream<DecryptedMessage, Error> {
-		return AsyncThrowingStream { continuation in
+	
+	
+	func streamAllV2DecryptedMessages() -> AsyncThrowingStream<DecryptedMessage, Error> {
+		AsyncThrowingStream { continuation in
+			let streamManager = StreamManager()
+			
 			Task {
-				while true {
-					var topics: [String] = [
-						Topic.userInvite(client.address).description,
-						Topic.userIntro(client.address).description,
-					]
-					for conversation in try await list() {
-						topics.append(conversation.topic)
-					}
-					do {
-						for try await envelope in client.subscribe(topics: topics) {
-							if let conversation = conversationsByTopic[envelope.contentTopic] {
-								let decoded = try conversation.decrypt(envelope)
-								continuation.yield(decoded)
+				var topics: [String] = [
+					Topic.userInvite(client.address).description,
+					Topic.userIntro(client.address).description
+				]
+
+				for conversation in try await list() {
+					topics.append(conversation.topic)
+				}
+
+				var subscriptionRequest = FfiV2SubscribeRequest(contentTopics: topics)
+
+				let subscriptionCallback = V2SubscriptionCallback { envelope in
+					Task {
+						do {
+							if let conversation = self.conversationsByTopic[envelope.contentTopic] {
+								let decrypted = try conversation.decrypt(envelope)
+								continuation.yield(decrypted)
 							} else if envelope.contentTopic.hasPrefix("/xmtp/0/invite-") {
-								let conversation = try fromInvite(envelope: envelope)
+								let conversation = try self.fromInvite(envelope: envelope)
 								await self.addConversation(conversation)
-								break // Break so we can resubscribe with the new conversation
+								topics.append(conversation.topic)
+								subscriptionRequest = FfiV2SubscribeRequest(contentTopics: topics)
+								try await streamManager.updateStream(with: subscriptionRequest)
 							} else if envelope.contentTopic.hasPrefix("/xmtp/0/intro-") {
-								let conversation = try fromIntro(envelope: envelope)
+								let conversation = try self.fromIntro(envelope: envelope)
 								await self.addConversation(conversation)
-								let decoded = try conversation.decrypt(envelope)
-								continuation.yield(decoded)
-								break // Break so we can resubscribe with the new conversation
+								let decrypted = try conversation.decrypt(envelope)
+								continuation.yield(decrypted)
+								topics.append(conversation.topic)
+								subscriptionRequest = FfiV2SubscribeRequest(contentTopics: topics)
+								try await streamManager.updateStream(with: subscriptionRequest)
 							} else {
 								print("huh \(envelope)")
 							}
+						} catch {
+							continuation.finish(throwing: error)
 						}
-					} catch {
-						continuation.finish(throwing: error)
+					}
+				}
+				let newStream = try await client.subscribe2(request: subscriptionRequest, callback: subscriptionCallback)
+				streamManager.setStream(newStream)
+				
+				continuation.onTermination = { @Sendable reason in
+					Task {
+						try await streamManager.endStream()
 					}
 				}
 			}
@@ -465,26 +530,34 @@ public actor Conversations {
 		return conversation
 	}
 
-	public func stream() -> AsyncThrowingStream<Conversation, Error> {
+	public func stream() async throws -> AsyncThrowingStream<Conversation, Error> {
 		AsyncThrowingStream { continuation in
 			Task {
 				var streamedConversationTopics: Set<String> = []
-				for try await envelope in client.subscribe(topics: [.userIntro(client.address), .userInvite(client.address)]) {
-					if envelope.contentTopic == Topic.userIntro(client.address).description {
-						let conversationV1 = try fromIntro(envelope: envelope)
-						if streamedConversationTopics.contains(conversationV1.topic.description) {
-							continue
+				let subscriptionCallback = V2SubscriptionCallback { envelope in
+					Task {
+						if envelope.contentTopic == Topic.userIntro(self.client.address).description {
+							let conversationV1 = try self.fromIntro(envelope: envelope)
+							if !streamedConversationTopics.contains(conversationV1.topic.description) {
+								streamedConversationTopics.insert(conversationV1.topic.description)
+								continuation.yield(conversationV1)
+							}
 						}
-						streamedConversationTopics.insert(conversationV1.topic.description)
-						continuation.yield(conversationV1)
+						if envelope.contentTopic == Topic.userInvite(self.client.address).description {
+							let conversationV2 = try self.fromInvite(envelope: envelope)
+							if !streamedConversationTopics.contains(conversationV2.topic) {
+								streamedConversationTopics.insert(conversationV2.topic)
+								continuation.yield(conversationV2)
+							}
+						}
 					}
-					if envelope.contentTopic == Topic.userInvite(client.address).description {
-						let conversationV2 = try fromInvite(envelope: envelope)
-						if streamedConversationTopics.contains(conversationV2.topic) {
-							continue
-						}
-						streamedConversationTopics.insert(conversationV2.topic)
-						continuation.yield(conversationV2)
+				}
+				
+				let stream = try await client.subscribe(topics: [Topic.userIntro(client.address).description, Topic.userInvite(client.address).description], callback: subscriptionCallback)
+					
+				continuation.onTermination = { @Sendable reason in
+					Task {
+						try await stream.end()
 					}
 				}
 			}
@@ -505,7 +578,7 @@ public actor Conversations {
 				}
 			}
 			Task {
-				await forwardStreamToMerged(stream: stream())
+				await forwardStreamToMerged(stream: try stream())
 			}
 			Task {
 				await forwardStreamToMerged(stream: streamGroupConversations())

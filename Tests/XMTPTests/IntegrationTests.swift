@@ -18,8 +18,6 @@ import XMTPTestHelpers
 @available(iOS 16, *)
 final class IntegrationTests: XCTestCase {
 	func testSaveKey() async throws {
-	    try TestConfig.skipIfNotRunningLocalNodeTests()
-
 		let alice = try PrivateKey.generate()
 		let identity = try PrivateKey.generate()
 
@@ -47,8 +45,6 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testPublishingAndFetchingContactBundles() async throws {
-        try TestConfig.skipIfNotRunningLocalNodeTests()
-
 		let opts = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
 
 		let aliceWallet = try PrivateKey.generate()
@@ -67,7 +63,7 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testCanReceiveV1MessagesFromJS() async throws {
-        try TestConfig.skip(because: "run with locally orchestrated network")
+		throw XCTSkip("integration only (requires local node)")
 
 		let wallet = try FakeWallet.generate()
 		let options = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
@@ -84,7 +80,7 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testCanReceiveV2MessagesFromJS() async throws {
-        try TestConfig.skip(because: "run with locally orchestrated network")
+		throw XCTSkip("integration only (requires local node)")
 
 		let wallet = try PrivateKey.generate()
 		let options = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
@@ -106,8 +102,6 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testEndToEndConversation() async throws {
-        try TestConfig.skipIfNotRunningLocalNodeTests()
-
 		let opt = ClientOptions(api: .init(env: .local, isSecure: false))
         let alice = try await Client.create(account: try PrivateKey.generate(), options: opt)
         let bob = try await Client.create(account: try PrivateKey.generate(), options: opt)
@@ -130,8 +124,6 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testUsingSavedCredentialsAndKeyMaterial() async throws {
-		try TestConfig.skipIfNotRunningLocalNodeTests()
-
 		let opt = ClientOptions(api: .init(env: .local, isSecure: false))
 		let alice = try await Client.create(account: try PrivateKey.generate(), options: opt)
 		let bob = try await Client.create(account: try PrivateKey.generate(), options: opt)
@@ -173,8 +165,6 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testDeterministicConversationCreation() async throws {
-		try TestConfig.skipIfNotRunningLocalNodeTests()
-
 		let opt = ClientOptions(api: .init(env: .local, isSecure: false))
 		let alice = try await Client.create(account: try PrivateKey.generate(), options: opt)
 		let bob = try await Client.create(account: try PrivateKey.generate(), options: opt)
@@ -211,7 +201,6 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testStreamMessagesInV1Conversation() async throws {
-	    try TestConfig.skipIfNotRunningLocalNodeTests()
 		let opt = ClientOptions(api: .init(env: .local, isSecure: false))
 		let alice = try await Client.create(account: try PrivateKey.generate(), options: opt)
 		let bob = try await Client.create(account: try PrivateKey.generate(), options: opt)
@@ -246,8 +235,6 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testStreamMessagesInV2Conversation() async throws {
-        try TestConfig.skipIfNotRunningLocalNodeTests()
-
 		let alice = try PrivateKey.generate()
 		let bob = try PrivateKey.generate()
 
@@ -277,8 +264,6 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testStreamEphemeralInV1Conversation() async throws {
-		throw XCTSkip("integration only (requires local node)")
-
 		let alice = try PrivateKey.generate()
 		let bob = try PrivateKey.generate()
 
@@ -307,8 +292,6 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testStreamEphemeralInV2Conversation() async throws {
-		throw XCTSkip("integration only (requires local node)")
-
 		let alice = try PrivateKey.generate()
 		let bob = try PrivateKey.generate()
 
@@ -379,8 +362,6 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testCanPaginateV2Messages() async throws {
-        try TestConfig.skipIfNotRunningLocalNodeTests()
-
 		let bob = try FakeWallet.generate()
 		let alice = try FakeWallet.generate()
 
@@ -423,8 +404,6 @@ final class IntegrationTests: XCTestCase {
 	}
 
     func testStreamingMessagesShouldBeReceived() async throws {
-        try TestConfig.skipIfNotRunningLocalNodeTests()
-
         let alice = try await Client.create(account: try FakeWallet.generate(),
                                                 options: ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false)))
         let bob = try await Client.create(account: try FakeWallet.generate(),
@@ -445,8 +424,6 @@ final class IntegrationTests: XCTestCase {
     }
 
     func testListingConversations() async throws {
-        try TestConfig.skipIfNotRunningLocalNodeTests()
-
         let alice = try await Client.create(account: try FakeWallet.generate(),
                                                 options: ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false)))
         let bob = try await Client.create(account: try FakeWallet.generate(),
@@ -507,8 +484,6 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testCanStreamV2Conversations() async throws {
-        try TestConfig.skipIfNotRunningLocalNodeTests()
-
 		let alice = try PrivateKey.generate()
 		let bob = try PrivateKey.generate()
 
@@ -520,7 +495,7 @@ final class IntegrationTests: XCTestCase {
 		expectation1.expectedFulfillmentCount = 2
 
 		Task(priority: .userInitiated) {
-			for try await convo in await bobClient.conversations.stream() {
+			for try await convo in try await bobClient.conversations.stream() {
 				expectation1.fulfill()
 			}
 		}

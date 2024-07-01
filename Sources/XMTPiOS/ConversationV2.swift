@@ -166,12 +166,16 @@ public struct ConversationV2 {
 	public func streamEphemeral() -> AsyncThrowingStream<Envelope, Error> {
 		AsyncThrowingStream { continuation in
 			Task {
-				do {
-					for try await envelope in client.subscribe(topics: [ephemeralTopic]) {
-						continuation.yield(envelope)
+				let streamCallback = V2SubscriptionCallback { envelope in
+					continuation.yield(envelope)
+				}
+
+				let stream = try await client.subscribe(topics: [ephemeralTopic], callback: streamCallback)
+
+				continuation.onTermination = { @Sendable reason in
+					Task {
+						try await stream.end()
 					}
-				} catch {
-					continuation.finish(throwing: error)
 				}
 			}
 		}
@@ -180,10 +184,19 @@ public struct ConversationV2 {
 	public func streamMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
 		AsyncThrowingStream { continuation in
 			Task {
-				for try await envelope in client.subscribe(topics: [topic.description]) {
-					let decoded = try decode(envelope: envelope)
+				let streamCallback = V2SubscriptionCallback { envelope in
+					do {
+						let decodedMessage = try decode(envelope: envelope)
+						continuation.yield(decodedMessage)
+					} catch {}
+				}
 
-					continuation.yield(decoded)
+				let stream = try await client.subscribe(topics: [topic.description], callback: streamCallback)
+
+				continuation.onTermination = { @Sendable reason in
+					Task {
+						try await stream.end()
+					}
 				}
 			}
 		}
@@ -192,10 +205,19 @@ public struct ConversationV2 {
 	public func streamDecryptedMessages() -> AsyncThrowingStream<DecryptedMessage, Error> {
 		AsyncThrowingStream { continuation in
 			Task {
-				for try await envelope in client.subscribe(topics: [topic.description]) {
-					let decoded = try decrypt(envelope: envelope)
+				let streamCallback = V2SubscriptionCallback { envelope in
+					do {
+						let decrypted = try decrypt(envelope: envelope)
+						continuation.yield(decrypted)
+					} catch {}
+				}
 
-					continuation.yield(decoded)
+				let stream = try await client.subscribe(topics: [topic.description], callback: streamCallback)
+
+				continuation.onTermination = { @Sendable reason in
+					Task {
+						try await stream.end()
+					}
 				}
 			}
 		}

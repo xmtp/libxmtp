@@ -21,8 +21,6 @@ class PaginationTests: XCTestCase {
 	}
 
 	func testLongConvo() async throws {
-		try TestConfig.skipIfNotRunningLocalNodeTests()
-
 		let alice = try PrivateKey.generate()
 		let bob = try PrivateKey.generate()
 
@@ -73,8 +71,6 @@ class PaginationTests: XCTestCase {
 	}
 
 	func testCanStreamConversationsV2() async throws {
-	    try TestConfig.skipIfNotRunningLocalNodeTests()
-
 		let alice = try PrivateKey.generate()
 		let bob = try PrivateKey.generate()
 
@@ -85,7 +81,7 @@ class PaginationTests: XCTestCase {
 		expectation1.expectedFulfillmentCount = 2
 
 		Task(priority: .userInitiated) {
-			for try await _ in await bobClient.conversations.stream() {
+			for try await _ in try await bobClient.conversations.stream() {
 				print("Got one conversation")
 				expectation1.fulfill()
 			}

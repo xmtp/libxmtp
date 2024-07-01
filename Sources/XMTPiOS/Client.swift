@@ -489,12 +489,18 @@ public final class Client {
 		try await apiClient.publish(envelopes: envelopes)
 	}
 
-	public func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error> {
-		return apiClient.subscribe(topics: topics)
+	public func subscribe(
+		topics: [String],
+		callback: FfiV2SubscriptionCallback
+	) async throws -> FfiV2Subscription {
+		return try await subscribe2(request: FfiV2SubscribeRequest(contentTopics: topics), callback: callback)
 	}
 
-	public func subscribe(topics: [Topic]) -> AsyncThrowingStream<Envelope, Error> {
-		return subscribe(topics: topics.map(\.description))
+	public func subscribe2(
+		request: FfiV2SubscribeRequest,
+		callback: FfiV2SubscriptionCallback
+	) async throws -> FfiV2Subscription {
+		return try await apiClient.subscribe(request: request, callback: callback)
 	}
 
 	public func deleteLocalDatabase() throws {

@@ -63,7 +63,7 @@ protocol ApiClient: Sendable {
 	func envelopes(topic: String, pagination: Pagination?) async throws -> [Envelope]
 	func publish(envelopes: [Envelope]) async throws
 	func publish(request: PublishRequest) async throws
-	func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error>
+	func subscribe(request: FfiV2SubscribeRequest, callback: FfiV2SubscriptionCallback) async throws -> FfiV2Subscription
 }
 
 func makeQueryRequest(topic: String, pagination: Pagination? = nil, cursor: Cursor? = nil) -> QueryRequest {
@@ -152,29 +152,12 @@ final class GRPCApiClient: ApiClient {
 
 		return envelopes
 	}
-
-	func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error> {
-		return AsyncThrowingStream { continuation in
-			Task {
-				let request = SubscribeRequest.with { $0.contentTopics = topics }
-				do {
-					let subscription = try await rustClient.subscribe(request: request.toFFI)
-
-					defer {
-						Task {
-							await subscription.end()
-						}
-					}
-
-					while true {
-						let nextEnvelope = try await subscription.next()
-						continuation.yield(nextEnvelope.fromFFI)
-					}
-				} catch let error as GenericError {
-					throw ApiClientError(error: error, description: "ApiClientError.subscribeError:")
-				}
-			}
-		}
+	
+	func subscribe(
+		request: FfiV2SubscribeRequest,
+		callback: FfiV2SubscriptionCallback
+	) async throws -> FfiV2Subscription {
+		return try await rustClient.subscribe(request: request, callback: callback)
 	}
 
 	func publish(request: PublishRequest) async throws {

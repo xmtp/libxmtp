@@ -89,18 +89,6 @@ class MessageTests: XCTestCase {
 		XCTAssertEqual(Data(content), decrypted)
 	}
 
-	func testGetsV1ID() async throws {
-		let fixtures = await fixtures()
-		let conversation = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bob.walletAddress)
-
-		let id = try await conversation.send(text: "hi")
-		let envelope = fixtures.fakeApiClient.published.last!
-		let decodedMessage = try conversation.decode(envelope)
-
-		XCTAssertEqual(Data(SHA256.hash(data: envelope.message).bytes).toHex, decodedMessage.id)
-		XCTAssertEqual(id, decodedMessage.id)
-	}
-
 	func testGetsV2ID() async throws {
         try TestConfig.skip(because: "run manually against dev")
 		let envelopeMessageData = Data(
