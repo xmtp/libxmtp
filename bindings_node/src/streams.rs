@@ -32,12 +32,14 @@ impl From<StreamHandle<Result<(), ClientError>>> for NapiStreamCloser {
 impl NapiStreamCloser {
     /// Signal the stream to end
     /// Does not wait for the stream to end.
+    #[napi]
     pub fn end(&self) {
         self.abort_handle.abort();
     }
 
     /// End the stream and `await` for it to shutdown
     /// Returns the `Result` of the task.
+    #[napi]
     pub async fn end_and_wait(&self) -> Result<(), Error> {
         if self.abort_handle.is_finished() {
             return Ok(());
@@ -60,6 +62,7 @@ impl NapiStreamCloser {
     }
     
     /// Checks if this stream is closed
+    #[napi]
     pub fn is_closed(&self) -> bool {
         self.abort_handle.is_finished()
     }
