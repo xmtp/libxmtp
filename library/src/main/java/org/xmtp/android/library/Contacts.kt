@@ -1,6 +1,6 @@
 package org.xmtp.android.library
 
-import com.google.protobuf.kotlin.toByteStringUtf8
+import com.google.protobuf.kotlin.toByteString
 import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.messages.ContactBundle
 import org.xmtp.android.library.messages.ContactBundleBuilder
@@ -41,7 +41,7 @@ data class ConsentListEntry(
             groupId: ByteArray,
             type: ConsentState = ConsentState.UNKNOWN,
         ): ConsentListEntry {
-            return ConsentListEntry(String(groupId), EntryType.GROUP_ID, type)
+            return ConsentListEntry(groupId.toHex(), EntryType.GROUP_ID, type)
         }
 
         fun inboxId(
@@ -152,13 +152,13 @@ class ConsentList(
                             ConsentState.ALLOWED ->
                                 it.setAllowGroup(
                                     PrivatePreferencesAction.AllowGroup.newBuilder()
-                                        .addGroupIds(entry.value.toByteStringUtf8()),
+                                        .addGroupIds(entry.value.hexToByteArray().toByteString()),
                                 )
 
                             ConsentState.DENIED ->
                                 it.setDenyGroup(
                                     PrivatePreferencesAction.DenyGroup.newBuilder()
-                                        .addGroupIds(entry.value.toByteStringUtf8()),
+                                        .addGroupIds(entry.value.hexToByteArray().toByteString()),
                                 )
 
                             ConsentState.UNKNOWN -> it.clearMessageType()
