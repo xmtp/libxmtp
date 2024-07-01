@@ -446,8 +446,11 @@ mod tests {
             .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
             .unwrap();
-        // theres missed messages here, both in new & old stream_all_messages
-        // if a
+        // TODO:
+        // theres missed messages here IF:
+        //  message is sent & intent published  _right before_ the new stream is initalized.
+        // This was also an issue with the previous iteration of stream_all_messages, just
+        // difficult to catch b/c of the `time::sleep`'s
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         alix_group
