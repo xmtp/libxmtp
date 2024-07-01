@@ -395,7 +395,7 @@ mod tests {
         
         let notify = Arc::new(tokio::sync::Notify::new());
         let notify_pointer = notify.clone();
-        let handle = Client::<GrpcClient>::stream_all_messages_with_callback(Arc::new(caro), move |message| {
+        let mut handle = Client::<GrpcClient>::stream_all_messages_with_callback(Arc::new(caro), move |message| {
             (*messages_clone.lock().unwrap()).push(message);
             notify_pointer.notify_one();
         });
@@ -447,12 +447,12 @@ mod tests {
         let messages_clone = messages.clone();
         let notify = Arc::new(tokio::sync::Notify::new());
         let notify_pointer = notify.clone();
-        let handle =
+        let mut handle =
             Client::<GrpcClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
                 notify_pointer.notify_one();
                 (*messages_clone.lock().unwrap()).push(message);
             });
-        let handle = handle.wait_for_ready().await;
+        handle.wait_for_ready().await;
 
         alix_group
             .send_message("first".as_bytes(), &alix)
@@ -512,9 +512,9 @@ mod tests {
             assert_eq!(messages.len(), 5);
         }
         
-        let a = handle.abort_handle();
+        let a = handle.handle.abort_handle();
         a.abort();
-        let _ = handle.await;
+        let _ = handle.handle.await;
         assert!(a.is_finished());
 
         alix_group
