@@ -63,6 +63,7 @@ impl NapiConversations {
         permissions: None,
         group_name: None,
         group_image_url_square: None,
+        group_description: None,
       },
     };
 
