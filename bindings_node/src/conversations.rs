@@ -184,9 +184,8 @@ impl NapiConversations {
     let tsfn: ThreadsafeFunction<NapiGroup, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let client = self.inner_client.clone();
-    let stream_closer = RustXmtpClient::stream_conversations_with_callback(
-      client.clone(),
-      move |convo| {
+    let stream_closer =
+      RustXmtpClient::stream_conversations_with_callback(client.clone(), move |convo| {
         tsfn.call(
           Ok(NapiGroup::new(
             client.clone(),
@@ -195,8 +194,7 @@ impl NapiConversations {
           )),
           ThreadsafeFunctionCallMode::Blocking,
         );
-      },
-    );
+      });
 
     Ok(NapiStreamCloser::new(stream_closer))
   }
