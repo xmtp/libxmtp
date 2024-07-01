@@ -8,7 +8,7 @@ use super::{extract_message_v1, GroupError, MlsGroup};
 use crate::storage::group_message::StoredGroupMessage;
 use crate::subscriptions::{MessagesStreamInfo, StreamHandle};
 use crate::XmtpApi;
-use crate::{retry_async, retry::Retry, Client};
+use crate::{retry::Retry, retry_async, Client};
 use prost::Message;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
