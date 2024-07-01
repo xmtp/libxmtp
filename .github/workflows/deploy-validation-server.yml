@@ -1,23 +1,25 @@
-name: Publish Validation Service Image
+name: Deploy Validation Service Image
 
 on:
   push:
     branches:
       - main
 
+  workflow_dispatch:
+
 jobs:
   push_to_registry:
-    name: Push Docker image to GitHub Packages
+    name: Push Docker Image to GitHub Packages
     runs-on: warp-ubuntu-latest-x64-16x
     permissions:
       contents: read
       packages: write
     steps:
-      - name: Check out the repo
-        uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Log in to the Container registry
-        uses: docker/login-action@v1
+      - name: Log in to the container registry
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -25,12 +27,12 @@ jobs:
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@v3
+        uses: docker/metadata-action@v5
         with:
           images: ghcr.io/xmtp/mls-validation-service
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         id: push
         with:
           context: .

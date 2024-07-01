@@ -27,6 +27,7 @@ pub struct NapiCreateGroupOptions {
   pub permissions: Option<GroupPermissions>,
   pub group_name: Option<String>,
   pub group_image_url_square: Option<String>,
+  pub group_description: Option<String>,
 }
 
 impl NapiCreateGroupOptions {
@@ -34,6 +35,7 @@ impl NapiCreateGroupOptions {
     GroupMetadataOptions {
       name: self.group_name,
       image_url_square: self.group_image_url_square,
+      description: self.group_description,
     }
   }
 }
@@ -61,6 +63,7 @@ impl NapiConversations {
         permissions: None,
         group_name: None,
         group_image_url_square: None,
+        group_description: None,
       },
     };
 

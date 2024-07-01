@@ -45,7 +45,7 @@ pub enum MetadataField {
 }
 
 impl MetadataField {
-    fn as_str(self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             MetadataField::GroupName => "group_name",
             MetadataField::Description => "description",
@@ -89,14 +89,15 @@ impl GroupMutableMetadata {
         );
         attributes.insert(
             MetadataField::Description.to_string(),
-            DEFAULT_GROUP_DESCRIPTION.to_string(),
+            opts.description
+                .unwrap_or_else(|| DEFAULT_GROUP_DESCRIPTION.to_string()),
         );
         attributes.insert(
             MetadataField::GroupImageUrlSquare.to_string(),
             opts.image_url_square
                 .unwrap_or_else(|| DEFAULT_GROUP_IMAGE_URL_SQUARE.to_string()),
         );
-        let admin_list = vec![creator_inbox_id.clone()];
+        let admin_list = vec![];
         let super_admin_list = vec![creator_inbox_id.clone()];
         Self {
             attributes,

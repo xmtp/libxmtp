@@ -25,7 +25,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
     PermissionsUpdatePolicy as PermissionsPolicyProto, PolicySet as PolicySetProto,
 };
 
-use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
+use crate::configuration::{GROUP_PERMISSIONS_EXTENSION_ID, SUPER_ADMIN_METADATA_PREFIX};
 
 use super::{
     group_mutable_metadata::GroupMutableMetadata,
@@ -46,6 +46,8 @@ pub enum GroupMutablePermissionsError {
     MissingPolicies,
     #[error("missing extension")]
     MissingExtension,
+    #[error("invalid permission policy option")]
+    InvalidPermissionPolicyOption,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -125,6 +127,15 @@ impl TryFrom<&Extensions> for GroupMutablePermissions {
             }
         }
         Err(GroupMutablePermissionsError::MissingExtension)
+    }
+}
+
+impl TryFrom<&OpenMlsGroup> for GroupMutablePermissions {
+    type Error = GroupMutablePermissionsError;
+
+    fn try_from(value: &OpenMlsGroup) -> Result<Self, Self::Error> {
+        let extensions = value.export_group_context().extensions();
+        extensions.try_into()
     }
 }
 
@@ -864,8 +875,8 @@ impl PolicySet {
         let super_admin_remove_valid = commit.metadata_changes.super_admins_removed.is_empty()
             || (commit.actor.is_super_admin && commit.metadata_changes.num_super_admins > 0);
 
-        // TODO Validate permissions updates are valid
-        // once we add the user actions for updating permissions
+        // Permissions can only be changed by the super admin
+        let permissions_changes_valid = !commit.permissions_changed || commit.actor.is_super_admin;
 
         added_inboxes_valid
             && removed_inboxes_valid
@@ -874,6 +885,7 @@ impl PolicySet {
             && removed_admins_valid
             && super_admin_add_valid
             && super_admin_remove_valid
+            && permissions_changes_valid
     }
 
     fn evaluate_policy<'a, I, P>(
@@ -911,8 +923,7 @@ impl PolicySet {
     {
         changes.all(|change| {
             if let Some(policy) = policies.get(&change.field_name) {
-                let is_ok = policy.evaluate(actor, change);
-                if !is_ok {
+                if !policy.evaluate(actor, change) {
                     log::info!(
                         "Policy for field {} failed for actor {:?} and change {:?}",
                         change.field_name,
@@ -921,13 +932,25 @@ impl PolicySet {
                     );
                     return false;
                 }
-                return is_ok;
+                return true;
             }
-            log::info!(
-                "Missing policy for changed metadata field: {}",
-                change.field_name
-            );
-            false
+            // Policy is not found for metadata change, let's check if the new field contains the super_admin prefix
+            // and evaluate accordingly
+            let policy_for_unrecognized_field =
+                if change.field_name.starts_with(SUPER_ADMIN_METADATA_PREFIX) {
+                    MetadataPolicies::allow_if_actor_super_admin()
+                } else {
+                    // Otherwise we default to admin only for fields with missing policies
+                    MetadataPolicies::allow_if_actor_admin()
+                };
+            if !policy_for_unrecognized_field.evaluate(actor, change) {
+                log::info!(
+                    "Metadata field update with unknown policy was denied: {}",
+                    change.field_name
+                );
+                return false;
+            }
+            true
         })
     }
 
@@ -1148,14 +1171,16 @@ mod tests {
         member_added: Option<bool>,
         member_removed: Option<bool>,
         metadata_fields_changed: Option<Vec<String>>,
+        permissions_changed: bool,
+        actor_is_admin: bool,
         actor_is_super_admin: bool,
     ) -> ValidatedCommit {
-        let actor = build_actor(None, None, actor_is_super_admin, actor_is_super_admin);
+        let actor = build_actor(None, None, actor_is_admin, actor_is_super_admin);
         let build_membership_change = |same_address_as_actor| {
             if same_address_as_actor {
                 vec![build_change(
                     Some(actor.inbox_id.clone()),
-                    actor_is_super_admin,
+                    actor_is_admin,
                     actor_is_super_admin,
                 )]
             } else {
@@ -1181,6 +1206,7 @@ mod tests {
                 metadata_field_changes: field_changes,
                 ..Default::default()
             },
+            permissions_changed,
         }
     }
 
@@ -1195,7 +1221,7 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let commit = build_validated_commit(Some(true), Some(true), None, false);
+        let commit = build_validated_commit(Some(true), Some(true), None, false, false, false);
         assert!(permissions.evaluate_commit(&commit));
     }
 
@@ -1210,10 +1236,12 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let member_added_commit = build_validated_commit(Some(false), None, None, false);
+        let member_added_commit =
+            build_validated_commit(Some(false), None, None, false, false, false);
         assert!(!permissions.evaluate_commit(&member_added_commit));
 
-        let member_removed_commit = build_validated_commit(None, Some(false), None, false);
+        let member_removed_commit =
+            build_validated_commit(None, Some(false), None, false, false, false);
         assert!(!permissions.evaluate_commit(&member_removed_commit));
     }
 
@@ -1229,13 +1257,16 @@ mod tests {
         );
 
         // Can not remove the creator if they are the only super admin
-        let commit_with_creator = build_validated_commit(Some(true), Some(true), None, true);
+        let commit_with_creator =
+            build_validated_commit(Some(true), Some(true), None, false, false, true);
         assert!(!permissions.evaluate_commit(&commit_with_creator));
 
-        let commit_with_creator = build_validated_commit(Some(true), Some(false), None, true);
+        let commit_with_creator =
+            build_validated_commit(Some(true), Some(false), None, false, false, true);
         assert!(permissions.evaluate_commit(&commit_with_creator));
 
-        let commit_without_creator = build_validated_commit(Some(true), Some(true), None, false);
+        let commit_without_creator =
+            build_validated_commit(Some(true), Some(true), None, false, false, false);
         assert!(!permissions.evaluate_commit(&commit_without_creator));
     }
 
@@ -1250,10 +1281,12 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let commit_with_same_member = build_validated_commit(Some(true), None, None, false);
+        let commit_with_same_member =
+            build_validated_commit(Some(true), None, None, false, false, false);
         assert!(permissions.evaluate_commit(&commit_with_same_member));
 
-        let commit_with_different_member = build_validated_commit(Some(false), None, None, false);
+        let commit_with_different_member =
+            build_validated_commit(Some(false), None, None, false, false, false);
         assert!(!permissions.evaluate_commit(&commit_with_different_member));
     }
 
@@ -1271,7 +1304,8 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let member_added_commit = build_validated_commit(Some(true), None, None, false);
+        let member_added_commit =
+            build_validated_commit(Some(true), None, None, false, false, false);
         assert!(!permissions.evaluate_commit(&member_added_commit));
     }
 
@@ -1289,7 +1323,8 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let member_added_commit = build_validated_commit(Some(true), None, None, false);
+        let member_added_commit =
+            build_validated_commit(Some(true), None, None, false, false, false);
         assert!(permissions.evaluate_commit(&member_added_commit));
     }
 
@@ -1335,6 +1370,8 @@ mod tests {
             Some(true),
             None,
             Some(vec![MetadataField::GroupName.to_string()]),
+            false,
+            false,
             false,
         );
 
@@ -1418,5 +1455,97 @@ mod tests {
         };
 
         assert!(is_policy_admin_only(&policy_set_new_metadata_permission));
+    }
+
+    #[test]
+    fn test_permission_update() {
+        let permissions = PolicySet::new(
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow_if_actor_admin(),
+            MetadataPolicies::default_map(MetadataPolicies::allow()),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+        );
+
+        // Commit should fail because actor is not superadmin
+        let commit = build_validated_commit(None, None, None, true, false, false);
+        assert!(!permissions.evaluate_commit(&commit));
+
+        // Commit should pass because actor is superadmin
+        let commit = build_validated_commit(None, None, None, true, false, true);
+        assert!(permissions.evaluate_commit(&commit));
+    }
+
+    #[test]
+    fn test_evaluate_field_with_unknown_policy() {
+        // Create a group whose default metadata can be updated by any member
+        let permissions = PolicySet::new(
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
+            MetadataPolicies::default_map(MetadataPolicies::allow()),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+        );
+
+        // Non admin, non super admin can update group name
+        let name_updated_commit = build_validated_commit(
+            None,
+            None,
+            Some(vec![MetadataField::GroupName.to_string()]),
+            false,
+            false,
+            false,
+        );
+        assert!(permissions.evaluate_commit(&name_updated_commit));
+
+        // Non admin, non super admin can NOT update non existing field
+        let non_existing_field_updated_commit = build_validated_commit(
+            None,
+            None,
+            Some(vec!["non_existing_field".to_string()]),
+            false,
+            false,
+            false,
+        );
+        assert!(!permissions.evaluate_commit(&non_existing_field_updated_commit));
+
+        // Admin can update non existing field
+        let non_existing_field_updated_commit = build_validated_commit(
+            None,
+            None,
+            Some(vec!["non_existing_field".to_string()]),
+            false,
+            true,
+            false,
+        );
+        assert!(permissions.evaluate_commit(&non_existing_field_updated_commit));
+
+        // Admin can NOT update non existing field that starts with super_admin only prefix
+        let non_existing_field_updated_commit = build_validated_commit(
+            None,
+            None,
+            Some(vec![
+                SUPER_ADMIN_METADATA_PREFIX.to_string() + "non_existing_field",
+            ]),
+            false,
+            true,
+            false,
+        );
+        assert!(!permissions.evaluate_commit(&non_existing_field_updated_commit));
+
+        // Super Admin CAN update non existing field that starts with super_admin only prefix
+        let non_existing_field_updated_commit = build_validated_commit(
+            None,
+            None,
+            Some(vec![
+                SUPER_ADMIN_METADATA_PREFIX.to_string() + "non_existing_field",
+            ]),
+            false,
+            false,
+            true,
+        );
+        assert!(permissions.evaluate_commit(&non_existing_field_updated_commit));
     }
 }

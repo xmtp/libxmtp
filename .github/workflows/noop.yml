@@ -1,0 +1,45 @@
+name: No Op
+
+on:
+  pull_request:
+    # ignore code and some workflow changes
+    paths:
+      - "**"
+      - "!.github/workflows/lint-ffi-bindings.yml"
+      - "!.github/workflows/lint-node-bindings.yml"
+      - "!.github/workflows/lint-workspace.yml"
+      - "!.github/workflows/test-ffi-bindings.yml"
+      - "!.github/workflows/test-node-bindings.yml"
+      - "!.github/workflows/test-workspace.yml"
+      - "!bindings_ffi/**"
+      - "!bindings_node/**"
+      - "!dev/**"
+      - "!mls_validation_service/**"
+      - "!xmtp_api_grpc/**"
+      - "!xmtp_cryptography/**"
+      - "!xmtp_id/**"
+      - "!xmtp_mls/**"
+      - "!xmtp_proto/**"
+      - "!xmtp_v2/**"
+      - "!.node-version"
+      - "!Cargo.toml"
+      - "!Cargo.lock"
+      - "!rust-toolchain"
+      - "!rustfmt.toml"
+
+# Test and Lint steps are required for pull requests, but some file changes
+# don't require them to run. These jobs define the required steps for these
+# cases, but don't actually do anything.
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Nothing to test"
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Nothing to lint"

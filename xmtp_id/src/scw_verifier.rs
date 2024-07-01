@@ -384,6 +384,7 @@ pub mod tests {
 
     // This aims to verify a wrapped ERC-6492 signature that has magic bytes against an ERC-1271 ambire wallet deployed on Polygon.
     // This doesn't cover the undeployed case.
+    #[ignore] // This test is temporarily being ignored as it relies on an external service
     #[tokio::test]
     async fn test_erc6492_ambire_wallet() {
         let signer: Address = "0x4836a472ab1dd406ecb8d0f933a985541ee3921f"

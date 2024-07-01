@@ -1,0 +1,44 @@
+name: Lint Workspace
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    paths:
+      - ".github/workflows/lint.yaml"
+      - "mls_validation_service/**"
+      - "xmtp_api_grpc/**"
+      - "xmtp_cryptography/**"
+      - "xmtp_id/**"
+      - "xmtp_mls/**"
+      - "xmtp_proto/**"
+      - "xmtp_v2/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain"
+      - "rustfmt.toml"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: warp-ubuntu-latest-x64-16x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update rust toolchains
+        run: rustup update
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+
+      - name: Run clippy and fail on warnings
+        run: cargo clippy --all-features --all-targets --no-deps -- -Dwarnings
+
+      - name: Run format check
+        run: cargo fmt --check

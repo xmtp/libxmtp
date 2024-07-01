@@ -14,6 +14,16 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::groups::group_mutable_metadata::MetadataField;
+use xmtp_mls::groups::group_permissions::BasePolicies;
+use xmtp_mls::groups::group_permissions::GroupMutablePermissionsError;
+use xmtp_mls::groups::group_permissions::MembershipPolicies;
+use xmtp_mls::groups::group_permissions::MetadataBasePolicies;
+use xmtp_mls::groups::group_permissions::MetadataPolicies;
+use xmtp_mls::groups::group_permissions::PermissionsBasePolicies;
+use xmtp_mls::groups::group_permissions::PermissionsPolicies;
+use xmtp_mls::groups::intents::PermissionPolicyOption;
+use xmtp_mls::groups::intents::PermissionUpdateType;
 use xmtp_mls::groups::GroupMetadataOptions;
 use xmtp_mls::{
     api::ApiClientWrapper,
@@ -329,17 +339,137 @@ pub struct FfiConversations {
 }
 
 #[derive(uniffi::Enum, Debug)]
-pub enum GroupPermissions {
+pub enum FfiGroupPermissionsOptions {
     AllMembers,
     AdminOnly,
     CustomPolicy,
 }
 
-impl From<PreconfiguredPolicies> for GroupPermissions {
+#[derive(uniffi::Enum, Debug)]
+pub enum FfiPermissionUpdateType {
+    AddMember,
+    RemoveMember,
+    AddAdmin,
+    RemoveAdmin,
+    UpdateMetadata,
+}
+
+impl From<&FfiPermissionUpdateType> for PermissionUpdateType {
+    fn from(update_type: &FfiPermissionUpdateType) -> Self {
+        match update_type {
+            FfiPermissionUpdateType::AddMember => PermissionUpdateType::AddMember,
+            FfiPermissionUpdateType::RemoveMember => PermissionUpdateType::RemoveMember,
+            FfiPermissionUpdateType::AddAdmin => PermissionUpdateType::AddAdmin,
+            FfiPermissionUpdateType::RemoveAdmin => PermissionUpdateType::RemoveAdmin,
+            FfiPermissionUpdateType::UpdateMetadata => PermissionUpdateType::UpdateMetadata,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, PartialEq, Eq)]
+pub enum FfiPermissionPolicy {
+    Allow,
+    Deny,
+    Admin,
+    SuperAdmin,
+    DoesNotExist,
+    Other,
+}
+
+impl TryInto<PermissionPolicyOption> for FfiPermissionPolicy {
+    type Error = GroupMutablePermissionsError;
+
+    fn try_into(self) -> Result<PermissionPolicyOption, Self::Error> {
+        match self {
+            FfiPermissionPolicy::Allow => Ok(PermissionPolicyOption::Allow),
+            FfiPermissionPolicy::Deny => Ok(PermissionPolicyOption::Deny),
+            FfiPermissionPolicy::Admin => Ok(PermissionPolicyOption::AdminOnly),
+            FfiPermissionPolicy::SuperAdmin => Ok(PermissionPolicyOption::SuperAdminOnly),
+            _ => Err(GroupMutablePermissionsError::InvalidPermissionPolicyOption),
+        }
+    }
+}
+
+impl From<&MembershipPolicies> for FfiPermissionPolicy {
+    fn from(policies: &MembershipPolicies) -> Self {
+        if let MembershipPolicies::Standard(base_policy) = policies {
+            match base_policy {
+                BasePolicies::Allow => FfiPermissionPolicy::Allow,
+                BasePolicies::Deny => FfiPermissionPolicy::Deny,
+                BasePolicies::AllowSameMember => FfiPermissionPolicy::Other,
+                BasePolicies::AllowIfAdminOrSuperAdmin => FfiPermissionPolicy::Admin,
+                BasePolicies::AllowIfSuperAdmin => FfiPermissionPolicy::SuperAdmin,
+            }
+        } else {
+            FfiPermissionPolicy::Other
+        }
+    }
+}
+
+impl From<&MetadataPolicies> for FfiPermissionPolicy {
+    fn from(policies: &MetadataPolicies) -> Self {
+        if let MetadataPolicies::Standard(base_policy) = policies {
+            match base_policy {
+                MetadataBasePolicies::Allow => FfiPermissionPolicy::Allow,
+                MetadataBasePolicies::Deny => FfiPermissionPolicy::Deny,
+                MetadataBasePolicies::AllowIfActorAdminOrSuperAdmin => FfiPermissionPolicy::Admin,
+                MetadataBasePolicies::AllowIfActorSuperAdmin => FfiPermissionPolicy::SuperAdmin,
+            }
+        } else {
+            FfiPermissionPolicy::Other
+        }
+    }
+}
+
+impl From<&PermissionsPolicies> for FfiPermissionPolicy {
+    fn from(policies: &PermissionsPolicies) -> Self {
+        if let PermissionsPolicies::Standard(base_policy) = policies {
+            match base_policy {
+                PermissionsBasePolicies::Deny => FfiPermissionPolicy::Deny,
+                PermissionsBasePolicies::AllowIfActorAdminOrSuperAdmin => {
+                    FfiPermissionPolicy::Admin
+                }
+                PermissionsBasePolicies::AllowIfActorSuperAdmin => FfiPermissionPolicy::SuperAdmin,
+            }
+        } else {
+            FfiPermissionPolicy::Other
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, PartialEq, Eq)]
+pub struct FfiPermissionPolicySet {
+    pub add_member_policy: FfiPermissionPolicy,
+    pub remove_member_policy: FfiPermissionPolicy,
+    pub add_admin_policy: FfiPermissionPolicy,
+    pub remove_admin_policy: FfiPermissionPolicy,
+    pub update_group_name_policy: FfiPermissionPolicy,
+    pub update_group_description_policy: FfiPermissionPolicy,
+    pub update_group_image_url_square_policy: FfiPermissionPolicy,
+}
+
+impl From<PreconfiguredPolicies> for FfiGroupPermissionsOptions {
     fn from(policy: PreconfiguredPolicies) -> Self {
         match policy {
-            PreconfiguredPolicies::AllMembers => GroupPermissions::AllMembers,
-            PreconfiguredPolicies::AdminsOnly => GroupPermissions::AdminOnly,
+            PreconfiguredPolicies::AllMembers => FfiGroupPermissionsOptions::AllMembers,
+            PreconfiguredPolicies::AdminsOnly => FfiGroupPermissionsOptions::AdminOnly,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug)]
+pub enum FfiMetadataField {
+    GroupName,
+    Description,
+    ImageUrlSquare,
+}
+
+impl From<&FfiMetadataField> for MetadataField {
+    fn from(field: &FfiMetadataField) -> Self {
+        match field {
+            FfiMetadataField::GroupName => MetadataField::GroupName,
+            FfiMetadataField::Description => MetadataField::Description,
+            FfiMetadataField::ImageUrlSquare => MetadataField::GroupImageUrlSquare,
         }
     }
 }
@@ -357,10 +487,10 @@ impl FfiConversations {
         );
 
         let group_permissions = match opts.permissions {
-            Some(GroupPermissions::AllMembers) => {
+            Some(FfiGroupPermissionsOptions::AllMembers) => {
                 Some(xmtp_mls::groups::PreconfiguredPolicies::AllMembers)
             }
-            Some(GroupPermissions::AdminOnly) => {
+            Some(FfiGroupPermissionsOptions::AdminOnly) => {
                 Some(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly)
             }
             _ => None,
@@ -495,9 +625,10 @@ pub struct FfiListMessagesOptions {
 
 #[derive(uniffi::Record, Default)]
 pub struct FfiCreateGroupOptions {
-    pub permissions: Option<GroupPermissions>,
+    pub permissions: Option<FfiGroupPermissionsOptions>,
     pub group_name: Option<String>,
     pub group_image_url_square: Option<String>,
+    pub group_description: Option<String>,
 }
 
 impl FfiCreateGroupOptions {
@@ -505,6 +636,7 @@ impl FfiCreateGroupOptions {
         GroupMetadataOptions {
             name: self.group_name,
             image_url_square: self.group_image_url_square,
+            description: self.group_description,
         }
     }
 }
@@ -727,6 +859,35 @@ impl FfiGroup {
         Ok(group_image_url_square)
     }
 
+    pub async fn update_group_description(
+        &self,
+        group_description: String,
+    ) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        group
+            .update_group_description(&self.inner_client, group_description)
+            .await?;
+
+        Ok(())
+    }
+
+    pub fn group_description(&self) -> Result<String, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let group_description = group.group_description()?;
+
+        Ok(group_description)
+    }
+
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
@@ -828,6 +989,29 @@ impl FfiGroup {
         Ok(Arc::new(FfiGroupPermissions {
             inner: Arc::new(permissions),
         }))
+    }
+
+    pub async fn update_permission_policy(
+        &self,
+        permission_update_type: FfiPermissionUpdateType,
+        permission_policy_option: FfiPermissionPolicy,
+        metadata_field: Option<FfiMetadataField>,
+    ) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+        group
+            .update_permission_policy(
+                &self.inner_client,
+                PermissionUpdateType::from(&permission_update_type),
+                permission_policy_option.try_into()?,
+                metadata_field.map(|field| MetadataField::from(&field)),
+            )
+            .await
+            .map_err(|e| GenericError::from(e.to_string()))?;
+        Ok(())
     }
 
     pub async fn stream(
@@ -1046,12 +1230,34 @@ pub struct FfiGroupPermissions {
 
 #[uniffi::export]
 impl FfiGroupPermissions {
-    pub fn policy_type(&self) -> Result<GroupPermissions, GenericError> {
+    pub fn policy_type(&self) -> Result<FfiGroupPermissionsOptions, GenericError> {
         if let Ok(preconfigured_policy) = self.inner.preconfigured_policy() {
             Ok(preconfigured_policy.into())
         } else {
-            Ok(GroupPermissions::CustomPolicy)
+            Ok(FfiGroupPermissionsOptions::CustomPolicy)
         }
+    }
+
+    pub fn policy_set(&self) -> Result<FfiPermissionPolicySet, GenericError> {
+        let policy_set = &self.inner.policies;
+        let metadata_policy_map = &policy_set.update_metadata_policy;
+        let get_policy = |field: &str| {
+            metadata_policy_map
+                .get(field)
+                .map(FfiPermissionPolicy::from)
+                .unwrap_or(FfiPermissionPolicy::DoesNotExist)
+        };
+        Ok(FfiPermissionPolicySet {
+            add_member_policy: FfiPermissionPolicy::from(&policy_set.add_member_policy),
+            remove_member_policy: FfiPermissionPolicy::from(&policy_set.remove_member_policy),
+            add_admin_policy: FfiPermissionPolicy::from(&policy_set.add_admin_policy),
+            remove_admin_policy: FfiPermissionPolicy::from(&policy_set.remove_admin_policy),
+            update_group_name_policy: get_policy(MetadataField::GroupName.as_str()),
+            update_group_description_policy: get_policy(MetadataField::Description.as_str()),
+            update_group_image_url_square_policy: get_policy(
+                MetadataField::GroupImageUrlSquare.as_str(),
+            ),
+        })
     }
 }
 
@@ -1059,8 +1265,9 @@ impl FfiGroupPermissions {
 mod tests {
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
-        FfiConversationCallback, FfiCreateGroupOptions, FfiInboxOwner, FfiListConversationsOptions,
-        FfiListMessagesOptions, GroupPermissions, FfiGroup
+        FfiConversationCallback, FfiCreateGroupOptions, FfiGroupPermissionsOptions, FfiInboxOwner,
+        FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy,
+        FfiPermissionPolicySet, FfiPermissionUpdateType,
     };
     use std::{
         env,
@@ -1382,9 +1589,10 @@ mod tests {
             .create_group(
                 vec![bola.account_address.clone()],
                 FfiCreateGroupOptions {
-                    permissions: Some(GroupPermissions::AdminOnly),
+                    permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
                     group_name: Some("Group Name".to_string()),
                     group_image_url_square: Some("url".to_string()),
+                    group_description: Some("group description".to_string()),
                 },
             )
             .await
@@ -1394,6 +1602,7 @@ mod tests {
         assert_eq!(members.len(), 2);
         assert_eq!(group.group_name().unwrap(), "Group Name");
         assert_eq!(group.group_image_url_square().unwrap(), "url");
+        assert_eq!(group.group_description().unwrap(), "group description");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1705,7 +1914,6 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    #[ignore]
     async fn test_message_streaming() {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
@@ -1881,5 +2089,162 @@ mod tests {
 
         stream_groups.end_and_wait().await.unwrap();
         assert!(stream_groups.is_closed());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_permissions_show_expected_values() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+        // Create admin_only group
+        let admin_only_options = FfiCreateGroupOptions {
+            permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
+            ..Default::default()
+        };
+        let alix_group_admin_only = alix
+            .conversations()
+            .create_group(vec![bo.account_address.clone()], admin_only_options)
+            .await
+            .unwrap();
+
+        // Verify we can read the expected permissions
+        let alix_permission_policy_set = alix_group_admin_only
+            .group_permissions()
+            .unwrap()
+            .policy_set()
+            .unwrap();
+        let expected_permission_policy_set = FfiPermissionPolicySet {
+            add_member_policy: FfiPermissionPolicy::Admin,
+            remove_member_policy: FfiPermissionPolicy::Admin,
+            add_admin_policy: FfiPermissionPolicy::SuperAdmin,
+            remove_admin_policy: FfiPermissionPolicy::SuperAdmin,
+            update_group_name_policy: FfiPermissionPolicy::Admin,
+            update_group_description_policy: FfiPermissionPolicy::Admin,
+            update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
+        };
+        assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
+
+        // Create all_members group
+        let all_members_options = FfiCreateGroupOptions {
+            permissions: Some(FfiGroupPermissionsOptions::AllMembers),
+            ..Default::default()
+        };
+        let alix_group_all_members = alix
+            .conversations()
+            .create_group(vec![bo.account_address.clone()], all_members_options)
+            .await
+            .unwrap();
+
+        // Verify we can read the expected permissions
+        let alix_permission_policy_set = alix_group_all_members
+            .group_permissions()
+            .unwrap()
+            .policy_set()
+            .unwrap();
+        let expected_permission_policy_set = FfiPermissionPolicySet {
+            add_member_policy: FfiPermissionPolicy::Allow,
+            remove_member_policy: FfiPermissionPolicy::Admin,
+            add_admin_policy: FfiPermissionPolicy::SuperAdmin,
+            remove_admin_policy: FfiPermissionPolicy::SuperAdmin,
+            update_group_name_policy: FfiPermissionPolicy::Allow,
+            update_group_description_policy: FfiPermissionPolicy::Allow,
+            update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
+        };
+        assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_permissions_updates() {
+        let alix = new_test_client().await;
+        let bola = new_test_client().await;
+
+        let admin_only_options = FfiCreateGroupOptions {
+            permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
+            ..Default::default()
+        };
+        let alix_group = alix
+            .conversations()
+            .create_group(vec![bola.account_address.clone()], admin_only_options)
+            .await
+            .unwrap();
+
+        let alix_group_permissions = alix_group
+            .group_permissions()
+            .unwrap()
+            .policy_set()
+            .unwrap();
+        let expected_permission_policy_set = FfiPermissionPolicySet {
+            add_member_policy: FfiPermissionPolicy::Admin,
+            remove_member_policy: FfiPermissionPolicy::Admin,
+            add_admin_policy: FfiPermissionPolicy::SuperAdmin,
+            remove_admin_policy: FfiPermissionPolicy::SuperAdmin,
+            update_group_name_policy: FfiPermissionPolicy::Admin,
+            update_group_description_policy: FfiPermissionPolicy::Admin,
+            update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
+        };
+        assert_eq!(alix_group_permissions, expected_permission_policy_set);
+
+        // Let's update the group so that the image url can be updated by anyone
+        alix_group
+            .update_permission_policy(
+                FfiPermissionUpdateType::UpdateMetadata,
+                FfiPermissionPolicy::Allow,
+                Some(FfiMetadataField::ImageUrlSquare),
+            )
+            .await
+            .unwrap();
+        alix_group.sync().await.unwrap();
+        let alix_group_permissions = alix_group
+            .group_permissions()
+            .unwrap()
+            .policy_set()
+            .unwrap();
+        let new_expected_permission_policy_set = FfiPermissionPolicySet {
+            add_member_policy: FfiPermissionPolicy::Admin,
+            remove_member_policy: FfiPermissionPolicy::Admin,
+            add_admin_policy: FfiPermissionPolicy::SuperAdmin,
+            remove_admin_policy: FfiPermissionPolicy::SuperAdmin,
+            update_group_name_policy: FfiPermissionPolicy::Admin,
+            update_group_description_policy: FfiPermissionPolicy::Admin,
+            update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
+        };
+        assert_eq!(alix_group_permissions, new_expected_permission_policy_set);
+
+        // Verify that bo can not update the group name
+        let bola_conversations = bola.conversations();
+        let _ = bola_conversations.sync().await;
+        let bola_groups = bola_conversations
+            .list(crate::FfiListConversationsOptions {
+                created_after_ns: None,
+                created_before_ns: None,
+                limit: None,
+            })
+            .await
+            .unwrap();
+
+        let bola_group = bola_groups.first().unwrap();
+        bola_group
+            .update_group_name("new_name".to_string())
+            .await
+            .unwrap_err();
+
+        // Verify that bo CAN update the image url
+        bola_group
+            .update_group_image_url_square("https://example.com/image.png".to_string())
+            .await
+            .unwrap();
+
+        // Verify we can read the correct values from the group
+        bola_group.sync().await.unwrap();
+        alix_group.sync().await.unwrap();
+        assert_eq!(
+            bola_group.group_image_url_square().unwrap(),
+            "https://example.com/image.png"
+        );
+        assert_eq!(bola_group.group_name().unwrap(), "");
+        assert_eq!(
+            alix_group.group_image_url_square().unwrap(),
+            "https://example.com/image.png"
+        );
+        assert_eq!(alix_group.group_name().unwrap(), "");
     }
 }

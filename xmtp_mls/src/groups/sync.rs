@@ -4,11 +4,11 @@ use std::{
 };
 
 use super::{
-    build_group_membership_extension, build_mutable_metadata_extensions_for_admin_lists_update,
-    build_mutable_metadata_extensions_for_metadata_update,
+    build_extensions_for_admin_lists_update, build_extensions_for_metadata_update,
+    build_extensions_for_permissions_update, build_group_membership_extension,
     intents::{
         Installation, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
-        UpdateAdminListIntentData, UpdateGroupMembershipIntentData,
+        UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
     validated_commit::extract_group_membership,
     GroupError, MlsGroup,
@@ -221,7 +221,8 @@ impl MlsGroup {
             IntentKind::KeyUpdate
             | IntentKind::UpdateGroupMembership
             | IntentKind::UpdateAdminList
-            | IntentKind::MetadataUpdate => {
+            | IntentKind::MetadataUpdate
+            | IntentKind::UpdatePermission => {
                 if !allow_epoch_increment {
                     return Err(MessageProcessingError::EpochIncrementNotAllowed);
                 }
@@ -848,12 +849,11 @@ impl MlsGroup {
             }
             IntentKind::MetadataUpdate => {
                 let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
-                let mutable_metadata_extensions =
-                    build_mutable_metadata_extensions_for_metadata_update(
-                        openmls_group,
-                        metadata_intent.field_name,
-                        metadata_intent.field_value,
-                    )?;
+                let mutable_metadata_extensions = build_extensions_for_metadata_update(
+                    openmls_group,
+                    metadata_intent.field_name,
+                    metadata_intent.field_value,
+                )?;
 
                 let (commit, _, _) = openmls_group.update_group_context_extensions(
                     &provider,
@@ -868,15 +868,29 @@ impl MlsGroup {
             IntentKind::UpdateAdminList => {
                 let admin_list_update_intent =
                     UpdateAdminListIntentData::try_from(intent.data.clone())?;
-                let mutable_metadata_extensions =
-                    build_mutable_metadata_extensions_for_admin_lists_update(
-                        openmls_group,
-                        admin_list_update_intent,
-                    )?;
+                let mutable_metadata_extensions = build_extensions_for_admin_lists_update(
+                    openmls_group,
+                    admin_list_update_intent,
+                )?;
 
                 let (commit, _, _) = openmls_group.update_group_context_extensions(
                     provider,
                     mutable_metadata_extensions,
+                    &self.context.identity.installation_keys,
+                )?;
+                let commit_bytes = commit.tls_serialize_detached()?;
+                Ok((commit_bytes, None))
+            }
+            IntentKind::UpdatePermission => {
+                let update_permissions_intent =
+                    UpdatePermissionIntentData::try_from(intent.data.clone())?;
+                let group_permissions_extensions = build_extensions_for_permissions_update(
+                    openmls_group,
+                    update_permissions_intent,
+                )?;
+                let (commit, _, _) = openmls_group.update_group_context_extensions(
+                    provider,
+                    group_permissions_extensions,
                     &self.context.identity.installation_keys,
                 )?;
                 let commit_bytes = commit.tls_serialize_detached()?;

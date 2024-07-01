@@ -2,7 +2,7 @@ pub mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
 pub mod group_permissions;
-mod intents;
+pub mod intents;
 pub mod members;
 #[allow(dead_code)]
 pub(crate) mod message_history;
@@ -41,7 +41,10 @@ use self::{
     group_permissions::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
-    intents::{AdminListActionType, UpdateAdminListIntentData, UpdateMetadataIntentData},
+    intents::{
+        AdminListActionType, PermissionPolicyOption, PermissionUpdateType,
+        UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
+    },
     validated_commit::extract_group_membership,
 };
 use self::{
@@ -169,6 +172,8 @@ pub enum GroupError {
     InstallationDiff(#[from] InstallationDiffError),
     #[error("PSKs are not support")]
     NoPSKSupport,
+    #[error("Metadata update must specify a metadata field")]
+    InvalidPermissionUpdate,
 }
 
 impl RetryableError for GroupError {
@@ -203,6 +208,7 @@ pub struct MlsGroup {
 pub struct GroupMetadataOptions {
     pub name: Option<String>,
     pub image_url_square: Option<String>,
+    pub description: Option<String>,
 }
 
 impl Clone for MlsGroup {
@@ -616,6 +622,38 @@ impl MlsGroup {
             .await
     }
 
+    pub async fn update_permission_policy<ApiClient: XmtpApi>(
+        &self,
+        client: &Client<ApiClient>,
+        permission_update_type: PermissionUpdateType,
+        permission_policy: PermissionPolicyOption,
+        metadata_field: Option<MetadataField>,
+    ) -> Result<(), GroupError> {
+        let conn = client.store().conn()?;
+
+        if permission_update_type == PermissionUpdateType::UpdateMetadata
+            && metadata_field.is_none()
+        {
+            return Err(GroupError::InvalidPermissionUpdate);
+        }
+
+        let intent_data: Vec<u8> = UpdatePermissionIntentData::new(
+            permission_update_type,
+            permission_policy,
+            metadata_field.as_ref().map(|field| field.to_string()),
+        )
+        .into();
+
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::UpdatePermission,
+            self.group_id.clone(),
+            intent_data,
+        ))?;
+
+        self.sync_until_intent_resolved(conn, intent.id, client)
+            .await
+    }
+
     pub fn group_name(&self) -> Result<String, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
         match mutable_metadata
@@ -623,6 +661,40 @@ impl MlsGroup {
             .get(&MetadataField::GroupName.to_string())
         {
             Some(group_name) => Ok(group_name.clone()),
+            None => Err(GroupError::GroupMutableMetadata(
+                GroupMutableMetadataError::MissingExtension,
+            )),
+        }
+    }
+
+    pub async fn update_group_description<ApiClient>(
+        &self,
+        client: &Client<ApiClient>,
+        group_description: String,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let conn = self.context.store.conn()?;
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_update_group_description(group_description).into();
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::MetadataUpdate,
+            self.group_id.clone(),
+            intent_data,
+        ))?;
+
+        self.sync_until_intent_resolved(conn, intent.id, client)
+            .await
+    }
+
+    pub fn group_description(&self) -> Result<String, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        match mutable_metadata
+            .attributes
+            .get(&MetadataField::Description.to_string())
+        {
+            Some(group_description) => Ok(group_description.clone()),
             None => Err(GroupError::GroupMutableMetadata(
                 GroupMutableMetadataError::MissingExtension,
             )),
@@ -822,7 +894,7 @@ pub fn build_mutable_metadata_extension_default(
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-pub fn build_mutable_metadata_extensions_for_metadata_update(
+pub fn build_extensions_for_metadata_update(
     group: &OpenMlsGroup,
     field_name: String,
     field_value: String,
@@ -844,7 +916,71 @@ pub fn build_mutable_metadata_extensions_for_metadata_update(
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-pub fn build_mutable_metadata_extensions_for_admin_lists_update(
+pub fn build_extensions_for_permissions_update(
+    group: &OpenMlsGroup,
+    update_permissions_intent: UpdatePermissionIntentData,
+) -> Result<Extensions, GroupError> {
+    let existing_permissions: GroupMutablePermissions = group.try_into()?;
+    let existing_policy_set = existing_permissions.policies.clone();
+    let new_policy_set = match update_permissions_intent.update_type {
+        PermissionUpdateType::AddMember => PolicySet::new(
+            update_permissions_intent.policy_option.into(),
+            existing_policy_set.remove_member_policy,
+            existing_policy_set.update_metadata_policy,
+            existing_policy_set.add_admin_policy,
+            existing_policy_set.remove_admin_policy,
+            existing_policy_set.update_permissions_policy,
+        ),
+        PermissionUpdateType::RemoveMember => PolicySet::new(
+            existing_policy_set.add_member_policy,
+            update_permissions_intent.policy_option.into(),
+            existing_policy_set.update_metadata_policy,
+            existing_policy_set.add_admin_policy,
+            existing_policy_set.remove_admin_policy,
+            existing_policy_set.update_permissions_policy,
+        ),
+        PermissionUpdateType::AddAdmin => PolicySet::new(
+            existing_policy_set.add_member_policy,
+            existing_policy_set.remove_member_policy,
+            existing_policy_set.update_metadata_policy,
+            update_permissions_intent.policy_option.into(),
+            existing_policy_set.remove_admin_policy,
+            existing_policy_set.update_permissions_policy,
+        ),
+        PermissionUpdateType::RemoveAdmin => PolicySet::new(
+            existing_policy_set.add_member_policy,
+            existing_policy_set.remove_member_policy,
+            existing_policy_set.update_metadata_policy,
+            existing_policy_set.add_admin_policy,
+            update_permissions_intent.policy_option.into(),
+            existing_policy_set.update_permissions_policy,
+        ),
+        PermissionUpdateType::UpdateMetadata => {
+            let mut metadata_policy = existing_policy_set.update_metadata_policy.clone();
+            metadata_policy.insert(
+                update_permissions_intent.metadata_field_name.unwrap(),
+                update_permissions_intent.policy_option.into(),
+            );
+            PolicySet::new(
+                existing_policy_set.add_member_policy,
+                existing_policy_set.remove_member_policy,
+                metadata_policy,
+                existing_policy_set.add_admin_policy,
+                existing_policy_set.remove_admin_policy,
+                existing_policy_set.update_permissions_policy,
+            )
+        }
+    };
+    let new_group_permissions: Vec<u8> = GroupMutablePermissions::new(new_policy_set).try_into()?;
+    let unknown_gc_extension = UnknownExtension(new_group_permissions);
+    let extension = Extension::Unknown(GROUP_PERMISSIONS_EXTENSION_ID, unknown_gc_extension);
+    let mut extensions = group.extensions().clone();
+    extensions.add_or_replace(extension);
+    Ok(extensions)
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+pub fn build_extensions_for_admin_lists_update(
     group: &OpenMlsGroup,
     admin_lists_update: UpdateAdminListIntentData,
 ) -> Result<Extensions, GroupError> {
@@ -1004,6 +1140,7 @@ mod tests {
             group_membership::GroupMembership,
             group_metadata::{ConversationType, GroupMetadata},
             group_mutable_metadata::MetadataField,
+            intents::{PermissionPolicyOption, PermissionUpdateType},
             members::{GroupMember, PermissionLevel},
             GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
         },
@@ -1647,6 +1784,7 @@ mod tests {
                 GroupMetadataOptions {
                     name: Some("Group Name".to_string()),
                     image_url_square: Some("url".to_string()),
+                    description: Some("group description".to_string()),
                 },
             )
             .unwrap();
@@ -1660,9 +1798,14 @@ mod tests {
             .attributes
             .get(&MetadataField::GroupImageUrlSquare.to_string())
             .unwrap();
+        let amal_group_description: &String = binding
+            .attributes
+            .get(&MetadataField::Description.to_string())
+            .unwrap();
 
         assert_eq!(amal_group_name, "Group Name");
         assert_eq!(amal_group_image_url, "url");
+        assert_eq!(amal_group_description, "group description");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1913,8 +2056,7 @@ mod tests {
         // Verify Amal is the only admin and super admin
         let admin_list = amal_group.admin_list().unwrap();
         let super_admin_list = amal_group.super_admin_list().unwrap();
-        assert_eq!(admin_list.len(), 1);
-        assert!(admin_list.contains(&amal.inbox_id()));
+        assert_eq!(admin_list.len(), 0);
         assert_eq!(super_admin_list.len(), 1);
         assert!(super_admin_list.contains(&amal.inbox_id()));
 
@@ -1936,7 +2078,7 @@ mod tests {
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
         bola_group.sync(&bola).await.unwrap();
-        assert_eq!(bola_group.admin_list().unwrap().len(), 2);
+        assert_eq!(bola_group.admin_list().unwrap().len(), 1);
         assert!(bola_group.admin_list().unwrap().contains(&bola.inbox_id()));
 
         // Verify that bola can now add caro because they are an admin
@@ -1945,10 +2087,12 @@ mod tests {
             .await
             .unwrap();
 
-        // Verify that bola can not remove amal as an admin, because
+        bola_group.sync(&bola).await.unwrap();
+
+        // Verify that bola can not remove amal as a super admin, because
         // Remove admin is super admin only permissions
         bola_group
-            .update_admin_list(&bola, UpdateAdminListType::Remove, amal.inbox_id())
+            .update_admin_list(&bola, UpdateAdminListType::RemoveSuper, amal.inbox_id())
             .await
             .expect_err("expected err");
 
@@ -1959,7 +2103,7 @@ mod tests {
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
         bola_group.sync(&bola).await.unwrap();
-        assert_eq!(bola_group.admin_list().unwrap().len(), 1);
+        assert_eq!(bola_group.admin_list().unwrap().len(), 0);
         assert!(!bola_group.admin_list().unwrap().contains(&bola.inbox_id()));
 
         // Verify that bola can not add charlie because they are not an admin
@@ -1997,11 +2141,10 @@ mod tests {
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
 
-        // Verify Amal is the only admin and super admin
+        // Verify Amal is the only super admin
         let admin_list = amal_group.admin_list().unwrap();
         let super_admin_list = amal_group.super_admin_list().unwrap();
-        assert_eq!(admin_list.len(), 1);
-        assert!(admin_list.contains(&amal.inbox_id()));
+        assert_eq!(admin_list.len(), 0);
         assert_eq!(super_admin_list.len(), 1);
         assert!(super_admin_list.contains(&amal.inbox_id()));
 
@@ -2035,7 +2178,7 @@ mod tests {
             .await
             .unwrap();
         bola_group.sync(&bola).await.unwrap();
-        assert_eq!(bola_group.admin_list().unwrap().len(), 2);
+        assert_eq!(bola_group.admin_list().unwrap().len(), 1);
         assert!(bola_group.admin_list().unwrap().contains(&caro.inbox_id()));
 
         // Verify that no one can remove a super admin from a group
@@ -2210,8 +2353,8 @@ mod tests {
         amal_group.sync(&amal).await.unwrap();
 
         let mutable_metadata = amal_group.mutable_metadata().unwrap();
-        assert_eq!(mutable_metadata.admin_list.len(), 1);
-        assert_eq!(mutable_metadata.admin_list[0], amal.inbox_id());
+        assert_eq!(mutable_metadata.super_admin_list.len(), 1);
+        assert_eq!(mutable_metadata.super_admin_list[0], amal.inbox_id());
 
         let protected_metadata: GroupMetadata = amal_group.metadata().unwrap();
         assert_eq!(
@@ -2280,5 +2423,71 @@ mod tests {
             .get(&MetadataField::GroupName.to_string())
             .unwrap();
         assert_eq!(bola_group_name, "Name Update 2");
+    }
+
+    #[tokio::test]
+    async fn test_can_update_permissions_after_group_creation() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let policies = Some(PreconfiguredPolicies::AdminsOnly);
+        let amal_group: MlsGroup = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
+
+        // Step 2:  Amal adds Bola to the group
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        amal_group
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .await
+            .unwrap();
+
+        // Step 3: Bola attemps to add Caro, but fails because group is admin only
+        let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        bola.sync_welcomes().await.unwrap();
+        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_group: &MlsGroup = bola_groups.first().unwrap();
+        bola_group.sync(&bola).await.unwrap();
+        let result = bola_group
+            .add_members_by_inbox_id(&bola, vec![caro.inbox_id()])
+            .await;
+        if let Err(e) = &result {
+            eprintln!("Error adding member: {:?}", e);
+        } else {
+            panic!("Expected error adding member");
+        }
+
+        // Step 4: Bola attempts to update permissions but fails because they are not a super admin
+        let result = bola_group
+            .update_permission_policy(
+                &bola,
+                PermissionUpdateType::AddMember,
+                PermissionPolicyOption::Allow,
+                None,
+            )
+            .await;
+        if let Err(e) = &result {
+            eprintln!("Error updating permissions: {:?}", e);
+        } else {
+            panic!("Expected error updating permissions");
+        }
+
+        // Step 5: Amal updates group permissions so that all members can add
+        amal_group
+            .update_permission_policy(
+                &amal,
+                PermissionUpdateType::AddMember,
+                PermissionPolicyOption::Allow,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Step 6: Bola can now add Caro to the group
+        bola_group
+            .add_members_by_inbox_id(&bola, vec![caro.inbox_id()])
+            .await
+            .unwrap();
+        bola_group.sync(&bola).await.unwrap();
+        let members = bola_group.members().unwrap();
+        assert_eq!(members.len(), 3);
     }
 }
