@@ -44,3 +44,7 @@ pub const GROUP_PERMISSIONS_EXTENSION_ID: u16 = 0xff02;
 pub const DEFAULT_GROUP_NAME: &str = "";
 pub const DEFAULT_GROUP_DESCRIPTION: &str = "";
 pub const DEFAULT_GROUP_IMAGE_URL_SQUARE: &str = "";
+
+// If a metadata field name starts with this character,
+// and it does not have a policy set, it is a super admin only field
+pub const SUPER_ADMIN_METADATA_PREFIX: &str = "_";
