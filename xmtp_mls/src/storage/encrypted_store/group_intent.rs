@@ -26,6 +26,7 @@ pub enum IntentKind {
     MetadataUpdate = 3,
     UpdateGroupMembership = 4,
     UpdateAdminList = 5,
+    UpdatePermission = 6,
 }
 
 impl std::fmt::Display for IntentKind {
@@ -36,6 +37,7 @@ impl std::fmt::Display for IntentKind {
             IntentKind::MetadataUpdate => "MetadataUpdate",
             IntentKind::UpdateGroupMembership => "UpdateGroupMembership",
             IntentKind::UpdateAdminList => "UpdateAdminList",
+            IntentKind::UpdatePermission => "UpdatePermission",
         };
         write!(f, "{}", description)
     }
@@ -285,6 +287,7 @@ where
             3 => Ok(IntentKind::MetadataUpdate),
             4 => Ok(IntentKind::UpdateGroupMembership),
             5 => Ok(IntentKind::UpdateAdminList),
+            6 => Ok(IntentKind::UpdatePermission),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

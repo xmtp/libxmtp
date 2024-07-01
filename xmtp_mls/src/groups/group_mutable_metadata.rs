@@ -45,7 +45,7 @@ pub enum MetadataField {
 }
 
 impl MetadataField {
-    fn as_str(self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             MetadataField::GroupName => "group_name",
             MetadataField::Description => "description",

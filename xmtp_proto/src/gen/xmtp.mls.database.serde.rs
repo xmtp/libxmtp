@@ -565,6 +565,169 @@ impl<'de> serde::Deserialize<'de> for InstallationIds {
         deserializer.deserialize_struct("xmtp.mls.database.InstallationIds", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for PermissionPolicyOption {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unspecified => "PERMISSION_POLICY_OPTION_UNSPECIFIED",
+            Self::Allow => "PERMISSION_POLICY_OPTION_ALLOW",
+            Self::Deny => "PERMISSION_POLICY_OPTION_DENY",
+            Self::AdminOnly => "PERMISSION_POLICY_OPTION_ADMIN_ONLY",
+            Self::SuperAdminOnly => "PERMISSION_POLICY_OPTION_SUPER_ADMIN_ONLY",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for PermissionPolicyOption {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "PERMISSION_POLICY_OPTION_UNSPECIFIED",
+            "PERMISSION_POLICY_OPTION_ALLOW",
+            "PERMISSION_POLICY_OPTION_DENY",
+            "PERMISSION_POLICY_OPTION_ADMIN_ONLY",
+            "PERMISSION_POLICY_OPTION_SUPER_ADMIN_ONLY",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PermissionPolicyOption;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "PERMISSION_POLICY_OPTION_UNSPECIFIED" => Ok(PermissionPolicyOption::Unspecified),
+                    "PERMISSION_POLICY_OPTION_ALLOW" => Ok(PermissionPolicyOption::Allow),
+                    "PERMISSION_POLICY_OPTION_DENY" => Ok(PermissionPolicyOption::Deny),
+                    "PERMISSION_POLICY_OPTION_ADMIN_ONLY" => Ok(PermissionPolicyOption::AdminOnly),
+                    "PERMISSION_POLICY_OPTION_SUPER_ADMIN_ONLY" => Ok(PermissionPolicyOption::SuperAdminOnly),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
+impl serde::Serialize for PermissionUpdateType {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unspecified => "PERMISSION_UPDATE_TYPE_UNSPECIFIED",
+            Self::AddMember => "PERMISSION_UPDATE_TYPE_ADD_MEMBER",
+            Self::RemoveMember => "PERMISSION_UPDATE_TYPE_REMOVE_MEMBER",
+            Self::AddAdmin => "PERMISSION_UPDATE_TYPE_ADD_ADMIN",
+            Self::RemoveAdmin => "PERMISSION_UPDATE_TYPE_REMOVE_ADMIN",
+            Self::UpdateMetadata => "PERMISSION_UPDATE_TYPE_UPDATE_METADATA",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for PermissionUpdateType {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "PERMISSION_UPDATE_TYPE_UNSPECIFIED",
+            "PERMISSION_UPDATE_TYPE_ADD_MEMBER",
+            "PERMISSION_UPDATE_TYPE_REMOVE_MEMBER",
+            "PERMISSION_UPDATE_TYPE_ADD_ADMIN",
+            "PERMISSION_UPDATE_TYPE_REMOVE_ADMIN",
+            "PERMISSION_UPDATE_TYPE_UPDATE_METADATA",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PermissionUpdateType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "PERMISSION_UPDATE_TYPE_UNSPECIFIED" => Ok(PermissionUpdateType::Unspecified),
+                    "PERMISSION_UPDATE_TYPE_ADD_MEMBER" => Ok(PermissionUpdateType::AddMember),
+                    "PERMISSION_UPDATE_TYPE_REMOVE_MEMBER" => Ok(PermissionUpdateType::RemoveMember),
+                    "PERMISSION_UPDATE_TYPE_ADD_ADMIN" => Ok(PermissionUpdateType::AddAdmin),
+                    "PERMISSION_UPDATE_TYPE_REMOVE_ADMIN" => Ok(PermissionUpdateType::RemoveAdmin),
+                    "PERMISSION_UPDATE_TYPE_UPDATE_METADATA" => Ok(PermissionUpdateType::UpdateMetadata),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
 impl serde::Serialize for PostCommitAction {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1892,5 +2055,233 @@ impl<'de> serde::Deserialize<'de> for update_metadata_data::V1 {
             }
         }
         deserializer.deserialize_struct("xmtp.mls.database.UpdateMetadataData.V1", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for UpdatePermissionData {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.version.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.UpdatePermissionData", len)?;
+        if let Some(v) = self.version.as_ref() {
+            match v {
+                update_permission_data::Version::V1(v) => {
+                    struct_ser.serialize_field("v1", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for UpdatePermissionData {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "v1",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            V1,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "v1" => Ok(GeneratedField::V1),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = UpdatePermissionData;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.database.UpdatePermissionData")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<UpdatePermissionData, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut version__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::V1 => {
+                            if version__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("v1"));
+                            }
+                            version__ = map_.next_value::<::std::option::Option<_>>()?.map(update_permission_data::Version::V1)
+;
+                        }
+                    }
+                }
+                Ok(UpdatePermissionData {
+                    version: version__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.database.UpdatePermissionData", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for update_permission_data::V1 {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.permission_update_type != 0 {
+            len += 1;
+        }
+        if self.permission_policy_option != 0 {
+            len += 1;
+        }
+        if self.metadata_field_name.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.UpdatePermissionData.V1", len)?;
+        if self.permission_update_type != 0 {
+            let v = PermissionUpdateType::try_from(self.permission_update_type)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.permission_update_type)))?;
+            struct_ser.serialize_field("permissionUpdateType", &v)?;
+        }
+        if self.permission_policy_option != 0 {
+            let v = PermissionPolicyOption::try_from(self.permission_policy_option)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.permission_policy_option)))?;
+            struct_ser.serialize_field("permissionPolicyOption", &v)?;
+        }
+        if let Some(v) = self.metadata_field_name.as_ref() {
+            struct_ser.serialize_field("metadataFieldName", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for update_permission_data::V1 {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "permission_update_type",
+            "permissionUpdateType",
+            "permission_policy_option",
+            "permissionPolicyOption",
+            "metadata_field_name",
+            "metadataFieldName",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            PermissionUpdateType,
+            PermissionPolicyOption,
+            MetadataFieldName,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "permissionUpdateType" | "permission_update_type" => Ok(GeneratedField::PermissionUpdateType),
+                            "permissionPolicyOption" | "permission_policy_option" => Ok(GeneratedField::PermissionPolicyOption),
+                            "metadataFieldName" | "metadata_field_name" => Ok(GeneratedField::MetadataFieldName),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = update_permission_data::V1;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.database.UpdatePermissionData.V1")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<update_permission_data::V1, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut permission_update_type__ = None;
+                let mut permission_policy_option__ = None;
+                let mut metadata_field_name__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::PermissionUpdateType => {
+                            if permission_update_type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("permissionUpdateType"));
+                            }
+                            permission_update_type__ = Some(map_.next_value::<PermissionUpdateType>()? as i32);
+                        }
+                        GeneratedField::PermissionPolicyOption => {
+                            if permission_policy_option__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("permissionPolicyOption"));
+                            }
+                            permission_policy_option__ = Some(map_.next_value::<PermissionPolicyOption>()? as i32);
+                        }
+                        GeneratedField::MetadataFieldName => {
+                            if metadata_field_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("metadataFieldName"));
+                            }
+                            metadata_field_name__ = map_.next_value()?;
+                        }
+                    }
+                }
+                Ok(update_permission_data::V1 {
+                    permission_update_type: permission_update_type__.unwrap_or_default(),
+                    permission_policy_option: permission_policy_option__.unwrap_or_default(),
+                    metadata_field_name: metadata_field_name__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.database.UpdatePermissionData.V1", FIELDS, GeneratedVisitor)
     }
 }
