@@ -208,7 +208,7 @@ pub struct MlsGroup {
 pub struct GroupMetadataOptions {
     pub name: Option<String>,
     pub image_url_square: Option<String>,
-    pub description: Option<String>
+    pub description: Option<String>,
 }
 
 impl Clone for MlsGroup {
@@ -677,8 +677,7 @@ impl MlsGroup {
     {
         let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> =
-            UpdateMetadataIntentData::new_update_group_description(group_description)
-                .into();
+            UpdateMetadataIntentData::new_update_group_description(group_description).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::MetadataUpdate,
             self.group_id.clone(),

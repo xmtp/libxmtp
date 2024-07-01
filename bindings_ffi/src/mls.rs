@@ -868,6 +868,35 @@ impl FfiGroup {
         Ok(group_image_url_square)
     }
 
+    pub async fn update_group_description(
+        &self,
+        group_description: String,
+    ) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        group
+            .update_group_description(&self.inner_client, group_description)
+            .await?;
+
+        Ok(())
+    }
+
+    pub fn group_description(&self) -> Result<String, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let group_description = group.group_description()?;
+
+        Ok(group_description)
+    }
+
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
@@ -1540,7 +1569,7 @@ mod tests {
                     permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
                     group_name: Some("Group Name".to_string()),
                     group_image_url_square: Some("url".to_string()),
-                    group_description: Some("group description".to_string())
+                    group_description: Some("group description".to_string()),
                 },
             )
             .await
