@@ -222,8 +222,6 @@ where
     pub async fn stream_all_messages(
         client: Arc<Client<ApiClient>>,
     ) -> Result<impl Stream<Item = StoredGroupMessage>, ClientError> {
-        
-        //TODO:insipx backpressure
         let (tx, rx) = mpsc::unbounded_channel();
 
         client.sync_welcomes().await?;
@@ -245,7 +243,6 @@ where
                     Some(message) = messages_stream.next() => {
                         // an error can only mean the receiver has been dropped or closed so we're
                         // safe to end the stream
-                        println!("MESSAGE {}", String::from_utf8_lossy(&message.decrypted_message_bytes));
                         if tx.send(message).is_err() {
                             break;
                         }
@@ -254,7 +251,6 @@ where
                         if tx.is_closed() {
                             break;
                         }
-                        println!("NEW GROUP ID: {:?}", new_group.group_id);
                         if group_id_to_info.contains_key(&new_group.group_id) {
                             continue;
                         }
@@ -262,7 +258,6 @@ where
                         for info in group_id_to_info.values_mut() {
                             info.cursor = 0;
                         }
-                        println!("STREAMING MESSAGES FROM NEW GROUP");
                         group_id_to_info.insert(
                             new_group.group_id,
                             MessagesStreamInfo {
@@ -270,11 +265,7 @@ where
                                 cursor: 1, // For the new group, stream all messages since the group was created
                             },
                         );
-                        
-                        let is_there = messages_stream.next().now_or_never();
-                        println!("IS THERE {:?}", is_there);
                         messages_stream = client.clone().stream_messages(group_id_to_info.clone()).await?;
-                        println!("SETUP NEW STREAM");
                     },
                 }
             }
@@ -392,12 +383,6 @@ mod tests {
         notify.notified().await;
 
         let messages = messages.lock().unwrap();
-        for message in messages.iter() {
-            println!(
-                "{}",
-                String::from_utf8_lossy(&message.decrypted_message_bytes)
-            );
-        }
         assert_eq!(messages[0].decrypted_message_bytes, b"first");
         assert_eq!(messages[1].decrypted_message_bytes, b"second");
         assert_eq!(messages[2].decrypted_message_bytes, b"third");
@@ -424,9 +409,6 @@ mod tests {
         let notify_pointer = notify.clone();
         let handle =
             Client::<GrpcClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
-                let text = String::from_utf8(message.decrypted_message_bytes.clone())
-                    .unwrap_or("<not UTF8>".to_string());
-                println!("Received: {}", text);
                 notify_pointer.notify_one();
                 (*messages_clone.lock().unwrap()).push(message);
             });
