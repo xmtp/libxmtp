@@ -1913,8 +1913,7 @@ mod tests {
         // Verify Amal is the only admin and super admin
         let admin_list = amal_group.admin_list().unwrap();
         let super_admin_list = amal_group.super_admin_list().unwrap();
-        assert_eq!(admin_list.len(), 1);
-        assert!(admin_list.contains(&amal.inbox_id()));
+        assert_eq!(admin_list.len(), 0);
         assert_eq!(super_admin_list.len(), 1);
         assert!(super_admin_list.contains(&amal.inbox_id()));
 
@@ -1936,7 +1935,7 @@ mod tests {
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
         bola_group.sync(&bola).await.unwrap();
-        assert_eq!(bola_group.admin_list().unwrap().len(), 2);
+        assert_eq!(bola_group.admin_list().unwrap().len(), 1);
         assert!(bola_group.admin_list().unwrap().contains(&bola.inbox_id()));
 
         // Verify that bola can now add caro because they are an admin
@@ -1945,10 +1944,12 @@ mod tests {
             .await
             .unwrap();
 
-        // Verify that bola can not remove amal as an admin, because
+        bola_group.sync(&bola).await.unwrap();
+
+        // Verify that bola can not remove amal as a super admin, because
         // Remove admin is super admin only permissions
         bola_group
-            .update_admin_list(&bola, UpdateAdminListType::Remove, amal.inbox_id())
+            .update_admin_list(&bola, UpdateAdminListType::RemoveSuper, amal.inbox_id())
             .await
             .expect_err("expected err");
 
@@ -1959,7 +1960,7 @@ mod tests {
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
         bola_group.sync(&bola).await.unwrap();
-        assert_eq!(bola_group.admin_list().unwrap().len(), 1);
+        assert_eq!(bola_group.admin_list().unwrap().len(), 0);
         assert!(!bola_group.admin_list().unwrap().contains(&bola.inbox_id()));
 
         // Verify that bola can not add charlie because they are not an admin
@@ -1997,11 +1998,10 @@ mod tests {
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
 
-        // Verify Amal is the only admin and super admin
+        // Verify Amal is the only super admin
         let admin_list = amal_group.admin_list().unwrap();
         let super_admin_list = amal_group.super_admin_list().unwrap();
-        assert_eq!(admin_list.len(), 1);
-        assert!(admin_list.contains(&amal.inbox_id()));
+        assert_eq!(admin_list.len(), 0);
         assert_eq!(super_admin_list.len(), 1);
         assert!(super_admin_list.contains(&amal.inbox_id()));
 
@@ -2035,7 +2035,7 @@ mod tests {
             .await
             .unwrap();
         bola_group.sync(&bola).await.unwrap();
-        assert_eq!(bola_group.admin_list().unwrap().len(), 2);
+        assert_eq!(bola_group.admin_list().unwrap().len(), 1);
         assert!(bola_group.admin_list().unwrap().contains(&caro.inbox_id()));
 
         // Verify that no one can remove a super admin from a group
@@ -2210,8 +2210,8 @@ mod tests {
         amal_group.sync(&amal).await.unwrap();
 
         let mutable_metadata = amal_group.mutable_metadata().unwrap();
-        assert_eq!(mutable_metadata.admin_list.len(), 1);
-        assert_eq!(mutable_metadata.admin_list[0], amal.inbox_id());
+        assert_eq!(mutable_metadata.super_admin_list.len(), 1);
+        assert_eq!(mutable_metadata.super_admin_list[0], amal.inbox_id());
 
         let protected_metadata: GroupMetadata = amal_group.metadata().unwrap();
         assert_eq!(
