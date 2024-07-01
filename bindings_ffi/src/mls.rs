@@ -638,6 +638,7 @@ pub struct FfiCreateGroupOptions {
     pub permissions: Option<FfiGroupPermissionsOptions>,
     pub group_name: Option<String>,
     pub group_image_url_square: Option<String>,
+    pub group_description: Option<String>,
 }
 
 impl FfiCreateGroupOptions {
@@ -645,6 +646,7 @@ impl FfiCreateGroupOptions {
         GroupMetadataOptions {
             name: self.group_name,
             image_url_square: self.group_image_url_square,
+            description: self.group_description,
         }
     }
 }
@@ -1538,6 +1540,7 @@ mod tests {
                     permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
                     group_name: Some("Group Name".to_string()),
                     group_image_url_square: Some("url".to_string()),
+                    group_description: Some("group description".to_string())
                 },
             )
             .await

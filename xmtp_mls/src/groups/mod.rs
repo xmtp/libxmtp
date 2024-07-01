@@ -208,6 +208,7 @@ pub struct MlsGroup {
 pub struct GroupMetadataOptions {
     pub name: Option<String>,
     pub image_url_square: Option<String>,
+    pub description: Option<String>
 }
 
 impl Clone for MlsGroup {
@@ -660,6 +661,41 @@ impl MlsGroup {
             .get(&MetadataField::GroupName.to_string())
         {
             Some(group_name) => Ok(group_name.clone()),
+            None => Err(GroupError::GroupMutableMetadata(
+                GroupMutableMetadataError::MissingExtension,
+            )),
+        }
+    }
+
+    pub async fn update_group_description<ApiClient>(
+        &self,
+        client: &Client<ApiClient>,
+        group_description: String,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let conn = self.context.store.conn()?;
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_update_group_description(group_description)
+                .into();
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::MetadataUpdate,
+            self.group_id.clone(),
+            intent_data,
+        ))?;
+
+        self.sync_until_intent_resolved(conn, intent.id, client)
+            .await
+    }
+
+    pub fn group_description(&self) -> Result<String, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        match mutable_metadata
+            .attributes
+            .get(&MetadataField::Description.to_string())
+        {
+            Some(group_description) => Ok(group_description.clone()),
             None => Err(GroupError::GroupMutableMetadata(
                 GroupMutableMetadataError::MissingExtension,
             )),
