@@ -228,7 +228,7 @@ data class GRPCApiClient(
 
     private fun cursorFromFFi(cursor: FfiCursor): Cursor {
         return Cursor.newBuilder().also {
-            it.index.toBuilder().also { index ->
+            it.index = it.index.toBuilder().also { index ->
                 index.digest = cursor.digest.toByteString()
                 index.senderTimeNs = cursor.senderTimeNs.toLong()
             }.build()
