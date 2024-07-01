@@ -36,7 +36,9 @@ use super::{
     group_mutable_metadata::{
         find_mutable_metadata_extension, GroupMutableMetadata, GroupMutableMetadataError,
     },
-    group_permissions::{extract_group_permissions, GroupMutablePermissionsError},
+    group_permissions::{
+        extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
+    },
 };
 
 #[derive(Debug, Error)]
@@ -207,6 +209,7 @@ pub struct ValidatedCommit {
     pub added_inboxes: Vec<Inbox>,
     pub removed_inboxes: Vec<Inbox>,
     pub metadata_changes: MutableMetadataChanges,
+    pub permissions_changed: bool,
 }
 
 impl ValidatedCommit {
@@ -220,6 +223,7 @@ impl ValidatedCommit {
         let extensions = openmls_group.extensions();
         let immutable_metadata: GroupMetadata = extensions.try_into()?;
         let mutable_metadata: GroupMutableMetadata = extensions.try_into()?;
+        let group_permissions: GroupMutablePermissions = extensions.try_into()?;
         let current_group_members = get_current_group_members(openmls_group);
 
         let existing_group_context = openmls_group.export_group_context();
@@ -231,6 +235,9 @@ impl ValidatedCommit {
             existing_group_context,
             new_group_context,
         )?;
+
+        let permissions_changed =
+            extract_permissions_changed(&group_permissions, new_group_context)?;
         // Get the actor who created the commit.
         // Because we don't allow for multiple actors in a commit, this will error if two proposals come from different authors.
         let actor = extract_actor(
@@ -318,6 +325,7 @@ impl ValidatedCommit {
             added_inboxes,
             removed_inboxes,
             metadata_changes,
+            permissions_changed,
         };
 
         let policy_set = extract_group_permissions(openmls_group)?;
@@ -650,6 +658,16 @@ fn extract_metadata_changes(
         ),
         num_super_admins: new_mutable_metadata.super_admin_list.len() as u32,
     })
+}
+
+// Returns true if the permissions have changed, false otherwise
+fn extract_permissions_changed(
+    old_group_permissions: &GroupMutablePermissions,
+    new_group_context: &GroupContext,
+) -> Result<bool, CommitValidationError> {
+    let new_group_permissions: GroupMutablePermissions =
+        new_group_context.extensions().try_into()?;
+    Ok(!old_group_permissions.eq(&new_group_permissions))
 }
 
 fn get_added_members(
