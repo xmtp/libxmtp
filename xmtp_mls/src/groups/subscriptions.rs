@@ -3,11 +3,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::Stream;
-use tokio::task::JoinHandle;
 
 use super::{extract_message_v1, GroupError, MlsGroup};
 use crate::storage::group_message::StoredGroupMessage;
-use crate::subscriptions::MessagesStreamInfo;
+use crate::subscriptions::{MessagesStreamInfo, StreamHandle};
 use crate::XmtpApi;
 use crate::{retry_async, retry::Retry, Client};
 use prost::Message;
@@ -119,7 +118,7 @@ impl MlsGroup {
         group_id: Vec<u8>,
         created_at_ns: i64,
         callback: impl FnMut(StoredGroupMessage) + Send + 'static,
-    ) -> JoinHandle<Result<(), crate::groups::ClientError>>
+    ) -> StreamHandle<Result<(), crate::groups::ClientError>>
     where
         ApiClient: crate::XmtpApi,
     {

@@ -5,7 +5,7 @@ use crate::GenericError;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::Arc;
-use tokio::{task::{JoinHandle, AbortHandle}, sync::Mutex};
+use tokio::{task::AbortHandle, sync::Mutex};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::{
     associations::{
@@ -42,6 +42,7 @@ use xmtp_mls::{
         EncryptedMessageStore, EncryptionKey, StorageOption,
     },
     client::ClientError,
+    subscriptions::StreamHandle,
 };
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
@@ -80,8 +81,7 @@ pub async fn create_client(
     legacy_signed_private_key_proto: Option<Vec<u8>>,
     history_sync_url: Option<String>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
-    // TODO: revert
-    // init_logger(logger);
+    init_logger(logger);
     log::info!(
         "Creating API client for host: {}, isSecure: {}",
         host,
@@ -1143,23 +1143,31 @@ impl From<StoredGroupMessage> for FfiMessage {
 
 #[derive(uniffi::Object, Clone, Debug)]
 pub struct FfiStreamCloser {
-    handle: Arc<Mutex<Option<JoinHandle<Result<(), ClientError>>>>>,
+    #[allow(clippy::type_complexity)]
+    stream_handle: Arc<Mutex<Option<StreamHandle<Result<(), ClientError>>>>>,
     // for convenience, does not require locking mutex.
     abort_handle: Arc<AbortHandle>,
 }
 
 impl FfiStreamCloser {
-    pub fn new(handle: JoinHandle<Result<(), ClientError>>) -> Self {
+    pub fn new(stream_handle: StreamHandle<Result<(), ClientError>>) -> Self {
         Self {
-            abort_handle: Arc::new(handle.abort_handle()),
-            handle: Arc::new(Mutex::new(Some(handle))),
+            abort_handle: Arc::new(stream_handle.handle.abort_handle()),
+            stream_handle: Arc::new(Mutex::new(Some(stream_handle))),
+        }
+    }
+
+    #[cfg(test)]
+    pub async fn wait_for_ready(&self) {
+        let mut handle = self.stream_handle.lock().await;
+        if let Some(ref mut h) = &mut *handle {
+            h.wait_for_ready().await;
         }
     }
 }
 
 #[uniffi::export]
 impl FfiStreamCloser {
-  
     /// Signal the stream to end
     /// Does not wait for the stream to end.
     pub fn end(&self) {
@@ -1168,15 +1176,16 @@ impl FfiStreamCloser {
 
     /// End the stream and asyncronously wait for it to shutdown
     pub async fn end_and_wait(&self) -> Result<(), GenericError> {
+
         if self.abort_handle.is_finished() {
             return Ok(());
         }
 
-        let mut handle = self.handle.lock().await;
-        let handle = handle.take();
-        if let Some(h) = handle {
-            h.abort();
-            let join_result = h.await;
+        let mut stream_handle = self.stream_handle.lock().await;
+        let stream_handle = stream_handle.take();
+        if let Some(h) = stream_handle {
+            h.handle.abort();
+            let join_result = h.handle.await;
             if matches!(join_result, Err(ref e) if !e.is_cancelled()) {
                 return Err(GenericError::Generic {
                     err: format!("subscription event loop join error {}", join_result.unwrap_err()),
@@ -1267,7 +1276,7 @@ mod tests {
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
         FfiConversationCallback, FfiCreateGroupOptions, FfiGroupPermissionsOptions, FfiInboxOwner,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy,
-        FfiPermissionPolicySet, FfiPermissionUpdateType,
+        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiGroup
     };
     use std::{
         env,
@@ -1700,8 +1709,6 @@ mod tests {
     // Looks like this test might be a separate issue
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_can_stream_group_messages_for_updates() {
-        let _ = tracing_subscriber::fmt::try_init();
-
         let alix = new_test_client().await;
         let bo = new_test_client().await;
 
@@ -1710,6 +1717,7 @@ mod tests {
         let stream_messages = bo
             .conversations()
             .stream_all_messages(Box::new(message_callbacks.clone()));
+        stream_messages.wait_for_ready().await;
 
         // Create group and send first message
         let alix_group = alix
@@ -1750,6 +1758,7 @@ mod tests {
         assert_eq!(message_callbacks.message_count(), 3);
 
         stream_messages.end_and_wait().await.unwrap();
+
         assert!(stream_messages.is_closed());
     }
 
@@ -1764,6 +1773,7 @@ mod tests {
         let stream_messages = bo
             .conversations()
             .stream_all_messages(Box::new(message_callbacks.clone()));
+        stream_messages.wait_for_ready().await;
 
         let first_msg_check = 2;
         let second_msg_check = 5;
@@ -1887,6 +1897,7 @@ mod tests {
         let stream = caro
             .conversations()
             .stream_all_messages(Box::new(stream_callback.clone()));
+        stream.wait_for_ready().await;
 
         alix_group.send("first".as_bytes().to_vec()).await.unwrap();
         stream_callback.wait_for_delivery().await;
@@ -1965,6 +1976,7 @@ mod tests {
         let stream_closer = bola
             .conversations()
             .stream_all_messages(Box::new(stream_callback.clone()));
+        stream_closer.wait_for_ready().await;
 
         amal_group.send(b"hello1".to_vec()).await.unwrap();
         stream_callback.wait_for_delivery().await;
@@ -2066,6 +2078,7 @@ mod tests {
         let stream_messages = bo
             .conversations()
             .stream_all_messages(Box::new(message_callback.clone()));
+        stream_messages.wait_for_ready().await;
 
         // Create group and send first message
         let alix_group = alix

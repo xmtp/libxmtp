@@ -1,28 +1,29 @@
 use std::sync::Arc;
-use tokio::{sync::Mutex, task::{JoinHandle, AbortHandle}};
-use xmtp_mls::client::ClientError;
+use tokio::{sync::Mutex, task::AbortHandle};
+use xmtp_mls::{client::ClientError, subscriptions::StreamHandle};
 use napi::bindgen_prelude::Error;
 
 use napi_derive::napi;
 
 #[napi]
 pub struct NapiStreamCloser {
-    handle: Arc<Mutex<Option<JoinHandle<Result<(), ClientError>>>>>,
+    #[allow(clippy::type_complexity)]
+    handle: Arc<Mutex<Option<StreamHandle<Result<(), ClientError>>>>>,
     // for convenience, does not require locking mutex.
     abort_handle: Arc<AbortHandle>,
 }
 
 impl NapiStreamCloser {
-    pub fn new(handle: JoinHandle<Result<(), ClientError>>) -> Self {
+    pub fn new(handle: StreamHandle<Result<(), ClientError>>) -> Self {
         Self {
-            abort_handle: Arc::new(handle.abort_handle()),
+            abort_handle: Arc::new(handle.handle.abort_handle()),
             handle: Arc::new(Mutex::new(Some(handle))),
         }
     }
 }
 
-impl From<JoinHandle<Result<(), ClientError>>> for NapiStreamCloser {
-    fn from(handle: JoinHandle<Result<(), ClientError>>) -> Self {
+impl From<StreamHandle<Result<(), ClientError>>> for NapiStreamCloser {
+    fn from(handle: StreamHandle<Result<(), ClientError>>) -> Self {
         NapiStreamCloser::new(handle) 
     }
 }
@@ -45,8 +46,8 @@ impl NapiStreamCloser {
         let mut handle = self.handle.lock().await;
         let handle = handle.take();
         if let Some(h) = handle {
-            h.abort();
-            let join_result = h.await;
+            h.handle.abort();
+            let join_result = h.handle.await;
             if matches!(join_result, Err(ref e) if !e.is_cancelled()) {
                 return Err(Error::from_reason(
                     format!("subscription event loop join error {}", join_result.unwrap_err())

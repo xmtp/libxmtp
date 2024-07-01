@@ -8,6 +8,7 @@ use futures::{Stream, StreamExt};
 use prost::Message;
 use tokio::{
     sync::mpsc::self,
+    sync::oneshot,
     task::JoinHandle,
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -22,6 +23,29 @@ use crate::{
     storage::{group_message::StoredGroupMessage, group::StoredGroup},
     Client, XmtpApi,
 };
+
+#[derive(Debug)]
+/// Wrapper around a [`tokio::task::JoinHandle`] but with a oneshot receiver
+/// which allows waiting for a `with_callback` stream fn to be ready for stream items.
+pub struct StreamHandle<T>{
+    pub handle: JoinHandle<T>,
+    start: Option<oneshot::Receiver<()>>
+}
+
+impl<T> StreamHandle<T> {
+    /// Waits for the stream to be fully spawned
+    pub async fn wait_for_ready(&mut self) {
+        if let Some(s) = self.start.take() {
+            let _ = s.await;
+        }
+    }
+}
+
+impl<T> From<StreamHandle<T>> for JoinHandle<T> {
+    fn from(stream: StreamHandle<T>) -> JoinHandle<T> {
+        stream.handle
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct MessagesStreamInfo {
@@ -195,28 +219,44 @@ where
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient>>,
         mut convo_callback: impl FnMut(MlsGroup) + Send + 'static,
-    ) -> JoinHandle<Result<(), ClientError>> {
-        tokio::spawn(async move {
+    ) -> StreamHandle<Result<(), ClientError>> {
+        let (tx, rx) = oneshot::channel(); 
+
+        let handle = tokio::spawn(async move {
             let mut stream = client.stream_conversations().await.unwrap();
+            let _ = tx.send(());
             while let Some(convo) = stream.next().await {
                 convo_callback(convo)
             }
             Ok(())
-        })
+        });
+
+        StreamHandle {
+            start: Some(rx),
+            handle
+        }
     }
 
     pub(crate) fn stream_messages_with_callback(
         client: Arc<Client<ApiClient>>,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
-    ) -> JoinHandle<Result<(), ClientError>> {
-        tokio::spawn(async move {
+    ) -> StreamHandle<Result<(), ClientError>> {
+        let (tx, rx) = oneshot::channel();
+
+        let handle = tokio::spawn(async move {
             let mut stream = Self::stream_messages(client, group_id_to_info).await?;
+            let _ = tx.send(());
             while let Some(message) = stream.next().await {
                 callback(message)
             }
             Ok(())
-        })
+        });
+    
+        StreamHandle {
+            start: Some(rx),
+            handle
+        }
     }
 
     pub async fn stream_all_messages(
@@ -278,11 +318,9 @@ where
     pub fn stream_all_messages_with_callback(
         client: Arc<Client<ApiClient>>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
-    ) -> JoinHandle<Result<(), ClientError>> {
-        // make this call block until it is ready
-        // otherwise we miss messages
-        let (tx, rx) = tokio::sync::oneshot::channel();
-
+    ) -> StreamHandle<Result<(), ClientError>> {
+        let (tx, rx) = oneshot::channel();
+        
         let handle = tokio::spawn(async move {
             let mut stream = Self::stream_all_messages(client).await?;
             let _ = tx.send(());
@@ -291,10 +329,11 @@ where
             }
             Ok(())
         });
-        
-        //TODO: dont need this?
-        let _ = tokio::task::block_in_place(|| rx.blocking_recv());
-        handle
+
+        StreamHandle {
+            start: Some(rx),
+            handle
+        }
     }
 }
 
@@ -356,10 +395,11 @@ mod tests {
         
         let notify = Arc::new(tokio::sync::Notify::new());
         let notify_pointer = notify.clone();
-        Client::<GrpcClient>::stream_all_messages_with_callback(Arc::new(caro), move |message| {
+        let handle = Client::<GrpcClient>::stream_all_messages_with_callback(Arc::new(caro), move |message| {
             (*messages_clone.lock().unwrap()).push(message);
             notify_pointer.notify_one();
         });
+        handle.wait_for_ready().await;
 
         alix_group
             .send_message("first".as_bytes(), &alix)
@@ -412,6 +452,7 @@ mod tests {
                 notify_pointer.notify_one();
                 (*messages_clone.lock().unwrap()).push(message);
             });
+        let handle = handle.wait_for_ready().await;
 
         alix_group
             .send_message("first".as_bytes(), &alix)
