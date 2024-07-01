@@ -1579,6 +1579,7 @@ mod tests {
         assert_eq!(members.len(), 2);
         assert_eq!(group.group_name().unwrap(), "Group Name");
         assert_eq!(group.group_image_url_square().unwrap(), "url");
+        assert_eq!(group.group_description().unwrap(), "group description");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

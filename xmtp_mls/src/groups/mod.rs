@@ -1784,6 +1784,7 @@ mod tests {
                 GroupMetadataOptions {
                     name: Some("Group Name".to_string()),
                     image_url_square: Some("url".to_string()),
+                    description: Some("group description".to_string()),
                 },
             )
             .unwrap();
@@ -1797,9 +1798,14 @@ mod tests {
             .attributes
             .get(&MetadataField::GroupImageUrlSquare.to_string())
             .unwrap();
+        let amal_group_description: &String = binding
+            .attributes
+            .get(&MetadataField::Description.to_string())
+            .unwrap();
 
         assert_eq!(amal_group_name, "Group Name");
         assert_eq!(amal_group_image_url, "url");
+        assert_eq!(amal_group_description, "group description");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
