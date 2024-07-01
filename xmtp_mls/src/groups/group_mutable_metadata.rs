@@ -89,7 +89,8 @@ impl GroupMutableMetadata {
         );
         attributes.insert(
             MetadataField::Description.to_string(),
-            DEFAULT_GROUP_DESCRIPTION.to_string(),
+            opts.description
+                .unwrap_or_else(|| DEFAULT_GROUP_DESCRIPTION.to_string()),
         );
         attributes.insert(
             MetadataField::GroupImageUrlSquare.to_string(),

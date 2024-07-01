@@ -208,6 +208,7 @@ pub struct MlsGroup {
 pub struct GroupMetadataOptions {
     pub name: Option<String>,
     pub image_url_square: Option<String>,
+    pub description: Option<String>,
 }
 
 impl Clone for MlsGroup {
@@ -660,6 +661,40 @@ impl MlsGroup {
             .get(&MetadataField::GroupName.to_string())
         {
             Some(group_name) => Ok(group_name.clone()),
+            None => Err(GroupError::GroupMutableMetadata(
+                GroupMutableMetadataError::MissingExtension,
+            )),
+        }
+    }
+
+    pub async fn update_group_description<ApiClient>(
+        &self,
+        client: &Client<ApiClient>,
+        group_description: String,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let conn = self.context.store.conn()?;
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_update_group_description(group_description).into();
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::MetadataUpdate,
+            self.group_id.clone(),
+            intent_data,
+        ))?;
+
+        self.sync_until_intent_resolved(conn, intent.id, client)
+            .await
+    }
+
+    pub fn group_description(&self) -> Result<String, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        match mutable_metadata
+            .attributes
+            .get(&MetadataField::Description.to_string())
+        {
+            Some(group_description) => Ok(group_description.clone()),
             None => Err(GroupError::GroupMutableMetadata(
                 GroupMutableMetadataError::MissingExtension,
             )),
@@ -1749,6 +1784,7 @@ mod tests {
                 GroupMetadataOptions {
                     name: Some("Group Name".to_string()),
                     image_url_square: Some("url".to_string()),
+                    description: Some("group description".to_string()),
                 },
             )
             .unwrap();
@@ -1762,9 +1798,14 @@ mod tests {
             .attributes
             .get(&MetadataField::GroupImageUrlSquare.to_string())
             .unwrap();
+        let amal_group_description: &String = binding
+            .attributes
+            .get(&MetadataField::Description.to_string())
+            .unwrap();
 
         assert_eq!(amal_group_name, "Group Name");
         assert_eq!(amal_group_image_url, "url");
+        assert_eq!(amal_group_description, "group description");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

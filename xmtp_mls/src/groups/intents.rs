@@ -174,6 +174,13 @@ impl UpdateMetadataIntentData {
             field_value: group_image_url_square,
         }
     }
+
+    pub fn new_update_group_description(group_description: String) -> Self {
+        Self {
+            field_name: MetadataField::Description.to_string(),
+            field_value: group_description,
+        }
+    }
 }
 
 impl From<UpdateMetadataIntentData> for Vec<u8> {
