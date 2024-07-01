@@ -75,6 +75,116 @@ extension Xmtp_Mls_Database_AdminListUpdateType: CaseIterable {
 
 #endif  // swift(>=4.2)
 
+/// Type of Permission to Update
+public enum Xmtp_Mls_Database_PermissionUpdateType: SwiftProtobuf.Enum {
+  public typealias RawValue = Int
+  case unspecified // = 0
+  case addMember // = 1
+  case removeMember // = 2
+  case addAdmin // = 3
+  case removeAdmin // = 4
+  case updateMetadata // = 5
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .unspecified
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .addMember
+    case 2: self = .removeMember
+    case 3: self = .addAdmin
+    case 4: self = .removeAdmin
+    case 5: self = .updateMetadata
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .addMember: return 1
+    case .removeMember: return 2
+    case .addAdmin: return 3
+    case .removeAdmin: return 4
+    case .updateMetadata: return 5
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+}
+
+#if swift(>=4.2)
+
+extension Xmtp_Mls_Database_PermissionUpdateType: CaseIterable {
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [Xmtp_Mls_Database_PermissionUpdateType] = [
+    .unspecified,
+    .addMember,
+    .removeMember,
+    .addAdmin,
+    .removeAdmin,
+    .updateMetadata,
+  ]
+}
+
+#endif  // swift(>=4.2)
+
+/// Permission Policy
+public enum Xmtp_Mls_Database_PermissionPolicyOption: SwiftProtobuf.Enum {
+  public typealias RawValue = Int
+  case unspecified // = 0
+  case allow // = 1
+  case deny // = 2
+  case adminOnly // = 3
+  case superAdminOnly // = 4
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .unspecified
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .allow
+    case 2: self = .deny
+    case 3: self = .adminOnly
+    case 4: self = .superAdminOnly
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .allow: return 1
+    case .deny: return 2
+    case .adminOnly: return 3
+    case .superAdminOnly: return 4
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+}
+
+#if swift(>=4.2)
+
+extension Xmtp_Mls_Database_PermissionPolicyOption: CaseIterable {
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [Xmtp_Mls_Database_PermissionPolicyOption] = [
+    .unspecified,
+    .allow,
+    .deny,
+    .adminOnly,
+    .superAdminOnly,
+  ]
+}
+
+#endif  // swift(>=4.2)
+
 /// The data required to publish a message
 public struct Xmtp_Mls_Database_SendMessageData {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
@@ -493,6 +603,72 @@ public struct Xmtp_Mls_Database_UpdateAdminListsData {
   public init() {}
 }
 
+/// The data required to update permissions
+public struct Xmtp_Mls_Database_UpdatePermissionData {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var version: Xmtp_Mls_Database_UpdatePermissionData.OneOf_Version? = nil
+
+  public var v1: Xmtp_Mls_Database_UpdatePermissionData.V1 {
+    get {
+      if case .v1(let v)? = version {return v}
+      return Xmtp_Mls_Database_UpdatePermissionData.V1()
+    }
+    set {version = .v1(newValue)}
+  }
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public enum OneOf_Version: Equatable {
+    case v1(Xmtp_Mls_Database_UpdatePermissionData.V1)
+
+  #if !swift(>=4.1)
+    public static func ==(lhs: Xmtp_Mls_Database_UpdatePermissionData.OneOf_Version, rhs: Xmtp_Mls_Database_UpdatePermissionData.OneOf_Version) -> Bool {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch (lhs, rhs) {
+      case (.v1, .v1): return {
+        guard case .v1(let l) = lhs, case .v1(let r) = rhs else { preconditionFailure() }
+        return l == r
+      }()
+      }
+    }
+  #endif
+  }
+
+  /// V1 of UpdatePermissionData
+  public struct V1 {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
+
+    public var permissionUpdateType: Xmtp_Mls_Database_PermissionUpdateType = .unspecified
+
+    public var permissionPolicyOption: Xmtp_Mls_Database_PermissionPolicyOption = .unspecified
+
+    /// Metadata permissions update specify which field permission they are updating
+    public var metadataFieldName: String {
+      get {return _metadataFieldName ?? String()}
+      set {_metadataFieldName = newValue}
+    }
+    /// Returns true if `metadataFieldName` has been explicitly set.
+    public var hasMetadataFieldName: Bool {return self._metadataFieldName != nil}
+    /// Clears the value of `metadataFieldName`. Subsequent reads from it will return its default value.
+    public mutating func clearMetadataFieldName() {self._metadataFieldName = nil}
+
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+    public init() {}
+
+    fileprivate var _metadataFieldName: String? = nil
+  }
+
+  public init() {}
+}
+
 /// Generic data-type for all post-commit actions
 public struct Xmtp_Mls_Database_PostCommitAction {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
@@ -564,6 +740,8 @@ public struct Xmtp_Mls_Database_PostCommitAction {
 
 #if swift(>=5.5) && canImport(_Concurrency)
 extension Xmtp_Mls_Database_AdminListUpdateType: @unchecked Sendable {}
+extension Xmtp_Mls_Database_PermissionUpdateType: @unchecked Sendable {}
+extension Xmtp_Mls_Database_PermissionPolicyOption: @unchecked Sendable {}
 extension Xmtp_Mls_Database_SendMessageData: @unchecked Sendable {}
 extension Xmtp_Mls_Database_SendMessageData.OneOf_Version: @unchecked Sendable {}
 extension Xmtp_Mls_Database_SendMessageData.V1: @unchecked Sendable {}
@@ -586,6 +764,9 @@ extension Xmtp_Mls_Database_UpdateMetadataData.V1: @unchecked Sendable {}
 extension Xmtp_Mls_Database_UpdateAdminListsData: @unchecked Sendable {}
 extension Xmtp_Mls_Database_UpdateAdminListsData.OneOf_Version: @unchecked Sendable {}
 extension Xmtp_Mls_Database_UpdateAdminListsData.V1: @unchecked Sendable {}
+extension Xmtp_Mls_Database_UpdatePermissionData: @unchecked Sendable {}
+extension Xmtp_Mls_Database_UpdatePermissionData.OneOf_Version: @unchecked Sendable {}
+extension Xmtp_Mls_Database_UpdatePermissionData.V1: @unchecked Sendable {}
 extension Xmtp_Mls_Database_PostCommitAction: @unchecked Sendable {}
 extension Xmtp_Mls_Database_PostCommitAction.OneOf_Kind: @unchecked Sendable {}
 extension Xmtp_Mls_Database_PostCommitAction.Installation: @unchecked Sendable {}
@@ -603,6 +784,27 @@ extension Xmtp_Mls_Database_AdminListUpdateType: SwiftProtobuf._ProtoNameProvidi
     2: .same(proto: "ADMIN_LIST_UPDATE_TYPE_REMOVE_ADMIN"),
     3: .same(proto: "ADMIN_LIST_UPDATE_TYPE_ADD_SUPER_ADMIN"),
     4: .same(proto: "ADMIN_LIST_UPDATE_TYPE_REMOVE_SUPER_ADMIN"),
+  ]
+}
+
+extension Xmtp_Mls_Database_PermissionUpdateType: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    0: .same(proto: "PERMISSION_UPDATE_TYPE_UNSPECIFIED"),
+    1: .same(proto: "PERMISSION_UPDATE_TYPE_ADD_MEMBER"),
+    2: .same(proto: "PERMISSION_UPDATE_TYPE_REMOVE_MEMBER"),
+    3: .same(proto: "PERMISSION_UPDATE_TYPE_ADD_ADMIN"),
+    4: .same(proto: "PERMISSION_UPDATE_TYPE_REMOVE_ADMIN"),
+    5: .same(proto: "PERMISSION_UPDATE_TYPE_UPDATE_METADATA"),
+  ]
+}
+
+extension Xmtp_Mls_Database_PermissionPolicyOption: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    0: .same(proto: "PERMISSION_POLICY_OPTION_UNSPECIFIED"),
+    1: .same(proto: "PERMISSION_POLICY_OPTION_ALLOW"),
+    2: .same(proto: "PERMISSION_POLICY_OPTION_DENY"),
+    3: .same(proto: "PERMISSION_POLICY_OPTION_ADMIN_ONLY"),
+    4: .same(proto: "PERMISSION_POLICY_OPTION_SUPER_ADMIN_ONLY"),
   ]
 }
 
@@ -1241,6 +1443,102 @@ extension Xmtp_Mls_Database_UpdateAdminListsData.V1: SwiftProtobuf.Message, Swif
   public static func ==(lhs: Xmtp_Mls_Database_UpdateAdminListsData.V1, rhs: Xmtp_Mls_Database_UpdateAdminListsData.V1) -> Bool {
     if lhs.adminListUpdateType != rhs.adminListUpdateType {return false}
     if lhs.inboxID != rhs.inboxID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Xmtp_Mls_Database_UpdatePermissionData: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".UpdatePermissionData"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "v1"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: Xmtp_Mls_Database_UpdatePermissionData.V1?
+        var hadOneofValue = false
+        if let current = self.version {
+          hadOneofValue = true
+          if case .v1(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.version = .v1(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if case .v1(let v)? = self.version {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Xmtp_Mls_Database_UpdatePermissionData, rhs: Xmtp_Mls_Database_UpdatePermissionData) -> Bool {
+    if lhs.version != rhs.version {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Xmtp_Mls_Database_UpdatePermissionData.V1: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = Xmtp_Mls_Database_UpdatePermissionData.protoMessageName + ".V1"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "permission_update_type"),
+    2: .standard(proto: "permission_policy_option"),
+    3: .standard(proto: "metadata_field_name"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularEnumField(value: &self.permissionUpdateType) }()
+      case 2: try { try decoder.decodeSingularEnumField(value: &self.permissionPolicyOption) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self._metadataFieldName) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if self.permissionUpdateType != .unspecified {
+      try visitor.visitSingularEnumField(value: self.permissionUpdateType, fieldNumber: 1)
+    }
+    if self.permissionPolicyOption != .unspecified {
+      try visitor.visitSingularEnumField(value: self.permissionPolicyOption, fieldNumber: 2)
+    }
+    try { if let v = self._metadataFieldName {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 3)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Xmtp_Mls_Database_UpdatePermissionData.V1, rhs: Xmtp_Mls_Database_UpdatePermissionData.V1) -> Bool {
+    if lhs.permissionUpdateType != rhs.permissionUpdateType {return false}
+    if lhs.permissionPolicyOption != rhs.permissionPolicyOption {return false}
+    if lhs._metadataFieldName != rhs._metadataFieldName {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

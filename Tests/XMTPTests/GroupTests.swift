@@ -802,7 +802,7 @@ class GroupTests: XCTestCase {
 		try await fixtures.aliceClient.conversations.sync()
 		let alixGroup = try fixtures.aliceClient.findGroup(groupId: boGroup.id)
 		try await alixGroup?.sync()
-		let alixMessage = try fixtures.aliceClient.findMessage(messageId: Data(boMessageId.web3.bytesFromHex!))
+		let alixMessage = try fixtures.aliceClient.findMessage(messageId: boMessageId.hexToData)
 
 		XCTAssertEqual(alixGroup?.id.toHex, boGroup.id.toHex)
 	}

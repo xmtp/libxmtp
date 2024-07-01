@@ -191,7 +191,7 @@ public struct Xmtp_MessageContents_PrivatePreferencesAction {
     // methods supported on all messages.
 
     /// Add the given group_ids to the allow list
-    public var groupIds: [Data] = []
+    public var groupIds: [String] = []
 
     public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -205,7 +205,7 @@ public struct Xmtp_MessageContents_PrivatePreferencesAction {
     // methods supported on all messages.
 
     /// Add the given group_ids to the deny list
-    public var groupIds: [Data] = []
+    public var groupIds: [String] = []
 
     public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -553,7 +553,7 @@ extension Xmtp_MessageContents_PrivatePreferencesAction.AllowGroup: SwiftProtobu
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeRepeatedBytesField(value: &self.groupIds) }()
+      case 1: try { try decoder.decodeRepeatedStringField(value: &self.groupIds) }()
       default: break
       }
     }
@@ -561,7 +561,7 @@ extension Xmtp_MessageContents_PrivatePreferencesAction.AllowGroup: SwiftProtobu
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
     if !self.groupIds.isEmpty {
-      try visitor.visitRepeatedBytesField(value: self.groupIds, fieldNumber: 1)
+      try visitor.visitRepeatedStringField(value: self.groupIds, fieldNumber: 1)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -585,7 +585,7 @@ extension Xmtp_MessageContents_PrivatePreferencesAction.DenyGroup: SwiftProtobuf
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeRepeatedBytesField(value: &self.groupIds) }()
+      case 1: try { try decoder.decodeRepeatedStringField(value: &self.groupIds) }()
       default: break
       }
     }
@@ -593,7 +593,7 @@ extension Xmtp_MessageContents_PrivatePreferencesAction.DenyGroup: SwiftProtobuf
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
     if !self.groupIds.isEmpty {
-      try visitor.visitRepeatedBytesField(value: self.groupIds, fieldNumber: 1)
+      try visitor.visitRepeatedStringField(value: self.groupIds, fieldNumber: 1)
     }
     try unknownFields.traverse(visitor: &visitor)
   }

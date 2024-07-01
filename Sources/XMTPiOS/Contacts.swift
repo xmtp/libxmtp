@@ -141,13 +141,9 @@ public class ConsentList {
 		case .group_id:
 			switch entry.consentType {
 			case .allowed:
-				if let valueData = entry.value.data(using: .utf8) {
-					payload.allowGroup.groupIds.append(valueData)
-				}
+				payload.allowGroup.groupIds.append(entry.value)
 			case .denied:
-				if let valueData = entry.value.data(using: .utf8) {
-						payload.denyGroup.groupIds.append(valueData)
-				}
+				payload.denyGroup.groupIds.append(entry.value)
 			case .unknown:
 				payload.messageType = nil
     	    }
@@ -192,17 +188,15 @@ public class ConsentList {
 		return entry
 	}
 
-	func allowGroup(groupId: Data) async -> ConsentListEntry {
-		let groupIdString = groupId.toHex
-		let entry = ConsentListEntry.groupId(groupId: groupIdString, type: ConsentState.allowed)
+	func allowGroup(groupId: String) async -> ConsentListEntry {
+		let entry = ConsentListEntry.groupId(groupId: groupId, type: ConsentState.allowed)
 		await entriesManager.set(entry.key, entry)
 
 		return entry
 	}
 
-	func denyGroup(groupId: Data) async -> ConsentListEntry {
-		let groupIdString = groupId.toHex
-		let entry = ConsentListEntry.groupId(groupId: groupIdString, type: ConsentState.denied)
+	func denyGroup(groupId: String) async -> ConsentListEntry {
+		let entry = ConsentListEntry.groupId(groupId: groupId, type: ConsentState.denied)
 		await entriesManager.set(entry.key, entry)
 
 		return entry
@@ -333,7 +327,7 @@ public actor Contacts {
 		try await withThrowingTaskGroup(of: ConsentListEntry.self) { group in
 			for groupId in groupIds {
 				group.addTask {
-					return await self.consentList.allowGroup(groupId: groupId)
+					return await self.consentList.allowGroup(groupId: groupId.toHex)
 				}
 			}
 
@@ -350,7 +344,7 @@ public actor Contacts {
 		try await withThrowingTaskGroup(of: ConsentListEntry.self) { group in
 			for groupId in groupIds {
 				group.addTask {
-					return await self.consentList.denyGroup(groupId: groupId)
+					return await self.consentList.denyGroup(groupId: groupId.toHex)
 				}
 			}
 
