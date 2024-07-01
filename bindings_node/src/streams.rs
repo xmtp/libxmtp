@@ -1,35 +1,65 @@
-use std::sync::{
-  atomic::{AtomicBool, Ordering},
-  Arc, Mutex,
-};
-use tokio::sync::oneshot::Sender;
+use std::sync::Arc;
+use tokio::{sync::Mutex, task::{JoinHandle, AbortHandle}};
+use xmtp_mls::client::ClientError;
+use napi::bindgen_prelude::Error;
 
 use napi_derive::napi;
 
 #[napi]
 pub struct NapiStreamCloser {
-  close_fn: Arc<Mutex<Option<Sender<()>>>>,
-  is_closed_atomic: Arc<AtomicBool>,
+    handle: Arc<Mutex<Option<JoinHandle<Result<(), ClientError>>>>>,
+    // for convenience, does not require locking mutex.
+    abort_handle: Arc<AbortHandle>,
+}
+
+impl NapiStreamCloser {
+    pub fn new(handle: JoinHandle<Result<(), ClientError>>) -> Self {
+        Self {
+            abort_handle: Arc::new(handle.abort_handle()),
+            handle: Arc::new(Mutex::new(Some(handle))),
+        }
+    }
+}
+
+impl From<JoinHandle<Result<(), ClientError>>> for NapiStreamCloser {
+    fn from(handle: JoinHandle<Result<(), ClientError>>) -> Self {
+        NapiStreamCloser::new(handle) 
+    }
 }
 
 #[napi]
 impl NapiStreamCloser {
-  pub fn new(close_fn: Arc<Mutex<Option<Sender<()>>>>, is_closed_atomic: Arc<AtomicBool>) -> Self {
-    Self {
-      close_fn,
-      is_closed_atomic,
+    /// Signal the stream to end
+    /// Does not wait for the stream to end.
+    pub fn end(&self) {
+        self.abort_handle.abort();
     }
-  }
 
-  #[napi]
-  pub fn end(&self) {
-    if let Ok(mut close_fn_option) = self.close_fn.lock() {
-      let _ = close_fn_option.take().map(|close_fn| close_fn.send(()));
+    /// End the stream and `await` for it to shutdown
+    /// Returns the `Result` of the task.
+    pub async fn end_and_wait(&self) -> Result<(), Error> {
+        if self.abort_handle.is_finished() {
+            return Ok(());
+        }
+
+        let mut handle = self.handle.lock().await;
+        let handle = handle.take();
+        if let Some(h) = handle {
+            h.abort();
+            let join_result = h.await;
+            if matches!(join_result, Err(ref e) if !e.is_cancelled()) {
+                return Err(Error::from_reason(
+                    format!("subscription event loop join error {}", join_result.unwrap_err())
+                ));
+            }
+        } else {
+            log::warn!("subscription already closed");
+        }
+        Ok(())
     }
-  }
-
-  #[napi]
-  pub fn is_closed(&self) -> bool {
-    self.is_closed_atomic.load(Ordering::Relaxed)
-  }
+    
+    /// Checks if this stream is closed
+    pub fn is_closed(&self) -> bool {
+        self.abort_handle.is_finished()
+    }
 }
