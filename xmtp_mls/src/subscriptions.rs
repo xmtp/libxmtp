@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt, FutureExt};
 use prost::Message;
 use tokio::{
     sync::mpsc::self,
@@ -272,6 +272,7 @@ where
             let client = client.clone();
             let mut messages_stream = client.clone().stream_messages(group_id_to_info.clone()).await?;
             let mut convo_stream = Self::stream_conversations(&client).await?;
+            let mut extra_messages = Vec::new();
             
             loop {
                 tokio::select! {
@@ -280,6 +281,13 @@ where
                     // group.
                     biased;
                     
+                    messages = futures::future::ready(&mut extra_messages), if extra_messages.len() > 0 => {
+                        for message in messages.drain(0..) {
+                            if tx.send(message).is_err() {
+                                break;
+                            }
+                        }
+                    },
                     Some(message) = messages_stream.next() => {
                         // an error can only mean the receiver has been dropped or closed so we're
                         // safe to end the stream
@@ -305,7 +313,13 @@ where
                                 cursor: 1, // For the new group, stream all messages since the group was created
                             },
                         );
-                        messages_stream = client.clone().stream_messages(group_id_to_info.clone()).await?;
+                        let new_messages_stream = client.clone().stream_messages(group_id_to_info.clone()).await?;
+                        
+                        // attempt to drain all ready messages from existing stream
+                        while let Some(Some(message)) = messages_stream.next().now_or_never() {
+                            extra_messages.push(message);
+                        }
+                        let _ = std::mem::replace(&mut messages_stream, new_messages_stream);
                     },
                 }
             }
@@ -344,7 +358,7 @@ mod tests {
         storage::group_message::StoredGroupMessage, Client,
     };
     use futures::StreamExt;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, atomic::{AtomicU64, Ordering}};
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -429,9 +443,9 @@ mod tests {
         assert_eq!(messages[3].decrypted_message_bytes, b"fourth");
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_stream_all_messages_changing_group_list() {
-        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let caro = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
 
@@ -453,7 +467,7 @@ mod tests {
                 (*messages_clone.lock().unwrap()).push(message);
             });
         handle.wait_for_ready().await;
-
+        
         alix_group
             .send_message("first".as_bytes(), &alix)
             .await
@@ -467,19 +481,19 @@ mod tests {
             .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
             .await
             .unwrap();
-
+        
         bo_group
             .send_message("second".as_bytes(), &bo)
             .await
             .unwrap();
         notify.notified().await;
-
+        
         alix_group
             .send_message("third".as_bytes(), &alix)
             .await
             .unwrap();
         notify.notified().await;
-        
+       
         let alix_group_2 = alix
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
@@ -487,20 +501,13 @@ mod tests {
             .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
             .await
             .unwrap();
-        
-        // TODO:
-        // theres missed messages here IF:
-        //  message is sent & intent published  _right before_ the new stream is initalized.
-        // This was also an issue with the previous iteration of stream_all_messages, just
-        // difficult to catch b/c of the `time::sleep`'s
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         alix_group
             .send_message("fourth".as_bytes(), &alix)
             .await
             .unwrap();
         notify.notified().await;
-
+        
         alix_group_2
             .send_message("fifth".as_bytes(), &alix)
             .await
@@ -525,5 +532,67 @@ mod tests {
 
         let messages = messages.lock().unwrap();
         assert_eq!(messages.len(), 5);
+    }
+
+    
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    async fn test_stream_all_messages_does_not_lose_messages() {
+        let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let caro = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        alix_group
+            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+            .await
+            .unwrap();
+
+        let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
+        let messages_clone = messages.clone();
+
+        let blocked = Arc::new(AtomicU64::new(105));
+        
+        let blocked_pointer = blocked.clone();
+        let mut handle =
+            Client::<GrpcClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
+                (*messages_clone.lock().unwrap()).push(message);
+                blocked_pointer.fetch_sub(1, Ordering::SeqCst);
+            });
+        handle.wait_for_ready().await;
+        
+        
+        let alix_group_pointer = alix_group.clone();
+        let alix_pointer = alix.clone();
+        tokio::spawn(async move {
+            for _ in 0..100 {
+                alix_group_pointer.send_message(b"spam", &alix_pointer).await.unwrap();
+                tokio::time::sleep(std::time::Duration::from_micros(100)).await;
+            }
+        });
+
+        for _ in 0..5 {
+            let new_group = alix
+                .create_group(None, GroupMetadataOptions::default())
+                .unwrap();
+           new_group 
+                .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+                .await
+                .unwrap();
+            new_group.send_message(b"spam from new group", &alix).await.unwrap();
+        }
+        
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while blocked.load(Ordering::SeqCst) > 0 {
+                tokio::task::yield_now().await;
+            }
+        }).await;
+      
+        let missed_messages = blocked.load(Ordering::SeqCst);
+        if missed_messages > 0 {
+            println!("Missed {} Messages", missed_messages);
+            panic!("Test failed due to missed messages");
+        }
     }
 }
