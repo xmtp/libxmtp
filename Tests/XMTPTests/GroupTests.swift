@@ -118,19 +118,19 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(try aliceGroup.members.count, 3)
 		XCTAssertEqual(try bobGroup.members.count, 3)
 		
-		XCTAssertEqual(try bobGroup.permissionLevel(), .allMembers)
-		XCTAssertEqual(try aliceGroup.permissionLevel(), .allMembers)
+        XCTAssertEqual(try bobGroup.permissionPolicySet().addMemberPolicy, .allow)
+		XCTAssertEqual(try aliceGroup.permissionPolicySet().addMemberPolicy, .allow)
 
-        XCTAssert(try bobGroup.isAdmin(inboxId: fixtures.bobClient.inboxID))
-        XCTAssert(try !bobGroup.isAdmin(inboxId: fixtures.aliceClient.inboxID))
-        XCTAssert(try aliceGroup.isAdmin(inboxId: fixtures.bobClient.inboxID))
-        XCTAssert(try !aliceGroup.isAdmin(inboxId: fixtures.aliceClient.inboxID))
+        XCTAssert(try bobGroup.isSuperAdmin(inboxId: fixtures.bobClient.inboxID))
+        XCTAssert(try !bobGroup.isSuperAdmin(inboxId: fixtures.aliceClient.inboxID))
+        XCTAssert(try aliceGroup.isSuperAdmin(inboxId: fixtures.bobClient.inboxID))
+        XCTAssert(try !aliceGroup.isSuperAdmin(inboxId: fixtures.aliceClient.inboxID))
 		
 	}
 
 	func testCanCreateAGroupWithAdminPermissions() async throws {
 		let fixtures = try await localFixtures()
-		let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address], permissions: GroupPermissions.adminOnly)
+		let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address], permissions: GroupPermissionPreconfiguration.adminOnly)
 		try await fixtures.aliceClient.conversations.sync()
 		let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
 		XCTAssert(!bobGroup.id.isEmpty)
@@ -170,12 +170,12 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(try aliceGroup.members.count, 2)
 		XCTAssertEqual(try bobGroup.members.count, 2)
 		
-		XCTAssertEqual(try bobGroup.permissionLevel(), .adminOnly)
-		XCTAssertEqual(try aliceGroup.permissionLevel(), .adminOnly)
-        XCTAssert(try bobGroup.isAdmin(inboxId: fixtures.bobClient.inboxID))
-        XCTAssert(try !bobGroup.isAdmin(inboxId: fixtures.aliceClient.inboxID))
-        XCTAssert(try aliceGroup.isAdmin(inboxId: fixtures.bobClient.inboxID))
-        XCTAssert(try !aliceGroup.isAdmin(inboxId: fixtures.aliceClient.inboxID))
+        XCTAssertEqual(try bobGroup.permissionPolicySet().addMemberPolicy, .admin)
+        XCTAssertEqual(try aliceGroup.permissionPolicySet().addMemberPolicy, .admin)
+        XCTAssert(try bobGroup.isSuperAdmin(inboxId: fixtures.bobClient.inboxID))
+        XCTAssert(try !bobGroup.isSuperAdmin(inboxId: fixtures.aliceClient.inboxID))
+        XCTAssert(try aliceGroup.isSuperAdmin(inboxId: fixtures.bobClient.inboxID))
+        XCTAssert(try !aliceGroup.isSuperAdmin(inboxId: fixtures.aliceClient.inboxID))
 	}
 
 	func testCanListGroups() async throws {
@@ -481,9 +481,9 @@ class GroupTests: XCTestCase {
 		let bobGroup = try await fixtures.bobClient.conversations.groups()[0]
 		try await bobGroup.sync()
 		
-		var bobMessagesCount = try await bobGroup.messages().count
-		var bobMessagesUnpublishedCount = try await bobGroup.messages(deliveryStatus: .unpublished).count
-		var bobMessagesPublishedCount = try await bobGroup.messages(deliveryStatus: .published).count
+		let bobMessagesCount = try await bobGroup.messages().count
+        let bobMessagesUnpublishedCount = try await bobGroup.messages(deliveryStatus: .unpublished).count
+		let bobMessagesPublishedCount = try await bobGroup.messages(deliveryStatus: .published).count
 		XCTAssertEqual(2, bobMessagesCount)
 		XCTAssertEqual(0, bobMessagesUnpublishedCount)
 		XCTAssertEqual(2, bobMessagesPublishedCount)

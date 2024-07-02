@@ -72,7 +72,7 @@ class GroupPermissionTests: XCTestCase {
         try await fixtures.aliceClient.conversations.sync()
         let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
         
-        XCTAssertTrue(try bobGroup.isAdmin(inboxId: fixtures.bobClient.inboxID))
+        XCTAssertFalse(try bobGroup.isAdmin(inboxId: fixtures.bobClient.inboxID))
         XCTAssertTrue(try bobGroup.isSuperAdmin(inboxId: fixtures.bobClient.inboxID))
         XCTAssertFalse(try aliceGroup.isCreator())
         XCTAssertFalse(try aliceGroup.isAdmin(inboxId: fixtures.aliceClient.inboxID))
@@ -81,8 +81,8 @@ class GroupPermissionTests: XCTestCase {
         let adminList = try bobGroup.listAdmins()
         let superAdminList = try bobGroup.listSuperAdmins()
         
-        XCTAssertEqual(adminList.count, 1)
-        XCTAssertTrue(adminList.contains(fixtures.bobClient.inboxID))
+        XCTAssertEqual(adminList.count, 0)
+        XCTAssertFalse(adminList.contains(fixtures.bobClient.inboxID))
         XCTAssertEqual(superAdminList.count, 1)
         XCTAssertTrue(superAdminList.contains(fixtures.bobClient.inboxID))
     }
@@ -93,7 +93,7 @@ class GroupPermissionTests: XCTestCase {
         try await fixtures.aliceClient.conversations.sync()
         let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
         
-        XCTAssertTrue(try bobGroup.isAdmin(inboxId: fixtures.bobClient.inboxID))
+        XCTAssertFalse(try bobGroup.isAdmin(inboxId: fixtures.bobClient.inboxID))
         XCTAssertTrue(try bobGroup.isSuperAdmin(inboxId: fixtures.bobClient.inboxID))
         XCTAssertFalse(try aliceGroup.isCreator())
         XCTAssertFalse(try aliceGroup.isAdmin(inboxId: fixtures.aliceClient.inboxID))
@@ -101,8 +101,8 @@ class GroupPermissionTests: XCTestCase {
         
         var adminList = try bobGroup.listAdmins()
         var superAdminList = try bobGroup.listSuperAdmins()
-        XCTAssertEqual(adminList.count, 1)
-        XCTAssertTrue(adminList.contains(fixtures.bobClient.inboxID))
+        XCTAssertEqual(adminList.count, 0)
+        XCTAssertFalse(adminList.contains(fixtures.bobClient.inboxID))
         XCTAssertEqual(superAdminList.count, 1)
         XCTAssertTrue(superAdminList.contains(fixtures.bobClient.inboxID))
         
@@ -125,7 +125,7 @@ class GroupPermissionTests: XCTestCase {
         superAdminList = try bobGroup.listSuperAdmins()
         
         XCTAssertTrue(try aliceGroup.isAdmin(inboxId: fixtures.aliceClient.inboxID))
-        XCTAssertEqual(adminList.count, 2)
+        XCTAssertEqual(adminList.count, 1)
         XCTAssertTrue(adminList.contains(fixtures.aliceClient.inboxID))
         XCTAssertEqual(superAdminList.count, 1)
         
@@ -144,7 +144,7 @@ class GroupPermissionTests: XCTestCase {
         superAdminList = try bobGroup.listSuperAdmins()
         
         XCTAssertFalse(try aliceGroup.isAdmin(inboxId: fixtures.aliceClient.inboxID))
-        XCTAssertEqual(adminList.count, 1)
+        XCTAssertEqual(adminList.count, 0)
         XCTAssertFalse(adminList.contains(fixtures.aliceClient.inboxID))
         XCTAssertEqual(superAdminList.count, 1)
         
@@ -254,4 +254,37 @@ class GroupPermissionTests: XCTestCase {
         XCTAssertEqual(try bobGroup.groupName(), "Alice group name")
         XCTAssertEqual(try aliceGroup.groupName(), "Alice group name")
     }
+    
+    func testCanUpdatePermissions() async throws {
+            let fixtures = try await localFixtures()
+            let bobGroup = try await fixtures.bobClient.conversations.newGroup(
+                with: [fixtures.alice.walletAddress, fixtures.caro.walletAddress],
+                permissions: .adminOnly
+            )
+            try await fixtures.aliceClient.conversations.sync()
+            let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
+
+            // Verify that Alice cannot update group description
+            XCTAssertEqual(try bobGroup.groupDescription(), "")
+            await assertThrowsAsyncError(
+                try await aliceGroup.updateGroupDescription(groupDescription: "new group description")
+            )
+            
+            try await aliceGroup.sync()
+            try await bobGroup.sync()
+            XCTAssertEqual(try bobGroup.permissionPolicySet().updateGroupDescriptionPolicy, .admin)
+
+            // Update group description permissions so Alice can update
+            try await bobGroup.updateGroupDescriptionPermission(newPermissionOption: .allow)
+            try await bobGroup.sync()
+            try await aliceGroup.sync()
+            XCTAssertEqual(try bobGroup.permissionPolicySet().updateGroupDescriptionPolicy, .allow)
+
+            // Verify that Alice can now update group description
+            try await aliceGroup.updateGroupDescription(groupDescription: "Alice group description")
+            try await aliceGroup.sync()
+            try await bobGroup.sync()
+            XCTAssertEqual(try bobGroup.groupDescription(), "Alice group description")
+            XCTAssertEqual(try aliceGroup.groupDescription(), "Alice group description")
+        }
 }
