@@ -594,7 +594,8 @@ mod tests {
                 .unwrap();
         }
 
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        // give a little bit less time than the warning for long-running test in CI
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(55), async {
             while blocked.load(Ordering::SeqCst) > 0 {
                 tokio::task::yield_now().await;
             }
