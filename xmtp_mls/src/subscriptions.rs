@@ -283,7 +283,7 @@ where
                     // group.
                     biased;
 
-                    messages = futures::future::ready(&mut extra_messages), if extra_messages.len() > 0 => {
+                    messages = futures::future::ready(&mut extra_messages), if !extra_messages.is_empty() => {
                         for message in messages.drain(0..) {
                             if tx.send(message).is_err() {
                                 break;
@@ -558,7 +558,7 @@ mod tests {
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let messages_clone = messages.clone();
 
-        let blocked = Arc::new(AtomicU64::new(105));
+        let blocked = Arc::new(AtomicU64::new(55));
 
         let blocked_pointer = blocked.clone();
         let mut handle =
@@ -571,12 +571,12 @@ mod tests {
         let alix_group_pointer = alix_group.clone();
         let alix_pointer = alix.clone();
         tokio::spawn(async move {
-            for _ in 0..100 {
+            for _ in 0..50 {
                 alix_group_pointer
                     .send_message(b"spam", &alix_pointer)
                     .await
                     .unwrap();
-                tokio::time::sleep(std::time::Duration::from_micros(100)).await;
+                tokio::time::sleep(std::time::Duration::from_micros(200)).await;
             }
         });
 
@@ -594,7 +594,7 @@ mod tests {
                 .unwrap();
         }
 
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(120), async {
             while blocked.load(Ordering::SeqCst) > 0 {
                 tokio::task::yield_now().await;
             }

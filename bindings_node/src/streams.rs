@@ -40,26 +40,29 @@ impl NapiStreamCloser {
   /// End the stream and `await` for it to shutdown
   /// Returns the `Result` of the task.
   #[napi]
+  /// End the stream and asyncronously wait for it to shutdown
   pub async fn end_and_wait(&self) -> Result<(), Error> {
     if self.abort_handle.is_finished() {
       return Ok(());
     }
 
-    let mut handle = self.handle.lock().await;
-    let handle = handle.take();
-    if let Some(h) = handle {
+    let mut stream_handle = self.handle.lock().await;
+    let stream_handle = stream_handle.take();
+    if let Some(h) = stream_handle {
       h.handle.abort();
-      let join_result = h.handle.await;
-      if matches!(join_result, Err(ref e) if !e.is_cancelled()) {
-        return Err(Error::from_reason(format!(
+      match h.handle.await {
+        Err(e) if !e.is_cancelled() => Err(Error::from_reason(format!(
           "subscription event loop join error {}",
-          join_result.unwrap_err()
-        )));
+          e
+        ))),
+        Err(e) if e.is_cancelled() => Ok(()),
+        Ok(t) => t.map_err(|e| Error::from_reason(e.to_string())),
+        Err(e) => Err(Error::from_reason(format!("error joining task {}", e))),
       }
     } else {
       log::warn!("subscription already closed");
+      Ok(())
     }
-    Ok(())
   }
 
   /// Checks if this stream is closed

@@ -65,8 +65,10 @@ impl MlsGroup {
             })
         );
 
-        if let Some(GroupError::ReceiveError(_)) = process_result.err() {
+        if let Some(GroupError::ReceiveError(_)) = process_result.as_ref().err() {
             self.sync(&client).await?;
+        } else if process_result.is_err() {
+            log::error!("Process stream entry {:?}", process_result.err());
         }
 
         // Load the message from the DB to handle cases where it may have been already processed in
