@@ -20,7 +20,10 @@ import uniffi.xmtpv3.FfiGroupPermissions
 import uniffi.xmtpv3.FfiListMessagesOptions
 import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
-import uniffi.xmtpv3.GroupPermissions
+import uniffi.xmtpv3.FfiMetadataField
+import uniffi.xmtpv3.FfiPermissionUpdateType
+import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.PermissionOption
+import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.PermissionPolicySet
 import java.util.Date
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.DurationUnit
@@ -46,6 +49,9 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
 
     val imageUrlSquare: String
         get() = libXMTPGroup.groupImageUrlSquare()
+
+    val description: String
+        get() = libXMTPGroup.groupDescription()
 
     suspend fun send(text: String): String {
         return send(prepareMessage(content = text, options = null))
@@ -165,8 +171,8 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
         return libXMTPGroup.addedByInboxId()
     }
 
-    fun permissionLevel(): GroupPermissions {
-        return permissions.policyType()
+    fun permissionPolicySet(): PermissionPolicySet {
+        return PermissionPolicySet(permissions.policySet())
     }
 
     fun creatorInboxId(): String {
@@ -220,11 +226,55 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
     }
 
     suspend fun updateGroupName(name: String) {
-        return libXMTPGroup.updateGroupName(name)
+        try {
+            return libXMTPGroup.updateGroupName(name)
+        } catch (e: Exception) {
+            throw XMTPException("Permission denied: Unable to update group name", e)
+        }
     }
 
     suspend fun updateGroupImageUrlSquare(imageUrl: String) {
-        return libXMTPGroup.updateGroupImageUrlSquare(imageUrl)
+        try {
+            return libXMTPGroup.updateGroupImageUrlSquare(imageUrl)
+        } catch (e: Exception) {
+            throw XMTPException("Permission denied: Unable to update image url", e)
+        }
+    }
+
+    suspend fun updateGroupDescription(description: String) {
+        try {
+            return libXMTPGroup.updateGroupDescription(description)
+        } catch (e: Exception) {
+            throw XMTPException("Permission denied: Unable to update group description", e)
+        }
+    }
+
+    suspend fun updateAddMemberPermission(newPermissionOption: PermissionOption) {
+        return libXMTPGroup.updatePermissionPolicy(FfiPermissionUpdateType.ADD_MEMBER, PermissionOption.toFfiPermissionPolicy(newPermissionOption), null)
+    }
+
+    suspend fun updateRemoveMemberPermission(newPermissionOption: PermissionOption) {
+        return libXMTPGroup.updatePermissionPolicy(FfiPermissionUpdateType.REMOVE_MEMBER, PermissionOption.toFfiPermissionPolicy(newPermissionOption), null)
+    }
+
+    suspend fun updateAddAdminPermission(newPermissionOption: PermissionOption) {
+        return libXMTPGroup.updatePermissionPolicy(FfiPermissionUpdateType.ADD_ADMIN, PermissionOption.toFfiPermissionPolicy(newPermissionOption), null)
+    }
+
+    suspend fun updateRemoveAdminPermission(newPermissionOption: PermissionOption) {
+        return libXMTPGroup.updatePermissionPolicy(FfiPermissionUpdateType.REMOVE_ADMIN, PermissionOption.toFfiPermissionPolicy(newPermissionOption), null)
+    }
+
+    suspend fun updateGroupNamePermission(newPermissionOption: PermissionOption) {
+        return libXMTPGroup.updatePermissionPolicy(FfiPermissionUpdateType.UPDATE_METADATA, PermissionOption.toFfiPermissionPolicy(newPermissionOption), FfiMetadataField.GROUP_NAME)
+    }
+
+    suspend fun updateGroupDescriptionPermission(newPermissionOption: PermissionOption) {
+        return libXMTPGroup.updatePermissionPolicy(FfiPermissionUpdateType.UPDATE_METADATA, PermissionOption.toFfiPermissionPolicy(newPermissionOption), FfiMetadataField.DESCRIPTION)
+    }
+
+    suspend fun updateGroupImageUrlSquarePermission(newPermissionOption: PermissionOption) {
+        return libXMTPGroup.updatePermissionPolicy(FfiPermissionUpdateType.UPDATE_METADATA, PermissionOption.toFfiPermissionPolicy(newPermissionOption), FfiMetadataField.IMAGE_URL_SQUARE)
     }
 
     fun isAdmin(inboxId: String): Boolean {

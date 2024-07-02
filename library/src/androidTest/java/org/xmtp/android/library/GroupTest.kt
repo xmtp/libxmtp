@@ -25,7 +25,8 @@ import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.mls.message.contents.TranscriptMessages
-import uniffi.xmtpv3.GroupPermissions
+import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.GroupPermissionPreconfiguration
+import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.PermissionOption
 
 @RunWith(AndroidJUnit4::class)
 class GroupTest {
@@ -94,12 +95,12 @@ class GroupTest {
         assertEquals(alixGroup.members().size, 3)
         assertEquals(boGroup.members().size, 3)
 
-        assertEquals(boGroup.permissionLevel(), GroupPermissions.ALL_MEMBERS)
-        assertEquals(alixGroup.permissionLevel(), GroupPermissions.ALL_MEMBERS)
-        assertEquals(boGroup.isAdmin(boClient.inboxId), true)
-        assertEquals(boGroup.isAdmin(alixClient.inboxId), false)
-        assertEquals(alixGroup.isAdmin(boClient.inboxId), true)
-        assertEquals(alixGroup.isAdmin(alixClient.inboxId), false)
+        assertEquals(boGroup.permissionPolicySet().addMemberPolicy, PermissionOption.Allow)
+        assertEquals(alixGroup.permissionPolicySet().addMemberPolicy, PermissionOption.Allow)
+        assertEquals(boGroup.isSuperAdmin(boClient.inboxId), true)
+        assertEquals(boGroup.isSuperAdmin(alixClient.inboxId), false)
+        assertEquals(alixGroup.isSuperAdmin(boClient.inboxId), true)
+        assertEquals(alixGroup.isSuperAdmin(alixClient.inboxId), false)
         // can not fetch creator ID. See https://github.com/xmtp/libxmtp/issues/788
 //       assert(boGroup.isCreator())
         assert(!alixGroup.isCreator())
@@ -110,7 +111,7 @@ class GroupTest {
         val boGroup = runBlocking {
             boClient.conversations.newGroup(
                 listOf(alix.walletAddress),
-                permissions = GroupPermissions.ADMIN_ONLY
+                permissions = GroupPermissionPreconfiguration.ADMIN_ONLY
             )
         }
         runBlocking { alixClient.conversations.syncGroups() }
@@ -152,12 +153,12 @@ class GroupTest {
         assertEquals(alixGroup.members().size, 2)
         assertEquals(boGroup.members().size, 2)
 
-        assertEquals(boGroup.permissionLevel(), GroupPermissions.ADMIN_ONLY)
-        assertEquals(alixGroup.permissionLevel(), GroupPermissions.ADMIN_ONLY)
-        assertEquals(boGroup.isAdmin(boClient.inboxId), true)
-        assertEquals(boGroup.isAdmin(alixClient.inboxId), false)
-        assertEquals(alixGroup.isAdmin(boClient.inboxId), true)
-        assertEquals(alixGroup.isAdmin(alixClient.inboxId), false)
+        assertEquals(boGroup.permissionPolicySet().addMemberPolicy, PermissionOption.Admin)
+        assertEquals(alixGroup.permissionPolicySet().addMemberPolicy, PermissionOption.Admin)
+        assertEquals(boGroup.isSuperAdmin(boClient.inboxId), true)
+        assertEquals(boGroup.isSuperAdmin(alixClient.inboxId), false)
+        assertEquals(alixGroup.isSuperAdmin(boClient.inboxId), true)
+        assertEquals(alixGroup.isSuperAdmin(alixClient.inboxId), false)
         // can not fetch creator ID. See https://github.com/xmtp/libxmtp/issues/788
 //       assert(boGroup.isCreator())
         assert(!alixGroup.isCreator())
