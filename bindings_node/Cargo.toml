@@ -25,6 +25,7 @@ xmtp_mls = { path = "../xmtp_mls", features = ["grpc", "native"] }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 xmtp_id = { path = "../xmtp_id" }
 rand = "0.8.5"
+log = { version = "0.4", features = ["release_max_level_debug"] }
 
 [build-dependencies]
 napi-build = "2.0.1"

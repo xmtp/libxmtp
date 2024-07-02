@@ -5,11 +5,10 @@ use std::sync::Arc;
 use futures::Stream;
 
 use super::{extract_message_v1, GroupError, MlsGroup};
-use crate::retry::Retry;
 use crate::storage::group_message::StoredGroupMessage;
-use crate::subscriptions::{MessagesStreamInfo, StreamCloser};
+use crate::subscriptions::{MessagesStreamInfo, StreamHandle};
 use crate::XmtpApi;
-use crate::{retry_async, Client};
+use crate::{retry::Retry, retry_async, Client};
 use prost::Message;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
@@ -119,11 +118,11 @@ impl MlsGroup {
         group_id: Vec<u8>,
         created_at_ns: i64,
         callback: impl FnMut(StoredGroupMessage) + Send + 'static,
-    ) -> Result<StreamCloser, GroupError>
+    ) -> StreamHandle<Result<(), crate::groups::ClientError>>
     where
         ApiClient: crate::XmtpApi,
     {
-        Ok(Client::<ApiClient>::stream_messages_with_callback(
+        Client::<ApiClient>::stream_messages_with_callback(
             client,
             HashMap::from([(
                 group_id,
@@ -133,7 +132,7 @@ impl MlsGroup {
                 },
             )]),
             callback,
-        )?)
+        )
     }
 }
 
