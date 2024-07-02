@@ -60,31 +60,31 @@ public class PermissionPolicySet {
         self.ffiPermissionPolicySet = ffiPermissionPolicySet
     }
     
-    var addMemberPolicy: PermissionOption {
+    public var addMemberPolicy: PermissionOption {
         return PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.addMemberPolicy)
     }
     
-    var removeMemberPolicy: PermissionOption {
+	public var removeMemberPolicy: PermissionOption {
         return PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.removeMemberPolicy)
     }
     
-    var addAdminPolicy: PermissionOption {
+	public var addAdminPolicy: PermissionOption {
         return PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.addAdminPolicy)
     }
     
-    var removeAdminPolicy: PermissionOption {
+	public var removeAdminPolicy: PermissionOption {
         return PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.removeAdminPolicy)
     }
     
-    var updateGroupNamePolicy: PermissionOption {
+	public var updateGroupNamePolicy: PermissionOption {
         return PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.updateGroupNamePolicy)
     }
     
-    var updateGroupDescriptionPolicy: PermissionOption {
+	public var updateGroupDescriptionPolicy: PermissionOption {
         return PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.updateGroupDescriptionPolicy)
     }
     
-    var updateGroupImagePolicy: PermissionOption {
+	public var updateGroupImagePolicy: PermissionOption {
         return PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.updateGroupImageUrlSquarePolicy)
     }
 }

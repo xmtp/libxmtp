@@ -9,7 +9,7 @@ import Foundation
 
 
 extension String {
-	var hexToData: Data {
+	public var hexToData: Data {
 		return Data(self.web3.bytesFromHex ?? [])
 	}
 }
