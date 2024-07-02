@@ -747,8 +747,7 @@ impl MlsGroup {
     {
         let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> =
-            UpdateMetadataIntentData::new_update_pinned_frame(pinned_frame)
-                .into();
+            UpdateMetadataIntentData::new_update_pinned_frame(pinned_frame).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::MetadataUpdate,
             self.group_id.clone(),

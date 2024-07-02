@@ -902,10 +902,7 @@ impl FfiGroup {
         Ok(group_description)
     }
 
-    pub async fn update_pinned_frame(
-        &self,
-        pinned_frame: String,
-    ) -> Result<(), GenericError> {
+    pub async fn update_pinned_frame(&self, pinned_frame: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
             self.group_id.clone(),
