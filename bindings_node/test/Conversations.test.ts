@@ -148,6 +148,17 @@ describe('Conversations', () => {
     expect(groupWithDescription.groupName()).toBe('')
     expect(groupWithDescription.groupImageUrlSquare()).toBe('')
     expect(groupWithDescription.groupDescription()).toBe('foo')
+
+    const groupWithPinnedFrame = await client1
+      .conversations()
+      .createGroup([user2.account.address], {
+        pinnedFrame: 'https://frameurl.xyz',
+      })
+    expect(groupWithPinnedFrame).toBeDefined()
+    expect(groupWithDescription.groupName()).toBe('')
+    expect(groupWithDescription.groupImageUrlSquare()).toBe('')
+    expect(groupWithDescription.groupDescription()).toBe('')
+    expect(groupWithPinnedFrame.groupPinnedFrame()).toBe('https://frameurl.xyz')
   })
 
   it('should update group metadata', async () => {
@@ -167,6 +178,9 @@ describe('Conversations', () => {
 
     await group.updateGroupDescription('bar')
     expect(group.groupDescription()).toBe('bar')
+
+    await group.updatePinnedFrame('https://frameurl.xyz')
+    expect(group.groupPinnedFrame()).toBe('https://frameurl.xyz')
   })
 
   it('should stream new groups', async () => {

@@ -531,6 +531,37 @@ impl NapiGroup {
     Ok(group_description)
   }
 
+  #[napi]
+  pub async fn update_pinned_frame(&self, pinned_frame: String) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    group
+      .update_pinned_frame(&self.inner_client, pinned_frame)
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub fn group_pinned_frame(&self) -> Result<String> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    let group_pinned_frame = group
+      .group_pinned_frame()
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(group_pinned_frame)
+  }
+
   #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage) => void")]
   pub fn stream(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
     let tsfn: ThreadsafeFunction<NapiMessage, ErrorStrategy::CalleeHandled> =
