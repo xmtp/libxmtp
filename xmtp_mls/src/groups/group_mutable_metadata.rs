@@ -12,8 +12,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use crate::configuration::{
-    DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL_SQUARE, DEFAULT_GROUP_NAME,
-    MUTABLE_METADATA_EXTENSION_ID,
+    DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL_SQUARE, DEFAULT_GROUP_NAME, DEFAULT_PINNED_FRAME, MUTABLE_METADATA_EXTENSION_ID
 };
 
 use super::GroupMetadataOptions;
@@ -42,6 +41,7 @@ pub enum MetadataField {
     GroupName,
     Description,
     GroupImageUrlSquare,
+    PinnedFrame,
 }
 
 impl MetadataField {
@@ -50,6 +50,7 @@ impl MetadataField {
             MetadataField::GroupName => "group_name",
             MetadataField::Description => "description",
             MetadataField::GroupImageUrlSquare => "group_image_url_square",
+            MetadataField::PinnedFrame => "pinned_frame",
         }
     }
 }
@@ -97,6 +98,10 @@ impl GroupMutableMetadata {
             opts.image_url_square
                 .unwrap_or_else(|| DEFAULT_GROUP_IMAGE_URL_SQUARE.to_string()),
         );
+        attributes.insert(
+            MetadataField::PinnedFrame.to_string(),
+            opts.pinned_frame.unwrap_or_else(|| DEFAULT_PINNED_FRAME.to_string()),
+        );
         let admin_list = vec![];
         let super_admin_list = vec![creator_inbox_id.clone()];
         Self {
@@ -112,6 +117,7 @@ impl GroupMutableMetadata {
             MetadataField::GroupName,
             MetadataField::Description,
             MetadataField::GroupImageUrlSquare,
+            MetadataField::PinnedFrame,
         ]
     }
 

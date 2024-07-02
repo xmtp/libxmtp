@@ -448,6 +448,7 @@ pub struct FfiPermissionPolicySet {
     pub update_group_name_policy: FfiPermissionPolicy,
     pub update_group_description_policy: FfiPermissionPolicy,
     pub update_group_image_url_square_policy: FfiPermissionPolicy,
+    pub update_pinned_frame_policy: FfiPermissionPolicy,
 }
 
 impl From<PreconfiguredPolicies> for FfiGroupPermissionsOptions {
@@ -464,6 +465,7 @@ pub enum FfiMetadataField {
     GroupName,
     Description,
     ImageUrlSquare,
+    PinnedFrame,
 }
 
 impl From<&FfiMetadataField> for MetadataField {
@@ -472,6 +474,7 @@ impl From<&FfiMetadataField> for MetadataField {
             FfiMetadataField::GroupName => MetadataField::GroupName,
             FfiMetadataField::Description => MetadataField::Description,
             FfiMetadataField::ImageUrlSquare => MetadataField::GroupImageUrlSquare,
+            FfiMetadataField::PinnedFrame => MetadataField::PinnedFrame,
         }
     }
 }
@@ -639,6 +642,7 @@ pub struct FfiCreateGroupOptions {
     pub group_name: Option<String>,
     pub group_image_url_square: Option<String>,
     pub group_description: Option<String>,
+    pub pinned_frame: Option<String>,
 }
 
 impl FfiCreateGroupOptions {
@@ -647,6 +651,7 @@ impl FfiCreateGroupOptions {
             name: self.group_name,
             image_url_square: self.group_image_url_square,
             description: self.group_description,
+            pinned_frame: self.pinned_frame,
         }
     }
 }
@@ -895,6 +900,35 @@ impl FfiGroup {
         let group_description = group.group_description()?;
 
         Ok(group_description)
+    }
+
+    pub async fn update_pinned_frame(
+        &self,
+        pinned_frame: String,
+    ) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        group
+            .update_pinned_frame(&self.inner_client, pinned_frame)
+            .await?;
+
+        Ok(())
+    }
+
+    pub fn group_pinned_frame(&self) -> Result<String, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let group_pinned_frame = group.group_pinned_frame()?;
+
+        Ok(group_pinned_frame)
     }
 
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
@@ -1241,6 +1275,7 @@ impl FfiGroupPermissions {
             update_group_image_url_square_policy: get_policy(
                 MetadataField::GroupImageUrlSquare.as_str(),
             ),
+            update_pinned_frame_policy: get_policy(MetadataField::PinnedFrame.as_str()),
         })
     }
 }
@@ -1570,6 +1605,7 @@ mod tests {
                     group_name: Some("Group Name".to_string()),
                     group_image_url_square: Some("url".to_string()),
                     group_description: Some("group description".to_string()),
+                    pinned_frame: Some("pinned frame".to_string()),
                 },
             )
             .await
@@ -1580,6 +1616,7 @@ mod tests {
         assert_eq!(group.group_name().unwrap(), "Group Name");
         assert_eq!(group.group_image_url_square().unwrap(), "url");
         assert_eq!(group.group_description().unwrap(), "group description");
+        assert_eq!(group.group_pinned_frame().unwrap(), "pinned frame");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -2131,6 +2168,7 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
+            update_pinned_frame_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
 
@@ -2159,6 +2197,7 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Allow,
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
+            update_pinned_frame_policy: FfiPermissionPolicy::Allow,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
     }
@@ -2191,6 +2230,7 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
+            update_pinned_frame_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_group_permissions, expected_permission_policy_set);
 
@@ -2217,6 +2257,7 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
+            update_pinned_frame_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_group_permissions, new_expected_permission_policy_set);
 
