@@ -155,9 +155,9 @@ describe('Conversations', () => {
         pinnedFrame: 'https://frameurl.xyz',
       })
     expect(groupWithPinnedFrame).toBeDefined()
-    expect(groupWithDescription.groupName()).toBe('')
-    expect(groupWithDescription.groupImageUrlSquare()).toBe('')
-    expect(groupWithDescription.groupDescription()).toBe('')
+    expect(groupWithPinnedFrame.groupName()).toBe('')
+    expect(groupWithPinnedFrame.groupImageUrlSquare()).toBe('')
+    expect(groupWithPinnedFrame.groupDescription()).toBe('')
     expect(groupWithPinnedFrame.groupPinnedFrame()).toBe('https://frameurl.xyz')
   })
 
