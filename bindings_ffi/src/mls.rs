@@ -1933,6 +1933,7 @@ mod tests {
 
         let stream_callback = RustStreamCallback::default();
         let stream_closer = group.stream(Box::new(stream_callback.clone())).await;
+        stream_closer.wait_for_ready().await;
 
         group.send("hello".as_bytes().to_vec()).await.unwrap();
         stream_callback.wait_for_delivery().await;
