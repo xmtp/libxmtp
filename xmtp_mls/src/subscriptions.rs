@@ -283,7 +283,7 @@ where
                     // group.
                     biased;
 
-                    messages = futures::future::ready(&mut extra_messages), if extra_messages.len() > 0 => {
+                    messages = futures::future::ready(&mut extra_messages), if !extra_messages.is_empty() => {
                         for message in messages.drain(0..) {
                             if tx.send(message).is_err() {
                                 break;
