@@ -429,9 +429,7 @@ impl MlsGroup {
     {
         let conn = self.context.store.conn()?;
 
-        let update_interval = Some(5_000_000); // 5 seconds in nanoseconds
-        self.maybe_update_installations(conn.clone(), update_interval, client)
-            .await?;
+        self.pre_intent_hook(client).await?;
 
         let now = now_ns();
         let plain_envelope = Self::into_envelope(message, &now.to_string());
@@ -441,6 +439,7 @@ impl MlsGroup {
             .map_err(GroupError::EncodeError)?;
 
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
+
         let intent =
             NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
         intent.store(&conn)?;
@@ -532,11 +531,12 @@ impl MlsGroup {
                 missing_addresses.into_iter().cloned().cloned().collect(),
             ));
         }
-
         self.add_members_by_inbox_id(client, inbox_id_map.into_values().collect())
             .await
     }
 
+
+    // Before calling this function, please verify pre_intent_hook has been called.
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members_by_inbox_id<ApiClient: XmtpApi>(
         &self,
@@ -545,6 +545,8 @@ impl MlsGroup {
     ) -> Result<(), GroupError> {
         let conn = client.store().conn()?;
         let provider = client.mls_provider(conn);
+        
+        self.pre_intent_hook(client).await?;
         let intent_data = self
             .get_membership_update_intent(client, &provider, inbox_ids, vec![])
             .await?;
@@ -585,6 +587,8 @@ impl MlsGroup {
     ) -> Result<(), GroupError> {
         let conn = client.store().conn()?;
         let provider = client.mls_provider(conn);
+        
+        self.pre_intent_hook(client).await?;
         let intent_data = self
             .get_membership_update_intent(client, &provider, vec![], inbox_ids)
             .await?;
@@ -612,6 +616,9 @@ impl MlsGroup {
         let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
+
+        self.pre_intent_hook(client).await?;
+
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::MetadataUpdate,
             self.group_id.clone(),
@@ -710,6 +717,8 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
+        
+        self.pre_intent_hook(client).await?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_image_url_square(group_image_url_square)
                 .into();
@@ -774,6 +783,7 @@ impl MlsGroup {
         };
         let intent_data: Vec<u8> =
             UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
+        self.pre_intent_hook(client).await?;
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::UpdateAdminList,
             self.group_id.clone(),
@@ -802,8 +812,31 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
+
         let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
         intent.store(&conn)?;
+
+        self.sync_with_conn(conn, client).await
+    }
+
+    /// Checking the last key rotation time before rotating the key.
+    pub async fn pre_intent_hook<ApiClient>(
+        &self,
+        client: &Client<ApiClient>,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let conn = self.context.store.conn()?;
+        let last_rotated_time = conn.get_rotated_time_checked(self.group_id.clone())?;
+
+        if last_rotated_time == 0 {
+            self.key_update(client).await?;
+            conn.update_rotated_time_checked(self.group_id.clone())?;
+        }
+        let update_interval = Some(5_000_000);
+        self.maybe_update_installations(conn.clone(), update_interval, client)
+            .await?;
 
         self.sync_with_conn(conn, client).await
     }
@@ -812,7 +845,6 @@ impl MlsGroup {
         let conn = self.context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let mls_group = self.load_mls_group(&provider)?;
-
         Ok(mls_group.is_active())
     }
 
@@ -1126,10 +1158,16 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 #[cfg(test)]
 mod tests {
     use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
+    use openmls::prelude::tls_codec::Deserialize;
+    use openmls::prelude::MlsMessageIn;
+    use openmls::prelude::MlsMessageBodyIn;
+    use openmls::prelude::ProcessedMessageContent;
+    use crate::groups::GroupMessageVersion;
     use prost::Message;
     use tracing_test::traced_test;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+    use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
     use crate::{
         assert_logged,
@@ -1241,7 +1279,7 @@ mod tests {
             .query_group_messages(group.group_id, None)
             .await
             .expect("read topic");
-        assert_eq!(messages.len(), 2);
+        assert_eq!(messages.len(), 3);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1478,7 +1516,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(messages.len(), 1);
+        assert_eq!(messages.len(), 3);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1544,7 +1582,7 @@ mod tests {
             .await
             .expect("read topic");
 
-        assert_eq!(messages.len(), 2);
+        assert_eq!(messages.len(), 4);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1567,7 +1605,7 @@ mod tests {
             .query_group_messages(group.group_id.clone(), None)
             .await
             .unwrap();
-        assert_eq!(messages.len(), 2);
+        assert_eq!(messages.len(), 4);
 
         let conn = &client.context.store.conn().unwrap();
         let provider = super::XmtpOpenMlsProvider::new(conn.clone());
@@ -1588,6 +1626,133 @@ mod tests {
             .find_messages(None, None, None, None, None)
             .unwrap();
         assert_eq!(bola_messages.len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_pre_intent_hook() {
+        let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // client A makes a group with client B.
+        let group = client_a.create_group(None, GroupMetadataOptions::default()).expect("create group");
+        let mut messages = client_a.api_client.query_group_messages(group.group_id.clone(), None).await.unwrap();
+        assert_eq!(messages.len(), 0);
+
+
+        group
+            .add_members_by_inbox_id(&client_a, vec![client_b.inbox_id()])
+            .await
+            .unwrap();
+
+        // client B creates it from welcome.
+        let client_b_group = receive_group_invite(&client_b).await;
+        client_b_group.sync(&client_b).await.unwrap();
+
+        // verify no new payloads on client A.
+        messages = client_a.api_client.query_group_messages(group.group_id.clone(), None).await.unwrap();
+        assert_eq!(messages.len(), 3);
+
+        // call pre_intent_hook on client B.  
+        client_b_group.pre_intent_hook(&client_b).await.unwrap();
+        
+        // Verify client A receives a key rotation payload
+        messages = client_b.api_client.query_group_messages(group.group_id.clone(), None).await.unwrap();
+        assert_eq!(messages.len(),4);
+        
+        // steps to get the leaf node of the updated path. 
+        let first_message = &messages[messages.len()-1];
+
+        let msgv1 = match &first_message.version {
+            Some(GroupMessageVersion::V1(value)) => value,
+            _ => panic!("error msgv1"),
+        };
+        
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&msgv1.data).unwrap();
+        let mls_message = match mls_message_in.extract() {
+             MlsMessageBodyIn::PrivateMessage(mls_message) => mls_message,
+             _ => panic!("error mls_message"),
+        };
+
+        let conn = &client_a.context.store.conn().unwrap();
+        let provider = client_a.mls_provider(conn.clone());
+        let mut openmls_group = group.load_mls_group(&provider).unwrap();
+        let decrypted_message = openmls_group.process_message(&provider, mls_message).unwrap();
+
+        let staged_commit = match decrypted_message.into_content(){
+            ProcessedMessageContent::StagedCommitMessage(staged_commit) => *staged_commit,
+            _ => panic!("error staged_commit"),
+        };
+
+        // check there is indeed some updated leaf node, which means the key update works. 
+        let path_update_leaf_node = staged_commit.update_path_leaf_node();
+        assert!(path_update_leaf_node.is_some());
+
+        // call pre_intent_hook on client B again, client A receives nothing new. 
+        client_b_group.pre_intent_hook(&client_b).await.unwrap();
+        messages = client_b.api_client.query_group_messages(group.group_id.clone(), None).await.unwrap();
+        assert_eq!(messages.len(),4);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_send_message_with_pre_intent_hook(){
+        let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // client A makes a group with client B.
+        let group = client_a.create_group(None, GroupMetadataOptions::default()).expect("create group");
+        group
+            .add_members_by_inbox_id(&client_a, vec![client_b.inbox_id()])
+            .await
+            .unwrap();
+
+        // client B creates it from welcome
+        let client_b_group = receive_group_invite(&client_b).await;
+        client_b_group.sync(&client_b).await.unwrap();
+        
+        // Verify no new payloads on client A
+        let mut messages = client_a.api_client.query_group_messages(group.group_id.clone(), None).await.unwrap();
+        assert_eq!(messages.len(), 3);
+
+        // Client B sends a message to Client A
+        let b_message = b"hello from client b";
+        client_b_group.send_message(b_message, &client_b).await.expect("send message");
+        
+        // Verify client A receives a key rotation. 
+        messages = client_b.api_client.query_group_messages(group.group_id.clone(), None).await.unwrap();
+        assert_eq!(messages.len(), 5);
+
+        // Steps to get the leaf node of the updated path. 
+        let queried_message = &messages[messages.len()-2];
+
+        let msgv1 = match &queried_message.version {
+            Some(GroupMessageVersion::V1(value)) => value,
+            _ => panic!("error msgv1"),
+        };
+
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&msgv1.data).unwrap();
+        let mls_message = match mls_message_in.extract() {
+            MlsMessageBodyIn::PrivateMessage(mls_message) => mls_message,
+            _ => panic!("error mls_message"),
+        };
+
+        let conn = &client_a.context.store.conn().unwrap();
+        let provider = client_a.mls_provider(conn.clone());
+        let mut openmls_group = group.load_mls_group(&provider).unwrap();
+        let decrypted_message = openmls_group.process_message(&provider, mls_message).unwrap();
+
+        let staged_commit = match decrypted_message.into_content(){
+            ProcessedMessageContent::StagedCommitMessage(staged_commit) => *staged_commit,
+            _ => panic!("error staged_commit"),
+        };
+
+        // Check there is indeed some updated leaf node, which means the key update works.
+        let path_update_leaf_node = staged_commit.update_path_leaf_node();
+        assert!(path_update_leaf_node.is_some());
+
+        // Verify client A receives the message. 
+        let message = get_latest_message(&group, &client_a).await;
+        assert_eq!(message.decrypted_message_bytes, b_message);
+
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

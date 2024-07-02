@@ -6,6 +6,8 @@
 cargo install diesel_cli --no-default-features --features sqlite
 ```
 
+### Change directory to libxmtp/xmtp_mls/
+
 ### Create your migration SQL
 
 In this example the migration is called `create_key_store`:
