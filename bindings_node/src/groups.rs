@@ -500,6 +500,37 @@ impl NapiGroup {
     Ok(group_image_url_square)
   }
 
+  #[napi]
+  pub async fn update_group_description(&self, group_description: String) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    group
+      .update_group_description(&self.inner_client, group_description)
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub fn group_description(&self) -> Result<String> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    let group_description = group
+      .group_description()
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(group_description)
+  }
+
   #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage) => void")]
   pub fn stream(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
     let tsfn: ThreadsafeFunction<NapiMessage, ErrorStrategy::CalleeHandled> =
