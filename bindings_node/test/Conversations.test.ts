@@ -138,6 +138,35 @@ describe('Conversations', () => {
     expect(groupWithPermissions.groupPermissions().policyType()).toBe(
       GroupPermissions.GroupCreatorIsAdmin
     )
+
+    const groupWithDescription = await client1
+      .conversations()
+      .createGroup([user2.account.address], {
+        groupDescription: 'foo',
+      })
+    expect(groupWithDescription).toBeDefined()
+    expect(groupWithDescription.groupName()).toBe('')
+    expect(groupWithDescription.groupImageUrlSquare()).toBe('')
+    expect(groupWithDescription.groupDescription()).toBe('foo')
+  })
+
+  it('should update group metadata', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    await createRegisteredClient(user2)
+    const group = await client1
+      .conversations()
+      .createGroup([user2.account.address])
+
+    await group.updateGroupName('foo')
+    expect(group.groupName()).toBe('foo')
+
+    await group.updateGroupImageUrlSquare('https://foo/bar.png')
+    expect(group.groupImageUrlSquare()).toBe('https://foo/bar.png')
+
+    await group.updateGroupDescription('bar')
+    expect(group.groupDescription()).toBe('bar')
   })
 
   it('should stream new groups', async () => {
