@@ -902,7 +902,10 @@ impl FfiGroup {
         Ok(group_description)
     }
 
-    pub async fn update_group_pinned_frame_url(&self, pinned_frame_url: String) -> Result<(), GenericError> {
+    pub async fn update_group_pinned_frame_url(
+        &self,
+        pinned_frame_url: String,
+    ) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
             self.group_id.clone(),
@@ -1272,7 +1275,9 @@ impl FfiGroupPermissions {
             update_group_image_url_square_policy: get_policy(
                 MetadataField::GroupImageUrlSquare.as_str(),
             ),
-            update_group_pinned_frame_url_policy: get_policy(MetadataField::GroupPinnedFrameUrl.as_str()),
+            update_group_pinned_frame_url_policy: get_policy(
+                MetadataField::GroupPinnedFrameUrl.as_str(),
+            ),
         })
     }
 }
