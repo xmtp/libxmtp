@@ -158,7 +158,9 @@ describe('Conversations', () => {
     expect(groupWithPinnedFrameUrl.groupName()).toBe('')
     expect(groupWithPinnedFrameUrl.groupImageUrlSquare()).toBe('')
     expect(groupWithPinnedFrameUrl.groupDescription()).toBe('')
-    expect(groupWithPinnedFrameUrl.groupPinnedFrameUrl()).toBe('https://frameurl.xyz')
+    expect(groupWithPinnedFrameUrl.groupPinnedFrameUrl()).toBe(
+      'https://frameurl.xyz'
+    )
   })
 
   it('should update group metadata', async () => {
