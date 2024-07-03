@@ -532,7 +532,7 @@ impl NapiGroup {
   }
 
   #[napi]
-  pub async fn update_pinned_frame(&self, pinned_frame: String) -> Result<()> {
+  pub async fn update_group_pinned_frame_url(&self, pinned_frame_url: String) -> Result<()> {
     let group = MlsGroup::new(
       self.inner_client.context().clone(),
       self.group_id.clone(),
@@ -540,7 +540,7 @@ impl NapiGroup {
     );
 
     group
-      .update_pinned_frame(&self.inner_client, pinned_frame)
+      .update_group_pinned_frame_url(&self.inner_client, pinned_frame_url)
       .await
       .map_err(|e| Error::from_reason(format!("{}", e)))?;
 
@@ -548,18 +548,18 @@ impl NapiGroup {
   }
 
   #[napi]
-  pub fn group_pinned_frame(&self) -> Result<String> {
+  pub fn group_pinned_frame_url(&self) -> Result<String> {
     let group = MlsGroup::new(
       self.inner_client.context().clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
-    let group_pinned_frame = group
-      .group_pinned_frame()
+    let group_pinned_frame_url = group
+      .group_pinned_frame_url()
       .map_err(|e| Error::from_reason(format!("{}", e)))?;
 
-    Ok(group_pinned_frame)
+    Ok(group_pinned_frame_url)
   }
 
   #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage) => void")]

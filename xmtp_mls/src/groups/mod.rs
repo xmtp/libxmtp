@@ -209,7 +209,7 @@ pub struct GroupMetadataOptions {
     pub name: Option<String>,
     pub image_url_square: Option<String>,
     pub description: Option<String>,
-    pub pinned_frame: Option<String>,
+    pub pinned_frame_url: Option<String>,
 }
 
 impl Clone for MlsGroup {
@@ -737,17 +737,17 @@ impl MlsGroup {
         }
     }
 
-    pub async fn update_pinned_frame<ApiClient>(
+    pub async fn update_group_pinned_frame_url<ApiClient>(
         &self,
         client: &Client<ApiClient>,
-        pinned_frame: String,
+        pinned_frame_url: String,
     ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> =
-            UpdateMetadataIntentData::new_update_pinned_frame(pinned_frame).into();
+            UpdateMetadataIntentData::new_update_group_pinned_frame_url(pinned_frame_url).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::MetadataUpdate,
             self.group_id.clone(),
@@ -758,13 +758,13 @@ impl MlsGroup {
             .await
     }
 
-    pub fn group_pinned_frame(&self) -> Result<String, GroupError> {
+    pub fn group_pinned_frame_url(&self) -> Result<String, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
         match mutable_metadata
             .attributes
-            .get(&MetadataField::PinnedFrame.to_string())
+            .get(&MetadataField::GroupPinnedFrameUrl.to_string())
         {
-            Some(pinned_frame) => Ok(pinned_frame.clone()),
+            Some(pinned_frame_url) => Ok(pinned_frame_url.clone()),
             None => Err(GroupError::GroupMutableMetadata(
                 GroupMutableMetadataError::MissingExtension,
             )),
@@ -1820,7 +1820,7 @@ mod tests {
                     name: Some("Group Name".to_string()),
                     image_url_square: Some("url".to_string()),
                     description: Some("group description".to_string()),
-                    pinned_frame: Some("pinned frame".to_string()),
+                    pinned_frame_url: Some("pinned frame".to_string()),
                 },
             )
             .unwrap();
@@ -1838,15 +1838,15 @@ mod tests {
             .attributes
             .get(&MetadataField::Description.to_string())
             .unwrap();
-        let amal_group_pinned_frame: &String = binding
+        let amal_group_pinned_frame_url: &String = binding
             .attributes
-            .get(&MetadataField::PinnedFrame.to_string())
+            .get(&MetadataField::GroupPinnedFrameUrl.to_string())
             .unwrap();
 
         assert_eq!(amal_group_name, "Group Name");
         assert_eq!(amal_group_image_url, "url");
         assert_eq!(amal_group_description, "group description");
-        assert_eq!(amal_group_pinned_frame, "pinned frame");
+        assert_eq!(amal_group_pinned_frame_url, "pinned frame");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1993,7 +1993,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_update_group_pinned_frame() {
+    async fn test_update_group_pinned_frame_url() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and verify it has the default group name
@@ -2006,24 +2006,24 @@ mod tests {
         let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
         assert!(group_mutable_metadata
             .attributes
-            .get(&MetadataField::PinnedFrame.to_string())
+            .get(&MetadataField::GroupPinnedFrameUrl.to_string())
             .unwrap()
             .eq(""));
 
         // Update group name
         amal_group
-            .update_pinned_frame(&amal, "a frame url".to_string())
+            .update_group_pinned_frame_url(&amal, "a frame url".to_string())
             .await
             .unwrap();
 
         // Verify amal group sees update
         amal_group.sync(&amal).await.unwrap();
         let binding = amal_group.mutable_metadata().expect("msg");
-        let amal_group_pinned_frame: &String = binding
+        let amal_group_pinned_frame_url: &String = binding
             .attributes
-            .get(&MetadataField::PinnedFrame.to_string())
+            .get(&MetadataField::GroupPinnedFrameUrl.to_string())
             .unwrap();
-        assert_eq!(amal_group_pinned_frame, "a frame url");
+        assert_eq!(amal_group_pinned_frame_url, "a frame url");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

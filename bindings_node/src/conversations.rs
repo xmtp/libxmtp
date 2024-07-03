@@ -28,7 +28,7 @@ pub struct NapiCreateGroupOptions {
   pub group_name: Option<String>,
   pub group_image_url_square: Option<String>,
   pub group_description: Option<String>,
-  pub group_pinned_frame: Option<String>,
+  pub group_pinned_frame_url: Option<String>,
 }
 
 impl NapiCreateGroupOptions {
@@ -37,7 +37,7 @@ impl NapiCreateGroupOptions {
       name: self.group_name,
       image_url_square: self.group_image_url_square,
       description: self.group_description,
-      pinned_frame: self.group_pinned_frame,
+      pinned_frame_url: self.group_pinned_frame_url,
     }
   }
 }
@@ -66,7 +66,7 @@ impl NapiConversations {
         group_name: None,
         group_image_url_square: None,
         group_description: None,
-        group_pinned_frame: None,
+        group_pinned_frame_url: None,
       },
     };
 

@@ -182,10 +182,10 @@ impl UpdateMetadataIntentData {
         }
     }
 
-    pub fn new_update_pinned_frame(pinned_frame: String) -> Self {
+    pub fn new_update_group_pinned_frame_url(pinned_frame_url: String) -> Self {
         Self {
-            field_name: MetadataField::PinnedFrame.to_string(),
-            field_value: pinned_frame,
+            field_name: MetadataField::GroupPinnedFrameUrl.to_string(),
+            field_value: pinned_frame_url,
         }
     }
 }
