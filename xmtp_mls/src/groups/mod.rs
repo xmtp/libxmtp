@@ -10,7 +10,6 @@ mod subscriptions;
 mod sync;
 pub mod validated_commit;
 
-use futures::FutureExt;
 use intents::SendMessageIntentData;
 use openmls::{
     credentials::{BasicCredential, CredentialType},
@@ -54,13 +53,7 @@ use self::{
     message_history::MessageHistoryError,
     validated_commit::CommitValidationError,
 };
-use std::{
-    collections::HashSet,
-    future::Future,
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-};
+use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc};
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::InboxId;
 use xmtp_proto::xmtp::mls::{
@@ -240,34 +233,43 @@ pub enum UpdateAdminListType {
     RemoveSuper,
 }
 
-pub type MessagePublishFuture = Pin<Box<dyn Future<Output = Result<(), GroupError>>>>;
+pub type MessagePublishFuture = Pin<Box<dyn Future<Output = Result<(), GroupError>> + Send>>;
 
 /// An Unpublished message with an ID that can be `awaited` to publish all messages.
 /// This message can be safely dropped, and [`MlsGroup::sync`] called manually instead.
-pub struct UnpublishedMessage {
+pub struct UnpublishedMessage<ApiClient> {
     message_id: Vec<u8>,
-    publish: MessagePublishFuture,
+    client: Arc<Client<ApiClient>>,
+    group: MlsGroup,
 }
 
-impl UnpublishedMessage {
-    fn new(publish: MessagePublishFuture, message_id: Vec<u8>) -> Self {
+impl<ApiClient> UnpublishedMessage<ApiClient>
+where
+    ApiClient: XmtpApi,
+{
+    fn new(message_id: Vec<u8>, client: Arc<Client<ApiClient>>, group: MlsGroup) -> Self {
         Self {
-            publish,
             message_id,
+            client,
+            group,
         }
     }
 
     pub fn id(&self) -> &[u8] {
         &self.message_id
     }
-}
 
-impl Future for UnpublishedMessage {
-    type Output = Result<(), GroupError>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let pinned = std::pin::pin!(&mut self.publish);
-        Future::poll(pinned, cx)
+    /// Publish messages to the delivery service
+    pub async fn publish(&self) -> Result<(), GroupError> {
+        let conn = self.group.context.store.conn()?;
+        let update_interval = Some(5_000_000);
+        self.group
+            .maybe_update_installations(conn.clone(), update_interval, self.client.as_ref())
+            .await?;
+        self.group
+            .publish_intents(conn, self.client.as_ref())
+            .await?;
+        Ok(())
     }
 }
 
@@ -490,24 +492,18 @@ impl MlsGroup {
         &self,
         message: &[u8],
         client: &Arc<Client<ApiClient>>,
-    ) -> Result<UnpublishedMessage, GroupError>
+    ) -> Result<UnpublishedMessage<ApiClient>, GroupError>
     where
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
         let message_id = self.prepare_message(message, &conn)?;
 
-        let this = self.clone();
-        let client_pointer = client.clone();
-        let publish = async move {
-            let update_interval = Some(5_000_000);
-            this.maybe_update_installations(conn.clone(), update_interval, &client_pointer)
-                .await?;
-            this.publish_intents(conn, &client_pointer).await?;
-            Ok(())
-        };
-
-        Ok(UnpublishedMessage::new(publish.boxed(), message_id))
+        Ok(UnpublishedMessage::new(
+            message_id,
+            client.clone(),
+            self.clone(),
+        ))
     }
 
     /// Prepare a message (intent & id) on this users XMTP [`Client`].
@@ -2595,7 +2591,7 @@ mod tests {
             .send_message_optimistic(b"test four", &amal)
             .unwrap();
 
-        four.await.unwrap();
+        four.publish().await.unwrap();
 
         bola_group.sync(&bola).await.unwrap();
         let messages = bola_group
