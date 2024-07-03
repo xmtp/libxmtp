@@ -2597,7 +2597,21 @@ mod tests {
 
         four.await.unwrap();
 
-        let message = get_latest_message(&bola_group, &bola).await;
-        assert_eq!(message.decrypted_message_bytes, b"test four");
+        bola_group.sync(&bola).await.unwrap();
+        let messages = bola_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(
+            messages
+                .into_iter()
+                .map(|m| m.decrypted_message_bytes)
+                .collect::<Vec<Vec<u8>>>(),
+            vec![
+                b"test one".to_vec(),
+                b"test two".to_vec(),
+                b"test three".to_vec(),
+                b"test four".to_vec(),
+            ]
+        );
     }
 }
