@@ -287,4 +287,38 @@ class GroupPermissionTests: XCTestCase {
             XCTAssertEqual(try bobGroup.groupDescription(), "Alice group description")
             XCTAssertEqual(try aliceGroup.groupDescription(), "Alice group description")
         }
+
+        func testCanUpdatePinnedFrameUrl() async throws {
+            let fixtures = try await localFixtures()
+            let bobGroup = try await fixtures.bobClient.conversations.newGroup(
+                with: [fixtures.alice.walletAddress, fixtures.caro.walletAddress],
+                permissions: .adminOnly,
+                pinnedFrameUrl: "initial url"
+            )
+            try await fixtures.aliceClient.conversations.sync()
+            let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
+
+            // Verify that Alice cannot update group pinned frame url
+            XCTAssertEqual(try bobGroup.groupPinnedFrameUrl(), "initial url")
+            await assertThrowsAsyncError(
+                try await aliceGroup.updateGroupPinnedFrameUrl(groupPinnedFrameUrl: "https://foo/bar.com")
+            )
+            
+            try await aliceGroup.sync()
+            try await bobGroup.sync()
+            XCTAssertEqual(try bobGroup.permissionPolicySet().updateGroupPinnedFrameUrlPolicy, .admin)
+
+            // Update group pinned frame url permissions so Alice can update
+            try await bobGroup.updateGroupPinnedFrameUrlPermission(newPermissionOption: .allow)
+            try await bobGroup.sync()
+            try await aliceGroup.sync()
+            XCTAssertEqual(try bobGroup.permissionPolicySet().updateGroupPinnedFrameUrlPolicy, .allow)
+
+            // Verify that Alice can now update group pinned frame url
+            try await aliceGroup.updateGroupPinnedFrameUrl(groupPinnedFrameUrl: "https://foo/barz.com")
+            try await aliceGroup.sync()
+            try await bobGroup.sync()
+            XCTAssertEqual(try bobGroup.groupPinnedFrameUrl(), "https://foo/barz.com")
+            XCTAssertEqual(try aliceGroup.groupPinnedFrameUrl(), "https://foo/barz.com")
+        }
 }

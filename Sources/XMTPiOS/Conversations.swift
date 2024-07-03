@@ -146,7 +146,8 @@ public actor Conversations {
 						 permissions: GroupPermissionPreconfiguration = .allMembers,
 						 name: String = "",
 						 imageUrlSquare: String = "",
-                         description: String = ""
+                         description: String = "",
+						 pinnedFrameUrl: String = ""
 	) async throws -> Group {
 		guard let v3Client = client.v3Client else {
 			throw GroupError.alphaMLSNotEnabled
@@ -179,7 +180,8 @@ public actor Conversations {
                                                                    opts: FfiCreateGroupOptions(permissions: GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(option: permissions),
 																							   groupName: name,
 																							   groupImageUrlSquare: imageUrlSquare,
-                                                                                               groupDescription: description
+                                                                                               groupDescription: description,
+																							   groupPinnedFrameUrl: pinnedFrameUrl
 																   )).fromFFI(client: client)
 		try await client.contacts.allowGroups(groupIds: [group.id])
 		return group

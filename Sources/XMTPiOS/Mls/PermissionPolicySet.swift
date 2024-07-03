@@ -87,4 +87,8 @@ public class PermissionPolicySet {
 	public var updateGroupImagePolicy: PermissionOption {
         return PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.updateGroupImageUrlSquarePolicy)
     }
+
+    public var updateGroupPinnedFrameUrlPolicy: PermissionOption {
+        return PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.updateGroupPinnedFrameUrlPolicy)
+    }
 }
