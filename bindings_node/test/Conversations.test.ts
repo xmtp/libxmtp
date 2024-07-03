@@ -152,7 +152,7 @@ describe('Conversations', () => {
     const groupWithPinnedFrame = await client1
       .conversations()
       .createGroup([user2.account.address], {
-        pinnedFrame: 'https://frameurl.xyz',
+        groupPinnedFrame: 'https://frameurl.xyz',
       })
     expect(groupWithPinnedFrame).toBeDefined()
     expect(groupWithPinnedFrame.groupName()).toBe('')
