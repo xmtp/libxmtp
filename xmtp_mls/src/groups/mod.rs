@@ -10,6 +10,7 @@ mod subscriptions;
 mod sync;
 pub mod validated_commit;
 
+use futures::FutureExt;
 use intents::SendMessageIntentData;
 use openmls::{
     credentials::{BasicCredential, CredentialType},
@@ -31,7 +32,6 @@ use openmls::{
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use thiserror::Error;
-use futures::FutureExt;
 
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
@@ -54,7 +54,13 @@ use self::{
     message_history::MessageHistoryError,
     validated_commit::CommitValidationError,
 };
-use std::{collections::HashSet, sync::Arc, future::Future, pin::Pin, task::{Context, Poll}};
+use std::{
+    collections::HashSet,
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::InboxId;
 use xmtp_proto::xmtp::mls::{
@@ -178,7 +184,7 @@ pub enum GroupError {
     #[error("The intent publishing task was cancelled")]
     PublishCancelled,
     #[error("the publish failed to complete due to panic")]
-    PublishPanicked
+    PublishPanicked,
 }
 
 impl RetryableError for GroupError {
@@ -234,19 +240,21 @@ pub enum UpdateAdminListType {
     RemoveSuper,
 }
 
-
 pub type MessagePublishFuture = Pin<Box<dyn Future<Output = Result<(), GroupError>>>>;
-/// An Unpublished message with an ID that can be `awaited` to publish.
-/// This message can be safely dropped, but [`MlsGroup::publish_intents`] would need to be manually
-/// called
+
+/// An Unpublished message with an ID that can be `awaited` to publish all messages.
+/// This message can be safely dropped, and [`MlsGroup::sync`] called manually instead.
 pub struct UnpublishedMessage {
     message_id: Vec<u8>,
-    publish: MessagePublishFuture
+    publish: MessagePublishFuture,
 }
 
 impl UnpublishedMessage {
     fn new(publish: MessagePublishFuture, message_id: Vec<u8>) -> Self {
-        Self { publish, message_id }
+        Self {
+            publish,
+            message_id,
+        }
     }
 
     pub fn id(&self) -> &[u8] {
@@ -262,32 +270,6 @@ impl Future for UnpublishedMessage {
         Future::poll(pinned, cx)
     }
 }
-
-/*
-impl Future for UnpublishedMessage {
-    type Output = Result<(), GroupError>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let pinned = std::pin::pin!(&mut self.handle);
-        match Future::poll(pinned, cx) {
-            Poll::Ready(t) => {
-                if let Err(e) = t {
-                    if e.is_cancelled() {
-                        return Poll::Ready(Err(GroupError::PublishCancelled))
-                    } else if e.is_panic() {
-                        return Poll::Ready(Err(GroupError::PublishPanicked))
-                    } else {
-                        return Poll::Ready(Err(GroupError::Generic(e.to_string())))
-                    }
-                } else {
-                    Poll::Ready(t.expect("Handled outer error"))
-                }
-            },
-            Poll::Pending => Poll::Pending
-        }
-    }
-}
-*/
 
 impl MlsGroup {
     // Creates a new group instance. Does not validate that the group exists in the DB
@@ -494,40 +476,45 @@ impl MlsGroup {
             .await?;
 
         let message_id = self.prepare_message(message, &conn);
-        
+
         // Skipping a full sync here and instead just firing and forgetting
         if let Err(err) = self.publish_intents(conn, client).await {
             log::error!("Send: error publishing intents: {:?}", err);
         }
-        
+
         message_id
     }
 
-    pub fn send_message_optimistic<ApiClient>(&self, message: &[u8], client: &Arc<Client<ApiClient>>) -> Result<UnpublishedMessage, GroupError> 
+    /// Send a message, optimistically retrieving ID before knowing
+    /// the result of a message send.
+    /// This requires calling [`MlsGroup::publish_messages`] for messages to be published
+    /// to the delivery service.
+    pub fn send_message_optimistic<ApiClient>(
+        &self,
+        message: &[u8],
+        client: &Arc<Client<ApiClient>>,
+    ) -> Result<UnpublishedMessage, GroupError>
     where
-        ApiClient: XmtpApi
+        ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
         let message_id = self.prepare_message(message, &conn)?;
-       
+
         let this = self.clone();
         let client_pointer = client.clone();
         let publish = async move {
             let update_interval = Some(5_000_000);
-            this.maybe_update_installations(conn.clone(), update_interval, &client_pointer).await?;
+            this.maybe_update_installations(conn.clone(), update_interval, &client_pointer)
+                .await?;
             this.publish_intents(conn, &client_pointer).await?;
             Ok(())
         };
 
         Ok(UnpublishedMessage::new(publish.boxed(), message_id))
     }
-    
+
     /// Prepare a message (intent & id) on this users XMTP [`Client`].
-    fn prepare_message(
-        &self,
-        message: &[u8],
-        conn: &DbConnection,
-    ) -> Result<Vec<u8>, GroupError> {
+    fn prepare_message(&self, message: &[u8], conn: &DbConnection) -> Result<Vec<u8>, GroupError> {
         let now = now_ns();
         let plain_envelope = Self::into_envelope(message, &now.to_string());
         let mut encoded_envelope = vec![];
@@ -553,7 +540,7 @@ impl MlsGroup {
             delivery_status: DeliveryStatus::Unpublished,
         };
         group_message.store(conn)?;
-        
+
         Ok(message_id)
     }
 
@@ -1218,10 +1205,10 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 mod tests {
     use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
     use prost::Message;
+    use std::sync::Arc;
     use tracing_test::traced_test;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
-    use std::sync::Arc;
 
     use crate::{
         assert_logged,
@@ -1268,7 +1255,6 @@ mod tests {
     {
         group.sync(client).await.unwrap();
         let mut messages = group.find_messages(None, None, None, None, None).unwrap();
-
         messages.pop().unwrap()
     }
 
@@ -2597,19 +2583,24 @@ mod tests {
             .add_members(&amal, vec![bola_wallet.get_address()])
             .await
             .unwrap();
-
-        let mut futures = vec![];
-        futures.push(amal_group.send_message_optimistic(b"test one", &amal).unwrap());
-        futures.push(amal_group.send_message_optimistic(b"test two", &amal).unwrap());
-        futures.push(amal_group.send_message_optimistic(b"test three", &amal).unwrap());
-        futures.push(amal_group.send_message_optimistic(b"test four", &amal).unwrap());
-        futures::future::join_all(futures).await; 
-        
         let bola_group = receive_group_invite(&bola).await;
+
+        amal_group
+            .send_message_optimistic(b"test one", &amal)
+            .unwrap();
+        amal_group
+            .send_message_optimistic(b"test two", &amal)
+            .unwrap();
+        amal_group
+            .send_message_optimistic(b"test three", &amal)
+            .unwrap();
+        let four = amal_group
+            .send_message_optimistic(b"test four", &amal)
+            .unwrap();
+
+        four.await.unwrap();
+
         let message = get_latest_message(&bola_group, &bola).await;
-        println!("{}", String::from_utf8_lossy(&message.decrypted_message_bytes));
         assert_eq!(message.decrypted_message_bytes, b"test four");
-
-
     }
 }
