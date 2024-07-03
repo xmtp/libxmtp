@@ -485,10 +485,7 @@ impl MlsGroup {
         message_id
     }
 
-    /// Send a message, optimistically retrieving ID before knowing
-    /// the result of a message send.
-    /// This requires calling [`MlsGroup::publish_messages`] for messages to be published
-    /// to the delivery service.
+    /// Send a message, optimistically retrieving ID before the result of a message send.
     pub fn send_message_optimistic<ApiClient>(
         &self,
         message: &[u8],
