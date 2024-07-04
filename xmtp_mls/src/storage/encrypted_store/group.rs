@@ -35,10 +35,12 @@ pub struct StoredGroup {
     pub installations_last_checked: i64,
     /// Enum, [`Purpose`] signifies the group purpose which extends to who can access it.
     pub purpose: Purpose,
+
     /// The inbox_id of who added the user to a group.
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message
     pub welcome_id: Option<i64>,
+    pub rotated_at_ns: i64,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -62,6 +64,7 @@ impl StoredGroup {
             purpose,
             added_by_inbox_id,
             welcome_id: Some(welcome_id),
+            rotated_at_ns: 0,
         }
     }
 
@@ -80,6 +83,7 @@ impl StoredGroup {
             purpose: Purpose::Conversation,
             added_by_inbox_id,
             welcome_id: None,
+            rotated_at_ns: 0,
         }
     }
 
@@ -98,6 +102,7 @@ impl StoredGroup {
             purpose: Purpose::Sync,
             added_by_inbox_id: "".into(),
             welcome_id: None,
+            rotated_at_ns: 0,
         }
     }
 }
@@ -197,6 +202,32 @@ impl DbConnection {
             "installation time for group {}",
             hex::encode(group_id)
         )))
+    }
+
+    pub fn get_rotated_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
+        let last_ts = self.raw_query(|conn| {
+            let ts = dsl::groups
+                .find(&group_id)
+                .select(dsl::rotated_at_ns)
+                .first(conn)
+                .optional()?;
+            Ok(ts)
+        })?;
+
+        last_ts.ok_or(StorageError::NotFound(format!(
+            "installation time for group {}",
+            hex::encode(group_id)
+        )))
+    }
+
+    /// Update the 'rotated time' once we checked in pre_intent_hook
+    pub fn update_rotated_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
+        self.raw_query(|conn| {
+            let now = crate::utils::time::now_ns();
+            diesel::update(dsl::groups.find(&group_id)).set(dsl::rotated_at_ns.eq(now)).execute(conn)
+        })?;
+
+        Ok(())
     }
 
     /// Updates the 'last time checked' we checked for new installations.
