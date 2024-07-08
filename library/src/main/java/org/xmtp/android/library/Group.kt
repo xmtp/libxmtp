@@ -30,11 +30,11 @@ import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.DurationUnit
 
 class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
-    val id: ByteArray
-        get() = libXMTPGroup.id()
+    val id: String
+        get() = libXMTPGroup.id().toHex()
 
     val topic: String
-        get() = Topic.groupMessage(id.toHex()).description
+        get() = Topic.groupMessage(id).description
 
     val createdAt: Date
         get() = Date(libXMTPGroup.createdAtNs() / 1_000_000)
@@ -100,7 +100,10 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
         return encoded
     }
 
-    fun <T> prepareMessage(content: T, options: SendOptions? = null): UnpublishedMessage {
+    suspend fun <T> prepareMessage(content: T, options: SendOptions? = null): UnpublishedMessage {
+        if (client.contacts.consentList.groupState(groupId = id) == ConsentState.UNKNOWN) {
+            client.contacts.allowGroups(groupIds = listOf(id))
+        }
         val encodeContent = encodeContent(content = content, options = options)
         return UnpublishedMessage(libXMTPGroup.sendOptimistic(encodeContent.toByteArray()))
     }

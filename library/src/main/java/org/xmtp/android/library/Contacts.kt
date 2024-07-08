@@ -249,8 +249,8 @@ class ConsentList(
         return entry?.consentType ?: ConsentState.UNKNOWN
     }
 
-    fun groupState(groupId: ByteArray): ConsentState {
-        val entry = entries[ConsentListEntry.groupId(groupId.toHex()).key]
+    fun groupState(groupId: String): ConsentState {
+        val entry = entries[ConsentListEntry.groupId(groupId).key]
 
         return entry?.consentType ?: ConsentState.UNKNOWN
     }
@@ -288,16 +288,16 @@ data class Contacts(
         consentList.publish(entries)
     }
 
-    suspend fun allowGroups(groupIds: List<ByteArray>) {
+    suspend fun allowGroups(groupIds: List<String>) {
         val entries = groupIds.map {
-            consentList.allowGroup(it.toHex())
+            consentList.allowGroup(it)
         }
         consentList.publish(entries)
     }
 
-    suspend fun denyGroups(groupIds: List<ByteArray>) {
+    suspend fun denyGroups(groupIds: List<String>) {
         val entries = groupIds.map {
-            consentList.denyGroup(it.toHex())
+            consentList.denyGroup(it)
         }
         consentList.publish(entries)
     }
@@ -324,11 +324,11 @@ data class Contacts(
         return consentList.state(address) == ConsentState.DENIED
     }
 
-    fun isGroupAllowed(groupId: ByteArray): Boolean {
+    fun isGroupAllowed(groupId: String): Boolean {
         return consentList.groupState(groupId) == ConsentState.ALLOWED
     }
 
-    fun isGroupDenied(groupId: ByteArray): Boolean {
+    fun isGroupDenied(groupId: String): Boolean {
         return consentList.groupState(groupId) == ConsentState.DENIED
     }
 

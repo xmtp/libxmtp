@@ -532,10 +532,10 @@ class Client() {
         }
     }
 
-    fun findGroup(groupId: ByteArray): Group? {
+    fun findGroup(groupId: String): Group? {
         v3Client?.let {
             try {
-                return Group(this, it.group(groupId))
+                return Group(this, it.group(groupId.hexToByteArray()))
             } catch (e: Exception) {
                 return null
             }
@@ -543,10 +543,10 @@ class Client() {
         throw XMTPException("Error no V3 client initialized")
     }
 
-    fun findMessage(messageId: ByteArray): MessageV3? {
+    fun findMessage(messageId: String): MessageV3? {
         v3Client?.let {
             try {
-                return MessageV3(this, it.message(messageId))
+                return MessageV3(this, it.message(messageId.hexToByteArray()))
             } catch (e: Exception) {
                 return null
             }

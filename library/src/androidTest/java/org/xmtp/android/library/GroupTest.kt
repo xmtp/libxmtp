@@ -733,10 +733,10 @@ class GroupTest {
         boClient.conversations.streamGroups().test {
             val group =
                 alixClient.conversations.newGroup(listOf(bo.walletAddress))
-            assertEquals(group.id.toHex(), awaitItem().id.toHex())
+            assertEquals(group.id, awaitItem().id)
             val group2 =
                 caroClient.conversations.newGroup(listOf(bo.walletAddress))
-            assertEquals(group2.id.toHex(), awaitItem().id.toHex())
+            assertEquals(group2.id, awaitItem().id)
         }
     }
 
@@ -836,7 +836,7 @@ class GroupTest {
         runBlocking { alixClient.conversations.syncGroups() }
         val alixGroup = alixClient.findGroup(boGroup.id)
 
-        assertEquals(alixGroup?.id?.toHex(), boGroup.id.toHex())
+        assertEquals(alixGroup?.id, boGroup.id)
     }
 
     @Test
@@ -853,24 +853,9 @@ class GroupTest {
         runBlocking { alixClient.conversations.syncGroups() }
         val alixGroup = alixClient.findGroup(boGroup.id)
         runBlocking { alixGroup?.sync() }
-        val alixMessage = alixClient.findMessage(boMessageId.hexToByteArray())
+        val alixMessage = alixClient.findMessage(boMessageId)
 
-        assertEquals(alixMessage?.id?.toHex(), boMessageId)
-    }
-
-    @Test
-    fun testTranslatingIds() {
-        val boGroup = runBlocking {
-            boClient.conversations.newGroup(
-                listOf(
-                    alix.walletAddress,
-                    caro.walletAddress
-                )
-            )
-        }
-        val hex = boGroup.id.toHex()
-
-        assert(hex.hexToByteArray().contentEquals(boGroup.id))
+        assertEquals(alixMessage?.id, boMessageId)
     }
 
     @Test
@@ -883,21 +868,25 @@ class GroupTest {
                 )
             )
         }
-        val preparedMessage = boGroup.prepareMessage("Test text")
-        assertEquals(boGroup.messages().size, 2)
-        assertEquals(boGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 1)
-        assertEquals(boGroup.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED).size, 1)
+        runBlocking { alixClient.conversations.syncGroups() }
+        val alixGroup: Group = alixClient.findGroup(boGroup.id)!!
+        assert(!alixClient.contacts.isGroupAllowed(boGroup.id))
+        val preparedMessage = runBlocking { alixGroup.prepareMessage("Test text") }
+        assert(alixClient.contacts.isGroupAllowed(boGroup.id))
+        assertEquals(alixGroup.messages().size, 1)
+        assertEquals(alixGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 0)
+        assertEquals(alixGroup.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED).size, 1)
 
         runBlocking {
             preparedMessage.publish()
-            boGroup.sync()
+            alixGroup.sync()
         }
 
-        assertEquals(boGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 2)
-        assertEquals(boGroup.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED).size, 0)
-        assertEquals(boGroup.messages().size, 2)
+        assertEquals(alixGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 1)
+        assertEquals(alixGroup.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED).size, 0)
+        assertEquals(alixGroup.messages().size, 1)
 
-        val message = boGroup.messages().first()
+        val message = alixGroup.messages().first()
 
         assertEquals(preparedMessage.messageId, message.id)
     }

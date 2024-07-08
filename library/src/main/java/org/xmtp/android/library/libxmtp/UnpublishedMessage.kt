@@ -7,7 +7,8 @@ class UnpublishedMessage(private val libXMTPUnpublishedMessage: FfiUnpublishedMe
     val messageId: String
         get() = libXMTPUnpublishedMessage.id().toHex()
 
-    suspend fun publish() {
+    suspend fun publish(): String {
         libXMTPUnpublishedMessage.publish()
+        return messageId
     }
 }

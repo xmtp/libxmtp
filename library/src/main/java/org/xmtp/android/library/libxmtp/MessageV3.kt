@@ -17,11 +17,11 @@ import java.util.Date
 
 data class MessageV3(val client: Client, private val libXMTPMessage: FfiMessage) {
 
-    val id: ByteArray
-        get() = libXMTPMessage.id
+    val id: String
+        get() = libXMTPMessage.id.toHex()
 
-    val convoId: ByteArray
-        get() = libXMTPMessage.convoId
+    val convoId: String
+        get() = libXMTPMessage.convoId.toHex()
 
     val senderInboxId: String
         get() = libXMTPMessage.senderInboxId
@@ -39,9 +39,9 @@ data class MessageV3(val client: Client, private val libXMTPMessage: FfiMessage)
     fun decode(): DecodedMessage {
         try {
             val decodedMessage = DecodedMessage(
-                id = id.toHex(),
+                id = id,
                 client = client,
-                topic = Topic.groupMessage(convoId.toHex()).description,
+                topic = Topic.groupMessage(convoId).description,
                 encodedContent = EncodedContent.parseFrom(libXMTPMessage.content),
                 senderAddress = senderInboxId,
                 sent = sentAt,
@@ -76,8 +76,8 @@ data class MessageV3(val client: Client, private val libXMTPMessage: FfiMessage)
 
     fun decrypt(): DecryptedMessage {
         return DecryptedMessage(
-            id = id.toHex(),
-            topic = Topic.groupMessage(convoId.toHex()).description,
+            id = id,
+            topic = Topic.groupMessage(convoId).description,
             encodedContent = decode().encodedContent,
             senderAddress = senderInboxId,
             sentAt = sentAt,

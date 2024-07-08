@@ -138,7 +138,7 @@ data class Conversations(
                     groupPinnedFrameUrl = groupPinnedFrameUrl
                 )
             ) ?: throw XMTPException("Client does not support Groups")
-        client.contacts.allowGroups(groupIds = listOf(group.id()))
+        client.contacts.allowGroups(groupIds = listOf(group.id().toHex()))
 
         return Group(client, group)
     }
