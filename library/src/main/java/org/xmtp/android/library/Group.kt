@@ -24,6 +24,7 @@ import uniffi.xmtpv3.FfiMetadataField
 import uniffi.xmtpv3.FfiPermissionUpdateType
 import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.PermissionOption
 import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.PermissionPolicySet
+import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.UnpublishedMessage
 import java.util.Date
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.DurationUnit
@@ -57,11 +58,11 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
         get() = libXMTPGroup.groupPinnedFrameUrl()
 
     suspend fun send(text: String): String {
-        return send(prepareMessage(content = text, options = null))
+        return send(encodeContent(content = text, options = null))
     }
 
     suspend fun <T> send(content: T, options: SendOptions? = null): String {
-        val preparedMessage = prepareMessage(content = content, options = options)
+        val preparedMessage = encodeContent(content = content, options = options)
         return send(preparedMessage)
     }
 
@@ -73,7 +74,7 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
         return messageId.toHex()
     }
 
-    fun <T> prepareMessage(content: T, options: SendOptions?): EncodedContent {
+    fun <T> encodeContent(content: T, options: SendOptions?): EncodedContent {
         val codec = Client.codecRegistry.find(options?.contentType)
 
         fun <Codec : ContentCodec<T>> encode(codec: Codec, content: Any?): EncodedContent {
@@ -97,6 +98,11 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
             encoded = encoded.compress(compression)
         }
         return encoded
+    }
+
+    fun <T> prepareMessage(content: T, options: SendOptions? = null): UnpublishedMessage {
+        val encodeContent = encodeContent(content = content, options = options)
+        return UnpublishedMessage(libXMTPGroup.sendOptimistic(encodeContent.toByteArray()))
     }
 
     suspend fun sync() {
@@ -261,35 +267,67 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
     }
 
     suspend fun updateAddMemberPermission(newPermissionOption: PermissionOption) {
-        return libXMTPGroup.updatePermissionPolicy(FfiPermissionUpdateType.ADD_MEMBER, PermissionOption.toFfiPermissionPolicy(newPermissionOption), null)
+        return libXMTPGroup.updatePermissionPolicy(
+            FfiPermissionUpdateType.ADD_MEMBER,
+            PermissionOption.toFfiPermissionPolicy(newPermissionOption),
+            null
+        )
     }
 
     suspend fun updateRemoveMemberPermission(newPermissionOption: PermissionOption) {
-        return libXMTPGroup.updatePermissionPolicy(FfiPermissionUpdateType.REMOVE_MEMBER, PermissionOption.toFfiPermissionPolicy(newPermissionOption), null)
+        return libXMTPGroup.updatePermissionPolicy(
+            FfiPermissionUpdateType.REMOVE_MEMBER,
+            PermissionOption.toFfiPermissionPolicy(newPermissionOption),
+            null
+        )
     }
 
     suspend fun updateAddAdminPermission(newPermissionOption: PermissionOption) {
-        return libXMTPGroup.updatePermissionPolicy(FfiPermissionUpdateType.ADD_ADMIN, PermissionOption.toFfiPermissionPolicy(newPermissionOption), null)
+        return libXMTPGroup.updatePermissionPolicy(
+            FfiPermissionUpdateType.ADD_ADMIN,
+            PermissionOption.toFfiPermissionPolicy(newPermissionOption),
+            null
+        )
     }
 
     suspend fun updateRemoveAdminPermission(newPermissionOption: PermissionOption) {
-        return libXMTPGroup.updatePermissionPolicy(FfiPermissionUpdateType.REMOVE_ADMIN, PermissionOption.toFfiPermissionPolicy(newPermissionOption), null)
+        return libXMTPGroup.updatePermissionPolicy(
+            FfiPermissionUpdateType.REMOVE_ADMIN,
+            PermissionOption.toFfiPermissionPolicy(newPermissionOption),
+            null
+        )
     }
 
     suspend fun updateGroupNamePermission(newPermissionOption: PermissionOption) {
-        return libXMTPGroup.updatePermissionPolicy(FfiPermissionUpdateType.UPDATE_METADATA, PermissionOption.toFfiPermissionPolicy(newPermissionOption), FfiMetadataField.GROUP_NAME)
+        return libXMTPGroup.updatePermissionPolicy(
+            FfiPermissionUpdateType.UPDATE_METADATA,
+            PermissionOption.toFfiPermissionPolicy(newPermissionOption),
+            FfiMetadataField.GROUP_NAME
+        )
     }
 
     suspend fun updateGroupDescriptionPermission(newPermissionOption: PermissionOption) {
-        return libXMTPGroup.updatePermissionPolicy(FfiPermissionUpdateType.UPDATE_METADATA, PermissionOption.toFfiPermissionPolicy(newPermissionOption), FfiMetadataField.DESCRIPTION)
+        return libXMTPGroup.updatePermissionPolicy(
+            FfiPermissionUpdateType.UPDATE_METADATA,
+            PermissionOption.toFfiPermissionPolicy(newPermissionOption),
+            FfiMetadataField.DESCRIPTION
+        )
     }
 
     suspend fun updateGroupImageUrlSquarePermission(newPermissionOption: PermissionOption) {
-        return libXMTPGroup.updatePermissionPolicy(FfiPermissionUpdateType.UPDATE_METADATA, PermissionOption.toFfiPermissionPolicy(newPermissionOption), FfiMetadataField.IMAGE_URL_SQUARE)
+        return libXMTPGroup.updatePermissionPolicy(
+            FfiPermissionUpdateType.UPDATE_METADATA,
+            PermissionOption.toFfiPermissionPolicy(newPermissionOption),
+            FfiMetadataField.IMAGE_URL_SQUARE
+        )
     }
 
     suspend fun updateGroupPinnedFrameUrlPermission(newPermissionOption: PermissionOption) {
-        return libXMTPGroup.updatePermissionPolicy(FfiPermissionUpdateType.UPDATE_METADATA, PermissionOption.toFfiPermissionPolicy(newPermissionOption), FfiMetadataField.PINNED_FRAME_URL)
+        return libXMTPGroup.updatePermissionPolicy(
+            FfiPermissionUpdateType.UPDATE_METADATA,
+            PermissionOption.toFfiPermissionPolicy(newPermissionOption),
+            FfiMetadataField.PINNED_FRAME_URL
+        )
     }
 
     fun isAdmin(inboxId: String): Boolean {
