@@ -21,12 +21,12 @@ public struct MessageV3: Identifiable {
 		self.ffiMessage = ffiMessage
 	}
 	
-	public var id: Data {
-		return ffiMessage.id
+	public var id: String {
+		return ffiMessage.id.toHex
 	}
 	
-	var convoId: Data {
-		return ffiMessage.convoId
+	var convoId: String {
+		return ffiMessage.convoId.toHex
 	}
 	
 	var senderInboxId: String {
@@ -53,9 +53,9 @@ public struct MessageV3: Identifiable {
 			let encodedContent = try EncodedContent(serializedData: ffiMessage.content)
 
 			let decodedMessage = DecodedMessage(
-				id: id.toHex,
+				id: id,
 				client: client,
-				topic: Topic.groupMessage(convoId.toHex).description,
+				topic: Topic.groupMessage(convoId).description,
 				encodedContent: encodedContent,
 				senderAddress: senderInboxId,
 				sent: sentAt,
@@ -94,11 +94,11 @@ public struct MessageV3: Identifiable {
 		let encodedContent = try EncodedContent(serializedData: ffiMessage.content)
 
 		let decrytedMessage =  DecryptedMessage(
-			id: id.toHex,
+			id: id,
 			encodedContent: encodedContent,
 			senderAddress: senderInboxId,
 			sentAt: sentAt,
-			topic: Topic.groupMessage(convoId.toHex).description,
+			topic: Topic.groupMessage(convoId).description,
 			deliveryStatus: deliveryStatus
 		)
 		

@@ -224,8 +224,8 @@ public class ConsentList {
 		return entry.consentType
 	}
 
-	func groupState(groupId: Data) async -> ConsentState {
-		guard let entry =  await entriesManager.get(ConsentListEntry.groupId(groupId: groupId.toHex).key) else {
+	func groupState(groupId: String) async -> ConsentState {
+		guard let entry =  await entriesManager.get(ConsentListEntry.groupId(groupId: groupId).key) else {
 			return .unknown
 		}
 
@@ -271,11 +271,11 @@ public actor Contacts {
 		return await consentList.state(address: address) == .denied
 	}
 
-	public func isGroupAllowed(groupId: Data) async -> Bool {
+	public func isGroupAllowed(groupId: String) async -> Bool {
 		return await consentList.groupState(groupId: groupId) == .allowed
 	}
 
-	public func isGroupDenied(groupId: Data) async -> Bool {
+	public func isGroupDenied(groupId: String) async -> Bool {
 		return await consentList.groupState(groupId: groupId) == .denied
 	}
 	
@@ -321,13 +321,13 @@ public actor Contacts {
         try await consentList.publish(entries: entries)
 	}
 
-	public func allowGroups(groupIds: [Data]) async throws {
+	public func allowGroups(groupIds: [String]) async throws {
 		var entries: [ConsentListEntry] = []
 
 		try await withThrowingTaskGroup(of: ConsentListEntry.self) { group in
 			for groupId in groupIds {
 				group.addTask {
-					return await self.consentList.allowGroup(groupId: groupId.toHex)
+					return await self.consentList.allowGroup(groupId: groupId)
 				}
 			}
 
@@ -338,13 +338,13 @@ public actor Contacts {
         try await consentList.publish(entries: entries)
 	}
 
-	public func denyGroups(groupIds: [Data]) async throws {
+	public func denyGroups(groupIds: [String]) async throws {
 		var entries: [ConsentListEntry] = []
 
 		try await withThrowingTaskGroup(of: ConsentListEntry.self) { group in
 			for groupId in groupIds {
 				group.addTask {
-					return await self.consentList.denyGroup(groupId: groupId.toHex)
+					return await self.consentList.denyGroup(groupId: groupId)
 				}
 			}
 

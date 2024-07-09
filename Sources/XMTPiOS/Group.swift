@@ -31,12 +31,12 @@ public struct Group: Identifiable, Equatable, Hashable {
 	var client: Client
 	let streamHolder = StreamHolder()
 
-	public var id: Data {
-		ffiGroup.id()
+	public var id: String {
+		ffiGroup.id().toHex
 	}
 	
 	public var topic: String {
-		Topic.groupMessage(id.toHex).description
+		Topic.groupMessage(id).description
 	}
 
 	func metadata() throws -> FfiGroupMetadata {
@@ -225,8 +225,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 
 	public func send<T>(content: T, options: SendOptions? = nil) async throws -> String {
-		let preparedMessage = try await prepareMessage(content: content, options: options)
-		return try await send(encodedContent: preparedMessage)
+		let encodeContent = try await encodeContent(content: content, options: options)
+		return try await send(encodedContent: encodeContent)
 	}
 
 	public func send(encodedContent: EncodedContent) async throws -> String {
@@ -240,7 +240,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		return messageId.toHex
 	}
 
-	public func prepareMessage<T>(content: T, options: SendOptions?) async throws -> EncodedContent {
+	public func encodeContent<T>(content: T, options: SendOptions?) async throws -> EncodedContent {
 		let codec = client.codecRegistry.find(for: options?.contentType)
 
 		func encode<Codec: ContentCodec>(codec: Codec, content: Any) throws -> EncodedContent {
@@ -271,6 +271,18 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 		return encoded
 	}
+	
+	public func prepareMessage<T>(content: T, options: SendOptions? = nil) async throws -> UnpublishedMessage {
+		let groupState = await client.contacts.consentList.groupState(groupId: id)
+
+		if groupState == ConsentState.unknown {
+			try await client.contacts.allowGroups(groupIds: [id])
+		}
+		
+		let encodeContent = try await encodeContent(content: content, options: options)
+		return UnpublishedMessage(ffiUnpublishedMessage: try ffiGroup.sendOptimistic(contentBytes: try encodeContent.serializedData()))
+	}
+
 
 	public func endStream() {
 		self.streamHolder.stream?.end()

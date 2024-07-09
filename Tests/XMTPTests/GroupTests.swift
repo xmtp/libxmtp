@@ -790,7 +790,7 @@ class GroupTests: XCTestCase {
 		try await fixtures.aliceClient.conversations.sync()
 		let alixGroup = try fixtures.aliceClient.findGroup(groupId: boGroup.id)
 
-		XCTAssertEqual(alixGroup?.id.toHex, boGroup.id.toHex)
+		XCTAssertEqual(alixGroup?.id, boGroup.id)
 	}
 
 	func testCanFetchMessageById() async throws {
@@ -802,8 +802,41 @@ class GroupTests: XCTestCase {
 		try await fixtures.aliceClient.conversations.sync()
 		let alixGroup = try fixtures.aliceClient.findGroup(groupId: boGroup.id)
 		try await alixGroup?.sync()
-		let alixMessage = try fixtures.aliceClient.findMessage(messageId: boMessageId.hexToData)
+		let alixMessage = try fixtures.aliceClient.findMessage(messageId: boMessageId)
 
-		XCTAssertEqual(alixGroup?.id.toHex, boGroup.id.toHex)
+		XCTAssertEqual(alixGroup?.id, boGroup.id)
+	}
+	
+	func testUnpublishedMessages() async throws {
+		let fixtures = try await localFixtures()
+		let boGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+
+		try await fixtures.aliceClient.conversations.sync()
+		let alixGroup = try fixtures.aliceClient.findGroup(groupId: boGroup.id)!
+		let isGroupAllowed = await fixtures.aliceClient.contacts.isGroupAllowed(groupId: boGroup.id)
+		XCTAssert(!isGroupAllowed)
+		let preparedMessage = try await alixGroup.prepareMessage(content: "Test text")
+		let isGroupAllowed2 = await fixtures.aliceClient.contacts.isGroupAllowed(groupId: boGroup.id)
+		XCTAssert(isGroupAllowed2)
+		let messageCount = try await alixGroup.messages().count
+		XCTAssertEqual(messageCount, 1)
+		let messageCountPublished = try await alixGroup.messages(deliveryStatus: .published).count
+		let messageCountUnpublished = try await alixGroup.messages(deliveryStatus: .unpublished).count
+		XCTAssertEqual(messageCountPublished, 0)
+		XCTAssertEqual(messageCountUnpublished, 1)
+
+		_ = try await preparedMessage.publish()
+		try await alixGroup.sync()
+
+		let messageCountPublished2 = try await alixGroup.messages(deliveryStatus: .published).count
+		let messageCountUnpublished2 = try await alixGroup.messages(deliveryStatus: .unpublished).count
+		let messageCount2 = try await alixGroup.messages().count
+		XCTAssertEqual(messageCountPublished2, 1)
+		XCTAssertEqual(messageCountUnpublished2, 0)
+		XCTAssertEqual(messageCount2, 1)
+
+		let messages = try await alixGroup.messages()
+
+		XCTAssertEqual(preparedMessage.id, messages.first!.id)
 	}
 }

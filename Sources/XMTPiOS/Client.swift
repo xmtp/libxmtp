@@ -535,23 +535,23 @@ public final class Client {
 		return try await client.findInboxId(address: address.lowercased())
 	}
 	
-	public func findGroup(groupId: Data) throws -> Group? {
+	public func findGroup(groupId: String) throws -> Group? {
 		guard let client = v3Client else {
 			throw ClientError.noV3Client("Error no V3 client initialized")
 		}
 		do {
-			return Group(ffiGroup: try client.group(groupId: groupId), client: self)
+			return Group(ffiGroup: try client.group(groupId: groupId.hexToData), client: self)
 		} catch {
 			return nil
 		}
 	}
 
-	public func findMessage(messageId: Data) throws -> MessageV3? {
+	public func findMessage(messageId: String) throws -> MessageV3? {
 		guard let client = v3Client else {
 			throw ClientError.noV3Client("Error no V3 client initialized")
 		}
 		do {
-			return MessageV3(client: self, ffiMessage: try client.message(messageId: messageId))
+			return MessageV3(client: self, ffiMessage: try client.message(messageId: messageId.hexToData))
 		} catch {
 			return nil
 		}
