@@ -53,7 +53,7 @@ use self::{
     message_history::MessageHistoryError,
     validated_commit::CommitValidationError,
 };
-use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc};
+use std::{collections::HashSet, sync::Arc};
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::InboxId;
 use xmtp_proto::xmtp::mls::{
@@ -232,46 +232,6 @@ pub enum UpdateAdminListType {
     Remove,
     AddSuper,
     RemoveSuper,
-}
-
-pub type MessagePublishFuture = Pin<Box<dyn Future<Output = Result<(), GroupError>> + Send>>;
-
-/// An Unpublished message with an ID that can be `awaited` to publish all messages.
-/// This message can be safely dropped, and [`MlsGroup::sync`] called manually instead.
-pub struct UnpublishedMessage<ApiClient> {
-    message_id: Vec<u8>,
-    client: Arc<Client<ApiClient>>,
-    group: MlsGroup,
-}
-
-impl<ApiClient> UnpublishedMessage<ApiClient>
-where
-    ApiClient: XmtpApi,
-{
-    fn new(message_id: Vec<u8>, client: Arc<Client<ApiClient>>, group: MlsGroup) -> Self {
-        Self {
-            message_id,
-            client,
-            group,
-        }
-    }
-
-    pub fn id(&self) -> &[u8] {
-        &self.message_id
-    }
-
-    /// Publish messages to the delivery service
-    pub async fn publish(&self) -> Result<(), GroupError> {
-        let conn = self.group.context.store.conn()?;
-        let update_interval = Some(5_000_000);
-        self.group
-            .maybe_update_installations(conn.clone(), update_interval, self.client.as_ref())
-            .await?;
-        self.group
-            .publish_intents(conn, self.client.as_ref())
-            .await?;
-        Ok(())
-    }
 }
 
 impl MlsGroup {
@@ -488,23 +448,28 @@ impl MlsGroup {
         message_id
     }
 
-    /// Send a message, optimistically retrieving ID before the result of a message send.
-    pub fn send_message_optimistic<ApiClient>(
+    /// Publish all unpublished messages
+    pub async fn publish_messages<ApiClient>(
         &self,
-        message: &[u8],
-        client: &Arc<Client<ApiClient>>,
-    ) -> Result<UnpublishedMessage<ApiClient>, GroupError>
+        client: &Client<ApiClient>,
+    ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
+        let update_interval = Some(5_000_000);
+        self.maybe_update_installations(conn.clone(), update_interval, client)
+            .await?;
+        self.publish_intents(conn, client).await?;
+        Ok(())
+    }
+
+    /// Send a message, optimistically returning the ID of the message before the result of a message publish.
+    pub fn send_message_optimistic(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
+        let conn = self.context.store.conn()?;
         let message_id = self.prepare_message(message, &conn)?;
 
-        Ok(UnpublishedMessage::new(
-            message_id,
-            client.clone(),
-            self.clone(),
-        ))
+        Ok(message_id)
     }
 
     /// Prepare a message (intent & id) on this users XMTP [`Client`].
@@ -1249,7 +1214,7 @@ mod tests {
             group_mutable_metadata::MetadataField,
             intents::{PermissionPolicyOption, PermissionUpdateType},
             members::{GroupMember, PermissionLevel},
-            GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
+            DeliveryStatus, GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
         },
         storage::{
             group_intent::IntentState,
@@ -2653,35 +2618,75 @@ mod tests {
             .unwrap();
         let bola_group = receive_group_invite(&bola).await;
 
-        amal_group
-            .send_message_optimistic(b"test one", &amal)
-            .unwrap();
-        amal_group
-            .send_message_optimistic(b"test two", &amal)
-            .unwrap();
-        amal_group
-            .send_message_optimistic(b"test three", &amal)
-            .unwrap();
-        let four = amal_group
-            .send_message_optimistic(b"test four", &amal)
-            .unwrap();
+        let ids = vec![
+            amal_group.send_message_optimistic(b"test one").unwrap(),
+            amal_group.send_message_optimistic(b"test two").unwrap(),
+            amal_group.send_message_optimistic(b"test three").unwrap(),
+            amal_group.send_message_optimistic(b"test four").unwrap(),
+        ];
 
-        four.publish().await.unwrap();
+        let messages = amal_group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<StoredGroupMessage>>();
 
+        let text = messages
+            .iter()
+            .cloned()
+            .map(|m| String::from_utf8_lossy(&m.decrypted_message_bytes).to_string())
+            .collect::<Vec<String>>();
+        assert_eq!(
+            ids,
+            messages
+                .iter()
+                .cloned()
+                .map(|m| m.id)
+                .collect::<Vec<Vec<u8>>>()
+        );
+        assert_eq!(
+            text,
+            vec![
+                "test one".to_string(),
+                "test two".to_string(),
+                "test three".to_string(),
+                "test four".to_string(),
+            ]
+        );
+
+        let delivery = messages
+            .iter()
+            .cloned()
+            .map(|m| m.delivery_status)
+            .collect::<Vec<DeliveryStatus>>();
+        assert_eq!(
+            delivery,
+            vec![
+                DeliveryStatus::Unpublished,
+                DeliveryStatus::Unpublished,
+                DeliveryStatus::Unpublished,
+                DeliveryStatus::Unpublished,
+            ]
+        );
+
+        amal_group.publish_messages(&amal).await.unwrap();
         bola_group.sync(&bola).await.unwrap();
+
         let messages = bola_group
             .find_messages(None, None, None, None, None)
             .unwrap();
+        let delivery = messages
+            .iter()
+            .cloned()
+            .map(|m| m.delivery_status)
+            .collect::<Vec<DeliveryStatus>>();
         assert_eq!(
-            messages
-                .into_iter()
-                .map(|m| m.decrypted_message_bytes)
-                .collect::<Vec<Vec<u8>>>(),
+            delivery,
             vec![
-                b"test one".to_vec(),
-                b"test two".to_vec(),
-                b"test three".to_vec(),
-                b"test four".to_vec(),
+                DeliveryStatus::Published,
+                DeliveryStatus::Published,
+                DeliveryStatus::Published,
+                DeliveryStatus::Published,
             ]
         );
     }
