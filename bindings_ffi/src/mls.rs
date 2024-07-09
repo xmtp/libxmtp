@@ -322,22 +322,24 @@ impl FfiXmtpClient {
         Ok(())
     }
 
-    /// Adds an identity to the existing client
-    pub fn add_identity(&self, new_wallet_address: &str) -> Result<(), GenericError> {
+    /// Adds an identity - really a wallet - to the existing client
+    pub fn add_wallet(
+        &self,
+        existing_wallet_address: &str,
+        new_wallet_address: &str,
+    ) -> Result<(), GenericError> {
         let inbox_id = self.inner_client.inbox_id();
-        // TODO: Where should this 'existing_wallet_address' be pulled from?
-        let existing_wallet_address = "existing_wallet_address".to_string();
         self.inner_client.associate_wallet(
             inbox_id,
-            existing_wallet_address,
+            existing_wallet_address.into(),
             new_wallet_address.into(),
         )?;
 
         Ok(())
     }
 
-    /// Revokes or removes an identity from the existing client
-    pub async fn revoke_identity(&self, wallet_address: &str) -> Result<(), GenericError> {
+    /// Revokes or removes an identity - really a wallet - from the existing client
+    pub async fn revoke_wallet(&self, wallet_address: &str) -> Result<(), GenericError> {
         let inbox_id = self.inner_client.inbox_id();
         self.inner_client
             .revoke_wallet(inbox_id, wallet_address.to_string())
