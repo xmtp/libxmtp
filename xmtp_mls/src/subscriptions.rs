@@ -10,6 +10,7 @@ use std::{
 use futures::{Stream, StreamExt};
 use prost::Message;
 use tokio::sync::oneshot::{self, Sender};
+use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
 use crate::{
@@ -21,6 +22,14 @@ use crate::{
     storage::group_message::StoredGroupMessage,
     Client, XmtpApi,
 };
+
+/// Events local to this client
+/// are broadcast across all senders/receivers of streams
+#[derive(Clone, Debug)]
+pub(crate) enum LocalEvents {
+    // a new group was created
+    NewGroup(MlsGroup),
+}
 
 // TODO simplify FfiStreamCloser + StreamCloser duplication
 pub struct StreamCloser {
@@ -117,6 +126,19 @@ where
     pub async fn stream_conversations(
         &self,
     ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup> + Send + '_>>, ClientError> {
+        let event_queue =
+            tokio_stream::wrappers::BroadcastStream::new(self.local_events.subscribe());
+
+        let event_queue = event_queue.filter_map(|event| async move {
+            match event {
+                Ok(LocalEvents::NewGroup(g)) => Some(g),
+                Err(BroadcastStreamRecvError::Lagged(missed)) => {
+                    log::warn!("Missed {missed} messages due to local event queue lagging");
+                    None
+                }
+            }
+        });
+
         let installation_key = self.installation_public_key();
         let id_cursor = 0;
 
@@ -141,7 +163,7 @@ where
                 }
             });
 
-        Ok(Box::pin(stream))
+        Ok(Box::pin(futures::stream::select(stream, event_queue)))
     }
 
     pub(crate) async fn stream_messages(
@@ -365,6 +387,7 @@ mod tests {
     };
     use futures::StreamExt;
     use std::sync::{Arc, Mutex};
+    use tokio::sync::Notify;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -545,5 +568,61 @@ mod tests {
 
         let messages = messages.lock().unwrap();
         assert_eq!(messages.len(), 5);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_self_group_creation() {
+        let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+
+        let groups = Arc::new(Mutex::new(Vec::new()));
+        let notify = Arc::new(Notify::new());
+        let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
+
+        let closer = Client::<GrpcClient>::stream_conversations_with_callback(
+            alix.clone(),
+            move |g| {
+                let mut groups = groups_pointer.lock().unwrap();
+                groups.push(g);
+                notify_pointer.notify_one();
+            },
+            || {},
+        )
+        .unwrap();
+
+        alix.create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            notify.notified().await
+        })
+        .await
+        .expect("Stream never received group");
+
+        {
+            let grps = groups.lock().unwrap();
+            assert_eq!(grps.len(), 1);
+        }
+
+        let group = bo
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        group
+            .add_members_by_inbox_id(&bo, vec![alix.inbox_id()])
+            .await
+            .unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            notify.notified().await
+        })
+        .await
+        .expect("Stream never received group");
+
+        {
+            let grps = groups.lock().unwrap();
+            assert_eq!(grps.len(), 2);
+        }
+
+        closer.end();
     }
 }

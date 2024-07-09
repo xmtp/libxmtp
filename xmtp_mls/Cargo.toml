@@ -50,6 +50,7 @@ smart-default = "0.7.1"
 thiserror = { workspace = true }
 tls_codec = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 toml = "0.8.4"
 xmtp_cryptography = { workspace = true }
 xmtp_id = { path = "../xmtp_id" }
