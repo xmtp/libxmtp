@@ -5410,6 +5410,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -6512,6 +6513,7 @@ dependencies = [
  "thiserror",
  "tls_codec 0.4.1",
  "tokio",
+ "tokio-stream",
  "toml",
  "tracing",
  "tracing-flame",
