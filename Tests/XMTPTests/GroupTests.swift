@@ -815,7 +815,7 @@ class GroupTests: XCTestCase {
 		let alixGroup = try fixtures.aliceClient.findGroup(groupId: boGroup.id)!
 		let isGroupAllowed = await fixtures.aliceClient.contacts.isGroupAllowed(groupId: boGroup.id)
 		XCTAssert(!isGroupAllowed)
-		let preparedMessage = try await alixGroup.prepareMessage(content: "Test text")
+		let preparedMessageId = try await alixGroup.prepareMessage(content: "Test text")
 		let isGroupAllowed2 = await fixtures.aliceClient.contacts.isGroupAllowed(groupId: boGroup.id)
 		XCTAssert(isGroupAllowed2)
 		let messageCount = try await alixGroup.messages().count
@@ -825,7 +825,7 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(messageCountPublished, 0)
 		XCTAssertEqual(messageCountUnpublished, 1)
 
-		_ = try await preparedMessage.publish()
+		_ = try await alixGroup.publishMessages()
 		try await alixGroup.sync()
 
 		let messageCountPublished2 = try await alixGroup.messages(deliveryStatus: .published).count
@@ -837,6 +837,6 @@ class GroupTests: XCTestCase {
 
 		let messages = try await alixGroup.messages()
 
-		XCTAssertEqual(preparedMessage.id, messages.first!.id)
+		XCTAssertEqual(preparedMessageId, messages.first!.id)
 	}
 }

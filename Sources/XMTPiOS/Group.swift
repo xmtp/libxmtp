@@ -272,7 +272,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		return encoded
 	}
 	
-	public func prepareMessage<T>(content: T, options: SendOptions? = nil) async throws -> UnpublishedMessage {
+	public func prepareMessage<T>(content: T, options: SendOptions? = nil) async throws -> String {
 		let groupState = await client.contacts.consentList.groupState(groupId: id)
 
 		if groupState == ConsentState.unknown {
@@ -280,9 +280,12 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 		
 		let encodeContent = try await encodeContent(content: content, options: options)
-		return UnpublishedMessage(ffiUnpublishedMessage: try ffiGroup.sendOptimistic(contentBytes: try encodeContent.serializedData()))
+		return try ffiGroup.sendOptimistic(contentBytes: try encodeContent.serializedData()).toHex
 	}
 
+	public func publishMessages() async throws {
+		try await ffiGroup.publishMessages()
+	}
 
 	public func endStream() {
 		self.streamHolder.stream?.end()
