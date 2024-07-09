@@ -28,7 +28,6 @@ use xmtp_mls::groups::group_permissions::PermissionsPolicies;
 use xmtp_mls::groups::intents::PermissionPolicyOption;
 use xmtp_mls::groups::intents::PermissionUpdateType;
 use xmtp_mls::groups::GroupMetadataOptions;
-use xmtp_mls::groups::UnpublishedMessage;
 use xmtp_mls::{
     api::ApiClientWrapper,
     builder::ClientBuilder,
@@ -646,28 +645,6 @@ pub struct FfiCreateGroupOptions {
     pub group_pinned_frame_url: Option<String>,
 }
 
-#[derive(uniffi::Object)]
-pub struct FfiUnpublishedMessage {
-    message: UnpublishedMessage<TonicApiClient>,
-}
-
-#[uniffi::export(async_runtime = "tokio")]
-impl FfiUnpublishedMessage {
-    pub fn id(&self) -> Vec<u8> {
-        self.message.id().to_vec()
-    }
-
-    pub async fn publish(&self) -> Result<(), GenericError> {
-        self.message.publish().await.map_err(Into::into)
-    }
-}
-
-impl From<UnpublishedMessage<TonicApiClient>> for FfiUnpublishedMessage {
-    fn from(message: UnpublishedMessage<TonicApiClient>) -> FfiUnpublishedMessage {
-        Self { message }
-    }
-}
-
 impl FfiCreateGroupOptions {
     pub fn into_group_metadata_options(self) -> GroupMetadataOptions {
         GroupMetadataOptions {
@@ -695,20 +672,27 @@ impl FfiGroup {
     }
 
     /// send a message without immediately publishing to the delivery service.
-    pub fn send_optimistic(
-        &self,
-        content_bytes: Vec<u8>,
-    ) -> Result<FfiUnpublishedMessage, GenericError> {
+    pub fn send_optimistic(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        let message =
-            group.send_message_optimistic(content_bytes.as_slice(), &self.inner_client)?;
+        let id = group.send_message_optimistic(content_bytes.as_slice())?;
 
-        Ok(message.into())
+        Ok(id)
+    }
+
+    /// Publish all unpublished messages
+    pub async fn publish_messages(&self) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+        group.publish_messages(&self.inner_client).await?;
+        Ok(())
     }
 
     pub async fn sync(&self) -> Result<(), GenericError> {

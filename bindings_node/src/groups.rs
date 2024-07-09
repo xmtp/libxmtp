@@ -10,7 +10,7 @@ use xmtp_mls::groups::{
   group_metadata::{ConversationType, GroupMetadata},
   group_permissions::GroupMutablePermissions,
   members::PermissionLevel,
-  MlsGroup, PreconfiguredPolicies, UnpublishedMessage, UpdateAdminListType,
+  MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
@@ -105,32 +105,6 @@ impl NapiGroupPermissions {
   }
 }
 
-#[napi]
-pub struct NapiUnpublishedMessage {
-  message: UnpublishedMessage<TonicApiClient>,
-}
-
-#[napi]
-impl NapiUnpublishedMessage {
-  pub fn id(&self) -> Vec<u8> {
-    self.message.id().to_vec()
-  }
-
-  pub async fn publish(&self) -> Result<()> {
-    self
-      .message
-      .publish()
-      .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))
-  }
-}
-
-impl From<UnpublishedMessage<TonicApiClient>> for NapiUnpublishedMessage {
-  fn from(message: UnpublishedMessage<TonicApiClient>) -> NapiUnpublishedMessage {
-    Self { message }
-  }
-}
-
 #[derive(Debug)]
 #[napi]
 pub struct NapiGroup {
@@ -173,11 +147,9 @@ impl NapiGroup {
     Ok(hex::encode(message_id.clone()))
   }
 
+  /// send a message without immediately publishing to the delivery service.
   #[napi]
-  pub fn send_optimistic(
-    &self,
-    encoded_content: NapiEncodedContent,
-  ) -> Result<NapiUnpublishedMessage> {
+  pub fn send_optimistic(&self, encoded_content: NapiEncodedContent) -> Result<Vec<u8>> {
     let encoded_content: EncodedContent = encoded_content.into();
     let group = MlsGroup::new(
       self.inner_client.context().clone(),
@@ -185,14 +157,26 @@ impl NapiGroup {
       self.created_at_ns,
     );
 
-    let message = group
+    let id = group
       .send_message_optimistic(
         encoded_content.encode_to_vec().as_slice(),
         &self.inner_client,
       )
       .map_err(|e| Error::from_reason(format!("{}", e)))?;
 
-    Ok(message.into())
+    Ok(id)
+  }
+
+  /// Publish all unpublished messages
+  #[napi]
+  pub async fn publish_messages(&self) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+    group.publish_messages(&self.inner_client).await?;
+    Ok(())
   }
 
   #[napi]
