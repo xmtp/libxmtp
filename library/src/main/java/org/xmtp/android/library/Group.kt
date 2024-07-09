@@ -24,7 +24,6 @@ import uniffi.xmtpv3.FfiMetadataField
 import uniffi.xmtpv3.FfiPermissionUpdateType
 import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.PermissionOption
 import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.PermissionPolicySet
-import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.UnpublishedMessage
 import java.util.Date
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.DurationUnit
@@ -100,12 +99,16 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
         return encoded
     }
 
-    suspend fun <T> prepareMessage(content: T, options: SendOptions? = null): UnpublishedMessage {
+    suspend fun <T> prepareMessage(content: T, options: SendOptions? = null): String {
         if (client.contacts.consentList.groupState(groupId = id) == ConsentState.UNKNOWN) {
             client.contacts.allowGroups(groupIds = listOf(id))
         }
         val encodeContent = encodeContent(content = content, options = options)
-        return UnpublishedMessage(libXMTPGroup.sendOptimistic(encodeContent.toByteArray()))
+        return libXMTPGroup.sendOptimistic(encodeContent.toByteArray()).toHex()
+    }
+
+    suspend fun publishMessages() {
+        libXMTPGroup.publishMessages()
     }
 
     suspend fun sync() {

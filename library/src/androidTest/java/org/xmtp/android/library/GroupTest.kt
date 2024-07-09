@@ -871,14 +871,14 @@ class GroupTest {
         runBlocking { alixClient.conversations.syncGroups() }
         val alixGroup: Group = alixClient.findGroup(boGroup.id)!!
         assert(!alixClient.contacts.isGroupAllowed(boGroup.id))
-        val preparedMessage = runBlocking { alixGroup.prepareMessage("Test text") }
+        val preparedMessageId = runBlocking { alixGroup.prepareMessage("Test text") }
         assert(alixClient.contacts.isGroupAllowed(boGroup.id))
         assertEquals(alixGroup.messages().size, 1)
         assertEquals(alixGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 0)
         assertEquals(alixGroup.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED).size, 1)
 
         runBlocking {
-            preparedMessage.publish()
+            alixGroup.publishMessages()
             alixGroup.sync()
         }
 
@@ -888,6 +888,6 @@ class GroupTest {
 
         val message = alixGroup.messages().first()
 
-        assertEquals(preparedMessage.messageId, message.id)
+        assertEquals(preparedMessageId, message.id)
     }
 }
