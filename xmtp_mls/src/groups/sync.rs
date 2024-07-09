@@ -560,7 +560,6 @@ impl MlsGroup {
         let intent = provider
             .conn()
             .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
-        log::info!("INTENT IN `process_message` is {:?}", intent);
 
         match intent {
             // Intent with the payload hash matches
