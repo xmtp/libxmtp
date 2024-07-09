@@ -17,7 +17,7 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use crate::{
   encoded_content::NapiEncodedContent,
   messages::{NapiListMessagesOptions, NapiMessage},
-  mls_client::{RustXmtpClient, TonicApiClient},
+  mls_client::RustXmtpClient,
   streams::NapiStreamCloser,
 };
 
@@ -158,10 +158,7 @@ impl NapiGroup {
     );
 
     let id = group
-      .send_message_optimistic(
-        encoded_content.encode_to_vec().as_slice(),
-        &self.inner_client,
-      )
+      .send_message_optimistic(encoded_content.encode_to_vec().as_slice())
       .map_err(|e| Error::from_reason(format!("{}", e)))?;
 
     Ok(id)
@@ -175,7 +172,10 @@ impl NapiGroup {
       self.group_id.clone(),
       self.created_at_ns,
     );
-    group.publish_messages(&self.inner_client).await?;
+    group
+      .publish_messages(&self.inner_client)
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
     Ok(())
   }
 
