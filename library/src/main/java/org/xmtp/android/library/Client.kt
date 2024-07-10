@@ -2,14 +2,10 @@ package org.xmtp.android.library
 
 import android.content.Context
 import android.os.Build
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
 import android.util.Log
 import com.google.crypto.tink.subtle.Base64
 import com.google.gson.GsonBuilder
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import org.web3j.crypto.Keys
 import org.web3j.crypto.Keys.toChecksumAddress
 import org.xmtp.android.library.codecs.ContentCodec
@@ -52,14 +48,11 @@ import uniffi.xmtpv3.getInboxIdForAddress
 import uniffi.xmtpv3.getVersionInfo
 import java.io.File
 import java.nio.charset.StandardCharsets
-import java.security.KeyStore
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
-import javax.crypto.KeyGenerator
-import javax.crypto.SecretKey
 
 typealias PublishResponse = org.xmtp.proto.message.api.v1.MessageApiOuterClass.PublishResponse
 typealias QueryResponse = org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryResponse
@@ -337,37 +330,8 @@ class Client() {
                 directoryFile.mkdir()
                 dbPath = directoryFile.absolutePath + "/$alias.db3"
 
-                val encryptionKey = if (options.dbEncryptionKey == null) {
-                    val keyStore = KeyStore.getInstance("AndroidKeyStore")
-                    withContext(Dispatchers.IO) {
-                        keyStore.load(null)
-                    }
-
-                    val entry = keyStore.getEntry(alias, null)
-
-                    val retrievedKey: SecretKey = if (entry is KeyStore.SecretKeyEntry) {
-                        entry.secretKey
-                    } else {
-                        val keyGenerator =
-                            KeyGenerator.getInstance(
-                                KeyProperties.KEY_ALGORITHM_AES,
-                                "AndroidKeyStore"
-                            )
-                        val keyGenParameterSpec = KeyGenParameterSpec.Builder(
-                            alias,
-                            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-                        ).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                            .setKeySize(256)
-                            .build()
-
-                        keyGenerator.init(keyGenParameterSpec)
-                        keyGenerator.generateKey()
-                    }
-                    retrievedKey.encoded
-                } else {
-                    options.dbEncryptionKey
-                }
+                val encryptionKey = options.dbEncryptionKey
+                    ?: throw XMTPException("No encryption key passed for the database. Please store and provide a secure encryption key.")
 
                 createClient(
                     logger = logger,

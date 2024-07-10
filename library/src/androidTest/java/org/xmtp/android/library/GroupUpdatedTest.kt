@@ -14,6 +14,7 @@ import org.xmtp.android.library.codecs.GroupUpdatedCodec
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
+import java.security.SecureRandom
 
 @RunWith(AndroidJUnit4::class)
 class GroupUpdatedTest {
@@ -31,11 +32,13 @@ class GroupUpdatedTest {
 
     @Before
     fun setUp() {
+        val key = SecureRandom().generateSeed(32)
         fixtures = fixtures(
             clientOptions = ClientOptions(
                 ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                 enableV3 = true,
                 appContext = context,
+                dbEncryptionKey = key
             )
         )
         alixWallet = fixtures.aliceAccount

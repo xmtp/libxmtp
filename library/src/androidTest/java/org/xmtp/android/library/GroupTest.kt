@@ -27,6 +27,7 @@ import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.mls.message.contents.TranscriptMessages
 import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.GroupPermissionPreconfiguration
 import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.PermissionOption
+import java.security.SecureRandom
 
 @RunWith(AndroidJUnit4::class)
 class GroupTest {
@@ -43,13 +44,15 @@ class GroupTest {
 
     @Before
     fun setUp() {
+        val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         fixtures =
             fixtures(
                 clientOptions = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                     enableV3 = true,
-                    appContext = context
+                    appContext = context,
+                    dbEncryptionKey = key
                 )
             )
         alixWallet = fixtures.aliceAccount

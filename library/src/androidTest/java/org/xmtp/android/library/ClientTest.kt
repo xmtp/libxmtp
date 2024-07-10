@@ -13,6 +13,7 @@ import org.xmtp.android.library.messages.PrivateKeyBundleV1Builder
 import org.xmtp.android.library.messages.generate
 import org.xmtp.proto.message.contents.PrivateKeyOuterClass
 import uniffi.xmtpv3.GenericException
+import java.security.SecureRandom
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
@@ -83,12 +84,14 @@ class ClientTest {
 
     @Test
     fun testV3CanBeCreatedWithBundle() {
+        val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val fakeWallet = PrivateKeyBuilder()
         val options = ClientOptions(
             ClientOptions.Api(XMTPEnvironment.LOCAL, false),
             enableV3 = true,
-            appContext = context
+            appContext = context,
+            dbEncryptionKey = key
         )
         val client =
             Client().create(account = fakeWallet, options = options)
@@ -118,6 +121,7 @@ class ClientTest {
 
     @Test
     fun testCreatesAV3Client() {
+        val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val fakeWallet = PrivateKeyBuilder()
         val client =
@@ -126,7 +130,8 @@ class ClientTest {
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                     enableV3 = true,
-                    appContext = context
+                    appContext = context,
+                    dbEncryptionKey = key
                 )
             )
         runBlocking {
@@ -137,6 +142,7 @@ class ClientTest {
 
     @Test
     fun testCanDeleteDatabase() {
+        val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val fakeWallet = PrivateKeyBuilder()
         val fakeWallet2 = PrivateKeyBuilder()
@@ -146,7 +152,8 @@ class ClientTest {
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                     enableV3 = true,
-                    appContext = context
+                    appContext = context,
+                    dbEncryptionKey = key
                 )
             )
         val client2 =
@@ -155,7 +162,8 @@ class ClientTest {
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                     enableV3 = true,
-                    appContext = context
+                    appContext = context,
+                    dbEncryptionKey = key
                 )
             )
 
@@ -173,7 +181,8 @@ class ClientTest {
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                     enableV3 = true,
-                    appContext = context
+                    appContext = context,
+                    dbEncryptionKey = key
                 )
             )
 
@@ -185,6 +194,7 @@ class ClientTest {
 
     @Test
     fun testCreatesAV3DevClient() {
+        val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val fakeWallet = PrivateKeyBuilder()
         val client =
@@ -193,7 +203,8 @@ class ClientTest {
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.DEV, true),
                     enableV3 = true,
-                    appContext = context
+                    appContext = context,
+                    dbEncryptionKey = key
                 )
             )
         runBlocking {
@@ -203,6 +214,7 @@ class ClientTest {
 
     @Test
     fun testCreatesAV3ProductionClient() {
+        val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val fakeWallet = PrivateKeyBuilder()
         val client =
@@ -211,7 +223,8 @@ class ClientTest {
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.PRODUCTION, true),
                     enableV3 = true,
-                    appContext = context
+                    appContext = context,
+                    dbEncryptionKey = key
                 )
             )
         runBlocking {
@@ -301,6 +314,7 @@ class ClientTest {
 
     @Test
     fun testCanDropReconnectDatabase() {
+        val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val fakeWallet = PrivateKeyBuilder()
         val fakeWallet2 = PrivateKeyBuilder()
@@ -310,7 +324,8 @@ class ClientTest {
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                     enableV3 = true,
-                    appContext = context
+                    appContext = context,
+                    dbEncryptionKey = key
                 )
             )
         val alixClient =
@@ -319,7 +334,8 @@ class ClientTest {
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                     enableV3 = true,
-                    appContext = context
+                    appContext = context,
+                    dbEncryptionKey = key
                 )
             )
 
@@ -348,6 +364,7 @@ class ClientTest {
 
     @Test
     fun testCanGetAnInboxIdFromAddress() {
+        val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val alixWallet = PrivateKeyBuilder()
         val boWallet = PrivateKeyBuilder()
@@ -357,7 +374,8 @@ class ClientTest {
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                     enableV3 = true,
-                    appContext = context
+                    appContext = context,
+                    dbEncryptionKey = key
                 )
             )
         val boClient =
@@ -366,7 +384,8 @@ class ClientTest {
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                     enableV3 = true,
-                    appContext = context
+                    appContext = context,
+                    dbEncryptionKey = key
                 )
             )
         val boInboxId = runBlocking {
