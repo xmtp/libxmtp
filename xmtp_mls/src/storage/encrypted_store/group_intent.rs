@@ -7,14 +7,15 @@ use diesel::{
     sql_types::Integer,
     sqlite::Sqlite,
 };
+use prost::Message;
 
 use super::{
     db_connection::DbConnection,
     group,
     schema::{group_intents, group_intents::dsl},
 };
-use crate::{impl_fetch, impl_store, storage::StorageError, Delete};
-
+use crate::{impl_fetch, impl_store, storage::StorageError, Delete, groups::intents::SendMessageIntentData, utils::id::calculate_message_id};
+use xmtp_proto::xmtp::mls::message_contents::{plaintext_envelope::{Content, V1}, PlaintextEnvelope};
 pub type ID = i32;
 
 #[repr(i32)]
@@ -65,6 +66,32 @@ pub struct StoredGroupIntent {
     pub payload_hash: Option<Vec<u8>>,
     pub post_commit_data: Option<Vec<u8>>,
     pub publish_attempts: i32,
+}
+
+impl StoredGroupIntent {
+    /// Calculate the message id for this intent.
+    ///
+    ///
+    /// # Returns
+    /// Returns [`Option::None`] if [`StoredGroupIntent`] is not [`IntentKind::SendMessage`] or if
+    /// an error occurs during decoding of intent data.
+    pub fn message_id(&self) -> Option<Vec<u8>> {
+        if self.kind != IntentKind::SendMessage {
+            return None;
+        }
+        
+        let data = SendMessageIntentData::from_bytes(&self.data).ok()?;
+        let envelope: PlaintextEnvelope = PlaintextEnvelope::decode(data.message.as_slice()).ok()?;
+        // optimistic message should always have a plaintext envelope
+        let PlaintextEnvelope { 
+            content: Some(Content::V1(V1 { 
+                content: message,
+                idempotency_key: key
+            }))
+        } = envelope else { return None; };
+        
+        Some(calculate_message_id(&self.group_id, &message, &key))
+    }
 }
 
 impl_fetch!(StoredGroupIntent, group_intents, ID);

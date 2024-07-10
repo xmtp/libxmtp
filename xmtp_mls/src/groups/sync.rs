@@ -160,28 +160,36 @@ impl MlsGroup {
                 last_err = Some(err);
             }
 
-            // This will return early if the fetch fails
-            let intent: Result<Option<StoredGroupIntent>, StorageError> = conn.fetch(&intent_id);
-            match intent {
+            match Fetch::<StoredGroupIntent>::fetch(&conn, &intent_id) {
                 Ok(None) => {
                     // This is expected. The intent gets deleted on success
                     return Ok(());
                 }
-                Ok(Some(intent)) => {
-                    if intent.state == IntentState::Error {
-                        log::warn!(
-                            "not retrying intent ID {}. since it is in state Error",
-                            intent.id,
-                        );
-                        return Err(last_err.unwrap_or(GroupError::Generic(
-                            "Group intent could not be committed".to_string(),
-                        )));
+                // if the intent is failed, mark the optimistic message as failed
+                Ok(Some(
+                    intent @ StoredGroupIntent {
+                        state: IntentState::Error,
+                        kind: IntentKind::SendMessage,
+                        ..
+                    },
+                )) => {
+                    let message_id = intent.message_id();
+                    if let Some(id) = message_id {
+                        conn.set_delivery_status_to_failed(&id)?;
                     }
-                    log::warn!(
-                        "retrying intent ID {}. intent currently in state {:?}",
-                        intent.id,
-                        intent.state
-                    );
+                }
+                Ok(Some(StoredGroupIntent {
+                    id,
+                    state: IntentState::Error,
+                    ..
+                })) => {
+                    log::warn!("not retrying intent ID {id}. since it is in state Error",);
+                    return Err(last_err.unwrap_or(GroupError::Generic(
+                        "Group intent could not be committed".to_string(),
+                    )));
+                }
+                Ok(Some(StoredGroupIntent { id, state, .. })) => {
+                    log::warn!("retrying intent ID {id}. intent currently in state {state:?}");
                 }
                 Err(err) => {
                     log::error!("database error fetching intent {:?}", err);
