@@ -181,6 +181,13 @@ impl UpdateMetadataIntentData {
             field_value: group_description,
         }
     }
+
+    pub fn new_update_group_pinned_frame_url(pinned_frame_url: String) -> Self {
+        Self {
+            field_name: MetadataField::GroupPinnedFrameUrl.to_string(),
+            field_value: pinned_frame_url,
+        }
+    }
 }
 
 impl From<UpdateMetadataIntentData> for Vec<u8> {

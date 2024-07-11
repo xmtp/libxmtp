@@ -174,6 +174,10 @@ pub enum GroupError {
     NoPSKSupport,
     #[error("Metadata update must specify a metadata field")]
     InvalidPermissionUpdate,
+    #[error("The intent publishing task was cancelled")]
+    PublishCancelled,
+    #[error("the publish failed to complete due to panic")]
+    PublishPanicked,
 }
 
 impl RetryableError for GroupError {
@@ -209,6 +213,7 @@ pub struct GroupMetadataOptions {
     pub name: Option<String>,
     pub image_url_square: Option<String>,
     pub description: Option<String>,
+    pub pinned_frame_url: Option<String>,
 }
 
 impl Clone for MlsGroup {
@@ -419,6 +424,7 @@ impl MlsGroup {
         ))
     }
 
+    /// Send a message on this users XMTP [`Client`].
     pub async fn send_message<ApiClient>(
         &self,
         message: &[u8],
@@ -427,12 +433,47 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
-
         let update_interval = Some(5_000_000); // 5 seconds in nanoseconds
+        let conn = self.context.store.conn()?;
         self.maybe_update_installations(conn.clone(), update_interval, client)
             .await?;
 
+        let message_id = self.prepare_message(message, &conn);
+
+        // Skipping a full sync here and instead just firing and forgetting
+        if let Err(err) = self.publish_intents(conn, client).await {
+            log::error!("Send: error publishing intents: {:?}", err);
+        }
+
+        message_id
+    }
+
+    /// Publish all unpublished messages
+    pub async fn publish_messages<ApiClient>(
+        &self,
+        client: &Client<ApiClient>,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let conn = self.context.store.conn()?;
+        let update_interval = Some(5_000_000);
+        self.maybe_update_installations(conn.clone(), update_interval, client)
+            .await?;
+        self.publish_intents(conn, client).await?;
+        Ok(())
+    }
+
+    /// Send a message, optimistically returning the ID of the message before the result of a message publish.
+    pub fn send_message_optimistic(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
+        let conn = self.context.store.conn()?;
+        let message_id = self.prepare_message(message, &conn)?;
+
+        Ok(message_id)
+    }
+
+    /// Prepare a message (intent & id) on this users XMTP [`Client`].
+    fn prepare_message(&self, message: &[u8], conn: &DbConnection) -> Result<Vec<u8>, GroupError> {
         let now = now_ns();
         let plain_envelope = Self::into_envelope(message, &now.to_string());
         let mut encoded_envelope = vec![];
@@ -443,7 +484,7 @@ impl MlsGroup {
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         let intent =
             NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
-        intent.store(&conn)?;
+        intent.store(conn)?;
 
         // store this unpublished message locally before sending
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
@@ -457,12 +498,8 @@ impl MlsGroup {
             sender_inbox_id: self.context.inbox_id(),
             delivery_status: DeliveryStatus::Unpublished,
         };
-        group_message.store(&conn)?;
+        group_message.store(conn)?;
 
-        // Skipping a full sync here and instead just firing and forgetting
-        if let Err(err) = self.publish_intents(conn, client).await {
-            log::error!("Send: error publishing intents: {:?}", err);
-        }
         Ok(message_id)
     }
 
@@ -730,6 +767,40 @@ impl MlsGroup {
             .get(&MetadataField::GroupImageUrlSquare.to_string())
         {
             Some(group_image_url_square) => Ok(group_image_url_square.clone()),
+            None => Err(GroupError::GroupMutableMetadata(
+                GroupMutableMetadataError::MissingExtension,
+            )),
+        }
+    }
+
+    pub async fn update_group_pinned_frame_url<ApiClient>(
+        &self,
+        client: &Client<ApiClient>,
+        pinned_frame_url: String,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let conn = self.context.store.conn()?;
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_update_group_pinned_frame_url(pinned_frame_url).into();
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::MetadataUpdate,
+            self.group_id.clone(),
+            intent_data,
+        ))?;
+
+        self.sync_until_intent_resolved(conn, intent.id, client)
+            .await
+    }
+
+    pub fn group_pinned_frame_url(&self) -> Result<String, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        match mutable_metadata
+            .attributes
+            .get(&MetadataField::GroupPinnedFrameUrl.to_string())
+        {
+            Some(pinned_frame_url) => Ok(pinned_frame_url.clone()),
             None => Err(GroupError::GroupMutableMetadata(
                 GroupMutableMetadataError::MissingExtension,
             )),
@@ -1127,6 +1198,7 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 mod tests {
     use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
     use prost::Message;
+    use std::sync::Arc;
     use tracing_test::traced_test;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
@@ -1142,7 +1214,7 @@ mod tests {
             group_mutable_metadata::MetadataField,
             intents::{PermissionPolicyOption, PermissionUpdateType},
             members::{GroupMember, PermissionLevel},
-            GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
+            DeliveryStatus, GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
         },
         storage::{
             group_intent::IntentState,
@@ -1176,7 +1248,6 @@ mod tests {
     {
         group.sync(client).await.unwrap();
         let mut messages = group.find_messages(None, None, None, None, None).unwrap();
-
         messages.pop().unwrap()
     }
 
@@ -1785,6 +1856,7 @@ mod tests {
                     name: Some("Group Name".to_string()),
                     image_url_square: Some("url".to_string()),
                     description: Some("group description".to_string()),
+                    pinned_frame_url: Some("pinned frame".to_string()),
                 },
             )
             .unwrap();
@@ -1802,10 +1874,15 @@ mod tests {
             .attributes
             .get(&MetadataField::Description.to_string())
             .unwrap();
+        let amal_group_pinned_frame_url: &String = binding
+            .attributes
+            .get(&MetadataField::GroupPinnedFrameUrl.to_string())
+            .unwrap();
 
         assert_eq!(amal_group_name, "Group Name");
         assert_eq!(amal_group_image_url, "url");
         assert_eq!(amal_group_description, "group description");
+        assert_eq!(amal_group_pinned_frame_url, "pinned frame");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1848,7 +1925,7 @@ mod tests {
         amal_group.sync(&amal).await.unwrap();
 
         let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
-        assert!(group_mutable_metadata.attributes.len().eq(&3));
+        assert!(group_mutable_metadata.attributes.len().eq(&4));
         assert!(group_mutable_metadata
             .attributes
             .get(&MetadataField::GroupName.to_string())
@@ -1949,6 +2026,40 @@ mod tests {
             .get(&MetadataField::GroupImageUrlSquare.to_string())
             .unwrap();
         assert_eq!(amal_group_image_url, "a url");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_update_group_pinned_frame_url() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Create a group and verify it has the default group name
+        let policies = Some(PreconfiguredPolicies::AdminsOnly);
+        let amal_group: MlsGroup = amal
+            .create_group(policies, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group.sync(&amal).await.unwrap();
+
+        let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+        assert!(group_mutable_metadata
+            .attributes
+            .get(&MetadataField::GroupPinnedFrameUrl.to_string())
+            .unwrap()
+            .eq(""));
+
+        // Update group name
+        amal_group
+            .update_group_pinned_frame_url(&amal, "a frame url".to_string())
+            .await
+            .unwrap();
+
+        // Verify amal group sees update
+        amal_group.sync(&amal).await.unwrap();
+        let binding = amal_group.mutable_metadata().expect("msg");
+        let amal_group_pinned_frame_url: &String = binding
+            .attributes
+            .get(&MetadataField::GroupPinnedFrameUrl.to_string())
+            .unwrap();
+        assert_eq!(amal_group_pinned_frame_url, "a frame url");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -2489,5 +2600,94 @@ mod tests {
         bola_group.sync(&bola).await.unwrap();
         let members = bola_group.members().unwrap();
         assert_eq!(members.len(), 3);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_optimistic_send() {
+        let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let bola_wallet = generate_local_wallet();
+        let bola = Arc::new(ClientBuilder::new_test_client(&bola_wallet).await);
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group.sync(&amal).await.unwrap();
+        // Add bola to the group
+        amal_group
+            .add_members(&amal, vec![bola_wallet.get_address()])
+            .await
+            .unwrap();
+        let bola_group = receive_group_invite(&bola).await;
+
+        let ids = vec![
+            amal_group.send_message_optimistic(b"test one").unwrap(),
+            amal_group.send_message_optimistic(b"test two").unwrap(),
+            amal_group.send_message_optimistic(b"test three").unwrap(),
+            amal_group.send_message_optimistic(b"test four").unwrap(),
+        ];
+
+        let messages = amal_group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<StoredGroupMessage>>();
+
+        let text = messages
+            .iter()
+            .cloned()
+            .map(|m| String::from_utf8_lossy(&m.decrypted_message_bytes).to_string())
+            .collect::<Vec<String>>();
+        assert_eq!(
+            ids,
+            messages
+                .iter()
+                .cloned()
+                .map(|m| m.id)
+                .collect::<Vec<Vec<u8>>>()
+        );
+        assert_eq!(
+            text,
+            vec![
+                "test one".to_string(),
+                "test two".to_string(),
+                "test three".to_string(),
+                "test four".to_string(),
+            ]
+        );
+
+        let delivery = messages
+            .iter()
+            .cloned()
+            .map(|m| m.delivery_status)
+            .collect::<Vec<DeliveryStatus>>();
+        assert_eq!(
+            delivery,
+            vec![
+                DeliveryStatus::Unpublished,
+                DeliveryStatus::Unpublished,
+                DeliveryStatus::Unpublished,
+                DeliveryStatus::Unpublished,
+            ]
+        );
+
+        amal_group.publish_messages(&amal).await.unwrap();
+        bola_group.sync(&bola).await.unwrap();
+
+        let messages = bola_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        let delivery = messages
+            .iter()
+            .cloned()
+            .map(|m| m.delivery_status)
+            .collect::<Vec<DeliveryStatus>>();
+        assert_eq!(
+            delivery,
+            vec![
+                DeliveryStatus::Published,
+                DeliveryStatus::Published,
+                DeliveryStatus::Published,
+                DeliveryStatus::Published,
+            ]
+        );
     }
 }

@@ -734,13 +734,13 @@ impl MlsGroup {
     }
 
     #[tracing::instrument(level = "trace", skip(conn, self, client))]
-    pub(super) async fn publish_intents<ClientApi>(
+    pub(super) async fn publish_intents<ApiClient>(
         &self,
         conn: DbConnection,
-        client: &Client<ClientApi>,
+        client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
-        ClientApi: XmtpApi,
+        ApiClient: XmtpApi,
     {
         let provider = self.context.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;

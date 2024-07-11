@@ -446,6 +446,7 @@ pub struct FfiPermissionPolicySet {
     pub update_group_name_policy: FfiPermissionPolicy,
     pub update_group_description_policy: FfiPermissionPolicy,
     pub update_group_image_url_square_policy: FfiPermissionPolicy,
+    pub update_group_pinned_frame_url_policy: FfiPermissionPolicy,
 }
 
 impl From<PreconfiguredPolicies> for FfiGroupPermissionsOptions {
@@ -462,6 +463,7 @@ pub enum FfiMetadataField {
     GroupName,
     Description,
     ImageUrlSquare,
+    PinnedFrameUrl,
 }
 
 impl From<&FfiMetadataField> for MetadataField {
@@ -470,6 +472,7 @@ impl From<&FfiMetadataField> for MetadataField {
             FfiMetadataField::GroupName => MetadataField::GroupName,
             FfiMetadataField::Description => MetadataField::Description,
             FfiMetadataField::ImageUrlSquare => MetadataField::GroupImageUrlSquare,
+            FfiMetadataField::PinnedFrameUrl => MetadataField::GroupPinnedFrameUrl,
         }
     }
 }
@@ -624,6 +627,7 @@ pub struct FfiCreateGroupOptions {
     pub group_name: Option<String>,
     pub group_image_url_square: Option<String>,
     pub group_description: Option<String>,
+    pub group_pinned_frame_url: Option<String>,
 }
 
 impl FfiCreateGroupOptions {
@@ -632,6 +636,7 @@ impl FfiCreateGroupOptions {
             name: self.group_name,
             image_url_square: self.group_image_url_square,
             description: self.group_description,
+            pinned_frame_url: self.group_pinned_frame_url,
         }
     }
 }
@@ -649,6 +654,30 @@ impl FfiGroup {
             .send_message(content_bytes.as_slice(), &self.inner_client)
             .await?;
         Ok(message_id)
+    }
+
+    /// send a message without immediately publishing to the delivery service.
+    pub fn send_optimistic(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let id = group.send_message_optimistic(content_bytes.as_slice())?;
+
+        Ok(id)
+    }
+
+    /// Publish all unpublished messages
+    pub async fn publish_messages(&self) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+        group.publish_messages(&self.inner_client).await?;
+        Ok(())
     }
 
     pub async fn sync(&self) -> Result<(), GenericError> {
@@ -880,6 +909,35 @@ impl FfiGroup {
         let group_description = group.group_description()?;
 
         Ok(group_description)
+    }
+
+    pub async fn update_group_pinned_frame_url(
+        &self,
+        pinned_frame_url: String,
+    ) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        group
+            .update_group_pinned_frame_url(&self.inner_client, pinned_frame_url)
+            .await?;
+
+        Ok(())
+    }
+
+    pub fn group_pinned_frame_url(&self) -> Result<String, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let group_pinned_frame_url = group.group_pinned_frame_url()?;
+
+        Ok(group_pinned_frame_url)
     }
 
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
@@ -1260,6 +1318,9 @@ impl FfiGroupPermissions {
             update_group_image_url_square_policy: get_policy(
                 MetadataField::GroupImageUrlSquare.as_str(),
             ),
+            update_group_pinned_frame_url_policy: get_policy(
+                MetadataField::GroupPinnedFrameUrl.as_str(),
+            ),
         })
     }
 }
@@ -1602,6 +1663,7 @@ mod tests {
                     group_name: Some("Group Name".to_string()),
                     group_image_url_square: Some("url".to_string()),
                     group_description: Some("group description".to_string()),
+                    group_pinned_frame_url: Some("pinned frame".to_string()),
                 },
             )
             .await
@@ -1612,6 +1674,7 @@ mod tests {
         assert_eq!(group.group_name().unwrap(), "Group Name");
         assert_eq!(group.group_image_url_square().unwrap(), "url");
         assert_eq!(group.group_description().unwrap(), "group description");
+        assert_eq!(group.group_pinned_frame_url().unwrap(), "pinned frame");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -2135,6 +2198,7 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
+            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
 
@@ -2163,6 +2227,7 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Allow,
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
+            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Allow,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
     }
@@ -2195,6 +2260,7 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
+            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_group_permissions, expected_permission_policy_set);
 
@@ -2221,6 +2287,7 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
+            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_group_permissions, new_expected_permission_policy_set);
 

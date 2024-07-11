@@ -2,8 +2,11 @@ use std::{collections::HashMap, pin::Pin, sync::Arc};
 
 use futures::{FutureExt, Stream, StreamExt};
 use prost::Message;
-use tokio::{sync::mpsc, sync::oneshot, task::JoinHandle};
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio::{
+    sync::{mpsc, oneshot},
+    task::JoinHandle,
+};
+use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, UnboundedReceiverStream};
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
 use crate::{
@@ -22,6 +25,14 @@ use crate::{
 pub struct StreamHandle<T> {
     pub handle: JoinHandle<T>,
     start: Option<oneshot::Receiver<()>>,
+}
+
+/// Events local to this client
+/// are broadcast across all senders/receivers of streams
+#[derive(Clone, Debug)]
+pub(crate) enum LocalEvents {
+    // a new group was created
+    NewGroup(MlsGroup),
 }
 
 impl<T> StreamHandle<T> {
@@ -123,6 +134,19 @@ where
     pub async fn stream_conversations(
         &self,
     ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup> + Send + '_>>, ClientError> {
+        let event_queue =
+            tokio_stream::wrappers::BroadcastStream::new(self.local_events.subscribe());
+
+        let event_queue = event_queue.filter_map(|event| async move {
+            match event {
+                Ok(LocalEvents::NewGroup(g)) => Some(g),
+                Err(BroadcastStreamRecvError::Lagged(missed)) => {
+                    log::warn!("Missed {missed} messages due to local event queue lagging");
+                    None
+                }
+            }
+        });
+
         let installation_key = self.installation_public_key();
         let id_cursor = 0;
 
@@ -146,7 +170,7 @@ where
                 }
             });
 
-        Ok(Box::pin(stream))
+        Ok(Box::pin(futures::stream::select(stream, event_queue)))
     }
 
     #[tracing::instrument(skip(self, group_id_to_info))]
@@ -364,6 +388,7 @@ mod tests {
         atomic::{AtomicU64, Ordering},
         Arc, Mutex,
     };
+    use tokio::sync::Notify;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -606,5 +631,56 @@ mod tests {
             println!("Missed {} Messages", missed_messages);
             panic!("Test failed due to missed messages");
         }
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_self_group_creation() {
+        let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+
+        let groups = Arc::new(Mutex::new(Vec::new()));
+        let notify = Arc::new(Notify::new());
+        let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
+
+        let closer =
+            Client::<GrpcClient>::stream_conversations_with_callback(alix.clone(), move |g| {
+                let mut groups = groups_pointer.lock().unwrap();
+                groups.push(g);
+                notify_pointer.notify_one();
+            });
+
+        alix.create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            notify.notified().await
+        })
+        .await
+        .expect("Stream never received group");
+
+        {
+            let grps = groups.lock().unwrap();
+            assert_eq!(grps.len(), 1);
+        }
+
+        let group = bo
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        group
+            .add_members_by_inbox_id(&bo, vec![alix.inbox_id()])
+            .await
+            .unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            notify.notified().await
+        })
+        .await
+        .expect("Stream never received group");
+
+        {
+            let grps = groups.lock().unwrap();
+            assert_eq!(grps.len(), 2);
+        }
+
+        closer.handle.abort();
     }
 }

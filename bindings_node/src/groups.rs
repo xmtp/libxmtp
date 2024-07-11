@@ -147,6 +147,38 @@ impl NapiGroup {
     Ok(hex::encode(message_id.clone()))
   }
 
+  /// send a message without immediately publishing to the delivery service.
+  #[napi]
+  pub fn send_optimistic(&self, encoded_content: NapiEncodedContent) -> Result<Vec<u8>> {
+    let encoded_content: EncodedContent = encoded_content.into();
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    let id = group
+      .send_message_optimistic(encoded_content.encode_to_vec().as_slice())
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(id)
+  }
+
+  /// Publish all unpublished messages
+  #[napi]
+  pub async fn publish_messages(&self) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+    group
+      .publish_messages(&self.inner_client)
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    Ok(())
+  }
+
   #[napi]
   pub async fn sync(&self) -> Result<()> {
     let group = MlsGroup::new(
@@ -498,6 +530,68 @@ impl NapiGroup {
       .map_err(|e| Error::from_reason(format!("{}", e)))?;
 
     Ok(group_image_url_square)
+  }
+
+  #[napi]
+  pub async fn update_group_description(&self, group_description: String) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    group
+      .update_group_description(&self.inner_client, group_description)
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub fn group_description(&self) -> Result<String> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    let group_description = group
+      .group_description()
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(group_description)
+  }
+
+  #[napi]
+  pub async fn update_group_pinned_frame_url(&self, pinned_frame_url: String) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    group
+      .update_group_pinned_frame_url(&self.inner_client, pinned_frame_url)
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub fn group_pinned_frame_url(&self) -> Result<String> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    let group_pinned_frame_url = group
+      .group_pinned_frame_url()
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(group_pinned_frame_url)
   }
 
   #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage) => void")]

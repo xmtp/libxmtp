@@ -14,6 +14,7 @@ use openmls::{
 use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
+use tokio::sync::broadcast;
 
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{
@@ -46,6 +47,7 @@ use crate::{
         refresh_state::EntityKind,
         sql_key_store, EncryptedMessageStore, StorageError,
     },
+    subscriptions::LocalEvents,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, XmtpApi,
@@ -207,6 +209,7 @@ pub struct Client<ApiClient> {
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
     pub(crate) history_sync_url: Option<String>,
+    pub(crate) local_events: broadcast::Sender<LocalEvents>,
 }
 
 /// The local context a XMTP MLS needs to function:
@@ -261,10 +264,12 @@ where
         history_sync_url: Option<String>,
     ) -> Self {
         let context = XmtpMlsLocalContext { identity, store };
+        let (tx, _) = broadcast::channel(10);
         Self {
             api_client,
             context: Arc::new(context),
             history_sync_url,
+            local_events: tx,
         }
     }
 
@@ -338,6 +343,9 @@ where
             opts,
         )
         .map_err(Box::new)?;
+
+        // notify any streams of the new group
+        let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
 
         Ok(group)
     }

@@ -1,5 +1,13 @@
 # @xmtp/mls-client-bindings-node
 
+## 0.0.8
+
+- Added description option when creating groups
+- Added description getter and setter to group instances
+- Fixed DB locking issues
+- Fixed invalid policy error
+- Removed Admin status from group creators (Super Admin only)
+
 ## 0.0.7
 
 - Improved streaming welcomes
