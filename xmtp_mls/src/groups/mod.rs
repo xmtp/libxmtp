@@ -36,7 +36,7 @@ pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
 use self::{
     group_membership::GroupMembership,
-    group_metadata::extract_group_metadata,
+    group_metadata::{extract_group_metadata, DmMembers},
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
     group_permissions::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
@@ -178,6 +178,8 @@ pub enum GroupError {
     PublishCancelled,
     #[error("the publish failed to complete due to panic")]
     PublishPanicked,
+    #[error("dm requires target inbox_id")]
+    InvalidDmMissingInboxId,
 }
 
 impl RetryableError for GroupError {
@@ -275,6 +277,55 @@ impl MlsGroup {
             mutable_metadata,
             group_membership,
             mutable_permissions,
+        )?;
+
+        let mls_group = OpenMlsGroup::new(
+            &provider,
+            &context.identity.installation_keys,
+            &group_config,
+            CredentialWithKey {
+                credential: context.identity.credential(),
+                signature_key: context.identity.installation_keys.to_public_vec().into(),
+            },
+        )?;
+
+        let group_id = mls_group.group_id().to_vec();
+        let stored_group = StoredGroup::new(
+            group_id.clone(),
+            now_ns(),
+            membership_state,
+            context.inbox_id(),
+        );
+
+        stored_group.store(provider.conn_ref())?;
+        Ok(Self::new(
+            context.clone(),
+            group_id,
+            stored_group.created_at_ns,
+        ))
+    }
+
+    // Create a new DM and save it to the DB
+    pub fn create_dm_and_insert(
+        context: Arc<XmtpMlsLocalContext>,
+        membership_state: GroupMembershipState,
+        dm_target_inbox_id: InboxId,
+    ) -> Result<Self, GroupError> {
+        let conn = context.store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(conn);
+        let protected_metadata =
+            build_dm_protected_metadata_extension(&context.identity, dm_target_inbox_id.clone())?;
+        let mutable_metadata =
+            build_dm_mutable_metadata_extension_default(context.inbox_id(), dm_target_inbox_id)?;
+        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
+        let mutable_permissions = PolicySet::new_dm();
+        let mutable_permission_extension =
+            build_mutable_permissions_extension(mutable_permissions)?;
+        let group_config = build_group_config(
+            protected_metadata,
+            mutable_metadata,
+            group_membership,
+            mutable_permission_extension,
         )?;
 
         let mls_group = OpenMlsGroup::new(
@@ -934,7 +985,27 @@ fn build_protected_metadata_extension(
         Purpose::Conversation => ConversationType::Group,
         Purpose::Sync => ConversationType::Sync,
     };
-    let metadata = GroupMetadata::new(group_type, identity.inbox_id().clone());
+
+    let metadata = GroupMetadata::new(group_type, identity.inbox_id().clone(), None);
+    let protected_metadata = Metadata::new(metadata.try_into()?);
+
+    Ok(Extension::ImmutableMetadata(protected_metadata))
+}
+
+fn build_dm_protected_metadata_extension(
+    identity: &Identity,
+    dm_inbox_id: InboxId,
+) -> Result<Extension, GroupError> {
+    let dm_members = Some(DmMembers {
+        member_one_inbox_id: identity.inbox_id().clone(),
+        member_two_inbox_id: dm_inbox_id,
+    });
+
+    let metadata = GroupMetadata::new(
+        ConversationType::Dm,
+        identity.inbox_id().clone(),
+        dm_members,
+    );
     let protected_metadata = Metadata::new(metadata.try_into()?);
 
     Ok(Extension::ImmutableMetadata(protected_metadata))
@@ -956,6 +1027,20 @@ pub fn build_mutable_metadata_extension_default(
 ) -> Result<Extension, GroupError> {
     let mutable_metadata: Vec<u8> =
         GroupMutableMetadata::new_default(identity.inbox_id.clone(), opts).try_into()?;
+    let unknown_gc_extension = UnknownExtension(mutable_metadata);
+
+    Ok(Extension::Unknown(
+        MUTABLE_METADATA_EXTENSION_ID,
+        unknown_gc_extension,
+    ))
+}
+
+pub fn build_dm_mutable_metadata_extension_default(
+    creator_inbox_id: String,
+    dm_target_inbox_id: String,
+) -> Result<Extension, GroupError> {
+    let mutable_metadata: Vec<u8> =
+        GroupMutableMetadata::new_dm_default(creator_inbox_id, dm_target_inbox_id).try_into()?;
     let unknown_gc_extension = UnknownExtension(mutable_metadata);
 
     Ok(Extension::Unknown(
@@ -1204,7 +1289,7 @@ mod tests {
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     use crate::{
-        assert_logged,
+        assert_err, assert_logged,
         builder::ClientBuilder,
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
@@ -2689,5 +2774,71 @@ mod tests {
                 DeliveryStatus::Published,
             ]
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_dm_creation() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Amal creates a dm group targetting bola
+        let amal_dm: MlsGroup = amal.create_dm(bola.inbox_id()).unwrap();
+
+        // Amal can not add caro to the dm group
+        let result = amal_dm
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id(), caro.inbox_id()])
+            .await;
+        assert!(result.is_err());
+        let result = amal_dm
+            .add_members_by_inbox_id(&amal, vec![caro.inbox_id()])
+            .await;
+        assert!(result.is_err());
+        amal_dm.sync(&amal).await.unwrap();
+        let members = amal_dm.members().unwrap();
+        assert_eq!(members.len(), 1);
+
+        // Amal can add bola
+        amal_dm
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .await
+            .unwrap();
+        amal_dm.sync(&amal).await.unwrap();
+        let members = amal_dm.members().unwrap();
+        assert_eq!(members.len(), 2);
+
+        // Bola can message amal
+        let _ = bola.sync_welcomes().await;
+        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_dm: &MlsGroup = bola_groups.first().unwrap();
+        bola_dm.send_message(b"test one", &bola).await.unwrap();
+
+        // Amal sync and reads message
+        amal_dm.sync(&amal).await.unwrap();
+        let messages = amal_dm.find_messages(None, None, None, None, None).unwrap();
+        assert_eq!(messages.len(), 2);
+        let message = messages.last().unwrap();
+        assert_eq!(message.decrypted_message_bytes, b"test one");
+
+        // Amal can not remove bola
+        let result = amal_dm
+            .remove_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .await;
+        assert!(result.is_err());
+        amal_dm.sync(&amal).await.unwrap();
+        let members = amal_dm.members().unwrap();
+        assert_eq!(members.len(), 2);
+
+        // Neither Amal nor Bola is an admin or super admin
+        amal_dm.sync(&amal).await.unwrap();
+        bola_dm.sync(&bola).await.unwrap();
+        let is_amal_admin = amal_dm.is_admin(amal.inbox_id()).unwrap();
+        let is_bola_admin = amal_dm.is_admin(bola.inbox_id()).unwrap();
+        let is_amal_super_admin = amal_dm.is_super_admin(amal.inbox_id()).unwrap();
+        let is_bola_super_admin = amal_dm.is_super_admin(bola.inbox_id()).unwrap();
+        assert!(!is_amal_admin);
+        assert!(!is_bola_admin);
+        assert!(!is_amal_super_admin);
+        assert!(!is_bola_super_admin);
     }
 }

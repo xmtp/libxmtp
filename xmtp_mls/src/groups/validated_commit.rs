@@ -32,7 +32,7 @@ use crate::{
 
 use super::{
     group_membership::{GroupMembership, MembershipDiff},
-    group_metadata::{GroupMetadata, GroupMetadataError},
+    group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{
         find_mutable_metadata_extension, GroupMutableMetadata, GroupMutableMetadataError,
     },
@@ -210,6 +210,7 @@ pub struct ValidatedCommit {
     pub removed_inboxes: Vec<Inbox>,
     pub metadata_changes: MutableMetadataChanges,
     pub permissions_changed: bool,
+    pub dm_members: Option<DmMembers>,
 }
 
 impl ValidatedCommit {
@@ -326,6 +327,7 @@ impl ValidatedCommit {
             removed_inboxes,
             metadata_changes,
             permissions_changed,
+            dm_members: immutable_metadata.dm_members,
         };
 
         let policy_set = extract_group_permissions(openmls_group)?;

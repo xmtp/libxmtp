@@ -350,6 +350,23 @@ where
         Ok(group)
     }
 
+    /// Create a new Direct Message with the default settings
+    pub fn create_dm(&self, dm_target_inbox_id: InboxId) -> Result<MlsGroup, ClientError> {
+        log::info!("creating dm with {}", dm_target_inbox_id);
+
+        let group = MlsGroup::create_dm_and_insert(
+            self.context.clone(),
+            GroupMembershipState::Allowed,
+            dm_target_inbox_id,
+        )
+        .map_err(Box::new)?;
+
+        // notify any streams of the new group
+        let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
+
+        Ok(group)
+    }
+
     pub(crate) fn create_sync_group(&self) -> Result<MlsGroup, ClientError> {
         log::info!("creating sync group");
         let sync_group =
