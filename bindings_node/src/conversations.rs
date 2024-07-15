@@ -6,14 +6,11 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::JsFunction;
 use napi_derive::napi;
-use xmtp_mls::groups::GroupMetadataOptions;
+use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
 
 use crate::messages::NapiMessage;
-use crate::{
-  groups::{GroupPermissions, NapiGroup},
-  mls_client::RustXmtpClient,
-  streams::NapiStreamCloser,
-};
+use crate::permissions::NapiGroupPermissionsOptions;
+use crate::{groups::NapiGroup, mls_client::RustXmtpClient, streams::NapiStreamCloser};
 
 #[napi(object)]
 pub struct NapiListConversationsOptions {
@@ -24,7 +21,7 @@ pub struct NapiListConversationsOptions {
 
 #[napi(object)]
 pub struct NapiCreateGroupOptions {
-  pub permissions: Option<GroupPermissions>,
+  pub permissions: Option<NapiGroupPermissionsOptions>,
   pub group_name: Option<String>,
   pub group_image_url_square: Option<String>,
   pub group_description: Option<String>,
@@ -70,9 +67,11 @@ impl NapiConversations {
       },
     };
 
-    let group_permissions = options
-      .permissions
-      .map(|group_permissions| group_permissions.into());
+    let group_permissions = match options.permissions {
+      Some(NapiGroupPermissionsOptions::AllMembers) => Some(PreconfiguredPolicies::AllMembers),
+      Some(NapiGroupPermissionsOptions::AdminOnly) => Some(PreconfiguredPolicies::AdminsOnly),
+      _ => None,
+    };
 
     let convo = self
       .inner_client
