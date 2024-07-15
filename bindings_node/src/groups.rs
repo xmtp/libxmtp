@@ -8,9 +8,8 @@ use napi::{
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_mls::groups::{
   group_metadata::{ConversationType, GroupMetadata},
-  group_permissions::GroupMutablePermissions,
   members::PermissionLevel,
-  MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
+  MlsGroup, UpdateAdminListType,
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
@@ -18,36 +17,13 @@ use crate::{
   encoded_content::NapiEncodedContent,
   messages::{NapiListMessagesOptions, NapiMessage},
   mls_client::RustXmtpClient,
+  permissions::NapiGroupPermissions,
   streams::NapiStreamCloser,
 };
 
 use prost::Message;
 
 use napi_derive::napi;
-
-#[napi]
-pub enum GroupPermissions {
-  EveryoneIsAdmin,
-  GroupCreatorIsAdmin,
-}
-
-impl From<PreconfiguredPolicies> for GroupPermissions {
-  fn from(policy: PreconfiguredPolicies) -> Self {
-    match policy {
-      PreconfiguredPolicies::AllMembers => GroupPermissions::EveryoneIsAdmin,
-      PreconfiguredPolicies::AdminsOnly => GroupPermissions::GroupCreatorIsAdmin,
-    }
-  }
-}
-
-impl From<GroupPermissions> for PreconfiguredPolicies {
-  fn from(permissions: GroupPermissions) -> Self {
-    match permissions {
-      GroupPermissions::EveryoneIsAdmin => PreconfiguredPolicies::AllMembers,
-      GroupPermissions::GroupCreatorIsAdmin => PreconfiguredPolicies::AdminsOnly,
-    }
-  }
-}
 
 #[napi]
 pub struct NapiGroupMetadata {
@@ -84,25 +60,6 @@ pub struct NapiGroupMember {
   pub account_addresses: Vec<String>,
   pub installation_ids: Vec<String>,
   pub permission_level: NapiPermissionLevel,
-}
-
-#[napi]
-pub struct NapiGroupPermissions {
-  inner: GroupMutablePermissions,
-}
-
-#[napi]
-impl NapiGroupPermissions {
-  #[napi]
-  pub fn policy_type(&self) -> Result<GroupPermissions> {
-    Ok(
-      self
-        .inner
-        .preconfigured_policy()
-        .map_err(|e| Error::from_reason(format!("{}", e)))?
-        .into(),
-    )
-  }
 }
 
 #[derive(Debug)]
@@ -419,7 +376,7 @@ impl NapiGroup {
       .permissions()
       .map_err(|e| Error::from_reason(format!("{}", e)))?;
 
-    Ok(NapiGroupPermissions { inner: permissions })
+    Ok(NapiGroupPermissions::new(permissions))
   }
 
   #[napi]
