@@ -1,5 +1,11 @@
 # @xmtp/mls-client-bindings-node
 
+## 0.0.9
+
+- Added optimistic sending
+- Added `policySet` to group permissions
+- Added pinned frame url to group metadata
+
 ## 0.0.8
 
 - Added description option when creating groups
