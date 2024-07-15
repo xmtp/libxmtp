@@ -114,7 +114,7 @@ impl ClientBuilder<GrpcClient> {
 }
 
 /// wrapper over a `Notify` with a 60-scond timeout for waiting
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Delivery {
     notify: Arc<Notify>,
 }
