@@ -379,6 +379,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::utils::test::Delivery;
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions,
         storage::group_message::StoredGroupMessage, Client,
@@ -388,7 +389,6 @@ mod tests {
         atomic::{AtomicU64, Ordering},
         Arc, Mutex,
     };
-    use tokio::sync::Notify;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -437,7 +437,7 @@ mod tests {
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let messages_clone = messages.clone();
 
-        let notify = Arc::new(tokio::sync::Notify::new());
+        let notify = Delivery::new();
         let notify_pointer = notify.clone();
         let mut handle = Client::<GrpcClient>::stream_all_messages_with_callback(
             Arc::new(caro),
@@ -452,22 +452,22 @@ mod tests {
             .send_message("first".as_bytes(), &alix)
             .await
             .unwrap();
-        notify.notified().await;
+        notify.wait_for_delivery().await.unwrap();
         bo_group
             .send_message("second".as_bytes(), &bo)
             .await
             .unwrap();
-        notify.notified().await;
+        notify.wait_for_delivery().await.unwrap();
         alix_group
             .send_message("third".as_bytes(), &alix)
             .await
             .unwrap();
-        notify.notified().await;
+        notify.wait_for_delivery().await.unwrap();
         bo_group
             .send_message("fourth".as_bytes(), &bo)
             .await
             .unwrap();
-        notify.notified().await;
+        notify.wait_for_delivery().await.unwrap();
 
         let messages = messages.lock().unwrap();
         assert_eq!(messages[0].decrypted_message_bytes, b"first");
@@ -492,11 +492,11 @@ mod tests {
 
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let messages_clone = messages.clone();
-        let notify = Arc::new(tokio::sync::Notify::new());
-        let notify_pointer = notify.clone();
+        let delivery = Delivery::new();
+        let delivery_pointer = delivery.clone();
         let mut handle =
             Client::<GrpcClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
-                notify_pointer.notify_one();
+                delivery_pointer.notify_one();
                 (*messages_clone.lock().unwrap()).push(message);
             });
         handle.wait_for_ready().await;
@@ -505,7 +505,7 @@ mod tests {
             .send_message("first".as_bytes(), &alix)
             .await
             .unwrap();
-        notify.notified().await;
+        delivery.wait_for_delivery().await.unwrap();
 
         let bo_group = bo
             .create_group(None, GroupMetadataOptions::default())
@@ -519,13 +519,13 @@ mod tests {
             .send_message("second".as_bytes(), &bo)
             .await
             .unwrap();
-        notify.notified().await;
+        delivery.wait_for_delivery().await.unwrap();
 
         alix_group
             .send_message("third".as_bytes(), &alix)
             .await
             .unwrap();
-        notify.notified().await;
+        delivery.wait_for_delivery().await.unwrap();
 
         let alix_group_2 = alix
             .create_group(None, GroupMetadataOptions::default())
@@ -539,13 +539,13 @@ mod tests {
             .send_message("fourth".as_bytes(), &alix)
             .await
             .unwrap();
-        notify.notified().await;
+        delivery.wait_for_delivery().await.unwrap();
 
         alix_group_2
             .send_message("fifth".as_bytes(), &alix)
             .await
             .unwrap();
-        notify.notified().await;
+        delivery.wait_for_delivery().await.unwrap();
 
         {
             let messages = messages.lock().unwrap();
@@ -638,7 +638,7 @@ mod tests {
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
 
         let groups = Arc::new(Mutex::new(Vec::new()));
-        let notify = Arc::new(Notify::new());
+        let notify = Delivery::new();
         let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
 
         let closer =
@@ -651,11 +651,10 @@ mod tests {
         alix.create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
-        tokio::time::timeout(std::time::Duration::from_secs(60), async {
-            notify.notified().await
-        })
-        .await
-        .expect("Stream never received group");
+        notify
+            .wait_for_delivery()
+            .await
+            .expect("Stream never received group");
 
         {
             let grps = groups.lock().unwrap();
@@ -670,11 +669,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::timeout(std::time::Duration::from_secs(60), async {
-            notify.notified().await
-        })
-        .await
-        .expect("Stream never received group");
+        notify.wait_for_delivery().await.unwrap();
 
         {
             let grps = groups.lock().unwrap();

@@ -4,6 +4,8 @@ use rand::{
     distributions::{Alphanumeric, DistString},
     Rng,
 };
+use std::sync::Arc;
+use tokio::{sync::Notify, time::error::Elapsed};
 use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
 use xmtp_id::associations::{generate_inbox_id, RecoverableEcdsaSignature};
 
@@ -108,6 +110,31 @@ impl ClientBuilder<GrpcClient> {
         register_client(&client, owner).await;
 
         client
+    }
+}
+
+/// wrapper over a `Notify` with a 60-scond timeout for waiting
+#[derive(Clone)]
+pub struct Delivery {
+    notify: Arc<Notify>,
+}
+
+impl Delivery {
+    pub fn new() -> Self {
+        Self {
+            notify: Arc::new(Notify::new()),
+        }
+    }
+
+    pub async fn wait_for_delivery(&self) -> Result<(), Elapsed> {
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            self.notify.notified().await
+        })
+        .await
+    }
+
+    pub fn notify_one(&self) {
+        self.notify.notify_one()
     }
 }
 
