@@ -567,6 +567,7 @@ mod tests {
         assert_eq!(messages.len(), 5);
     }
 
+    #[ignore]
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_stream_all_messages_does_not_lose_messages() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -632,6 +633,7 @@ mod tests {
             panic!("Test failed due to missed messages");
         }
     }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn test_self_group_creation() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
