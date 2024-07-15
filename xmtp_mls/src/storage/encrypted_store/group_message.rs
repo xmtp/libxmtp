@@ -196,7 +196,7 @@ impl DbConnection {
         Ok(self.raw_query(|conn| {
             diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
-                .set((dsl::delivery_status.eq(DeliveryStatus::Published),))
+                .set((dsl::delivery_status.eq(DeliveryStatus::Failed),))
                 .execute(conn)
         })?)
     }
