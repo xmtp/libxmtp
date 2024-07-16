@@ -360,13 +360,21 @@ impl FfiXmtpClient {
     }
 
     /// Revokes or removes an identity - really a wallet address - from the existing client
-    pub async fn revoke_wallet(&self, wallet_address: &str) -> Result<(), GenericError> {
+    pub async fn revoke_wallet(
+        &self,
+        wallet_address: &str,
+    ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let inbox_id = self.inner_client.inbox_id();
-        self.inner_client
-            .revoke_wallet(inbox_id, wallet_address.to_string())
+        let signature_request = self
+            .inner_client
+            .revoke_wallet(inbox_id, wallet_address.into())
             .await?;
 
-        Ok(())
+        let request = Arc::new(FfiSignatureRequest {
+            inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+        });
+
+        Ok(request)
     }
 }
 
@@ -1706,6 +1714,94 @@ mod tests {
             .expect("could not get state");
 
         assert_eq!(updated_state.members().len(), 3);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_can_revoke_wallet() {
+        // Setup the initial first client
+        let ffi_inbox_owner = LocalWalletInboxOwner::new();
+        let nonce = 1;
+        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
+
+        let path = tmp_path();
+        let key = static_enc_key().to_vec();
+        let client = create_client(
+            Box::new(MockLogger {}),
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(path.clone()),
+            Some(key),
+            &inbox_id,
+            ffi_inbox_owner.get_address(),
+            nonce,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        register_client(&ffi_inbox_owner, &client).await;
+
+        let signature_request = client.signature_request().unwrap().clone();
+
+        sign_with_wallet(&ffi_inbox_owner.wallet, &signature_request).await;
+
+        let conn = client.inner_client.store().conn().unwrap();
+        let state = client
+            .inner_client
+            .get_latest_association_state(&conn, &inbox_id)
+            .await
+            .expect("could not get state");
+
+        assert_eq!(state.members().len(), 2);
+
+        // Now, add the second wallet to the client
+
+        let wallet_to_add = generate_local_wallet();
+        let new_account_address = wallet_to_add.get_address();
+        println!("second address: {}", new_account_address);
+
+        let signature_request = client
+            .add_wallet(&ffi_inbox_owner.get_address(), &new_account_address)
+            .await
+            .expect("could not add wallet");
+
+        sign_with_wallet(&ffi_inbox_owner.wallet, &signature_request).await;
+        sign_with_wallet(&wallet_to_add, &signature_request).await;
+
+        client
+            .apply_signature_request(signature_request.clone())
+            .await
+            .unwrap();
+
+        let updated_state = client
+            .inner_client
+            .get_latest_association_state(&conn, &inbox_id)
+            .await
+            .expect("could not get state");
+
+        assert_eq!(updated_state.members().len(), 3);
+
+        // Now, revoke the second wallet
+        let signature_request = client
+            .revoke_wallet(&new_account_address)
+            .await
+            .expect("could not revoke wallet");
+
+        sign_with_wallet(&ffi_inbox_owner.wallet, &signature_request).await;
+
+        client
+            .apply_signature_request(signature_request)
+            .await
+            .unwrap();
+
+        let revoked_state = client
+            .inner_client
+            .get_latest_association_state(&conn, &inbox_id)
+            .await
+            .expect("could not get state");
+
+        assert_eq!(revoked_state.members().len(), 2);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
