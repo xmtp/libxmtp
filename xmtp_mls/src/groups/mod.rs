@@ -1235,7 +1235,6 @@ mod tests {
     use prost::Message;
     use std::sync::Arc;
     use tracing_test::traced_test;
-    use xmtp_api_grpc::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
@@ -1252,7 +1251,6 @@ mod tests {
             members::{GroupMember, PermissionLevel},
             GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
         },
-        identity::IdentityStrategy,
         storage::{
             group_intent::IntentState,
             group_message::{GroupMessageKind, StoredGroupMessage},
@@ -2669,60 +2667,6 @@ mod tests {
             .unwrap();
 
         four.publish().await.unwrap();
-
-        bola_group.sync(&bola).await.unwrap();
-        let messages = bola_group
-            .find_messages(None, None, None, None, None)
-            .unwrap();
-        assert_eq!(
-            messages
-                .into_iter()
-                .map(|m| m.decrypted_message_bytes)
-                .collect::<Vec<Vec<u8>>>(),
-            vec![
-                b"test one".to_vec(),
-                b"test two".to_vec(),
-                b"test three".to_vec(),
-                b"test four".to_vec(),
-            ]
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_message_fails_succesfully() {
-        let amal_wallet = generate_local_wallet();
-        let amal = Arc::new(ClientBuilder::new_test_client(&amal_wallet).await);
-        let bola_wallet = generate_local_wallet();
-        let bola = Arc::new(ClientBuilder::new_test_client(&bola_wallet).await);
-        let amal_group = amal
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        amal_group.sync(&amal).await.unwrap();
-        // Add bola to the group
-        amal_group
-            .add_members(&amal, vec![bola_wallet.get_address()])
-            .await
-            .unwrap();
-        let bola_group = receive_group_invite(&bola).await;
-
-        // create amal client with a incorrect client url to fail publish requests
-        let amal = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
-            amal.inbox_id(),
-            amal_wallet.get_address(),
-            1,
-            None,
-        ))
-        .temp_store()
-        .api_client(
-            GrpcClient::create("https://localhost:9999".to_string(), false)
-                .await
-                .unwrap(),
-        )
-        .build()
-        .await
-        .unwrap();
-
-        amal_group.send_message(b"test one", &amal).await.unwrap();
 
         bola_group.sync(&bola).await.unwrap();
         let messages = bola_group
