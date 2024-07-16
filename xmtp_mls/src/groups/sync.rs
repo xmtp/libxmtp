@@ -35,7 +35,6 @@ use crate::{
         group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent, ID},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         refresh_state::EntityKind,
-        StorageError,
     },
     utils::{hash::sha256, id::calculate_message_id},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -160,28 +159,23 @@ impl MlsGroup {
                 last_err = Some(err);
             }
 
-            // This will return early if the fetch fails
-            let intent: Result<Option<StoredGroupIntent>, StorageError> = conn.fetch(&intent_id);
-            match intent {
+            match Fetch::<StoredGroupIntent>::fetch(&conn, &intent_id) {
                 Ok(None) => {
                     // This is expected. The intent gets deleted on success
                     return Ok(());
                 }
-                Ok(Some(intent)) => {
-                    if intent.state == IntentState::Error {
-                        log::warn!(
-                            "not retrying intent ID {}. since it is in state Error",
-                            intent.id,
-                        );
-                        return Err(last_err.unwrap_or(GroupError::Generic(
-                            "Group intent could not be committed".to_string(),
-                        )));
-                    }
-                    log::warn!(
-                        "retrying intent ID {}. intent currently in state {:?}",
-                        intent.id,
-                        intent.state
-                    );
+                Ok(Some(StoredGroupIntent {
+                    id,
+                    state: IntentState::Error,
+                    ..
+                })) => {
+                    log::warn!("not retrying intent ID {id}. since it is in state Error",);
+                    return Err(last_err.unwrap_or(GroupError::Generic(
+                        "Group intent could not be committed".to_string(),
+                    )));
+                }
+                Ok(Some(StoredGroupIntent { id, state, .. })) => {
+                    log::warn!("retrying intent ID {id}. intent currently in state {state:?}");
                 }
                 Err(err) => {
                     log::error!("database error fetching intent {:?}", err);
@@ -287,36 +281,9 @@ impl MlsGroup {
                 }
             }
             IntentKind::SendMessage => {
-                let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
-                let group_id = openmls_group.group_id().as_slice();
-                let decrypted_message_data = intent_data.message.as_slice();
-
-                let envelope = PlaintextEnvelope::decode(decrypted_message_data)
-                    .map_err(MessageProcessingError::DecodeError)?;
-
-                match envelope.content {
-                    Some(Content::V1(V1 {
-                        idempotency_key,
-                        content,
-                    })) => {
-                        let message_id = calculate_message_id(group_id, &content, &idempotency_key);
-
-                        conn.set_delivery_status_to_published(&message_id, envelope_timestamp_ns)?;
-                    }
-                    Some(Content::V2(V2 {
-                        idempotency_key: _,
-                        message_type,
-                    })) => {
-                        debug!(
-                            "Send Message History Request with message_type {:#?}",
-                            message_type
-                        );
-
-                        // return Empty Ok because it is okay to not process this self message
-                        return Ok(());
-                    }
-                    None => return Err(MessageProcessingError::InvalidPayload),
-                };
+                if let Some(id) = intent.message_id()? {
+                    conn.set_delivery_status_to_published(&id, envelope_timestamp_ns)?;
+                }
             }
         };
 
@@ -765,7 +732,9 @@ impl MlsGroup {
                 if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
                     log::error!("intent {} has reached max publish attempts", intent.id);
                     // TODO: Eventually clean up errored attempts
-                    provider.conn().set_group_intent_error(intent.id)?;
+                    provider
+                        .conn()
+                        .set_group_intent_error_and_fail_msg(&intent)?;
                 } else {
                     provider
                         .conn()
