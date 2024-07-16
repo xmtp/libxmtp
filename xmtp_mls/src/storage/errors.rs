@@ -3,7 +3,7 @@ use std::sync::PoisonError;
 use diesel::result::DatabaseErrorKind;
 use thiserror::Error;
 
-use crate::{retry::RetryableError, retryable};
+use crate::{groups::intents::IntentError, retry::RetryableError, retryable};
 
 use super::sql_key_store;
 
@@ -33,6 +33,8 @@ pub enum StorageError {
     PoolNeedsConnection,
     #[error("Conflict")]
     Conflict(String),
+    #[error(transparent)]
+    Intent(#[from] IntentError),
 }
 
 impl<T> From<PoisonError<T>> for StorageError {
