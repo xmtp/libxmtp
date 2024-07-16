@@ -300,6 +300,7 @@ version = "0.0.1"
 dependencies = [
  "futures",
  "hex",
+ "log",
  "napi",
  "napi-build",
  "napi-derive",

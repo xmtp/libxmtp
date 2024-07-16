@@ -23,6 +23,7 @@ xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
 xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 xmtp_v2 = { path = "../xmtp_v2" }
 
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # NOTE: A regression in openssl-sys exists where libatomic is dynamically linked 
 # for i686-linux-android targets. https://github.com/sfackler/rust-openssl/issues/2163
 #
@@ -46,6 +47,7 @@ tempfile = "3.5.0"
 tokio = { version = "1.28.1", features = ["full"] }
 tokio-test = "0.4"
 uniffi = { version = "0.27.2", features = ["bindgen-tests"] }
+tracing-subscriber = "0.3"
 uuid = { version = "1.9", features = ["v4", "fast-rng" ] }
 
 # NOTE: The release profile reduces bundle size from 230M to 41M - may have performance impliciations

@@ -762,6 +762,11 @@ impl MlsGroup {
                 sha256(payload_slice),
                 post_commit_data,
             )?;
+            log::debug!(
+                "client [{}] set stored intent [{}] to state `published`",
+                client.inbox_id(),
+                intent.id
+            );
         }
 
         Ok(())
