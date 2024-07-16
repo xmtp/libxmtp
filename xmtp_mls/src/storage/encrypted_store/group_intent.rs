@@ -80,6 +80,10 @@ pub struct StoredGroupIntent {
 impl StoredGroupIntent {
     /// Calculate the message id for this intent.
     ///
+    /// # Note
+    /// This functions deserializes and decodes a [`PlaintextEnvelope`] from encoded bytes.
+    /// It would be costly to call this method while pulling extra data from a
+    /// [`PlaintextEnvelope`] elsewhere. The caller should consider combining implementations.
     ///
     /// # Returns
     /// Returns [`Option::None`] if [`StoredGroupIntent`] is not [`IntentKind::SendMessage`] or if
