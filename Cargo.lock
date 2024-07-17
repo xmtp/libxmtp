@@ -1075,6 +1075,11 @@ dependencies = [
 [[package]]
 name = "diesel-wasm-sqlite"
 version = "0.1.0"
+dependencies = [
+ "diesel",
+ "log",
+ "wasm-bindgen",
+]
 
 [[package]]
 name = "diesel_derives"
@@ -6608,7 +6613,6 @@ dependencies = [
  "tracing-log",
  "tracing-subscriber",
  "tracing-test",
- "wasm-bindgen",
  "xmtp_api_grpc",
  "xmtp_cryptography",
  "xmtp_id",

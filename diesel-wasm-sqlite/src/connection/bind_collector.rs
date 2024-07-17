@@ -1,4 +1,4 @@
-use crate::storage::wasm_sqlite::{SqliteType, WasmSqlite};
+use crate::{SqliteType, WasmSqlite};
 use diesel::query_builder::{BindCollector, MoveableBindCollector};
 use diesel::result::QueryResult;
 use diesel::serialize::{IsNull, Output};
@@ -6,11 +6,11 @@ use diesel::sql_types::HasSqlType;
 
 #[derive(Debug, Default)]
 pub struct SqliteBindCollector<'a> {
-    pub(in crate::storage::wasm_sqlite) binds: Vec<(InternalSqliteBindValue<'a>, SqliteType)>,
+    pub(crate) binds: Vec<(InternalSqliteBindValue<'a>, SqliteType)>,
 }
 
 impl SqliteBindCollector<'_> {
-    pub(in crate::storage::wasm_sqlite) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self { binds: Vec::new() }
     }
 }
@@ -21,7 +21,7 @@ impl SqliteBindCollector<'_> {
 /// It can be constructed via the various `From<T>` implementations
 #[derive(Debug)]
 pub struct SqliteBindValue<'a> {
-    pub(in crate::storage::wasm_sqlite) inner: InternalSqliteBindValue<'a>,
+    pub(crate) inner: InternalSqliteBindValue<'a>,
 }
 
 impl<'a> From<i32> for SqliteBindValue<'a> {
@@ -125,8 +125,8 @@ impl std::fmt::Display for InternalSqliteBindValue<'_> {
 
 impl InternalSqliteBindValue<'_> {
     #[allow(unsafe_code)] // ffi function calls
-    pub(in crate::storage::wasm_sqlite) fn result_of(self, ctx: &mut i32) {
-        use crate::storage::wasm_sqlite::ffi;
+    pub(crate) fn result_of(self, ctx: &mut i32) {
+        use crate::ffi;
         match self {
             InternalSqliteBindValue::BorrowedString(s) => {
                 ffi::sqlite3_result_text(*ctx, s.to_string())

@@ -1,4 +1,4 @@
-use crate::storage::wasm_sqlite::WasmSqlite;
+use crate::WasmSqlite;
 use diesel::query_builder::{AstPass, IntoBoxedClause, QueryFragment};
 use diesel::query_builder::{BoxedLimitOffsetClause, LimitOffsetClause};
 use diesel::query_builder::{LimitClause, NoLimitClause};

@@ -14,7 +14,7 @@ grpc = ["xmtp_proto/grpc"]
 native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl", "diesel_migrations/sqlite", "diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "tokio/rt-multi-thread", "tokio/macros"]
 test-utils = ["xmtp_api_grpc"]
 bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "tracing-flame", "once_cell"]
-web = ["wasm-bindgen", "diesel/i-implement-a-third-party-backend-and-opt-into-breaking-changes", "openmls/js", "tokio/macros"]
+web = ["openmls/js", "tokio/macros"]
 
 [dependencies]
 aes = "0.8.4"
@@ -55,9 +55,6 @@ xmtp_v2 = { path = "../xmtp_v2" }
 
 # Native
 libsqlite3-sys = { version = "0.28.0", optional = true }
-
-# Web 
-wasm-bindgen = { version = "0.2", optional = true }
 
 # Test/Bench Utils
 xmtp_api_grpc = { path = "../xmtp_api_grpc", optional = true }
