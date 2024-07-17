@@ -1,4 +1,3 @@
-import { encode } from 'punycode'
 import { describe, expect, it } from 'vitest'
 import { AsyncStream } from '@test/AsyncStream'
 import {
@@ -6,7 +5,7 @@ import {
   createUser,
   encodeTextMessage,
 } from '@test/helpers'
-import { GroupPermissions, NapiGroup, NapiMessage } from '../dist'
+import { NapiGroup, NapiGroupPermissionsOptions, NapiMessage } from '../dist'
 
 describe('Conversations', () => {
   it('should not have initial conversations', async () => {
@@ -30,8 +29,18 @@ describe('Conversations', () => {
     expect(group.isActive()).toBe(true)
     expect(group.groupName()).toBe('')
     expect(group.groupPermissions().policyType()).toBe(
-      GroupPermissions.EveryoneIsAdmin
+      NapiGroupPermissionsOptions.AllMembers
     )
+    expect(group.groupPermissions().policySet()).toEqual({
+      addMemberPolicy: 0,
+      removeMemberPolicy: 2,
+      addAdminPolicy: 3,
+      removeAdminPolicy: 3,
+      updateGroupNamePolicy: 0,
+      updateGroupDescriptionPolicy: 0,
+      updateGroupImageUrlSquarePolicy: 0,
+      updateGroupPinnedFrameUrlPolicy: 0,
+    })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
     expect(group.findMessages().length).toBe(1)
     const members = group.listMembers()
@@ -130,14 +139,25 @@ describe('Conversations', () => {
     const groupWithPermissions = await client1
       .conversations()
       .createGroup([user4.account.address], {
-        permissions: GroupPermissions.GroupCreatorIsAdmin,
+        permissions: NapiGroupPermissionsOptions.AdminOnly,
       })
     expect(groupWithPermissions).toBeDefined()
     expect(groupWithPermissions.groupName()).toBe('')
     expect(groupWithPermissions.groupImageUrlSquare()).toBe('')
     expect(groupWithPermissions.groupPermissions().policyType()).toBe(
-      GroupPermissions.GroupCreatorIsAdmin
+      NapiGroupPermissionsOptions.AdminOnly
     )
+
+    expect(groupWithPermissions.groupPermissions().policySet()).toEqual({
+      addMemberPolicy: 2,
+      removeMemberPolicy: 2,
+      addAdminPolicy: 3,
+      removeAdminPolicy: 3,
+      updateGroupNamePolicy: 2,
+      updateGroupDescriptionPolicy: 2,
+      updateGroupImageUrlSquarePolicy: 2,
+      updateGroupPinnedFrameUrlPolicy: 2,
+    })
 
     const groupWithDescription = await client1
       .conversations()

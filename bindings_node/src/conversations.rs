@@ -6,14 +6,11 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::JsFunction;
 use napi_derive::napi;
-use xmtp_mls::groups::GroupMetadataOptions;
+use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
 
 use crate::messages::NapiMessage;
-use crate::{
-  groups::{GroupPermissions, NapiGroup},
-  mls_client::RustXmtpClient,
-  streams::NapiStreamCloser,
-};
+use crate::permissions::NapiGroupPermissionsOptions;
+use crate::{groups::NapiGroup, mls_client::RustXmtpClient, streams::NapiStreamCloser};
 
 #[napi(object)]
 pub struct NapiListConversationsOptions {
@@ -24,7 +21,7 @@ pub struct NapiListConversationsOptions {
 
 #[napi(object)]
 pub struct NapiCreateGroupOptions {
-  pub permissions: Option<GroupPermissions>,
+  pub permissions: Option<NapiGroupPermissionsOptions>,
   pub group_name: Option<String>,
   pub group_image_url_square: Option<String>,
   pub group_description: Option<String>,
@@ -70,9 +67,11 @@ impl NapiConversations {
       },
     };
 
-    let group_permissions = options
-      .permissions
-      .map(|group_permissions| group_permissions.into());
+    let group_permissions = match options.permissions {
+      Some(NapiGroupPermissionsOptions::AllMembers) => Some(PreconfiguredPolicies::AllMembers),
+      Some(NapiGroupPermissionsOptions::AdminOnly) => Some(PreconfiguredPolicies::AdminsOnly),
+      _ => None,
+    };
 
     let convo = self
       .inner_client
@@ -187,9 +186,8 @@ impl NapiConversations {
     let tsfn: ThreadsafeFunction<NapiGroup, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let client = self.inner_client.clone();
-    let stream_closer = RustXmtpClient::stream_conversations_with_callback(
-      client.clone(),
-      move |convo| {
+    let stream_closer =
+      RustXmtpClient::stream_conversations_with_callback(client.clone(), move |convo| {
         tsfn.call(
           Ok(NapiGroup::new(
             client.clone(),
@@ -198,32 +196,22 @@ impl NapiConversations {
           )),
           ThreadsafeFunctionCallMode::Blocking,
         );
-      },
-      || {}, // on_close_callback
-    )
-    .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      });
 
-    Ok(NapiStreamCloser::new(
-      stream_closer.close_fn,
-      stream_closer.is_closed_atomic,
-    ))
+    Ok(NapiStreamCloser::new(stream_closer))
   }
 
   #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage) => void")]
   pub fn stream_all_messages(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
     let tsfn: ThreadsafeFunction<NapiMessage, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let stream_closer = RustXmtpClient::stream_all_messages_with_callback_sync(
+    let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
       self.inner_client.clone(),
       move |message| {
         tsfn.call(Ok(message.into()), ThreadsafeFunctionCallMode::Blocking);
       },
-    )
-    .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    );
 
-    Ok(NapiStreamCloser::new(
-      stream_closer.close_fn,
-      stream_closer.is_closed_atomic,
-    ))
+    Ok(NapiStreamCloser::new(stream_closer))
   }
 }

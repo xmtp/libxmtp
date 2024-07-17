@@ -312,9 +312,15 @@ impl FfiV2Subscription {
         let handle = handle.take();
         if let Some(h) = handle {
             h.abort();
-            h.await.map_err(|_| GenericError::Generic {
-                err: "subscription event loop join error".into(),
-            })?;
+            let join_result = h.await;
+            if matches!(join_result, Err(ref e) if !e.is_cancelled()) {
+                return Err(GenericError::Generic {
+                    err: format!(
+                        "subscription event loop join error {}",
+                        join_result.unwrap_err()
+                    ),
+                });
+            }
         }
         Ok(())
     }
