@@ -152,18 +152,21 @@ impl EncryptedMessageStore {
         conn.run_pending_migrations(MIGRATIONS)
             .map_err(|e| StorageError::DbInit(e.to_string()))?;
 
-        let cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
-        let cipher_provider_version =
-            sql_query("PRAGMA cipher_provider_version").load::<CipherProviderVersion>(conn)?;
         let sqlite_version =
             sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
-        log::info!(
-            "Sql cipher version={}, cipher provider version={}, sqlite_version={}",
-            cipher_version[0].cipher_version,
-            cipher_provider_version[0].cipher_provider_version,
-            sqlite_version[0].version,
-        );
-        conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")?;
+        log::info!("sqlite_version={}", sqlite_version[0].version);
+
+        if self.enc_key.is_some() {
+            let cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
+            let cipher_provider_version =
+                sql_query("PRAGMA cipher_provider_version").load::<CipherProviderVersion>(conn)?;
+            log::info!(
+                "Sqlite cipher_version={}, cipher_provider_version={}",
+                cipher_version[0].cipher_version,
+                cipher_provider_version[0].cipher_provider_version,
+            );
+            conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")?;
+        }
 
         log::info!("Migrations successful");
         Ok(())
