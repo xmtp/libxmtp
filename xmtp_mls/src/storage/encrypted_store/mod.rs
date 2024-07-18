@@ -154,15 +154,22 @@ impl EncryptedMessageStore {
 
         if self.enc_key.is_some() {
             let cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
+            if cipher_version.is_empty() {
+                return Err(StorageError::SqlCipherNotLoaded);
+            }
             let cipher_provider_version =
                 sql_query("PRAGMA cipher_provider_version").load::<CipherProviderVersion>(conn)?;
             log::info!(
-                "Sqlite cipher_version={}, cipher_provider_version={}",
-                cipher_version[0].cipher_version,
-                cipher_provider_version[0].cipher_provider_version,
+                "Sqlite cipher_version={:?}, cipher_provider_version={:?}",
+                cipher_version.first().as_ref().map(|v| &v.cipher_version),
+                cipher_provider_version
+                    .first()
+                    .as_ref()
+                    .map(|v| &v.cipher_provider_version)
             );
             if log_enabled!(log::Level::Info) {
-                conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")?;
+                conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")
+                    .ok();
             }
         }
 
