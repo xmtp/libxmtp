@@ -34,7 +34,7 @@ use diesel::{
     sql_query,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use log::warn;
+use log::{log_enabled, warn};
 use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
 
@@ -161,7 +161,9 @@ impl EncryptedMessageStore {
                 cipher_version[0].cipher_version,
                 cipher_provider_version[0].cipher_provider_version,
             );
-            conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")?;
+            if log_enabled!(log::Level::Info) {
+                conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")?;
+            }
         }
 
         log::info!("Migrations successful");
