@@ -117,10 +117,6 @@ impl EncryptedMessageStore {
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
         log::info!("Setting up DB connection pool");
-        log::info!(
-            "Creating new EncryptedMessageStore with enc_key:{}",
-            enc_key.is_some()
-        );
         let pool =
             match opts {
                 StorageOption::Ephemeral => Pool::builder()

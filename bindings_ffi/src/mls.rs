@@ -104,7 +104,6 @@ pub async fn create_client(
 
     let store = match encryption_key {
         Some(key) => {
-            log::info!("Key exists -- creating encrypted database");
             let key: EncryptionKey = key
                 .try_into()
                 .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
