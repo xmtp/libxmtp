@@ -90,9 +90,10 @@ pub async fn create_client(
     let api_client = TonicApiClient::create(host.clone(), is_secure).await?;
 
     log::info!(
-        "Creating message store with path: {:?} and encryption key: {}",
+        "Creating message store with path: {:?} and encryption key: {} of length {:?}",
         db,
-        encryption_key.is_some()
+        encryption_key.is_some(),
+        encryption_key.as_ref().map(|k| k.len())
     );
 
     let storage_option = match db {

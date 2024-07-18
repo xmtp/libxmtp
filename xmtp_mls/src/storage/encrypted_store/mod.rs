@@ -31,9 +31,10 @@ use diesel::{
     prelude::*,
     r2d2::{ConnectionManager, Pool, PoolTransactionManager, PooledConnection},
     result::{DatabaseErrorKind, Error},
+    sql_query,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use log::warn;
+use log::{log_enabled, warn};
 use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
 
@@ -47,6 +48,27 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 pub type RawDbConnection = PooledConnection<ConnectionManager<SqliteConnection>>;
 
 pub type EncryptionKey = [u8; 32];
+
+// For PRAGMA query log statements
+#[derive(QueryableByName, Debug)]
+struct CipherVersion {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    cipher_version: String,
+}
+
+// For PRAGMA query log statements
+#[derive(QueryableByName, Debug)]
+struct CipherProviderVersion {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    cipher_provider_version: String,
+}
+
+// For PRAGMA query log statements
+#[derive(QueryableByName, Debug)]
+struct SqliteVersion {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    version: String,
+}
 
 #[derive(Default, Clone, Debug)]
 pub enum StorageOption {
@@ -107,7 +129,6 @@ impl EncryptedMessageStore {
 
         // TODO: Validate that sqlite is correctly configured. Bad EncKey is not detected until the
         // migrations run which returns an unhelpful error.
-
         let mut obj = Self {
             connect_opt: opts,
             pool: Arc::new(Some(pool).into()),
@@ -127,6 +148,24 @@ impl EncryptedMessageStore {
         conn.run_pending_migrations(MIGRATIONS)
             .map_err(|e| StorageError::DbInit(e.to_string()))?;
 
+        let sqlite_version =
+            sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
+        log::info!("sqlite_version={}", sqlite_version[0].version);
+
+        if self.enc_key.is_some() {
+            let cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
+            let cipher_provider_version =
+                sql_query("PRAGMA cipher_provider_version").load::<CipherProviderVersion>(conn)?;
+            log::info!(
+                "Sqlite cipher_version={}, cipher_provider_version={}",
+                cipher_version[0].cipher_version,
+                cipher_provider_version[0].cipher_provider_version,
+            );
+            if log_enabled!(log::Level::Info) {
+                conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")?;
+            }
+        }
+
         log::info!("Migrations successful");
         Ok(())
     }
@@ -141,7 +180,6 @@ impl EncryptedMessageStore {
             .ok_or(StorageError::PoolNeedsConnection)?;
 
         let mut conn = pool.get()?;
-
         if let Some(ref key) = self.enc_key {
             conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
         }
