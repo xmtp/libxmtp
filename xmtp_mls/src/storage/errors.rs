@@ -35,6 +35,8 @@ pub enum StorageError {
     Conflict(String),
     #[error(transparent)]
     Intent(#[from] IntentError),
+    #[error("The SQLCipher Sqlite extension is not present, but an encryption key is given")]
+    SqlCipherNotLoaded,
 }
 
 impl<T> From<PoisonError<T>> for StorageError {
