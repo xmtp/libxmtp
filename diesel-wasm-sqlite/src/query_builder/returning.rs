@@ -1,5 +1,4 @@
 use crate::backend::{SqliteReturningClause, WasmSqlite};
-// use diesel::backend::Backend;
 use diesel::query_builder::ReturningClause;
 use diesel::query_builder::{AstPass, QueryFragment};
 use diesel::result::QueryResult;

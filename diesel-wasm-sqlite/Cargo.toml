@@ -7,3 +7,11 @@ edition = "2021"
 diesel = { git = "https://github.com/xmtp/diesel", branch = "insipx/wasm-backend", features = ["r2d2", "i-implement-a-third-party-backend-and-opt-into-breaking-changes"] }
 wasm-bindgen = "0.2"
 log = "0.4"
+
+[dev-dependencies]
+rand = "0.8"
+getrandom = { version = "0.2", features = ["js"] }
+wasm-bindgen-test = "0.3"
+
+[lib]
+crate-type = ["cdylib", "rlib"]

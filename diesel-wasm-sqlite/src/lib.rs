@@ -14,13 +14,18 @@ use diesel::{
 use wasm_bindgen::JsValue;
 
 pub use backend::{SqliteType, WasmSqlite};
-pub struct WasmSqliteConnection {}
+
+#[derive(Debug)]
+pub struct WasmSqliteConnection {
+    raw_db_pointer: i32,
+}
+
 #[derive(Debug)]
 pub struct WasmSqliteError(JsValue);
 
 impl SimpleConnection for WasmSqliteConnection {
     fn batch_execute(&mut self, query: &str) -> diesel::prelude::QueryResult<()> {
-        ffi::batch_execute(query)
+        ffi::batch_execute(self.raw_db_pointer, query)
             .map_err(WasmSqliteError::from)
             .map_err(Into::into)
     }
@@ -33,10 +38,12 @@ impl Connection for WasmSqliteConnection {
     type TransactionManager = AnsiTransactionManager;
 
     fn establish(database_url: &str) -> diesel::prelude::ConnectionResult<Self> {
-        ffi::establish(database_url)
+        let raw_conn = ffi::establish(database_url)
             .map_err(WasmSqliteError::from)
             .map_err(Into::<diesel::result::ConnectionError>::into)?;
-        Ok(WasmSqliteConnection {})
+        Ok(WasmSqliteConnection {
+            raw_db_pointer: raw_conn,
+        })
     }
 
     fn execute_returning_count<T>(&mut self, source: &T) -> QueryResult<usize>
@@ -78,5 +85,24 @@ impl From<WasmSqliteError> for diesel::result::ConnectionError {
 impl From<JsValue> for WasmSqliteError {
     fn from(err: JsValue) -> WasmSqliteError {
         WasmSqliteError(err)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use wasm_bindgen_test::wasm_bindgen_test;
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+    #[wasm_bindgen_test]
+    fn test_establish() {
+        let rng: u16 = rand::random();
+        let url = format!(
+            "{}/wasmtest-{}.db3",
+            std::env::temp_dir().to_str().unwrap(),
+            rng
+        );
+        let mut conn = WasmSqliteConnection::establish(&url).unwrap();
+        println!("{:?}", conn);
     }
 }

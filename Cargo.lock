@@ -1077,8 +1077,11 @@ name = "diesel-wasm-sqlite"
 version = "0.1.0"
 dependencies = [
  "diesel",
+ "getrandom",
  "log",
+ "rand",
  "wasm-bindgen",
+ "wasm-bindgen-test",
 ]
 
 [[package]]
@@ -5266,6 +5269,21 @@ name = "termtree"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3369f5ac52d5eb6ab48c6b4ffdc8efbcad6b89c765749064ba298f2c68a16a76"
+
+[[package]]
+name = "test-wasm"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "diesel",
+ "diesel-wasm-sqlite",
+ "getrandom",
+ "rand",
+ "serde",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
+]
 
 [[package]]
 name = "thiserror"
