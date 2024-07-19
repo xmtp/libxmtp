@@ -1,0 +1,16 @@
+{
+  "name": "diesel-wasm-sqlite",
+  "version": "1.0.0",
+  "description": "",
+  "main": "esbuild.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "esbuild": "node esbuild.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@xmtp/wa-sqlite": "^1.0.1",
+    "esbuild": "^0.23.0"
+  }
+}

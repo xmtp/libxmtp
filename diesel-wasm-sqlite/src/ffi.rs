@@ -1,7 +1,7 @@
 use wasm_bindgen::{prelude::*, JsValue};
 
 /// Simple Connection
-#[wasm_bindgen(module = "/js-to-rust-test/index.js")]
+#[wasm_bindgen(module = "/src/package.js")]
 extern "C" {
     #[wasm_bindgen(catch)]
     pub fn batch_execute(database: i32, query: &str) -> Result<(), JsValue>;
@@ -11,7 +11,7 @@ extern "C" {
 }
 
 /// Direct Shim for wa-sqlite
-#[wasm_bindgen(module = "/js-to-rust-test/index.js")]
+#[wasm_bindgen(module = "/src/package.js")]
 extern "C" {
     #[wasm_bindgen]
     pub fn sqlite3_result_text(context: i32, value: String);
