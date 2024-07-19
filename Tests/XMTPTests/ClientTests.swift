@@ -346,6 +346,47 @@ class ClientTests: XCTestCase {
 		)
 	}
 	
+	func testEncryptionKeyCanDecryptCorrectly() async throws {
+		let bo = try PrivateKey.generate()
+		let alix = try PrivateKey.generate()
+		let key = try Crypto.secureRandomBytes(count: 32)
+
+		let boClient = try await Client.create(
+			account: bo,
+			options: .init(
+				api: .init(env: .local, isSecure: false),
+				enableV3: true,
+				encryptionKey: key,
+				dbDirectory: "xmtp_db"
+			)
+		)
+		
+		let alixClient = try await Client.create(
+			account: alix,
+			options: .init(
+				api: .init(env: .local, isSecure: false),
+				enableV3: true,
+				encryptionKey: key,
+				dbDirectory: "xmtp_db"
+			)
+		)
+
+		let group = try await boClient.conversations.newGroup(with: [alixClient.address])
+		
+		let key2 = try Crypto.secureRandomBytes(count: 32)
+		await assertThrowsAsyncError(
+			try await Client.create(
+				account: bo,
+				options: .init(
+					api: .init(env: .local, isSecure: false),
+					enableV3: true,
+					encryptionKey: key2,
+					dbDirectory: "xmtp_db"
+				)
+			)
+		)
+	}
+	
 	func testCanGetAnInboxIdFromAddress() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let bo = try PrivateKey.generate()
