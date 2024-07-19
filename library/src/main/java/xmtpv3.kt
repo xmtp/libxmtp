@@ -1118,6 +1118,10 @@ internal interface UniffiLib : Library {
         `ptr`: Pointer, uniffi_out_err: UniffiRustCallStatus,
     ): Unit
 
+    fun uniffi_xmtpv3_fn_method_ffistreamcloser_end_and_wait(
+        `ptr`: Pointer,
+    ): Long
+
     fun uniffi_xmtpv3_fn_method_ffistreamcloser_is_closed(
         `ptr`: Pointer, uniffi_out_err: UniffiRustCallStatus,
     ): Byte
@@ -1178,6 +1182,16 @@ internal interface UniffiLib : Library {
         `ptr`: Pointer, uniffi_out_err: UniffiRustCallStatus,
     ): Unit
 
+    fun uniffi_xmtpv3_fn_method_ffixmtpclient_add_wallet(
+        `ptr`: Pointer,
+        `existingWalletAddress`: RustBuffer.ByValue,
+        `newWalletAddress`: RustBuffer.ByValue,
+    ): Long
+
+    fun uniffi_xmtpv3_fn_method_ffixmtpclient_apply_signature_request(
+        `ptr`: Pointer, `signatureRequest`: Pointer,
+    ): Long
+
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_can_message(
         `ptr`: Pointer, `accountAddresses`: RustBuffer.ByValue,
     ): Long
@@ -1220,6 +1234,10 @@ internal interface UniffiLib : Library {
 
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_request_history_sync(
         `ptr`: Pointer,
+    ): Long
+
+    fun uniffi_xmtpv3_fn_method_ffixmtpclient_revoke_wallet(
+        `ptr`: Pointer, `walletAddress`: RustBuffer.ByValue,
     ): Long
 
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_signature_request(
@@ -1765,6 +1783,9 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_checksum_method_ffistreamcloser_end(
     ): Short
 
+    fun uniffi_xmtpv3_checksum_method_ffistreamcloser_end_and_wait(
+    ): Short
+
     fun uniffi_xmtpv3_checksum_method_ffistreamcloser_is_closed(
     ): Short
 
@@ -1790,6 +1811,12 @@ internal interface UniffiLib : Library {
     ): Short
 
     fun uniffi_xmtpv3_checksum_method_ffiv2subscription_update(
+    ): Short
+
+    fun uniffi_xmtpv3_checksum_method_ffixmtpclient_add_wallet(
+    ): Short
+
+    fun uniffi_xmtpv3_checksum_method_ffixmtpclient_apply_signature_request(
     ): Short
 
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_can_message(
@@ -1823,6 +1850,9 @@ internal interface UniffiLib : Library {
     ): Short
 
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_request_history_sync(
+    ): Short
+
+    fun uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_wallet(
     ): Short
 
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_signature_request(
@@ -1920,10 +1950,10 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_fficonversations_process_streamed_welcome_message() != 15283.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_fficonversations_stream() != 42948.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversations_stream() != 3079.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_fficonversations_stream_all_messages() != 8742.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversations_stream_all_messages() != 13204.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversations_sync() != 9054.toShort()) {
@@ -2010,7 +2040,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_send_optimistic() != 13872.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_ffigroup_stream() != 45558.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_ffigroup_stream() != 34669.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_super_admin_list() != 5323.toShort()) {
@@ -2061,7 +2091,10 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_signature_text() != 60472.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_ffistreamcloser_end() != 57139.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_ffistreamcloser_end() != 11040.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffistreamcloser_end_and_wait() != 1181.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffistreamcloser_is_closed() != 62423.toShort()) {
@@ -2089,6 +2122,12 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffiv2subscription_update() != 24211.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_add_wallet() != 23786.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_apply_signature_request() != 32172.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_can_message() != 53502.toShort()) {
@@ -2122,6 +2161,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_request_history_sync() != 22295.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_wallet() != 12211.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_signature_request() != 18270.toShort()) {
@@ -2759,7 +2801,6 @@ open class FfiConversations : Disposable, AutoCloseable, FfiConversationsInterfa
     }
 
 
-    @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
     override suspend fun `stream`(`callback`: FfiConversationCallback): FfiStreamCloser {
         return uniffiRustCallAsync(
@@ -2786,12 +2827,11 @@ open class FfiConversations : Disposable, AutoCloseable, FfiConversationsInterfa
             // lift function
             { FfiConverterTypeFfiStreamCloser.lift(it) },
             // Error FFI converter
-            GenericException.ErrorHandler,
+            UniffiNullRustCallStatusErrorHandler,
         )
     }
 
 
-    @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
     override suspend fun `streamAllMessages`(`messageCallback`: FfiMessageCallback): FfiStreamCloser {
         return uniffiRustCallAsync(
@@ -2818,7 +2858,7 @@ open class FfiConversations : Disposable, AutoCloseable, FfiConversationsInterfa
             // lift function
             { FfiConverterTypeFfiStreamCloser.lift(it) },
             // Error FFI converter
-            GenericException.ErrorHandler,
+            UniffiNullRustCallStatusErrorHandler,
         )
     }
 
@@ -3740,7 +3780,6 @@ open class FfiGroup : Disposable, AutoCloseable, FfiGroupInterface {
     }
 
 
-    @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
     override suspend fun `stream`(`messageCallback`: FfiMessageCallback): FfiStreamCloser {
         return uniffiRustCallAsync(
@@ -3767,7 +3806,7 @@ open class FfiGroup : Disposable, AutoCloseable, FfiGroupInterface {
             // lift function
             { FfiConverterTypeFfiStreamCloser.lift(it) },
             // Error FFI converter
-            GenericException.ErrorHandler,
+            UniffiNullRustCallStatusErrorHandler,
         )
     }
 
@@ -5013,7 +5052,16 @@ public object FfiConverterTypeFfiSignatureRequest : FfiConverter<FfiSignatureReq
 
 public interface FfiStreamCloserInterface {
 
+    /**
+     * Signal the stream to end
+     * Does not wait for the stream to end.
+     */
     fun `end`()
+
+    /**
+     * End the stream and asyncronously wait for it to shutdown
+     */
+    suspend fun `endAndWait`()
 
     fun `isClosed`(): kotlin.Boolean
 
@@ -5101,6 +5149,11 @@ open class FfiStreamCloser : Disposable, AutoCloseable, FfiStreamCloserInterface
         }
     }
 
+
+    /**
+     * Signal the stream to end
+     * Does not wait for the stream to end.
+     */
     override fun `end`() =
         callWithPointer {
             uniffiRustCall() { _status ->
@@ -5110,6 +5163,41 @@ open class FfiStreamCloser : Disposable, AutoCloseable, FfiStreamCloserInterface
             }
         }
 
+
+    /**
+     * End the stream and asyncronously wait for it to shutdown
+     */
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `endAndWait`() {
+        return uniffiRustCallAsync(
+            callWithPointer { thisPtr ->
+                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffistreamcloser_end_and_wait(
+                    thisPtr,
+
+                    )
+            },
+            { future, callback, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(
+                    future,
+                    callback,
+                    continuation
+                )
+            },
+            { future, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_void(
+                    future,
+                    continuation
+                )
+            },
+            { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_void(future) },
+            // lift function
+            { Unit },
+
+            // Error FFI converter
+            GenericException.ErrorHandler,
+        )
+    }
 
     override fun `isClosed`(): kotlin.Boolean {
         return FfiConverterBoolean.lift(
@@ -5953,6 +6041,16 @@ public object FfiConverterTypeFfiV2Subscription : FfiConverter<FfiV2Subscription
 
 public interface FfiXmtpClientInterface {
 
+    /**
+     * Adds an identity - really a wallet address - to the existing client
+     */
+    suspend fun `addWallet`(
+        `existingWalletAddress`: kotlin.String,
+        `newWalletAddress`: kotlin.String,
+    ): FfiSignatureRequest
+
+    suspend fun `applySignatureRequest`(`signatureRequest`: FfiSignatureRequest)
+
     suspend fun `canMessage`(`accountAddresses`: List<kotlin.String>): Map<kotlin.String, kotlin.Boolean>
 
     fun `conversations`(): FfiConversations
@@ -5974,6 +6072,11 @@ public interface FfiXmtpClientInterface {
     fun `releaseDbConnection`()
 
     suspend fun `requestHistorySync`()
+
+    /**
+     * Revokes or removes an identity - really a wallet address - from the existing client
+     */
+    suspend fun `revokeWallet`(`walletAddress`: kotlin.String): FfiSignatureRequest
 
     fun `signatureRequest`(): FfiSignatureRequest?
 
@@ -6059,6 +6162,78 @@ open class FfiXmtpClient : Disposable, AutoCloseable, FfiXmtpClientInterface {
         return uniffiRustCall() { status ->
             UniffiLib.INSTANCE.uniffi_xmtpv3_fn_clone_ffixmtpclient(pointer!!, status)
         }
+    }
+
+
+    /**
+     * Adds an identity - really a wallet address - to the existing client
+     */
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `addWallet`(
+        `existingWalletAddress`: kotlin.String,
+        `newWalletAddress`: kotlin.String,
+    ): FfiSignatureRequest {
+        return uniffiRustCallAsync(
+            callWithPointer { thisPtr ->
+                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_add_wallet(
+                    thisPtr,
+                    FfiConverterString.lower(`existingWalletAddress`),
+                    FfiConverterString.lower(`newWalletAddress`),
+                )
+            },
+            { future, callback, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_pointer(
+                    future,
+                    callback,
+                    continuation
+                )
+            },
+            { future, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_pointer(
+                    future,
+                    continuation
+                )
+            },
+            { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_pointer(future) },
+            // lift function
+            { FfiConverterTypeFfiSignatureRequest.lift(it) },
+            // Error FFI converter
+            GenericException.ErrorHandler,
+        )
+    }
+
+
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `applySignatureRequest`(`signatureRequest`: FfiSignatureRequest) {
+        return uniffiRustCallAsync(
+            callWithPointer { thisPtr ->
+                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_apply_signature_request(
+                    thisPtr,
+                    FfiConverterTypeFfiSignatureRequest.lower(`signatureRequest`),
+                )
+            },
+            { future, callback, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(
+                    future,
+                    callback,
+                    continuation
+                )
+            },
+            { future, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_void(
+                    future,
+                    continuation
+                )
+            },
+            { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_void(future) },
+            // lift function
+            { Unit },
+
+            // Error FFI converter
+            GenericException.ErrorHandler,
+        )
     }
 
 
@@ -6296,6 +6471,41 @@ open class FfiXmtpClient : Disposable, AutoCloseable, FfiXmtpClientInterface {
             // lift function
             { Unit },
 
+            // Error FFI converter
+            GenericException.ErrorHandler,
+        )
+    }
+
+
+    /**
+     * Revokes or removes an identity - really a wallet address - from the existing client
+     */
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `revokeWallet`(`walletAddress`: kotlin.String): FfiSignatureRequest {
+        return uniffiRustCallAsync(
+            callWithPointer { thisPtr ->
+                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_revoke_wallet(
+                    thisPtr,
+                    FfiConverterString.lower(`walletAddress`),
+                )
+            },
+            { future, callback, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_pointer(
+                    future,
+                    callback,
+                    continuation
+                )
+            },
+            { future, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_pointer(
+                    future,
+                    continuation
+                )
+            },
+            { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_pointer(future) },
+            // lift function
+            { FfiConverterTypeFfiSignatureRequest.lift(it) },
             // Error FFI converter
             GenericException.ErrorHandler,
         )
