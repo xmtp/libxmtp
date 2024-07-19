@@ -615,7 +615,7 @@ impl FfiConversations {
         Ok(convo_list)
     }
 
-    pub fn stream(&self, callback: Box<dyn FfiConversationCallback>) -> FfiStreamCloser {
+    pub async fn stream(&self, callback: Box<dyn FfiConversationCallback>) -> FfiStreamCloser {
         let client = self.inner_client.clone();
         let handle =
             RustXmtpClient::stream_conversations_with_callback(client.clone(), move |convo| {
@@ -629,7 +629,7 @@ impl FfiConversations {
         FfiStreamCloser::new(handle)
     }
 
-    pub fn stream_all_messages(
+    pub async fn stream_all_messages(
         &self,
         message_callback: Box<dyn FfiMessageCallback>,
     ) -> FfiStreamCloser {
@@ -1117,7 +1117,7 @@ impl FfiGroup {
         Ok(())
     }
 
-    pub fn stream(&self, message_callback: Box<dyn FfiMessageCallback>) -> FfiStreamCloser {
+    pub async fn stream(&self, message_callback: Box<dyn FfiMessageCallback>) -> FfiStreamCloser {
         let inner_client = Arc::clone(&self.inner_client);
         let handle = MlsGroup::stream_with_callback(
             inner_client,
@@ -1266,7 +1266,7 @@ impl FfiStreamCloser {
     }
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl FfiStreamCloser {
     /// Signal the stream to end
     /// Does not wait for the stream to end.
