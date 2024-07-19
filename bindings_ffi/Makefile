@@ -3,10 +3,10 @@ PROJECT_NAME = xmtpv3
 # Simulator config
 ARCHS_IOS = x86_64-apple-ios aarch64-apple-ios-sim
 ARCHS_MAC = x86_64-apple-darwin aarch64-apple-darwin
-# Not used
-# ARCHS_MACCATALYST = x86_64-apple-ios-macabi aarch64-apple-ios-macabi
 LIB=libxmtpv3.a
 JAR_DIR=$(shell pwd)/tests/jar
+SQLCIPHER_DIR=$(shell pwd)/sqlcipher
+SQLCIPHER_LIB=$(SQLCIPHER_DIR)/.libs/libsqlcipher.a
 GIT_BRANCH=$(shell git rev-parse --abbrev-ref HEAD)
 GIT_COMMIT_HASH=$(shell git log -1 --pretty=format:"%h")
 GIT_COMMIT_DATE=$(shell TZ=UTC git log -1 --date=iso-local --pretty=format:"%ad")
@@ -28,22 +28,30 @@ download-toolchains:
 	rustup target add $(ARCHS_MAC)
 	rustup target add aarch64-apple-ios
 
+download-sqlcipher:
+	git clone https://github.com/sqlcipher/sqlcipher.git $(SQLCIPHER_DIR)
+
+build-sqlcipher:
+	cd $(SQLCIPHER_DIR) && \
+	./configure --enable-tempstore=yes CFLAGS="-DSQLITE_HAS_CODEC" && \
+	make
+
 all: framework
 
 libxmtp-version:
 	echo "Version: $(GIT_COMMIT_HASH)\nBranch: $(GIT_BRANCH)\nDate: $(GIT_COMMIT_DATE)" > libxmtp-version.txt
 
-$(ARCHS_IOS): %:
+$(ARCHS_IOS): %: build-sqlcipher
 	cross build --target $@ --target-dir ./target --release --no-default-features
 	mkdir -p build/$@
 	mv target/$@/release/$(LIB) build/$@/$(LIB)
 
-$(ARCHS_MAC): %:
+$(ARCHS_MAC): %: build-sqlcipher
 	cross build --target $@ --target-dir ./target --release --no-default-features
 	mkdir -p build/$@
 	mv target/$@/release/$(LIB) build/$@/$(LIB)
 
-aarch64-apple-ios:
+aarch64-apple-ios: build-sqlcipher
 	cross build --target $@ --target-dir ./target --release
 	mkdir -p build/$@
 	mv target/$@/release/$(LIB) build/$@/$(LIB)
@@ -85,4 +93,4 @@ swift: libxmtp-version
 
 swiftlocal: libxmtpv3.a swift framework 
 
-.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift lipo
+.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift lipo download-sqlcipher build-sqlcipher
