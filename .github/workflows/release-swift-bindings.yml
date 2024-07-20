@@ -37,23 +37,11 @@ jobs:
         run: |
           cargo install cross --git https://github.com/cross-rs/cross
 
-      - name: Install OpenSSL
-        working-directory: bindings_ffi
-        run: brew install openssl@3
-
-      - name: Download and build SQLCipher
-        working-directory: bindings_ffi
-        run: |
-          export LDFLAGS="-L/usr/local/opt/openssl@3/lib"
-          export CPPFLAGS="-I/usr/local/opt/openssl@3/include"
-          make download-sqlcipher
-          make build-sqlcipher
-
       - name: Build target
         env:
           CROSS_NO_WARNINGS: "0"
         run: |
-          cross build --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml --target-dir bindings_ffi/target
+          cross build --release --target ${{ matrix.target }} --features sqlcipher --manifest-path bindings_ffi/Cargo.toml --target-dir bindings_ffi/target
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
