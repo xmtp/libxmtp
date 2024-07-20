@@ -53,8 +53,12 @@ uuid = { version = "1.9", features = ["v4", "fast-rng" ] }
 # NOTE: The release profile reduces bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093
 [profile.release]
-codegen-units = 1 # Reduce number of codegen units to increase optimizations
-lto = true        # Enable link-time optimization
-opt-level = 'z'   # Optimize for size
-panic = 'abort'   # Abort on panic
-strip = true      # Strip symbols from binary*
+codegen-units = 1
+lto = true
+opt-level = 'z'
+panic = 'abort'
+strip = true
+
+[features]
+default = []
+sqlcipher = ["xmtp_mls/sqlcipher"]
