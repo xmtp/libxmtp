@@ -36,7 +36,7 @@ install-openssl:
 
 build-sqlcipher: install-openssl
 	cd $(SQLCIPHER_DIR) && \
-	./configure --enable-tempstore=yes CFLAGS="-DSQLITE_HAS_CODEC" LDFLAGS="-L/usr/local/opt/openssl/lib" CPPFLAGS="-I/usr/local/opt/openssl/include" && \
+	./configure --enable-tempstore=yes CFLAGS="-DSQLITE_HAS_CODEC" LDFLAGS="-L/usr/local/opt/openssl@3/lib" CPPFLAGS="-I/usr/local/opt/openssl@3/include" && \
 	make
 
 all: framework
