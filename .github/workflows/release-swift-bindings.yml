@@ -37,6 +37,11 @@ jobs:
         run: |
           cargo install cross --git https://github.com/cross-rs/cross
 
+      - name: Download and build SQLCipher
+        run: |
+          make download-sqlcipher
+          make build-sqlcipher
+
       - name: Build target
         env:
           CROSS_NO_WARNINGS: "0"

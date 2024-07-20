@@ -32,7 +32,7 @@ ethers.workspace = true
 ethers-core.workspace = true
 futures.workspace = true
 hex.workspace = true
-libsqlite3-sys = { version = "0.28.0", optional = true }
+libsqlite3-sys = { version = "0.28.0", features = ["bundled-sqlcipher-vendored-openssl"] }
 log.workspace = true
 tracing.workspace = true
 openmls = { workspace = true, features = ["test-utils"] }
