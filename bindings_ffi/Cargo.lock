@@ -6113,7 +6113,6 @@ dependencies = [
  "ethers-core",
  "futures",
  "log",
- "rusqlite",
  "tempfile",
  "thiserror",
  "thread-id",
