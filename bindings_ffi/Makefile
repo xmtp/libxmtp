@@ -31,9 +31,12 @@ download-toolchains:
 download-sqlcipher:
 	git clone https://github.com/sqlcipher/sqlcipher.git $(SQLCIPHER_DIR)
 
-build-sqlcipher:
+install-openssl:
+	brew install openssl
+
+build-sqlcipher: install-openssl
 	cd $(SQLCIPHER_DIR) && \
-	./configure --enable-tempstore=yes CFLAGS="-DSQLITE_HAS_CODEC" && \
+	./configure --enable-tempstore=yes CFLAGS="-DSQLITE_HAS_CODEC" LDFLAGS="-L/usr/local/opt/openssl/lib" CPPFLAGS="-I/usr/local/opt/openssl/include" && \
 	make
 
 all: framework
@@ -93,4 +96,4 @@ swift: libxmtp-version
 
 swiftlocal: libxmtpv3.a swift framework 
 
-.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift lipo download-sqlcipher build-sqlcipher
+.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift lipo download-sqlcipher install-openssl build-sqlcipher

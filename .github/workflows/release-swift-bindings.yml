@@ -37,6 +37,10 @@ jobs:
         run: |
           cargo install cross --git https://github.com/cross-rs/cross
 
+      - name: Install OpenSSL
+        run: |
+          brew install openssl
+
       - name: Download and build SQLCipher
         working-directory: bindings_ffi
         run: |
