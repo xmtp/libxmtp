@@ -10,6 +10,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 env_logger = "0.11.3"
 futures = "0.3.28"
 log = { version = "0.4", features = ["std"] }
+rusqlite = { version = "0.31.0", features = ["bundled"] }
 thiserror = "1.0"
 thread-id = "4.2.1"
 tokio = { version = "1.28.1", features = ["macros"] }
