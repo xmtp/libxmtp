@@ -38,6 +38,7 @@ jobs:
           cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Download and build SQLCipher
+        working-directory: bindings_ffi
         run: |
           make download-sqlcipher
           make build-sqlcipher
