@@ -14,6 +14,8 @@ grpc = ["xmtp_proto/grpc"]
 native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
 test-utils = ["xmtp_api_grpc"]
 bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "tracing-flame", "once_cell"]
+sqlcipher = ["native", "libsqlite3-sys/bundled-sqlcipher"]
+sqlcipher-vendored = ["sqlcipher", "libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
 
 [dependencies]
 aes = "0.8.4"
