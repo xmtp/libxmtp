@@ -15,7 +15,6 @@ native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
 test-utils = ["xmtp_api_grpc"]
 bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "tracing-flame", "once_cell"]
 sqlcipher = ["native", "libsqlite3-sys/bundled-sqlcipher"]
-sqlcipher-vendored = ["sqlcipher", "libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
 
 [dependencies]
 aes = "0.8.4"
@@ -34,7 +33,7 @@ ethers.workspace = true
 ethers-core.workspace = true
 futures.workspace = true
 hex.workspace = true
-libsqlite3-sys = { version = "0.28.0", features = ["bundled-sqlcipher-vendored-openssl"] }
+libsqlite3-sys = { version = "0.28.0", features = ["bundled-sqlcipher", "bundled-sqlcipher-vendored-openssl"] }
 log.workspace = true
 tracing.workspace = true
 openmls = { workspace = true, features = ["test-utils"] }
