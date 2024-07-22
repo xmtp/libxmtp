@@ -1,5 +1,6 @@
 package org.xmtp.android.library
 
+import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.codecs.Fetcher
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
@@ -19,10 +20,10 @@ data class Fixtures(
         ClientOptions.Api(XMTPEnvironment.LOCAL, isSecure = false)
     ),
 ) {
-    var aliceClient: Client = Client().create(account = aliceAccount, options = clientOptions)
+    var aliceClient: Client = runBlocking { Client().create(account = aliceAccount, options = clientOptions) }
     var alice: PrivateKey = aliceAccount.getPrivateKey()
     var bob: PrivateKey = bobAccount.getPrivateKey()
-    var bobClient: Client = Client().create(account = bobAccount, options = clientOptions)
+    var bobClient: Client = runBlocking { Client().create(account = bobAccount, options = clientOptions) }
 
     constructor(clientOptions: ClientOptions?) : this(
         aliceAccount = PrivateKeyBuilder(),

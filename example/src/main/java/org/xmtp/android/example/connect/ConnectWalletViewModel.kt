@@ -86,7 +86,7 @@ class ConnectWalletViewModel(application: Application) : AndroidViewModel(applic
             _uiState.value = ConnectUiState.Loading
             try {
                 val wallet = PrivateKeyBuilder()
-                val client = Client().create(wallet, ClientManager.clientOptions(getApplication()))
+                val client = Client().create(wallet, ClientManager.clientOptions(getApplication(), wallet.address))
                 Client.register(codec = GroupUpdatedCodec())
                 _uiState.value = ConnectUiState.Success(
                     wallet.address,
@@ -111,7 +111,7 @@ class ConnectWalletViewModel(application: Application) : AndroidViewModel(applic
                         it.copy(showWallet = true, uri = uri)
                     }
                 }
-                val client = Client().create(wallet, ClientManager.clientOptions(getApplication()))
+                val client = Client().create(wallet, ClientManager.clientOptions(getApplication(), wallet.address))
                 Client.register(codec = GroupUpdatedCodec())
                 _uiState.value = ConnectUiState.Success(
                     wallet.address,

@@ -69,7 +69,7 @@ class ConversationTest {
 
     @Test
     fun testDoesNotAllowConversationWithSelf() {
-        val client = Client().create(account = aliceWallet)
+        val client = runBlocking { Client().create(account = aliceWallet) }
         assertThrows("Recipient is sender", XMTPException::class.java) {
             runBlocking { client.conversations.newConversation(alice.walletAddress) }
         }
@@ -328,10 +328,10 @@ class ConversationTest {
     @Test
     fun testEndToEndConversation() {
         val fakeContactWallet = PrivateKeyBuilder()
-        val fakeContactClient = Client().create(account = fakeContactWallet)
+        val fakeContactClient = runBlocking { Client().create(account = fakeContactWallet) }
         runBlocking { fakeContactClient.publishUserContact() }
         val fakeWallet = PrivateKeyBuilder()
-        val client = Client().create(account = fakeWallet)
+        val client = runBlocking { Client().create(account = fakeWallet) }
         val contact = client.getUserContact(peerAddress = fakeContactWallet.address)!!
         assertEquals(contact.walletAddress, fakeContactWallet.address)
         val created = Date()
@@ -760,7 +760,7 @@ class ConversationTest {
             }.build()
         }.build()
 
-        val client = Client().create(account = PrivateKeyBuilder(key))
+        val client = runBlocking { Client().create(account = PrivateKeyBuilder(key)) }
         runBlocking {
             val conversations = client.conversations.list()
             assertEquals(1, conversations.size)
@@ -833,7 +833,7 @@ class ConversationTest {
         val isBobAllowed = aliceConversation.consentState() == ConsentState.ALLOWED
         assertTrue("Bob should be allowed from alice conversation", isBobAllowed)
 
-        val aliceClient2 = Client().create(aliceWallet)
+        val aliceClient2 = runBlocking { Client().create(aliceWallet) }
         val aliceConversation2 = runBlocking { aliceClient2.conversations.list()[0] }
 
         runBlocking { aliceClient2.contacts.refreshConsentList() }

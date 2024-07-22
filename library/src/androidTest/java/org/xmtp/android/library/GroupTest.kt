@@ -402,7 +402,7 @@ class GroupTest {
     fun testCannotSendMessageToGroupMemberNotOnV3() {
         val chuxAccount = PrivateKeyBuilder()
         val chux: PrivateKey = chuxAccount.getPrivateKey()
-        Client().create(account = chuxAccount)
+        runBlocking { Client().create(account = chuxAccount) }
 
         assertThrows("Recipient not on network", XMTPException::class.java) {
             runBlocking { boClient.conversations.newGroup(listOf(chux.walletAddress)) }

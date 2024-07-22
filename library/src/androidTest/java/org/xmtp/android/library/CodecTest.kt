@@ -112,11 +112,11 @@ class CodecTest {
         val alix = PrivateKeyBuilder()
         val clientOptions =
             ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
-        val alixClient = Client().create(alix, clientOptions)
+        val alixClient = runBlocking { Client().create(alix, clientOptions) }
         val conversations = mutableListOf<Conversation>()
         repeat(5) {
             val account = PrivateKeyBuilder()
-            val client = Client().create(account, clientOptions)
+            val client = runBlocking { Client().create(account, clientOptions) }
             runBlocking {
                 conversations.add(
                     alixClient.conversations.newConversation(

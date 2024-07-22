@@ -61,7 +61,7 @@ class ConversationsTest {
     fun testCanGetConversationFromIntroEnvelope() {
         val created = Date()
         val newWallet = PrivateKeyBuilder()
-        val newClient = Client().create(account = newWallet)
+        val newClient = runBlocking { Client().create(account = newWallet) }
         val message = MessageV1Builder.buildEncode(
             sender = newClient.privateKeyBundleV1,
             recipient = fixtures.aliceClient.v1keys.toPublicKeyBundle(),
@@ -82,7 +82,7 @@ class ConversationsTest {
     fun testCanGetConversationFromInviteEnvelope() {
         val created = Date()
         val newWallet = PrivateKeyBuilder()
-        val newClient = Client().create(account = newWallet)
+        val newClient = runBlocking { Client().create(account = newWallet) }
         val invitation = InvitationV1.newBuilder().build().createDeterministic(
             sender = newClient.keys,
             recipient = alixClient.keys.getPublicKeyBundle()

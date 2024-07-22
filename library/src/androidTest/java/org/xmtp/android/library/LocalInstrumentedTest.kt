@@ -44,7 +44,7 @@ class LocalInstrumentedTest {
                     appVersion = "XMTPTest/v1.0.0"
                 )
             )
-        val client = Client().create(aliceWallet, clientOptions)
+        val client = runBlocking { Client().create(aliceWallet, clientOptions) }
         runBlocking {
             client.publishUserContact()
         }
@@ -124,7 +124,7 @@ class LocalInstrumentedTest {
         // Done saving keys
         val clientOptions =
             ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
-        val client = Client().create(account = aliceWallet, options = clientOptions)
+        val client = runBlocking { Client().create(account = aliceWallet, options = clientOptions) }
         val contact = client.getUserContact(peerAddress = aliceWallet.address)
         assertEquals(
             contact?.v2?.keyBundle?.identityKey?.secp256K1Uncompressed,
@@ -140,9 +140,9 @@ class LocalInstrumentedTest {
         val alice = PrivateKeyBuilder()
         val clientOptions =
             ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
-        val bobClient = Client().create(bob, clientOptions)
+        val bobClient = runBlocking { Client().create(bob, clientOptions) }
         // Publish alice's contact
-        Client().create(account = alice, clientOptions)
+        runBlocking { Client().create(account = alice, clientOptions) }
         val convo = runBlocking {
             bobClient.conversations.newConversation(
                 alice.address,
@@ -180,14 +180,28 @@ class LocalInstrumentedTest {
 
     @Test
     fun testListingConversations() {
-        val alice = Client().create(
-            PrivateKeyBuilder(),
-            ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
-        )
-        val bob = Client().create(
-            PrivateKeyBuilder(),
-            ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
-        )
+        val alice = runBlocking {
+            Client().create(
+                PrivateKeyBuilder(),
+                ClientOptions(
+                    api = ClientOptions.Api(
+                        env = XMTPEnvironment.LOCAL,
+                        isSecure = false
+                    )
+                )
+            )
+        }
+        val bob = runBlocking {
+            Client().create(
+                PrivateKeyBuilder(),
+                ClientOptions(
+                    api = ClientOptions.Api(
+                        env = XMTPEnvironment.LOCAL,
+                        isSecure = false
+                    )
+                )
+            )
+        }
 
         // First Bob starts a conversation with Alice
         val c1 = runBlocking {
@@ -230,8 +244,8 @@ class LocalInstrumentedTest {
     @Test
     fun testUsingSavedCredentialsAndKeyMaterial() {
         val options = ClientOptions(ClientOptions.Api(XMTPEnvironment.LOCAL, isSecure = false))
-        val alice = Client().create(PrivateKeyBuilder(), options)
-        val bob = Client().create(PrivateKeyBuilder(), options)
+        val alice = runBlocking { Client().create(PrivateKeyBuilder(), options) }
+        val bob = runBlocking { Client().create(PrivateKeyBuilder(), options) }
 
         // Alice starts a conversation with Bob
         val aliceConvo = runBlocking {
@@ -257,10 +271,12 @@ class LocalInstrumentedTest {
         delayToPropagate()
 
         // When Alice's device wakes up, it uses her saved credentials
-        val alice2 = Client().buildFromBundle(
-            PrivateKeyBundle.parseFrom(keyBundle),
-            options
-        )
+        val alice2 = runBlocking {
+            Client().buildFromBundle(
+                PrivateKeyBundle.parseFrom(keyBundle),
+                options
+            )
+        }
         // And it uses the saved topic data for the conversation
         val aliceConvo2 = alice2.conversations.importTopicData(
             Keystore.TopicMap.TopicData.parseFrom(topicData)
@@ -279,9 +295,9 @@ class LocalInstrumentedTest {
         val alice = PrivateKeyBuilder()
         val clientOptions =
             ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
-        val bobClient = Client().create(bob, clientOptions)
+        val bobClient = runBlocking { Client().create(bob, clientOptions) }
         // Publish alice's contact
-        Client().create(account = alice, clientOptions)
+        runBlocking { Client().create(account = alice, clientOptions) }
         val convo = ConversationV1(client = bobClient, peerAddress = alice.address, sentAt = Date())
         // Say this message is sent in the past
         runBlocking { convo.send(text = "10 seconds ago") }
@@ -300,8 +316,8 @@ class LocalInstrumentedTest {
         val alice = PrivateKeyBuilder()
         val clientOptions =
             ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
-        val bobClient = Client().create(bob, clientOptions)
-        val aliceClient = Client().create(alice, clientOptions)
+        val bobClient = runBlocking { Client().create(bob, clientOptions) }
+        val aliceClient = runBlocking { Client().create(alice, clientOptions) }
         aliceClient.conversations.streamAllMessages().mapLatest {
             assertEquals("hi", it.encodedContent.content.toStringUtf8())
         }
@@ -317,8 +333,8 @@ class LocalInstrumentedTest {
         val alice = PrivateKeyBuilder()
         val clientOptions =
             ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
-        val bobClient = Client().create(bob, clientOptions)
-        val aliceClient = Client().create(alice, clientOptions)
+        val bobClient = runBlocking { Client().create(bob, clientOptions) }
+        val aliceClient = runBlocking { Client().create(alice, clientOptions) }
 
         // Overwrite contact as legacy
         publishLegacyContact(client = bobClient)
@@ -756,7 +772,7 @@ class LocalInstrumentedTest {
         val options =
             ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = true))
         val keys = PrivateKeyBundleV1Builder.buildFromBundle(bytes)
-        Client().buildFrom(bundle = keys, options = options)
+        runBlocking { Client().buildFrom(bundle = keys, options = options) }
     }
 
     @Test
@@ -806,8 +822,8 @@ class LocalInstrumentedTest {
         val alice = PrivateKeyBuilder()
         val clientOptions =
             ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
-        val bobClient = Client().create(bob, clientOptions)
-        val aliceClient = Client().create(account = alice, options = clientOptions)
+        val bobClient = runBlocking { Client().create(bob, clientOptions) }
+        val aliceClient = runBlocking { Client().create(account = alice, options = clientOptions) }
         runBlocking {
             aliceClient.publishUserContact(legacy = true)
             bobClient.publishUserContact(legacy = true)
@@ -827,8 +843,8 @@ class LocalInstrumentedTest {
         val alice = PrivateKeyBuilder()
         val clientOptions =
             ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
-        val bobClient = Client().create(bob, clientOptions)
-        val aliceClient = Client().create(account = alice, options = clientOptions)
+        val bobClient = runBlocking { Client().create(bob, clientOptions) }
+        val aliceClient = runBlocking { Client().create(account = alice, options = clientOptions) }
         val aliceConversation = runBlocking {
             aliceClient.conversations.newConversation(
                 bob.address,

@@ -22,13 +22,13 @@ class ClientTest {
     @Test
     fun testTakesAWallet() {
         val fakeWallet = PrivateKeyBuilder()
-        Client().create(account = fakeWallet)
+        runBlocking { Client().create(account = fakeWallet) }
     }
 
     @Test
     fun testHasPrivateKeyBundleV1() {
         val fakeWallet = PrivateKeyBuilder()
-        val client = Client().create(account = fakeWallet)
+        val client = runBlocking { Client().create(account = fakeWallet) }
         assertEquals(1, client.privateKeyBundleV1.preKeysList?.size)
         val preKey = client.privateKeyBundleV1.preKeysList?.get(0)
         assert(preKey?.publicKey?.hasSignature() ?: false)
@@ -41,7 +41,7 @@ class ClientTest {
             PrivateKeyOuterClass.PrivateKeyBundleV1.newBuilder().build().generate(wallet = wallet)
         val encodedData = PrivateKeyBundleV1Builder.encodeData(v1)
         val v1Copy = PrivateKeyBundleV1Builder.fromEncodedData(encodedData)
-        val client = Client().buildFrom(v1Copy)
+        val client = runBlocking { Client().buildFrom(v1Copy) }
         assertEquals(
             wallet.address,
             client.address,
@@ -51,9 +51,9 @@ class ClientTest {
     @Test
     fun testCanBeCreatedWithBundle() {
         val fakeWallet = PrivateKeyBuilder()
-        val client = Client().create(account = fakeWallet)
+        val client = runBlocking { Client().create(account = fakeWallet) }
         val bundle = client.privateKeyBundle
-        val clientFromV1Bundle = Client().buildFromBundle(bundle)
+        val clientFromV1Bundle = runBlocking { Client().buildFromBundle(bundle) }
         assertEquals(client.address, clientFromV1Bundle.address)
         assertEquals(
             client.privateKeyBundleV1.identityKey,
@@ -68,9 +68,9 @@ class ClientTest {
     @Test
     fun testCanBeCreatedWithV1Bundle() {
         val fakeWallet = PrivateKeyBuilder()
-        val client = Client().create(account = fakeWallet)
+        val client = runBlocking { Client().create(account = fakeWallet) }
         val bundleV1 = client.v1keys
-        val clientFromV1Bundle = Client().buildFromV1Bundle(bundleV1)
+        val clientFromV1Bundle = runBlocking { Client().buildFromV1Bundle(bundleV1) }
         assertEquals(client.address, clientFromV1Bundle.address)
         assertEquals(
             client.privateKeyBundleV1.identityKey,
@@ -93,16 +93,18 @@ class ClientTest {
             appContext = context,
             dbEncryptionKey = key
         )
-        val client =
+        val client = runBlocking {
             Client().create(account = fakeWallet, options = options)
+        }
 
         runBlocking {
             client.canMessageV3(listOf(client.address))[client.address]?.let { assert(it) }
         }
 
         val bundle = client.privateKeyBundle
-        val clientFromV1Bundle =
+        val clientFromV1Bundle = runBlocking {
             Client().buildFromBundle(bundle, options = options)
+        }
         assertEquals(client.address, clientFromV1Bundle.address)
         assertEquals(
             client.privateKeyBundleV1.identityKey,
@@ -124,7 +126,7 @@ class ClientTest {
         val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val fakeWallet = PrivateKeyBuilder()
-        val client =
+        val client = runBlocking {
             Client().create(
                 account = fakeWallet,
                 options = ClientOptions(
@@ -134,6 +136,7 @@ class ClientTest {
                     dbEncryptionKey = key
                 )
             )
+        }
         runBlocking {
             client.canMessageV3(listOf(client.address))[client.address]?.let { assert(it) }
         }
@@ -146,7 +149,7 @@ class ClientTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val fakeWallet = PrivateKeyBuilder()
         val fakeWallet2 = PrivateKeyBuilder()
-        var client =
+        var client = runBlocking {
             Client().create(
                 account = fakeWallet,
                 options = ClientOptions(
@@ -156,7 +159,8 @@ class ClientTest {
                     dbEncryptionKey = key
                 )
             )
-        val client2 =
+        }
+        val client2 = runBlocking {
             Client().create(
                 account = fakeWallet2,
                 options = ClientOptions(
@@ -166,6 +170,7 @@ class ClientTest {
                     dbEncryptionKey = key
                 )
             )
+        }
 
         runBlocking {
             client.conversations.newGroup(listOf(client2.address))
@@ -175,7 +180,7 @@ class ClientTest {
 
         client.deleteLocalDatabase()
 
-        client =
+        client = runBlocking {
             Client().create(
                 account = fakeWallet,
                 options = ClientOptions(
@@ -185,7 +190,7 @@ class ClientTest {
                     dbEncryptionKey = key
                 )
             )
-
+        }
         runBlocking {
             client.conversations.syncGroups()
             assertEquals(client.conversations.listGroups().size, 0)
@@ -197,7 +202,7 @@ class ClientTest {
         val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val fakeWallet = PrivateKeyBuilder()
-        val client =
+        val client = runBlocking {
             Client().create(
                 account = fakeWallet,
                 options = ClientOptions(
@@ -207,6 +212,7 @@ class ClientTest {
                     dbEncryptionKey = key
                 )
             )
+        }
         runBlocking {
             client.canMessageV3(listOf(client.address))[client.address]?.let { assert(it) }
         }
@@ -217,7 +223,7 @@ class ClientTest {
         val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val fakeWallet = PrivateKeyBuilder()
-        val client =
+        val client = runBlocking {
             Client().create(
                 account = fakeWallet,
                 options = ClientOptions(
@@ -227,6 +233,7 @@ class ClientTest {
                     dbEncryptionKey = key
                 )
             )
+        }
         runBlocking {
             client.canMessageV3(listOf(client.address))[client.address]?.let { assert(it) }
         }
@@ -235,7 +242,7 @@ class ClientTest {
     @Test
     fun testDoesNotCreateAV3Client() {
         val fakeWallet = PrivateKeyBuilder()
-        val client = Client().create(account = fakeWallet)
+        val client = runBlocking { Client().create(account = fakeWallet) }
         assertThrows("Error no V3 client initialized", XMTPException::class.java) {
             runBlocking {
                 client.canMessageV3(listOf(client.address))[client.address]?.let { assert(!it) }
@@ -258,7 +265,9 @@ class ClientTest {
         val aliceWallet = PrivateKeyBuilder()
         val notOnNetwork = PrivateKeyBuilder()
         val opts = ClientOptions(ClientOptions.Api(XMTPEnvironment.LOCAL, false))
-        val aliceClient = Client().create(aliceWallet, opts)
+        val aliceClient = runBlocking {
+            Client().create(aliceWallet, opts)
+        }
         runBlocking { aliceClient.ensureUserContactPublished() }
 
         val canMessage = runBlocking { Client.canMessage(aliceWallet.address, opts) }
@@ -283,7 +292,9 @@ class ClientTest {
         )
 
         try {
-            Client().create(account = fakeWallet, options = opts)
+            runBlocking {
+                Client().create(account = fakeWallet, options = opts)
+            }
             expectation.get(5, TimeUnit.SECONDS)
         } catch (e: Exception) {
             fail("Error: $e")
@@ -305,7 +316,7 @@ class ClientTest {
         )
 
         try {
-            Client().create(account = fakeWallet, options = opts)
+            runBlocking { Client().create(account = fakeWallet, options = opts) }
             expectation.get(5, TimeUnit.SECONDS)
         } catch (e: Exception) {
             fail("Error: $e")
@@ -318,7 +329,7 @@ class ClientTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val fakeWallet = PrivateKeyBuilder()
         val fakeWallet2 = PrivateKeyBuilder()
-        val boClient =
+        val boClient = runBlocking {
             Client().create(
                 account = fakeWallet,
                 options = ClientOptions(
@@ -328,7 +339,8 @@ class ClientTest {
                     dbEncryptionKey = key
                 )
             )
-        val alixClient =
+        }
+        val alixClient = runBlocking {
             Client().create(
                 account = fakeWallet2,
                 options = ClientOptions(
@@ -338,6 +350,7 @@ class ClientTest {
                     dbEncryptionKey = key
                 )
             )
+        }
 
         runBlocking {
             boClient.conversations.newGroup(listOf(alixClient.address))
@@ -368,7 +381,7 @@ class ClientTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val alixWallet = PrivateKeyBuilder()
         val boWallet = PrivateKeyBuilder()
-        val alixClient =
+        val alixClient = runBlocking {
             Client().create(
                 account = alixWallet,
                 options = ClientOptions(
@@ -378,7 +391,8 @@ class ClientTest {
                     dbEncryptionKey = key
                 )
             )
-        val boClient =
+        }
+        val boClient = runBlocking {
             Client().create(
                 account = boWallet,
                 options = ClientOptions(
@@ -388,6 +402,7 @@ class ClientTest {
                     dbEncryptionKey = key
                 )
             )
+        }
         val boInboxId = runBlocking {
             alixClient.inboxIdFromAddress(boClient.address)
         }

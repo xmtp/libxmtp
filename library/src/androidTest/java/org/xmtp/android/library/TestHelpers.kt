@@ -50,11 +50,11 @@ data class Fixtures(
     ),
 ) {
     var alice: PrivateKey = aliceAccount.getPrivateKey()
-    var aliceClient: Client = Client().create(account = aliceAccount, options = clientOptions)
+    var aliceClient: Client = runBlocking { Client().create(account = aliceAccount, options = clientOptions) }
     var bob: PrivateKey = bobAccount.getPrivateKey()
-    var bobClient: Client = Client().create(account = bobAccount, options = clientOptions)
+    var bobClient: Client = runBlocking { Client().create(account = bobAccount, options = clientOptions) }
     var caro: PrivateKey = caroAccount.getPrivateKey()
-    var caroClient: Client = Client().create(account = caroAccount, options = clientOptions)
+    var caroClient: Client = runBlocking { Client().create(account = caroAccount, options = clientOptions) }
 
     constructor(clientOptions: ClientOptions?) : this(
         aliceAccount = PrivateKeyBuilder(),

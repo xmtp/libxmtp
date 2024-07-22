@@ -5,7 +5,6 @@ import android.os.Build
 import android.util.Log
 import com.google.crypto.tink.subtle.Base64
 import com.google.gson.GsonBuilder
-import kotlinx.coroutines.runBlocking
 import org.web3j.crypto.Keys
 import org.web3j.crypto.Keys.toChecksumAddress
 import org.xmtp.android.library.codecs.ContentCodec
@@ -86,7 +85,7 @@ class Client() {
     var installationId: String = ""
     private var v3Client: FfiXmtpClient? = null
     private var dbPath: String = ""
-    var inboxId: String = ""
+    lateinit var inboxId: String
 
     companion object {
         private const val TAG = "Client"
@@ -165,7 +164,7 @@ class Client() {
         libXMTPClient: FfiXmtpClient? = null,
         dbPath: String = "",
         installationId: String = "",
-        inboxId: String = "",
+        inboxId: String,
     ) : this() {
         this.address = address
         this.privateKeyBundleV1 = privateKeyBundleV1
@@ -179,7 +178,7 @@ class Client() {
         this.inboxId = inboxId
     }
 
-    fun buildFrom(
+    suspend fun buildFrom(
         bundle: PrivateKeyBundleV1,
         options: ClientOptions? = null,
         account: SigningKey? = null,
@@ -187,17 +186,16 @@ class Client() {
         return buildFromV1Bundle(bundle, options, account)
     }
 
-    fun create(
+    suspend fun create(
         account: SigningKey,
         options: ClientOptions? = null,
     ): Client {
         val clientOptions = options ?: ClientOptions()
-        val v2Client = runBlocking {
+        val v2Client =
             createV2Client(
                 host = clientOptions.api.env.getUrl(),
                 isSecure = clientOptions.api.isSecure
             )
-        }
         clientOptions.api.appVersion?.let { v2Client.setAppVersion(it) }
         val apiClient = GRPCApiClient(environment = clientOptions.api.env, rustV2Client = v2Client)
         return create(
@@ -207,79 +205,77 @@ class Client() {
         )
     }
 
-    fun create(
+    suspend fun create(
         account: SigningKey,
         apiClient: ApiClient,
         options: ClientOptions? = null,
     ): Client {
         val clientOptions = options ?: ClientOptions()
-        return runBlocking {
-            try {
-                val privateKeyBundleV1 = loadOrCreateKeys(
+        try {
+            val privateKeyBundleV1 = loadOrCreateKeys(
+                account,
+                apiClient,
+                clientOptions
+            )
+            val inboxId = getOrCreateInboxId(clientOptions, account.address)
+            val (libXMTPClient, dbPath) =
+                ffiXmtpClient(
+                    clientOptions,
                     account,
-                    apiClient,
-                    clientOptions
+                    clientOptions.appContext,
+                    privateKeyBundleV1,
+                    account.address,
+                    inboxId
                 )
 
-                val (libXMTPClient, dbPath) =
-                    ffiXmtpClient(
-                        options,
-                        account,
-                        clientOptions.appContext,
-                        privateKeyBundleV1,
-                        account.address
-                    )
-
-                val client =
-                    Client(
-                        account.address,
-                        privateKeyBundleV1,
-                        apiClient,
-                        libXMTPClient,
-                        dbPath,
-                        libXMTPClient?.installationId()?.toHex() ?: "",
-                        libXMTPClient?.inboxId() ?: ""
-                    )
-                client.ensureUserContactPublished()
-                client
-            } catch (e: java.lang.Exception) {
-                throw XMTPException("Error creating client ${e.message}", e)
-            }
+            val client =
+                Client(
+                    account.address,
+                    privateKeyBundleV1,
+                    apiClient,
+                    libXMTPClient,
+                    dbPath,
+                    libXMTPClient?.installationId()?.toHex() ?: "",
+                    libXMTPClient?.inboxId() ?: inboxId
+                )
+            client.ensureUserContactPublished()
+            return client
+        } catch (e: java.lang.Exception) {
+            throw XMTPException("Error creating client ${e.message}", e)
         }
     }
 
-    fun buildFromBundle(
+    suspend fun buildFromBundle(
         bundle: PrivateKeyBundle,
         options: ClientOptions? = null,
         account: SigningKey? = null,
     ): Client =
         buildFromV1Bundle(v1Bundle = bundle.v1, account = account, options = options)
 
-    fun buildFromV1Bundle(
+    suspend fun buildFromV1Bundle(
         v1Bundle: PrivateKeyBundleV1,
         options: ClientOptions? = null,
         account: SigningKey? = null,
     ): Client {
         val address = v1Bundle.identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress
         val newOptions = options ?: ClientOptions()
-        val v2Client = runBlocking {
+        val v2Client =
             createV2Client(
                 host = newOptions.api.env.getUrl(),
                 isSecure = newOptions.api.isSecure
             )
-        }
         newOptions.api.appVersion?.let { v2Client.setAppVersion(it) }
         val apiClient = GRPCApiClient(environment = newOptions.api.env, rustV2Client = v2Client)
+        val inboxId = getOrCreateInboxId(newOptions, address)
         val (v3Client, dbPath) = if (isV3Enabled(options)) {
-            runBlocking {
-                ffiXmtpClient(
-                    options,
-                    account,
-                    options?.appContext,
-                    v1Bundle,
-                    address
-                )
-            }
+            ffiXmtpClient(
+                newOptions,
+                account,
+                options?.appContext,
+                v1Bundle,
+                address,
+                inboxId
+            )
         } else Pair(null, "")
 
         return Client(
@@ -289,7 +285,7 @@ class Client() {
             libXMTPClient = v3Client,
             dbPath = dbPath,
             installationId = v3Client?.installationId()?.toHex() ?: "",
-            inboxId = v3Client?.inboxId() ?: ""
+            inboxId = v3Client?.inboxId() ?: inboxId
         )
     }
 
@@ -298,27 +294,17 @@ class Client() {
     }
 
     private suspend fun ffiXmtpClient(
-        options: ClientOptions?,
+        options: ClientOptions,
         account: SigningKey?,
         appContext: Context?,
         privateKeyBundleV1: PrivateKeyBundleV1,
         address: String,
+        inboxId: String,
     ): Pair<FfiXmtpClient?, String> {
         var dbPath = ""
         val accountAddress = address.lowercase()
         val v3Client: FfiXmtpClient? =
             if (isV3Enabled(options)) {
-                var inboxId = getInboxIdForAddress(
-                    logger = logger,
-                    host = options!!.api.env.getUrl(),
-                    isSecure = options.api.isSecure,
-                    accountAddress = accountAddress
-                )
-
-                if (inboxId.isNullOrBlank()) {
-                    inboxId = generateInboxId(accountAddress, 0.toULong())
-                }
-
                 val alias = "xmtp-${options.api.env}-$inboxId"
 
                 val mlsDbDirectory = options.dbDirectory
@@ -632,6 +618,19 @@ class Client() {
 
     suspend fun reconnectLocalDatabase() {
         v3Client?.dbReconnect() ?: throw XMTPException("Error no V3 client initialized")
+    }
+
+    suspend fun getOrCreateInboxId(options: ClientOptions, address: String): String {
+        var inboxId = getInboxIdForAddress(
+            logger = logger,
+            host = options.api.env.getUrl(),
+            isSecure = options.api.isSecure,
+            accountAddress = address
+        )
+        if (inboxId.isNullOrBlank()) {
+            inboxId = generateInboxId(address, 0.toULong())
+        }
+        return inboxId
     }
 
     suspend fun requestMessageHistorySync() {

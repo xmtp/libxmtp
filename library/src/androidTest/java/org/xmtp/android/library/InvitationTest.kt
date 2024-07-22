@@ -50,7 +50,7 @@ class InvitationTest {
             }.build()
         }.build()
 
-        val client = Client().create(account = PrivateKeyBuilder(key))
+        val client = runBlocking { Client().create(account = PrivateKeyBuilder(key)) }
         val conversations = runBlocking { client.conversations.list() }
         assertEquals(1, conversations.size)
         val message = runBlocking { conversations[0].messages().firstOrNull() }
