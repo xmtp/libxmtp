@@ -4,6 +4,7 @@ pub mod connection;
 pub mod ffi;
 pub mod query_builder;
 pub mod sqlite_types;
+pub mod utils;
 
 use diesel::{
     connection::{AnsiTransactionManager, Instrumentation, SimpleConnection, TransactionManager},
@@ -11,7 +12,7 @@ use diesel::{
     result::QueryResult,
     Connection,
 };
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 
 pub use backend::{SqliteType, WasmSqlite};
 
@@ -68,6 +69,18 @@ impl Connection for WasmSqliteConnection {
     }
 }
 
+#[wasm_bindgen(js_name = establishDbConnection)]
+pub fn establish_db_connection() {
+    let rng: u16 = rand::random();
+    let url = format!(
+        "{}/wasmtest-{}.db3",
+        std::env::temp_dir().to_str().unwrap(),
+        rng
+    );
+    let conn = WasmSqliteConnection::establish(&url).unwrap();
+    println!("{:?}", conn);
+}
+
 impl From<WasmSqliteError> for diesel::result::Error {
     fn from(value: WasmSqliteError) -> diesel::result::Error {
         log::error!("NOT IMPLEMENTED, {:?}", value);
@@ -88,21 +101,24 @@ impl From<JsValue> for WasmSqliteError {
     }
 }
 
-#[cfg(test)]
-mod test {
+/*
+mod tests {
     use super::*;
     use wasm_bindgen_test::wasm_bindgen_test;
+    use web_sys::console;
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-    #[wasm_bindgen_test]
-    fn test_establish() {
-        let rng: u16 = rand::random();
-        let url = format!(
-            "{}/wasmtest-{}.db3",
-            std::env::temp_dir().to_str().unwrap(),
-            rng
-        );
-        let mut conn = WasmSqliteConnection::establish(&url).unwrap();
-        println!("{:?}", conn);
-    }
+    /*
+        #[wasm_bindgen_test]
+        fn test_establish() {
+            let rng: u16 = rand::random();
+            let url = format!(
+                "{}/wasmtest-{}.db3",
+                std::env::temp_dir().to_str().unwrap(),
+                rng
+            );
+            let mut conn = WasmSqliteConnection::establish(&url).unwrap();
+            println!("{:?}", conn);
+        }
+    */
 }
+*/

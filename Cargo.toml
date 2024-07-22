@@ -9,7 +9,7 @@ members = [
   "xmtp_user_preferences",
   "xmtp_v2",
   "xmtp_mls",
-  "xmtp_id", "diesel-wasm-sqlite", "examples/test-wasm",
+  "xmtp_id", "diesel-wasm-sqlite"
 ]
 
 exclude = [

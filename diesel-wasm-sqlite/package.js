@@ -1,7 +1,10 @@
 import * as SQLite from "@xmtp/wa-sqlite";
 import initModule from "@xmtp/wa-sqlite/build";
 
+const module = await initModule();
 const sqlite3 = SQLite.Factory(module);
+const vfs = await OPFSCoopSyncVFS.create("test", module);
+sqlite3.vfs_register(vfs, true);
 
 export function sqlite3_result_text(context, value) {
   sqlite3.result_text(context, value);
