@@ -28,10 +28,12 @@ export function sqlite3_result_null(context) {
   sqlite3.result_null(context);
 }
 
-export function establish(database_url) {
+export async function establish(database_url) {
   try {
-    console.log("Opening database!");
-    return sqlite3.open_v2(database_url);
+    console.log("Opening database!", database_url);
+    let db = await sqlite3.open_v2(database_url);
+    console.log(db);
+    return db;
   } catch {
     console.log("establish err");
   }

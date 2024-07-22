@@ -898,12 +898,8 @@ var Module=moduleArg;var readyPromiseResolve,readyPromiseReject;var readyPromise
 );
 })();
 
-// import { OPFSCoopSyncVFS } from "@xmtp/wa-sqlite/vfs/OPFSCoopSync";
-
 const module = await Module();
 const sqlite3 = Factory(module);
-// const vfs = await OPFSCoopSyncVFS.create("test", module);
-// sqlite3.vfs_register(vfs, true);
 
 function sqlite3_result_text(context, value) {
   sqlite3.result_text(context, value);
@@ -929,10 +925,12 @@ function sqlite3_result_null(context) {
   sqlite3.result_null(context);
 }
 
-function establish(database_url) {
+async function establish(database_url) {
   try {
-    console.log("Opening database!");
-    return sqlite3.open_v2(database_url);
+    console.log("Opening database!", database_url);
+    let db = await sqlite3.open_v2(database_url);
+    console.log(db);
+    return db;
   } catch {
     console.log("establish err");
   }

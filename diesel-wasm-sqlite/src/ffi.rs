@@ -4,10 +4,10 @@ use wasm_bindgen::{prelude::*, JsValue};
 #[wasm_bindgen(module = "/src/package.js")]
 extern "C" {
     #[wasm_bindgen(catch)]
-    pub fn batch_execute(database: i32, query: &str) -> Result<(), JsValue>;
+    pub fn batch_execute(database: &JsValue, query: &str) -> Result<(), JsValue>;
 
     #[wasm_bindgen(catch)]
-    pub fn establish(database_url: &str) -> Result<i32, JsValue>;
+    pub async fn establish(database_url: &str) -> Result<JsValue, JsValue>;
 }
 
 /// Direct Shim for wa-sqlite
