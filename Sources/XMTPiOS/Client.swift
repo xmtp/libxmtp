@@ -136,22 +136,11 @@ public final class Client {
 		accountAddress: String,
 		options: ClientOptions?,
 		privateKeyBundleV1: PrivateKeyBundleV1,
-		signingKey: SigningKey?
+		signingKey: SigningKey?,
+		inboxId: String
 	) async throws -> (FfiXmtpClient?, String) {
 		if options?.enableV3 == true {
 			let address = accountAddress.lowercased()
-
-			var inboxId: String
-			do {
-				inboxId = try await getInboxIdForAddress(
-					logger: XMTPLogger(),
-					host: (options?.api.env ?? .local).url,
-					isSecure: options?.api.env.isSecure == true,
-					accountAddress: address
-				) ?? generateInboxId(accountAddress: address, nonce: 0)
-			} catch {
-				inboxId = generateInboxId(accountAddress: address, nonce: 0)
-			}
 			
 			let mlsDbDirectory = options?.dbDirectory
 			var directoryURL: URL
@@ -215,15 +204,17 @@ public final class Client {
 
 	static func create(account: SigningKey, apiClient: ApiClient, options: ClientOptions? = nil) async throws -> Client {
 		let privateKeyBundleV1 = try await loadOrCreateKeys(for: account, apiClient: apiClient, options: options)
+		let inboxId = try await getOrCreateInboxId(options: options ?? ClientOptions(), address: account.address)
 
 		let (v3Client, dbPath) = try await initV3Client(
 			accountAddress: account.address,
 			options: options,
 			privateKeyBundleV1: privateKeyBundleV1,
-			signingKey: account
+			signingKey: account,
+			inboxId: inboxId
 		)
 
-		let client = try Client(address: account.address, privateKeyBundleV1: privateKeyBundleV1, apiClient: apiClient, v3Client: v3Client, dbPath: dbPath, installationID: v3Client?.installationId().toHex ?? "", inboxID: v3Client?.inboxId() ?? "")
+		let client = try Client(address: account.address, privateKeyBundleV1: privateKeyBundleV1, apiClient: apiClient, v3Client: v3Client, dbPath: dbPath, installationID: v3Client?.installationId().toHex ?? "", inboxID: v3Client?.inboxId() ?? inboxId)
 		let conversations = client.conversations
 		let contacts = client.contacts
 		try await client.ensureUserContactPublished()
@@ -279,6 +270,21 @@ public final class Client {
 
 		return nil
 	}
+	
+	static func getOrCreateInboxId(options: ClientOptions, address: String) async throws -> String {
+		var inboxId: String
+		do {
+			inboxId = try await getInboxIdForAddress(
+				logger: XMTPLogger(),
+				host: options.api.env.url,
+				isSecure: options.api.env.isSecure == true,
+				accountAddress: address
+			) ?? generateInboxId(accountAddress: address, nonce: 0)
+		} catch {
+			inboxId = generateInboxId(accountAddress: address, nonce: 0)
+		}
+		return inboxId
+	}
 
 	public func canMessageV3(address: String) async throws -> Bool {
 		guard let client = v3Client else {
@@ -308,12 +314,15 @@ public final class Client {
 	) async throws -> Client {
 		let address = try v1Bundle.identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress
 		let options = options ?? ClientOptions()
+		
+		let inboxId = try await getOrCreateInboxId(options: options, address: address)
 
 		let (v3Client, dbPath) = try await initV3Client(
 			accountAddress: address,
 			options: options,
 			privateKeyBundleV1: v1Bundle,
-			signingKey: nil
+			signingKey: nil,
+			inboxId: inboxId
 		)
 
 		let client = try await LibXMTP.createV2Client(host: options.api.env.url, isSecure: options.api.env.isSecure)
@@ -323,7 +332,7 @@ public final class Client {
 			rustClient: client
 		)
 
-		let result = try Client(address: address, privateKeyBundleV1: v1Bundle, apiClient: apiClient, v3Client: v3Client, dbPath: dbPath, installationID: v3Client?.installationId().toHex ?? "", inboxID: v3Client?.inboxId() ?? "")
+		let result = try Client(address: address, privateKeyBundleV1: v1Bundle, apiClient: apiClient, v3Client: v3Client, dbPath: dbPath, installationID: v3Client?.installationId().toHex ?? "", inboxID: v3Client?.inboxId() ?? inboxId)
 		let conversations = result.conversations
 		let contacts = result.contacts
 		for codec in options.codecs {
