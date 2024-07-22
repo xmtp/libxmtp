@@ -1,17 +1,22 @@
 {
   "name": "diesel-wasm-sqlite",
+  "type": "module",
   "version": "1.0.0",
   "description": "",
-  "main": "esbuild.js",
+  "main": "package.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "esbuild": "node esbuild.js"
+    "build": "rollup -c"
   },
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "@xmtp/wa-sqlite": "^1.0.1",
-    "esbuild": "^0.23.0",
-    "esbuild-plugin-wasm": "^1.1.0"
+    "@xmtp/wa-sqlite": "^1.0.1"
+  },
+  "packageManager": "yarn@4.3.1",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "rollup": "^4.19.0",
+    "rollup-plugin-copy": "^3.5.0"
   }
 }

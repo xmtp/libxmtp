@@ -1,8 +1,8 @@
 #![cfg(target_arch = "wasm32")]
 
+use diesel_wasm_sqlite::WasmSqliteConnection;
 use wasm_bindgen_test::*;
 use web_sys::console;
-use diesel_wasm_sqlite::WasmSqliteConnection;
 wasm_bindgen_test_configure!(run_in_browser);
 
 #[wasm_bindgen_test]
