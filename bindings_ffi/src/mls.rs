@@ -616,6 +616,18 @@ impl FfiConversations {
             account_addresses.join(", ")
         );
 
+        if let Some(FfiGroupPermissionsOptions::CustomPolicy) = opts.permissions {
+            if opts.custom_permission_policy_set.is_none() {
+                return Err(GenericError::Generic {
+                    err: "CustomPolicy must include policy set".to_string(),
+                });
+            }
+        } else if opts.custom_permission_policy_set.is_some() {
+            return Err(GenericError::Generic {
+                err: "Only CustomPolicy may specify a policy set".to_string(),
+            });
+        }
+
         let metadata_options = opts.clone().into_group_metadata_options();
 
         let group_permissions = match opts.permissions {
@@ -1479,7 +1491,7 @@ mod tests {
     };
 
     use super::{create_client, FfiMessage, FfiMessageCallback, FfiXmtpClient};
-    use ethers::utils::hex;
+    use ethers::{types::PreStateMode, utils::hex};
     use ethers_core::rand::{
         self,
         distributions::{Alphanumeric, DistString},
@@ -1487,7 +1499,7 @@ mod tests {
     use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::generate_inbox_id;
-    use xmtp_mls::{storage::EncryptionKey, InboxOwner};
+    use xmtp_mls::{groups::PreconfiguredPolicies, storage::EncryptionKey, InboxOwner};
 
     #[derive(Clone)]
     pub struct LocalWalletInboxOwner {
@@ -2765,5 +2777,110 @@ mod tests {
             .remove_members(vec![bola.account_address.clone()])
             .await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_group_creation_custom_permissions_fails_when_invalid() {
+        let alix = new_test_client().await;
+        let bola = new_test_client().await;
+
+        // Add / Remove Admin must be Admin or Super Admin or Deny
+        let custom_permissions_invalid_1 = FfiPermissionPolicySet {
+            add_admin_policy: FfiPermissionPolicy::Allow,
+            remove_admin_policy: FfiPermissionPolicy::Admin,
+            update_group_name_policy: FfiPermissionPolicy::Admin,
+            update_group_description_policy: FfiPermissionPolicy::Allow,
+            update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
+            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
+            add_member_policy: FfiPermissionPolicy::Allow,
+            remove_member_policy: FfiPermissionPolicy::Deny,
+        };
+
+        let custom_permissions_valid = FfiPermissionPolicySet {
+            add_admin_policy: FfiPermissionPolicy::Admin,
+            remove_admin_policy: FfiPermissionPolicy::Admin,
+            update_group_name_policy: FfiPermissionPolicy::Admin,
+            update_group_description_policy: FfiPermissionPolicy::Allow,
+            update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
+            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
+            add_member_policy: FfiPermissionPolicy::Allow,
+            remove_member_policy: FfiPermissionPolicy::Deny,
+        };
+
+        let create_group_options_invalid_1 = FfiCreateGroupOptions {
+            permissions: Some(FfiGroupPermissionsOptions::CustomPolicy),
+            group_name: Some("Test Group".to_string()),
+            group_image_url_square: Some("https://example.com/image.png".to_string()),
+            group_description: Some("A test group".to_string()),
+            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
+            custom_permission_policy_set: Some(custom_permissions_invalid_1),
+        };
+
+        let results_1 = alix
+            .conversations()
+            .create_group(
+                vec![bola.account_address.clone()],
+                create_group_options_invalid_1,
+            )
+            .await;
+
+        assert!(results_1.is_err());
+
+        let create_group_options_invalid_2 = FfiCreateGroupOptions {
+            permissions: Some(FfiGroupPermissionsOptions::AllMembers),
+            group_name: Some("Test Group".to_string()),
+            group_image_url_square: Some("https://example.com/image.png".to_string()),
+            group_description: Some("A test group".to_string()),
+            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
+            custom_permission_policy_set: Some(custom_permissions_valid.clone()),
+        };
+
+        let results_2 = alix
+            .conversations()
+            .create_group(
+                vec![bola.account_address.clone()],
+                create_group_options_invalid_2,
+            )
+            .await;
+
+        assert!(results_2.is_err());
+
+        let create_group_options_invalid_3 = FfiCreateGroupOptions {
+            permissions: None,
+            group_name: Some("Test Group".to_string()),
+            group_image_url_square: Some("https://example.com/image.png".to_string()),
+            group_description: Some("A test group".to_string()),
+            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
+            custom_permission_policy_set: Some(custom_permissions_valid.clone()),
+        };
+
+        let results_3 = alix
+            .conversations()
+            .create_group(
+                vec![bola.account_address.clone()],
+                create_group_options_invalid_3,
+            )
+            .await;
+
+        assert!(results_3.is_err());
+
+        let create_group_options_valid = FfiCreateGroupOptions {
+            permissions: Some(FfiGroupPermissionsOptions::CustomPolicy),
+            group_name: Some("Test Group".to_string()),
+            group_image_url_square: Some("https://example.com/image.png".to_string()),
+            group_description: Some("A test group".to_string()),
+            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
+            custom_permission_policy_set: Some(custom_permissions_valid),
+        };
+
+        let results_4 = alix
+            .conversations()
+            .create_group(
+                vec![bola.account_address.clone()],
+                create_group_options_valid,
+            )
+            .await;
+
+        assert!(results_4.is_ok());
     }
 }
