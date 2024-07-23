@@ -1,7 +1,24 @@
 import * as SQLite from "@xmtp/wa-sqlite";
-import initModule from "@xmtp/wa-sqlite/build";
+import SQLiteESMFactory from "./node_modules/@xmtp/wa-sqlite/dist/wa-sqlite.mjs";
+import base64Wasm from "./node_modules/@xmtp/wa-sqlite/dist/wa-sqlite.wasm";
 
-const module = await initModule();
+function base64Decode(str) {
+  const binaryString = typeof atob === "function"
+    ? atob(str)
+    : Buffer.from(str, "base64").toString("binary");
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+const module = await SQLiteESMFactory({
+  "wasmBinary": base64Decode(base64Wasm),
+});
+
+// const module = await initWasmModule();
 const sqlite3 = SQLite.Factory(module);
 
 export function sqlite3_result_text(context, value) {

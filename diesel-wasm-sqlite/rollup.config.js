@@ -1,6 +1,6 @@
 import { defineConfig } from "rollup";
 import resolve from "@rollup/plugin-node-resolve";
-import copy from "rollup-plugin-copy";
+import { base64 } from "rollup-plugin-base64";
 
 export default defineConfig([
   {
@@ -11,14 +11,7 @@ export default defineConfig([
     },
     plugins: [
       resolve(),
-      copy({
-        targets: [
-          {
-            src: "node_modules/@xmtp/wa-sqlite/dist/wa-sqlite.wasm",
-            dest: "src",
-          },
-        ],
-      }),
+      base64({ include: "**/*.wasm" }),
     ],
     // external: ["@xmtp/wa-sqlite", "@xmtp/wa-sqlite/build"],
   },

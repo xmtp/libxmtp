@@ -2,7 +2,7 @@
 
 #### Bundle the javascript in `package.js` to rust
 
-`npm run esbuild`
+`yarn run build`
 
 #### Build the JS WASM interface
 
@@ -10,4 +10,10 @@
 
 #### Run the Wasm Tests
 
-wasm-pack test --safari --headless
+wasm-pack test --chrome --headless
+
+# TODO
+
+- [ ] wa-sqlite should be included in `pkg` build w/o manual copy (wasm-pack
+      issue?)
+- [ ] OPFS
