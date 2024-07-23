@@ -314,7 +314,10 @@ async fn main() {
                 .unwrap();
 
             let group = client
-                .create_group(Some(group_permissions), GroupMetadataOptions::default())
+                .create_group(
+                    Some(group_permissions.to_policy_set()),
+                    GroupMetadataOptions::default(),
+                )
                 .expect("failed to create group");
             let group_id = hex::encode(group.group_id);
             info!("Created group {}", group_id, { command_output: true, group_id: group_id})
