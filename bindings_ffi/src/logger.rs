@@ -7,6 +7,8 @@ pub trait FfiLogger: Send + Sync {
 
 struct RustLogger {
     logger: std::sync::Mutex<Box<dyn FfiLogger>>,
+    #[cfg(feature = "sentry")]
+    sentry: sentry::ClientInitGuard,
 }
 
 impl log::Log for RustLogger {
@@ -36,9 +38,8 @@ pub fn init_logger(logger: Box<dyn FfiLogger>) {
         let logger = RustLogger {
             logger: std::sync::Mutex::new(logger),
         };
-        log::set_boxed_logger(Box::new(logger))
-            .map(|()| log::set_max_level(LevelFilter::Info))
-            .expect("Failed to initialize logger");
+        log::set_boxed_logger(Box::new(logger)).expect("Failed to initialize logger");
+        log::set_max_level(LevelFilter::Info);
         log::info!("Logger initialized");
     });
 }
@@ -46,13 +47,21 @@ pub fn init_logger(logger: Box<dyn FfiLogger>) {
 #[cfg(feature = "sentry")]
 pub fn init_logger(logger: Box<dyn FfiLogger>) {
     LOGGER_INIT.call_once(|| {
+        let _guard = sentry::init((
+            "KEY_ENV_HERE",
+            sentry::ClientOptions {
+                release: sentry::release_name!(),
+                ..Default::default()
+            },
+        ));
+
         let logger = sentry_log::SentryLogger::with_dest(RustLogger {
             logger: std::sync::Mutex::new(logger),
+            sentry: _guard,
         });
 
-        log::set_boxed_logger(Box::new(logger))
-            .map(|()| log::set_max_level(LevelFilter::Info))
-            .expect("Failed to initialize logger");
+        log::set_boxed_logger(Box::new(logger)).expect("Failed to initialize logger");
+        log::set_max_level(LevelFilter::Info);
         log::info!("Sentry Logger initialized");
     });
 }
