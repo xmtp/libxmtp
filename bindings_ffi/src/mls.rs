@@ -1491,7 +1491,7 @@ mod tests {
     };
 
     use super::{create_client, FfiMessage, FfiMessageCallback, FfiXmtpClient};
-    use ethers::{types::PreStateMode, utils::hex};
+    use ethers::utils::hex;
     use ethers_core::rand::{
         self,
         distributions::{Alphanumeric, DistString},
@@ -1499,7 +1499,7 @@ mod tests {
     use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::generate_inbox_id;
-    use xmtp_mls::{groups::PreconfiguredPolicies, storage::EncryptionKey, InboxOwner};
+    use xmtp_mls::{storage::EncryptionKey, InboxOwner};
 
     #[derive(Clone)]
     pub struct LocalWalletInboxOwner {
