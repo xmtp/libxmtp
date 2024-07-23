@@ -68,8 +68,12 @@ impl NapiConversations {
     };
 
     let group_permissions = match options.permissions {
-      Some(NapiGroupPermissionsOptions::AllMembers) => Some(PreconfiguredPolicies::AllMembers),
-      Some(NapiGroupPermissionsOptions::AdminOnly) => Some(PreconfiguredPolicies::AdminsOnly),
+      Some(NapiGroupPermissionsOptions::AllMembers) => {
+        Some(PreconfiguredPolicies::AllMembers.to_policy_set())
+      }
+      Some(NapiGroupPermissionsOptions::AdminOnly) => {
+        Some(PreconfiguredPolicies::AdminsOnly.to_policy_set())
+      }
       _ => None,
     };
 
