@@ -1100,6 +1100,11 @@ pub(crate) fn policy_admin_only() -> PolicySet {
         PermissionsPolicies::allow_if_actor_super_admin(),
     )
 }
+impl Default for PolicySet {
+    fn default() -> Self {
+        PreconfiguredPolicies::default().to_policy_set()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum PreconfiguredPolicies {
