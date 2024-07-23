@@ -7,9 +7,8 @@ version = "0.1.0"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
-env_logger = "0.11.3"
-futures = "0.3.28"
 log = { version = "0.4", features = ["std"] }
+futures = "0.3.28"
 thiserror = "1.0"
 thread-id = "4.2.1"
 tokio = { version = "1.28.1", features = ["macros"] }
@@ -22,8 +21,11 @@ xmtp_mls = { path = "../xmtp_mls", features = ["grpc", "native"] }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
 xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 xmtp_v2 = { path = "../xmtp_v2" }
+sentry-log = { version = "0.34", optional = true }
 
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+[features]
+sentry = ["sentry-log"]
+
 # NOTE: A regression in openssl-sys exists where libatomic is dynamically linked 
 # for i686-linux-android targets. https://github.com/sfackler/rust-openssl/issues/2163
 #

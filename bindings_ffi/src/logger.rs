@@ -29,6 +29,7 @@ impl log::Log for RustLogger {
 }
 
 static LOGGER_INIT: Once = Once::new();
+#[cfg(not(feature = "sentry"))]
 pub fn init_logger(logger: Box<dyn FfiLogger>) {
     // TODO handle errors
     LOGGER_INIT.call_once(|| {
@@ -39,5 +40,19 @@ pub fn init_logger(logger: Box<dyn FfiLogger>) {
             .map(|()| log::set_max_level(LevelFilter::Info))
             .expect("Failed to initialize logger");
         log::info!("Logger initialized");
+    });
+}
+
+#[cfg(feature = "sentry")]
+pub fn init_logger(logger: Box<dyn FfiLogger>) {
+    LOGGER_INIT.call_once(|| {
+        let logger = sentry_log::SentryLogger::with_dest(RustLogger {
+            logger: std::sync::Mutex::new(logger),
+        });
+
+        log::set_boxed_logger(Box::new(logger))
+            .map(|()| log::set_max_level(LevelFilter::Info))
+            .expect("Failed to initialize logger");
+        log::info!("Sentry Logger initialized");
     });
 }
