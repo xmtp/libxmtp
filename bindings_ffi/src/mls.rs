@@ -1487,11 +1487,7 @@ mod tests {
     use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::generate_inbox_id;
-    use xmtp_mls::{
-        groups::{group_permissions::PolicySet, PreconfiguredPolicies},
-        storage::EncryptionKey,
-        InboxOwner,
-    };
+    use xmtp_mls::{storage::EncryptionKey, InboxOwner};
 
     #[derive(Clone)]
     pub struct LocalWalletInboxOwner {
