@@ -54,16 +54,16 @@ public enum GroupPermissionPreconfiguration {
 }
 
 public class PermissionPolicySet {
-    var addMemberPolicy: PermissionOption
-    var removeMemberPolicy: PermissionOption
-    var addAdminPolicy: PermissionOption
-    var removeAdminPolicy: PermissionOption
-    var updateGroupNamePolicy: PermissionOption
-    var updateGroupDescriptionPolicy: PermissionOption
-    var updateGroupImagePolicy: PermissionOption
-    var updateGroupPinnedFrameUrlPolicy: PermissionOption
+    public var addMemberPolicy: PermissionOption
+    public var removeMemberPolicy: PermissionOption
+    public var addAdminPolicy: PermissionOption
+    public var removeAdminPolicy: PermissionOption
+    public var updateGroupNamePolicy: PermissionOption
+    public var updateGroupDescriptionPolicy: PermissionOption
+    public var updateGroupImagePolicy: PermissionOption
+    public var updateGroupPinnedFrameUrlPolicy: PermissionOption
 
-    init(addMemberPolicy: PermissionOption, removeMemberPolicy: PermissionOption, addAdminPolicy: PermissionOption, removeAdminPolicy: PermissionOption, updateGroupNamePolicy: PermissionOption, updateGroupDescriptionPolicy: PermissionOption, updateGroupImagePolicy: PermissionOption, updateGroupPinnedFrameUrlPolicy: PermissionOption) {
+    public init(addMemberPolicy: PermissionOption, removeMemberPolicy: PermissionOption, addAdminPolicy: PermissionOption, removeAdminPolicy: PermissionOption, updateGroupNamePolicy: PermissionOption, updateGroupDescriptionPolicy: PermissionOption, updateGroupImagePolicy: PermissionOption, updateGroupPinnedFrameUrlPolicy: PermissionOption) {
         self.addMemberPolicy = addMemberPolicy
         self.removeMemberPolicy = removeMemberPolicy
         self.addAdminPolicy = addAdminPolicy

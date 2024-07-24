@@ -7,7 +7,7 @@
 
 import CryptoKit
 import XCTest
-@testable import XMTPiOS
+import XMTPiOS
 import LibXMTP
 import XMTPTestHelpers
 
@@ -15,16 +15,38 @@ import XMTPTestHelpers
 class GroupPermissionTests: XCTestCase {
     // Use these fixtures to talk to the local node
     struct LocalFixtures {
-        var alice: PrivateKey!
-        var bob: PrivateKey!
-        var caro: PrivateKey!
-        var aliceClient: Client!
-        var bobClient: Client!
-        var caroClient: Client!
+        public var alice: PrivateKey!
+        public var bob: PrivateKey!
+        public var caro: PrivateKey!
+        public var aliceClient: Client!
+        public var bobClient: Client!
+        public var caroClient: Client!
+    }
+    
+    enum CryptoError: Error {
+        case randomBytes, combinedPayload, hmacSignatureError
+    }
+    
+    public func secureRandomBytes(count: Int) throws -> Data {
+        var bytes = [UInt8](repeating: 0, count: count)
+
+        // Fill bytes with secure random data
+        let status = SecRandomCopyBytes(
+            kSecRandomDefault,
+            count,
+            &bytes
+        )
+
+        // A status of errSecSuccess indicates success
+        if status == errSecSuccess {
+            return Data(bytes)
+        } else {
+            throw CryptoError.randomBytes
+        }
     }
     
     func localFixtures() async throws -> LocalFixtures {
-        let key = try Crypto.secureRandomBytes(count: 32)
+        let key = try secureRandomBytes(count: 32)
         let alice = try PrivateKey.generate()
         let aliceClient = try await Client.create(
             account: alice,
@@ -68,7 +90,7 @@ class GroupPermissionTests: XCTestCase {
     
     func testGroupCreatedWithCorrectAdminList() async throws {
         let fixtures = try await localFixtures()
-        let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.walletAddress])
+        let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
         try await fixtures.aliceClient.conversations.sync()
         let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
         
@@ -89,7 +111,7 @@ class GroupPermissionTests: XCTestCase {
     
     func testGroupCanUpdateAdminList() async throws {
         let fixtures = try await localFixtures()
-        let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.walletAddress, fixtures.caro.walletAddress], permissions: .adminOnly)
+        let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address, fixtures.caro.address], permissions: .adminOnly)
         try await fixtures.aliceClient.conversations.sync()
         let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
         
@@ -156,7 +178,7 @@ class GroupPermissionTests: XCTestCase {
     
     func testGroupCanUpdateSuperAdminList() async throws {
         let fixtures = try await localFixtures()
-        let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.walletAddress, fixtures.caro.walletAddress], permissions: .adminOnly)
+        let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address, fixtures.caro.address], permissions: .adminOnly)
         try await fixtures.aliceClient.conversations.sync()
         let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
 
@@ -186,7 +208,7 @@ class GroupPermissionTests: XCTestCase {
     
     func testGroupMembersAndPermissionLevel() async throws {
         let fixtures = try await localFixtures()
-        let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.walletAddress, fixtures.caro.walletAddress], permissions: .adminOnly)
+        let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address, fixtures.caro.address], permissions: .adminOnly)
         try await fixtures.aliceClient.conversations.sync()
         let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
 
@@ -231,7 +253,7 @@ class GroupPermissionTests: XCTestCase {
     
     func testCanCommitAfterInvalidPermissionsCommit() async throws {
         let fixtures = try await localFixtures()
-        let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.walletAddress, fixtures.caro.walletAddress], permissions: .allMembers)
+        let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address, fixtures.caro.address], permissions: .allMembers)
         try await fixtures.aliceClient.conversations.sync()
         let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
         
@@ -258,7 +280,7 @@ class GroupPermissionTests: XCTestCase {
     func testCanUpdatePermissions() async throws {
             let fixtures = try await localFixtures()
             let bobGroup = try await fixtures.bobClient.conversations.newGroup(
-                with: [fixtures.alice.walletAddress, fixtures.caro.walletAddress],
+                with: [fixtures.alice.address, fixtures.caro.address],
                 permissions: .adminOnly
             )
             try await fixtures.aliceClient.conversations.sync()
@@ -291,7 +313,7 @@ class GroupPermissionTests: XCTestCase {
         func testCanUpdatePinnedFrameUrl() async throws {
             let fixtures = try await localFixtures()
             let bobGroup = try await fixtures.bobClient.conversations.newGroup(
-                with: [fixtures.alice.walletAddress, fixtures.caro.walletAddress],
+                with: [fixtures.alice.address, fixtures.caro.address],
                 permissions: .adminOnly,
                 pinnedFrameUrl: "initial url"
             )
@@ -334,8 +356,8 @@ class GroupPermissionTests: XCTestCase {
             updateGroupImagePolicy: PermissionOption.admin,
             updateGroupPinnedFrameUrlPolicy: PermissionOption.deny
         )
-        let bobGroup = try await fixtures.bobClient.conversations.newGroupCustomPermissions(
-            with: [fixtures.alice.walletAddress, fixtures.caro.walletAddress],
+        let _bobGroup = try await fixtures.bobClient.conversations.newGroupCustomPermissions(
+            with: [fixtures.alice.address, fixtures.caro.address],
             permissionPolicySet: permissionPolicySet,
             pinnedFrameUrl: "initial url"
         )
@@ -369,7 +391,7 @@ class GroupPermissionTests: XCTestCase {
         )
         await assertThrowsAsyncError(
             try await fixtures.bobClient.conversations.newGroupCustomPermissions(
-                with: [fixtures.alice.walletAddress, fixtures.caro.walletAddress],
+                with: [fixtures.alice.address, fixtures.caro.address],
                 permissionPolicySet: permissionPolicySetInvalid,
                 pinnedFrameUrl: "initial url"
             )
