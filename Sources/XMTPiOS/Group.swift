@@ -100,7 +100,7 @@ public struct Group: Identifiable, Equatable, Hashable {
     }
 
 	public func permissionPolicySet() throws -> PermissionPolicySet {
-        return PermissionPolicySet(ffiPermissionPolicySet: try permissions().policySet())
+        return PermissionPolicySet.fromFfiPermissionPolicySet(try permissions().policySet())
 	}
 
 	public func creatorInboxId() throws -> String {

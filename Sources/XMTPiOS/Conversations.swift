@@ -141,13 +141,50 @@ public actor Conversations {
 			}
 		}
 	}
+    
+    public func newGroup(with addresses: [String],
+                         permissions: GroupPermissionPreconfiguration = .allMembers,
+                         name: String = "",
+                         imageUrlSquare: String = "",
+                         description: String = "",
+                         pinnedFrameUrl: String = ""
+    ) async throws -> Group {
+        return try await newGroupInternal(
+            with: addresses,
+            permissions: GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(option: permissions),
+            name: name,
+            imageUrlSquare: imageUrlSquare,
+            description: description,
+            pinnedFrameUrl: pinnedFrameUrl,
+            permissionPolicySet: nil
+        )
+    }
+    
+    public func newGroupCustomPermissions(with addresses: [String],
+                                          permissionPolicySet: PermissionPolicySet,
+                                         name: String = "",
+                                         imageUrlSquare: String = "",
+                                         description: String = "",
+                                         pinnedFrameUrl: String = ""
+    ) async throws -> Group {
+        return try await newGroupInternal(
+            with: addresses,
+            permissions: FfiGroupPermissionsOptions.customPolicy,
+            name: name,
+            imageUrlSquare: imageUrlSquare,
+            description: description,
+            pinnedFrameUrl: pinnedFrameUrl,
+            permissionPolicySet: PermissionPolicySet.toFfiPermissionPolicySet(permissionPolicySet)
+        )
+    }
 
-	public func newGroup(with addresses: [String],
-						 permissions: GroupPermissionPreconfiguration = .allMembers,
+	private func newGroupInternal(with addresses: [String],
+						 permissions: FfiGroupPermissionsOptions = .allMembers,
 						 name: String = "",
 						 imageUrlSquare: String = "",
                          description: String = "",
-						 pinnedFrameUrl: String = ""
+						 pinnedFrameUrl: String = "",
+                         permissionPolicySet: FfiPermissionPolicySet? = nil
 	) async throws -> Group {
 		guard let v3Client = client.v3Client else {
 			throw GroupError.alphaMLSNotEnabled
@@ -177,11 +214,12 @@ public actor Conversations {
 			throw GroupError.memberNotRegistered(erroredAddresses)
 		}
 		let group = try await v3Client.conversations().createGroup(accountAddresses: addresses,
-                                                                   opts: FfiCreateGroupOptions(permissions: GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(option: permissions),
+                                                                   opts: FfiCreateGroupOptions(permissions: permissions,
 																							   groupName: name,
 																							   groupImageUrlSquare: imageUrlSquare,
                                                                                                groupDescription: description,
-																							   groupPinnedFrameUrl: pinnedFrameUrl
+																							   groupPinnedFrameUrl: pinnedFrameUrl,
+                                                                                               customPermissionPolicySet: permissionPolicySet
 																   )).fromFFI(client: client)
 		try await client.contacts.allowGroups(groupIds: [group.id])
 		return group

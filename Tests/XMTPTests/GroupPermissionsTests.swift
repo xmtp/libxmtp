@@ -321,4 +321,58 @@ class GroupPermissionTests: XCTestCase {
             XCTAssertEqual(try bobGroup.groupPinnedFrameUrl(), "https://foo/barz.com")
             XCTAssertEqual(try aliceGroup.groupPinnedFrameUrl(), "https://foo/barz.com")
         }
+    
+    func testCanCreateGroupWithCustomPermissions() async throws {
+        let fixtures = try await localFixtures()
+        let permissionPolicySet = PermissionPolicySet(
+            addMemberPolicy: PermissionOption.admin,
+            removeMemberPolicy: PermissionOption.deny,
+            addAdminPolicy: PermissionOption.admin,
+            removeAdminPolicy: PermissionOption.superAdmin,
+            updateGroupNamePolicy: PermissionOption.admin,
+            updateGroupDescriptionPolicy: PermissionOption.allow,
+            updateGroupImagePolicy: PermissionOption.admin,
+            updateGroupPinnedFrameUrlPolicy: PermissionOption.deny
+        )
+        let bobGroup = try await fixtures.bobClient.conversations.newGroupCustomPermissions(
+            with: [fixtures.alice.walletAddress, fixtures.caro.walletAddress],
+            permissionPolicySet: permissionPolicySet,
+            pinnedFrameUrl: "initial url"
+        )
+        
+        try await fixtures.aliceClient.conversations.sync()
+        let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
+        
+        let alicePermissionSet = try aliceGroup.permissionPolicySet()
+        XCTAssert(alicePermissionSet.addMemberPolicy == PermissionOption.admin)
+        XCTAssert(alicePermissionSet.removeMemberPolicy == PermissionOption.deny)
+        XCTAssert(alicePermissionSet.addAdminPolicy == PermissionOption.admin)
+        XCTAssert(alicePermissionSet.removeAdminPolicy == PermissionOption.superAdmin)
+        XCTAssert(alicePermissionSet.updateGroupNamePolicy == PermissionOption.admin)
+        XCTAssert(alicePermissionSet.updateGroupDescriptionPolicy == PermissionOption.allow)
+        XCTAssert(alicePermissionSet.updateGroupImagePolicy == PermissionOption.admin)
+        XCTAssert(alicePermissionSet.updateGroupPinnedFrameUrlPolicy == PermissionOption.deny)
+    }
+    
+    func testCreateGroupWithInvalidPermissionsFails() async throws {
+        let fixtures = try await localFixtures()
+        // Add / remove admin can not be set to "allow"
+        let permissionPolicySetInvalid = PermissionPolicySet(
+            addMemberPolicy: PermissionOption.admin,
+            removeMemberPolicy: PermissionOption.deny,
+            addAdminPolicy: PermissionOption.allow,
+            removeAdminPolicy: PermissionOption.superAdmin,
+            updateGroupNamePolicy: PermissionOption.admin,
+            updateGroupDescriptionPolicy: PermissionOption.allow,
+            updateGroupImagePolicy: PermissionOption.admin,
+            updateGroupPinnedFrameUrlPolicy: PermissionOption.deny
+        )
+        await assertThrowsAsyncError(
+            try await fixtures.bobClient.conversations.newGroupCustomPermissions(
+                with: [fixtures.alice.walletAddress, fixtures.caro.walletAddress],
+                permissionPolicySet: permissionPolicySetInvalid,
+                pinnedFrameUrl: "initial url"
+            )
+        )
+    }
 }

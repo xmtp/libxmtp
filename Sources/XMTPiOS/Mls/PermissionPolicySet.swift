@@ -54,41 +54,50 @@ public enum GroupPermissionPreconfiguration {
 }
 
 public class PermissionPolicySet {
-    let ffiPermissionPolicySet: FfiPermissionPolicySet
-    
-    init(ffiPermissionPolicySet: FfiPermissionPolicySet) {
-        self.ffiPermissionPolicySet = ffiPermissionPolicySet
-    }
-    
-    public var addMemberPolicy: PermissionOption {
-        return PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.addMemberPolicy)
-    }
-    
-	public var removeMemberPolicy: PermissionOption {
-        return PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.removeMemberPolicy)
-    }
-    
-	public var addAdminPolicy: PermissionOption {
-        return PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.addAdminPolicy)
-    }
-    
-	public var removeAdminPolicy: PermissionOption {
-        return PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.removeAdminPolicy)
-    }
-    
-	public var updateGroupNamePolicy: PermissionOption {
-        return PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.updateGroupNamePolicy)
-    }
-    
-	public var updateGroupDescriptionPolicy: PermissionOption {
-        return PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.updateGroupDescriptionPolicy)
-    }
-    
-	public var updateGroupImagePolicy: PermissionOption {
-        return PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.updateGroupImageUrlSquarePolicy)
+    var addMemberPolicy: PermissionOption
+    var removeMemberPolicy: PermissionOption
+    var addAdminPolicy: PermissionOption
+    var removeAdminPolicy: PermissionOption
+    var updateGroupNamePolicy: PermissionOption
+    var updateGroupDescriptionPolicy: PermissionOption
+    var updateGroupImagePolicy: PermissionOption
+    var updateGroupPinnedFrameUrlPolicy: PermissionOption
+
+    init(addMemberPolicy: PermissionOption, removeMemberPolicy: PermissionOption, addAdminPolicy: PermissionOption, removeAdminPolicy: PermissionOption, updateGroupNamePolicy: PermissionOption, updateGroupDescriptionPolicy: PermissionOption, updateGroupImagePolicy: PermissionOption, updateGroupPinnedFrameUrlPolicy: PermissionOption) {
+        self.addMemberPolicy = addMemberPolicy
+        self.removeMemberPolicy = removeMemberPolicy
+        self.addAdminPolicy = addAdminPolicy
+        self.removeAdminPolicy = removeAdminPolicy
+        self.updateGroupNamePolicy = updateGroupNamePolicy
+        self.updateGroupDescriptionPolicy = updateGroupDescriptionPolicy
+        self.updateGroupImagePolicy = updateGroupImagePolicy
+        self.updateGroupPinnedFrameUrlPolicy = updateGroupPinnedFrameUrlPolicy
     }
 
-    public var updateGroupPinnedFrameUrlPolicy: PermissionOption {
-        return PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.updateGroupPinnedFrameUrlPolicy)
+    static func toFfiPermissionPolicySet(_ permissionPolicySet: PermissionPolicySet) -> FfiPermissionPolicySet {
+        return FfiPermissionPolicySet(
+            addMemberPolicy: PermissionOption.toFfiPermissionPolicy(option: permissionPolicySet.addMemberPolicy),
+            removeMemberPolicy: PermissionOption.toFfiPermissionPolicy(option: permissionPolicySet.removeMemberPolicy),
+            addAdminPolicy: PermissionOption.toFfiPermissionPolicy(option: permissionPolicySet.addAdminPolicy),
+            removeAdminPolicy: PermissionOption.toFfiPermissionPolicy(option: permissionPolicySet.removeAdminPolicy),
+            updateGroupNamePolicy: PermissionOption.toFfiPermissionPolicy(option: permissionPolicySet.updateGroupNamePolicy),
+            updateGroupDescriptionPolicy: PermissionOption.toFfiPermissionPolicy(option: permissionPolicySet.updateGroupDescriptionPolicy),
+            updateGroupImageUrlSquarePolicy: PermissionOption.toFfiPermissionPolicy(option: permissionPolicySet.updateGroupImagePolicy),
+            updateGroupPinnedFrameUrlPolicy: PermissionOption.toFfiPermissionPolicy(option: permissionPolicySet.updateGroupPinnedFrameUrlPolicy)
+        )
+    }
+
+    static func fromFfiPermissionPolicySet(_ ffiPermissionPolicySet: FfiPermissionPolicySet) -> PermissionPolicySet {
+        return PermissionPolicySet(
+            addMemberPolicy: PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.addMemberPolicy),
+            removeMemberPolicy: PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.removeMemberPolicy),
+            addAdminPolicy: PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.addAdminPolicy),
+            removeAdminPolicy: PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.removeAdminPolicy),
+            updateGroupNamePolicy: PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.updateGroupNamePolicy),
+            updateGroupDescriptionPolicy: PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.updateGroupDescriptionPolicy),
+            updateGroupImagePolicy: PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.updateGroupImageUrlSquarePolicy),
+            updateGroupPinnedFrameUrlPolicy: PermissionOption.fromFfiPermissionPolicy(ffiPolicy: ffiPermissionPolicySet.updateGroupPinnedFrameUrlPolicy)
+        )
     }
 }
+
