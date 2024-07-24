@@ -22,6 +22,7 @@ use xmtp_mls::groups::group_permissions::MetadataBasePolicies;
 use xmtp_mls::groups::group_permissions::MetadataPolicies;
 use xmtp_mls::groups::group_permissions::PermissionsBasePolicies;
 use xmtp_mls::groups::group_permissions::PermissionsPolicies;
+use xmtp_mls::groups::group_permissions::PolicySet;
 use xmtp_mls::groups::intents::PermissionPolicyOption;
 use xmtp_mls::groups::intents::PermissionUpdateType;
 use xmtp_mls::groups::GroupMetadataOptions;
@@ -389,7 +390,7 @@ pub struct FfiConversations {
     inner_client: Arc<RustXmtpClient>,
 }
 
-#[derive(uniffi::Enum, Debug)]
+#[derive(uniffi::Enum, Clone, Debug)]
 pub enum FfiGroupPermissionsOptions {
     AllMembers,
     AdminOnly,
@@ -417,7 +418,7 @@ impl From<&FfiPermissionUpdateType> for PermissionUpdateType {
     }
 }
 
-#[derive(uniffi::Enum, Debug, PartialEq, Eq)]
+#[derive(uniffi::Enum, Clone, Debug, PartialEq, Eq)]
 pub enum FfiPermissionPolicy {
     Allow,
     Deny,
@@ -436,6 +437,49 @@ impl TryInto<PermissionPolicyOption> for FfiPermissionPolicy {
             FfiPermissionPolicy::Deny => Ok(PermissionPolicyOption::Deny),
             FfiPermissionPolicy::Admin => Ok(PermissionPolicyOption::AdminOnly),
             FfiPermissionPolicy::SuperAdmin => Ok(PermissionPolicyOption::SuperAdminOnly),
+            _ => Err(GroupMutablePermissionsError::InvalidPermissionPolicyOption),
+        }
+    }
+}
+
+impl TryInto<MembershipPolicies> for FfiPermissionPolicy {
+    type Error = GroupMutablePermissionsError;
+
+    fn try_into(self) -> Result<MembershipPolicies, Self::Error> {
+        match self {
+            FfiPermissionPolicy::Allow => Ok(MembershipPolicies::allow()),
+            FfiPermissionPolicy::Deny => Ok(MembershipPolicies::deny()),
+            FfiPermissionPolicy::Admin => Ok(MembershipPolicies::allow_if_actor_admin()),
+            FfiPermissionPolicy::SuperAdmin => Ok(MembershipPolicies::allow_if_actor_super_admin()),
+            _ => Err(GroupMutablePermissionsError::InvalidPermissionPolicyOption),
+        }
+    }
+}
+
+impl TryInto<MetadataPolicies> for FfiPermissionPolicy {
+    type Error = GroupMutablePermissionsError;
+
+    fn try_into(self) -> Result<MetadataPolicies, Self::Error> {
+        match self {
+            FfiPermissionPolicy::Allow => Ok(MetadataPolicies::allow()),
+            FfiPermissionPolicy::Deny => Ok(MetadataPolicies::deny()),
+            FfiPermissionPolicy::Admin => Ok(MetadataPolicies::allow_if_actor_admin()),
+            FfiPermissionPolicy::SuperAdmin => Ok(MetadataPolicies::allow_if_actor_super_admin()),
+            _ => Err(GroupMutablePermissionsError::InvalidPermissionPolicyOption),
+        }
+    }
+}
+
+impl TryInto<PermissionsPolicies> for FfiPermissionPolicy {
+    type Error = GroupMutablePermissionsError;
+
+    fn try_into(self) -> Result<PermissionsPolicies, Self::Error> {
+        match self {
+            FfiPermissionPolicy::Deny => Ok(PermissionsPolicies::deny()),
+            FfiPermissionPolicy::Admin => Ok(PermissionsPolicies::allow_if_actor_admin()),
+            FfiPermissionPolicy::SuperAdmin => {
+                Ok(PermissionsPolicies::allow_if_actor_super_admin())
+            }
             _ => Err(GroupMutablePermissionsError::InvalidPermissionPolicyOption),
         }
     }
@@ -488,7 +532,7 @@ impl From<&PermissionsPolicies> for FfiPermissionPolicy {
     }
 }
 
-#[derive(uniffi::Record, Debug, PartialEq, Eq)]
+#[derive(uniffi::Record, Clone, Debug, PartialEq, Eq)]
 pub struct FfiPermissionPolicySet {
     pub add_member_policy: FfiPermissionPolicy,
     pub remove_member_policy: FfiPermissionPolicy,
@@ -506,6 +550,38 @@ impl From<PreconfiguredPolicies> for FfiGroupPermissionsOptions {
             PreconfiguredPolicies::AllMembers => FfiGroupPermissionsOptions::AllMembers,
             PreconfiguredPolicies::AdminsOnly => FfiGroupPermissionsOptions::AdminOnly,
         }
+    }
+}
+
+impl TryFrom<FfiPermissionPolicySet> for PolicySet {
+    type Error = GroupMutablePermissionsError;
+    fn try_from(policy_set: FfiPermissionPolicySet) -> Result<Self, GroupMutablePermissionsError> {
+        let mut metadata_permissions_map: HashMap<String, MetadataPolicies> = HashMap::new();
+        metadata_permissions_map.insert(
+            MetadataField::GroupName.to_string(),
+            policy_set.update_group_name_policy.try_into()?,
+        );
+        metadata_permissions_map.insert(
+            MetadataField::Description.to_string(),
+            policy_set.update_group_description_policy.try_into()?,
+        );
+        metadata_permissions_map.insert(
+            MetadataField::GroupImageUrlSquare.to_string(),
+            policy_set.update_group_image_url_square_policy.try_into()?,
+        );
+        metadata_permissions_map.insert(
+            MetadataField::GroupPinnedFrameUrl.to_string(),
+            policy_set.update_group_pinned_frame_url_policy.try_into()?,
+        );
+
+        Ok(PolicySet {
+            add_member_policy: policy_set.add_member_policy.try_into()?,
+            remove_member_policy: policy_set.remove_member_policy.try_into()?,
+            add_admin_policy: policy_set.add_admin_policy.try_into()?,
+            remove_admin_policy: policy_set.remove_admin_policy.try_into()?,
+            update_metadata_policy: metadata_permissions_map,
+            update_permissions_policy: PermissionsPolicies::allow_if_actor_super_admin(),
+        })
     }
 }
 
@@ -540,19 +616,40 @@ impl FfiConversations {
             account_addresses.join(", ")
         );
 
+        if let Some(FfiGroupPermissionsOptions::CustomPolicy) = opts.permissions {
+            if opts.custom_permission_policy_set.is_none() {
+                return Err(GenericError::Generic {
+                    err: "CustomPolicy must include policy set".to_string(),
+                });
+            }
+        } else if opts.custom_permission_policy_set.is_some() {
+            return Err(GenericError::Generic {
+                err: "Only CustomPolicy may specify a policy set".to_string(),
+            });
+        }
+
+        let metadata_options = opts.clone().into_group_metadata_options();
+
         let group_permissions = match opts.permissions {
             Some(FfiGroupPermissionsOptions::AllMembers) => {
-                Some(xmtp_mls::groups::PreconfiguredPolicies::AllMembers)
+                Some(xmtp_mls::groups::PreconfiguredPolicies::AllMembers.to_policy_set())
             }
             Some(FfiGroupPermissionsOptions::AdminOnly) => {
-                Some(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly)
+                Some(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly.to_policy_set())
+            }
+            Some(FfiGroupPermissionsOptions::CustomPolicy) => {
+                if let Some(policy_set) = opts.custom_permission_policy_set {
+                    Some(policy_set.try_into()?)
+                } else {
+                    None
+                }
             }
             _ => None,
         };
 
         let convo = self
             .inner_client
-            .create_group(group_permissions, opts.into_group_metadata_options())?;
+            .create_group(group_permissions, metadata_options)?;
         if !account_addresses.is_empty() {
             convo
                 .add_members(&self.inner_client, account_addresses)
@@ -672,13 +769,14 @@ pub struct FfiListMessagesOptions {
     pub delivery_status: Option<FfiDeliveryStatus>,
 }
 
-#[derive(uniffi::Record, Default)]
+#[derive(uniffi::Record, Clone, Default)]
 pub struct FfiCreateGroupOptions {
     pub permissions: Option<FfiGroupPermissionsOptions>,
     pub group_name: Option<String>,
     pub group_image_url_square: Option<String>,
     pub group_description: Option<String>,
     pub group_pinned_frame_url: Option<String>,
+    pub custom_permission_policy_set: Option<FfiPermissionPolicySet>,
 }
 
 impl FfiCreateGroupOptions {
@@ -1986,6 +2084,7 @@ mod tests {
                     group_image_url_square: Some("url".to_string()),
                     group_description: Some("group description".to_string()),
                     group_pinned_frame_url: Some("pinned frame".to_string()),
+                    custom_permission_policy_set: None,
                 },
             )
             .await
@@ -2567,5 +2666,221 @@ mod tests {
             "https://example.com/image.png"
         );
         assert_eq!(alix_group.group_name().unwrap(), "");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_group_creation_custom_permissions() {
+        let alix = new_test_client().await;
+        let bola = new_test_client().await;
+
+        let custom_permissions = FfiPermissionPolicySet {
+            add_admin_policy: FfiPermissionPolicy::Admin,
+            remove_admin_policy: FfiPermissionPolicy::Admin,
+            update_group_name_policy: FfiPermissionPolicy::Admin,
+            update_group_description_policy: FfiPermissionPolicy::Allow,
+            update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
+            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
+            add_member_policy: FfiPermissionPolicy::Allow,
+            remove_member_policy: FfiPermissionPolicy::Deny,
+        };
+
+        let create_group_options = FfiCreateGroupOptions {
+            permissions: Some(FfiGroupPermissionsOptions::CustomPolicy),
+            group_name: Some("Test Group".to_string()),
+            group_image_url_square: Some("https://example.com/image.png".to_string()),
+            group_description: Some("A test group".to_string()),
+            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
+            custom_permission_policy_set: Some(custom_permissions),
+        };
+
+        let alix_group = alix
+            .conversations()
+            .create_group(vec![bola.account_address.clone()], create_group_options)
+            .await
+            .unwrap();
+
+        // Verify the group was created with the correct permissions
+        let group_permissions_policy_set = alix_group
+            .group_permissions()
+            .unwrap()
+            .policy_set()
+            .unwrap();
+        assert_eq!(
+            group_permissions_policy_set.add_admin_policy,
+            FfiPermissionPolicy::Admin
+        );
+        assert_eq!(
+            group_permissions_policy_set.remove_admin_policy,
+            FfiPermissionPolicy::Admin
+        );
+        assert_eq!(
+            group_permissions_policy_set.update_group_name_policy,
+            FfiPermissionPolicy::Admin
+        );
+        assert_eq!(
+            group_permissions_policy_set.update_group_description_policy,
+            FfiPermissionPolicy::Allow
+        );
+        assert_eq!(
+            group_permissions_policy_set.update_group_image_url_square_policy,
+            FfiPermissionPolicy::Admin
+        );
+        assert_eq!(
+            group_permissions_policy_set.update_group_pinned_frame_url_policy,
+            FfiPermissionPolicy::Admin
+        );
+        assert_eq!(
+            group_permissions_policy_set.add_member_policy,
+            FfiPermissionPolicy::Allow
+        );
+        assert_eq!(
+            group_permissions_policy_set.remove_member_policy,
+            FfiPermissionPolicy::Deny
+        );
+
+        // Verify that Bola can not update the group name
+        let bola_conversations = bola.conversations();
+        let _ = bola_conversations.sync().await;
+        let bola_groups = bola_conversations
+            .list(crate::FfiListConversationsOptions {
+                created_after_ns: None,
+                created_before_ns: None,
+                limit: None,
+            })
+            .await
+            .unwrap();
+
+        let bola_group = bola_groups.first().unwrap();
+        bola_group
+            .update_group_name("new_name".to_string())
+            .await
+            .unwrap_err();
+        let result = bola_group
+            .update_group_name("New Group Name".to_string())
+            .await;
+        assert!(result.is_err());
+
+        // Verify that Alix can update the group name
+        let result = alix_group
+            .update_group_name("New Group Name".to_string())
+            .await;
+        assert!(result.is_ok());
+
+        // Verify that Bola can update the group description
+        let result = bola_group
+            .update_group_description("New Description".to_string())
+            .await;
+        assert!(result.is_ok());
+
+        // Verify that Alix can not remove bola even though they are a super admin
+        let result = alix_group
+            .remove_members(vec![bola.account_address.clone()])
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_group_creation_custom_permissions_fails_when_invalid() {
+        let alix = new_test_client().await;
+        let bola = new_test_client().await;
+
+        // Add / Remove Admin must be Admin or Super Admin or Deny
+        let custom_permissions_invalid_1 = FfiPermissionPolicySet {
+            add_admin_policy: FfiPermissionPolicy::Allow,
+            remove_admin_policy: FfiPermissionPolicy::Admin,
+            update_group_name_policy: FfiPermissionPolicy::Admin,
+            update_group_description_policy: FfiPermissionPolicy::Allow,
+            update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
+            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
+            add_member_policy: FfiPermissionPolicy::Allow,
+            remove_member_policy: FfiPermissionPolicy::Deny,
+        };
+
+        let custom_permissions_valid = FfiPermissionPolicySet {
+            add_admin_policy: FfiPermissionPolicy::Admin,
+            remove_admin_policy: FfiPermissionPolicy::Admin,
+            update_group_name_policy: FfiPermissionPolicy::Admin,
+            update_group_description_policy: FfiPermissionPolicy::Allow,
+            update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
+            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
+            add_member_policy: FfiPermissionPolicy::Allow,
+            remove_member_policy: FfiPermissionPolicy::Deny,
+        };
+
+        let create_group_options_invalid_1 = FfiCreateGroupOptions {
+            permissions: Some(FfiGroupPermissionsOptions::CustomPolicy),
+            group_name: Some("Test Group".to_string()),
+            group_image_url_square: Some("https://example.com/image.png".to_string()),
+            group_description: Some("A test group".to_string()),
+            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
+            custom_permission_policy_set: Some(custom_permissions_invalid_1),
+        };
+
+        let results_1 = alix
+            .conversations()
+            .create_group(
+                vec![bola.account_address.clone()],
+                create_group_options_invalid_1,
+            )
+            .await;
+
+        assert!(results_1.is_err());
+
+        let create_group_options_invalid_2 = FfiCreateGroupOptions {
+            permissions: Some(FfiGroupPermissionsOptions::AllMembers),
+            group_name: Some("Test Group".to_string()),
+            group_image_url_square: Some("https://example.com/image.png".to_string()),
+            group_description: Some("A test group".to_string()),
+            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
+            custom_permission_policy_set: Some(custom_permissions_valid.clone()),
+        };
+
+        let results_2 = alix
+            .conversations()
+            .create_group(
+                vec![bola.account_address.clone()],
+                create_group_options_invalid_2,
+            )
+            .await;
+
+        assert!(results_2.is_err());
+
+        let create_group_options_invalid_3 = FfiCreateGroupOptions {
+            permissions: None,
+            group_name: Some("Test Group".to_string()),
+            group_image_url_square: Some("https://example.com/image.png".to_string()),
+            group_description: Some("A test group".to_string()),
+            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
+            custom_permission_policy_set: Some(custom_permissions_valid.clone()),
+        };
+
+        let results_3 = alix
+            .conversations()
+            .create_group(
+                vec![bola.account_address.clone()],
+                create_group_options_invalid_3,
+            )
+            .await;
+
+        assert!(results_3.is_err());
+
+        let create_group_options_valid = FfiCreateGroupOptions {
+            permissions: Some(FfiGroupPermissionsOptions::CustomPolicy),
+            group_name: Some("Test Group".to_string()),
+            group_image_url_square: Some("https://example.com/image.png".to_string()),
+            group_description: Some("A test group".to_string()),
+            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
+            custom_permission_policy_set: Some(custom_permissions_valid),
+        };
+
+        let results_4 = alix
+            .conversations()
+            .create_group(
+                vec![bola.account_address.clone()],
+                create_group_options_valid,
+            )
+            .await;
+
+        assert!(results_4.is_ok());
     }
 }
