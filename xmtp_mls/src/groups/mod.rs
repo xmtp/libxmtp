@@ -440,9 +440,11 @@ impl MlsGroup {
         let message_id = self.prepare_message(message, &conn);
 
         // Skipping a full sync here and instead just firing and forgetting
-        if let Err(err) = self.publish_intents(conn, client).await {
+        if let Err(err) = self.publish_intents(conn.clone(), client).await {
             log::error!("Send: error publishing intents: {:?}", err);
         }
+
+        self.sync_until_all_intents_resolved(conn, client).await?;
 
         message_id
     }
@@ -459,7 +461,8 @@ impl MlsGroup {
         let update_interval = Some(5_000_000);
         self.maybe_update_installations(conn.clone(), update_interval, client)
             .await?;
-        self.publish_intents(conn, client).await?;
+        self.publish_intents(conn.clone(), client).await?;
+        self.sync_until_all_intents_resolved(conn, client).await?;
         Ok(())
     }
 
