@@ -2112,12 +2112,12 @@ mod tests {
         bo_group.send("bo4".as_bytes().to_vec()).await.unwrap();
         bo_group.send("bo5".as_bytes().to_vec()).await.unwrap();
 
-        bo_group.sync().await.unwrap();
         alix_group.sync().await.unwrap();
-
         let alix_messages = alix_group
             .find_messages(FfiListMessagesOptions::default())
             .unwrap();
+
+        bo_group.sync().await.unwrap();
         let bo_messages = bo_group
             .find_messages(FfiListMessagesOptions::default())
             .unwrap();
