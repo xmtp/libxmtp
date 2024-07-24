@@ -2066,7 +2066,6 @@ mod tests {
         let eri = new_test_client().await;
         let frankie = new_test_client().await;
 
-        // Create group and send first message
         let alix_group = alix
             .conversations()
             .create_group(
@@ -2124,7 +2123,10 @@ mod tests {
         assert_eq!(bo_messages.len(), 9);
         assert_eq!(alix_messages.len(), 10);
 
-        assert_eq!(bo_messages[0].id, alix_messages[0].id);
+        assert_eq!(
+            bo_messages[bo_messages.len() - 1].id,
+            alix_messages[alix_messages.len() - 1].id
+        );
     }
 
     // test is also showing intermittent failures with database locked msg
