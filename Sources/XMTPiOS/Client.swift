@@ -11,7 +11,7 @@ import web3
 
 public typealias PreEventCallback = () async throws -> Void
 
-public enum ClientError: Error, CustomStringConvertible {
+public enum ClientError: Error, CustomStringConvertible, LocalizedError {
 	case creationError(String)
 	case noV3Client(String)
 
@@ -22,6 +22,10 @@ public enum ClientError: Error, CustomStringConvertible {
 		case .noV3Client(let err):
 			return "ClientError.noV3Client: \(err)"
 		}
+	}
+
+	public var errorDescription: String? {
+		return description
 	}
 }
 
@@ -128,7 +132,13 @@ public final class Client {
 			)
 			return try await create(account: account, apiClient: apiClient, options: options)
 		} catch {
-			throw ClientError.creationError("\(error)")
+			let detailedErrorMessage: String
+			if let nsError = error as NSError? {
+				detailedErrorMessage = nsError.description
+			} else {
+				detailedErrorMessage = error.localizedDescription
+			}
+			throw ClientError.creationError(detailedErrorMessage)
 		}
 	}
 
