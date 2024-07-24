@@ -239,7 +239,7 @@ impl MlsGroup {
             );
             return false;
         }
-        return true;
+        true
     }
 
     #[allow(clippy::too_many_arguments)]

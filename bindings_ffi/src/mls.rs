@@ -2157,66 +2157,6 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    async fn test_can_add_members_when_out_of_sync() {
-        let alix = new_test_client().await;
-        let bo = new_test_client().await;
-        let caro = new_test_client().await;
-        let davon = new_test_client().await;
-        let eri = new_test_client().await;
-        let frankie = new_test_client().await;
-
-        let alix_group = alix
-            .conversations()
-            .create_group(
-                vec![bo.account_address.clone()],
-                FfiCreateGroupOptions::default(),
-            )
-            .await
-            .unwrap();
-
-        bo.conversations().sync().await.unwrap();
-        let bo_group = bo.group(alix_group.id()).unwrap();
-
-        bo_group.send("bo1".as_bytes().to_vec()).await.unwrap();
-        alix_group.send("alix1".as_bytes().to_vec()).await.unwrap();
-
-        // Move the group forward by 3 epochs (as Alix's max_past_epochs is
-        // configured to 3) without Bo syncing
-        alix_group
-            .add_members(vec![
-                caro.account_address.clone(),
-                davon.account_address.clone(),
-            ])
-            .await
-            .unwrap();
-        alix_group
-            .remove_members(vec![
-                caro.account_address.clone(),
-                davon.account_address.clone(),
-            ])
-            .await
-            .unwrap();
-        alix_group
-            .add_members(vec![eri.account_address.clone()])
-            .await
-            .unwrap();
-
-        // Bo adds a member while 3 epochs behind
-        bo_group
-            .add_members(vec![frankie.account_address.clone()])
-            .await
-            .unwrap();
-
-        bo_group.sync().await.unwrap();
-        let bo_members = bo_group.list_members().unwrap();
-        assert_eq!(bo_members.len(), 4);
-
-        alix_group.sync().await.unwrap();
-        let alix_members = alix_group.list_members().unwrap();
-        assert_eq!(alix_members.len(), 4);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_can_send_message_when_out_of_sync() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
@@ -2286,6 +2226,66 @@ mod tests {
             bo_messages[bo_messages.len() - 1].id,
             alix_messages[alix_messages.len() - 1].id
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_add_members_when_out_of_sync() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+        let caro = new_test_client().await;
+        let davon = new_test_client().await;
+        let eri = new_test_client().await;
+        let frankie = new_test_client().await;
+
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        bo.conversations().sync().await.unwrap();
+        let bo_group = bo.group(alix_group.id()).unwrap();
+
+        bo_group.send("bo1".as_bytes().to_vec()).await.unwrap();
+        alix_group.send("alix1".as_bytes().to_vec()).await.unwrap();
+
+        // Move the group forward by 3 epochs (as Alix's max_past_epochs is
+        // configured to 3) without Bo syncing
+        alix_group
+            .add_members(vec![
+                caro.account_address.clone(),
+                davon.account_address.clone(),
+            ])
+            .await
+            .unwrap();
+        alix_group
+            .remove_members(vec![
+                caro.account_address.clone(),
+                davon.account_address.clone(),
+            ])
+            .await
+            .unwrap();
+        alix_group
+            .add_members(vec![eri.account_address.clone()])
+            .await
+            .unwrap();
+
+        // Bo adds a member while 3 epochs behind
+        bo_group
+            .add_members(vec![frankie.account_address.clone()])
+            .await
+            .unwrap();
+
+        bo_group.sync().await.unwrap();
+        let bo_members = bo_group.list_members().unwrap();
+        assert_eq!(bo_members.len(), 4);
+
+        alix_group.sync().await.unwrap();
+        let alix_members = alix_group.list_members().unwrap();
+        assert_eq!(alix_members.len(), 4);
     }
 
     // test is also showing intermittent failures with database locked msg
