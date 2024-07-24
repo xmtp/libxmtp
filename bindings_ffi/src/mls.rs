@@ -2056,17 +2056,9 @@ mod tests {
 
         assert!(stream_messages.is_closed());
     }
-    // User A = AlexDev3 which is on Epoch A
-    // User B = Alex1 which is on Epoch B
-    // User A originally created the group
-    // User A Added User B to the chat
-    // User A Added User C & User D to the chat
-    // User A Removed C & D
-    // User A added Users E & F
-    // Below are the logs for User B when trying to load
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    async fn test_can_add_and_remove_forking_group() {
+    async fn test_can_send_message_when_out_of_sync() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
         let caro = new_test_client().await;
@@ -2077,33 +2069,44 @@ mod tests {
         // Create group and send first message
         let alix_group = alix
             .conversations()
-            .create_group(vec![bo.account_address.clone()], FfiCreateGroupOptions::default())
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
             .await
             .unwrap();
-        
+
         bo.conversations().sync().await.unwrap();
         let bo_group = bo.group(alix_group.id()).unwrap();
-        
+
         bo_group.send("bo1".as_bytes().to_vec()).await.unwrap();
         alix_group.send("alix1".as_bytes().to_vec()).await.unwrap();
 
-        alix_group.add_members(vec![
-            caro.account_address.clone(),
-            davon.account_address.clone(),
-        ]).await.unwrap();
+        // Move the group forward by 3 epochs (as Alix's max_past_epochs is
+        // configured to 3) without Bo syncing
+        alix_group
+            .add_members(vec![
+                caro.account_address.clone(),
+                davon.account_address.clone(),
+            ])
+            .await
+            .unwrap();
+        alix_group
+            .remove_members(vec![
+                caro.account_address.clone(),
+                davon.account_address.clone(),
+            ])
+            .await
+            .unwrap();
+        alix_group
+            .add_members(vec![
+                eri.account_address.clone(),
+                frankie.account_address.clone(),
+            ])
+            .await
+            .unwrap();
 
-        bo_group.send("bo2".as_bytes().to_vec()).await.unwrap();
-        alix_group.send("alix2".as_bytes().to_vec()).await.unwrap();
-
-        alix_group.remove_members(vec![
-            caro.account_address.clone(),
-            davon.account_address.clone(),
-        ]).await.unwrap();
-        alix_group.add_members(vec![
-            eri.account_address.clone(),
-            frankie.account_address.clone(),
-        ]).await.unwrap();
-
+        // Bo sends messages to Alix while 3 epochs behind
         bo_group.send("bo3".as_bytes().to_vec()).await.unwrap();
         alix_group.send("alix3".as_bytes().to_vec()).await.unwrap();
         bo_group.send("bo4".as_bytes().to_vec()).await.unwrap();
@@ -2118,8 +2121,8 @@ mod tests {
         let bo_messages = bo_group
             .find_messages(FfiListMessagesOptions::default())
             .unwrap();
-        assert_eq!(bo_messages.len(), 11);
-        assert_eq!(alix_messages.len(), 12);
+        assert_eq!(bo_messages.len(), 9);
+        assert_eq!(alix_messages.len(), 10);
 
         assert_eq!(bo_messages[0].id, alix_messages[0].id);
     }
