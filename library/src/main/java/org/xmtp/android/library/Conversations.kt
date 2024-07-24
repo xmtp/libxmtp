@@ -49,6 +49,9 @@ import uniffi.xmtpv3.FfiV2Subscription
 import uniffi.xmtpv3.FfiV2SubscriptionCallback
 import uniffi.xmtpv3.NoPointer
 import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.GroupPermissionPreconfiguration
+import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.PermissionPolicySet
+import uniffi.xmtpv3.FfiGroupPermissionsOptions
+import uniffi.xmtpv3.FfiPermissionPolicySet
 import java.util.Date
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.DurationUnit
@@ -113,7 +116,47 @@ data class Conversations(
         groupName: String = "",
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
-        groupPinnedFrameUrl: String = ""
+        groupPinnedFrameUrl: String = "",
+    ): Group {
+        return newGroupInternal(
+            accountAddresses,
+            GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(permissions),
+            groupName,
+            groupImageUrlSquare,
+            groupDescription,
+            groupPinnedFrameUrl,
+            null
+        )
+    }
+
+    suspend fun newGroupCustomPermissions(
+        accountAddresses: List<String>,
+        permissionPolicySet: PermissionPolicySet,
+        groupName: String = "",
+        groupImageUrlSquare: String = "",
+        groupDescription: String = "",
+        groupPinnedFrameUrl: String = "",
+
+    ): Group {
+        return newGroupInternal(
+            accountAddresses,
+            FfiGroupPermissionsOptions.CUSTOM_POLICY,
+            groupName,
+            groupImageUrlSquare,
+            groupDescription,
+            groupPinnedFrameUrl,
+            PermissionPolicySet.toFfiPermissionPolicySet(permissionPolicySet)
+        )
+    }
+
+    private suspend fun newGroupInternal(
+        accountAddresses: List<String>,
+        permissions: FfiGroupPermissionsOptions,
+        groupName: String,
+        groupImageUrlSquare: String,
+        groupDescription: String,
+        groupPinnedFrameUrl: String,
+        permissionsPolicySet: FfiPermissionPolicySet?
     ): Group {
         if (accountAddresses.size == 1 &&
             accountAddresses.first().lowercase() == client.address.lowercase()
@@ -131,11 +174,12 @@ data class Conversations(
             libXMTPConversations?.createGroup(
                 accountAddresses,
                 opts = FfiCreateGroupOptions(
-                    permissions = GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(permissions),
+                    permissions = permissions,
                     groupName = groupName,
                     groupImageUrlSquare = groupImageUrlSquare,
                     groupDescription = groupDescription,
-                    groupPinnedFrameUrl = groupPinnedFrameUrl
+                    groupPinnedFrameUrl = groupPinnedFrameUrl,
+                    customPermissionPolicySet = permissionsPolicySet
                 )
             ) ?: throw XMTPException("Client does not support Groups")
         client.contacts.allowGroups(groupIds = listOf(group.id().toHex()))

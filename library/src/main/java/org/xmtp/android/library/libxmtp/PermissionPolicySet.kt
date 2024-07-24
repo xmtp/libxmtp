@@ -46,21 +46,41 @@ enum class GroupPermissionPreconfiguration {
     }
 }
 
-class PermissionPolicySet(private val ffiPermissionPolicySet: FfiPermissionPolicySet) {
-    val addMemberPolicy: PermissionOption
-        get() = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.addMemberPolicy)
-    val removeMemberPolicy: PermissionOption
-        get() = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.removeMemberPolicy)
-    val addAdminPolicy: PermissionOption
-        get() = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.addAdminPolicy)
-    val removeAdminPolicy: PermissionOption
-        get() = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.removeAdminPolicy)
-    val updateGroupNamePolicy: PermissionOption
-        get() = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.updateGroupNamePolicy)
-    val updateGroupDescriptionPolicy: PermissionOption
-        get() = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.updateGroupDescriptionPolicy)
-    val updateGroupImagePolicy: PermissionOption
-        get() = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.updateGroupImageUrlSquarePolicy)
-    val updateGroupPinnedFrameUrlPolicy: PermissionOption
-        get() = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.updateGroupPinnedFrameUrlPolicy)
+data class PermissionPolicySet(
+    val addMemberPolicy: PermissionOption,
+    val removeMemberPolicy: PermissionOption,
+    val addAdminPolicy: PermissionOption,
+    val removeAdminPolicy: PermissionOption,
+    val updateGroupNamePolicy: PermissionOption,
+    val updateGroupDescriptionPolicy: PermissionOption,
+    val updateGroupImagePolicy: PermissionOption,
+    val updateGroupPinnedFrameUrlPolicy: PermissionOption,
+) {
+    companion object {
+        fun toFfiPermissionPolicySet(permissionPolicySet: PermissionPolicySet): FfiPermissionPolicySet {
+            return FfiPermissionPolicySet(
+                addMemberPolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.addMemberPolicy),
+                removeMemberPolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.removeMemberPolicy),
+                addAdminPolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.addAdminPolicy),
+                removeAdminPolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.removeAdminPolicy),
+                updateGroupNamePolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.updateGroupNamePolicy),
+                updateGroupDescriptionPolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.updateGroupDescriptionPolicy),
+                updateGroupImageUrlSquarePolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.updateGroupImagePolicy),
+                updateGroupPinnedFrameUrlPolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.updateGroupPinnedFrameUrlPolicy)
+            )
+        }
+
+        fun fromFfiPermissionPolicySet(ffiPermissionPolicySet: FfiPermissionPolicySet): PermissionPolicySet {
+            return PermissionPolicySet(
+                addMemberPolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.addMemberPolicy),
+                removeMemberPolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.removeMemberPolicy),
+                addAdminPolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.addAdminPolicy),
+                removeAdminPolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.removeAdminPolicy),
+                updateGroupNamePolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.updateGroupNamePolicy),
+                updateGroupDescriptionPolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.updateGroupDescriptionPolicy),
+                updateGroupImagePolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.updateGroupImageUrlSquarePolicy),
+                updateGroupPinnedFrameUrlPolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.updateGroupPinnedFrameUrlPolicy),
+            )
+        }
+    }
 }

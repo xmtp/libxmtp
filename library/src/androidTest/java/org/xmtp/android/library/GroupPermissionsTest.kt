@@ -12,8 +12,10 @@ import org.xmtp.android.library.libxmtp.PermissionLevel
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
+import uniffi.xmtpv3.GenericException
 import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.GroupPermissionPreconfiguration
 import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.PermissionOption
+import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.PermissionPolicySet
 import java.security.SecureRandom
 
 @RunWith(AndroidJUnit4::class)
@@ -367,5 +369,86 @@ class GroupPermissionsTest {
         }
         assert(boGroup.pinnedFrameUrl == "new pinned frame url 2")
         assert(alixGroup.pinnedFrameUrl == "new pinned frame url 2")
+    }
+
+    @Test
+    fun canCreateGroupWithCustomPermissions() {
+        val permissionPolicySet = PermissionPolicySet(
+            addMemberPolicy = PermissionOption.Admin,
+            removeMemberPolicy = PermissionOption.Deny,
+            addAdminPolicy = PermissionOption.Admin,
+            removeAdminPolicy = PermissionOption.SuperAdmin,
+            updateGroupNamePolicy = PermissionOption.Admin,
+            updateGroupDescriptionPolicy = PermissionOption.Allow,
+            updateGroupImagePolicy = PermissionOption.Admin,
+            updateGroupPinnedFrameUrlPolicy = PermissionOption.Deny,
+        )
+        val boGroup = runBlocking {
+            boClient.conversations.newGroupCustomPermissions(
+                accountAddresses = listOf(alix.walletAddress, caro.walletAddress),
+                permissionPolicySet = permissionPolicySet,
+            )
+        }
+        runBlocking { alixClient.conversations.syncGroups() }
+        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
+
+        // Verify permission look correct
+        val alixPermissionSet = alixGroup.permissionPolicySet()
+        assert(alixPermissionSet.addMemberPolicy == PermissionOption.Admin)
+        assert(alixPermissionSet.removeMemberPolicy == PermissionOption.Deny)
+        assert(alixPermissionSet.addAdminPolicy == PermissionOption.Admin)
+        assert(alixPermissionSet.removeAdminPolicy == PermissionOption.SuperAdmin)
+        assert(alixPermissionSet.updateGroupNamePolicy == PermissionOption.Admin)
+        assert(alixPermissionSet.updateGroupDescriptionPolicy == PermissionOption.Allow)
+        assert(alixPermissionSet.updateGroupImagePolicy == PermissionOption.Admin)
+        assert(alixPermissionSet.updateGroupPinnedFrameUrlPolicy == PermissionOption.Deny)
+    }
+
+    @Test
+    fun createGroupWithInvalidCustomPermissionsFails() {
+        // Add/Remove Admin can not be allow
+        val permissionPolicySetInvalid = PermissionPolicySet(
+            addMemberPolicy = PermissionOption.Admin,
+            removeMemberPolicy = PermissionOption.Deny,
+            addAdminPolicy = PermissionOption.Admin,
+            removeAdminPolicy = PermissionOption.Allow,
+            updateGroupNamePolicy = PermissionOption.Admin,
+            updateGroupDescriptionPolicy = PermissionOption.Allow,
+            updateGroupImagePolicy = PermissionOption.Admin,
+            updateGroupPinnedFrameUrlPolicy = PermissionOption.Deny,
+        )
+
+        assertThrows(GenericException.GroupMutablePermissions::class.java) {
+            val boGroup = runBlocking {
+                boClient.conversations.newGroupCustomPermissions(
+                    accountAddresses = listOf(alix.walletAddress, caro.walletAddress),
+                    permissionPolicySet = permissionPolicySetInvalid,
+                )
+            }
+        }
+
+        val permissionPolicySetValid = PermissionPolicySet(
+            addMemberPolicy = PermissionOption.Admin,
+            removeMemberPolicy = PermissionOption.Deny,
+            addAdminPolicy = PermissionOption.Admin,
+            removeAdminPolicy = PermissionOption.SuperAdmin,
+            updateGroupNamePolicy = PermissionOption.Admin,
+            updateGroupDescriptionPolicy = PermissionOption.Allow,
+            updateGroupImagePolicy = PermissionOption.Admin,
+            updateGroupPinnedFrameUrlPolicy = PermissionOption.Deny,
+        )
+
+        // Valid custom policy works as expected
+        runBlocking { alixClient.conversations.syncGroups() }
+        assert(runBlocking { alixClient.conversations.listGroups() }.isEmpty())
+
+        val boGroup = runBlocking {
+            boClient.conversations.newGroupCustomPermissions(
+                accountAddresses = listOf(alix.walletAddress, caro.walletAddress),
+                permissionPolicySet = permissionPolicySetValid,
+            )
+        }
+        runBlocking { alixClient.conversations.syncGroups() }
+        assert(runBlocking { alixClient.conversations.listGroups() }.size == 1)
     }
 }

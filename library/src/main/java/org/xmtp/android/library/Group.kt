@@ -187,7 +187,7 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
     }
 
     fun permissionPolicySet(): PermissionPolicySet {
-        return PermissionPolicySet(permissions.policySet())
+        return PermissionPolicySet.fromFfiPermissionPolicySet(permissions.policySet())
     }
 
     fun creatorInboxId(): String {
