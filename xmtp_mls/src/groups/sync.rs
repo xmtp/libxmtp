@@ -216,17 +216,19 @@ impl MlsGroup {
         intent_id: i32,
         group_epoch: GroupEpoch,
         message_epoch: GroupEpoch,
+        max_past_epochs: usize,
     ) -> bool {
-        if message_epoch < group_epoch {
+        if message_epoch.as_u64() + max_past_epochs as u64 <= group_epoch.as_u64() {
             log::warn!(
-                "[{}] own message epoch {} is less than group epoch {} for intent {}. Retrying message",
+                "[{}] own message epoch {} is {} or more less than group epoch {} for intent {}. Retrying message",
                 inbox_id,
                 message_epoch,
+                max_past_epochs,
                 group_epoch,
                 intent_id
             );
             return false;
-        } else if message_epoch > group_epoch {
+        } else if message_epoch.as_u64() > group_epoch.as_u64() {
             // Should not happen, logging proactively
             log::error!(
                 "[{}] own message epoch {} is greater than group epoch {} for intent {}. Retrying message",
@@ -340,6 +342,7 @@ impl MlsGroup {
                     intent.id,
                     group_epoch,
                     message_epoch,
+                    3, // max_past_epochs, TODO: expose from OpenMLS MlsGroup
                 ) {
                     conn.set_group_intent_to_publish(intent.id)?;
                     return Ok(());
