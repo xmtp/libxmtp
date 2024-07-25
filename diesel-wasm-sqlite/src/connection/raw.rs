@@ -12,7 +12,7 @@
 // use super::{Sqlite, SqliteAggregateFunction};
 // use crate::deserialize::FromSqlRow;
 // use crate::result::Error::DatabaseError;
-use crate::sqlite_types::SqliteOpenFlags;
+use crate::{sqlite_types::SqliteOpenFlags, WasmSqliteError};
 use diesel::result::*;
 use diesel::serialize::ToSql;
 use diesel::sql_types::HasSqlType;
@@ -54,7 +54,8 @@ impl RawConnection {
             internal_connection: sqlite3
                 .open_v2(&database_url, Some(flags.bits() as i32))
                 .await
-                .unwrap(),
+                .map_err(WasmSqliteError::from)
+                .map_err(ConnectionError::from)?,
         })
     }
 

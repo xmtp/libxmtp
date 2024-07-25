@@ -15,7 +15,8 @@ async fn test_establish() {
         rng
     );
     */
-    let mut conn = WasmSqliteConnection::establish("test").await.unwrap();
+    let mut result = WasmSqliteConnection::establish("test").await;
+    let mut conn = result.unwrap();
     console::log_1(&"CONNECTED".into());
     // assert 1 == 2 is here b/c can't get --nocapture to work yet
     assert_eq!(1, 2);

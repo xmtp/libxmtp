@@ -1,4 +1,5 @@
 import * as WasmSQLiteLibrary from "@xmtp/wa-sqlite";
+import { OPFSCoopSyncVFS } from "@xmtp/wa-sqlite/vfs/OPFSCoopSync";
 import SQLiteESMFactory from "./node_modules/@xmtp/wa-sqlite/dist/wa-sqlite.mjs";
 import base64Wasm from "./node_modules/@xmtp/wa-sqlite/dist/wa-sqlite.wasm";
 
@@ -21,7 +22,7 @@ export class SQLite {
     if (typeof module === "undefined") {
       throw new Error("Cannot be called directly");
     }
-
+    this.module = module;
     this.sqlite3 = WasmSQLiteLibrary.Factory(module);
   }
 
@@ -65,10 +66,13 @@ export class SQLite {
   async open_v2(database_url, iflags) {
     try {
       console.log("Opening database!", database_url);
+      const vfs = await OPFSCoopSyncVFS.create(database_url, this.module);
+      this.sqlite3.vfs_register(vfs, true);
       let db = await this.sqlite3.open_v2(database_url, iflags);
       return db;
-    } catch {
-      console.log("openv2 error");
+    } catch (error) {
+      console.log("openv2 error", error);
+      throw error;
     }
   }
   

@@ -280,7 +280,7 @@ const SQLITE_PREPARE_NO_VTAB = 0x04;
 const MAX_INT64 = 0x7fffffffffffffffn;
 const MIN_INT64 = -0x8000000000000000n;
 
-const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+const AsyncFunction$1 = Object.getPrototypeOf(async function(){}).constructor;
 
 class SQLiteError extends Error {
   constructor(message, code) {
@@ -652,7 +652,7 @@ function Factory(Module) {
     
     // Convert SQLite callback arguments to JavaScript-friendly arguments.
     function adapt(f) {
-      return f instanceof AsyncFunction ?
+      return f instanceof AsyncFunction$1 ?
         (async (ctx, n, values) => f(ctx, Module.HEAP32.subarray(values / 4, values / 4 + n))) :
         ((ctx, n, values) => f(ctx, Module.HEAP32.subarray(values / 4, values / 4 + n)));
     }
@@ -891,7 +891,7 @@ function Factory(Module) {
         Module.UTF8ToString(p6)
       ];
     }    function adapt(f) {
-      return f instanceof AsyncFunction ?
+      return f instanceof AsyncFunction$1 ?
         (async (_, iAction, p3, p4, p5, p6) => f(cvtArgs(_, iAction, p3, p4, p5, p6))) :
         ((_, iAction, p3, p4, p5, p6) => f(cvtArgs(_, iAction, p3, p4, p5, p6)));
     }
@@ -1378,6 +1378,1313 @@ var WasmSQLiteLibrary = /*#__PURE__*/Object.freeze({
   SQLiteError: SQLiteError
 });
 
+// Copyright 2024 Roy T. Hashimoto. All Rights Reserved.
+
+const DEFAULT_SECTOR_SIZE = 512;
+
+// Base class for a VFS.
+class Base {
+  name;
+  mxPathname = 64;
+  _module;
+
+  /**
+   * @param {string} name 
+   * @param {object} module 
+   */
+  constructor(name, module) {
+    this.name = name;
+    this._module = module;
+  }
+
+  /**
+   * @returns {void|Promise<void>} 
+   */
+  close() {
+  }
+
+  /**
+   * @returns {boolean|Promise<boolean>}
+   */
+  isReady() {
+    return true;
+  }
+
+  /**
+   * Overload in subclasses to indicate which methods are asynchronous.
+   * @param {string} methodName 
+   * @returns {boolean}
+   */
+  hasAsyncMethod(methodName) {
+    return false;
+  }
+
+  /**
+   * @param {number} pVfs 
+   * @param {number} zName 
+   * @param {number} pFile 
+   * @param {number} flags 
+   * @param {number} pOutFlags 
+   * @returns {number|Promise<number>}
+   */
+  xOpen(pVfs, zName, pFile, flags, pOutFlags) {
+    return SQLITE_CANTOPEN;
+  }
+
+  /**
+   * @param {number} pVfs 
+   * @param {number} zName 
+   * @param {number} syncDir 
+   * @returns {number|Promise<number>}
+   */
+  xDelete(pVfs, zName, syncDir) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pVfs 
+   * @param {number} zName 
+   * @param {number} flags 
+   * @param {number} pResOut 
+   * @returns {number|Promise<number>}
+   */
+  xAccess(pVfs, zName, flags, pResOut) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pVfs 
+   * @param {number} zName 
+   * @param {number} nOut 
+   * @param {number} zOut 
+   * @returns {number|Promise<number>}
+   */
+  xFullPathname(pVfs, zName, nOut, zOut) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pVfs 
+   * @param {number} nBuf 
+   * @param {number} zBuf 
+   * @returns {number|Promise<number>}
+   */
+  xGetLastError(pVfs, nBuf, zBuf) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @returns {number|Promise<number>}
+   */
+  xClose(pFile) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} pData 
+   * @param {number} iAmt 
+   * @param {number} iOffsetLo 
+   * @param {number} iOffsetHi 
+   * @returns {number|Promise<number>}
+   */
+  xRead(pFile, pData, iAmt, iOffsetLo, iOffsetHi) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} pData 
+   * @param {number} iAmt 
+   * @param {number} iOffsetLo 
+   * @param {number} iOffsetHi 
+   * @returns {number|Promise<number>}
+   */
+  xWrite(pFile, pData, iAmt, iOffsetLo, iOffsetHi) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} sizeLo 
+   * @param {number} sizeHi 
+   * @returns {number|Promise<number>}
+   */
+  xTruncate(pFile, sizeLo, sizeHi) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} flags 
+   * @returns {number|Promise<number>}
+   */
+  xSync(pFile, flags) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * 
+   * @param {number} pFile 
+   * @param {number} pSize 
+   * @returns {number|Promise<number>}
+   */
+  xFileSize(pFile, pSize) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} lockType 
+   * @returns {number|Promise<number>}
+   */
+  xLock(pFile, lockType) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} lockType 
+   * @returns {number|Promise<number>}
+   */
+  xUnlock(pFile, lockType) {
+    return SQLITE_OK;
+  } 
+
+  /**
+   * @param {number} pFile 
+   * @param {number} pResOut 
+   * @returns {number|Promise<number>}
+   */
+  xCheckReservedLock(pFile, pResOut) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} op 
+   * @param {number} pArg 
+   * @returns {number|Promise<number>}
+   */
+  xFileControl(pFile, op, pArg) {
+    return SQLITE_NOTFOUND;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @returns {number|Promise<number>}
+   */
+  xSectorSize(pFile) {
+    return DEFAULT_SECTOR_SIZE;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @returns {number|Promise<number>}
+   */
+  xDeviceCharacteristics(pFile) {
+    return 0;
+  }
+}
+
+// Copyright 2024 Roy T. Hashimoto. All Rights Reserved.
+
+const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+
+// Convenience base class for a JavaScript VFS.
+// The raw xOpen, xRead, etc. function signatures receive only C primitives
+// which aren't easy to work with. This class provides corresponding calls
+// like jOpen, jRead, etc., which receive JavaScript-friendlier arguments
+// such as string, Uint8Array, and DataView.
+class FacadeVFS extends Base {
+  /**
+   * @param {string} name 
+   * @param {object} module 
+   */
+  constructor(name, module) {
+    super(name, module);
+  }
+
+  /**
+   * Override to indicate which methods are asynchronous.
+   * @param {string} methodName 
+   * @returns {boolean}
+   */
+  hasAsyncMethod(methodName) {
+    // The input argument is a string like "xOpen", so convert to "jOpen".
+    // Then check if the method exists and is async.
+    const jMethodName = `j${methodName.slice(1)}`;
+    return this[jMethodName] instanceof AsyncFunction;
+  }
+  
+  /**
+   * Return the filename for a file id for use by mixins.
+   * @param {number} pFile 
+   * @returns {string}
+   */
+  getFilename(pFile) {
+    throw new Error('unimplemented');
+  }
+
+  /**
+   * @param {string?} filename 
+   * @param {number} pFile 
+   * @param {number} flags 
+   * @param {DataView} pOutFlags 
+   * @returns {number|Promise<number>}
+   */
+  jOpen(filename, pFile, flags, pOutFlags) {
+    return SQLITE_CANTOPEN;
+  }
+
+  /**
+   * @param {string} filename 
+   * @param {number} syncDir 
+   * @returns {number|Promise<number>}
+   */
+  jDelete(filename, syncDir) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {string} filename 
+   * @param {number} flags 
+   * @param {DataView} pResOut 
+   * @returns {number|Promise<number>}
+   */
+  jAccess(filename, flags, pResOut) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {string} filename 
+   * @param {Uint8Array} zOut 
+   * @returns {number|Promise<number>}
+   */
+  jFullPathname(filename, zOut) {
+    // Copy the filename to the output buffer.
+    const { read, written } = new TextEncoder().encodeInto(filename, zOut);
+    if (read < filename.length) return SQLITE_IOERR;
+    if (written >= zOut.length) return SQLITE_IOERR;
+    zOut[written] = 0;
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {Uint8Array} zBuf 
+   * @returns {number|Promise<number>}
+   */
+  jGetLastError(zBuf) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @returns {number|Promise<number>}
+   */
+  jClose(pFile) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {Uint8Array} pData 
+   * @param {number} iOffset 
+   * @returns {number|Promise<number>}
+   */
+  jRead(pFile, pData, iOffset) {
+    pData.fill(0);
+    return SQLITE_IOERR_SHORT_READ;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {Uint8Array} pData 
+   * @param {number} iOffset 
+   * @returns {number|Promise<number>}
+   */
+  jWrite(pFile, pData, iOffset) {
+    return SQLITE_IOERR_WRITE;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} size 
+   * @returns {number|Promise<number>}
+   */
+  jTruncate(pFile, size) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} flags 
+   * @returns {number|Promise<number>}
+   */
+  jSync(pFile, flags) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {DataView} pSize
+   * @returns {number|Promise<number>}
+   */
+  jFileSize(pFile, pSize) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} lockType 
+   * @returns {number|Promise<number>}
+   */
+  jLock(pFile, lockType) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} lockType 
+   * @returns {number|Promise<number>}
+   */
+  jUnlock(pFile, lockType) {
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {DataView} pResOut 
+   * @returns {number|Promise<number>}
+   */
+  jCheckReservedLock(pFile, pResOut) {
+    pResOut.setInt32(0, 0, true);
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} pFile
+   * @param {number} op
+   * @param {DataView} pArg
+   * @returns {number|Promise<number>}
+   */
+  jFileControl(pFile, op, pArg) {
+    return SQLITE_NOTFOUND;
+  }
+
+  /**
+   * @param {number} pFile
+   * @returns {number|Promise<number>}
+   */
+  jSectorSize(pFile) {
+    return super.xSectorSize(pFile);
+  }
+
+  /**
+   * @param {number} pFile
+   * @returns {number|Promise<number>}
+   */
+  jDeviceCharacteristics(pFile) {
+    return 0;
+  }
+
+  /**
+   * @param {number} pVfs 
+   * @param {number} zName 
+   * @param {number} pFile 
+   * @param {number} flags 
+   * @param {number} pOutFlags 
+   * @returns {number|Promise<number>}
+   */
+  xOpen(pVfs, zName, pFile, flags, pOutFlags) {
+    const filename = this.#decodeFilename(zName, flags);
+    const pOutFlagsView = this.#makeTypedDataView('Int32', pOutFlags);
+    this['log']?.('jOpen', filename, pFile, '0x' + flags.toString(16));
+    return this.jOpen(filename, pFile, flags, pOutFlagsView);
+  }
+
+  /**
+   * @param {number} pVfs 
+   * @param {number} zName 
+   * @param {number} syncDir 
+   * @returns {number|Promise<number>}
+   */
+  xDelete(pVfs, zName, syncDir) {
+    const filename = this._module.UTF8ToString(zName);
+    this['log']?.('jDelete', filename, syncDir);
+    return this.jDelete(filename, syncDir);
+  }
+
+  /**
+   * @param {number} pVfs 
+   * @param {number} zName 
+   * @param {number} flags 
+   * @param {number} pResOut 
+   * @returns {number|Promise<number>}
+   */
+  xAccess(pVfs, zName, flags, pResOut) {
+    const filename = this._module.UTF8ToString(zName);
+    const pResOutView = this.#makeTypedDataView('Int32', pResOut);
+    this['log']?.('jAccess', filename, flags);
+    return this.jAccess(filename, flags, pResOutView);
+  }
+
+  /**
+   * @param {number} pVfs 
+   * @param {number} zName 
+   * @param {number} nOut 
+   * @param {number} zOut 
+   * @returns {number|Promise<number>}
+   */
+  xFullPathname(pVfs, zName, nOut, zOut) {
+    const filename = this._module.UTF8ToString(zName);
+    const zOutArray = this._module.HEAPU8.subarray(zOut, zOut + nOut);
+    this['log']?.('jFullPathname', filename, nOut);
+    return this.jFullPathname(filename, zOutArray);
+  }
+
+  /**
+   * @param {number} pVfs 
+   * @param {number} nBuf 
+   * @param {number} zBuf 
+   * @returns {number|Promise<number>}
+   */
+  xGetLastError(pVfs, nBuf, zBuf) {
+    const zBufArray = this._module.HEAPU8.subarray(zBuf, zBuf + nBuf);
+    this['log']?.('jGetLastError', nBuf);
+    return this.jGetLastError(zBufArray);
+  }
+
+  /**
+   * @param {number} pFile 
+   * @returns {number|Promise<number>}
+   */
+  xClose(pFile) {
+    this['log']?.('jClose', pFile);
+    return this.jClose(pFile);
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} pData 
+   * @param {number} iAmt 
+   * @param {number} iOffsetLo 
+   * @param {number} iOffsetHi 
+   * @returns {number|Promise<number>}
+   */
+  xRead(pFile, pData, iAmt, iOffsetLo, iOffsetHi) {
+    const pDataArray = this.#makeDataArray(pData, iAmt);
+    const iOffset = delegalize(iOffsetLo, iOffsetHi);
+    this['log']?.('jRead', pFile, iAmt, iOffset);
+    return this.jRead(pFile, pDataArray, iOffset);
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} pData 
+   * @param {number} iAmt 
+   * @param {number} iOffsetLo 
+   * @param {number} iOffsetHi 
+   * @returns {number|Promise<number>}
+   */
+  xWrite(pFile, pData, iAmt, iOffsetLo, iOffsetHi) {
+    const pDataArray = this.#makeDataArray(pData, iAmt);
+    const iOffset = delegalize(iOffsetLo, iOffsetHi);
+    this['log']?.('jWrite', pFile, pDataArray, iOffset);
+    return this.jWrite(pFile, pDataArray, iOffset);
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} sizeLo 
+   * @param {number} sizeHi 
+   * @returns {number|Promise<number>}
+   */
+  xTruncate(pFile, sizeLo, sizeHi) {
+    const size = delegalize(sizeLo, sizeHi);
+    this['log']?.('jTruncate', pFile, size);
+    return this.jTruncate(pFile, size);
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} flags 
+   * @returns {number|Promise<number>}
+   */
+  xSync(pFile, flags) {
+    this['log']?.('jSync', pFile, flags);
+    return this.jSync(pFile, flags);
+  }
+
+  /**
+   * 
+   * @param {number} pFile 
+   * @param {number} pSize 
+   * @returns {number|Promise<number>}
+   */
+  xFileSize(pFile, pSize) {
+    const pSizeView = this.#makeTypedDataView('BigInt64', pSize);
+    this['log']?.('jFileSize', pFile);
+    return this.jFileSize(pFile, pSizeView);
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} lockType 
+   * @returns {number|Promise<number>}
+   */
+  xLock(pFile, lockType) {
+    this['log']?.('jLock', pFile, lockType);
+    return this.jLock(pFile, lockType);
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} lockType 
+   * @returns {number|Promise<number>}
+   */
+  xUnlock(pFile, lockType) {
+    this['log']?.('jUnlock', pFile, lockType);
+    return this.jUnlock(pFile, lockType);
+  } 
+
+  /**
+   * @param {number} pFile 
+   * @param {number} pResOut 
+   * @returns {number|Promise<number>}
+   */
+  xCheckReservedLock(pFile, pResOut) {
+    const pResOutView = this.#makeTypedDataView('Int32', pResOut);
+    this['log']?.('jCheckReservedLock', pFile);
+    return this.jCheckReservedLock(pFile, pResOutView);
+  }
+
+  /**
+   * @param {number} pFile 
+   * @param {number} op 
+   * @param {number} pArg 
+   * @returns {number|Promise<number>}
+   */
+  xFileControl(pFile, op, pArg) {
+    const pArgView = new DataView(
+      this._module.HEAPU8.buffer,
+      this._module.HEAPU8.byteOffset + pArg);
+    this['log']?.('jFileControl', pFile, op, pArgView);
+    return this.jFileControl(pFile, op, pArgView);
+  }
+
+  /**
+   * @param {number} pFile 
+   * @returns {number|Promise<number>}
+   */
+  xSectorSize(pFile) {
+    this['log']?.('jSectorSize', pFile);
+    return this.jSectorSize(pFile);
+  }
+
+  /**
+   * @param {number} pFile 
+   * @returns {number|Promise<number>}
+   */
+  xDeviceCharacteristics(pFile) {
+    this['log']?.('jDeviceCharacteristics', pFile);
+    return this.jDeviceCharacteristics(pFile);
+  }
+
+  /**
+   * Wrapped DataView for pointer arguments.
+   * Pointers to a single value are passed using DataView. A Proxy
+   * wrapper prevents use of incorrect type or endianness.
+   * @param {'Int32'|'BigInt64'} type 
+   * @param {number} byteOffset 
+   * @returns {DataView}
+   */
+  #makeTypedDataView(type, byteOffset) {
+    const byteLength = type === 'Int32' ? 4 : 8;
+    const getter = `get${type}`;
+    const setter = `set${type}`;
+    const makeDataView = () => new DataView(
+      this._module.HEAPU8.buffer,
+      this._module.HEAPU8.byteOffset + byteOffset,
+      byteLength);
+    let dataView = makeDataView();
+    return new Proxy(dataView, {
+      get(_, prop) {
+        if (dataView.buffer.byteLength === 0) {
+          // WebAssembly memory resize detached the buffer.
+          dataView = makeDataView();
+        }
+        if (prop === getter) {
+          return function(byteOffset, littleEndian) {
+            if (!littleEndian) throw new Error('must be little endian');
+            return dataView[prop](byteOffset, littleEndian);
+          }
+        }
+        if (prop === setter) {
+          return function(byteOffset, value, littleEndian) {
+            if (!littleEndian) throw new Error('must be little endian');
+            return dataView[prop](byteOffset, value, littleEndian);
+          }
+        }
+        if (typeof prop === 'string' && (prop.match(/^(get)|(set)/))) {
+          throw new Error('invalid type');
+        }
+        const result = dataView[prop];
+        return typeof result === 'function' ? result.bind(dataView) : result;
+      }
+    });
+  }
+
+  /**
+   * @param {number} byteOffset 
+   * @param {number} byteLength 
+   */
+  #makeDataArray(byteOffset, byteLength) {
+    let target = this._module.HEAPU8.subarray(byteOffset, byteOffset + byteLength);
+    return new Proxy(target, {
+      get: (_, prop, receiver) => {
+        if (target.buffer.byteLength === 0) {
+          // WebAssembly memory resize detached the buffer.
+          target = this._module.HEAPU8.subarray(byteOffset, byteOffset + byteLength);
+        }
+        const result = target[prop];
+        return typeof result === 'function' ? result.bind(target) : result;
+      }
+    });
+  }
+
+  #decodeFilename(zName, flags) {
+    if (flags & SQLITE_OPEN_URI) {
+      // The first null-terminated string is the URI path. Subsequent
+      // strings are query parameter keys and values.
+      // https://www.sqlite.org/c3ref/open.html#urifilenamesinsqlite3open
+      let pName = zName;
+      let state = 1;
+      const charCodes = [];
+      while (state) {
+        const charCode = this._module.HEAPU8[pName++];
+        if (charCode) {
+          charCodes.push(charCode);
+        } else {
+          if (!this._module.HEAPU8[pName]) state = null;
+          switch (state) {
+            case 1: // path
+              charCodes.push('?'.charCodeAt(0));
+              state = 2;
+              break;
+            case 2: // key
+              charCodes.push('='.charCodeAt(0));
+              state = 3;
+              break;
+            case 3: // value
+              charCodes.push('&'.charCodeAt(0));
+              state = 2;
+              break;
+          }
+        }
+      }
+      return  new TextDecoder().decode(new Uint8Array(charCodes));
+    }
+    return zName ? this._module.UTF8ToString(zName) : null;
+  }
+}
+
+// Emscripten "legalizes" 64-bit integer arguments by passing them as
+// two 32-bit signed integers.
+function delegalize(lo32, hi32) {
+  return (hi32 * 0x100000000) + lo32 + (lo32 < 0 ? 2**32 : 0);
+}
+
+// Copyright 2024 Roy T. Hashimoto. All Rights Reserved.
+
+const DEFAULT_TEMPORARY_FILES = 10;
+const LOCK_NOTIFY_INTERVAL = 1000;
+
+const DB_RELATED_FILE_SUFFIXES = ['', '-journal', '-wal'];
+
+const finalizationRegistry = new FinalizationRegistry(releaser => releaser());
+
+class File {
+  /** @type {string} */ path
+  /** @type {number} */ flags;
+  /** @type {FileSystemSyncAccessHandle} */ accessHandle;
+
+  /** @type {PersistentFile?} */ persistentFile;
+
+  constructor(path, flags) {
+    this.path = path;
+    this.flags = flags;
+  }
+}
+
+class PersistentFile {
+  /** @type {FileSystemFileHandle} */ fileHandle
+  /** @type {FileSystemSyncAccessHandle} */ accessHandle = null
+
+  // The following properties are for main database files.
+
+  /** @type {boolean} */ isLockBusy = false;
+  /** @type {boolean} */ isFileLocked = false;
+  /** @type {boolean} */ isRequestInProgress = false;
+  /** @type {function} */ handleLockReleaser = null;
+
+  /** @type {BroadcastChannel} */ handleRequestChannel;
+  /** @type {boolean} */ isHandleRequested = false;
+
+  constructor(fileHandle) {
+    this.fileHandle = fileHandle;
+  }
+}
+
+class OPFSCoopSyncVFS extends FacadeVFS {
+  /** @type {Map<number, File>} */ mapIdToFile = new Map();
+
+  lastError = null;
+  log = null; //function(...args) { console.log(`[${contextName}]`, ...args) };
+  
+  /** @type {Map<string, PersistentFile>} */ persistentFiles = new Map();
+  /** @type {Map<string, FileSystemSyncAccessHandle>} */ boundAccessHandles = new Map();
+  /** @type {Set<FileSystemSyncAccessHandle>} */ unboundAccessHandles = new Set();
+  /** @type {Set<string>} */ accessiblePaths = new Set();
+  releaser = null;
+
+  static async create(name, module) {
+    const vfs = new OPFSCoopSyncVFS(name, module);
+    await Promise.all([
+      vfs.isReady(),
+      vfs.#initialize(DEFAULT_TEMPORARY_FILES),
+    ]);
+    return vfs;
+  }
+
+  constructor(name, module) {
+    super(name, module);
+  }
+
+  async #initialize(nTemporaryFiles) {
+    // Delete temporary directories no longer in use.
+    const root = await navigator.storage.getDirectory();
+    // @ts-ignore
+    for await (const entry of root.values()) {
+      if (entry.kind === 'directory' && entry.name.startsWith('.ahp-')) {
+        // A lock with the same name as the directory protects it from
+        // being deleted.
+        await navigator.locks.request(entry.name, { ifAvailable: true }, async lock => {
+          if (lock) {
+            this.log?.(`Deleting temporary directory ${entry.name}`);
+            await root.removeEntry(entry.name, { recursive: true });
+          } else {
+            this.log?.(`Temporary directory ${entry.name} is in use`);
+          }
+        });
+      }
+    }
+
+    // Create our temporary directory.
+    const tmpDirName = `.ahp-${Math.random().toString(36).slice(2)}`;
+    this.releaser = await new Promise(resolve => {
+      navigator.locks.request(tmpDirName, () => {
+        return new Promise(release => {
+          resolve(release);
+        });
+      });
+    });
+    finalizationRegistry.register(this, this.releaser);
+    const tmpDir = await root.getDirectoryHandle(tmpDirName, { create: true });
+
+    // Populate temporary directory.
+    for (let i = 0; i < nTemporaryFiles; i++) {
+      const tmpFile = await tmpDir.getFileHandle(`${i}.tmp`, { create: true });
+      const tmpAccessHandle = await tmpFile.createSyncAccessHandle();
+      this.unboundAccessHandles.add(tmpAccessHandle);
+    }
+  }
+
+  /**
+   * @param {string?} zName 
+   * @param {number} fileId 
+   * @param {number} flags 
+   * @param {DataView} pOutFlags 
+   * @returns {number}
+   */
+  jOpen(zName, fileId, flags, pOutFlags) {
+    try {
+      const url = new URL(zName || Math.random().toString(36).slice(2), 'file://');
+      const path = url.pathname;
+
+      if (flags & SQLITE_OPEN_MAIN_DB) {
+        const persistentFile = this.persistentFiles.get(path);
+        if (persistentFile?.isRequestInProgress) {
+          // Should not reach here unless SQLite itself retries an open.
+          // Otherwise, asynchronous operations started on a previous
+          // open try should have completed.
+          return SQLITE_BUSY;
+        } else if (!persistentFile) {
+          // This is the usual starting point for opening a database.
+          // Register a Promise that resolves when the database and related
+          // files are ready to be used.
+          this.log?.(`creating persistent file for ${path}`);
+          const create = !!(flags & SQLITE_OPEN_CREATE);
+          this._module.retryOps.push((async () => {
+            try {
+              // Get the path directory handle.
+              let dirHandle = await navigator.storage.getDirectory();
+              const directories = path.split('/').filter(d => d);
+              const filename = directories.pop();
+              for (const directory of directories) {
+                dirHandle = await dirHandle.getDirectoryHandle(directory, { create });
+              }
+
+              // Get file handles for the database and related files,
+              // and create persistent file instances.
+              for (const suffix of DB_RELATED_FILE_SUFFIXES) {
+                const fileHandle = await dirHandle.getFileHandle(filename + suffix, { create });
+                await this.#createPersistentFile(fileHandle);
+              }
+
+              // Get access handles for the files.
+              const file = new File(path, flags);
+              file.persistentFile = this.persistentFiles.get(path);
+              await this.#requestAccessHandle(file);
+            } catch (e) {
+              // Use an invalid persistent file to signal this error
+              // for the retried open.
+              const persistentFile = new PersistentFile(null);
+              this.persistentFiles.set(path, persistentFile);
+              console.error(e);
+            }
+          })());
+          return SQLITE_BUSY;
+        } else if (!persistentFile.fileHandle) {
+          // The asynchronous open operation failed.
+          this.persistentFiles.delete(path);
+          return SQLITE_CANTOPEN;
+        } else if (!persistentFile.accessHandle) {
+          // This branch is reached if the database was previously opened
+          // and closed.
+          this._module.retryOps.push((async () => {
+            const file = new File(path, flags);
+            file.persistentFile = this.persistentFiles.get(path);
+            await this.#requestAccessHandle(file);
+          })());
+          return SQLITE_BUSY;
+        }
+      }
+
+      if (!this.accessiblePaths.has(path) &&
+          !(flags & SQLITE_OPEN_CREATE)) {
+        throw new Error(`File ${path} not found`);
+      }
+
+      const file = new File(path, flags);
+      this.mapIdToFile.set(fileId, file);
+
+      if (this.persistentFiles.has(path)) {
+        file.persistentFile = this.persistentFiles.get(path);
+      } else if (this.boundAccessHandles.has(path)) {
+        // This temporary file was previously created and closed. Reopen
+        // the same access handle.
+        file.accessHandle = this.boundAccessHandles.get(path);
+      } else if (this.unboundAccessHandles.size) {
+        // Associate an unbound access handle to this file.
+        file.accessHandle = this.unboundAccessHandles.values().next().value;
+        file.accessHandle.truncate(0);
+        this.unboundAccessHandles.delete(file.accessHandle);
+        this.boundAccessHandles.set(path, file.accessHandle);
+      }
+      this.accessiblePaths.add(path);
+  
+      pOutFlags.setInt32(0, flags, true);
+      return SQLITE_OK;
+    } catch (e) {
+      this.lastError = e;
+      return SQLITE_CANTOPEN;
+    }
+  }
+
+  /**
+   * @param {string} zName 
+   * @param {number} syncDir 
+   * @returns {number}
+   */
+  jDelete(zName, syncDir) {
+    try {
+      const url = new URL(zName, 'file://');
+      const path = url.pathname;
+      if (this.persistentFiles.has(path)) {
+        const persistentFile = this.persistentFiles.get(path);
+        persistentFile.accessHandle.truncate(0);
+      } else {
+        this.boundAccessHandles.get(path)?.truncate(0);
+      }
+      this.accessiblePaths.delete(path);
+      return SQLITE_OK;
+    } catch (e) {
+      this.lastError = e;
+      return SQLITE_IOERR_DELETE;
+    }
+  }
+
+  /**
+   * @param {string} zName 
+   * @param {number} flags 
+   * @param {DataView} pResOut 
+   * @returns {number}
+   */
+  jAccess(zName, flags, pResOut) {
+    try {
+      const url = new URL(zName, 'file://');
+      const path = url.pathname;
+      pResOut.setInt32(0, this.accessiblePaths.has(path) ? 1 : 0, true);
+      return SQLITE_OK;
+    } catch (e) {
+      this.lastError = e;
+      return SQLITE_IOERR_ACCESS;
+    } 
+  }
+
+  /**
+   * @param {number} fileId 
+   * @returns {number}
+   */
+  jClose(fileId) {
+    try {
+      const file = this.mapIdToFile.get(fileId);
+      this.mapIdToFile.delete(fileId);
+
+      if (file?.flags & SQLITE_OPEN_MAIN_DB) {
+        if (file.persistentFile?.handleLockReleaser) {
+          this.#releaseAccessHandle(file);
+        }
+      } else if (file?.flags & SQLITE_OPEN_DELETEONCLOSE) {
+        file.accessHandle.truncate(0);
+        this.accessiblePaths.delete(file.path);
+        if (!this.persistentFiles.has(file.path)) {
+          this.boundAccessHandles.delete(file.path);
+          this.unboundAccessHandles.add(file.accessHandle);
+        }
+      }
+      return SQLITE_OK;
+    } catch (e) {
+      this.lastError = e;
+      return SQLITE_IOERR_CLOSE;
+    }
+  }
+
+  /**
+   * @param {number} fileId 
+   * @param {Uint8Array} pData 
+   * @param {number} iOffset
+   * @returns {number}
+   */
+  jRead(fileId, pData, iOffset) {
+    try {
+      const file = this.mapIdToFile.get(fileId);
+
+      // On Chrome (at least), passing pData to accessHandle.read() is
+      // an error because pData is a Proxy of a Uint8Array. Calling
+      // subarray() produces a real Uint8Array and that works.
+      const accessHandle = file.accessHandle || file.persistentFile.accessHandle;
+      const bytesRead = accessHandle.read(pData.subarray(), { at: iOffset });
+
+      // Opening a database file performs one read without a xLock call.
+      if ((file.flags & SQLITE_OPEN_MAIN_DB) && !file.persistentFile.isFileLocked) {
+        this.#releaseAccessHandle(file);
+      }
+
+      if (bytesRead < pData.byteLength) {
+        pData.fill(0, bytesRead);
+        return SQLITE_IOERR_SHORT_READ;
+      }
+      return SQLITE_OK;
+    } catch (e) {
+      this.lastError = e;
+      return SQLITE_IOERR_READ;
+    }
+  }
+
+  /**
+   * @param {number} fileId 
+   * @param {Uint8Array} pData 
+   * @param {number} iOffset
+   * @returns {number}
+   */
+  jWrite(fileId, pData, iOffset) {
+    try {
+      const file = this.mapIdToFile.get(fileId);
+
+      // On Chrome (at least), passing pData to accessHandle.write() is
+      // an error because pData is a Proxy of a Uint8Array. Calling
+      // subarray() produces a real Uint8Array and that works.
+      const accessHandle = file.accessHandle || file.persistentFile.accessHandle;
+      const nBytes = accessHandle.write(pData.subarray(), { at: iOffset });
+      if (nBytes !== pData.byteLength) throw new Error('short write');
+      return SQLITE_OK;
+    } catch (e) {
+      this.lastError = e;
+      return SQLITE_IOERR_WRITE;
+    }
+  }
+
+  /**
+   * @param {number} fileId 
+   * @param {number} iSize 
+   * @returns {number}
+   */
+  jTruncate(fileId, iSize) {
+    try {
+      const file = this.mapIdToFile.get(fileId);
+      const accessHandle = file.accessHandle || file.persistentFile.accessHandle;
+      accessHandle.truncate(iSize);
+      return SQLITE_OK;
+    } catch (e) {
+      this.lastError = e;
+      return SQLITE_IOERR_TRUNCATE;
+    }
+  }
+
+  /**
+   * @param {number} fileId 
+   * @param {number} flags 
+   * @returns {number}
+   */
+  jSync(fileId, flags) {
+    try {
+      const file = this.mapIdToFile.get(fileId);
+      const accessHandle = file.accessHandle || file.persistentFile.accessHandle;
+      accessHandle.flush();
+      return SQLITE_OK;
+    } catch (e) {
+      this.lastError = e;
+      return SQLITE_IOERR_FSYNC;
+    }
+  }
+
+  /**
+   * @param {number} fileId 
+   * @param {DataView} pSize64 
+   * @returns {number}
+   */
+  jFileSize(fileId, pSize64) {
+    try {
+      const file = this.mapIdToFile.get(fileId);
+      const accessHandle = file.accessHandle || file.persistentFile.accessHandle;
+      const size = accessHandle.getSize();
+      pSize64.setBigInt64(0, BigInt(size), true);
+      return SQLITE_OK;
+    } catch (e) {
+      this.lastError = e;
+      return SQLITE_IOERR_FSTAT;
+    }
+  }
+
+  /**
+   * @param {number} fileId 
+   * @param {number} lockType 
+   * @returns {number}
+   */
+  jLock(fileId, lockType) {
+    const file = this.mapIdToFile.get(fileId);
+    if (file.persistentFile.isRequestInProgress) {
+      file.persistentFile.isLockBusy = true;
+      return SQLITE_BUSY;
+    }
+
+    file.persistentFile.isFileLocked = true;
+    if (!file.persistentFile.handleLockReleaser) {
+      // Start listening for notifications from other connections.
+      // This is before we actually get access handles, but waiting to
+      // listen until then allows a race condition where notifications
+      // are missed. 
+      file.persistentFile.handleRequestChannel.onmessage = () => {
+        this.log?.(`received notification for ${file.path}`);
+        if (file.persistentFile.isFileLocked) {
+          // We're still using the access handle, so mark it to be
+          // released when we're done.
+          file.persistentFile.isHandleRequested = true;
+        } else {
+          // Release the access handles immediately.
+          this.#releaseAccessHandle(file);
+        }
+        file.persistentFile.handleRequestChannel.onmessage = null;
+      };
+
+      this.#requestAccessHandle(file);
+      this.log?.('returning SQLITE_BUSY');
+      file.persistentFile.isLockBusy = true;
+      return SQLITE_BUSY;
+    }
+    file.persistentFile.isLockBusy = false;
+    return SQLITE_OK;
+  }
+
+  /**
+   * @param {number} fileId 
+   * @param {number} lockType 
+   * @returns {number}
+   */
+  jUnlock(fileId, lockType) {
+    const file = this.mapIdToFile.get(fileId);
+    if (lockType === SQLITE_LOCK_NONE) {
+      // Don't change any state if this unlock is because xLock returned
+      // SQLITE_BUSY.
+      if (!file.persistentFile.isLockBusy) {
+        if (file.persistentFile.isHandleRequested) {
+            // Another connection wants the access handle.
+          this.#releaseAccessHandle(file);
+          this.isHandleRequested = false;
+        }
+        file.persistentFile.isFileLocked = false;
+      }
+    }
+    return SQLITE_OK;
+  }
+  
+  /**
+   * @param {number} fileId
+   * @param {number} op
+   * @param {DataView} pArg
+   * @returns {number|Promise<number>}
+   */
+  jFileControl(fileId, op, pArg) {
+    try {
+      const file = this.mapIdToFile.get(fileId);
+      switch (op) {
+        case SQLITE_FCNTL_PRAGMA:
+          const key = extractString(pArg, 4);
+          const value = extractString(pArg, 8);
+          this.log?.('xFileControl', file.path, 'PRAGMA', key, value);
+          switch (key.toLowerCase()) {
+            case 'journal_mode':
+              if (value &&
+                  !['off', 'memory', 'delete', 'wal'].includes(value.toLowerCase())) {
+                throw new Error('journal_mode must be "off", "memory", "delete", or "wal"');
+              }
+              break;
+          }
+          break;
+      }
+    } catch (e) {
+      this.lastError = e;
+      return SQLITE_IOERR;
+    }
+    return SQLITE_NOTFOUND;
+  }
+
+  /**
+   * @param {Uint8Array} zBuf 
+   * @returns 
+   */
+  jGetLastError(zBuf) {
+    if (this.lastError) {
+      console.error(this.lastError);
+      const outputArray = zBuf.subarray(0, zBuf.byteLength - 1);
+      const { written } = new TextEncoder().encodeInto(this.lastError.message, outputArray);
+      zBuf[written] = 0;
+    }
+    return SQLITE_OK
+  }
+
+  /**
+   * @param {FileSystemFileHandle} fileHandle 
+   * @returns {Promise<PersistentFile>}
+   */
+  async #createPersistentFile(fileHandle) {
+    const persistentFile = new PersistentFile(fileHandle);
+    const root = await navigator.storage.getDirectory();
+    const relativePath = await root.resolve(fileHandle);
+    const path = `/${relativePath.join('/')}`;
+    persistentFile.handleRequestChannel = new BroadcastChannel(`ahp:${path}`);
+    this.persistentFiles.set(path, persistentFile);
+
+    const f = await fileHandle.getFile();
+    if (f.size) {
+      this.accessiblePaths.add(path);
+    }
+    return persistentFile;
+  }
+
+  /**
+   * @param {File} file 
+   */
+  #requestAccessHandle(file) {
+    console.assert(!file.persistentFile.handleLockReleaser);
+    if (!file.persistentFile.isRequestInProgress) {
+      file.persistentFile.isRequestInProgress = true;
+      this._module.retryOps.push((async () => {
+        // Acquire the Web Lock.
+        file.persistentFile.handleLockReleaser = await this.#acquireLock(file.persistentFile);
+
+        // Get access handles for the database and releated files in parallel.
+        this.log?.(`creating access handles for ${file.path}`);
+        await Promise.all(DB_RELATED_FILE_SUFFIXES.map(async suffix => {
+          const persistentFile = this.persistentFiles.get(file.path + suffix);
+          if (persistentFile) {
+            persistentFile.accessHandle =
+              await persistentFile.fileHandle.createSyncAccessHandle();
+          }
+        }));
+        file.persistentFile.isRequestInProgress = false;
+      })());
+      return this._module.retryOps.at(-1);
+    }
+    return Promise.resolve();
+  }
+
+  /**
+   * @param {File} file 
+   */
+  async #releaseAccessHandle(file) {
+    DB_RELATED_FILE_SUFFIXES.forEach(async suffix => {
+      const persistentFile = this.persistentFiles.get(file.path + suffix);
+      if (persistentFile) {
+        persistentFile.accessHandle?.close();
+        persistentFile.accessHandle = null;
+      }
+    });
+    this.log?.(`access handles closed for ${file.path}`);
+
+    file.persistentFile.handleLockReleaser?.();
+    file.persistentFile.handleLockReleaser = null;
+    this.log?.(`lock released for ${file.path}`);
+  }
+
+  /**
+   * @param {PersistentFile} persistentFile 
+   * @returns  {Promise<function>} lock releaser
+   */
+  #acquireLock(persistentFile) {
+    return new Promise(resolve => {
+      // Tell other connections we want the access handle.
+      const lockName = persistentFile.handleRequestChannel.name;
+      const notify = () => {
+        this.log?.(`notifying for ${lockName}`);
+        persistentFile.handleRequestChannel.postMessage(null);
+      };
+      const notifyId = setInterval(notify, LOCK_NOTIFY_INTERVAL);
+      setTimeout(notify);
+
+      this.log?.(`lock requested: ${lockName}`);
+      navigator.locks.request(lockName, lock => {
+        // We have the lock. Stop asking other connections for it.
+        this.log?.(`lock acquired: ${lockName}`, lock);
+        clearInterval(notifyId);
+        return new Promise(resolve);
+      });
+    });
+  }
+}
+
+function extractString(dataView, offset) {
+  const p = dataView.getUint32(offset, true);
+  if (p) {
+    const chars = new Uint8Array(dataView.buffer, p);
+    return new TextDecoder().decode(chars.subarray(0, chars.indexOf(0)));
+  }
+  return null;
+}
+
 var Module = (() => {
   var _scriptName = import.meta.url;
   
@@ -1414,7 +2721,7 @@ class SQLite {
     if (typeof module === "undefined") {
       throw new Error("Cannot be called directly");
     }
-
+    this.module = module;
     this.sqlite3 = Factory(module);
   }
 
@@ -1458,10 +2765,13 @@ class SQLite {
   async open_v2(database_url, iflags) {
     try {
       console.log("Opening database!", database_url);
+      const vfs = await OPFSCoopSyncVFS.create(database_url, this.module);
+      this.sqlite3.vfs_register(vfs, true);
       let db = await this.sqlite3.open_v2(database_url, iflags);
       return db;
-    } catch {
-      console.log("openv2 error");
+    } catch (error) {
+      console.log("openv2 error", error);
+      throw error;
     }
   }
   
