@@ -46,6 +46,7 @@ use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
     framing::{MlsMessageOut, ProtocolMessage},
+    group::GroupEpoch,
     prelude::{
         tls_codec::{Deserialize, Serialize},
         LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
@@ -133,6 +134,28 @@ impl MlsGroup {
         Ok(())
     }
 
+    pub(super) async fn sync_until_last_intent_resolved<ApiClient>(
+        &self,
+        conn: DbConnection,
+        client: &Client<ApiClient>,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let intents = conn.find_group_intents(
+            self.group_id.clone(),
+            Some(vec![IntentState::ToPublish, IntentState::Published]),
+            None,
+        )?;
+
+        if intents.is_empty() {
+            return Ok(());
+        }
+
+        self.sync_until_intent_resolved(conn, intents[intents.len() - 1].id, client)
+            .await
+    }
+
     /**
      * Sync the group and wait for the intent to be deleted
      * Group syncing may involve picking up messages unrelated to the intent, so simply checking for errors
@@ -188,6 +211,37 @@ impl MlsGroup {
         Err(last_err.unwrap_or(GroupError::Generic("failed to wait for intent".to_string())))
     }
 
+    fn is_valid_epoch(
+        inbox_id: InboxId,
+        intent_id: i32,
+        group_epoch: GroupEpoch,
+        message_epoch: GroupEpoch,
+        max_past_epochs: usize,
+    ) -> bool {
+        if message_epoch.as_u64() + max_past_epochs as u64 <= group_epoch.as_u64() {
+            log::warn!(
+                "[{}] own message epoch {} is {} or more less than group epoch {} for intent {}. Retrying message",
+                inbox_id,
+                message_epoch,
+                max_past_epochs,
+                group_epoch,
+                intent_id
+            );
+            return false;
+        } else if message_epoch.as_u64() > group_epoch.as_u64() {
+            // Should not happen, logging proactively
+            log::error!(
+                "[{}] own message epoch {} is greater than group epoch {} for intent {}. Retrying message",
+                inbox_id,
+                message_epoch,
+                group_epoch,
+                intent_id
+            );
+            return false;
+        }
+        true
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(level = "trace", skip_all)]
     async fn process_own_message<ApiClient: XmtpApi>(
@@ -203,11 +257,15 @@ impl MlsGroup {
         if intent.state == IntentState::Committed {
             return Ok(());
         }
+        let message_epoch = message.epoch();
+        let group_epoch = openmls_group.epoch();
         debug!(
-            "[{}] processing own message for intent {} / {:?}",
+            "[{}] processing own message for intent {} / {:?}, group epoch: {}, message_epoch: {}",
             self.context.inbox_id(),
             intent.id,
-            intent.kind
+            intent.kind,
+            group_epoch,
+            message_epoch
         );
 
         let conn = provider.conn();
@@ -223,8 +281,6 @@ impl MlsGroup {
                 let maybe_pending_commit = openmls_group.pending_commit();
                 // We don't get errors with merge_pending_commit when there are no commits to merge
                 if maybe_pending_commit.is_none() {
-                    let message_epoch = message.epoch();
-                    let group_epoch = openmls_group.epoch();
                     debug!(
                         "no pending commit to merge. Group epoch: {}. Message epoch: {}",
                         group_epoch, message_epoch
@@ -281,6 +337,16 @@ impl MlsGroup {
                 }
             }
             IntentKind::SendMessage => {
+                if !Self::is_valid_epoch(
+                    self.context.inbox_id(),
+                    intent.id,
+                    group_epoch,
+                    message_epoch,
+                    3, // max_past_epochs, TODO: expose from OpenMLS MlsGroup
+                ) {
+                    conn.set_group_intent_to_publish(intent.id)?;
+                    return Ok(());
+                }
                 if let Some(id) = intent.message_id()? {
                     conn.set_delivery_status_to_published(&id, envelope_timestamp_ns)?;
                 }
@@ -532,7 +598,7 @@ impl MlsGroup {
             // Intent with the payload hash matches
             Ok(Some(intent)) => {
                 log::info!(
-                    "client [{}] is  about to process own envelope [{}]",
+                    "client [{}] is about to process own envelope [{}]",
                     client.inbox_id(),
                     envelope.id
                 );
