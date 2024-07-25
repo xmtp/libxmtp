@@ -440,9 +440,11 @@ impl MlsGroup {
         let message_id = self.prepare_message(message, &conn);
 
         // Skipping a full sync here and instead just firing and forgetting
-        if let Err(err) = self.publish_intents(conn, client).await {
+        if let Err(err) = self.publish_intents(conn.clone(), client).await {
             log::error!("Send: error publishing intents: {:?}", err);
         }
+
+        self.sync_until_last_intent_resolved(conn, client).await?;
 
         message_id
     }
@@ -459,7 +461,8 @@ impl MlsGroup {
         let update_interval = Some(5_000_000);
         self.maybe_update_installations(conn.clone(), update_interval, client)
             .await?;
-        self.publish_intents(conn, client).await?;
+        self.publish_intents(conn.clone(), client).await?;
+        self.sync_until_last_intent_resolved(conn, client).await?;
         Ok(())
     }
 
@@ -1459,7 +1462,7 @@ mod tests {
         // Check Amal's MLS group state.
         let amal_db = amal.context.store.conn().unwrap();
         let amal_mls_group = amal_group
-            .load_mls_group(&amal.mls_provider(amal_db.clone()))
+            .load_mls_group(amal.mls_provider(amal_db.clone()))
             .unwrap();
         let amal_members: Vec<Member> = amal_mls_group.members().collect();
         assert_eq!(amal_members.len(), 3);
@@ -1467,7 +1470,7 @@ mod tests {
         // Check Bola's MLS group state.
         let bola_db = bola.context.store.conn().unwrap();
         let bola_mls_group = bola_group
-            .load_mls_group(&bola.mls_provider(bola_db.clone()))
+            .load_mls_group(bola.mls_provider(bola_db.clone()))
             .unwrap();
         let bola_members: Vec<Member> = bola_mls_group.members().collect();
         assert_eq!(bola_members.len(), 3);
