@@ -36,7 +36,7 @@ use diesel::{
     result::QueryResult,
     row::Field,
 };
-use diesel_async::{AnsiTransactionManager, AsyncConnection, SimpleAsyncConnection};
+pub use diesel_async::{AnsiTransactionManager, AsyncConnection, SimpleAsyncConnection};
 use futures::stream::Stream;
 use std::{
     marker::PhantomData,

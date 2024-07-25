@@ -1,7 +1,7 @@
 #![cfg(target_arch = "wasm32")]
 
 use diesel::connection::Connection;
-use diesel_wasm_sqlite::rust_establish;
+use diesel_wasm_sqlite::connection::{AsyncConnection, WasmSqliteConnection};
 use wasm_bindgen_test::*;
 use web_sys::console;
 wasm_bindgen_test_configure!(run_in_dedicated_worker);
@@ -15,7 +15,7 @@ async fn test_establish() {
         rng
     );
     */
-    let mut conn = rust_establish("test").await.unwrap();
+    let mut conn = WasmSqliteConnection::establish("test").await.unwrap();
     console::log_1(&"CONNECTED".into());
     // assert 1 == 2 is here b/c can't get --nocapture to work yet
     assert_eq!(1, 2);

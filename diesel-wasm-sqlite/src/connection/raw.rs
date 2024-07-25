@@ -602,5 +602,4 @@ extern "C" fn destroy_boxed<F>(data: *mut libc::c_void) {
     let ptr = data as *mut F;
     unsafe { std::mem::drop(Box::from_raw(ptr)) };
 }
-
 */
