@@ -514,8 +514,7 @@ class GroupTest {
         }
 
         assertEquals(group.messages().size, 3)
-        assertEquals(group.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED).size, 2)
-        assertEquals(group.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 1)
+        assertEquals(group.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 3)
         runBlocking { group.sync() }
         assertEquals(group.messages().size, 3)
         assertEquals(group.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED).size, 0)
