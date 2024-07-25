@@ -462,16 +462,14 @@ class GroupTests: XCTestCase {
 		_ = try await aliceGroup.send(content: "gm")
 
 		var aliceMessagesCount = try await aliceGroup.messages().count
-		var aliceMessagesUnpublishedCount = try await aliceGroup.messages(deliveryStatus: .unpublished).count
 		var aliceMessagesPublishedCount = try await aliceGroup.messages(deliveryStatus: .published).count
 		XCTAssertEqual(3, aliceMessagesCount)
-		XCTAssertEqual(2, aliceMessagesUnpublishedCount)
-		XCTAssertEqual(1, aliceMessagesPublishedCount)
+		XCTAssertEqual(3, aliceMessagesPublishedCount)
 
 		try await aliceGroup.sync()
 		
 		aliceMessagesCount = try await aliceGroup.messages().count
-		aliceMessagesUnpublishedCount = try await aliceGroup.messages(deliveryStatus: .unpublished).count
+		var aliceMessagesUnpublishedCount = try await aliceGroup.messages(deliveryStatus: .unpublished).count
 		aliceMessagesPublishedCount = try await aliceGroup.messages(deliveryStatus: .published).count
 		XCTAssertEqual(3, aliceMessagesCount)
 		XCTAssertEqual(0, aliceMessagesUnpublishedCount)
