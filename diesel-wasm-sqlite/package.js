@@ -1,4 +1,4 @@
-import * as SQLite from "@xmtp/wa-sqlite";
+import * as WasmSQLiteLibrary from "@xmtp/wa-sqlite";
 import SQLiteESMFactory from "./node_modules/@xmtp/wa-sqlite/dist/wa-sqlite.mjs";
 import base64Wasm from "./node_modules/@xmtp/wa-sqlite/dist/wa-sqlite.wasm";
 
@@ -14,53 +14,82 @@ function base64Decode(str) {
   return bytes.buffer;
 }
 
-const module = await SQLiteESMFactory({
-  "wasmBinary": base64Decode(base64Wasm),
-});
+export class SQLite {
+  #module;
+  #sqlite3;
+  constructor(module) {
+    if (typeof module === "undefined") {
+      throw new Error("Cannot be called directly");
+    }
 
-// const module = await initWasmModule();
-const sqlite3 = SQLite.Factory(module);
-
-export function sqlite3_result_text(context, value) {
-  sqlite3.result_text(context, value);
-}
-
-export function sqlite3_result_int(context, value) {
-  sqlite3.result_int(context, value);
-}
-
-export function sqlite3_result_int64(context, value) {
-  sqlite3.result_int64(context, value);
-}
-
-export function sqlite3_result_double(context, value) {
-  sqlite3.result_double(context, value);
-}
-
-export function sqlite3_result_blob(context, value) {
-  sqlite3.result_blob(context, value);
-}
-
-export function sqlite3_result_null(context) {
-  sqlite3.result_null(context);
-}
-
-export async function establish(database_url) {
-  try {
-    console.log("Opening database!", database_url);
-    let db = await sqlite3.open_v2(database_url);
-    console.log(db);
-    return db;
-  } catch {
-    console.log("establish err");
+    this.sqlite3 = WasmSQLiteLibrary.Factory(module);
   }
-}
 
-export function batch_execute(database, query) {
-  try {
-    sqlite3.exec(database, query);
-    console.log("Batch exec'ed");
-  } catch {
-    console.log("exec err");
+  static async wasm_module() {
+    return await SQLiteESMFactory({
+      "wasmBinary": base64Decode(base64Wasm),
+    });
+  }
+
+  static async build() {
+    const module = await SQLiteESMFactory({
+      "wasmBinary": base64Decode(base64Wasm),
+    });
+    return new WasmSQLiteLibrary(module);
+  }
+
+  result_text(context, value) {
+    this.sqlite3.result_text(context, value);
+  }
+
+  result_int(context, value) {
+    this.sqlite3.result_int(context, value);
+  }
+
+  result_int64(context, value) {
+    this.sqlite3.result_int64(context, value);
+  }
+
+  result_double(context, value) {
+    this.sqlite3.result_double(context, value);
+  }
+
+  result_blob(context, value) {
+    this.sqlite3.result_blob(context, value);
+  }
+
+  result_null(context) {
+    this.sqlite3.result_null(context);
+  }
+  
+  async open_v2(database_url, iflags) {
+    try {
+      console.log("Opening database!", database_url);
+      let db = await this.sqlite3.open_v2(database_url, iflags);
+      return db;
+    } catch {
+      console.log("openv2 error");
+    }
+  }
+  
+  async exec(db, query) {
+    try {
+      return await this.sqlite3.exec(db, query);
+    } catch {
+      console.log('exec err');
+    }
+  }
+
+  changes(db) {
+    return this.sqlite3.changes(db);
+  }
+
+  batch_execute(database, query) {
+    try {
+      sqlite3.exec(database, query);
+      console.log("Batch exec'ed");
+    } catch {
+      console.log("exec err");
+    }
   }
 }

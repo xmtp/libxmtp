@@ -126,20 +126,16 @@ impl std::fmt::Display for InternalSqliteBindValue<'_> {
 impl InternalSqliteBindValue<'_> {
     #[allow(unsafe_code)] // ffi function calls
     pub(crate) fn result_of(self, ctx: &mut i32) {
-        use crate::ffi;
+        let sqlite3 = crate::get_sqlite_unchecked();
         match self {
-            InternalSqliteBindValue::BorrowedString(s) => {
-                ffi::sqlite3_result_text(*ctx, s.to_string())
-            }
-            InternalSqliteBindValue::String(s) => ffi::sqlite3_result_text(*ctx, s.to_string()),
-            InternalSqliteBindValue::Binary(b) => ffi::sqlite3_result_blob(*ctx, b.to_vec()),
-            InternalSqliteBindValue::BorrowedBinary(b) => {
-                ffi::sqlite3_result_blob(*ctx, b.to_vec())
-            }
-            InternalSqliteBindValue::I32(i) => ffi::sqlite3_result_int(*ctx, i),
-            InternalSqliteBindValue::I64(l) => ffi::sqlite3_result_int64(*ctx, l),
-            InternalSqliteBindValue::F64(d) => ffi::sqlite3_result_double(*ctx, d),
-            InternalSqliteBindValue::Null => ffi::sqlite3_result_null(*ctx),
+            InternalSqliteBindValue::BorrowedString(s) => sqlite3.result_text(*ctx, s.to_string()),
+            InternalSqliteBindValue::String(s) => sqlite3.result_text(*ctx, s.to_string()),
+            InternalSqliteBindValue::Binary(b) => sqlite3.result_blob(*ctx, b.to_vec()),
+            InternalSqliteBindValue::BorrowedBinary(b) => sqlite3.result_blob(*ctx, b.to_vec()),
+            InternalSqliteBindValue::I32(i) => sqlite3.result_int(*ctx, i),
+            InternalSqliteBindValue::I64(l) => sqlite3.result_int64(*ctx, l),
+            InternalSqliteBindValue::F64(d) => sqlite3.result_double(*ctx, d),
+            InternalSqliteBindValue::Null => sqlite3.result_null(*ctx),
         }
     }
 }

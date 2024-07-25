@@ -4,7 +4,7 @@ use diesel::connection::Connection;
 use diesel_wasm_sqlite::rust_establish;
 use wasm_bindgen_test::*;
 use web_sys::console;
-wasm_bindgen_test_configure!(run_in_browser);
+wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 #[wasm_bindgen_test]
 async fn test_establish() {

@@ -6,87 +6,40 @@ pub mod query_builder;
 pub mod sqlite_types;
 pub mod utils;
 
+#[cfg(not(target_arch = "wasm32"))]
+compile_error!("This crate only suports the `wasm32-unknown-unknown` target");
+
+use self::ffi::SQLite;
 use diesel::{
-    connection::{AnsiTransactionManager, Instrumentation, SimpleConnection, TransactionManager},
-    query_builder::{QueryFragment, QueryId},
+    query_builder::{AsQuery, QueryFragment, QueryId},
     result::QueryResult,
-    Connection,
 };
+use tokio::sync::OnceCell;
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 
 pub use backend::{SqliteType, WasmSqlite};
 
-#[derive(Debug)]
-pub struct WasmSqliteConnection {
-    raw_db_pointer: JsValue,
+/// The SQLite Library
+/// this global constant references the loaded SQLite WASM.
+static SQLITE: OnceCell<SQLite> = OnceCell::const_new();
+
+pub type SQLiteWasm = &'static JsValue;
+
+pub(crate) async fn get_sqlite() -> &'static SQLite {
+    SQLITE
+        .get_or_init(|| async {
+            let module = SQLite::wasm_module().await;
+            SQLite::new(module)
+        })
+        .await
+}
+
+pub(crate) fn get_sqlite_unchecked() -> &'static SQLite {
+    SQLITE.get().expect("SQLite is not initialized")
 }
 
 #[derive(Debug)]
 pub struct WasmSqliteError(JsValue);
-
-impl SimpleConnection for WasmSqliteConnection {
-    fn batch_execute(&mut self, query: &str) -> diesel::prelude::QueryResult<()> {
-        ffi::batch_execute(&self.raw_db_pointer, query)
-            .map_err(WasmSqliteError::from)
-            .map_err(Into::into)
-    }
-}
-
-impl diesel::connection::ConnectionSealed for WasmSqliteConnection {}
-
-pub async fn rust_establish(
-    database_url: &str,
-) -> diesel::prelude::ConnectionResult<WasmSqliteConnection> {
-    let raw_conn = ffi::establish(database_url)
-        .await
-        .map_err(WasmSqliteError::from)
-        .map_err(Into::<diesel::result::ConnectionError>::into)?;
-    web_sys::console::log_1(&format!("raw conn: {:?}", raw_conn).into());
-    Ok(WasmSqliteConnection {
-        raw_db_pointer: raw_conn,
-    })
-}
-
-unsafe impl Send for WasmSqliteConnection {}
-impl Connection for WasmSqliteConnection {
-    type Backend = WasmSqlite;
-    type TransactionManager = AnsiTransactionManager;
-    fn establish(database_url: &str) -> diesel::prelude::ConnectionResult<Self> {
-        todo!();
-    }
-    /*
-        fn establish(database_url: &str) -> diesel::prelude::ConnectionResult<Self> {
-            let raw_conn = ffi::establish(database_url)
-                .map_err(WasmSqliteError::from)
-                .map_err(Into::<diesel::result::ConnectionError>::into)?;
-            web_sys::console::log_1(&format!("raw conn: {:?}", raw_conn).into());
-            Ok(WasmSqliteConnection {
-                raw_db_pointer: raw_conn,
-            })
-        }
-    */
-
-    fn execute_returning_count<T>(&mut self, source: &T) -> QueryResult<usize>
-    where
-        T: QueryFragment<Self::Backend> + QueryId,
-    {
-        todo!()
-    }
-
-    fn transaction_state(
-        &mut self,
-    ) -> &mut <Self::TransactionManager as TransactionManager<Self>>::TransactionStateData {
-        todo!()
-    }
-
-    fn instrumentation(&mut self) -> &mut dyn Instrumentation {
-        todo!()
-    }
-
-    fn set_instrumentation(&mut self, instrumentation: impl diesel::connection::Instrumentation) {
-        todo!()
-    }
-}
 
 impl From<WasmSqliteError> for diesel::result::Error {
     fn from(value: WasmSqliteError) -> diesel::result::Error {
@@ -108,25 +61,3 @@ impl From<JsValue> for WasmSqliteError {
         WasmSqliteError(err)
     }
 }
-
-/*
-mod tests {
-    use super::*;
-    use wasm_bindgen_test::wasm_bindgen_test;
-    use web_sys::console;
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-    /*
-        #[wasm_bindgen_test]
-        fn test_establish() {
-            let rng: u16 = rand::random();
-            let url = format!(
-                "{}/wasmtest-{}.db3",
-                std::env::temp_dir().to_str().unwrap(),
-                rng
-            );
-            let mut conn = WasmSqliteConnection::establish(&url).unwrap();
-            println!("{:?}", conn);
-        }
-    */
-}
-*/
