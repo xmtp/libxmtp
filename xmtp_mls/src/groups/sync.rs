@@ -1210,3 +1210,40 @@ fn get_removed_leaf_nodes(
         .map(|member| member.index)
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::builder::ClientBuilder;
+    use std::sync::Arc;
+    use xmtp_cryptography::utils::generate_local_wallet;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn publish_intents_worst_case_scenario() {
+        let wallet = generate_local_wallet();
+        let amal = Arc::new(ClientBuilder::new_test_client(&wallet).await);
+        let amal_group: Arc<MlsGroup> =
+            Arc::new(amal.create_group(None, Default::default()).unwrap());
+
+        amal_group.send_message_optimistic(b"1").unwrap();
+        amal_group.send_message_optimistic(b"2").unwrap();
+        amal_group.send_message_optimistic(b"3").unwrap();
+        amal_group.send_message_optimistic(b"4").unwrap();
+        amal_group.send_message_optimistic(b"5").unwrap();
+        amal_group.send_message_optimistic(b"6").unwrap();
+
+        let mut futures = vec![];
+        let conn = amal.context().store.conn().unwrap();
+
+        for _ in 0..10 {
+            let client = amal.clone();
+            let conn = conn.clone();
+            let group = amal_group.clone();
+
+            futures.push(async move {
+                group.publish_intents(conn, &client).await.unwrap();
+            });
+        }
+        futures::future::join_all(futures).await;
+    }
+}
