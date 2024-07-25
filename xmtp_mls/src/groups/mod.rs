@@ -444,7 +444,7 @@ impl MlsGroup {
             log::error!("Send: error publishing intents: {:?}", err);
         }
 
-        self.sync_until_all_intents_resolved(conn, client).await?;
+        self.sync_until_last_intent_resolved(conn, client).await?;
 
         message_id
     }
@@ -462,7 +462,7 @@ impl MlsGroup {
         self.maybe_update_installations(conn.clone(), update_interval, client)
             .await?;
         self.publish_intents(conn.clone(), client).await?;
-        self.sync_until_all_intents_resolved(conn, client).await?;
+        self.sync_until_last_intent_resolved(conn, client).await?;
         Ok(())
     }
 

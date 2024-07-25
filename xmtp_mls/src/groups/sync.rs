@@ -134,7 +134,7 @@ impl MlsGroup {
         Ok(())
     }
 
-    pub(super) async fn sync_until_all_intents_resolved<ApiClient>(
+    pub(super) async fn sync_until_last_intent_resolved<ApiClient>(
         &self,
         conn: DbConnection,
         client: &Client<ApiClient>,
