@@ -21,10 +21,7 @@ pub mod key_store_entry;
 pub mod refresh_state;
 pub mod schema;
 
-use std::{
-    borrow::Cow,
-    sync::{Arc, RwLock},
-};
+use std::{borrow::Cow, sync::Arc};
 
 use diesel::{
     connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
@@ -35,6 +32,7 @@ use diesel::{
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use log::{log_enabled, warn};
+use parking_lot::RwLock;
 use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
 
@@ -180,11 +178,17 @@ impl EncryptedMessageStore {
     fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
-        let pool_guard = self.pool.read()?;
+        let pool_guard = self.pool.read();
 
         let pool = pool_guard
             .as_ref()
             .ok_or(StorageError::PoolNeedsConnection)?;
+
+        log::info!(
+            "Pulling connection from pool, idle_connections={}, total_connections={}",
+            pool.state().idle_connections,
+            pool.state().connections
+        );
 
         let mut conn = pool.get()?;
         if let Some(ref key) = self.enc_key {
@@ -314,7 +318,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn release_connection(&self) -> Result<(), StorageError> {
-        let mut pool_guard = self.pool.write()?;
+        let mut pool_guard = self.pool.write();
         pool_guard.take();
         Ok(())
     }
@@ -330,7 +334,7 @@ impl EncryptedMessageStore {
                     .build(ConnectionManager::<SqliteConnection>::new(path))?,
             };
 
-        let mut pool_write = self.pool.write()?;
+        let mut pool_write = self.pool.write();
         *pool_write = Some(pool);
 
         Ok(())
@@ -534,7 +538,7 @@ mod tests {
             assert_eq!(fetched_identity.inbox_id, inbox_id);
 
             store.release_connection().unwrap();
-            assert!(store.pool.read().unwrap().is_none());
+            assert!(store.pool.read().is_none());
             store.reconnect().unwrap();
             let fetched_identity2: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
 
