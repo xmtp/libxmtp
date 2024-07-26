@@ -186,6 +186,12 @@ impl EncryptedMessageStore {
             .as_ref()
             .ok_or(StorageError::PoolNeedsConnection)?;
 
+        log::info!(
+            "Pulling connection from pool, idle_connections={}, total_connections={}",
+            pool.state().idle_connections,
+            pool.state().connections
+        );
+
         let mut conn = pool.get()?;
         if let Some(ref key) = self.enc_key {
             conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
