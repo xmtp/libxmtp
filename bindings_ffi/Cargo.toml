@@ -13,8 +13,8 @@ log = { version = "0.4", features = ["std"] }
 thiserror = "1.0"
 thread-id = "4.2.1"
 tokio = { version = "1.28.1", features = ["macros"] }
-uniffi = { version = "0.27.2", features = ["tokio", "cli"] }
-uniffi_macros = "0.27.2"
+uniffi = { version = "0.28.0", features = ["tokio", "cli"] }
+uniffi_macros = "0.28.0"
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
@@ -34,7 +34,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 openssl-sys = { git = "https://github.com/xmtp/rust-openssl.git", branch = "clone-v0.9.92" }
 
 [build-dependencies]
-uniffi = { version = "0.27.2", features = ["build"] }
+uniffi = { version = "0.28.0", features = ["build"] }
 
 [[bin]]
 name = "ffi-uniffi-bindgen"
@@ -46,7 +46,7 @@ ethers-core = "2.0.13"
 tempfile = "3.5.0"
 tokio = { version = "1.28.1", features = ["full"] }
 tokio-test = "0.4"
-uniffi = { version = "0.27.2", features = ["bindgen-tests"] }
+uniffi = { version = "0.28.0", features = ["bindgen-tests"] }
 tracing-subscriber = "0.3"
 uuid = { version = "1.9", features = ["v4", "fast-rng" ] }
 
