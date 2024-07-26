@@ -6501,6 +6501,7 @@ dependencies = [
  "openmls_basic_credential",
  "openmls_rust_crypto",
  "openmls_traits",
+ "parking_lot",
  "prost 0.12.6",
  "rand",
  "reqwest 0.12.4",
