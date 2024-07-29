@@ -1492,8 +1492,8 @@ mod tests {
                 None,
             )
             .unwrap();
-        // Bola should have one uncommitted intent for the failed attempt at adding Charlie, who is already in the group
-        assert_eq!(bola_uncommitted_intents.len(), 1);
+        // Bola should have one uncommitted intent in `Error::Failed` state for the failed attempt at adding Charlie, who is already in the group
+        assert_eq!(bola_uncommitted_intents.len(), 0);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
