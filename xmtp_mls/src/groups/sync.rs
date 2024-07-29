@@ -841,6 +841,7 @@ impl MlsGroup {
 
     // Takes a StoredGroupIntent and returns the payload and post commit data as a tuple
     // A return value of [`Option::None`] means this intent would not change the group.
+    #[allow(clippy::type_complexity)]
     #[tracing::instrument(level = "trace", skip_all)]
     async fn get_publish_intent_data<ApiClient>(
         &self,
