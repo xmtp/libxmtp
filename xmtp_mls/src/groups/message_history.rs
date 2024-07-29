@@ -602,6 +602,7 @@ mod tests {
     use std::io::{BufRead, BufReader};
     use tempfile::NamedTempFile;
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_id::InboxOwner;
 
     use crate::{assert_ok, builder::ClientBuilder, groups::GroupMetadataOptions};
 
@@ -1055,6 +1056,38 @@ mod tests {
 
         let inserted = amal_b.insert_history_bundle(output_file.path());
         assert!(inserted.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_externals_cant_join_sync_group() {
+        let wallet = generate_local_wallet();
+        let amal = ClientBuilder::new_test_client(&wallet).await;
+        assert_ok!(amal.allow_history_sync().await);
+        amal.sync_welcomes().await.expect("sync welcomes");
+
+        let external_wallet = generate_local_wallet();
+        let external_client = ClientBuilder::new_test_client(&external_wallet).await;
+        assert_ok!(external_client.allow_history_sync().await);
+        external_client
+            .sync_welcomes()
+            .await
+            .expect("sync welcomes");
+
+        let amal_sync_groups = amal
+            .store()
+            .conn()
+            .unwrap()
+            .find_sync_groups()
+            .expect("find sync groups");
+        assert_eq!(amal_sync_groups.len(), 1);
+
+        // try to join amal's sync group
+        let sync_group_id = amal_sync_groups[0].id.clone();
+        let group = amal.group(sync_group_id).expect("get group");
+        let result = group
+            .add_members(&external_client, vec![external_wallet.get_address()])
+            .await;
+        assert!(result.is_err());
     }
 
     #[test]
