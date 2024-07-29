@@ -592,7 +592,8 @@ impl MlsGroup {
         // If some existing group member has an update, this will return an intent with changes
         // when we really should return an error
         if intent_data.is_empty() {
-            return Err(GroupError::NoChanges);
+            log::warn!("Member already added");
+            return Ok(());
         }
 
         let intent = provider.conn().insert_group_intent(NewGroupIntent::new(
