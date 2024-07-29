@@ -1094,7 +1094,7 @@ impl MlsGroup {
                                 "Could not find existing sequence ID for inbox {}",
                                 inbox_id
                             );
-                            return Err(GroupError::NoChanges);
+                            return Err(GroupError::MissingSequenceId);
                         }
                     }
 

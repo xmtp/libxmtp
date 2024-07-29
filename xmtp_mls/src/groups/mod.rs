@@ -110,8 +110,8 @@ pub enum GroupError {
     CreateMessage(#[from] openmls::prelude::CreateMessageError<sql_key_store::SqlKeyStoreError>),
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
-    #[error("No changes found in commit")]
-    NoChanges,
+    #[error("SequenceId not found in local db")]
+    MissingSequenceId,
     #[error("Addresses not found {0:?}")]
     AddressNotFound(Vec<String>),
     #[error("add members: {0}")]
