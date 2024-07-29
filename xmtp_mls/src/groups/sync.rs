@@ -1312,4 +1312,26 @@ mod tests {
         }
         futures::future::join_all(futures).await;
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn publish_intents_no_changes() {
+        let wallet = generate_local_wallet();
+        let amal = Arc::new(ClientBuilder::new_test_client(&wallet).await);
+        let amal_group: Arc<MlsGroup> =
+            Arc::new(amal.create_group(None, Default::default()).unwrap());
+
+        let mut futures = vec![];
+        let conn = amal.context().store.conn().unwrap();
+
+        for _ in 0..10 {
+            let client = amal.clone();
+            let conn = conn.clone();
+            let group = amal_group.clone();
+
+            futures.push(async move {
+                group.publish_intents(conn, &client).await.unwrap();
+            });
+        }
+        futures::future::join_all(futures).await;
+    }
 }
