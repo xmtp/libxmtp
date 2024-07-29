@@ -833,6 +833,10 @@ impl MlsGroup {
                     client.inbox_id(),
                     intent.id
                 );
+            } else {
+                provider
+                    .conn()
+                    .set_group_intent_error_and_fail_msg(&intent)?;
             }
         }
 
