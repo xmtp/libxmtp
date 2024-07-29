@@ -1442,6 +1442,7 @@ mod tests {
         // Get bola's version of the same group
         let bola_groups = bola.sync_welcomes().await.unwrap();
         let bola_group = bola_groups.first().unwrap();
+        bola_group.sync(&bola).await.unwrap();
 
         log::info!("Adding charlie from amal");
         // Have amal and bola both invite charlie.
@@ -1453,7 +1454,7 @@ mod tests {
         bola_group
             .add_members_by_inbox_id(&bola, vec![charlie.inbox_id()])
             .await
-            .expect_err("expected err");
+            .expect_err("expected error");
 
         amal_group
             .receive(&amal.store().conn().unwrap(), &amal)
@@ -1485,15 +1486,15 @@ mod tests {
             .unwrap();
         assert_eq!(amal_uncommitted_intents.len(), 0);
 
-        let bola_uncommitted_intents = bola_db
+        let bola_failed_intents = bola_db
             .find_group_intents(
                 bola_group.group_id.clone(),
-                Some(vec![IntentState::ToPublish, IntentState::Published]),
+                Some(vec![IntentState::Error]),
                 None,
             )
             .unwrap();
         // Bola should have one uncommitted intent in `Error::Failed` state for the failed attempt at adding Charlie, who is already in the group
-        assert_eq!(bola_uncommitted_intents.len(), 0);
+        assert_eq!(bola_failed_intents.len(), 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
