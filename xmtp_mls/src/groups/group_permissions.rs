@@ -1227,10 +1227,10 @@ mod tests {
             )],
             MemberType::DmTarget => vec![build_change(
                 dm_target_inbox_id_clone.clone(),
-                actor_is_admin,
-                actor_is_super_admin,
+                false,
+                false,
             )],
-            MemberType::Random => vec![build_change(None, actor_is_admin, actor_is_super_admin)],
+            MemberType::Random => vec![build_change(None, false, false)],
         };
 
         let field_changes = metadata_fields_changed
@@ -1757,7 +1757,7 @@ mod tests {
         );
         assert!(!permissions.evaluate_commit(&commit));
 
-        // DM group can not update metadata
+        // DM group can update metadata
         let commit = build_validated_commit(
             None,
             None,
@@ -1767,6 +1767,6 @@ mod tests {
             false,
             Some(TARGET_INBOX_ID.to_string()),
         );
-        assert!(!permissions.evaluate_commit(&commit));
+        assert!(permissions.evaluate_commit(&commit));
     }
 }
