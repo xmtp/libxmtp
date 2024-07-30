@@ -1289,7 +1289,7 @@ mod tests {
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     use crate::{
-        assert_err, assert_logged,
+        assert_logged,
         builder::ClientBuilder,
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
