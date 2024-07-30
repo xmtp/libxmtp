@@ -11,7 +11,7 @@ path = "src/bin/update-schema.rs"
 [features]
 default = ["native"]
 grpc = ["xmtp_proto/grpc"]
-native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"] 
+native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
 test-utils = ["xmtp_api_grpc"]
 bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "tracing-flame", "once_cell"]
 
