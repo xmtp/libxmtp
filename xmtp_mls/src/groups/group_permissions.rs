@@ -1225,11 +1225,9 @@ mod tests {
                 actor_is_admin,
                 actor_is_super_admin,
             )],
-            MemberType::DmTarget => vec![build_change(
-                dm_target_inbox_id_clone.clone(),
-                false,
-                false,
-            )],
+            MemberType::DmTarget => {
+                vec![build_change(dm_target_inbox_id_clone.clone(), false, false)]
+            }
             MemberType::Random => vec![build_change(None, false, false)],
         };
 
