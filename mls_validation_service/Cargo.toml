@@ -34,10 +34,10 @@ xmtp_proto = { path = "../xmtp_proto", features = [
 
 
 [dev-dependencies]
-ethers.workspace = true 
-rand = { workspace = true }
-xmtp_id = { workspace = true, features = ["test-utils"]}
 anyhow.workspace = true
-sha2.workspace = true
+ethers.workspace = true 
 openmls_basic_credential = { workspace = true, features = ["test-utils"] }
+rand = { workspace = true }
+sha2.workspace = true
+xmtp_id = { workspace = true, features = ["test-utils"]}
 
