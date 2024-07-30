@@ -1774,7 +1774,7 @@ mod tests {
             .any(|m| m.inbox_id == charlie.inbox_id()));
 
         group.sync(&amal).await.expect("sync failed");
-        
+
         group
             .send_message(b"hello", &bola)
             .await
@@ -1788,7 +1788,7 @@ mod tests {
             .unwrap()
             .into_iter()
             .collect::<Vec<StoredGroupMessage>>();
-         
+
         // FIXME:st this is passing ONLY because the message IS being sent to the group
         assert_eq!(amal_messages.len(), 1);
     }
