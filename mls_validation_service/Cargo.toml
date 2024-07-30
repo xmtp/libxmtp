@@ -32,7 +32,6 @@ xmtp_proto = { path = "../xmtp_proto", features = [
     "convert",
 ] }
 
-
 [dev-dependencies]
 anyhow.workspace = true
 ethers.workspace = true 
