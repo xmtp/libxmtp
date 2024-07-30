@@ -209,11 +209,11 @@ impl MetadataPolicies {
         map
     }
 
-    // by default DM groups can not update metadata
+    // by default members of DM groups can update all metadata
     pub fn dm_map() -> HashMap<String, MetadataPolicies> {
         let mut map: HashMap<String, MetadataPolicies> = HashMap::new();
         for field in GroupMutableMetadata::supported_fields() {
-            map.insert(field.to_string(), MetadataPolicies::deny());
+            map.insert(field.to_string(), MetadataPolicies::allow());
         }
         map
     }
