@@ -27,7 +27,8 @@
     "build:node": "wasm-pack build --target nodejs --no-pack --release --out-dir ./dist/node",
     "clean": "rm -rf ./dist",
     "clean:gitignore": "rm -f ./dist/**/.gitignore",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "test": "wasm-pack test --chrome --headless"
   },
   "files": [
     "./dist/**/*"
@@ -49,6 +50,6 @@
     "registry": "https://registry.npmjs.org/"
   },
   "devDependencies": {
-    "wasm-pack": "^0.12.1"
+    "wasm-pack": "^0.13.0"
   }
 }

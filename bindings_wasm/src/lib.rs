@@ -1,24 +1,23 @@
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
-use xmtp_api_grpc_gateway::XmtpGrpcGatewayClient;
+use xmtp_api_mls_gateway::XmtpApiMlsGateway;
 
 #[wasm_bindgen]
 pub struct WasmXmtpClient {
-    api: XmtpGrpcGatewayClient,
-    // inbox_owner: WasmInboxOwner,
+  inner: XmtpApiMlsGateway,
 }
 
 impl WasmXmtpClient {
-    pub fn api(&self) -> &XmtpGrpcGatewayClient {
-        &self.api
-    }
+  pub fn api_client(&self) -> &XmtpApiMlsGateway {
+    &self.inner
+  }
 }
 
 #[wasm_bindgen]
 impl WasmXmtpClient {
-    #[wasm_bindgen(constructor)]
-    pub fn create_client(host_url: String) -> Result<WasmXmtpClient, JsError> {
-        Ok(WasmXmtpClient {
-            api: XmtpGrpcGatewayClient::new(host_url),
-        })
-    }
+  #[wasm_bindgen(constructor)]
+  pub fn create_client(host_url: String) -> Result<WasmXmtpClient, JsError> {
+    Ok(WasmXmtpClient {
+      inner: XmtpApiMlsGateway::new(host_url),
+    })
+  }
 }

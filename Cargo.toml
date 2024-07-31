@@ -16,6 +16,7 @@ exclude = [
   "bindings_ffi",
   "bindings_wasm",
   "xmtp_api_grpc_gateway",
+  "xmtp_api_mls_gateway",
   "bindings_node",
 ]
 
