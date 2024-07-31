@@ -1775,8 +1775,9 @@ mod tests {
 
         group.sync(&amal).await.expect("sync failed");
 
+        let message_text = b"hello";
         group
-            .send_message(b"hello", &bola)
+            .send_message(message_text, &bola)
             .await
             .expect_err("expected send_message to fail");
 
@@ -1789,7 +1790,10 @@ mod tests {
             .into_iter()
             .collect::<Vec<StoredGroupMessage>>();
 
+        let message = amal_messages.first().unwrap();
+        
         // FIXME:st this is passing ONLY because the message IS being sent to the group
+        assert!(message_text.eq(&message.decrypted_message_bytes[..]));
         assert_eq!(amal_messages.len(), 1);
     }
 
