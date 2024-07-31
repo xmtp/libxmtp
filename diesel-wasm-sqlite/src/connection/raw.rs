@@ -12,11 +12,14 @@
 // use super::{Sqlite, SqliteAggregateFunction};
 // use crate::deserialize::FromSqlRow;
 // use crate::result::Error::DatabaseError;
-use crate::{sqlite_types::SqliteOpenFlags, WasmSqliteError};
+use crate::{
+    sqlite_types::{SqliteFlags, SqliteOpenFlags},
+    WasmSqlite, WasmSqliteError,
+};
 use diesel::result::*;
 use diesel::serialize::ToSql;
 use diesel::sql_types::HasSqlType;
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{closure::Closure, JsValue};
 /*
 /// For use in FFI function, which cannot unwind.
 /// Print the message, ask to open an issue at Github and [`abort`](std::process::abort).
@@ -33,7 +36,7 @@ macro_rules! assert_fail {
 */
 
 #[allow(missing_copy_implementations)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) struct RawConnection {
     pub(super) internal_connection: JsValue,
 }
@@ -74,46 +77,35 @@ impl RawConnection {
         sqlite3.changes(&self.internal_connection)
     }
 
-    /*
-    pub(super) fn register_sql_function<F, Ret, RetSqlType>(
+    pub(super) fn register_sql_function<F>(
         &self,
         fn_name: &str,
-        num_args: usize,
+        num_args: i32,
         deterministic: bool,
-        f: F,
+        mut f: F,
     ) -> QueryResult<()>
     where
-        F: FnMut(&Self, &mut [*mut ffi::sqlite3_value]) -> QueryResult<Ret>
-            + std::panic::UnwindSafe
-            + Send
-            + 'static,
-        Ret: ToSql<RetSqlType, Sqlite>,
-        Sqlite: HasSqlType<RetSqlType>,
+        F: FnMut(JsValue, JsValue) + 'static,
     {
-        let callback_fn = Box::into_raw(Box::new(CustomFunctionUserPtr {
-            callback: f,
-            function_name: fn_name.to_owned(),
-        }));
-        let fn_name = Self::get_fn_name(fn_name)?;
+        let sqlite3 = crate::get_sqlite_unchecked();
         let flags = Self::get_flags(deterministic);
 
-        let result = unsafe {
-            ffi::sqlite3_create_function_v2(
-                self.internal_connection.as_ptr(),
-                fn_name.as_ptr(),
-                num_args as _,
+        let cb = Closure::new(f);
+        sqlite3
+            .create_function(
+                &self.internal_connection,
+                fn_name,
+                num_args,
                 flags,
-                callback_fn as *mut _,
-                Some(run_custom_function::<F, Ret, RetSqlType>),
+                Some(&cb),
                 None,
                 None,
-                Some(destroy_boxed::<CustomFunctionUserPtr<F>>),
             )
-        };
-
-        Self::process_sql_function_result(result)
+            .unwrap();
+        Ok(())
     }
 
+    /*
     pub(super) fn register_aggregate_function<ArgsSqlType, RetSqlType, Args, Ret, A>(
         &self,
         fn_name: &str,
@@ -206,19 +198,17 @@ impl RawConnection {
             ensure_sqlite_ok(result, self.internal_connection.as_ptr())
         }
     }
-
-    fn get_fn_name(fn_name: &str) -> Result<CString, NulError> {
-        CString::new(fn_name)
-    }
+    */
 
     fn get_flags(deterministic: bool) -> i32 {
-        let mut flags = ffi::SQLITE_UTF8;
+        let mut flags = SqliteFlags::SQLITE_UTF8;
         if deterministic {
-            flags |= ffi::SQLITE_DETERMINISTIC;
+            flags |= SqliteFlags::SQLITE_DETERMINISTIC;
         }
-        flags
+        flags.bits() as i32
     }
 
+    /*
     fn process_sql_function_result(result: i32) -> Result<(), Error> {
         if result == ffi::SQLITE_OK {
             Ok(())
@@ -288,68 +278,9 @@ struct CustomFunctionUserPtr<F> {
     callback: F,
     function_name: String,
 }
+*/
 
-#[allow(warnings)]
-extern "C" fn run_custom_function<F, Ret, RetSqlType>(
-    ctx: *mut ffi::sqlite3_context,
-    num_args: libc::c_int,
-    value_ptr: *mut *mut ffi::sqlite3_value,
-) where
-    F: FnMut(&RawConnection, &mut [*mut ffi::sqlite3_value]) -> QueryResult<Ret>
-        + std::panic::UnwindSafe
-        + Send
-        + 'static,
-    Ret: ToSql<RetSqlType, Sqlite>,
-    Sqlite: HasSqlType<RetSqlType>,
-{
-    use std::ops::Deref;
-    static NULL_DATA_ERR: &str = "An unknown error occurred. sqlite3_user_data returned a null pointer. This should never happen.";
-    static NULL_CONN_ERR: &str = "An unknown error occurred. sqlite3_context_db_handle returned a null pointer. This should never happen.";
-
-    let conn = match unsafe { NonNull::new(ffi::sqlite3_context_db_handle(ctx)) } {
-        // We use `ManuallyDrop` here because we do not want to run the
-        // Drop impl of `RawConnection` as this would close the connection
-        Some(conn) => mem::ManuallyDrop::new(RawConnection {
-            internal_connection: conn,
-        }),
-        None => {
-            unsafe { context_error_str(ctx, NULL_CONN_ERR) };
-            return;
-        }
-    };
-
-    let data_ptr = unsafe { ffi::sqlite3_user_data(ctx) };
-
-    let mut data_ptr = match NonNull::new(data_ptr as *mut CustomFunctionUserPtr<F>) {
-        None => unsafe {
-            context_error_str(ctx, NULL_DATA_ERR);
-            return;
-        },
-        Some(mut f) => f,
-    };
-    let data_ptr = unsafe { data_ptr.as_mut() };
-
-    // We need this to move the reference into the catch_unwind part
-    // this is sound as `F` itself and the stored string is `UnwindSafe`
-    let callback = std::panic::AssertUnwindSafe(&mut data_ptr.callback);
-
-    let result = std::panic::catch_unwind(move || {
-        let _ = &callback;
-        let args = unsafe { slice::from_raw_parts_mut(value_ptr, num_args as _) };
-        let res = (callback.0)(&*conn, args)?;
-        let value = process_sql_function_result(&res)?;
-        // We've checked already that ctx is not null
-        unsafe {
-            value.result_of(&mut *ctx);
-        }
-        Ok(())
-    })
-    .unwrap_or_else(|p| Err(SqliteCallbackError::Panic(data_ptr.function_name.clone())));
-    if let Err(e) = result {
-        e.emit(ctx);
-    }
-}
-
+/*
 // Need a custom option type here, because the std lib one does not have guarantees about the discriminate values
 // See: https://github.com/rust-lang/rfcs/blob/master/text/2195-really-tagged-unions.md#opaque-tags
 #[repr(u8)]
@@ -604,3 +535,24 @@ extern "C" fn destroy_boxed<F>(data: *mut libc::c_void) {
     unsafe { std::mem::drop(Box::from_raw(ptr)) };
 }
 */
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::connection::{AsyncConnection, WasmSqliteConnection};
+    use diesel::connection::Connection;
+    use wasm_bindgen_test::*;
+    use web_sys::console;
+    wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
+    #[wasm_bindgen_test]
+    async fn test_fn_registration() {
+        let mut result = WasmSqliteConnection::establish("test").await;
+        let mut conn = result.unwrap();
+        console::log_1(&"CONNECTED".into());
+        conn.raw
+            .register_sql_function("test", 0, true, |ctx, values| {
+                console::log_1(&"Inside Fn".into());
+            });
+    }
+}

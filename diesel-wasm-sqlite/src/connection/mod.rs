@@ -50,7 +50,7 @@ use std::future::Ready;
 unsafe impl Send for WasmSqliteConnection {}
 #[derive(Debug)]
 pub struct WasmSqliteConnection {
-    raw: raw::RawConnection,
+    pub raw: raw::RawConnection,
 }
 
 #[async_trait::async_trait(?Send)]
@@ -64,7 +64,6 @@ impl SimpleAsyncConnection for WasmSqliteConnection {
 }
 
 /// TODO: The placeholder stuff all needs to be re-done
-
 pub struct OwnedSqliteFieldPlaceholder<'field> {
     field: PhantomData<&'field ()>,
 }

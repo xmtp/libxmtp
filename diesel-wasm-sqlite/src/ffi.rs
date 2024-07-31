@@ -63,6 +63,18 @@ extern "C" {
 
     #[wasm_bindgen(method, catch)]
     pub fn batch_execute(this: &SQLite, database: &JsValue, query: &str) -> Result<(), JsValue>;
+
+    #[wasm_bindgen(method, catch)]
+    pub fn create_function(
+        this: &SQLite,
+        database: &JsValue,
+        functionName: &str,
+        n_arg: i32,
+        textRep: i32,
+        x_func: Option<&Closure<dyn FnMut(JsValue, JsValue)>>,
+        x_step: Option<&Closure<dyn FnMut(JsValue, JsValue)>>,
+        x_final: Option<&Closure<dyn FnMut(JsValue)>>,
+    ) -> Result<(), JsValue>;
 }
 
 impl std::fmt::Debug for SQLite {

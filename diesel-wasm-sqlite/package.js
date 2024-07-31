@@ -62,7 +62,7 @@ export class SQLite {
   result_null(context) {
     this.sqlite3.result_null(context);
   }
-  
+
   async open_v2(database_url, iflags) {
     try {
       console.log("Opening database!", database_url);
@@ -75,12 +75,12 @@ export class SQLite {
       throw error;
     }
   }
-  
+
   async exec(db, query) {
     try {
       return await this.sqlite3.exec(db, query);
     } catch {
-      console.log('exec err');
+      console.log("exec err");
     }
   }
 
@@ -94,6 +94,24 @@ export class SQLite {
       console.log("Batch exec'ed");
     } catch {
       console.log("exec err");
+    }
+  }
+
+  create_function(database, functionName, nArg, textRep, xFunc, xStep, xFinal) {
+    try {
+      sqlite.create_function(
+        database,
+        functionName,
+        nArg,
+        textRep,
+        0,
+        xFunc,
+        xStep,
+        xFinal,
+      );
+      console.log("create function");
+    } catch {
+      console.log("create function err");
     }
   }
 }

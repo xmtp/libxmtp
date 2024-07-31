@@ -51,3 +51,22 @@ bitflags! {
         const SQLITE_OPEN_EXRESCODE      = 0x02000000; /* Extended result codes */
     }
 }
+
+/// SQLite Text Encodings https://www.sqlite.org/capi3ref.html#SQLITE_ANY
+bitflags! {
+    pub struct SqliteFlags: u32 {
+        const SQLITE_UTF8          = 1;   /* IMP: R-37514-35566 */
+        const SQLITE_UTF16LE       = 2;   /* IMP: R-03371-37637 */
+        const SQLITE_UTF16BE       = 3;   /* IMP: R-51971-34154 */
+        const SQLITE_UTF16         = 4;   /* Use native byte order */
+        const SQLITE_ANY           = 5;   /* Deprecated */
+        const SQLITE_UTF16_ALIGNED = 8;   /* sqlite3_create_collation only */
+
+        /// SQLite Function Flags https://www.sqlite.org/capi3ref.html#sqlitedeterministic
+        const SQLITE_DETERMINISTIC  = 0x000000800;
+        const SQLITE_DIRECTONLY     = 0x000080000;
+        const SQLITE_SUBTYPE        = 0x000100000;
+        const SQLITE_INNOCUOUS      = 0x000200000;
+        const SQLITE_RESULT_SUBTYPE = 0x001000000;
+    }
+}
