@@ -108,7 +108,8 @@ enum Commands {
         #[clap(short, long, value_parser, num_args = 1.., value_delimiter = ' ')]
         account_addresses: Vec<String>,
     },
-    SyncHistory {},
+    HistorySyncRequest {},
+    ReplyToHistorySyncRequest {},
     /// Information about the account that owns the DB
     Info {},
     Clear {},
@@ -334,13 +335,21 @@ async fn main() {
             let serializable: SerializableGroup = group.into();
             info!("Group {}", group_id, { command_output: true, group_id: group_id, group_info: make_value(&serializable) })
         }
-        Commands::SyncHistory {} => {
+        Commands::HistorySyncRequest {} => {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
-            client.allow_history_sync().await.unwrap();
+            // client.allow_history_sync().await.unwrap();
             client.sync_welcomes().await.unwrap();
             client.send_history_request().await.unwrap();
+            info!("Sent history sync request", { command_output: true });
+        }
+        Commands::ReplyToHistorySyncRequest {} => {
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+            client.sync_welcomes().await.unwrap();
+            // Note: sending a reply should trigger automatically when processing the request
             info!("Synced history", { command_output: true });
         }
         Commands::Clear {} => {
@@ -371,7 +380,7 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
 
     let client = builder.build().await.map_err(CliError::ClientBuilder)?;
     client.allow_history_sync().await.unwrap();
-    
+
     Ok(client)
 }
 
