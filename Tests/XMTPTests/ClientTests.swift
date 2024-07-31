@@ -121,6 +121,7 @@ class ClientTests: XCTestCase {
 		var groupCount = try await boClient.conversations.groups().count
 		XCTAssertEqual(groupCount, 1)
 
+		assert(!boClient.dbPath.isEmpty)
 		try boClient.deleteLocalDatabase()
 
 		boClient = try await Client.create(
@@ -410,5 +411,24 @@ class ClientTests: XCTestCase {
 		)
 		let boInboxId = try await alixClient.inboxIdFromAddress(address: boClient.address)
 		XCTAssertEqual(boClient.inboxID, boInboxId)
+	}
+	
+	func testCreatesAV3Client() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let alix = try PrivateKey.generate()
+		let options = ClientOptions.init(
+			api: .init(env: .local, isSecure: false),
+			   enableV3: true,
+			   encryptionKey: key
+		   )
+
+
+		let inboxId = try await Client.getOrCreateInboxId(options: options, address: alix.address)
+		let alixClient = try await Client.create(
+			account: alix,
+			options: options
+		)
+
+		XCTAssertEqual(inboxId, alixClient.inboxID)
 	}
 }

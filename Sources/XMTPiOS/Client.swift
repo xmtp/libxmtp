@@ -99,7 +99,7 @@ public final class Client {
 	let apiClient: ApiClient
 	let v3Client: LibXMTP.FfiXmtpClient?
 	public let libXMTPVersion: String = getVersionInfo()
-	let dbPath: String
+	public let dbPath: String
 	public let installationID: String
 	public let inboxID: String
 
@@ -281,7 +281,7 @@ public final class Client {
 		return nil
 	}
 	
-	static func getOrCreateInboxId(options: ClientOptions, address: String) async throws -> String {
+	public static func getOrCreateInboxId(options: ClientOptions, address: String) async throws -> String {
 		var inboxId: String
 		do {
 			inboxId = try await getInboxIdForAddress(
