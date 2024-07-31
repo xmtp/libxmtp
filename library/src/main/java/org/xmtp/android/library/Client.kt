@@ -84,7 +84,7 @@ class Client() {
     val libXMTPVersion: String = getVersionInfo()
     var installationId: String = ""
     private var v3Client: FfiXmtpClient? = null
-    private var dbPath: String = ""
+    var dbPath: String = ""
     lateinit var inboxId: String
 
     companion object {
@@ -94,6 +94,19 @@ class Client() {
             val registry = CodecRegistry()
             registry.register(codec = TextCodec())
             registry
+        }
+
+        suspend fun getOrCreateInboxId(options: ClientOptions, address: String): String {
+            var inboxId = getInboxIdForAddress(
+                logger = XMTPLogger(),
+                host = options.api.env.getUrl(),
+                isSecure = options.api.isSecure,
+                accountAddress = address
+            )
+            if (inboxId.isNullOrBlank()) {
+                inboxId = generateInboxId(address, 0.toULong())
+            }
+            return inboxId
         }
 
         fun register(codec: ContentCodec<*>) {
@@ -618,19 +631,6 @@ class Client() {
 
     suspend fun reconnectLocalDatabase() {
         v3Client?.dbReconnect() ?: throw XMTPException("Error no V3 client initialized")
-    }
-
-    suspend fun getOrCreateInboxId(options: ClientOptions, address: String): String {
-        var inboxId = getInboxIdForAddress(
-            logger = logger,
-            host = options.api.env.getUrl(),
-            isSecure = options.api.isSecure,
-            accountAddress = address
-        )
-        if (inboxId.isNullOrBlank()) {
-            inboxId = generateInboxId(address, 0.toULong())
-        }
-        return inboxId
     }
 
     suspend fun requestMessageHistorySync() {

@@ -126,21 +126,24 @@ class ClientTest {
         val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val fakeWallet = PrivateKeyBuilder()
+        val options = ClientOptions(
+            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+            enableV3 = true,
+            appContext = context,
+            dbEncryptionKey = key
+        )
+        val inboxId = runBlocking { Client.getOrCreateInboxId(options, fakeWallet.address) }
         val client = runBlocking {
             Client().create(
                 account = fakeWallet,
-                options = ClientOptions(
-                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
-                    enableV3 = true,
-                    appContext = context,
-                    dbEncryptionKey = key
-                )
+                options = options
             )
         }
         runBlocking {
             client.canMessageV3(listOf(client.address))[client.address]?.let { assert(it) }
         }
         assert(client.installationId.isNotEmpty())
+        assertEquals(inboxId, client.inboxId)
     }
 
     @Test
@@ -178,6 +181,7 @@ class ClientTest {
             assertEquals(client.conversations.listGroups().size, 1)
         }
 
+        assert(client.dbPath.isNotEmpty())
         client.deleteLocalDatabase()
 
         client = runBlocking {
