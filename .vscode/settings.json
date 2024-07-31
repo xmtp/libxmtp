@@ -1,25 +1,20 @@
 {
-  "rust-analyzer": {
-    "cargo": {
-      "sysroot": "discover"
-    },
-    "linkedProjects": [
-      "bindings_ffi/Cargo.toml",
-      "bindings_node/Cargo.toml",
-      "examples/cli/Cargo.toml",
-      "xmtp_api_grpc_gateway/Cargo.toml"
-    ],
-    "procMacro": {
-      "enable": true,
-      "attributes.enable": true,
-      "ignored": {
-        "async-trait": ["async_trait"],
-        "napi-derive": ["napi"],
-        "async-recursion": ["async_recursion"],
-        "ctor": ["ctor"],
-        "tokio": ["test"]
-      }
-    }
+  "rust-analyzer.cargo.sysroot": "discover",
+  "rust-analyzer.linkedProjects": [
+    "bindings_ffi/Cargo.toml",
+    "bindings_node/Cargo.toml",
+    "bindings_wasm/Cargo.toml",
+    "examples/cli/Cargo.toml",
+    "xmtp_api_mls_gateway/Cargo.toml"
+  ],
+  "rust-analyzer.procMacro.enable": true,
+  "rust-analyzer.procMacro.attributes.enable": true,
+  "rust-analyzer.procMacro.ignored": {
+    "async-trait": ["async_trait"],
+    "napi-derive": ["napi"],
+    "async-recursion": ["async_recursion"],
+    "ctor": ["ctor"],
+    "tokio": ["test"]
   },
   "[toml]": {
     "editor.defaultFormatter": "tamasfe.even-better-toml"
