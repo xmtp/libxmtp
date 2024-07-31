@@ -108,6 +108,7 @@ enum Commands {
         #[clap(short, long, value_parser, num_args = 1.., value_delimiter = ' ')]
         account_addresses: Vec<String>,
     },
+    SyncHistory {},
     /// Information about the account that owns the DB
     Info {},
     Clear {},
@@ -333,6 +334,14 @@ async fn main() {
             let serializable: SerializableGroup = group.into();
             info!("Group {}", group_id, { command_output: true, group_id: group_id, group_info: make_value(&serializable) })
         }
+        Commands::SyncHistory {} => {
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+            client.allow_history_sync().await.unwrap();
+            client.sync_welcomes().await.unwrap();
+            info!("Synced history", { command_output: true });
+        }
         Commands::Clear {} => {
             fs::remove_file(cli.db.unwrap()).unwrap();
         }
@@ -359,7 +368,10 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
         );
     }
 
-    builder.build().await.map_err(CliError::ClientBuilder)
+    let client = builder.build().await.map_err(CliError::ClientBuilder)?;
+    client.allow_history_sync().await.unwrap();
+    
+    Ok(client)
 }
 
 async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), CliError> {
