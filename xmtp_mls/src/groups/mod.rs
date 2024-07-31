@@ -1791,7 +1791,7 @@ mod tests {
             .collect::<Vec<StoredGroupMessage>>();
 
         let message = amal_messages.first().unwrap();
-        
+
         // FIXME:st this is passing ONLY because the message IS being sent to the group
         assert!(message_text.eq(&message.decrypted_message_bytes[..]));
         assert_eq!(amal_messages.len(), 1);
