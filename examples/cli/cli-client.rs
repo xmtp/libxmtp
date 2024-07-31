@@ -340,6 +340,7 @@ async fn main() {
                 .unwrap();
             client.allow_history_sync().await.unwrap();
             client.sync_welcomes().await.unwrap();
+            client.send_history_request().await.unwrap();
             info!("Synced history", { command_output: true });
         }
         Commands::Clear {} => {
