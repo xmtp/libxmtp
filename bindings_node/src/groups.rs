@@ -557,7 +557,6 @@ impl NapiGroup {
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let stream_closer = MlsGroup::stream_with_callback(
       self.inner_client.clone(),
-      self.group_id.clone(),
       self.created_at_ns,
       move |message| {
         tsfn.call(Ok(message.into()), ThreadsafeFunctionCallMode::Blocking);

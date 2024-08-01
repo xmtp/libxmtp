@@ -1219,7 +1219,6 @@ impl FfiGroup {
         let inner_client = Arc::clone(&self.inner_client);
         let handle = MlsGroup::stream_with_callback(
             inner_client,
-            self.group_id.clone(),
             self.created_at_ns,
             move |message| message_callback.on_message(message.into()),
         );

@@ -116,8 +116,8 @@ impl MlsGroup {
     }
 
     pub fn stream_with_callback<ApiClient>(
+        &self,
         client: Arc<Client<ApiClient>>,
-        group_id: Vec<u8>,
         created_at_ns: i64,
         callback: impl FnMut(StoredGroupMessage) + Send + 'static,
     ) -> StreamHandle<Result<(), crate::groups::ClientError>>
@@ -127,7 +127,7 @@ impl MlsGroup {
         Client::<ApiClient>::stream_messages_with_callback(
             client,
             HashMap::from([(
-                group_id,
+                self.group_id.clone(),
                 MessagesStreamInfo {
                     convo_created_at_ns: created_at_ns,
                     cursor: 0,
