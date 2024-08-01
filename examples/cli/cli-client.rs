@@ -108,7 +108,7 @@ enum Commands {
         #[clap(short, long, value_parser, num_args = 1.., value_delimiter = ' ')]
         account_addresses: Vec<String>,
     },
-    HistorySyncRequest {},
+    RequestHistorySync {},
     ReplyToHistorySyncRequest {},
     /// Information about the account that owns the DB
     Info {},
@@ -335,12 +335,13 @@ async fn main() {
             let serializable: SerializableGroup = group.into();
             info!("Group {}", group_id, { command_output: true, group_id: group_id, group_info: make_value(&serializable) })
         }
-        Commands::HistorySyncRequest {} => {
+        Commands::RequestHistorySync {} => {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
             // client.allow_history_sync().await.unwrap();
             client.sync_welcomes().await.unwrap();
+            client.allow_history_sync().await.unwrap();
             client.send_history_request().await.unwrap();
             info!("Sent history sync request", { command_output: true });
         }
@@ -369,6 +370,7 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
                 .await
                 .unwrap(),
         );
+        builder = builder.history_sync_url("http://0.0.0.0:5558");
     } else {
         info!("Using dev network");
         builder = builder.api_client(
@@ -376,10 +378,10 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
                 .await
                 .unwrap(),
         );
+        builder = builder.history_sync_url("https://message-history.dev.xmtp.network");
     }
 
     let client = builder.build().await.map_err(CliError::ClientBuilder)?;
-    client.allow_history_sync().await.unwrap();
 
     Ok(client)
 }
@@ -483,6 +485,7 @@ fn static_enc_key() -> EncryptionKey {
 fn get_encrypted_store(db: &Option<PathBuf>) -> Result<EncryptedMessageStore, CliError> {
     let store = match db {
         Some(path) => {
+            info!("Using persistent storage: {}", path.display());
             let s = path.as_path().to_string_lossy().to_string();
             info!("Using persistent storage: {} ", s);
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(s))
