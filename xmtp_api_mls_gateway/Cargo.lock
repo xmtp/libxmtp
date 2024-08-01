@@ -1600,6 +1600,8 @@ dependencies = [
  "async-trait",
  "futures",
  "reqwest",
+ "serde",
+ "serde_json",
  "tokio",
  "xmtp_proto",
 ]

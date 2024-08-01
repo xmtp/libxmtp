@@ -2,6 +2,7 @@ pub mod constants;
 
 use async_trait::async_trait;
 use futures::Stream;
+use serde::{Deserialize, Serialize};
 use xmtp_proto::api_client::{Error, ErrorKind, XmtpIdentityClient};
 use xmtp_proto::xmtp::identity::api::v1::{
   GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
@@ -21,6 +22,17 @@ use xmtp_proto::{
 };
 
 use crate::constants::ApiEndpoints;
+
+#[derive(Deserialize, Serialize)]
+enum gRPCResponse<T> {
+  Ok(T),
+  Err(ErrorResponse),
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct ErrorResponse {
+  code: String,
+}
 
 pub struct XmtpApiMlsGateway {
   http: reqwest::Client,
@@ -57,10 +69,15 @@ impl XmtpMlsClient for XmtpApiMlsGateway {
         println!("error: {}", e);
         Error::new(ErrorKind::MlsError).with(e)
       })?
-      .json()
+      .text()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
-    Ok(res)
+
+    match serde_json::from_str(&res) {
+      Ok(gRPCResponse::Ok(response)) => Ok(response),
+      Ok(gRPCResponse::Err(_)) => Err(Error::new(ErrorKind::MlsError)),
+      Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+    }
   }
 
   async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error> {
