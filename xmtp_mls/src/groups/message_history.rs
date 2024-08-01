@@ -134,6 +134,8 @@ where
             log::error!("error publishing sync group intents: {:?}", err);
         }
 
+        // TODO: set up stream here?? for the history sync requester
+
         Ok(pin_code)
     }
 

@@ -338,15 +338,25 @@ impl MlsGroup {
             ),
         };
 
-        validate_initial_group_membership(client, provider.conn_ref(), &mls_group).await?;
+        validate_initial_group_membership(&client, provider.conn_ref(), &mls_group).await?;
 
         let stored_group = provider.conn().insert_or_replace_group(to_store)?;
 
-        Ok(Self::new(
+        let group = Self::new(
             client.context.clone(),
             stored_group.id,
             stored_group.created_at_ns,
-        ))
+        );
+
+        // ??: set up the stream here for history sync responder?
+        if group_type == ConversationType::Sync {
+            let mut stream = client.stream_messages(HashMap::new()).await?;
+            // let (tx, rx) = oneshot::channel();
+            let handle = tokio::spawn(async move {});
+            // StreamHandle
+        }
+
+        Ok(group)
     }
 
     // Decrypt a welcome message using HPKE and then create and save a group from the stored message
@@ -376,7 +386,7 @@ impl MlsGroup {
         let added_by_credential = BasicCredential::try_from(added_by_node.credential().clone())?;
         let inbox_id = parse_credential(added_by_credential.identity())?;
 
-        Self::create_from_welcome(client, provider, welcome, inbox_id, welcome_id).await
+        Self::create_from_welcome(client.clone(), provider, welcome, inbox_id, welcome_id).await
     }
 
     pub(crate) fn create_and_insert_sync_group(
