@@ -57,6 +57,9 @@ public struct ClientOptions {
 
 	/// `preCreateIdentityCallback` will be called immediately before a Create Identity wallet signature is requested from the user.
 	public var preCreateIdentityCallback: PreEventCallback?
+    
+    /// `preAuthenticateToInboxCallback` will be called immediately before an Auth Inbox signature is requested from the user
+    public var preAuthenticateToInboxCallback: PreEventCallback?
 
 	public var enableV3 = false
 	public var dbEncryptionKey: Data?
@@ -68,6 +71,7 @@ public struct ClientOptions {
 		codecs: [any ContentCodec] = [],
 		preEnableIdentityCallback: PreEventCallback? = nil,
 		preCreateIdentityCallback: PreEventCallback? = nil,
+        preAuthenticateToInboxCallback: PreEventCallback? = nil,
 		enableV3: Bool = false,
 		encryptionKey: Data? = nil,
 		dbDirectory: String? = nil,
@@ -77,6 +81,7 @@ public struct ClientOptions {
 		self.codecs = codecs
 		self.preEnableIdentityCallback = preEnableIdentityCallback
 		self.preCreateIdentityCallback = preCreateIdentityCallback
+        self.preAuthenticateToInboxCallback = preAuthenticateToInboxCallback
 		self.enableV3 = enableV3
 		self.dbEncryptionKey = encryptionKey
 		self.dbDirectory = dbDirectory
@@ -190,6 +195,7 @@ public final class Client {
 				historySyncUrl: options?.historySyncUrl
 			)
 			
+            try await options?.preAuthenticateToInboxCallback?()
 			if let signatureRequest = v3Client.signatureRequest() {
 				if let signingKey = signingKey {
 					do {

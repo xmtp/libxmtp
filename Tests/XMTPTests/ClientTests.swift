@@ -292,6 +292,30 @@ class ClientTests: XCTestCase {
 			XCTFail("Error: \(error)")
 		}
 	}
+    
+    func testPreAuthenticateToInboxCallback() async throws {
+        let fakeWallet = try PrivateKey.generate()
+        let expectation = XCTestExpectation(description: "preAuthenticateToInboxCallback is called")
+        let key = try Crypto.secureRandomBytes(count: 32)
+
+        let preAuthenticateToInboxCallback: () async throws -> Void = {
+                print("preAuthenticateToInboxCallback called")
+                expectation.fulfill()
+        }
+
+        let opts = ClientOptions(
+            api: ClientOptions.Api(env: .local, isSecure: false),
+            preAuthenticateToInboxCallback: preAuthenticateToInboxCallback,
+            enableV3: true,
+            encryptionKey: key
+        )
+        do {
+            _ = try await Client.create(account: fakeWallet, options: opts)
+            await XCTWaiter().fulfillment(of: [expectation], timeout: 30)
+        } catch {
+            XCTFail("Error: \(error)")
+        }
+    }
 	
 	func testPassingencryptionKeyAndDatabaseDirectory() async throws {
 		let bo = try PrivateKey.generate()
