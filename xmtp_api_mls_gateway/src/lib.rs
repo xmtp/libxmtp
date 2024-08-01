@@ -2,6 +2,7 @@ pub mod constants;
 
 use async_trait::async_trait;
 use futures::Stream;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use xmtp_proto::api_client::{Error, ErrorKind, XmtpIdentityClient};
 use xmtp_proto::xmtp::identity::api::v1::{
@@ -24,14 +25,17 @@ use xmtp_proto::{
 use crate::constants::ApiEndpoints;
 
 #[derive(Deserialize, Serialize)]
-enum gRPCResponse<T> {
+#[serde(untagged)]
+enum GrpcResponse<T> {
   Ok(T),
   Err(ErrorResponse),
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct ErrorResponse {
-  code: String,
+  code: usize,
+  message: String,
+  details: Vec<String>,
 }
 
 pub struct XmtpApiMlsGateway {
@@ -52,6 +56,19 @@ impl XmtpApiMlsGateway {
   }
 }
 
+/// handle JSON response from gRPC, returning either
+/// the expected deserialized response object or a gRPC [`Error`]
+fn handle_error<S: AsRef<str>, T>(text: S) -> Result<T, Error>
+where
+  T: DeserializeOwned,
+{
+  match serde_json::from_str(text.as_ref()) {
+    Ok(GrpcResponse::Ok(response)) => Ok(response),
+    Ok(GrpcResponse::Err(e)) => Err(Error::new(ErrorKind::IdentityError).with(e.message)),
+    Err(e) => Err(Error::new(ErrorKind::QueryError).with(e.to_string())),
+  }
+}
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl XmtpMlsClient for XmtpApiMlsGateway {
@@ -61,7 +78,7 @@ impl XmtpMlsClient for XmtpApiMlsGateway {
   ) -> Result<RegisterInstallationResponse, Error> {
     let res = self
       .http
-      .post(&self.endpoint(ApiEndpoints::REGISTER_INSTALLATION))
+      .post(self.endpoint(ApiEndpoints::REGISTER_INSTALLATION))
       .json(&request)
       .send()
       .await
@@ -73,11 +90,7 @@ impl XmtpMlsClient for XmtpApiMlsGateway {
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-    match serde_json::from_str(&res) {
-      Ok(gRPCResponse::Ok(response)) => Ok(response),
-      Ok(gRPCResponse::Err(_)) => Err(Error::new(ErrorKind::MlsError)),
-      Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
-    }
+    handle_error(res)
   }
 
   async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error> {
