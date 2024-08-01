@@ -328,6 +328,33 @@ class ClientTest {
     }
 
     @Test
+    fun testPreAuthenticateToInboxCallback() {
+        val fakeWallet = PrivateKeyBuilder()
+        val expectation = CompletableFuture<Unit>()
+        val key = SecureRandom().generateSeed(32)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+
+        val preAuthenticateToInboxCallback: suspend () -> Unit = {
+            expectation.complete(Unit)
+        }
+
+        val opts = ClientOptions(
+            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+            preAuthenticateToInboxCallback = preAuthenticateToInboxCallback,
+            enableV3 = true,
+            appContext = context,
+            dbEncryptionKey = key
+        )
+
+        try {
+            runBlocking { Client().create(account = fakeWallet, options = opts) }
+            expectation.get(5, TimeUnit.SECONDS)
+        } catch (e: Exception) {
+            fail("Error: $e")
+        }
+    }
+
+    @Test
     fun testCanDropReconnectDatabase() {
         val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext

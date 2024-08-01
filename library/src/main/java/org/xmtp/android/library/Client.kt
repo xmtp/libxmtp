@@ -5,6 +5,7 @@ import android.os.Build
 import android.util.Log
 import com.google.crypto.tink.subtle.Base64
 import com.google.gson.GsonBuilder
+import kotlinx.coroutines.runBlocking
 import org.web3j.crypto.Keys
 import org.web3j.crypto.Keys.toChecksumAddress
 import org.xmtp.android.library.codecs.ContentCodec
@@ -61,6 +62,7 @@ data class ClientOptions(
     val api: Api = Api(),
     val preCreateIdentityCallback: PreEventCallback? = null,
     val preEnableIdentityCallback: PreEventCallback? = null,
+    val preAuthenticateToInboxCallback: PreEventCallback? = null,
     val appContext: Context? = null,
     val enableV3: Boolean = false,
     val dbDirectory: String? = null,
@@ -349,6 +351,11 @@ class Client() {
             }
 
         if (v3Client != null) {
+            options.preAuthenticateToInboxCallback?.let {
+                runBlocking {
+                    it.invoke()
+                }
+            }
             v3Client.signatureRequest()?.let { signatureRequest ->
                 if (account != null) {
                     account.sign(signatureRequest.signatureText())?.let {
