@@ -356,12 +356,12 @@ async fn main() {
                 xmtp_mls::Client::stream_all_messages(client.into(), true)
                     .await
                     .unwrap();
-            
+
             while let Some(msg) = sync_group_messages_stream.next().await {
                 // Note: sending a reply should trigger automatically when processing the request
                 info!("SYNC Group message: {}", format_message(msg));
             }
-            
+
             info!("Synced history", { command_output: true });
         }
         Commands::Clear {} => {
