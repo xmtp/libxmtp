@@ -10,7 +10,9 @@ extern crate ethers;
 extern crate log;
 extern crate xmtp_mls;
 
+use std::iter::Iterator;
 use std::{fs, path::PathBuf, time::Duration};
+use tokio_stream::StreamExt;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder};
@@ -342,14 +344,23 @@ async fn main() {
             // client.allow_history_sync().await.unwrap();
             client.sync_welcomes().await.unwrap();
             client.allow_history_sync().await.unwrap();
-            client.send_history_request().await.unwrap();
-            info!("Sent history sync request", { command_output: true });
+            let (group_id, _) = client.send_history_request().await.unwrap();
+            let group_id_str = hex::encode(group_id);
+            info!("Sent history sync request in sync group {group_id_str}", { command_output: true, group_id: group_id_str})
         }
         Commands::ReplyToHistorySyncRequest {} => {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
-            client.sync_welcomes().await.unwrap();
+            // client.sync_welcomes().await.unwrap(); // not needed, happens inside
+            // stream_all_messags
+            let mut sync_group_messages_stream =
+                xmtp_mls::Client::stream_all_messages(client.into(), true)
+                    .await
+                    .unwrap();
+            while let Some(msg) = sync_group_messages_stream.next().await {
+                info!("SYNC Group message: {}", format_message(msg));
+            }
             // Note: sending a reply should trigger automatically when processing the request
             info!("Synced history", { command_output: true });
         }
@@ -378,7 +389,8 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
                 .await
                 .unwrap(),
         );
-        builder = builder.history_sync_url("https://message-history.dev.xmtp.network");
+        // builder = builder.history_sync_url("https://message-history.dev.xmtp.network");
+        builder = builder.history_sync_url("http://0.0.0.0:5558");
     }
 
     let client = builder.build().await.map_err(CliError::ClientBuilder)?;
@@ -476,6 +488,16 @@ fn format_messages(
     output.reverse();
 
     Ok(output.join("\n"))
+}
+
+fn format_message(message: StoredGroupMessage) -> String {
+    let text = maybe_get_text(&message).expect("already checked");
+    format!(
+        "[{:>15} ] {}:   {}",
+        pretty_delta(now_ns() as u64, message.sent_at_ns as u64),
+        message.sender_inbox_id,
+        text
+    )
 }
 
 fn static_enc_key() -> EncryptionKey {
