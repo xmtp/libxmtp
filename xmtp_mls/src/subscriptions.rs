@@ -175,12 +175,6 @@ where
         Ok(Box::pin(futures::stream::select(stream, event_queue)))
     }
 
-    pub async fn stream_sync_groups(
-        &self,
-    ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup> + Send + '_>>, ClientError> {
-        Self::stream_conversations(self).await
-    }
-
     #[tracing::instrument(skip(self, group_id_to_info))]
     pub(crate) async fn stream_messages(
         self: Arc<Self>,
