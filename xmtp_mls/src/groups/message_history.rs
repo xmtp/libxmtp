@@ -99,7 +99,8 @@ where
         Ok(())
     }
 
-    pub async fn send_history_request(&self) -> Result<String, GroupError> {
+    // returns (sync_group_id, pin_code)
+    pub async fn send_history_request(&self) -> Result<(Vec<u8>, String), GroupError> {
         // find the sync group
         let conn = self.store().conn()?;
         let sync_group_id = conn
@@ -134,9 +135,7 @@ where
             log::error!("error publishing sync group intents: {:?}", err);
         }
 
-        // TODO: set up stream here?? for the history sync requester
-
-        Ok(pin_code)
+        Ok((sync_group.group_id, pin_code))
     }
 
     pub(crate) async fn send_history_reply(
@@ -650,7 +649,7 @@ mod tests {
         assert_ok!(client.allow_history_sync().await);
 
         // test that the request is sent, and that the pin code is returned
-        let pin_code = client
+        let (_group_id, pin_code) = client
             .send_history_request()
             .await
             .expect("history request");
@@ -682,7 +681,7 @@ mod tests {
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
-        let _sent = amal_b
+        let (_group_id, _pin_code) = amal_b
             .send_history_request()
             .await
             .expect("history request");
@@ -715,7 +714,7 @@ mod tests {
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
-        let pin_code = amal_b
+        let (_, pin_code) = amal_b
             .send_history_request()
             .await
             .expect("history request");
@@ -792,7 +791,7 @@ mod tests {
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
         // amal_b sends a message history request to sync group messages
-        let _pin_code = amal_b
+        let (_group_id, _pin_code) = amal_b
             .send_history_request()
             .await
             .expect("history request");

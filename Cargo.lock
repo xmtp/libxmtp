@@ -6409,6 +6409,7 @@ dependencies = [
  "thiserror",
  "timeago",
  "tokio",
+ "tokio-stream",
  "url",
  "xmtp_api_grpc",
  "xmtp_cryptography",
