@@ -24,7 +24,7 @@
   },
   "scripts": {
     "build": "npm run clean && npm run build:node && npm run clean:gitignore",
-    "build:node": "wasm-pack build --target nodejs --no-pack --release --out-dir ./dist/node",
+    "build:node": "wasm-pack build --target web --no-pack --release --out-dir ./dist",
     "clean": "rm -rf ./dist",
     "clean:gitignore": "rm -f ./dist/**/.gitignore",
     "prepublishOnly": "npm run build",

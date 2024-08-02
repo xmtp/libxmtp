@@ -7,17 +7,18 @@ version = "0.1.0"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-getrandom = { version = "0.2", features = ["js"] }
-hex = "0.4"
 js-sys = "0.3"
-prost = { version = "^0.12", features = ["prost-derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.6.5"
 wasm-bindgen = "0.2.91"
 wasm-bindgen-futures = "0.4.41"
 xmtp_api_mls_gateway = { path = "../xmtp_api_mls_gateway" }
+xmtp_cryptography = { path = "../xmtp_cryptography" }
+xmtp_id = { path = "../xmtp_id" }
+xmtp_mls = { path = "../xmtp_mls", features = [] }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 
 [dev-dependencies]
-uuid = { version = "1.3.1", features = ["v4"] }
 wasm-bindgen-test = "0.3.41"
 
 [profile.release]
