@@ -352,16 +352,16 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
-            // client.sync_welcomes().await.unwrap(); // not needed, happens inside
-            // stream_all_messags
             let mut sync_group_messages_stream =
                 xmtp_mls::Client::stream_all_messages(client.into(), true)
                     .await
                     .unwrap();
+            
             while let Some(msg) = sync_group_messages_stream.next().await {
+                // Note: sending a reply should trigger automatically when processing the request
                 info!("SYNC Group message: {}", format_message(msg));
             }
-            // Note: sending a reply should trigger automatically when processing the request
+            
             info!("Synced history", { command_output: true });
         }
         Commands::Clear {} => {
