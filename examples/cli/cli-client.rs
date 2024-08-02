@@ -341,7 +341,6 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
-            // client.allow_history_sync().await.unwrap();
             client.sync_welcomes().await.unwrap();
             client.allow_history_sync().await.unwrap();
             let (group_id, _) = client.send_history_request().await.unwrap();
