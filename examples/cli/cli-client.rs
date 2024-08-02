@@ -506,7 +506,6 @@ fn static_enc_key() -> EncryptionKey {
 fn get_encrypted_store(db: &Option<PathBuf>) -> Result<EncryptedMessageStore, CliError> {
     let store = match db {
         Some(path) => {
-            info!("Using persistent storage: {}", path.display());
             let s = path.as_path().to_string_lossy().to_string();
             info!("Using persistent storage: {} ", s);
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(s))
