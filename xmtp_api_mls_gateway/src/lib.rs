@@ -101,10 +101,11 @@ impl XmtpMlsClient for XmtpApiMlsGateway {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-      .json()
+      .text()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
-    Ok(res)
+
+    handle_error(res)
   }
 
   async fn fetch_key_packages(
@@ -118,10 +119,11 @@ impl XmtpMlsClient for XmtpApiMlsGateway {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-      .json()
+      .text()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
-    Ok(res)
+
+    handle_error(res)
   }
 
   async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), Error> {
@@ -132,10 +134,11 @@ impl XmtpMlsClient for XmtpApiMlsGateway {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-      .json()
+      .text()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
-    Ok(res)
+
+    handle_error(res)
   }
 
   async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), Error> {
@@ -146,10 +149,11 @@ impl XmtpMlsClient for XmtpApiMlsGateway {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-      .json()
+      .text()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
-    Ok(res)
+
+    handle_error(res)
   }
 
   async fn get_identity_updates(
@@ -170,10 +174,11 @@ impl XmtpMlsClient for XmtpApiMlsGateway {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-      .json()
+      .text()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
-    Ok(res)
+
+    handle_error(res)
   }
 
   async fn query_welcome_messages(
@@ -187,10 +192,11 @@ impl XmtpMlsClient for XmtpApiMlsGateway {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-      .json()
+      .text()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
-    Ok(res)
+
+    handle_error(res)
   }
 
   async fn subscribe_group_messages(
@@ -238,10 +244,11 @@ impl XmtpIdentityClient for XmtpApiMlsGateway {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?
-      .json()
+      .text()
       .await
       .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
-    Ok(res)
+
+    handle_error(res)
   }
 
   async fn get_identity_updates_v2(
@@ -255,10 +262,11 @@ impl XmtpIdentityClient for XmtpApiMlsGateway {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?
-      .json()
+      .text()
       .await
       .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
-    Ok(res)
+
+    handle_error(res)
   }
 
   async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, Error> {
@@ -269,10 +277,11 @@ impl XmtpIdentityClient for XmtpApiMlsGateway {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?
-      .json()
+      .text()
       .await
       .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
-    Ok(res)
+
+    handle_error(res)
   }
 }
 
@@ -297,8 +306,12 @@ mod tests {
       })
       .await;
 
-    println!("result: {:?}", result.as_ref().err().unwrap());
-
     assert!(result.is_err());
+    assert!(result
+      .as_ref()
+      .err()
+      .unwrap()
+      .to_string()
+      .contains("invalid identity"));
   }
 }
