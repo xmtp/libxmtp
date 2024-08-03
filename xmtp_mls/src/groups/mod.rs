@@ -1737,6 +1737,66 @@ mod tests {
         assert!(!bola_group.is_active().unwrap())
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_removed_members_cannot_send_message_to_others() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_wallet = &generate_local_wallet();
+        let bola = ClientBuilder::new_test_client(bola_wallet).await;
+        let charlie_wallet = &generate_local_wallet();
+        let charlie = ClientBuilder::new_test_client(charlie_wallet).await;
+
+        let group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        group
+            .add_members(
+                &amal,
+                vec![bola_wallet.get_address(), charlie_wallet.get_address()],
+            )
+            .await
+            .unwrap();
+        assert_eq!(group.members().unwrap().len(), 3);
+
+        group
+            .remove_members(&amal, vec![bola_wallet.get_address()])
+            .await
+            .unwrap();
+        assert_eq!(group.members().unwrap().len(), 2);
+        assert!(group
+            .members()
+            .unwrap()
+            .iter()
+            .all(|m| m.inbox_id != bola.inbox_id()));
+        assert!(group
+            .members()
+            .unwrap()
+            .iter()
+            .any(|m| m.inbox_id == charlie.inbox_id()));
+
+        group.sync(&amal).await.expect("sync failed");
+
+        let message_text = b"hello";
+        group
+            .send_message(message_text, &bola)
+            .await
+            .expect_err("expected send_message to fail");
+
+        group.sync(&bola).await.expect("sync failed");
+        group.sync(&amal).await.expect("sync failed");
+
+        let amal_messages = group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<StoredGroupMessage>>();
+
+        let message = amal_messages.first().unwrap();
+
+        // FIXME:st this is passing ONLY because the message IS being sent to the group
+        assert_eq!(message_text, &message.decrypted_message_bytes[..]);
+        assert_eq!(amal_messages.len(), 1);
+    }
+
     // TODO:nm add more tests for filling in missing installations
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
