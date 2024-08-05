@@ -15,7 +15,6 @@ use diesel::{
     result::{Error::DatabaseError, *},
 };
 use std::cell::OnceCell;
-use std::io::{stderr, Write};
 
 use wasm_bindgen::JsValue;
 
@@ -234,10 +233,6 @@ struct BoundStatement<'stmt, 'query> {
     // generic type, we use NonNull to communicate
     // that this is a shared buffer
     query: Option<Box<dyn QueryFragment<WasmSqlite> + 'query>>,
-    // we need to store any owned bind values separately, as they are not
-    // contained in the query itself. We use NonNull to
-    // communicate that this is a shared buffer
-    binds_to_free: Vec<(i32, Option<i32>)>,
     instrumentation: &'stmt mut dyn Instrumentation,
     has_error: bool,
 }
@@ -264,7 +259,6 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
         let mut ret = BoundStatement {
             statement,
             query: None,
-            binds_to_free: Vec::new(),
             instrumentation,
             has_error: false,
         };
@@ -284,50 +278,21 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
         &mut self,
         binds: Vec<(InternalSqliteBindValue<'_>, SqliteType)>,
     ) -> QueryResult<()> {
-        // It is useful to preallocate `binds_to_free` because it
-        // - Guarantees that pushing inside it cannot panic, which guarantees the `Drop`
-        //   impl of `BoundStatement` will always re-`bind` as needed
-        // - Avoids reallocations
-        self.binds_to_free.reserve(
-            binds
-                .iter()
-                .filter(|&(b, _)| {
-                    matches!(
-                        b,
-                        InternalSqliteBindValue::BorrowedBinary(_)
-                            | InternalSqliteBindValue::BorrowedString(_)
-                            | InternalSqliteBindValue::String(_)
-                            | InternalSqliteBindValue::Binary(_)
-                    )
-                })
-                .count(),
-        );
         for (bind_idx, (bind, tpe)) in (1..).zip(binds) {
-            let is_borrowed_bind = matches!(
-                bind,
-                InternalSqliteBindValue::BorrowedString(_)
-                    | InternalSqliteBindValue::BorrowedBinary(_)
-            );
-
             // It's safe to call bind here as:
             // * The type and value matches
             // * We ensure that corresponding buffers lives long enough below
             // * The statement is not used yet by `step` or anything else
-            let bind_ptr = self.statement.bind(tpe, bind, bind_idx)?;
+            let _ = self.statement.bind(tpe, bind, bind_idx)?;
 
-            // it's important to push these only after
-            // the call to bind succeeded, otherwise we might attempt to
-            // call bind to an non-existing bind position in
-            // the destructor
-
-            if is_borrowed_bind {
-                // Store the id's of borrowed binds to unbind them on drop
-                self.binds_to_free.push((bind_idx, None));
-            } else {
-                // Store the id + pointer for a owned bind
-                // as we must unbind and free them on drop
-                self.binds_to_free.push((bind_idx, Some(bind_ptr)));
-            }
+            // we don't track binds to free like sqlite3 C bindings
+            // The assumption is that wa-sqlite, being WASM run in web browser that
+            // lies in the middle of rust -> sqlite, takes care of this for us.
+            // if we run into memory issues, especailly memory leaks
+            // this should be the first place to pay attention to.
+            //
+            // The bindings shuold be collected/freed with JS once `clear_bindings` is
+            // run on `Drop` for `BoundStatement`
         }
         Ok(())
     }
