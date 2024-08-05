@@ -1507,6 +1507,10 @@ mod tests {
     }
 
     impl LocalWalletInboxOwner {
+        pub fn with_wallet(wallet: xmtp_cryptography::utils::LocalWallet) -> Self {
+            Self { wallet }
+        }
+
         pub fn new() -> Self {
             Self {
                 wallet: xmtp_cryptography::utils::LocalWallet::new(&mut rng()),
@@ -1607,8 +1611,11 @@ mod tests {
         client.register_identity(signature_request).await.unwrap();
     }
 
-    async fn new_test_client() -> Arc<FfiXmtpClient> {
-        let ffi_inbox_owner = LocalWalletInboxOwner::new();
+    /// Create a new test client with a given wallet.
+    async fn new_test_client_with_wallet(
+        wallet: xmtp_cryptography::utils::LocalWallet,
+    ) -> Arc<FfiXmtpClient> {
+        let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
         let nonce = 1;
         let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
 
@@ -1626,8 +1633,14 @@ mod tests {
         )
         .await
         .unwrap();
+
         register_client(&ffi_inbox_owner, &client).await;
         client
+    }
+
+    async fn new_test_client() -> Arc<FfiXmtpClient> {
+        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        new_test_client_with_wallet(wallet).await
     }
 
     #[tokio::test]
@@ -2226,6 +2239,66 @@ mod tests {
             bo_messages[bo_messages.len() - 1].id,
             alix_messages[alix_messages.len() - 1].id
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_create_new_installation_without_breaking_group() {
+        let wallet1_key = &mut rng();
+        let wallet1 = xmtp_cryptography::utils::LocalWallet::new(wallet1_key);
+        let wallet2_key = &mut rng();
+        let wallet2 = xmtp_cryptography::utils::LocalWallet::new(wallet2_key);
+
+        // Create clients
+        let client1 = new_test_client_with_wallet(wallet1).await;
+        let client2 = new_test_client_with_wallet(wallet2.clone()).await;
+        // Create a new group with client1 including wallet2
+
+        let group = client1
+            .conversations()
+            .create_group(
+                vec![client2.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Sync groups
+        client1.conversations().sync().await.unwrap();
+        client2.conversations().sync().await.unwrap();
+
+        // Find groups for both clients
+        let client1_group = client1.group(group.id()).unwrap();
+        let client2_group = client2.group(group.id()).unwrap();
+
+        // Sync both groups
+        client1_group.sync().await.unwrap();
+        client2_group.sync().await.unwrap();
+
+        // Assert both clients see 2 members
+        let client1_members = client1_group.list_members().unwrap();
+        assert_eq!(client1_members.len(), 2);
+
+        let client2_members = client2_group.list_members().unwrap();
+        assert_eq!(client2_members.len(), 2);
+
+        // Drop and delete local database for client2
+        client2.release_db_connection().unwrap();
+
+        // Recreate client2 (new installation)
+        let client2 = new_test_client_with_wallet(wallet2).await;
+
+        // Send a message that will break the group
+        client1_group
+            .send("This message will break the group".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Assert client1 still sees 2 members
+        let client1_members = client1_group.list_members().unwrap();
+        assert_eq!(client1_members.len(), 2);
+
+        let client2_members = client2_group.list_members().unwrap();
+        assert_eq!(client2_members.len(), 2);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
