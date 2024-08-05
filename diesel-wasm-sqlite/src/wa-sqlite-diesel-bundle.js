@@ -2771,6 +2771,77 @@ class SQLite {
     }
   }
 
+  bind_blob(stmt, i, value) {
+    try {
+      return this.sqlite3.bind_blob(stmt, i, value);
+    } catch (error) {
+      console.log("bind blob error");
+      throw error;
+    }
+  }
+
+  bind_collection(stmt, bindings) {
+    try {
+      return this.sqlite3.bind_collection(stmt, bindings);
+    } catch (error) {
+      console.log("bind collection error");
+      throw error;
+    }
+  }
+
+  bind_double(stmt, i, value) {
+    try {
+      return this.sqlite3.bind_double(stmt, i, value);
+    } catch (error) {
+      console.log("bind double error");
+      throw error;
+    }
+  }
+
+  bind_int(stmt, i, value) {
+    try {
+      return this.sqlite3.bind_int(stmt, i, value);
+    } catch (error) {
+      console.log("bind int error");
+      throw error;
+    }
+  }
+
+  bind_int64(stmt, i, value) {
+    try {
+      return this.sqlite3.bind_int64(stmt, i, value);
+    } catch (error) {
+      console.log("bind int644 error");
+      throw error;
+    }
+  }
+
+  bind_null(stmt, i) {
+    try {
+      return this.sqlite3.bind_null(stmt, i);
+    } catch (error) {
+      console.log("bind null error");
+      throw error;
+    }
+  }
+
+  bind_parameter_count(stmt) {
+    return this.sqlite3.bind_parameter_count(stmt);
+  }
+
+  bind_parameter_name(stmt, i) {
+    return this.sqlite3.bind_paramater_name(stmt, it);
+  }
+
+  bind_text(stmt, i, value) {
+    try {
+      this.sqlite3.bind_text(stmt, i, value);
+    } catch (error) {
+      console.log("bind text error");
+      throw error;
+    }
+  }
+
   async reset(stmt) {
     try {
       return await this.sqlite3.reset(stmt);

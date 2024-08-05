@@ -20,7 +20,7 @@ unsafe impl Send for SQLite {}
 unsafe impl Sync for SQLite {}
 
 /// Direct Shim for wa-sqlite
-#[wasm_bindgen(module = "/src/package.js")]
+#[wasm_bindgen(module = "/src/wa-sqlite-diesel-bundle.js")]
 extern "C" {
     pub type SQLite;
     pub type SQLiteCompatibleType;

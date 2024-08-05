@@ -6,7 +6,7 @@ export default defineConfig([
   {
     input: "package.js",
     output: {
-      file: "src/package.js",
+      file: "src/wa-sqlite-diesel-bundle.js",
       format: "es",
     },
     plugins: [

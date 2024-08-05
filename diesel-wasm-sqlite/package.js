@@ -80,7 +80,7 @@ export class SQLite {
       throw error;
     }
   }
-  
+
   bind_collection(stmt, bindings) {
     try {
       return this.sqlite3.bind_collection(stmt, bindings);
@@ -88,8 +88,8 @@ export class SQLite {
       console.log("bind collection error");
       throw error;
     }
-  } 
-  
+  }
+
   bind_double(stmt, i, value) {
     try {
       return this.sqlite3.bind_double(stmt, i, value);
@@ -97,8 +97,8 @@ export class SQLite {
       console.log("bind double error");
       throw error;
     }
-  } 
-  
+  }
+
   bind_int(stmt, i, value) {
     try {
       return this.sqlite3.bind_int(stmt, i, value);
@@ -106,8 +106,8 @@ export class SQLite {
       console.log("bind int error");
       throw error;
     }
-  } 
-  
+  }
+
   bind_int64(stmt, i, value) {
     try {
       return this.sqlite3.bind_int64(stmt, i, value);
@@ -115,8 +115,8 @@ export class SQLite {
       console.log("bind int644 error");
       throw error;
     }
-  } 
-  
+  }
+
   bind_null(stmt, i) {
     try {
       return this.sqlite3.bind_null(stmt, i);
@@ -124,16 +124,16 @@ export class SQLite {
       console.log("bind null error");
       throw error;
     }
-  } 
+  }
 
-  bind_parameter_count(stmt) -> i32 {
+  bind_parameter_count(stmt) {
     return this.sqlite3.bind_parameter_count(stmt);
-  } 
+  }
 
-  bind_parameter_name(stmt, i) -> string {
+  bind_parameter_name(stmt, i) {
     return this.sqlite3.bind_paramater_name(stmt, it);
   }
-  
+
   bind_text(stmt, i, value) {
     try {
       this.sqlite3.bind_text(stmt, i, value);
@@ -142,7 +142,7 @@ export class SQLite {
       throw error;
     }
   }
-  
+
   async reset(stmt) {
     try {
       return await this.sqlite3.reset(stmt);
