@@ -5,6 +5,7 @@ members = [
   "mls_validation_service",
   "xmtp_cryptography",
   "xmtp_api_grpc",
+  "xmtp_api_http",
   "xmtp_proto",
   "xmtp_user_preferences",
   "xmtp_v2",
@@ -16,7 +17,6 @@ exclude = [
   "bindings_ffi",
   "bindings_wasm",
   "xmtp_api_grpc_gateway",
-  "xmtp_api_mls_gateway",
   "bindings_node",
 ]
 

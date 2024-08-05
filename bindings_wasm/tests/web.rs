@@ -1,7 +1,7 @@
 use bindings_wasm::mls_client::{create_client, get_inbox_id_for_address};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
-use xmtp_api_mls_gateway::constants::ApiUrls;
+use xmtp_api_http::constants::ApiUrls;
 use xmtp_cryptography::utils::{rng, LocalWallet};
 use xmtp_id::InboxOwner;
 

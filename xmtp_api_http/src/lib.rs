@@ -1,9 +1,10 @@
 pub mod constants;
+mod util;
 
 use async_trait::async_trait;
 use futures::Stream;
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+
+use util::handle_error;
 use xmtp_proto::api_client::{Error, ErrorKind, XmtpIdentityClient};
 use xmtp_proto::xmtp::identity::api::v1::{
   GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
@@ -24,29 +25,15 @@ use xmtp_proto::{
 
 use crate::constants::ApiEndpoints;
 
-#[derive(Deserialize, Serialize)]
-#[serde(untagged)]
-enum GrpcResponse<T> {
-  Ok(T),
-  Err(ErrorResponse),
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct ErrorResponse {
-  code: usize,
-  message: String,
-  details: Vec<String>,
-}
-
-pub struct XmtpApiMlsGateway {
-  http: reqwest::Client,
+pub struct XmtpHttpApiClient {
+  http_client: reqwest::Client,
   host_url: String,
 }
 
-impl XmtpApiMlsGateway {
-  pub fn new(host_url: String) -> Self {
-    XmtpApiMlsGateway {
-      http: reqwest::Client::new(),
+impl XmtpHttpApiClient {
+  pub fn create(host_url: String) -> Self {
+    XmtpHttpApiClient {
+      http_client: reqwest::Client::new(),
       host_url,
     }
   }
@@ -56,28 +43,15 @@ impl XmtpApiMlsGateway {
   }
 }
 
-/// handle JSON response from gRPC, returning either
-/// the expected deserialized response object or a gRPC [`Error`]
-fn handle_error<S: AsRef<str>, T>(text: S) -> Result<T, Error>
-where
-  T: DeserializeOwned,
-{
-  match serde_json::from_str(text.as_ref()) {
-    Ok(GrpcResponse::Ok(response)) => Ok(response),
-    Ok(GrpcResponse::Err(e)) => Err(Error::new(ErrorKind::IdentityError).with(e.message)),
-    Err(e) => Err(Error::new(ErrorKind::QueryError).with(e.to_string())),
-  }
-}
-
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-impl XmtpMlsClient for XmtpApiMlsGateway {
+impl XmtpMlsClient for XmtpHttpApiClient {
   async fn register_installation(
     &self,
     request: RegisterInstallationRequest,
   ) -> Result<RegisterInstallationResponse, Error> {
     let res = self
-      .http
+      .http_client
       .post(self.endpoint(ApiEndpoints::REGISTER_INSTALLATION))
       .json(&request)
       .send()
@@ -95,7 +69,7 @@ impl XmtpMlsClient for XmtpApiMlsGateway {
 
   async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error> {
     let res = self
-      .http
+      .http_client
       .post(&self.endpoint(ApiEndpoints::UPLOAD_KEY_PACKAGE))
       .json(&request)
       .send()
@@ -113,7 +87,7 @@ impl XmtpMlsClient for XmtpApiMlsGateway {
     request: FetchKeyPackagesRequest,
   ) -> Result<FetchKeyPackagesResponse, Error> {
     let res = self
-      .http
+      .http_client
       .post(&self.endpoint(ApiEndpoints::FETCH_KEY_PACKAGES))
       .json(&request)
       .send()
@@ -128,7 +102,7 @@ impl XmtpMlsClient for XmtpApiMlsGateway {
 
   async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), Error> {
     let res = self
-      .http
+      .http_client
       .post(&self.endpoint(ApiEndpoints::SEND_GROUP_MESSAGES))
       .json(&request)
       .send()
@@ -143,7 +117,7 @@ impl XmtpMlsClient for XmtpApiMlsGateway {
 
   async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), Error> {
     let res = self
-      .http
+      .http_client
       .post(&self.endpoint(ApiEndpoints::SEND_WELCOME_MESSAGES))
       .json(&request)
       .send()
@@ -168,7 +142,7 @@ impl XmtpMlsClient for XmtpApiMlsGateway {
     request: QueryGroupMessagesRequest,
   ) -> Result<QueryGroupMessagesResponse, Error> {
     let res = self
-      .http
+      .http_client
       .post(&self.endpoint(ApiEndpoints::QUERY_GROUP_MESSAGES))
       .json(&request)
       .send()
@@ -186,7 +160,7 @@ impl XmtpMlsClient for XmtpApiMlsGateway {
     request: QueryWelcomeMessagesRequest,
   ) -> Result<QueryWelcomeMessagesResponse, Error> {
     let res = self
-      .http
+      .http_client
       .post(&self.endpoint(ApiEndpoints::QUERY_WELCOME_MESSAGES))
       .json(&request)
       .send()
@@ -205,7 +179,7 @@ impl XmtpMlsClient for XmtpApiMlsGateway {
   ) -> Result<GroupMessageStream, Error> {
     todo!()
     // let res = self
-    //   .http
+    //   .http_client
     //   .post(&self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES))
     //   .json(&request)
     //   .send()
@@ -232,13 +206,13 @@ impl XmtpMlsClient for XmtpApiMlsGateway {
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-impl XmtpIdentityClient for XmtpApiMlsGateway {
+impl XmtpIdentityClient for XmtpHttpApiClient {
   async fn publish_identity_update(
     &self,
     request: PublishIdentityUpdateRequest,
   ) -> Result<PublishIdentityUpdateResponse, Error> {
     let res = self
-      .http
+      .http_client
       .post(&self.endpoint(ApiEndpoints::PUBLISH_IDENTITY_UPDATE))
       .json(&request)
       .send()
@@ -256,7 +230,7 @@ impl XmtpIdentityClient for XmtpApiMlsGateway {
     request: GetIdentityUpdatesV2Request,
   ) -> Result<GetIdentityUpdatesV2Response, Error> {
     let res = self
-      .http
+      .http_client
       .post(&self.endpoint(ApiEndpoints::GET_IDENTITY_UPDATES))
       .json(&request)
       .send()
@@ -271,7 +245,7 @@ impl XmtpIdentityClient for XmtpApiMlsGateway {
 
   async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, Error> {
     let res = self
-      .http
+      .http_client
       .post(&self.endpoint(ApiEndpoints::GET_INBOX_IDS))
       .json(&request)
       .send()
@@ -296,7 +270,7 @@ mod tests {
 
   #[tokio::test]
   async fn test_register_installation() {
-    let client = XmtpApiMlsGateway::new(ApiUrls::LOCAL_ADDRESS.to_string());
+    let client = XmtpHttpApiClient::create(ApiUrls::LOCAL_ADDRESS.to_string());
     let result = client
       .register_installation(RegisterInstallationRequest {
         is_inbox_id_credential: false,

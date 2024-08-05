@@ -1,9 +1,9 @@
-use js_sys::{JsString, Uint8Array};
+use js_sys::Uint8Array;
 use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
-use xmtp_api_mls_gateway::XmtpApiMlsGateway;
+use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 use xmtp_id::associations::{
@@ -16,7 +16,7 @@ use xmtp_mls::retry::Retry;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
 
-pub type RustXmtpClient = MlsClient<XmtpApiMlsGateway>;
+pub type RustXmtpClient = MlsClient<XmtpHttpApiClient>;
 
 #[wasm_bindgen]
 pub struct WasmClient {
@@ -33,7 +33,7 @@ pub async fn create_client(
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
 ) -> Result<WasmClient, JsError> {
-  let api_client = XmtpApiMlsGateway::new(host.clone());
+  let api_client = XmtpHttpApiClient::create(host.clone());
 
   let storage_option = StorageOption::Ephemeral;
   let store = match encryption_key {
@@ -86,7 +86,7 @@ pub async fn get_inbox_id_for_address(
   account_address: String,
 ) -> Result<Option<String>, JsError> {
   let account_address = account_address.to_lowercase();
-  let api_client = ApiClientWrapper::new(XmtpApiMlsGateway::new(host.clone()), Retry::default());
+  let api_client = ApiClientWrapper::new(XmtpHttpApiClient::create(host.clone()), Retry::default());
 
   let results = api_client
     .get_inbox_ids(vec![account_address.clone()])
