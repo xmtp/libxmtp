@@ -1,3 +1,5 @@
+use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
+
 // TODO proper error handling
 #[derive(Debug, thiserror::Error)]
 pub enum SigningError {
@@ -32,17 +34,11 @@ impl xmtp_mls::InboxOwner for RustInboxOwner {
         self.ffi_inbox_owner.get_address().to_lowercase()
     }
 
-    fn sign(
-        &self,
-        text: &str,
-    ) -> Result<
-        xmtp_cryptography::signature::RecoverableSignature,
-        xmtp_cryptography::signature::SignatureError,
-    > {
+    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
         let bytes = self
             .ffi_inbox_owner
             .sign(text.to_string())
-            .map_err(|_flat_err| xmtp_cryptography::signature::SignatureError::Unknown)?;
-        Ok(xmtp_cryptography::signature::RecoverableSignature::Eip191Signature(bytes))
+            .map_err(|_flat_err| SignatureError::Unknown)?;
+        Ok(RecoverableSignature::Eip191Signature(bytes))
     }
 }

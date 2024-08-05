@@ -110,8 +110,8 @@ pub enum GroupError {
     CreateMessage(#[from] openmls::prelude::CreateMessageError<sql_key_store::SqlKeyStoreError>),
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
-    #[error("No changes found in commit")]
-    NoChanges,
+    #[error("SequenceId not found in local db")]
+    MissingSequenceId,
     #[error("Addresses not found {0:?}")]
     AddressNotFound(Vec<String>),
     #[error("add members: {0}")]
@@ -259,7 +259,7 @@ impl MlsGroup {
     pub fn create_and_insert(
         context: Arc<XmtpMlsLocalContext>,
         membership_state: GroupMembershipState,
-        permissions: Option<PreconfiguredPolicies>,
+        permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
     ) -> Result<Self, GroupError> {
         let conn = context.store.conn()?;
@@ -268,8 +268,7 @@ impl MlsGroup {
             build_protected_metadata_extension(&context.identity, Purpose::Conversation)?;
         let mutable_metadata = build_mutable_metadata_extension_default(&context.identity, opts)?;
         let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
-        let mutable_permissions =
-            build_mutable_permissions_extension(permissions.unwrap_or_default().to_policy_set())?;
+        let mutable_permissions = build_mutable_permissions_extension(permissions_policy_set)?;
         let group_config = build_group_config(
             protected_metadata,
             mutable_metadata,
@@ -441,9 +440,11 @@ impl MlsGroup {
         let message_id = self.prepare_message(message, &conn);
 
         // Skipping a full sync here and instead just firing and forgetting
-        if let Err(err) = self.publish_intents(conn, client).await {
+        if let Err(err) = self.publish_intents(conn.clone(), client).await {
             log::error!("Send: error publishing intents: {:?}", err);
         }
+
+        self.sync_until_last_intent_resolved(conn, client).await?;
 
         message_id
     }
@@ -460,7 +461,8 @@ impl MlsGroup {
         let update_interval = Some(5_000_000);
         self.maybe_update_installations(conn.clone(), update_interval, client)
             .await?;
-        self.publish_intents(conn, client).await?;
+        self.publish_intents(conn.clone(), client).await?;
+        self.sync_until_last_intent_resolved(conn, client).await?;
         Ok(())
     }
 
@@ -590,7 +592,8 @@ impl MlsGroup {
         // If some existing group member has an update, this will return an intent with changes
         // when we really should return an error
         if intent_data.is_empty() {
-            return Err(GroupError::NoChanges);
+            log::warn!("Member already added");
+            return Ok(());
         }
 
         let intent = provider.conn().insert_group_intent(NewGroupIntent::new(
@@ -1439,6 +1442,7 @@ mod tests {
         // Get bola's version of the same group
         let bola_groups = bola.sync_welcomes().await.unwrap();
         let bola_group = bola_groups.first().unwrap();
+        bola_group.sync(&bola).await.unwrap();
 
         log::info!("Adding charlie from amal");
         // Have amal and bola both invite charlie.
@@ -1450,7 +1454,7 @@ mod tests {
         bola_group
             .add_members_by_inbox_id(&bola, vec![charlie.inbox_id()])
             .await
-            .expect_err("expected err");
+            .expect_err("expected error");
 
         amal_group
             .receive(&amal.store().conn().unwrap(), &amal)
@@ -1460,7 +1464,7 @@ mod tests {
         // Check Amal's MLS group state.
         let amal_db = amal.context.store.conn().unwrap();
         let amal_mls_group = amal_group
-            .load_mls_group(&amal.mls_provider(amal_db.clone()))
+            .load_mls_group(amal.mls_provider(amal_db.clone()))
             .unwrap();
         let amal_members: Vec<Member> = amal_mls_group.members().collect();
         assert_eq!(amal_members.len(), 3);
@@ -1468,7 +1472,7 @@ mod tests {
         // Check Bola's MLS group state.
         let bola_db = bola.context.store.conn().unwrap();
         let bola_mls_group = bola_group
-            .load_mls_group(&bola.mls_provider(bola_db.clone()))
+            .load_mls_group(bola.mls_provider(bola_db.clone()))
             .unwrap();
         let bola_members: Vec<Member> = bola_mls_group.members().collect();
         assert_eq!(bola_members.len(), 3);
@@ -1482,15 +1486,15 @@ mod tests {
             .unwrap();
         assert_eq!(amal_uncommitted_intents.len(), 0);
 
-        let bola_uncommitted_intents = bola_db
+        let bola_failed_intents = bola_db
             .find_group_intents(
                 bola_group.group_id.clone(),
-                Some(vec![IntentState::ToPublish, IntentState::Published]),
+                Some(vec![IntentState::Error]),
                 None,
             )
             .unwrap();
-        // Bola should have one uncommitted intent for the failed attempt at adding Charlie, who is already in the group
-        assert_eq!(bola_uncommitted_intents.len(), 1);
+        // Bola should have one uncommitted intent in `Error::Failed` state for the failed attempt at adding Charlie, who is already in the group
+        assert_eq!(bola_failed_intents.len(), 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1733,6 +1737,66 @@ mod tests {
         assert!(!bola_group.is_active().unwrap())
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_removed_members_cannot_send_message_to_others() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_wallet = &generate_local_wallet();
+        let bola = ClientBuilder::new_test_client(bola_wallet).await;
+        let charlie_wallet = &generate_local_wallet();
+        let charlie = ClientBuilder::new_test_client(charlie_wallet).await;
+
+        let group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        group
+            .add_members(
+                &amal,
+                vec![bola_wallet.get_address(), charlie_wallet.get_address()],
+            )
+            .await
+            .unwrap();
+        assert_eq!(group.members().unwrap().len(), 3);
+
+        group
+            .remove_members(&amal, vec![bola_wallet.get_address()])
+            .await
+            .unwrap();
+        assert_eq!(group.members().unwrap().len(), 2);
+        assert!(group
+            .members()
+            .unwrap()
+            .iter()
+            .all(|m| m.inbox_id != bola.inbox_id()));
+        assert!(group
+            .members()
+            .unwrap()
+            .iter()
+            .any(|m| m.inbox_id == charlie.inbox_id()));
+
+        group.sync(&amal).await.expect("sync failed");
+
+        let message_text = b"hello";
+        group
+            .send_message(message_text, &bola)
+            .await
+            .expect_err("expected send_message to fail");
+
+        group.sync(&bola).await.expect("sync failed");
+        group.sync(&amal).await.expect("sync failed");
+
+        let amal_messages = group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<StoredGroupMessage>>();
+
+        let message = amal_messages.first().unwrap();
+
+        // FIXME:st this is passing ONLY because the message IS being sent to the group
+        assert_eq!(message_text, &message.decrypted_message_bytes[..]);
+        assert_eq!(amal_messages.len(), 1);
+    }
+
     // TODO:nm add more tests for filling in missing installations
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1827,7 +1891,7 @@ mod tests {
 
         let amal_group = amal
             .create_group(
-                Some(PreconfiguredPolicies::AdminsOnly),
+                Some(PreconfiguredPolicies::AdminsOnly.to_policy_set()),
                 GroupMetadataOptions::default(),
             )
             .unwrap();
@@ -1893,7 +1957,7 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let amal_group = amal
             .create_group(
-                Some(PreconfiguredPolicies::AdminsOnly),
+                Some(PreconfiguredPolicies::AdminsOnly.to_policy_set()),
                 GroupMetadataOptions::default(),
             )
             .unwrap();
@@ -1918,9 +1982,9 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and verify it has the default group name
-        let policies = Some(PreconfiguredPolicies::AdminsOnly);
+        let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
         let amal_group: MlsGroup = amal
-            .create_group(policies, GroupMetadataOptions::default())
+            .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
@@ -1999,9 +2063,9 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and verify it has the default group name
-        let policies = Some(PreconfiguredPolicies::AdminsOnly);
+        let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
         let amal_group: MlsGroup = amal
-            .create_group(policies, GroupMetadataOptions::default())
+            .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
@@ -2033,9 +2097,9 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and verify it has the default group name
-        let policies = Some(PreconfiguredPolicies::AdminsOnly);
+        let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
         let amal_group: MlsGroup = amal
-            .create_group(policies, GroupMetadataOptions::default())
+            .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
@@ -2069,9 +2133,9 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&bola_wallet).await;
 
         // Create a group and verify it has the default group name
-        let policies = Some(PreconfiguredPolicies::AllMembers);
+        let policy_set = Some(PreconfiguredPolicies::AllMembers.to_policy_set());
         let amal_group: MlsGroup = amal
-            .create_group(policies, GroupMetadataOptions::default())
+            .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
@@ -2147,9 +2211,9 @@ mod tests {
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let policies = Some(PreconfiguredPolicies::AdminsOnly);
+        let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
         let amal_group = amal
-            .create_group(policies, GroupMetadataOptions::default())
+            .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
@@ -2235,9 +2299,9 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let policies = Some(PreconfiguredPolicies::AdminsOnly);
+        let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
         let amal_group = amal
-            .create_group(policies, GroupMetadataOptions::default())
+            .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
@@ -2323,9 +2387,9 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let policies = Some(PreconfiguredPolicies::AdminsOnly);
+        let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
         let amal_group = amal
-            .create_group(policies, GroupMetadataOptions::default())
+            .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
@@ -2457,9 +2521,9 @@ mod tests {
     #[tokio::test]
     async fn test_can_read_group_creator_inbox_id() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let policies = Some(PreconfiguredPolicies::AllMembers);
+        let policy_set = Some(PreconfiguredPolicies::AllMembers.to_policy_set());
         let amal_group = amal
-            .create_group(policies, GroupMetadataOptions::default())
+            .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
@@ -2480,9 +2544,9 @@ mod tests {
     async fn test_can_update_gce_after_failed_commit() {
         // Step 1: Amal creates a group
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let policies = Some(PreconfiguredPolicies::AllMembers);
+        let policy_set = Some(PreconfiguredPolicies::AllMembers.to_policy_set());
         let amal_group = amal
-            .create_group(policies, GroupMetadataOptions::default())
+            .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
@@ -2539,9 +2603,9 @@ mod tests {
     #[tokio::test]
     async fn test_can_update_permissions_after_group_creation() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let policies = Some(PreconfiguredPolicies::AdminsOnly);
+        let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
         let amal_group: MlsGroup = amal
-            .create_group(policies, GroupMetadataOptions::default())
+            .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
 
         // Step 2:  Amal adds Bola to the group

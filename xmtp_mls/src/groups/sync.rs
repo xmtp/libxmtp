@@ -35,7 +35,6 @@ use crate::{
         group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent, ID},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         refresh_state::EntityKind,
-        StorageError,
     },
     utils::{hash::sha256, id::calculate_message_id},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -47,6 +46,7 @@ use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
     framing::{MlsMessageOut, ProtocolMessage},
+    group::GroupEpoch,
     prelude::{
         tls_codec::{Deserialize, Serialize},
         LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
@@ -134,6 +134,28 @@ impl MlsGroup {
         Ok(())
     }
 
+    pub(super) async fn sync_until_last_intent_resolved<ApiClient>(
+        &self,
+        conn: DbConnection,
+        client: &Client<ApiClient>,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let intents = conn.find_group_intents(
+            self.group_id.clone(),
+            Some(vec![IntentState::ToPublish, IntentState::Published]),
+            None,
+        )?;
+
+        if intents.is_empty() {
+            return Ok(());
+        }
+
+        self.sync_until_intent_resolved(conn, intents[intents.len() - 1].id, client)
+            .await
+    }
+
     /**
      * Sync the group and wait for the intent to be deleted
      * Group syncing may involve picking up messages unrelated to the intent, so simply checking for errors
@@ -160,28 +182,23 @@ impl MlsGroup {
                 last_err = Some(err);
             }
 
-            // This will return early if the fetch fails
-            let intent: Result<Option<StoredGroupIntent>, StorageError> = conn.fetch(&intent_id);
-            match intent {
+            match Fetch::<StoredGroupIntent>::fetch(&conn, &intent_id) {
                 Ok(None) => {
                     // This is expected. The intent gets deleted on success
                     return Ok(());
                 }
-                Ok(Some(intent)) => {
-                    if intent.state == IntentState::Error {
-                        log::warn!(
-                            "not retrying intent ID {}. since it is in state Error",
-                            intent.id,
-                        );
-                        return Err(last_err.unwrap_or(GroupError::Generic(
-                            "Group intent could not be committed".to_string(),
-                        )));
-                    }
-                    log::warn!(
-                        "retrying intent ID {}. intent currently in state {:?}",
-                        intent.id,
-                        intent.state
-                    );
+                Ok(Some(StoredGroupIntent {
+                    id,
+                    state: IntentState::Error,
+                    ..
+                })) => {
+                    log::warn!("not retrying intent ID {id}. since it is in state Error",);
+                    return Err(last_err.unwrap_or(GroupError::Generic(
+                        "Group intent could not be committed".to_string(),
+                    )));
+                }
+                Ok(Some(StoredGroupIntent { id, state, .. })) => {
+                    log::warn!("retrying intent ID {id}. intent currently in state {state:?}");
                 }
                 Err(err) => {
                     log::error!("database error fetching intent {:?}", err);
@@ -192,6 +209,37 @@ impl MlsGroup {
         }
 
         Err(last_err.unwrap_or(GroupError::Generic("failed to wait for intent".to_string())))
+    }
+
+    fn is_valid_epoch(
+        inbox_id: InboxId,
+        intent_id: i32,
+        group_epoch: GroupEpoch,
+        message_epoch: GroupEpoch,
+        max_past_epochs: usize,
+    ) -> bool {
+        if message_epoch.as_u64() + max_past_epochs as u64 <= group_epoch.as_u64() {
+            log::warn!(
+                "[{}] own message epoch {} is {} or more less than group epoch {} for intent {}. Retrying message",
+                inbox_id,
+                message_epoch,
+                max_past_epochs,
+                group_epoch,
+                intent_id
+            );
+            return false;
+        } else if message_epoch.as_u64() > group_epoch.as_u64() {
+            // Should not happen, logging proactively
+            log::error!(
+                "[{}] own message epoch {} is greater than group epoch {} for intent {}. Retrying message",
+                inbox_id,
+                message_epoch,
+                group_epoch,
+                intent_id
+            );
+            return false;
+        }
+        true
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -209,11 +257,15 @@ impl MlsGroup {
         if intent.state == IntentState::Committed {
             return Ok(());
         }
+        let message_epoch = message.epoch();
+        let group_epoch = openmls_group.epoch();
         debug!(
-            "[{}] processing own message for intent {} / {:?}",
+            "[{}] processing own message for intent {} / {:?}, group epoch: {}, message_epoch: {}",
             self.context.inbox_id(),
             intent.id,
-            intent.kind
+            intent.kind,
+            group_epoch,
+            message_epoch
         );
 
         let conn = provider.conn();
@@ -229,8 +281,6 @@ impl MlsGroup {
                 let maybe_pending_commit = openmls_group.pending_commit();
                 // We don't get errors with merge_pending_commit when there are no commits to merge
                 if maybe_pending_commit.is_none() {
-                    let message_epoch = message.epoch();
-                    let group_epoch = openmls_group.epoch();
                     debug!(
                         "no pending commit to merge. Group epoch: {}. Message epoch: {}",
                         group_epoch, message_epoch
@@ -287,36 +337,19 @@ impl MlsGroup {
                 }
             }
             IntentKind::SendMessage => {
-                let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
-                let group_id = openmls_group.group_id().as_slice();
-                let decrypted_message_data = intent_data.message.as_slice();
-
-                let envelope = PlaintextEnvelope::decode(decrypted_message_data)
-                    .map_err(MessageProcessingError::DecodeError)?;
-
-                match envelope.content {
-                    Some(Content::V1(V1 {
-                        idempotency_key,
-                        content,
-                    })) => {
-                        let message_id = calculate_message_id(group_id, &content, &idempotency_key);
-
-                        conn.set_delivery_status_to_published(&message_id, envelope_timestamp_ns)?;
-                    }
-                    Some(Content::V2(V2 {
-                        idempotency_key: _,
-                        message_type,
-                    })) => {
-                        debug!(
-                            "Send Message History Request with message_type {:#?}",
-                            message_type
-                        );
-
-                        // return Empty Ok because it is okay to not process this self message
-                        return Ok(());
-                    }
-                    None => return Err(MessageProcessingError::InvalidPayload),
-                };
+                if !Self::is_valid_epoch(
+                    self.context.inbox_id(),
+                    intent.id,
+                    group_epoch,
+                    message_epoch,
+                    3, // max_past_epochs, TODO: expose from OpenMLS MlsGroup
+                ) {
+                    conn.set_group_intent_to_publish(intent.id)?;
+                    return Ok(());
+                }
+                if let Some(id) = intent.message_id()? {
+                    conn.set_delivery_status_to_published(&id, envelope_timestamp_ns)?;
+                }
             }
         };
 
@@ -565,7 +598,7 @@ impl MlsGroup {
             // Intent with the payload hash matches
             Ok(Some(intent)) => {
                 log::info!(
-                    "client [{}] is  about to process own envelope [{}]",
+                    "client [{}] is about to process own envelope [{}]",
                     client.inbox_id(),
                     envelope.id
                 );
@@ -765,7 +798,9 @@ impl MlsGroup {
                 if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
                     log::error!("intent {} has reached max publish attempts", intent.id);
                     // TODO: Eventually clean up errored attempts
-                    provider.conn().set_group_intent_error(intent.id)?;
+                    provider
+                        .conn()
+                        .set_group_intent_error_and_fail_msg(&intent)?;
                 } else {
                     provider
                         .conn()
@@ -775,30 +810,42 @@ impl MlsGroup {
                 return Err(err);
             }
 
-            let (payload, post_commit_data) = result.expect("already checked");
-            let payload_slice = payload.as_slice();
+            if let Some((payload, post_commit_data)) = result.expect("checked") {
+                let payload_slice = payload.as_slice();
 
-            client
-                .api_client
-                .send_group_messages(vec![payload_slice])
-                .await?;
-            log::info!(
-                "[{}] published intent [{}] of type [{}]",
-                client.inbox_id(),
-                intent.id,
-                intent.kind
-            );
-            provider.conn().set_group_intent_published(
-                intent.id,
-                sha256(payload_slice),
-                post_commit_data,
-            )?;
+                client
+                    .api_client
+                    .send_group_messages(vec![payload_slice])
+                    .await?;
+                log::info!(
+                    "[{}] published intent [{}] of type [{}]",
+                    client.inbox_id(),
+                    intent.id,
+                    intent.kind
+                );
+                provider.conn().set_group_intent_published(
+                    intent.id,
+                    sha256(payload_slice),
+                    post_commit_data,
+                )?;
+                log::debug!(
+                    "client [{}] set stored intent [{}] to state `published`",
+                    client.inbox_id(),
+                    intent.id
+                );
+            } else {
+                provider
+                    .conn()
+                    .set_group_intent_error_and_fail_msg(&intent)?;
+            }
         }
 
         Ok(())
     }
 
     // Takes a StoredGroupIntent and returns the payload and post commit data as a tuple
+    // A return value of [`Option::None`] means this intent would not change the group.
+    #[allow(clippy::type_complexity)]
     #[tracing::instrument(level = "trace", skip_all)]
     async fn get_publish_intent_data<ApiClient>(
         &self,
@@ -806,7 +853,7 @@ impl MlsGroup {
         client: &Client<ApiClient>,
         openmls_group: &mut OpenMlsGroup,
         intent: &StoredGroupIntent,
-    ) -> Result<(Vec<u8>, Option<Vec<u8>>), GroupError>
+    ) -> Result<Option<(Vec<u8>, Option<Vec<u8>>)>, GroupError>
     where
         ApiClient: XmtpApi,
     {
@@ -814,19 +861,22 @@ impl MlsGroup {
             IntentKind::UpdateGroupMembership => {
                 let intent_data = UpdateGroupMembershipIntentData::try_from(&intent.data)?;
                 let signer = &self.context.identity.installation_keys;
-                let (commit, post_commit_action) = apply_update_group_membership_intent(
+                if let Some((commit, post_commit_action)) = apply_update_group_membership_intent(
                     client,
                     provider,
                     openmls_group,
                     intent_data,
                     signer,
                 )
-                .await?;
-
-                Ok((
-                    commit.tls_serialize_detached()?,
-                    post_commit_action.map(|action| action.to_bytes()),
-                ))
+                .await?
+                {
+                    Ok(Some((
+                        commit.tls_serialize_detached()?,
+                        post_commit_action.map(|action| action.to_bytes()),
+                    )))
+                } else {
+                    Ok(None)
+                }
             }
             IntentKind::SendMessage => {
                 // We can safely assume all SendMessage intents have data
@@ -839,13 +889,13 @@ impl MlsGroup {
                 )?;
 
                 let msg_bytes = msg.tls_serialize_detached()?;
-                Ok((msg_bytes, None))
+                Ok(Some((msg_bytes, None)))
             }
             IntentKind::KeyUpdate => {
                 let (commit, _, _) = openmls_group
                     .self_update(&provider, &self.context.identity.installation_keys)?;
 
-                Ok((commit.tls_serialize_detached()?, None))
+                Ok(Some((commit.tls_serialize_detached()?, None)))
             }
             IntentKind::MetadataUpdate => {
                 let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
@@ -863,7 +913,7 @@ impl MlsGroup {
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
-                Ok((commit_bytes, None))
+                Ok(Some((commit_bytes, None)))
             }
             IntentKind::UpdateAdminList => {
                 let admin_list_update_intent =
@@ -879,7 +929,7 @@ impl MlsGroup {
                     &self.context.identity.installation_keys,
                 )?;
                 let commit_bytes = commit.tls_serialize_detached()?;
-                Ok((commit_bytes, None))
+                Ok(Some((commit_bytes, None)))
             }
             IntentKind::UpdatePermission => {
                 let update_permissions_intent =
@@ -894,7 +944,7 @@ impl MlsGroup {
                     &self.context.identity.installation_keys,
                 )?;
                 let commit_bytes = commit.tls_serialize_detached()?;
-                Ok((commit_bytes, None))
+                Ok(Some((commit_bytes, None)))
             }
         }
     }
@@ -1048,7 +1098,7 @@ impl MlsGroup {
                                 "Could not find existing sequence ID for inbox {}",
                                 inbox_id
                             );
-                            return Err(GroupError::NoChanges);
+                            return Err(GroupError::MissingSequenceId);
                         }
                     }
 
@@ -1149,7 +1199,7 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateGroupMembershipIntentData,
     signer: &SignatureKeyPair,
-) -> Result<(MlsMessageOut, Option<PostCommitAction>), GroupError> {
+) -> Result<Option<(MlsMessageOut, Option<PostCommitAction>)>, GroupError> {
     let extensions: Extensions = openmls_group.extensions().clone();
 
     let old_group_membership = extract_group_membership(&extensions)?;
@@ -1199,7 +1249,7 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
         && new_key_packages.is_empty()
         && membership_diff.updated_inboxes.is_empty()
     {
-        return Err(GroupError::NoChanges);
+        return Ok(None);
     }
 
     // Update the extensions to have the new GroupMembership
@@ -1223,7 +1273,7 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
         None => None,
     };
 
-    Ok((commit, post_commit_action))
+    Ok(Some((commit, post_commit_action)))
 }
 
 fn get_removed_leaf_nodes(
@@ -1235,4 +1285,42 @@ fn get_removed_leaf_nodes(
         .filter(|member| removed_installations.contains(&member.signature_key))
         .map(|member| member.index)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::builder::ClientBuilder;
+    use futures::future;
+    use std::sync::Arc;
+    use xmtp_cryptography::utils::generate_local_wallet;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn publish_intents_worst_case_scenario() {
+        let wallet = generate_local_wallet();
+        let amal = Arc::new(ClientBuilder::new_test_client(&wallet).await);
+        let amal_group: Arc<MlsGroup> =
+            Arc::new(amal.create_group(None, Default::default()).unwrap());
+
+        amal_group.send_message_optimistic(b"1").unwrap();
+        amal_group.send_message_optimistic(b"2").unwrap();
+        amal_group.send_message_optimistic(b"3").unwrap();
+        amal_group.send_message_optimistic(b"4").unwrap();
+        amal_group.send_message_optimistic(b"5").unwrap();
+        amal_group.send_message_optimistic(b"6").unwrap();
+
+        let mut futures = vec![];
+        let conn = amal.context().store.conn().unwrap();
+
+        for _ in 0..10 {
+            let client = amal.clone();
+            let conn = conn.clone();
+            let group = amal_group.clone();
+
+            futures.push(async move {
+                group.publish_intents(conn, &client).await.unwrap();
+            });
+        }
+        future::join_all(futures).await;
+    }
 }

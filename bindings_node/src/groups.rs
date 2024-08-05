@@ -562,13 +562,9 @@ impl NapiGroup {
       move |message| {
         tsfn.call(Ok(message.into()), ThreadsafeFunctionCallMode::Blocking);
       },
-    )
-    .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    );
 
-    Ok(NapiStreamCloser::new(
-      stream_closer.close_fn,
-      stream_closer.is_closed_atomic,
-    ))
+    Ok(stream_closer.into())
   }
 
   #[napi]

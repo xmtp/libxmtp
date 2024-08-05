@@ -195,11 +195,11 @@ impl MetadataFieldChange {
  * Commit Validation Rules:
  * 1. If the `sequence_id` for an inbox has changed, it can only increase
  * 2. The client must create an expected diff of installations added and removed based on the difference between the current
- * [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`]
+ *      [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`]
  * 3. Installations may only be added or removed in the commit if they were added/removed in the expected diff
  * 4. For updates (either updating a path or via an Update Proposal) clients must verify that the `installation_id` is
- * present in the [`AssociationState`] for the `inbox_id` presented in the credential at the `to_sequence_id` found in the
- * new [`GroupMembership`].
+ *      present in the [`AssociationState`] for the `inbox_id` presented in the credential at the `to_sequence_id` found in the
+ *      new [`GroupMembership`].
  * 5. All proposals in a commit must come from the same installation
  * 6. No PSK proposals will be allowed
  */

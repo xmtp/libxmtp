@@ -97,7 +97,7 @@ impl DbConnection {
         Ok(self.raw_query(|conn| query.first::<i64>(conn))?)
     }
 
-    /// Given a list of inbox_ids return a hashamp of each inbox ID -> highest known sequence ID
+    /// Given a list of inbox_ids return a HashMap of each inbox ID -> highest known sequence ID
     #[tracing::instrument(level = "trace", skip_all)]
     pub fn get_latest_sequence_id(
         &self,
