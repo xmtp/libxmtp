@@ -3,7 +3,7 @@ use super::bind_collector::{InternalSqliteBindValue, SqliteBindCollector};
 use super::raw::RawConnection;
 use super::sqlite_value::OwnedSqliteValue;
 use crate::{
-    sqlite_types::{PrepareOptions, SqlitePrepareFlags},
+    sqlite_types::{result_codes, PrepareOptions, SqlitePrepareFlags},
     SqliteType, WasmSqlite,
 };
 use diesel::{
@@ -60,8 +60,15 @@ impl Statement {
     // `SqliteBindValue::String` or `SqliteBindValue::BorrowedString` is valid
     // till either a new value is bound to the same parameter or the underlying
     // prepared statement is dropped.
-    fn bind(&self, _tpe: SqliteType, value: JsValue, bind_index: i32) -> QueryResult<i32> {
+    fn bind(
+        &self,
+        _tpe: SqliteType,
+        value: InternalSqliteBindValue<'_>,
+        bind_index: i32,
+    ) -> QueryResult<i32> {
         let sqlite3 = crate::get_sqlite_unchecked();
+        let value =
+            serde_wasm_bindgen::to_value(&value).expect("Bind value failed to convert to JsValue");
         let result = sqlite3
             .bind(&self.inner_statement, bind_index, value.into())
             .unwrap();
@@ -69,6 +76,9 @@ impl Statement {
         // TODO:insipx Pretty sure we can have a simpler implementation here
         // making use of `wa-sqlite` `bind` which abstracts over the individual bind functions in
         // sqlite3. However, not sure  how this will work further up the stack.
+        // This might not work because of differences in how serde_json recognizes js types
+        // and how wa-sqlite recogizes js types. In that case, need to resort to matching on
+        // individual types as below.
         /*
         let result = match (tpe, value) {
             (_, InternalSqliteBindValue::Null) => {
@@ -153,6 +163,11 @@ impl Statement {
         let _ = sqlite3.reset(&self.inner_statement).await.unwrap();
     }
 
+    fn clear_bindings(&self) {
+        let sqlite3 = crate::get_sqlite_unchecked();
+        let _ = sqlite3.clear_bindings(&self.inner_statement).unwrap();
+    }
+
     /* not sure if there is equivalent method or just cloning the stmt is enough
     fn raw_connection(&self) -> *mut ffi::sqlite3 {
         unsafe { ffi::sqlite3_db_handle(self.inner_statement.as_ptr()) }
@@ -190,6 +205,12 @@ fn last_error_code(conn: *mut ffi::sqlite3) -> libc::c_int {
 impl Drop for Statement {
     fn drop(&mut self) {
         let sqlite3 = crate::get_sqlite_unchecked();
+        // TODO:insipx potential problems here.
+        // wa-sqlite does not throw an error if finalize fails:  -- it might just crash
+        // doc: https://rhashimoto.github.io/wa-sqlite/docs/interfaces/SQLiteAPI.html#finalize.finalize-1
+        // in that case we might not know if this errored or not
+        // maybe depends how wasm panic/errors work
+        // Worth unit testing the Drop implementation.
         let _ = sqlite3
             .finalize(&self.inner_statement)
             .expect("Error finalized SQLite prepared statement");
@@ -216,7 +237,7 @@ struct BoundStatement<'stmt, 'query> {
     // we need to store any owned bind values separately, as they are not
     // contained in the query itself. We use NonNull to
     // communicate that this is a shared buffer
-    binds_to_free: Vec<(i32, Option<NonNull<[u8]>>)>,
+    binds_to_free: Vec<(i32, Option<i32>)>,
     instrumentation: &'stmt mut dyn Instrumentation,
     has_error: bool,
 }
@@ -251,7 +272,7 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
         ret.bind_buffers(binds)?;
 
         let query = query as Box<dyn QueryFragment<WasmSqlite> + 'query>;
-        ret.query = NonNull::new(Box::into_raw(query));
+        ret.query = Some(query);
 
         Ok(ret)
     }
@@ -259,7 +280,10 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
     // This is a separated function so that
     // not the whole constructor is generic over the query type T.
     // This hopefully prevents binary bloat.
-    fn bind_buffers(&mut self, binds: Vec<(JsValue, SqliteType)>) -> QueryResult<()> {
+    fn bind_buffers(
+        &mut self,
+        binds: Vec<(InternalSqliteBindValue<'_>, SqliteType)>,
+    ) -> QueryResult<()> {
         // It is useful to preallocate `binds_to_free` because it
         // - Guarantees that pushing inside it cannot panic, which guarantees the `Drop`
         //   impl of `BoundStatement` will always re-`bind` as needed
@@ -289,81 +313,51 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
             // * The type and value matches
             // * We ensure that corresponding buffers lives long enough below
             // * The statement is not used yet by `step` or anything else
-            let res = unsafe { self.statement.bind(tpe, bind, bind_idx) }?;
+            let bind_ptr = self.statement.bind(tpe, bind, bind_idx)?;
 
             // it's important to push these only after
             // the call to bind succeeded, otherwise we might attempt to
             // call bind to an non-existing bind position in
             // the destructor
-            if let Some(ptr) = res {
-                // Store the id + pointer for a owned bind
-                // as we must unbind and free them on drop
-                self.binds_to_free.push((bind_idx, Some(ptr)));
-            } else if is_borrowed_bind {
+
+            if is_borrowed_bind {
                 // Store the id's of borrowed binds to unbind them on drop
                 self.binds_to_free.push((bind_idx, None));
+            } else {
+                // Store the id + pointer for a owned bind
+                // as we must unbind and free them on drop
+                self.binds_to_free.push((bind_idx, Some(bind_ptr)));
             }
         }
         Ok(())
     }
 
-    fn finish_query_with_error(mut self, e: &Error) {
+    fn finish_query_with_error(mut self, _e: &Error) {
         self.has_error = true;
+        /*
         if let Some(q) = self.query {
             // it's safe to get a reference from this ptr as it's guaranteed to not be null
             let q = unsafe { q.as_ref() };
             self.instrumentation.on_connection_event(
-                crate::connection::InstrumentationEvent::FinishQuery {
+                diesel::connection::InstrumentationEvent::FinishQuery {
                     query: &crate::debug_query(&q),
                     error: Some(e),
                 },
             );
         }
+        */
     }
 }
 
+// TODO: AsyncDrop
 impl<'stmt, 'query> Drop for BoundStatement<'stmt, 'query> {
     fn drop(&mut self) {
         // First reset the statement, otherwise the bind calls
-        // below will fails
+        // below will fail
         self.statement.reset();
+        self.statement.clear_bindings();
 
-        for (idx, buffer) in std::mem::take(&mut self.binds_to_free) {
-            unsafe {
-                // It's always safe to bind null values, as there is no buffer that needs to outlife something
-                self.statement
-                    .bind(SqliteType::Text, InternalSqliteBindValue::Null, idx)
-                    .expect(
-                        "Binding a null value should never fail. \
-                             If you ever see this error message please open \
-                             an issue at diesels issue tracker containing \
-                             code how to trigger this message.",
-                    );
-            }
-
-            if let Some(buffer) = buffer {
-                unsafe {
-                    // Constructing the `Box` here is safe as we
-                    // got the pointer from a box + it is guaranteed to be not null.
-                    std::mem::drop(Box::from_raw(buffer.as_ptr()));
-                }
-            }
-        }
-
-        if let Some(query) = self.query {
-            let query = unsafe {
-                // Constructing the `Box` here is safe as we
-                // got the pointer from a box + it is guaranteed to be not null.
-                Box::from_raw(query.as_ptr())
-            };
-            if !self.has_error {
-                self.instrumentation.on_connection_event(
-                    crate::connection::InstrumentationEvent::FinishQuery {
-                        query: &crate::debug_query(&query),
-                        error: None,
-                    },
-                );
-            }
+        if let Some(query) = &mut self.query {
             std::mem::drop(query);
             self.query = None;
         }
@@ -373,7 +367,7 @@ impl<'stmt, 'query> Drop for BoundStatement<'stmt, 'query> {
 #[allow(missing_debug_implementations)]
 pub struct StatementUse<'stmt, 'query> {
     statement: BoundStatement<'stmt, 'query>,
-    column_names: OnceCell<Vec<*const str>>,
+    column_names: OnceCell<Vec<String>>,
 }
 
 impl<'stmt, 'query> StatementUse<'stmt, 'query> {
@@ -391,13 +385,12 @@ impl<'stmt, 'query> StatementUse<'stmt, 'query> {
         })
     }
 
-    pub(super) fn run(mut self) -> QueryResult<()> {
-        let r = unsafe {
-            // This is safe as we pass `first_step = true`
-            // and we consume the statement so nobody could
-            // access the columns later on anyway.
-            self.step(true).map(|_| ())
-        };
+    pub(super) async fn run(mut self) -> QueryResult<()> {
+        // This is safe as we pass `first_step = true`
+        // and we consume the statement so nobody could
+        // access the columns later on anyway.
+        let r = self.step(true).await.map(|_| ());
+
         if let Err(ref e) = r {
             self.statement.finish_query_with_error(e);
         }
@@ -410,12 +403,18 @@ impl<'stmt, 'query> StatementUse<'stmt, 'query> {
     //
     // It's always safe to call this function with `first_step = true` as this removes
     // the cached column names
-    pub(super) unsafe fn step(&mut self, first_step: bool) -> QueryResult<bool> {
-        let res = match ffi::sqlite3_step(self.statement.statement.inner_statement.as_ptr()) {
-            ffi::SQLITE_DONE => Ok(false),
-            ffi::SQLITE_ROW => Ok(true),
-            _ => Err(last_error(self.statement.statement.raw_connection())),
+    pub(super) async fn step(&mut self, first_step: bool) -> QueryResult<bool> {
+        let sqlite3 = crate::get_sqlite_unchecked();
+        let res = match sqlite3
+            .step(&self.statement.statement.inner_statement)
+            .await
+            .unwrap()
+        {
+            result_codes::SQLITE_DONE => Ok(false),
+            result_codes::SQLITE_ROW => Ok(true),
+            _ => panic!("SQLite Step returned Unhandled Result Code. Turn into err message"),
         };
+
         if first_step {
             self.column_names = OnceCell::new();
         }
@@ -433,27 +432,15 @@ impl<'stmt, 'query> StatementUse<'stmt, 'query> {
     // Note: This function is marked as unsafe, as calling it can invalidate
     // other existing column name pointers on the same column. To prevent that,
     // it should maximally be called once per column at all.
-    unsafe fn column_name(&self, idx: i32) -> *const str {
-        let name = {
-            let column_name =
-                ffi::sqlite3_column_name(self.statement.statement.inner_statement.as_ptr(), idx);
-            assert!(
-                !column_name.is_null(),
-                "The Sqlite documentation states that it only returns a \
-                 null pointer here if we are in a OOM condition."
-            );
-            CStr::from_ptr(column_name)
-        };
-        name.to_str().expect(
-            "The Sqlite documentation states that this is UTF8. \
-             If you see this error message something has gone \
-             horribly wrong. Please open an issue at the \
-             diesel repository.",
-        ) as *const str
+    fn column_name(&self, idx: i32) -> String {
+        let sqlite3 = crate::get_sqlite_unchecked();
+
+        sqlite3.column_name(&self.statement.statement.inner_statement, idx)
     }
 
     pub(super) fn column_count(&self) -> i32 {
-        unsafe { ffi::sqlite3_column_count(self.statement.statement.inner_statement.as_ptr()) }
+        let sqlite3 = crate::get_sqlite_unchecked();
+        sqlite3.column_count(&self.statement.statement.inner_statement)
     }
 
     pub(super) fn index_for_column_name(&mut self, field_name: &str) -> Option<usize> {
@@ -465,20 +452,12 @@ impl<'stmt, 'query> StatementUse<'stmt, 'query> {
     pub(super) fn field_name(&self, idx: i32) -> Option<&str> {
         let column_names = self.column_names.get_or_init(|| {
             let count = self.column_count();
-            (0..count)
-                .map(|idx| unsafe {
-                    // By initializing the whole vec at once we ensure that
-                    // we really call this only once.
-                    self.column_name(idx)
-                })
-                .collect()
+            (0..count).map(|idx| self.column_name(idx)).collect()
         });
 
-        column_names
-            .get(idx as usize)
-            .and_then(|c| unsafe { c.as_ref() })
+        column_names.get(idx as usize).map(AsRef::as_ref)
     }
-
+    /*
     pub(super) fn copy_value(&self, idx: i32) -> Option<OwnedSqliteValue> {
         OwnedSqliteValue::copy_from_ptr(self.column_value(idx)?)
     }
@@ -489,6 +468,7 @@ impl<'stmt, 'query> StatementUse<'stmt, 'query> {
         };
         NonNull::new(ptr)
     }
+    */
 }
 
 #[cfg(test)]

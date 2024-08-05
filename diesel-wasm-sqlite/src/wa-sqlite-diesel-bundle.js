@@ -2888,18 +2888,39 @@ class SQLite {
     return this.sqlite3.changes(db);
   }
 
+  clear_bindings(stmt) {
+    return this.sqlite3.clear_bindings(stmt);
+  }
+
   async prepare(database, sql, options) {
     try {
-      await this.sqlite3.statements(database, sql, options);
+      return await this.sqlite3.statements(database, sql, options);
     } catch (error) {
       console.log("sqlite prepare error");
       throw error;
     }
   }
 
+  async step(stmt) {
+    try {
+      return await this.sqlite3.step(stmt);
+    } catch (error) {
+      console.log("sqlite step error");
+      throw error;
+    }
+  }
+
+  column_name(stmt, idx) {
+    return this.sqlite3.column_name(stmt, idx);
+  }
+
+  column_count(stmt) {
+    return this.sqlite3.column_count(stmt);
+  }
+
   batch_execute(database, query) {
     try {
-      sqlite3.exec(database, query);
+      return sqlite3.exec(database, query);
       console.log("Batch exec'ed");
     } catch {
       console.log("exec err");

@@ -5,16 +5,19 @@ use diesel::{
     serialize::{IsNull, Output},
     sql_types::HasSqlType,
 };
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsValue;
+
+// TODO:insipx this file remains largely unchanged other than the ffi::. Candidate for shared code?
 
 pub type BindValue = JsValue;
 
 #[derive(Debug, Default)]
-pub struct SqliteBindCollector {
-    pub(crate) binds: Vec<(JsValue, SqliteType)>,
+pub struct SqliteBindCollector<'a> {
+    pub(crate) binds: Vec<(InternalSqliteBindValue<'a>, SqliteType)>,
 }
 
-impl SqliteBindCollector {
+impl SqliteBindCollector<'_> {
     pub(crate) fn new() -> Self {
         Self { binds: Vec::new() }
     }
@@ -99,7 +102,8 @@ impl<'a> From<&'a [u8]> for SqliteBindValue<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
 pub(crate) enum InternalSqliteBindValue<'a> {
     BorrowedString(&'a str),
     String(Box<str>),
@@ -145,7 +149,7 @@ impl InternalSqliteBindValue<'_> {
     }
 }
 
-impl<'a> BindCollector<'a, WasmSqlite> for SqliteBindCollector {
+impl<'a> BindCollector<'a, WasmSqlite> for SqliteBindCollector<'a> {
     type Buffer = SqliteBindValue<'a>;
 
     fn push_bound_value<T, U>(&mut self, bind: &'a U, metadata_lookup: &mut ()) -> QueryResult<()>
@@ -179,7 +183,8 @@ impl<'a> BindCollector<'a, WasmSqlite> for SqliteBindCollector {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
 enum OwnedSqliteBindValue {
     String(Box<str>),
     Binary(Box<[u8]>),
@@ -227,7 +232,7 @@ pub struct SqliteBindCollectorData {
     binds: Vec<(OwnedSqliteBindValue, SqliteType)>,
 }
 
-impl MoveableBindCollector<WasmSqlite> for SqliteBindCollector {
+impl MoveableBindCollector<WasmSqlite> for SqliteBindCollector<'_> {
     type BindData = SqliteBindCollectorData;
 
     fn moveable(&self) -> Self::BindData {

@@ -121,12 +121,24 @@ extern "C" {
     pub fn changes(this: &SQLite, database: &JsValue) -> usize;
 
     #[wasm_bindgen(method, catch)]
+    pub async fn step(this: &SQLite, stmt: &JsValue) -> Result<i32, JsValue>;
+
+    #[wasm_bindgen(method, catch)]
+    pub fn clear_bindings(this: &SQLite, stmt: &JsValue) -> Result<i32, JsValue>;
+
+    #[wasm_bindgen(method, catch)]
     pub async fn prepare(
-        db: &SQLite,
+        this: &SQLite,
         database: &JsValue,
         sql: &str,
         options: Option<JsValue>,
     ) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(method)]
+    pub fn column_name(this: &SQLite, stmt: &JsValue, idx: i32) -> String;
+
+    #[wasm_bindgen(method)]
+    pub fn column_count(this: &SQLite, stmt: &JsValue) -> i32;
 
     #[wasm_bindgen(method, catch)]
     pub fn batch_execute(this: &SQLite, database: &JsValue, query: &str) -> Result<(), JsValue>;
