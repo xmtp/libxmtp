@@ -1,15 +1,20 @@
 use crate::{SqliteType, WasmSqlite};
-use diesel::query_builder::{BindCollector, MoveableBindCollector};
-use diesel::result::QueryResult;
-use diesel::serialize::{IsNull, Output};
-use diesel::sql_types::HasSqlType;
+use diesel::{
+    query_builder::{BindCollector, MoveableBindCollector},
+    result::QueryResult,
+    serialize::{IsNull, Output},
+    sql_types::HasSqlType,
+};
+use wasm_bindgen::JsValue;
+
+pub type BindValue = JsValue;
 
 #[derive(Debug, Default)]
-pub struct SqliteBindCollector<'a> {
-    pub(crate) binds: Vec<(InternalSqliteBindValue<'a>, SqliteType)>,
+pub struct SqliteBindCollector {
+    pub(crate) binds: Vec<(JsValue, SqliteType)>,
 }
 
-impl SqliteBindCollector<'_> {
+impl SqliteBindCollector {
     pub(crate) fn new() -> Self {
         Self { binds: Vec::new() }
     }
@@ -140,7 +145,7 @@ impl InternalSqliteBindValue<'_> {
     }
 }
 
-impl<'a> BindCollector<'a, WasmSqlite> for SqliteBindCollector<'a> {
+impl<'a> BindCollector<'a, WasmSqlite> for SqliteBindCollector {
     type Buffer = SqliteBindValue<'a>;
 
     fn push_bound_value<T, U>(&mut self, bind: &'a U, metadata_lookup: &mut ()) -> QueryResult<()>
@@ -157,6 +162,7 @@ impl<'a> BindCollector<'a, WasmSqlite> for SqliteBindCollector<'a> {
             .map_err(diesel::result::Error::SerializationError)?;
         let bind = to_sql_output.into_inner();
         let metadata = WasmSqlite::metadata(metadata_lookup);
+
         self.binds.push((
             match is_null {
                 IsNull::No => bind.inner,
@@ -221,7 +227,7 @@ pub struct SqliteBindCollectorData {
     binds: Vec<(OwnedSqliteBindValue, SqliteType)>,
 }
 
-impl MoveableBindCollector<WasmSqlite> for SqliteBindCollector<'_> {
+impl MoveableBindCollector<WasmSqlite> for SqliteBindCollector {
     type BindData = SqliteBindCollectorData;
 
     fn moveable(&self) -> Self::BindData {

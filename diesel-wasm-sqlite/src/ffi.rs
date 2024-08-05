@@ -23,6 +23,8 @@ unsafe impl Sync for SQLite {}
 #[wasm_bindgen(module = "/src/package.js")]
 extern "C" {
     pub type SQLite;
+    pub type SQLiteCompatibleType;
+    // pub type SqlitePrepareOptions;
 
     #[wasm_bindgen(constructor)]
     pub fn new(module: JsValue) -> SQLite;
@@ -49,6 +51,60 @@ extern "C" {
     pub fn result_null(this: &SQLite, context: i32);
 
     #[wasm_bindgen(method, catch)]
+    pub fn bind(
+        this: &SQLite,
+        stmt: &JsValue,
+        idx: i32,
+        value: SQLiteCompatibleType,
+    ) -> Result<i32, JsValue>;
+    /*
+        #[wasm_bindgen(method, catch)]
+        pub fn bind_blob(
+            this: &SQLite,
+            stmt: &JsValue,
+            idx: i32,
+            value: Vec<u8>,
+        ) -> Result<i32, JsValue>;
+
+        // JsValue here is an interesting type that needs to be ported in order to make use of this
+        // but not currently using it.
+
+        #[wasm_bindgen(method, catch)]
+        pub fn bind_collection(
+            this: &SQLite,
+            stmt: &JsValue,
+            bindings: JsValue,
+        ) -> Result<i32, JsValue>;
+
+        #[wasm_bindgen(method, catch)]
+        pub fn bind_double(this: &SQLite, stmt: &JsValue, idx: i32, value: f64)
+            -> Result<i32, JsValue>;
+
+        #[wasm_bindgen(method, catch)]
+        pub fn bind_int(this: &SQLite, stmt: &JsValue, idx: i32, value: i32) -> Result<i32, JsValue>;
+
+        #[wasm_bindgen(method, catch)]
+        pub fn bind_int64(this: &SQLite, stmt: &JsValue, idx: i32, value: i64) -> Result<i32, JsValue>;
+
+        #[wasm_bindgen(method, catch)]
+        pub fn bind_null(this: &SQLite, stmt: &JsValue, idx: i32) -> Result<i32, JsValue>;
+    */
+    #[wasm_bindgen(method)]
+    pub fn bind_parameter_count(this: &SQLite, stmt: &JsValue) -> i32;
+
+    #[wasm_bindgen(method)]
+    pub fn bind_parameter_name(this: &SQLite, stmt: &JsValue, idx: i32) -> String;
+
+    #[wasm_bindgen(method, catch)]
+    pub fn bind_text(this: &SQLite, stmt: &JsValue, idx: i32, value: &str) -> Result<i32, JsValue>;
+
+    #[wasm_bindgen(method, catch)]
+    pub async fn reset(this: &SQLite, stmt: &JsValue) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(method)]
+    pub fn value(this: &SQLite, pValue: &JsValue);
+
+    #[wasm_bindgen(method, catch)]
     pub async fn open_v2(
         this: &SQLite,
         database_url: &str,
@@ -58,8 +114,19 @@ extern "C" {
     #[wasm_bindgen(method, catch)]
     pub async fn exec(this: &SQLite, database: &JsValue, query: &str) -> Result<(), JsValue>;
 
+    #[wasm_bindgen(method, catch)]
+    pub fn finalize(this: &SQLite, stmt: &JsValue) -> Result<(), JsValue>;
+
     #[wasm_bindgen(method)]
     pub fn changes(this: &SQLite, database: &JsValue) -> usize;
+
+    #[wasm_bindgen(method, catch)]
+    pub async fn prepare(
+        db: &SQLite,
+        database: &JsValue,
+        sql: &str,
+        options: Option<JsValue>,
+    ) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(method, catch)]
     pub fn batch_execute(this: &SQLite, database: &JsValue, query: &str) -> Result<(), JsValue>;

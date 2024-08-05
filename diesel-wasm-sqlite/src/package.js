@@ -2762,6 +2762,28 @@ class SQLite {
     this.sqlite3.result_null(context);
   }
 
+  bind(stmt, i, value) {
+    try {
+      return this.sqlite3.bind(stmt, i, value);
+    } catch (error) {
+      console.log("bind err");
+      throw error;
+    }
+  }
+
+  async reset(stmt) {
+    try {
+      return await this.sqlite3.reset(stmt);
+    } catch (error) {
+      console.log("reset err");
+      throw error;
+    }
+  }
+
+  value(pValue) {
+    this.sqlite3.value(pValue);
+  }
+
   async open_v2(database_url, iflags) {
     try {
       console.log("Opening database!", database_url);
@@ -2783,8 +2805,25 @@ class SQLite {
     }
   }
 
+  finalize(stmt) {
+    try {
+      return this.sqlite3.finalize(stmt);
+    } catch (error) {
+      console.log("stmt error");
+    }
+  }
+
   changes(db) {
     return this.sqlite3.changes(db);
+  }
+
+  async prepare(database, sql, options) {
+    try {
+      await this.sqlite3.statements(database, sql, options);
+    } catch (error) {
+      console.log("sqlite prepare error");
+      throw error;
+    }
   }
 
   batch_execute(database, query) {

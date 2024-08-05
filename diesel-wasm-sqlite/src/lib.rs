@@ -10,12 +10,8 @@ pub mod utils;
 compile_error!("This crate only suports the `wasm32-unknown-unknown` target");
 
 use self::ffi::SQLite;
-use diesel::{
-    query_builder::{AsQuery, QueryFragment, QueryId},
-    result::QueryResult,
-};
 use tokio::sync::OnceCell;
-use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
+use wasm_bindgen::JsValue;
 
 pub use backend::{SqliteType, WasmSqlite};
 

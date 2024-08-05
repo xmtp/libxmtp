@@ -5,9 +5,11 @@ use std::sync::Arc;
 use super::owned_row::OwnedSqliteRow;
 use super::sqlite_value::{OwnedSqliteValue, SqliteValue};
 use super::stmt::StatementUse;
-use crate::backend::Backend;
-use crate::row::{Field, IntoOwnedRow, PartialRow, Row, RowIndex, RowSealed};
-use crate::sqlite::Sqlite;
+use crate::WasmSqlite;
+use diesel::{
+    backend::Backend,
+    row::{Field, IntoOwnedRow, PartialRow, Row, RowIndex, RowSealed},
+};
 
 #[allow(missing_debug_implementations)]
 pub struct SqliteRow<'stmt, 'query> {
@@ -23,7 +25,7 @@ pub(super) enum PrivateSqliteRow<'stmt, 'query> {
     },
 }
 
-impl<'stmt> IntoOwnedRow<'stmt, Sqlite> for SqliteRow<'stmt, '_> {
+impl<'stmt> IntoOwnedRow<'stmt, WasmSqlite> for SqliteRow<'stmt, '_> {
     type OwnedRow = OwnedSqliteRow;
 
     type Cache = Option<Arc<[Option<String>]>>;
@@ -129,7 +131,7 @@ impl<'stmt, 'query> PrivateSqliteRow<'stmt, 'query> {
 
 impl<'stmt, 'query> RowSealed for SqliteRow<'stmt, 'query> {}
 
-impl<'stmt, 'query> Row<'stmt, Sqlite> for SqliteRow<'stmt, 'query> {
+impl<'stmt, 'query> Row<'stmt, WasmSqlite> for SqliteRow<'stmt, 'query> {
     type Field<'field> = SqliteField<'field, 'field> where 'stmt: 'field, Self: 'field;
     type InnerPartialRow = Self;
 
@@ -181,7 +183,7 @@ pub struct SqliteField<'stmt, 'query> {
     pub(super) col_idx: i32,
 }
 
-impl<'stmt, 'query> Field<'stmt, Sqlite> for SqliteField<'stmt, 'query> {
+impl<'stmt, 'query> Field<'stmt, WasmSqlite> for SqliteField<'stmt, 'query> {
     fn field_name(&self) -> Option<&str> {
         match &*self.row {
             PrivateSqliteRow::Direct(stmt) => stmt.field_name(self.col_idx),
@@ -195,7 +197,7 @@ impl<'stmt, 'query> Field<'stmt, Sqlite> for SqliteField<'stmt, 'query> {
         self.value().is_none()
     }
 
-    fn value(&self) -> Option<<Sqlite as Backend>::RawValue<'_>> {
+    fn value(&self) -> Option<<WasmSqlite as Backend>::RawValue<'_>> {
         SqliteValue::new(Ref::clone(&self.row), self.col_idx)
     }
 }
@@ -298,23 +300,23 @@ mod tests {
         let second_values = (second_fields.0.value(), second_fields.1.value());
 
         assert_eq!(
-            <i32 as FromSql<sql_types::Integer, Sqlite>>::from_nullable_sql(first_values.0)
+            <i32 as FromSql<sql_types::Integer, WasmSqlite>>::from_nullable_sql(first_values.0)
                 .unwrap(),
             expected[0].0
         );
         assert_eq!(
-            <String as FromSql<sql_types::Text, Sqlite>>::from_nullable_sql(first_values.1)
+            <String as FromSql<sql_types::Text, WasmSqlite>>::from_nullable_sql(first_values.1)
                 .unwrap(),
             expected[0].1
         );
 
         assert_eq!(
-            <i32 as FromSql<sql_types::Integer, Sqlite>>::from_nullable_sql(second_values.0)
+            <i32 as FromSql<sql_types::Integer, WasmSqlite>>::from_nullable_sql(second_values.0)
                 .unwrap(),
             expected[1].0
         );
         assert_eq!(
-            <String as FromSql<sql_types::Text, Sqlite>>::from_nullable_sql(second_values.1)
+            <String as FromSql<sql_types::Text, WasmSqlite>>::from_nullable_sql(second_values.1)
                 .unwrap(),
             expected[1].1
         );
@@ -323,7 +325,7 @@ mod tests {
         let first_values = (first_fields.0.value(), first_fields.1.value());
 
         assert_eq!(
-            <i32 as FromSql<sql_types::Integer, Sqlite>>::from_nullable_sql(first_values.0)
+            <i32 as FromSql<sql_types::Integer, WasmSqlite>>::from_nullable_sql(first_values.0)
                 .unwrap(),
             expected[0].0
         );

@@ -1,12 +1,12 @@
 mod bind_collector;
 // mod functions;
-// mod owned_row;
+mod owned_row;
 mod raw;
-// mod row;
+mod row;
 // mod serialized_database;
-// mod sqlite_value;
+mod sqlite_value;
 // mod statement_iterator;
-// mod stmt;
+mod stmt;
 
 pub(crate) use self::bind_collector::SqliteBindCollector;
 pub use self::bind_collector::SqliteBindValue;

@@ -63,6 +63,99 @@ export class SQLite {
     this.sqlite3.result_null(context);
   }
 
+  bind(stmt, i, value) {
+    try {
+      return this.sqlite3.bind(stmt, i, value);
+    } catch (error) {
+      console.log("bind err");
+      throw error;
+    }
+  }
+
+  bind_blob(stmt, i, value) {
+    try {
+      return this.sqlite3.bind_blob(stmt, i, value);
+    } catch (error) {
+      console.log("bind blob error");
+      throw error;
+    }
+  }
+  
+  bind_collection(stmt, bindings) {
+    try {
+      return this.sqlite3.bind_collection(stmt, bindings);
+    } catch (error) {
+      console.log("bind collection error");
+      throw error;
+    }
+  } 
+  
+  bind_double(stmt, i, value) {
+    try {
+      return this.sqlite3.bind_double(stmt, i, value);
+    } catch (error) {
+      console.log("bind double error");
+      throw error;
+    }
+  } 
+  
+  bind_int(stmt, i, value) {
+    try {
+      return this.sqlite3.bind_int(stmt, i, value);
+    } catch (error) {
+      console.log("bind int error");
+      throw error;
+    }
+  } 
+  
+  bind_int64(stmt, i, value) {
+    try {
+      return this.sqlite3.bind_int64(stmt, i, value);
+    } catch (error) {
+      console.log("bind int644 error");
+      throw error;
+    }
+  } 
+  
+  bind_null(stmt, i) {
+    try {
+      return this.sqlite3.bind_null(stmt, i);
+    } catch (error) {
+      console.log("bind null error");
+      throw error;
+    }
+  } 
+
+  bind_parameter_count(stmt) -> i32 {
+    return this.sqlite3.bind_parameter_count(stmt);
+  } 
+
+  bind_parameter_name(stmt, i) -> string {
+    return this.sqlite3.bind_paramater_name(stmt, it);
+  }
+  
+  bind_text(stmt, i, value) {
+    try {
+      this.sqlite3.bind_text(stmt, i, value);
+    } catch (error) {
+      console.log("bind text error");
+      throw error;
+    }
+  }
+  
+  async reset(stmt) {
+    try {
+      return await this.sqlite3.reset(stmt);
+    } catch (error) {
+      console.log("reset err");
+      throw error;
+    }
+  }
+
+  value(pValue) {
+    this.sqlite3.value(pValue);
+  }
+
   async open_v2(database_url, iflags) {
     try {
       console.log("Opening database!", database_url);
@@ -84,8 +177,25 @@ export class SQLite {
     }
   }
 
+  finalize(stmt) {
+    try {
+      return this.sqlite3.finalize(stmt);
+    } catch (error) {
+      console.log("stmt error");
+    }
+  }
+
   changes(db) {
     return this.sqlite3.changes(db);
+  }
+
+  async prepare(database, sql, options) {
+    try {
+      await this.sqlite3.statements(database, sql, options);
+    } catch (error) {
+      console.log("sqlite prepare error");
+      throw error;
+    }
   }
 
   batch_execute(database, query) {

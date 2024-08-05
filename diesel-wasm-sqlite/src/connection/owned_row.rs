@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
 use super::sqlite_value::{OwnedSqliteValue, SqliteValue};
-use crate::backend::Backend;
-use crate::row::{Field, PartialRow, Row, RowIndex, RowSealed};
-use crate::sqlite::Sqlite;
+use crate::WasmSqlite;
+use diesel::{
+    backend::Backend,
+    row::{Field, PartialRow, Row, RowIndex, RowSealed},
+};
 
 #[derive(Debug)]
 pub struct OwnedSqliteRow {
@@ -25,7 +27,7 @@ impl OwnedSqliteRow {
 
 impl RowSealed for OwnedSqliteRow {}
 
-impl<'a> Row<'a, Sqlite> for OwnedSqliteRow {
+impl<'a> Row<'a, WasmSqlite> for OwnedSqliteRow {
     type Field<'field> = OwnedSqliteField<'field> where 'a: 'field, Self: 'field;
     type InnerPartialRow = Self;
 
@@ -74,7 +76,7 @@ pub struct OwnedSqliteField<'row> {
     pub(super) col_idx: i32,
 }
 
-impl<'row> Field<'row, Sqlite> for OwnedSqliteField<'row> {
+impl<'row> Field<'row, WasmSqlite> for OwnedSqliteField<'row> {
     fn field_name(&self) -> Option<&str> {
         self.row
             .column_names
@@ -86,7 +88,7 @@ impl<'row> Field<'row, Sqlite> for OwnedSqliteField<'row> {
         self.value().is_none()
     }
 
-    fn value(&self) -> Option<<Sqlite as Backend>::RawValue<'row>> {
+    fn value(&self) -> Option<<WasmSqlite as Backend>::RawValue<'row>> {
         SqliteValue::from_owned_row(self.row, self.col_idx)
     }
 }

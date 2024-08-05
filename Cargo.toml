@@ -9,7 +9,7 @@ members = [
   "xmtp_user_preferences",
   "xmtp_v2",
   "xmtp_mls",
-  "xmtp_id", "diesel-wasm-sqlite"
+  "xmtp_id"
 ]
 
 exclude = [
@@ -17,6 +17,7 @@ exclude = [
   "bindings_wasm",
   "xmtp_api_grpc_gateway",
   "bindings_node",
+  "diesel-wasm-sqlite"
 ]
 
 # Make the feature resolver explicit.

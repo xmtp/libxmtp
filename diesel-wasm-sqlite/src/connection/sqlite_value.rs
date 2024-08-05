@@ -1,11 +1,10 @@
 #![allow(unsafe_code)] // ffi calls
-extern crate libsqlite3_sys as ffi;
 
 use std::cell::Ref;
-use std::ptr::NonNull;
 use std::{slice, str};
 
-use crate::sqlite::SqliteType;
+use crate::{backend::SqliteType, sqlite_types};
+use wasm_bindgen::JsValue;
 
 use super::owned_row::OwnedSqliteRow;
 use super::row::PrivateSqliteRow;
@@ -24,22 +23,16 @@ pub struct SqliteValue<'row, 'stmt, 'query> {
     // to safe the match statements for each method
     // According to benchmarks this leads to a ~20-30% speedup
     //
+    //
     // This is sound as long as nobody calls `stmt.step()`
     // while holding this value. We ensure this by including
     // a reference to the row above.
-    value: NonNull<ffi::sqlite3_value>,
+    value: JsValue,
 }
 
-#[derive(Debug)]
-#[repr(transparent)]
+#[derive(Debug, Clone)]
 pub(super) struct OwnedSqliteValue {
-    pub(super) value: NonNull<ffi::sqlite3_value>,
-}
-
-impl Drop for OwnedSqliteValue {
-    fn drop(&mut self) {
-        unsafe { ffi::sqlite3_value_free(self.value.as_ptr()) }
-    }
+    pub(super) value: JsValue,
 }
 
 // Unsafe Send impl safe since sqlite3_value is built with sqlite3_value_dup
@@ -148,25 +141,14 @@ impl<'row, 'stmt, 'query> SqliteValue<'row, 'stmt, 'query> {
 }
 
 impl OwnedSqliteValue {
-    pub(super) fn copy_from_ptr(ptr: NonNull<ffi::sqlite3_value>) -> Option<OwnedSqliteValue> {
-        let tpe = unsafe { ffi::sqlite3_value_type(ptr.as_ptr()) };
-        if ffi::SQLITE_NULL == tpe {
+    pub(super) fn new_from_ptr(ptr: &JsValue) -> Option<OwnedSqliteValue> {
+        let sqlite3 = crate::get_sqlite_unchecked();
+        let value = sqlite3.value(ptr);
+
+        if value.is_null() {
             return None;
         }
-        let value = unsafe { ffi::sqlite3_value_dup(ptr.as_ptr()) };
-        Some(Self {
-            value: NonNull::new(value)?,
-        })
-    }
 
-    pub(super) fn duplicate(&self) -> OwnedSqliteValue {
-        // self.value is a `NonNull` ptr so this cannot be null
-        let value = unsafe { ffi::sqlite3_value_dup(self.value.as_ptr()) };
-        let value = NonNull::new(value).expect(
-            "Sqlite documentation states this returns only null if value is null \
-                 or OOM. If you ever see this panic message please open an issue at \
-                 https://github.com/diesel-rs/diesel.",
-        );
-        OwnedSqliteValue { value }
+        Some(Self { value })
     }
 }

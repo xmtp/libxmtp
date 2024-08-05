@@ -17,3 +17,9 @@ wasm-pack test --chrome --headless
 - [ ] wa-sqlite should be included in `pkg` build w/o manual copy (wasm-pack
       issue?)
 - [ ] OPFS
+
+# Notes
+
+- rust-analyzer doesn't like crates with different targets in the same
+  workspace. If you want this to work well with your LSP, open
+  `diesel-wasm-sqlite` as it's own project.

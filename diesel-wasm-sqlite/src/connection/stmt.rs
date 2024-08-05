@@ -1,53 +1,57 @@
-#![allow(unsafe_code)] // fii code
+#![allow(unsafe_code)] //TODO: can probably remove for wa-sqlite
 use super::bind_collector::{InternalSqliteBindValue, SqliteBindCollector};
 use super::raw::RawConnection;
 use super::sqlite_value::OwnedSqliteValue;
-use crate::connection::statement_cache::{MaybeCached, PrepareForCache};
-use crate::connection::Instrumentation;
-use crate::query_builder::{QueryFragment, QueryId};
-use crate::result::Error::DatabaseError;
-use crate::result::*;
-use crate::sqlite::{Sqlite, SqliteType};
-use libsqlite3_sys as ffi;
+use crate::{
+    sqlite_types::{PrepareOptions, SqlitePrepareFlags},
+    SqliteType, WasmSqlite,
+};
+use diesel::{
+    connection::{
+        statement_cache::{MaybeCached, PrepareForCache},
+        Instrumentation,
+    },
+    query_builder::{QueryFragment, QueryId},
+    result::{Error::DatabaseError, *},
+};
 use std::cell::OnceCell;
-use std::ffi::{CStr, CString};
 use std::io::{stderr, Write};
-use std::os::raw as libc;
-use std::ptr::{self, NonNull};
+
+use wasm_bindgen::JsValue;
 
 pub(super) struct Statement {
-    inner_statement: NonNull<ffi::sqlite3_stmt>,
+    inner_statement: JsValue,
 }
 
 impl Statement {
-    pub(super) fn prepare(
+    pub(super) async fn prepare(
         raw_connection: &RawConnection,
         sql: &str,
         is_cached: PrepareForCache,
     ) -> QueryResult<Self> {
-        let mut stmt = ptr::null_mut();
-        let mut unused_portion = ptr::null();
-        // the cast for `ffi::SQLITE_PREPARE_PERSISTENT` is required for old libsqlite3-sys versions
-        #[allow(clippy::unnecessary_cast)]
-        let prepare_result = unsafe {
-            ffi::sqlite3_prepare_v3(
-                raw_connection.internal_connection.as_ptr(),
-                CString::new(sql)?.as_ptr(),
-                sql.len() as libc::c_int,
-                if matches!(is_cached, PrepareForCache::Yes) {
-                    ffi::SQLITE_PREPARE_PERSISTENT as u32
-                } else {
-                    0
-                },
-                &mut stmt,
-                &mut unused_portion,
-            )
+        let sqlite3 = crate::get_sqlite_unchecked();
+        let flags = if matches!(is_cached, PrepareForCache::Yes) {
+            Some(SqlitePrepareFlags::SQLITE_PREPARE_PERSISTENT.bits())
+        } else {
+            None
         };
 
-        ensure_sqlite_ok(prepare_result, raw_connection.internal_connection.as_ptr()).map(|_| {
-            Statement {
-                inner_statement: unsafe { NonNull::new_unchecked(stmt) },
-            }
+        let options = PrepareOptions {
+            flags,
+            unscoped: None,
+        };
+
+        let stmt = sqlite3
+            .prepare(
+                &raw_connection.internal_connection,
+                sql,
+                Some(serde_wasm_bindgen::to_value(&options).unwrap()),
+            )
+            .await
+            .unwrap();
+
+        Ok(Statement {
+            inner_statement: stmt,
         })
     }
 
@@ -56,13 +60,16 @@ impl Statement {
     // `SqliteBindValue::String` or `SqliteBindValue::BorrowedString` is valid
     // till either a new value is bound to the same parameter or the underlying
     // prepared statement is dropped.
-    unsafe fn bind(
-        &mut self,
-        tpe: SqliteType,
-        value: InternalSqliteBindValue<'_>,
-        bind_index: i32,
-    ) -> QueryResult<Option<NonNull<[u8]>>> {
-        let mut ret_ptr = None;
+    fn bind(&self, _tpe: SqliteType, value: JsValue, bind_index: i32) -> QueryResult<i32> {
+        let sqlite3 = crate::get_sqlite_unchecked();
+        let result = sqlite3
+            .bind(&self.inner_statement, bind_index, value.into())
+            .unwrap();
+
+        // TODO:insipx Pretty sure we can have a simpler implementation here
+        // making use of `wa-sqlite` `bind` which abstracts over the individual bind functions in
+        // sqlite3. However, not sure  how this will work further up the stack.
+        /*
         let result = match (tpe, value) {
             (_, InternalSqliteBindValue::Null) => {
                 ffi::sqlite3_bind_null(self.inner_statement.as_ptr(), bind_index)
@@ -136,41 +143,24 @@ impl Statement {
                     format!("Type mismatch: Expected {t:?}, got {b}").into(),
                 ))
             }
-        };
-        match ensure_sqlite_ok(result, self.raw_connection()) {
-            Ok(()) => Ok(ret_ptr),
-            Err(e) => {
-                if let Some(ptr) = ret_ptr {
-                    // This is a `NonNul` ptr so it cannot be null
-                    // It points to a slice internally as we did not apply
-                    // any cast above.
-                    std::mem::drop(Box::from_raw(ptr.as_ptr()))
-                }
-                Err(e)
-            }
         }
+        */
+        Ok(result)
     }
 
-    fn reset(&mut self) {
-        unsafe { ffi::sqlite3_reset(self.inner_statement.as_ptr()) };
+    async fn reset(&self) {
+        let sqlite3 = crate::get_sqlite_unchecked();
+        let _ = sqlite3.reset(&self.inner_statement).await.unwrap();
     }
 
+    /* not sure if there is equivalent method or just cloning the stmt is enough
     fn raw_connection(&self) -> *mut ffi::sqlite3 {
         unsafe { ffi::sqlite3_db_handle(self.inner_statement.as_ptr()) }
     }
+    */
 }
 
-pub(super) fn ensure_sqlite_ok(
-    code: libc::c_int,
-    raw_connection: *mut ffi::sqlite3,
-) -> QueryResult<()> {
-    if code == ffi::SQLITE_OK {
-        Ok(())
-    } else {
-        Err(last_error(raw_connection))
-    }
-}
-
+/* TODO: Useful for converting JS Error messages to Rust
 fn last_error(raw_connection: *mut ffi::sqlite3) -> Error {
     let error_message = last_error_message(raw_connection);
     let error_information = Box::new(error_message);
@@ -191,27 +181,18 @@ fn last_error_message(conn: *mut ffi::sqlite3) -> String {
     c_str.to_string_lossy().into_owned()
 }
 
+
 fn last_error_code(conn: *mut ffi::sqlite3) -> libc::c_int {
     unsafe { ffi::sqlite3_extended_errcode(conn) }
 }
+*/
 
 impl Drop for Statement {
     fn drop(&mut self) {
-        use std::thread::panicking;
-
-        let raw_connection = self.raw_connection();
-        let finalize_result = unsafe { ffi::sqlite3_finalize(self.inner_statement.as_ptr()) };
-        if let Err(e) = ensure_sqlite_ok(finalize_result, raw_connection) {
-            if panicking() {
-                write!(
-                    stderr(),
-                    "Error finalizing SQLite prepared statement: {e:?}"
-                )
-                .expect("Error writing to `stderr`");
-            } else {
-                panic!("Error finalizing SQLite prepared statement: {:?}", e);
-            }
-        }
+        let sqlite3 = crate::get_sqlite_unchecked();
+        let _ = sqlite3
+            .finalize(&self.inner_statement)
+            .expect("Error finalized SQLite prepared statement");
     }
 }
 
@@ -231,7 +212,7 @@ struct BoundStatement<'stmt, 'query> {
     // We use a boxed queryfragment here just to erase the
     // generic type, we use NonNull to communicate
     // that this is a shared buffer
-    query: Option<NonNull<dyn QueryFragment<Sqlite> + 'query>>,
+    query: Option<Box<dyn QueryFragment<WasmSqlite> + 'query>>,
     // we need to store any owned bind values separately, as they are not
     // contained in the query itself. We use NonNull to
     // communicate that this is a shared buffer
@@ -247,7 +228,7 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
         instrumentation: &'stmt mut dyn Instrumentation,
     ) -> QueryResult<BoundStatement<'stmt, 'query>>
     where
-        T: QueryFragment<Sqlite> + QueryId + 'query,
+        T: QueryFragment<WasmSqlite> + QueryId + 'query,
     {
         // Don't use a trait object here to prevent using a virtual function call
         // For sqlite this can introduce a measurable overhead
@@ -256,7 +237,7 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
         let query = Box::new(query);
 
         let mut bind_collector = SqliteBindCollector::new();
-        query.collect_binds(&mut bind_collector, &mut (), &Sqlite)?;
+        query.collect_binds(&mut bind_collector, &mut (), &WasmSqlite)?;
         let SqliteBindCollector { binds } = bind_collector;
 
         let mut ret = BoundStatement {
@@ -269,7 +250,7 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
 
         ret.bind_buffers(binds)?;
 
-        let query = query as Box<dyn QueryFragment<Sqlite> + 'query>;
+        let query = query as Box<dyn QueryFragment<WasmSqlite> + 'query>;
         ret.query = NonNull::new(Box::into_raw(query));
 
         Ok(ret)
@@ -278,10 +259,7 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
     // This is a separated function so that
     // not the whole constructor is generic over the query type T.
     // This hopefully prevents binary bloat.
-    fn bind_buffers(
-        &mut self,
-        binds: Vec<(InternalSqliteBindValue<'_>, SqliteType)>,
-    ) -> QueryResult<()> {
+    fn bind_buffers(&mut self, binds: Vec<(JsValue, SqliteType)>) -> QueryResult<()> {
         // It is useful to preallocate `binds_to_free` because it
         // - Guarantees that pushing inside it cannot panic, which guarantees the `Drop`
         //   impl of `BoundStatement` will always re-`bind` as needed
@@ -405,7 +383,7 @@ impl<'stmt, 'query> StatementUse<'stmt, 'query> {
         instrumentation: &'stmt mut dyn Instrumentation,
     ) -> QueryResult<StatementUse<'stmt, 'query>>
     where
-        T: QueryFragment<Sqlite> + QueryId + 'query,
+        T: QueryFragment<WasmSqlite> + QueryId + 'query,
     {
         Ok(Self {
             statement: BoundStatement::bind(statement, query, instrumentation)?,

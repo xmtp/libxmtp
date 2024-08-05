@@ -1,6 +1,14 @@
 use super::backend::{SqliteType, WasmSqlite};
 use bitflags::bitflags;
 use diesel::sql_types::*;
+use serde::{Deserialize, Serialize};
+
+/// `SqlitePrepareOptions` imported type
+#[derive(Serialize, Deserialize, Default, Clone, Debug, Copy)]
+pub struct PrepareOptions {
+    pub flags: Option<i32>,
+    pub unscoped: Option<i32>,
+}
 
 macro_rules! impl_has_sql_type {
     ($type:ty, $sql_type:expr) => {
@@ -52,7 +60,7 @@ bitflags! {
     }
 }
 
-/// SQLite Text Encodings https://www.sqlite.org/capi3ref.html#SQLITE_ANY
+// SQLite Text Encodings https://www.sqlite.org/capi3ref.html#SQLITE_ANY
 bitflags! {
     pub struct SqliteFlags: u32 {
         const SQLITE_UTF8          = 1;   /* IMP: R-37514-35566 */
@@ -68,5 +76,14 @@ bitflags! {
         const SQLITE_SUBTYPE        = 0x000100000;
         const SQLITE_INNOCUOUS      = 0x000200000;
         const SQLITE_RESULT_SUBTYPE = 0x001000000;
+    }
+}
+
+// SQLite Prepare Flags https://www.sqlite.org/c3ref/c_prepare_normalize.html#sqlitepreparepersistent
+bitflags! {
+    pub struct SqlitePrepareFlags: i32 {
+        const SQLITE_PREPARE_PERSISTENT = 0x01;
+        const SQLITE_PREPARE_NORMALIZE  = 0x02;
+        const SQLITE_PREPARE_NO_VTAB    = 0x04;
     }
 }
