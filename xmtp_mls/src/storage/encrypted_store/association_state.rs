@@ -47,7 +47,7 @@ impl StoredAssociationState {
         }
         .store_or_ignore(conn);
 
-        if !result.is_err() {
+        if result.is_ok() {
             log::debug!(
                 "Wrote association state to cache: {} {}",
                 inbox_id,
@@ -78,7 +78,7 @@ impl StoredAssociationState {
             })
             .transpose();
 
-        if !result.is_err() && result.as_ref().unwrap().is_some() {
+        if result.is_ok() && result.as_ref().unwrap().is_some() {
             log::debug!(
                 "Loaded association state from cache: {} {}",
                 inbox_id,

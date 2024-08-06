@@ -152,11 +152,8 @@ where
             .get_association_state(conn, inbox_id.as_ref(), starting_sequence_id)
             .await?;
 
-        let incremental_updates = conn.get_identity_updates(
-            &inbox_id.as_ref(),
-            starting_sequence_id,
-            ending_sequence_id,
-        )?;
+        let incremental_updates =
+            conn.get_identity_updates(inbox_id.as_ref(), starting_sequence_id, ending_sequence_id)?;
 
         let last_sequence_id = incremental_updates.last().map(|update| update.sequence_id);
         if ending_sequence_id.is_some()
