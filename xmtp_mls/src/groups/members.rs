@@ -43,14 +43,14 @@ impl MlsGroup {
             .collect::<Vec<_>>();
 
         let conn = provider.conn_ref();
-        let requests_len = requests.len();
-        let association_state_map = StoredAssociationState::batch_read_from_cache(conn, requests)?;
+        let association_state_map =
+            StoredAssociationState::batch_read_from_cache(conn, requests.clone())?;
         let mutable_metadata = self.mutable_metadata()?;
         // TODO: Figure out what to do with missing members from the local DB. Do we go to the network? Load from identity updates?
         // Right now I am just omitting them
-        if association_state_map.len() != requests_len {
+        if association_state_map.len() != requests.len() {
             // Cache miss - should either error if not expected, or should fetch from network if it is expected
-            log::error!("Failed to load all members for group");
+            log::error!("Failed to load all members for group: {:?}", requests);
         }
         let members = association_state_map
             .into_iter()

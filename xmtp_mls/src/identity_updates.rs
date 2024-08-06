@@ -109,7 +109,6 @@ where
         if let Some(association_state) =
             StoredAssociationState::read_from_cache(conn, inbox_id.to_string(), last_sequence_id)?
         {
-            log::debug!("Loaded association state from cache");
             return Ok(association_state);
         }
 
@@ -125,7 +124,6 @@ where
             last_sequence_id,
             association_state.clone(),
         )?;
-        log::debug!("Wrote association state to cache");
 
         Ok(association_state)
     }
@@ -137,6 +135,12 @@ where
         starting_sequence_id: Option<i64>,
         ending_sequence_id: Option<i64>,
     ) -> Result<AssociationStateDiff, ClientError> {
+        log::debug!(
+            "Computing diff for {:?} from {:?} to {:?}",
+            inbox_id.as_ref(),
+            starting_sequence_id,
+            ending_sequence_id
+        );
         if starting_sequence_id.is_none() {
             return Ok(self
                 .get_association_state(conn, inbox_id.as_ref(), ending_sequence_id)
@@ -148,8 +152,26 @@ where
             .get_association_state(conn, inbox_id.as_ref(), starting_sequence_id)
             .await?;
 
-        let incremental_updates = conn
-            .get_identity_updates(inbox_id, starting_sequence_id, ending_sequence_id)?
+        let incremental_updates = conn.get_identity_updates(
+            &inbox_id.as_ref(),
+            starting_sequence_id,
+            ending_sequence_id,
+        )?;
+
+        let last_sequence_id = incremental_updates.last().map(|update| update.sequence_id);
+        if ending_sequence_id.is_some()
+            && last_sequence_id.is_some()
+            && last_sequence_id != ending_sequence_id
+        {
+            log::error!(
+                "Did not find the expected last sequence id. Expected: {:?}, Found: {:?}",
+                ending_sequence_id,
+                last_sequence_id
+            );
+            return Err(AssociationError::MissingIdentityUpdate.into());
+        }
+
+        let incremental_updates = incremental_updates
             .into_iter()
             .map(|update| update.try_into())
             .collect::<Result<Vec<IdentityUpdate>, AssociationError>>()?;
@@ -157,6 +179,16 @@ where
         let mut final_state = initial_state.clone();
         for update in incremental_updates {
             final_state = apply_update(final_state, update).await?;
+        }
+
+        log::debug!("Final state at {:?}: {:?}", last_sequence_id, final_state);
+        if last_sequence_id.is_some() {
+            StoredAssociationState::write_to_cache(
+                conn,
+                inbox_id.as_ref().to_string(),
+                last_sequence_id.unwrap(),
+                final_state.clone(),
+            )?;
         }
 
         Ok(initial_state.diff(&final_state))
@@ -335,6 +367,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
     if inbox_ids.is_empty() {
         return Ok(HashMap::new());
     }
+    log::debug!("Fetching identity updates for: {:?}", inbox_ids);
 
     let existing_sequence_ids = conn.get_latest_sequence_id(&inbox_ids)?;
     let filters: Vec<GetIdentityUpdatesV2Filter> = inbox_ids
