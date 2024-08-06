@@ -379,7 +379,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::test::Delivery;
+    use crate::utils::test::{Delivery, TestClient};
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions,
         storage::group_message::StoredGroupMessage, Client,
@@ -389,7 +389,6 @@ mod tests {
         atomic::{AtomicU64, Ordering},
         Arc, Mutex,
     };
-    use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
@@ -439,7 +438,7 @@ mod tests {
 
         let notify = Delivery::new();
         let notify_pointer = notify.clone();
-        let mut handle = Client::<GrpcClient>::stream_all_messages_with_callback(
+        let mut handle = Client::<TestClient>::stream_all_messages_with_callback(
             Arc::new(caro),
             move |message| {
                 (*messages_clone.lock().unwrap()).push(message);
@@ -495,7 +494,7 @@ mod tests {
         let delivery = Delivery::new();
         let delivery_pointer = delivery.clone();
         let mut handle =
-            Client::<GrpcClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
+            Client::<TestClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
                 delivery_pointer.notify_one();
                 (*messages_clone.lock().unwrap()).push(message);
             });
@@ -588,7 +587,7 @@ mod tests {
 
         let blocked_pointer = blocked.clone();
         let mut handle =
-            Client::<GrpcClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
+            Client::<TestClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
                 (*messages_clone.lock().unwrap()).push(message);
                 blocked_pointer.fetch_sub(1, Ordering::SeqCst);
             });
@@ -644,7 +643,7 @@ mod tests {
         let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
 
         let closer =
-            Client::<GrpcClient>::stream_conversations_with_callback(alix.clone(), move |g| {
+            Client::<TestClient>::stream_conversations_with_callback(alix.clone(), move |g| {
                 let mut groups = groups_pointer.lock().unwrap();
                 groups.push(g);
                 notify_pointer.notify_one();

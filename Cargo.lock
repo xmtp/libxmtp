@@ -6579,6 +6579,7 @@ dependencies = [
  "tracing-subscriber",
  "tracing-test",
  "xmtp_api_grpc",
+ "xmtp_api_http",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_proto",

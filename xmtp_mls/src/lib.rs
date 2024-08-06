@@ -26,8 +26,31 @@ use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 /// XMTP Api Super Trait
 /// Implements all Trait Network APIs for convenience.
-pub trait XmtpApi: XmtpMlsClient + XmtpIdentityClient {}
-impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient {}
+#[cfg(not(test))]
+pub trait XmtpApi
+where
+    Self: XmtpMlsClient + XmtpIdentityClient,
+{
+}
+#[cfg(not(test))]
+impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ?Sized {}
+
+#[cfg(test)]
+pub trait XmtpApi
+where
+    Self: XmtpMlsClient + XmtpIdentityClient + XmtpTestClient,
+{
+}
+
+#[cfg(test)]
+impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + XmtpTestClient + ?Sized {}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+pub trait XmtpTestClient {
+    async fn create_local() -> Self;
+    async fn create_dev() -> Self;
+}
 
 pub trait InboxOwner {
     /// Get address of the wallet.

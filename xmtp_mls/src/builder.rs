@@ -123,6 +123,7 @@ mod tests {
     use crate::builder::ClientBuilderError;
     use crate::identity::IdentityError;
     use crate::retry::Retry;
+    use crate::XmtpApi;
     use crate::{
         api::test_utils::*, identity::Identity, storage::identity::StoredIdentity,
         utils::test::rand_vec, Store,
@@ -133,7 +134,6 @@ mod tests {
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_traits::types::SignatureScheme;
     use prost::Message;
-    use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::signature::h160addr_to_string;
     use xmtp_cryptography::utils::{generate_local_wallet, rng};
     use xmtp_id::associations::ValidatedLegacySignedPublicKey;
@@ -157,7 +157,7 @@ mod tests {
         Client, InboxOwner,
     };
 
-    async fn register_client(client: &Client<GrpcClient>, owner: &impl InboxOwner) {
+    async fn register_client<T: XmtpApi>(client: &Client<T>, owner: &impl InboxOwner) {
         let mut signature_request = client.context.signature_request().unwrap();
         let signature_text = signature_request.signature_text();
         signature_request
@@ -311,7 +311,7 @@ mod tests {
         for test_case in identity_strategies_test_cases {
             let result = ClientBuilder::new(test_case.strategy)
                 .temp_store()
-                .local_grpc()
+                .local_client()
                 .await
                 .build()
                 .await;
@@ -344,18 +344,18 @@ mod tests {
         let store =
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmp_path())).unwrap();
 
-        let client1: Client<GrpcClient> = ClientBuilder::new(identity_strategy.clone())
+        let client1 = ClientBuilder::new(identity_strategy.clone())
             .store(store.clone())
-            .local_grpc()
+            .local_client()
             .await
             .build()
             .await
             .unwrap();
         assert!(client1.context.signature_request().is_none());
 
-        let client2: Client<GrpcClient> = ClientBuilder::new(IdentityStrategy::CachedOnly)
+        let client2 = ClientBuilder::new(IdentityStrategy::CachedOnly)
             .store(store.clone())
-            .local_grpc()
+            .local_client()
             .await
             .build()
             .await
@@ -364,14 +364,14 @@ mod tests {
         assert!(client1.inbox_id() == client2.inbox_id());
         assert!(client1.installation_public_key() == client2.installation_public_key());
 
-        let client3: Client<GrpcClient> = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
+        let client3 = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
             generate_inbox_id(&legacy_account_address, &0),
             legacy_account_address.to_string(),
             0,
             None,
         ))
         .store(store.clone())
-        .local_grpc()
+        .local_client()
         .await
         .build()
         .await
@@ -380,14 +380,14 @@ mod tests {
         assert!(client1.inbox_id() == client3.inbox_id());
         assert!(client1.installation_public_key() == client3.installation_public_key());
 
-        let client4: Client<GrpcClient> = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
+        let client4 = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
             generate_inbox_id(&legacy_account_address, &0),
             legacy_account_address.to_string(),
             0,
             Some(legacy_key),
         ))
         .temp_store()
-        .local_grpc()
+        .local_client()
         .await
         .build()
         .await
@@ -543,7 +543,7 @@ mod tests {
             nonce,
             None,
         ))
-        .local_grpc()
+        .local_client()
         .await
         .store(store_a)
         .build()
@@ -566,7 +566,7 @@ mod tests {
             nonce,
             None,
         ))
-        .local_grpc()
+        .local_client()
         .await
         .store(store_b)
         .build()
@@ -588,7 +588,7 @@ mod tests {
         //     generate_local_wallet().get_address(),
         //     None,
         // ))
-        // .local_grpc()
+        // .local_client()
         // .await
         // .store(store_c)
         // .build()
@@ -600,7 +600,7 @@ mod tests {
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
                 .unwrap();
         let client_d = ClientBuilder::new(IdentityStrategy::CachedOnly)
-            .local_grpc()
+            .local_client()
             .await
             .store(store_d)
             .build()
