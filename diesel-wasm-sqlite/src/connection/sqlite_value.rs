@@ -149,16 +149,11 @@ impl OwnedSqliteValue {
         })
     }
 
-    /*
-    pub(super) fn copy_from_ptr(ptr: NonNull<ffi::sqlite3_value>) -> Option<OwnedSqliteValue> {
-        let tpe = unsafe { ffi::sqlite3_value_type(ptr.as_ptr()) };
-        if ffi::SQLITE_NULL == tpe {
-            return None;
+    pub(super) fn duplicate(&self) -> OwnedSqliteValue {
+        let sqlite3 = crate::get_sqlite_unchecked();
+        let value = sqlite3.value_dup(&self.value);
+        OwnedSqliteValue {
+            value: value.into(),
         }
-        let value = unsafe { ffi::sqlite3_value_dup(ptr.as_ptr()) };
-        Some(Self {
-            value: NonNull::new(value)?,
-        })
     }
-    */
 }

@@ -160,6 +160,7 @@ dependencies = [
  "diesel",
  "diesel-async",
  "futures",
+ "futures-util",
  "getrandom",
  "log",
  "rand",

@@ -127,7 +127,7 @@ extern "C" {
     pub fn value(this: &SQLite, pValue: &JsValue) -> SQLiteCompatibleType;
 
     #[wasm_bindgen(method)]
-    pub fn value_dup(this: &SQLite, pValue: &JsValue) -> JsValue;
+    pub fn value_dup(this: &SQLite, pValue: &JsValue) -> SQLiteCompatibleType;
 
     #[wasm_bindgen(method)]
     pub fn value_blob(this: &SQLite, pValue: &JsValue) -> Vec<u8>;

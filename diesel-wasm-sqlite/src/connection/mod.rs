@@ -10,8 +10,8 @@ mod stmt;
 
 pub(crate) use self::bind_collector::SqliteBindCollector;
 pub use self::bind_collector::SqliteBindValue;
-// pub use self::serialized_database::SerializedDatabase;
 pub use self::sqlite_value::SqliteValue;
+ // pub use self::serialized_database::SerializedDatabase; 
 
 /*
 use self::raw::RawConnection;
@@ -20,32 +20,20 @@ use self::stmt::{Statement, StatementUse};
 use super::SqliteAggregateFunction;
 use crate::connection::instrumentation::StrQueryHelper;
 use crate::connection::statement_cache::StatementCache;
-use crate::connection::*;
 use crate::query_builder::*;
-use crate::sqlite::WasmSqlite;
 use diesel::deserialize::{FromSqlRow, StaticallySizedRow};
 use diesel::expression::QueryMetadata;
 use diesel::result::*;
 use diesel::serialize::ToSql;
 use diesel::sql_types::{HasSqlType, TypeMetadata};
 */
-use diesel::{
-    backend::Backend,
-    connection::Instrumentation,
-    query_builder::{AsQuery, QueryFragment, QueryId},
-    result::QueryResult,
-    row::Field,
-};
+
+use diesel::{connection::Instrumentation, query_builder::{AsQuery, QueryFragment, QueryId}, QueryResult};
 pub use diesel_async::{AnsiTransactionManager, AsyncConnection, SimpleAsyncConnection};
-use futures::stream::Stream;
-use std::{
-    marker::PhantomData,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use futures::{future::BoxFuture, stream::BoxStream};
+use row::SqliteRow;
 
 use crate::{get_sqlite_unchecked, WasmSqlite, WasmSqliteError};
-use std::future::Ready;
 
 unsafe impl Send for WasmSqliteConnection {}
 #[derive(Debug)]
@@ -63,94 +51,16 @@ impl SimpleAsyncConnection for WasmSqliteConnection {
     }
 }
 
-/// TODO: The placeholder stuff all needs to be re-done
-pub struct OwnedSqliteFieldPlaceholder<'field> {
-    field: PhantomData<&'field ()>,
-}
-
-impl<'f> Field<'f, WasmSqlite> for OwnedSqliteFieldPlaceholder<'f> {
-    fn field_name(&self) -> Option<&str> {
-        Some("placeholder")
-    }
-    fn value(&self) -> Option<<WasmSqlite as Backend>::RawValue<'_>> {
-        todo!()
-    }
-}
-
-pub struct InnerPartialRowPlaceholder;
-
-pub struct RowReady(Option<()>);
-
-impl std::future::Future for RowReady {
-    type Output = ();
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Poll::Ready(self.0.take().expect("`Ready` polled after completion"))
-    }
-}
-
-impl diesel::row::RowSealed for RowReady {}
-
-impl<'a, 'b> diesel::row::RowIndex<&'a str> for RowReady {
-    fn idx(&self, idx: &'a str) -> Option<usize> {
-        todo!()
-    }
-}
-
-impl diesel::row::RowIndex<usize> for RowReady {
-    fn idx(&self, idx: usize) -> Option<usize> {
-        todo!()
-    }
-}
-
-impl<'a> diesel::row::Row<'a, WasmSqlite> for RowReady {
-    type Field<'f> = OwnedSqliteFieldPlaceholder<'f>
-    where
-        'a: 'f,
-        Self: 'f;
-
-    type InnerPartialRow = Self;
-
-    fn field_count(&self) -> usize {
-        todo!()
-    }
-
-    fn get<'b, I>(&'b self, idx: I) -> Option<Self::Field<'b>>
-    where
-        'a: 'b,
-        Self: diesel::row::RowIndex<I>,
-    {
-        todo!()
-    }
-
-    fn partial_row(
-        &self,
-        range: std::ops::Range<usize>,
-    ) -> diesel::row::PartialRow<'_, Self::InnerPartialRow> {
-        todo!()
-    }
-}
-
-pub struct RowReadyStreamPlaceholder;
-
-impl Stream for RowReadyStreamPlaceholder {
-    type Item = QueryResult<RowReady>;
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        todo!();
-    }
-}
-
 impl diesel::connection::ConnectionSealed for WasmSqliteConnection {}
 
 #[async_trait::async_trait(?Send)]
 impl AsyncConnection for WasmSqliteConnection {
     type Backend = WasmSqlite;
     type TransactionManager = AnsiTransactionManager;
-    // placeholders
-    type ExecuteFuture<'conn, 'query> = Ready<QueryResult<usize>>;
-    type LoadFuture<'conn, 'query> = Ready<QueryResult<Self::Stream<'conn, 'query>>>;
-    type Stream<'conn, 'query> = RowReadyStreamPlaceholder;
-    type Row<'conn, 'query> = RowReady;
+    type ExecuteFuture<'conn, 'query> = BoxFuture<'query, QueryResult<usize>>;
+    type LoadFuture<'conn, 'query> = BoxFuture<'query, QueryResult<Self::Stream<'conn, 'query>>>;
+    type Stream<'conn, 'query> = BoxStream<'static, QueryResult<SqliteRow<'conn, 'query>>>;
+    type Row<'conn, 'query> = SqliteRow<'conn, 'query>;
 
     async fn establish(database_url: &str) -> diesel::prelude::ConnectionResult<Self> {
         Ok(WasmSqliteConnection {
@@ -158,7 +68,7 @@ impl AsyncConnection for WasmSqliteConnection {
         })
     }
 
-    fn load<'conn, 'query, T>(&'conn mut self, source: T) -> Self::LoadFuture<'conn, 'query>
+    fn load<'conn, 'query, T>(&'conn mut self, _source: T) -> Self::LoadFuture<'conn, 'query>
     where
         T: AsQuery + 'query,
         T::Query: QueryFragment<Self::Backend> + QueryId + 'query,
@@ -168,14 +78,14 @@ impl AsyncConnection for WasmSqliteConnection {
 
     fn execute_returning_count<'conn, 'query, T>(
         &'conn mut self,
-        source: T,
+        _source: T,
     ) -> Self::ExecuteFuture<'conn, 'query>
     where
         T: QueryFragment<Self::Backend> + QueryId + 'query,
     {
         todo!()
     }
-
+    
     fn transaction_state(
         &mut self,
     ) -> &mut <Self::TransactionManager as diesel_async::TransactionManager<Self>>::TransactionStateData{
@@ -186,7 +96,7 @@ impl AsyncConnection for WasmSqliteConnection {
         todo!()
     }
 
-    fn set_instrumentation(&mut self, instrumentation: impl Instrumentation) {
+    fn set_instrumentation(&mut self, _instrumentation: impl Instrumentation) {
         todo!()
     }
 }
