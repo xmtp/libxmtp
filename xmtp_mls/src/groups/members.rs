@@ -40,19 +40,25 @@ impl MlsGroup {
             .members
             .into_iter()
             .map(|(inbox_id, sequence_id)| (inbox_id, sequence_id as i64))
+            .filter(|(_, sequence_id)| *sequence_id != 0) // Skip the initial state
             .collect::<Vec<_>>();
 
         let conn = provider.conn_ref();
-        let association_state_map =
+        let association_states =
             StoredAssociationState::batch_read_from_cache(conn, requests.clone())?;
         let mutable_metadata = self.mutable_metadata()?;
-        // TODO: Figure out what to do with missing members from the local DB. Do we go to the network? Load from identity updates?
-        // Right now I am just omitting them
-        if association_state_map.len() != requests.len() {
-            // Cache miss - should either error if not expected, or should fetch from network if it is expected
-            log::error!("Failed to load all members for group: {:?}", requests);
+        if association_states.len() != requests.len() {
+            // Cache miss - not expected to happen because:
+            // 1. We don't allow updates to the group metadata unless we have already validated the association state
+            // 2. When validating the association state, we must have written it to the cache
+            log::error!(
+                "Failed to load all members for group - metadata: {:?}, computed members: {:?}",
+                requests,
+                association_states
+            );
+            return Err(GroupError::InvalidGroupMembership);
         }
-        let members = association_state_map
+        let members = association_states
             .into_iter()
             .map(|association_state| {
                 let inbox_id_str = association_state.inbox_id().to_string();

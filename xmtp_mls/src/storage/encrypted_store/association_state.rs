@@ -93,7 +93,6 @@ impl StoredAssociationState {
         conn: &DbConnection,
         identifiers: Vec<(InboxId, i64)>,
     ) -> Result<Vec<AssociationState>, StorageError> {
-        // If no identifier provided, return empty hash map
         if identifiers.is_empty() {
             return Ok(vec![]);
         }
