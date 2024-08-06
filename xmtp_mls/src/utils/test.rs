@@ -52,7 +52,7 @@ pub fn rand_time() -> i64 {
 #[cfg(feature = "http-api")]
 impl XmtpTestClient for XmtpHttpApiClient {
     async fn create_local() -> Self {
-        XmtpHttpApiClient::create("http://localhost:5556".into())
+        XmtpHttpApiClient::create("http://localhost:5555".into())
     }
 
     async fn create_dev() -> Self {
