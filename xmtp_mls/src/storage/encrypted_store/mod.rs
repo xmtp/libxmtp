@@ -184,7 +184,7 @@ impl EncryptedMessageStore {
             .as_ref()
             .ok_or(StorageError::PoolNeedsConnection)?;
 
-        log::info!(
+        log::debug!(
             "Pulling connection from pool, idle_connections={}, total_connections={}",
             pool.state().idle_connections,
             pool.state().connections
