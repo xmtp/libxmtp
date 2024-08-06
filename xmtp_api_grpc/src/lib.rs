@@ -158,6 +158,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(feature = "http-api", ignore)]
     async fn tls_test() {
         let client = Client::create(DEV_ADDRESS.to_string(), true).await.unwrap();
 
@@ -229,6 +230,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(feature = "http-api", ignore)]
     async fn test_dev_publish() {
         let auth_token = get_auth_token();
         let dev_client = Client::create(DEV_ADDRESS.to_string(), true).await.unwrap();
@@ -248,6 +250,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(feature = "http-api", ignore)]
     async fn long_lived_subscribe_test() {
         let auth_token = get_auth_token();
         tokio::time::timeout(std::time::Duration::from_secs(100), async move {
