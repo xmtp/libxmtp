@@ -3,10 +3,21 @@ use bitflags::bitflags;
 use diesel::sql_types::*;
 use serde::{Deserialize, Serialize};
 
-pub mod result_codes {
-    pub const SQLITE_DONE: i32 = 101;
-    pub const SQLITE_ROW: i32 = 100;
-}
+//TODO These Database Types are defined in the wasm file and should be imported.
+// this is easier for now because of quirks with converting from JsValue to integer within extern
+// "C" declaration.
+
+// result codes
+pub const SQLITE_DONE: i32 = 101;
+pub const SQLITE_ROW: i32 = 100;
+
+// Fundamental datatypes.
+// https://www.sqlite.org/c3ref/c_blob.html
+pub const SQLITE_INTEGER: i32 = 1;
+pub const SQLITE_FLOAT: i32 = 2;
+pub const SQLITE_TEXT: i32 = 3;
+pub const SQLITE_BLOB: i32 = 4;
+pub const SQLITE_NULL: i32 = 5;
 
 /// `SqlitePrepareOptions` imported type
 #[derive(Serialize, Deserialize, Default, Clone, Debug, Copy)]

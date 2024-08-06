@@ -66,7 +66,7 @@ impl<'stmt, 'query> PrivateSqliteRow<'stmt, 'query> {
             } => PrivateSqliteRow::Duplicated {
                 values: values
                     .iter()
-                    .map(|v| v.as_ref().map(|v| v.duplicate()))
+                    .map(|v| v.as_ref().map(|v| v.clone()))
                     .collect(),
                 column_names: column_names.clone(),
             },
@@ -120,7 +120,7 @@ impl<'stmt, 'query> PrivateSqliteRow<'stmt, 'query> {
                 OwnedSqliteRow::new(
                     values
                         .iter()
-                        .map(|v| v.as_ref().map(|v| v.duplicate()))
+                        .map(|v| v.as_ref().map(|v| v.clone()))
                         .collect(),
                     column_names,
                 )

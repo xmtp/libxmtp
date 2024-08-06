@@ -2855,6 +2855,38 @@ class SQLite {
     this.sqlite3.value(pValue);
   }
 
+  value_dup(pValue) {
+    return this.module._sqlite3_value_dup(pValue);
+  }
+
+  value_blob(pValue) {
+    this.sqlite3.value_blob(pValue);
+  }
+
+  value_bytes(pValue) {
+    this.sqlite3.value_bytes(pValue);
+  }
+
+  value_double(pValue) {
+    this.sqlite3.value_double(pValue);
+  }
+
+  value_int(pValue) {
+    this.sqlite3.value_int(pValue);
+  }
+
+  value_int64(pValue) {
+    this.sqlite3.value_int64(pValue);
+  }
+
+  value_text(pValue) {
+    this.sqlite3.value_text(pValue);
+  }
+
+  value_type(pValue) {
+    this.sqlite3.value_type(pValue);
+  }
+
   async open_v2(database_url, iflags) {
     try {
       console.log("Opening database!", database_url);
@@ -2890,6 +2922,19 @@ class SQLite {
 
   clear_bindings(stmt) {
     return this.sqlite3.clear_bindings(stmt);
+  }
+
+  async close(db) {
+    try {
+      return this.sqlite3.close(db);
+    } catch (error) {
+      console.log("sqlite3.close error");
+      throw error;
+    }
+  }
+
+  column(stmt, i) {
+    return this.sqlite3.column(stmt, i);
   }
 
   async prepare(database, sql, options) {

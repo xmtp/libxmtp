@@ -12,6 +12,27 @@ extern "C" {
 }
 */
 
+/* once https://github.com/rust-lang/rust/issues/128183 is merged this would work
+pub mod consts {
+    pub const SQLITE_INTEGER: i32 = super::SQLITE_INTEGER;
+}
+*/
+
+// Constants
+#[wasm_bindgen(module = "/src/wa-sqlite-diesel-bundle.js")]
+extern "C" {
+    pub static SqliteDone: i32;
+    pub static SqliteRow: i32;
+
+    // Fundamental datatypes.
+    // https://www.sqlite.org/c3ref/c_blob.html
+    pub static SQLITE_INTEGER: i32;
+    pub static SQLITE_FLOAT: i32;
+    pub static SQLITE_TEXT: i32;
+    pub static SQLITE_BLOB: i32;
+    pub static SQLITE_NULL: i32;
+}
+
 // WASM is ran in the browser `main thread`. Tokio is only a single-threaded runtime.
 // We need SQLite available globally, so this should be ok until we get threads with WASI or
 // something. At which point we can (hopefully) use multi-threaded async runtime to block the
@@ -23,6 +44,7 @@ unsafe impl Sync for SQLite {}
 #[wasm_bindgen(module = "/src/wa-sqlite-diesel-bundle.js")]
 extern "C" {
     pub type SQLite;
+    #[derive(Debug, Clone)]
     pub type SQLiteCompatibleType;
     // pub type SqlitePrepareOptions;
 
@@ -102,7 +124,32 @@ extern "C" {
     pub async fn reset(this: &SQLite, stmt: &JsValue) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(method)]
-    pub fn value(this: &SQLite, pValue: &JsValue);
+    pub fn value(this: &SQLite, pValue: &JsValue) -> SQLiteCompatibleType;
+
+    #[wasm_bindgen(method)]
+    pub fn value_dup(this: &SQLite, pValue: &JsValue) -> JsValue;
+
+    #[wasm_bindgen(method)]
+    pub fn value_blob(this: &SQLite, pValue: &JsValue) -> Vec<u8>;
+
+    #[wasm_bindgen(method)]
+    pub fn value_bytes(this: &SQLite, pValue: &JsValue) -> i32;
+
+    #[wasm_bindgen(method)]
+    pub fn value_double(this: &SQLite, pValue: &JsValue) -> f64;
+
+    #[wasm_bindgen(method)]
+    pub fn value_int(this: &SQLite, pValue: &JsValue) -> i32;
+
+    #[wasm_bindgen(method)]
+    pub fn value_int64(this: &SQLite, pValue: &JsValue) -> i64;
+
+    // TODO: If wasm-bindgen allows returning references, could return &str
+    #[wasm_bindgen(method)]
+    pub fn value_text(this: &SQLite, pValue: &JsValue) -> String;
+
+    #[wasm_bindgen(method)]
+    pub fn value_type(this: &SQLite, pValue: &JsValue) -> i32;
 
     #[wasm_bindgen(method, catch)]
     pub async fn open_v2(
@@ -121,17 +168,23 @@ extern "C" {
     pub fn changes(this: &SQLite, database: &JsValue) -> usize;
 
     #[wasm_bindgen(method, catch)]
-    pub async fn step(this: &SQLite, stmt: &JsValue) -> Result<i32, JsValue>;
+    pub async fn step(this: &SQLite, stmt: &JsValue) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(method, catch)]
     pub fn clear_bindings(this: &SQLite, stmt: &JsValue) -> Result<i32, JsValue>;
+
+    #[wasm_bindgen(method, catch)]
+    pub async fn close(this: &SQLite, database: &JsValue) -> Result<(), JsValue>;
+
+    #[wasm_bindgen(method)]
+    pub fn column(this: &SQLite, stmt: &JsValue, idx: i32) -> SQLiteCompatibleType;
 
     #[wasm_bindgen(method, catch)]
     pub async fn prepare(
         this: &SQLite,
         database: &JsValue,
         sql: &str,
-        options: Option<JsValue>,
+        options: JsValue,
     ) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(method)]

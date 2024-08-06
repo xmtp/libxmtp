@@ -78,7 +78,7 @@ impl RawConnection {
         fn_name: &str,
         num_args: i32,
         deterministic: bool,
-        mut f: F,
+        f: F,
     ) -> QueryResult<()>
     where
         F: FnMut(JsValue, JsValue) + 'static,

@@ -11,7 +11,7 @@ mod stmt;
 pub(crate) use self::bind_collector::SqliteBindCollector;
 pub use self::bind_collector::SqliteBindValue;
 // pub use self::serialized_database::SerializedDatabase;
-// pub use self::sqlite_value::SqliteValue;
+pub use self::sqlite_value::SqliteValue;
 
 /*
 use self::raw::RawConnection;
@@ -44,7 +44,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use crate::{get_sqlite, get_sqlite_unchecked, WasmSqlite, WasmSqliteError};
+use crate::{get_sqlite_unchecked, WasmSqlite, WasmSqliteError};
 use std::future::Ready;
 
 unsafe impl Send for WasmSqliteConnection {}

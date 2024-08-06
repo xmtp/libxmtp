@@ -2,8 +2,9 @@
 use super::bind_collector::{InternalSqliteBindValue, SqliteBindCollector};
 use super::raw::RawConnection;
 use super::sqlite_value::OwnedSqliteValue;
+use crate::ffi::SQLiteCompatibleType;
 use crate::{
-    sqlite_types::{result_codes, PrepareOptions, SqlitePrepareFlags},
+    sqlite_types::{self, PrepareOptions, SqlitePrepareFlags},
     SqliteType, WasmSqlite,
 };
 use diesel::{
@@ -44,7 +45,7 @@ impl Statement {
             .prepare(
                 &raw_connection.internal_connection,
                 sql,
-                Some(serde_wasm_bindgen::to_value(&options).unwrap()),
+                serde_wasm_bindgen::to_value(&options).unwrap(),
             )
             .await
             .unwrap();
@@ -77,83 +78,8 @@ impl Statement {
         // sqlite3. However, not sure  how this will work further up the stack.
         // This might not work because of differences in how serde_json recognizes js types
         // and how wa-sqlite recogizes js types. In that case, need to resort to matching on
-        // individual types as below.
-        /*
-        let result = match (tpe, value) {
-            (_, InternalSqliteBindValue::Null) => {
-                ffi::sqlite3_bind_null(self.inner_statement.as_ptr(), bind_index)
-            }
-            (SqliteType::Binary, InternalSqliteBindValue::BorrowedBinary(bytes)) => {
-                ffi::sqlite3_bind_blob(
-                    self.inner_statement.as_ptr(),
-                    bind_index,
-                    bytes.as_ptr() as *const libc::c_void,
-                    bytes.len() as libc::c_int,
-                    ffi::SQLITE_STATIC(),
-                )
-            }
-            (SqliteType::Binary, InternalSqliteBindValue::Binary(mut bytes)) => {
-                let len = bytes.len();
-                // We need a separate pointer here to pass it to sqlite
-                // as the returned pointer is a pointer to a dyn sized **slice**
-                // and not the pointer to the first element of the slice
-                let ptr = bytes.as_mut_ptr();
-                ret_ptr = NonNull::new(Box::into_raw(bytes));
-                ffi::sqlite3_bind_blob(
-                    self.inner_statement.as_ptr(),
-                    bind_index,
-                    ptr as *const libc::c_void,
-                    len as libc::c_int,
-                    ffi::SQLITE_STATIC(),
-                )
-            }
-            (SqliteType::Text, InternalSqliteBindValue::BorrowedString(bytes)) => {
-                ffi::sqlite3_bind_text(
-                    self.inner_statement.as_ptr(),
-                    bind_index,
-                    bytes.as_ptr() as *const libc::c_char,
-                    bytes.len() as libc::c_int,
-                    ffi::SQLITE_STATIC(),
-                )
-            }
-            (SqliteType::Text, InternalSqliteBindValue::String(bytes)) => {
-                let mut bytes = Box::<[u8]>::from(bytes);
-                let len = bytes.len();
-                // We need a separate pointer here to pass it to sqlite
-                // as the returned pointer is a pointer to a dyn sized **slice**
-                // and not the pointer to the first element of the slice
-                let ptr = bytes.as_mut_ptr();
-                ret_ptr = NonNull::new(Box::into_raw(bytes));
-                ffi::sqlite3_bind_text(
-                    self.inner_statement.as_ptr(),
-                    bind_index,
-                    ptr as *const libc::c_char,
-                    len as libc::c_int,
-                    ffi::SQLITE_STATIC(),
-                )
-            }
-            (SqliteType::Float, InternalSqliteBindValue::F64(value))
-            | (SqliteType::Double, InternalSqliteBindValue::F64(value)) => {
-                ffi::sqlite3_bind_double(
-                    self.inner_statement.as_ptr(),
-                    bind_index,
-                    value as libc::c_double,
-                )
-            }
-            (SqliteType::SmallInt, InternalSqliteBindValue::I32(value))
-            | (SqliteType::Integer, InternalSqliteBindValue::I32(value)) => {
-                ffi::sqlite3_bind_int(self.inner_statement.as_ptr(), bind_index, value)
-            }
-            (SqliteType::Long, InternalSqliteBindValue::I64(value)) => {
-                ffi::sqlite3_bind_int64(self.inner_statement.as_ptr(), bind_index, value)
-            }
-            (t, b) => {
-                return Err(Error::SerializationError(
-                    format!("Type mismatch: Expected {t:?}, got {b}").into(),
-                ))
-            }
-        }
-        */
+        // individual types with bind_$type fns .
+
         Ok(result)
     }
 
@@ -370,13 +296,16 @@ impl<'stmt, 'query> StatementUse<'stmt, 'query> {
     // the cached column names
     pub(super) async fn step(&mut self, first_step: bool) -> QueryResult<bool> {
         let sqlite3 = crate::get_sqlite_unchecked();
-        let res = match sqlite3
-            .step(&self.statement.statement.inner_statement)
-            .await
-            .unwrap()
+        let res = match serde_wasm_bindgen::from_value::<i32>(
+            sqlite3
+                .step(&self.statement.statement.inner_statement)
+                .await
+                .unwrap(),
+        )
+        .unwrap()
         {
-            result_codes::SQLITE_DONE => Ok(false),
-            result_codes::SQLITE_ROW => Ok(true),
+            sqlite_types::SQLITE_DONE => Ok(false),
+            sqlite_types::SQLITE_ROW => Ok(true),
             _ => panic!("SQLite Step returned Unhandled Result Code. Turn into err message"),
         };
 
@@ -422,18 +351,15 @@ impl<'stmt, 'query> StatementUse<'stmt, 'query> {
 
         column_names.get(idx as usize).map(AsRef::as_ref)
     }
-    /*
+
     pub(super) fn copy_value(&self, idx: i32) -> Option<OwnedSqliteValue> {
-        OwnedSqliteValue::copy_from_ptr(self.column_value(idx)?)
+        OwnedSqliteValue::copy_from_ptr(&self.column_value(idx)?.into())
     }
 
-    pub(super) fn column_value(&self, idx: i32) -> Option<NonNull<ffi::sqlite3_value>> {
-        let ptr = unsafe {
-            ffi::sqlite3_column_value(self.statement.statement.inner_statement.as_ptr(), idx)
-        };
-        NonNull::new(ptr)
+    pub(super) fn column_value(&self, idx: i32) -> Option<SQLiteCompatibleType> {
+        let sqlite3 = crate::get_sqlite_unchecked();
+        Some(sqlite3.column(&self.statement.statement.inner_statement, idx))
     }
-    */
 }
 
 #[cfg(test)]

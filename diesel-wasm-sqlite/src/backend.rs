@@ -1,6 +1,7 @@
 //! The SQLite backend
 
 use super::connection::SqliteBindCollector;
+use super::connection::SqliteValue;
 use super::query_builder::SqliteQueryBuilder;
 use diesel::backend::*;
 use diesel::sql_types::TypeMetadata;
@@ -38,9 +39,8 @@ pub enum SqliteType {
 
 impl Backend for WasmSqlite {
     type QueryBuilder = SqliteQueryBuilder;
-    // type RawValue<'a> = ();
     type RawValue<'a> = SqliteValue<'a, 'a, 'a>;
-    type BindCollector<'a> = SqliteBindCollector;
+    type BindCollector<'a> = SqliteBindCollector<'a>;
 }
 
 impl TypeMetadata for WasmSqlite {
