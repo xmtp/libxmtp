@@ -1,8 +1,9 @@
 pub mod constants;
 mod util;
 
-use async_trait::async_trait;
-use futures::Stream;
+use async_trait::*;
+use futures::TryStreamExt;
+use reqwest_streams::*;
 
 use util::handle_error;
 use xmtp_proto::api_client::{Error, ErrorKind, XmtpIdentityClient};
@@ -11,7 +12,7 @@ use xmtp_proto::xmtp::identity::api::v1::{
   GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
   GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
 };
-use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
+use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
   api_client::{GroupMessageStream, WelcomeMessageStream, XmtpMlsClient},
   xmtp::mls::api::v1::{
@@ -56,10 +57,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
       .json(&request)
       .send()
       .await
-      .map_err(|e| {
-        println!("error: {}", e);
-        Error::new(ErrorKind::MlsError).with(e)
-      })?
+      .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
       .text()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
@@ -130,6 +128,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
     handle_error(res)
   }
 
+  // deprecated
   async fn get_identity_updates(
     &self,
     _request: GetIdentityUpdatesRequest,
@@ -177,30 +176,34 @@ impl XmtpMlsClient for XmtpHttpApiClient {
     &self,
     request: SubscribeGroupMessagesRequest,
   ) -> Result<GroupMessageStream, Error> {
-    todo!()
-    // let res = self
-    //   .http_client
-    //   .post(&self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES))
-    //   .json(&request)
-    //   .send()
-    //   .await
-    //   .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-    //   .bytes_stream()
-    //   .map(|result| {
-    //     result
-    //       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
-    //       .and_then(|bytes| {
-    //         GroupMessage::decode(&bytes[..]).map_err(|e| Error::new(ErrorKind::MlsError).with(e))
-    //       })
-    //   });
-    // Ok(Box::pin(stream))
+    let stream = self
+      .http_client
+      .post(&self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES))
+      .json(&request)
+      .send()
+      .await
+      .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
+      .protobuf_stream::<GroupMessage>(1024)
+      .map_err(|e| Error::new(ErrorKind::MlsError).with(e));
+
+    Ok(Box::pin(stream))
   }
 
   async fn subscribe_welcome_messages(
     &self,
     request: SubscribeWelcomeMessagesRequest,
   ) -> Result<WelcomeMessageStream, Error> {
-    todo!()
+    let stream = self
+      .http_client
+      .post(&self.endpoint(ApiEndpoints::SUBSCRIBE_WELCOME_MESSAGES))
+      .json(&request)
+      .send()
+      .await
+      .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
+      .protobuf_stream::<WelcomeMessage>(1024)
+      .map_err(|e| Error::new(ErrorKind::MlsError).with(e));
+
+    Ok(Box::pin(stream))
   }
 }
 
