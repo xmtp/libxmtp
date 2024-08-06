@@ -1536,7 +1536,7 @@ mod tests {
 
     impl FfiLogger for MockLogger {
         fn log(&self, _level: u32, level_label: String, message: String) {
-            println!("[{}][t:{}]: {}", level_label, thread_id::get(), message)
+            println!("[{}]{}", level_label, message)
         }
     }
 
