@@ -4,8 +4,7 @@
     "bindings_ffi/Cargo.toml",
     "bindings_node/Cargo.toml",
     "bindings_wasm/Cargo.toml",
-    "examples/cli/Cargo.toml",
-    "xmtp_api_http/Cargo.toml"
+    "examples/cli/Cargo.toml"
   ],
   "rust-analyzer.procMacro.enable": true,
   "rust-analyzer.procMacro.attributes.enable": true,
