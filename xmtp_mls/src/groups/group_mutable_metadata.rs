@@ -113,6 +113,35 @@ impl GroupMutableMetadata {
         }
     }
 
+    // Admin / super admin is not needed for a DM
+    pub fn new_dm_default(_creator_inbox_id: String, _dm_target_inbox_id: String) -> Self {
+        let mut attributes = HashMap::new();
+        // TODO: would it be helpful to incorporate the dm inbox ids in the name or description?
+        attributes.insert(
+            MetadataField::GroupName.to_string(),
+            DEFAULT_GROUP_NAME.to_string(),
+        );
+        attributes.insert(
+            MetadataField::Description.to_string(),
+            DEFAULT_GROUP_DESCRIPTION.to_string(),
+        );
+        attributes.insert(
+            MetadataField::GroupImageUrlSquare.to_string(),
+            DEFAULT_GROUP_IMAGE_URL_SQUARE.to_string(),
+        );
+        attributes.insert(
+            MetadataField::GroupPinnedFrameUrl.to_string(),
+            DEFAULT_GROUP_PINNED_FRAME_URL.to_string(),
+        );
+        let admin_list = vec![];
+        let super_admin_list = vec![];
+        Self {
+            attributes,
+            admin_list,
+            super_admin_list,
+        }
+    }
+
     // These fields will receive default permission policies for new groups
     pub fn supported_fields() -> Vec<MetadataField> {
         vec![

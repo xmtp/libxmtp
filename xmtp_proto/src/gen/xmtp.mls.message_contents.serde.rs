@@ -502,6 +502,116 @@ impl<'de> serde::Deserialize<'de> for CredentialRevocation {
         deserializer.deserialize_struct("xmtp.mls.message_contents.CredentialRevocation", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for DmMembers {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.dm_member_one.is_some() {
+            len += 1;
+        }
+        if self.dm_member_two.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.DmMembers", len)?;
+        if let Some(v) = self.dm_member_one.as_ref() {
+            struct_ser.serialize_field("dmMemberOne", v)?;
+        }
+        if let Some(v) = self.dm_member_two.as_ref() {
+            struct_ser.serialize_field("dmMemberTwo", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for DmMembers {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "dm_member_one",
+            "dmMemberOne",
+            "dm_member_two",
+            "dmMemberTwo",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            DmMemberOne,
+            DmMemberTwo,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "dmMemberOne" | "dm_member_one" => Ok(GeneratedField::DmMemberOne),
+                            "dmMemberTwo" | "dm_member_two" => Ok(GeneratedField::DmMemberTwo),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DmMembers;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.DmMembers")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<DmMembers, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut dm_member_one__ = None;
+                let mut dm_member_two__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::DmMemberOne => {
+                            if dm_member_one__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("dmMemberOne"));
+                            }
+                            dm_member_one__ = map_.next_value()?;
+                        }
+                        GeneratedField::DmMemberTwo => {
+                            if dm_member_two__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("dmMemberTwo"));
+                            }
+                            dm_member_two__ = map_.next_value()?;
+                        }
+                    }
+                }
+                Ok(DmMembers {
+                    dm_member_one: dm_member_one__,
+                    dm_member_two: dm_member_two__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.DmMembers", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for EdDsaSignature {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1171,6 +1281,9 @@ impl serde::Serialize for GroupMetadataV1 {
         if !self.creator_inbox_id.is_empty() {
             len += 1;
         }
+        if self.dm_members.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupMetadataV1", len)?;
         if self.conversation_type != 0 {
             let v = ConversationType::try_from(self.conversation_type)
@@ -1182,6 +1295,9 @@ impl serde::Serialize for GroupMetadataV1 {
         }
         if !self.creator_inbox_id.is_empty() {
             struct_ser.serialize_field("creatorInboxId", &self.creator_inbox_id)?;
+        }
+        if let Some(v) = self.dm_members.as_ref() {
+            struct_ser.serialize_field("dmMembers", v)?;
         }
         struct_ser.end()
     }
@@ -1199,6 +1315,8 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
             "creatorAccountAddress",
             "creator_inbox_id",
             "creatorInboxId",
+            "dm_members",
+            "dmMembers",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1206,6 +1324,7 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
             ConversationType,
             CreatorAccountAddress,
             CreatorInboxId,
+            DmMembers,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1230,6 +1349,7 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
                             "conversationType" | "conversation_type" => Ok(GeneratedField::ConversationType),
                             "creatorAccountAddress" | "creator_account_address" => Ok(GeneratedField::CreatorAccountAddress),
                             "creatorInboxId" | "creator_inbox_id" => Ok(GeneratedField::CreatorInboxId),
+                            "dmMembers" | "dm_members" => Ok(GeneratedField::DmMembers),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1252,6 +1372,7 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
                 let mut conversation_type__ = None;
                 let mut creator_account_address__ = None;
                 let mut creator_inbox_id__ = None;
+                let mut dm_members__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ConversationType => {
@@ -1272,12 +1393,19 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
                             }
                             creator_inbox_id__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::DmMembers => {
+                            if dm_members__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("dmMembers"));
+                            }
+                            dm_members__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(GroupMetadataV1 {
                     conversation_type: conversation_type__.unwrap_or_default(),
                     creator_account_address: creator_account_address__.unwrap_or_default(),
                     creator_inbox_id: creator_inbox_id__.unwrap_or_default(),
+                    dm_members: dm_members__,
                 })
             }
         }
@@ -1868,6 +1996,98 @@ impl<'de> serde::Deserialize<'de> for group_updated::MetadataFieldChange {
             }
         }
         deserializer.deserialize_struct("xmtp.mls.message_contents.GroupUpdated.MetadataFieldChange", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for Inbox {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.inbox_id.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.Inbox", len)?;
+        if !self.inbox_id.is_empty() {
+            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for Inbox {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "inbox_id",
+            "inboxId",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            InboxId,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = Inbox;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.Inbox")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Inbox, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut inbox_id__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::InboxId => {
+                            if inbox_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("inboxId"));
+                            }
+                            inbox_id__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(Inbox {
+                    inbox_id: inbox_id__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.Inbox", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for Inboxes {
