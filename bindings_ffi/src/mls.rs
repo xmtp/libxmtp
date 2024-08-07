@@ -1536,7 +1536,7 @@ mod tests {
 
     impl FfiLogger for MockLogger {
         fn log(&self, _level: u32, level_label: String, message: String) {
-            println!("[{}][t:{}]: {}", level_label, thread_id::get(), message)
+            println!("[{}]{}", level_label, message)
         }
     }
 
@@ -2297,6 +2297,8 @@ mod tests {
         let client1_members = client1_group.list_members().unwrap();
         assert_eq!(client1_members.len(), 2);
 
+        client2.conversations().sync().await.unwrap();
+        let client2_group = client2.group(group.id()).unwrap();
         let client2_members = client2_group.list_members().unwrap();
         assert_eq!(client2_members.len(), 2);
     }
