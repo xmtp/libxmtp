@@ -28,7 +28,7 @@ use crate::{
     hpke::{encrypt_welcome, HpkeError},
     identity::parse_credential,
     identity_updates::load_identity_updates,
-    retry::Retry,
+    retry::{Retry, RetryableError},
     retry_async,
     storage::{
         db_connection::DbConnection,
@@ -692,7 +692,18 @@ impl MlsGroup {
                 })
             );
             if let Err(e) = result {
+                let is_retryable = e.is_retryable();
+                let error_message = e.to_string();
                 receive_errors.push(e);
+                // If the error is retryable we cannot move on to the next message
+                // otherwise you can get into a forked group state.
+                if is_retryable {
+                    log::error!(
+                        "Aborting message processing for retryable error: {}",
+                        error_message
+                    );
+                    break;
+                }
             }
         }
 
