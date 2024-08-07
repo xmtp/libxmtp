@@ -437,6 +437,11 @@ impl MlsGroup {
         self.maybe_update_installations(conn.clone(), update_interval, client)
             .await?;
 
+        log::info!(
+            "Before sending message [{}] is on epoch number:  {}",
+            self.context.inbox_id(),
+            self.load_mls_group(client.mls_provider(conn.clone())).unwrap().epoch()
+        );
         let message_id = self.prepare_message(message, &conn);
 
         // Skipping a full sync here and instead just firing and forgetting

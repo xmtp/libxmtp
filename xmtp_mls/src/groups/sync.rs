@@ -342,7 +342,7 @@ impl MlsGroup {
                     intent.id,
                     group_epoch,
                     message_epoch,
-                    1, // max_past_epochs, TODO: expose from OpenMLS MlsGroup
+                    3, // max_past_epochs, TODO: expose from OpenMLS MlsGroup
                 ) {
                     conn.set_group_intent_to_publish(intent.id)?;
                     return Ok(());
