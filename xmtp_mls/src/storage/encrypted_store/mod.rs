@@ -175,7 +175,7 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    fn raw_conn(
+    pub(crate) fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
         let pool_guard = self.pool.read();
