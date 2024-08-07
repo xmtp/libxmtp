@@ -105,6 +105,7 @@ impl From<&GroupMembership> for Vec<u8> {
     }
 }
 
+#[derive(Debug)]
 pub struct MembershipDiff<'inbox_id> {
     pub added_inboxes: Vec<&'inbox_id String>,
     pub removed_inboxes: Vec<&'inbox_id String>,

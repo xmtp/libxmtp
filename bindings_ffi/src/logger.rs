@@ -20,7 +20,7 @@ impl log::Log for RustLogger {
             self.logger.lock().expect("Logger mutex is poisoned!").log(
                 record.level() as u32,
                 record.level().to_string(),
-                format!("[libxmtp] {}", record.args()),
+                format!("[libxmtp][t:{}] {}", thread_id::get(), record.args()),
             );
         }
     }
