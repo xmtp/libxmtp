@@ -74,24 +74,30 @@ public struct ClientOptions {
         preAuthenticateToInboxCallback: PreEventCallback? = nil,
 		enableV3: Bool = false,
 		encryptionKey: Data? = nil,
-		dbDirectory: String? = nil
+		dbDirectory: String? = nil,
+		historySyncUrl: String? = nil
 	) {
 		self.api = api
 		self.codecs = codecs
 		self.preEnableIdentityCallback = preEnableIdentityCallback
 		self.preCreateIdentityCallback = preCreateIdentityCallback
-        self.preAuthenticateToInboxCallback = preAuthenticateToInboxCallback
+		self.preAuthenticateToInboxCallback = preAuthenticateToInboxCallback
 		self.enableV3 = enableV3
 		self.dbEncryptionKey = encryptionKey
 		self.dbDirectory = dbDirectory
-		switch api.env {
-		case .production:
-			self.historySyncUrl = "https://message-history.production.ephemera.network/"
-		case .local:
-			self.historySyncUrl = "http://0.0.0.0:5558"
-		default:
-			self.historySyncUrl = "https://message-history.dev.ephemera.network/"
-		}	}
+		if (historySyncUrl == nil) {
+			switch api.env {
+			case .production:
+				self.historySyncUrl = "https://message-history.production.ephemera.network/"
+			case .local:
+				self.historySyncUrl = "http://0.0.0.0:5558"
+			default:
+				self.historySyncUrl = "https://message-history.dev.ephemera.network/"
+			}
+		} else {
+			self.historySyncUrl = historySyncUrl
+		}
+	}
 }
 
 /// Client is the entrypoint into the XMTP SDK.
