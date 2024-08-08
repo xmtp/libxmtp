@@ -1,4 +1,4 @@
-name: Test Workspace
+name: Test workspace with HTTP
 on:
   push:
     branches:
@@ -9,7 +9,7 @@ on:
       - ".github/workflows/test-workspace.yml"
       - "dev/**"
       - "mls_validation_service/**"
-      - "xmtp_api_grpc/**"
+      - "xmtp_api_http/**"
       - "xmtp_cryptography/**"
       - "xmtp_id/**"
       - "xmtp_mls/**"
@@ -37,4 +37,4 @@ jobs:
       - name: Start Docker containers
         run: dev/up
       - name: Run cargo test on main workspace
-        run: cargo test -- --test-threads=2
+        run: cargo test --workspace --exclude xmtp_api_grpc -- --test-threads=2
