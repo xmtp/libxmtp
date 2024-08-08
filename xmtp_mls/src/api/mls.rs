@@ -242,6 +242,7 @@ where
                     key_package.key_package_tls_serialized,
                 )
             })
+            .filter(|(_, key_package)| key_package.len() > 0)
             .collect();
 
         Ok(mapping)
