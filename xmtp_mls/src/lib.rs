@@ -84,15 +84,20 @@ pub trait Delete<Model> {
 #[cfg(test)]
 mod tests {
     use log::LevelFilter;
+    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
     use tracing_test::traced_test;
 
     // Execute once before any tests are run
-    #[ctor::ctor]
     // Capture traces in a variable that can be checked in tests, as well as outputting them to stdout on test failure
-    #[traced_test]
+    // #[traced_test]
+    #[ctor::ctor]
     fn setup() {
         // Capture logs (e.g. log::info!()) as traces too
-        let _ = tracing_log::LogTracer::init_with_filter(LevelFilter::Debug);
+        tracing_subscriber::registry()
+            .with(fmt::layer())
+            .with(EnvFilter::from_default_env())
+            .init();
+        // let _ = tracing_log::LogTracer::init_with_filter(LevelFilter::Debug);
     }
 
     /// Note: tests that use this must have the #[traced_test] attribute

@@ -473,9 +473,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
-version = "1.6.0"
+version = "1.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "514de17de45fdb8dc022b1a7975556c53c86f9f0aa5f534b98977b171857c2c9"
+checksum = "8318a53db07bb3f8dca91a600466bdb3f2eaadeedfdbcf02e1accbad9271ba50"
 dependencies = [
  "serde",
 ]
@@ -509,12 +509,6 @@ checksum = "e0ec6b951b160caa93cc0c7b209e5a3bff7aae9062213451ac99493cd844c239"
 dependencies = [
  "serde",
 ]
-
-[[package]]
-name = "cargo-husky"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b02b629252fe8ef6460461409564e2c21d0c8e77e0944f3d189ff06c4e932ad"
 
 [[package]]
 name = "cargo-platform"
@@ -4298,22 +4292,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "reqwest-streams"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee84cc47a7a0ac7562173c8f421c058e4c72089d6e662f32e2cb4bcc8e6e9201"
-dependencies = [
- "async-trait",
- "bytes",
- "cargo-husky",
- "futures",
- "prost 0.13.1",
- "reqwest 0.12.5",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
 name = "rfc6979"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6438,13 +6416,16 @@ dependencies = [
 name = "xmtp_api_http"
 version = "0.1.0"
 dependencies = [
+ "async-stream",
  "async-trait",
+ "bytes",
  "futures",
+ "log",
  "reqwest 0.12.5",
- "reqwest-streams",
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
  "xmtp_proto",
 ]
 
@@ -6535,6 +6516,7 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "async-barrier",
+ "async-stream",
  "async-trait",
  "bincode",
  "chrono",

@@ -195,6 +195,7 @@ where
                         Ok(envelope) => {
                             log::info!("Received message streaming payload");
                             let group_id = extract_group_id(&envelope)?;
+                            log::info!("Extracted group id {}", hex::encode(&group_id));
                             let stream_info = group_id_to_info.get(&group_id).ok_or(
                                 ClientError::StreamInconsistency(
                                     "Received message for a non-subscribed group".to_string(),
@@ -202,7 +203,7 @@ where
                             )?;
                             let mls_group =
                                 MlsGroup::new(context, group_id, stream_info.convo_created_at_ns);
-
+                            log::info!("Processing stream entry ....");
                             mls_group
                                 .process_stream_entry(envelope.clone(), client.clone())
                                 .await
@@ -436,7 +437,7 @@ mod tests {
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let messages_clone = messages.clone();
 
-        let notify = Delivery::new();
+        let notify = Delivery::new(None);
         let notify_pointer = notify.clone();
         let mut handle = Client::<TestClient>::stream_all_messages_with_callback(
             Arc::new(caro),
@@ -491,7 +492,7 @@ mod tests {
 
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let messages_clone = messages.clone();
-        let delivery = Delivery::new();
+        let delivery = Delivery::new(None);
         let delivery_pointer = delivery.clone();
         let mut handle =
             Client::<TestClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
@@ -639,7 +640,7 @@ mod tests {
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
 
         let groups = Arc::new(Mutex::new(Vec::new()));
-        let notify = Delivery::new();
+        let notify = Delivery::new(None);
         let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
 
         let closer =

@@ -7,13 +7,16 @@ version = "0.1.0"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+log.workspace = true
+tracing.workspace = true
 async-trait = { workspace = true }
 futures = { workspace = true }
 reqwest = { version = "0.12.5", features = ["json", "stream"] }
-reqwest-streams = { version = "0.7.0", features = ["protobuf"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
+async-stream = "0.3"
+bytes = "1.7"
 
 [dev-dependencies]
 tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread", "time"] }

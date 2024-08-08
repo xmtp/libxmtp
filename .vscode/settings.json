@@ -13,7 +13,8 @@
     "napi-derive": ["napi"],
     "async-recursion": ["async_recursion"],
     "ctor": ["ctor"],
-    "tokio": ["test"]
+    "tokio": ["test"],
+    "async-stream": ["stream", "try_stream"]
   },
   "[toml]": {
     "editor.defaultFormatter": "tamasfe.even-better-toml"

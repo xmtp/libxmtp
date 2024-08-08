@@ -2,10 +2,8 @@ pub mod constants;
 mod util;
 
 use async_trait::*;
-use futures::TryStreamExt;
-use reqwest_streams::*;
 
-use util::handle_error;
+use util::{create_grpc_stream, handle_error};
 use xmtp_proto::api_client::{Error, ErrorKind, XmtpIdentityClient};
 use xmtp_proto::xmtp::identity::api::v1::{
   GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
@@ -58,11 +56,12 @@ impl XmtpMlsClient for XmtpHttpApiClient {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-      .text()
+      .bytes()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-    handle_error(res)
+    log::debug!("register_installation");
+    handle_error(&*res)
   }
 
   async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error> {
@@ -73,11 +72,12 @@ impl XmtpMlsClient for XmtpHttpApiClient {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-      .text()
+      .bytes()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-    handle_error(res)
+    log::debug!("upload_key_package");
+    handle_error(&*res)
   }
 
   async fn fetch_key_packages(
@@ -91,11 +91,12 @@ impl XmtpMlsClient for XmtpHttpApiClient {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-      .text()
+      .bytes()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-    handle_error(res)
+    log::debug!("fetch_key_packages");
+    handle_error(&*res)
   }
 
   async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), Error> {
@@ -106,11 +107,12 @@ impl XmtpMlsClient for XmtpHttpApiClient {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-      .text()
+      .bytes()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-    handle_error(res)
+    log::debug!("send_group_messages");
+    handle_error(&*res)
   }
 
   async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), Error> {
@@ -121,11 +123,12 @@ impl XmtpMlsClient for XmtpHttpApiClient {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-      .text()
+      .bytes()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-    handle_error(res)
+    log::debug!("send_welcome_messages");
+    handle_error(&*res)
   }
 
   // deprecated
@@ -147,11 +150,12 @@ impl XmtpMlsClient for XmtpHttpApiClient {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-      .text()
+      .bytes()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-    handle_error(res)
+    log::debug!("query_group_messages");
+    handle_error(&*res)
   }
 
   async fn query_welcome_messages(
@@ -165,17 +169,19 @@ impl XmtpMlsClient for XmtpHttpApiClient {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-      .text()
+      .bytes()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-    handle_error(res)
+    log::debug!("query_welcome_messages");
+    handle_error(&*res)
   }
 
   async fn subscribe_group_messages(
     &self,
     request: SubscribeGroupMessagesRequest,
   ) -> Result<GroupMessageStream, Error> {
+    log::debug!("SUBSCRIPTION");
     let stream = self
       .http_client
       .post(&self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES))
@@ -183,16 +189,18 @@ impl XmtpMlsClient for XmtpHttpApiClient {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-      .protobuf_stream::<GroupMessage>(1024)
-      .map_err(|e| Error::new(ErrorKind::MlsError).with(e));
+      .bytes_stream();
 
-    Ok(Box::pin(stream))
+    let stream = create_grpc_stream::<GroupMessage>(stream).await;
+
+    Ok(stream)
   }
 
   async fn subscribe_welcome_messages(
     &self,
     request: SubscribeWelcomeMessagesRequest,
   ) -> Result<WelcomeMessageStream, Error> {
+    log::debug!("SUBSCRIPTION");
     let stream = self
       .http_client
       .post(&self.endpoint(ApiEndpoints::SUBSCRIBE_WELCOME_MESSAGES))
@@ -200,10 +208,11 @@ impl XmtpMlsClient for XmtpHttpApiClient {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-      .protobuf_stream::<WelcomeMessage>(1024)
-      .map_err(|e| Error::new(ErrorKind::MlsError).with(e));
+      .bytes_stream();
 
-    Ok(Box::pin(stream))
+    let stream = create_grpc_stream::<WelcomeMessage>(stream).await;
+
+    Ok(stream)
   }
 }
 
@@ -221,11 +230,12 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?
-      .text()
+      .bytes()
       .await
       .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
 
-    handle_error(res)
+    log::debug!("publish_identity_update");
+    handle_error(&*res)
   }
 
   async fn get_identity_updates_v2(
@@ -239,11 +249,12 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?
-      .text()
+      .bytes()
       .await
       .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
 
-    handle_error(res)
+    log::debug!("get_identity_updates_v2");
+    handle_error(&*res)
   }
 
   async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, Error> {
@@ -254,11 +265,12 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
       .send()
       .await
       .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?
-      .text()
+      .bytes()
       .await
       .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
 
-    handle_error(res)
+    log::debug!("get_inbox_ids");
+    handle_error(&*res)
   }
 }
 

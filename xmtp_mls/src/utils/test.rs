@@ -138,20 +138,20 @@ impl ClientBuilder<TestClient> {
 #[derive(Clone, Default)]
 pub struct Delivery {
     notify: Arc<Notify>,
+    timeout: std::time::Duration,
 }
 
 impl Delivery {
-    pub fn new() -> Self {
+    pub fn new(timeout: Option<std::time::Duration>) -> Self {
+        let timeout = timeout.unwrap_or(std::time::Duration::from_secs(60));
         Self {
             notify: Arc::new(Notify::new()),
+            timeout,
         }
     }
 
     pub async fn wait_for_delivery(&self) -> Result<(), Elapsed> {
-        tokio::time::timeout(std::time::Duration::from_secs(60), async {
-            self.notify.notified().await
-        })
-        .await
+        tokio::time::timeout(self.timeout, async { self.notify.notified().await }).await
     }
 
     pub fn notify_one(&self) {
