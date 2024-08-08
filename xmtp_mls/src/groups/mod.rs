@@ -1320,6 +1320,27 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_prod_group() {
+        let wallet = generate_local_wallet();
+        let alix = ClientBuilder::new_prod_client(&wallet).await;
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
+        alix_group
+            .add_members(&alix, vec!["0x245294f636a5D2b9f86edd4d90fB0B54a2CF6Df5".to_string()])
+            .await
+            .unwrap();
+        let alix_message = b"hello from alix";
+        alix_group
+            .send_message(alix_message, &alix)
+            .await
+            .expect("send message");
+
+        let num_members = alix_group.members().unwrap().len();
+        assert_eq!(num_members, 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_receive_self_message() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
