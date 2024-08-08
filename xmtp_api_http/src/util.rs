@@ -107,6 +107,6 @@ mod tests {
 
   #[test]
   fn test_error_handler_on_unit_value() {
-    handle_error::<_, ()>("{}").unwrap();
+    handle_error::<_, ()>(b"{}".as_slice()).unwrap();
   }
 }
