@@ -1329,7 +1329,8 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
         alix_group
-            .add_members(&alix, vec!["0x245294f636a5D2b9f86edd4d90fB0B54a2CF6Df5".to_string()])
+            // .add_members(&alix, vec!["0x245294f636a5D2b9f86edd4d90fB0B54a2CF6Df5".to_string()])
+            .add_members_by_inbox_id(&alix, vec!["bd03ba1d688c7ababe4e39eb0012a3cff7003e0faef2e164ff95e1ce4db30141".to_string()])
             .await
             .unwrap();
 
