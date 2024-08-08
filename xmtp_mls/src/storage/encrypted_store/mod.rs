@@ -289,19 +289,26 @@ impl EncryptedMessageStore {
         let conn_ref = local_provider.conn_ref();
         match result {
             Ok(value) => {
-                conn_ref.raw_query(|conn| {
-                    PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
-                })?;
+                conn_ref
+                    .raw_query_async(|conn| {
+                        PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(
+                            &mut *conn,
+                        )
+                    })
+                    .await?;
                 log::debug!("Transaction async being committed");
                 Ok(value)
             }
             Err(err) => {
                 log::debug!("Transaction async being rolled back");
-                match conn_ref.raw_query(|conn| {
-                    PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(
-                        &mut *conn,
-                    )
-                }) {
+                match conn_ref
+                    .raw_query_async(|conn| {
+                        PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(
+                            &mut *conn,
+                        )
+                    })
+                    .await
+                {
                     Ok(()) => Err(err),
                     Err(Error::BrokenTransactionManager) => Err(err),
                     Err(rollback) => Err(rollback.into()),

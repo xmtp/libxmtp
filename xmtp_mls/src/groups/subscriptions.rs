@@ -64,6 +64,7 @@ impl MlsGroup {
                     .await
             })
         );
+        log::info!("STREAM ENTRY PROCESSED!!!");
 
         if let Some(GroupError::ReceiveError(_)) = process_result.as_ref().err() {
             self.sync(&client).await?;

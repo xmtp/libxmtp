@@ -1,9 +1,7 @@
-use async_stream::try_stream;
-use futures::{stream::BoxStream, Stream};
+use futures::{stream::BoxStream, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Deserializer;
 use std::io::Read;
-use std::pin::Pin;
 use xmtp_proto::api_client::{Error, ErrorKind};
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -42,45 +40,65 @@ where
   }
 }
 
-pub async fn create_grpc_stream<T: DeserializeOwned + Default + 'static + Send>(
-  bytes_stream: impl Stream<Item = reqwest::Result<bytes::Bytes>> + 'static + Send,
-) -> BoxStream<'static, Result<T, Error>> {
-  let proto_stream = try_stream! {
-      let mut remaining = vec![];
-      for await bytes in bytes_stream {
-          let bytes = bytes.map_err(|e| Error::new(ErrorKind::SubscriptionUpdateError).with(e.to_string()))?;
-          let deser = serde_json::from_slice::<serde_json::Value>(bytes.as_ref()).unwrap();
-          log::debug!("DESER: {}", serde_json::to_string_pretty(&deser).unwrap());
+pub async fn create_grpc_stream<
+  T: Serialize + Send + 'static,
+  R: DeserializeOwned + Send + std::fmt::Debug + 'static,
+>(
+  request: T,
+  endpoint: String,
+  http_client: reqwest::Client,
+) -> BoxStream<'static, Result<R, Error>> {
+  let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-          let bytes = &[remaining.as_ref(), bytes.as_ref()].concat();
-          let de = Deserializer::from_slice(bytes);
-          let mut stream = de.into_iter::<GrpcResponse<T>>();
-          'messages: loop {
-              let response = stream.next();
+  log::debug!("Creating gRPC stream");
+  tokio::task::spawn(async move {
+    let mut bytes_stream = http_client
+      .post(endpoint)
+      .json(&request)
+      .send()
+      .await
+      .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
+      .bytes_stream();
 
-              let res = match response {
-                  Some(Ok(GrpcResponse::Ok(response))) => Ok(response),
-                  Some(Ok(GrpcResponse::SubscriptionItem(item))) => Ok(item.result),
-                  Some(Ok(GrpcResponse::Err(e))) => Err(Error::new(ErrorKind::MlsError).with(e.message)),
-                  Some(Err(e)) => {
-                      if e.is_eof() {
-                          remaining = (&*bytes)[stream.byte_offset()..].to_vec();
-                          break 'messages;
-                      } else {
-                          Err(Error::new(ErrorKind::MlsError).with(e.to_string()))
-                      }
-                  },
-                  Some(Ok(GrpcResponse::Empty {})) => continue 'messages,
-                  None => break 'messages
+    log::debug!("Spawning grpc stream");
+    let mut remaining = vec![];
+    while let Some(bytes) = bytes_stream.next().await {
+      let bytes =
+        bytes.map_err(|e| Error::new(ErrorKind::SubscriptionUpdateError).with(e.to_string()))?;
+      let deser = serde_json::from_slice::<serde_json::Value>(bytes.as_ref()).unwrap();
+      log::debug!("DESER: {}", serde_json::to_string_pretty(&deser).unwrap());
 
-              };
-              yield res?;
+      let bytes = &[remaining.as_ref(), bytes.as_ref()].concat();
+      let de = Deserializer::from_slice(bytes);
+      let mut stream = de.into_iter::<GrpcResponse<R>>();
+      'messages: loop {
+        let response = stream.next();
+
+        let res = match response {
+          Some(Ok(GrpcResponse::Ok(response))) => Ok(response),
+          Some(Ok(GrpcResponse::SubscriptionItem(item))) => Ok(item.result),
+          Some(Ok(GrpcResponse::Err(e))) => Err(Error::new(ErrorKind::MlsError).with(e.message)),
+          Some(Err(e)) => {
+            if e.is_eof() {
+              remaining = (&*bytes)[stream.byte_offset()..].to_vec();
+              break 'messages;
+            } else {
+              Err(Error::new(ErrorKind::MlsError).with(e.to_string()))
+            }
           }
+          Some(Ok(GrpcResponse::Empty {})) => continue 'messages,
+          None => break 'messages,
+        };
+        log::debug!("RES FOR STREAM: {:?}", res);
+        if tx.send(res).is_err() {
+          break 'messages;
+        }
       }
-      log::debug!("CLOSED!");
-  };
+    }
+    Ok::<_, Error>(())
+  });
 
-  Box::pin(proto_stream)
+  Box::pin(tokio_stream::wrappers::UnboundedReceiverStream::new(rx))
 }
 
 #[cfg(test)]

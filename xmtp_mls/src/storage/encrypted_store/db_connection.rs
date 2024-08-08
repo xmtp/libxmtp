@@ -1,5 +1,6 @@
+use parking_lot::Mutex;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::storage::RawDbConnection;
 
@@ -27,15 +28,34 @@ impl DbConnection {
     where
         F: FnOnce(&mut RawDbConnection) -> Result<T, diesel::result::Error>,
     {
-        let mut lock = self.wrapped_conn.lock().unwrap_or_else(
-            |err| {
-                log::error!(
-                    "Recovering from poisoned mutex - a thread has previously panicked holding this lock"
-                );
-                err.into_inner()
-            },
-        );
+        let mut lock = self.wrapped_conn.lock();
         fun(&mut lock)
+    }
+
+    // Note: F is a synchronous fn. If it ever becomes async, we need to use
+    // tokio::sync::mutex instead of std::sync::Mutex
+    pub(crate) async fn raw_query_async<T: Send + 'static, F>(
+        &self,
+        fun: F,
+    ) -> Result<T, diesel::result::Error>
+    where
+        F: FnOnce(&mut RawDbConnection) -> Result<T, diesel::result::Error> + Send + 'static,
+    {
+        let conn = self.wrapped_conn.clone();
+        let handle = tokio::task::spawn_blocking(move || {
+            let mut lock = conn.lock();
+            fun(&mut lock)
+        });
+        match handle.await {
+            Ok(res) => res,
+            Err(e) => {
+                if e.is_panic() {
+                    std::panic::resume_unwind(e.into_panic());
+                } else {
+                    unreachable!("Blocking tasks cannot be cancelled. the only way they terminate is a panic");
+                }
+            }
+        }
     }
 }
 

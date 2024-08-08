@@ -410,6 +410,47 @@ mod tests {
         let bob_received_groups = bob_stream.next().await.unwrap();
         assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
     }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    async fn test_stream_messages() {
+        let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let alice_group = alice
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        // let mut bob_stream = bob.stream_conversations().await.unwrap();
+        alice_group
+            .add_members_by_inbox_id(&alice, vec![bob.inbox_id()])
+            .await
+            .unwrap();
+        let bob_group = bob.sync_welcomes().await.unwrap();
+        let bob_group = bob_group.first().unwrap();
+
+        let notify = Delivery::new(None);
+        let notify_ptr = notify.clone();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let mut stream = alice_group.stream(alice).await.unwrap();
+            while let Some(item) = stream.next().await {
+                let _ = tx.send(item);
+                notify_ptr.notify_one();
+            }
+        });
+        let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+
+        bob_group.send_message(b"hello", &bob).await.unwrap();
+        notify.wait_for_delivery().await.unwrap();
+        let message = stream.next().await.unwrap();
+        assert_eq!(message.decrypted_message_bytes, b"hello");
+
+        bob_group.send_message(b"hello2", &bob).await.unwrap();
+        notify.wait_for_delivery().await.unwrap();
+        let message = stream.next().await.unwrap();
+        assert_eq!(message.decrypted_message_bytes, b"hello2");
+
+        // assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_stream_all_messages_unchanging_group_list() {
@@ -439,6 +480,7 @@ mod tests {
 
         let notify = Delivery::new(None);
         let notify_pointer = notify.clone();
+        log::info!("STREAMING MESSAGES IN TEST");
         let mut handle = Client::<TestClient>::stream_all_messages_with_callback(
             Arc::new(caro),
             move |message| {
@@ -447,12 +489,16 @@ mod tests {
             },
         );
         handle.wait_for_ready().await;
+        log::info!("STREAM READY");
 
         alix_group
             .send_message("first".as_bytes(), &alix)
             .await
             .unwrap();
-        notify.wait_for_delivery().await.unwrap();
+        notify
+            .wait_for_delivery()
+            .await
+            .expect("didn't get `first`");
         bo_group
             .send_message("second".as_bytes(), &bo)
             .await
@@ -505,7 +551,7 @@ mod tests {
             .send_message("first".as_bytes(), &alix)
             .await
             .unwrap();
-        delivery.wait_for_delivery().await.unwrap();
+        delivery.wait_for_delivery().await.expect("timed out waiting for `first`");
 
         let bo_group = bo
             .create_group(None, GroupMetadataOptions::default())
@@ -519,13 +565,13 @@ mod tests {
             .send_message("second".as_bytes(), &bo)
             .await
             .unwrap();
-        delivery.wait_for_delivery().await.unwrap();
+        delivery.wait_for_delivery().await.expect("timed out waiting for `second`");
 
         alix_group
             .send_message("third".as_bytes(), &alix)
             .await
             .unwrap();
-        delivery.wait_for_delivery().await.unwrap();
+        delivery.wait_for_delivery().await.expect("timed out waiting for `third`");
 
         let alix_group_2 = alix
             .create_group(None, GroupMetadataOptions::default())
@@ -539,13 +585,13 @@ mod tests {
             .send_message("fourth".as_bytes(), &alix)
             .await
             .unwrap();
-        delivery.wait_for_delivery().await.unwrap();
+        delivery.wait_for_delivery().await.expect("timed out waiting for `fourth`");
 
         alix_group_2
             .send_message("fifth".as_bytes(), &alix)
             .await
             .unwrap();
-        delivery.wait_for_delivery().await.unwrap();
+        delivery.wait_for_delivery().await.expect("timed out waiting for `fifth`");
 
         {
             let messages = messages.lock().unwrap();

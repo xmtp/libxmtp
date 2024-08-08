@@ -348,12 +348,13 @@ impl MlsGroup {
                     return Ok(());
                 }
                 if let Some(id) = intent.message_id()? {
-                    conn.set_delivery_status_to_published(&id, envelope_timestamp_ns)?;
+                    conn.set_delivery_status_to_published(&id, envelope_timestamp_ns)
+                        .await?;
                 }
             }
         };
 
-        conn.set_group_intent_committed(intent.id)?;
+        conn.set_group_intent_committed(intent.id).await?;
 
         Ok(())
     }

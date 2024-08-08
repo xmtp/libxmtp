@@ -173,20 +173,24 @@ impl DbConnection {
         })?)
     }
 
-    pub fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
+    pub async fn set_delivery_status_to_published<MessageId: AsRef<[u8]> + Send>(
         &self,
         msg_id: &MessageId,
         timestamp: u64,
     ) -> Result<usize, StorageError> {
-        Ok(self.raw_query(|conn| {
-            diesel::update(dsl::group_messages)
-                .filter(dsl::id.eq(msg_id.as_ref()))
-                .set((
-                    dsl::delivery_status.eq(DeliveryStatus::Published),
-                    dsl::sent_at_ns.eq(timestamp as i64),
-                ))
-                .execute(conn)
-        })?)
+        log::debug!("Setting delivery status to published");
+        let msg_id = msg_id.as_ref().to_vec();
+        Ok(self
+            .raw_query_async(move |conn| {
+                diesel::update(dsl::group_messages)
+                    .filter(dsl::id.eq(&msg_id))
+                    .set((
+                        dsl::delivery_status.eq(DeliveryStatus::Published),
+                        dsl::sent_at_ns.eq(timestamp as i64),
+                    ))
+                    .execute(conn)
+            })
+            .await?)
     }
 
     pub fn set_delivery_status_to_failed<MessageId: AsRef<[u8]>>(

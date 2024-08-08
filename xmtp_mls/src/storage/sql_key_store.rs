@@ -90,7 +90,7 @@ impl SqlKeyStore {
         key: &[u8],
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        log::debug!("write {}", String::from_utf8_lossy(label));
+        log::trace!("write {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
 
@@ -105,7 +105,7 @@ impl SqlKeyStore {
         key: &[u8],
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        log::debug!("append {}", String::from_utf8_lossy(label));
+        log::trace!("append {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let data = self.select_query::<VERSION>(&storage_key)?;
@@ -137,7 +137,7 @@ impl SqlKeyStore {
         key: &[u8],
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        log::debug!("remove_item {}", String::from_utf8_lossy(label));
+        log::trace!("remove_item {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let data: Vec<StorageData> = self.select_query::<VERSION>(&storage_key)?;
@@ -170,7 +170,7 @@ impl SqlKeyStore {
         label: &[u8],
         key: &[u8],
     ) -> Result<Option<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        log::debug!("read {}", String::from_utf8_lossy(label));
+        log::trace!("read {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
 
@@ -191,7 +191,7 @@ impl SqlKeyStore {
         label: &[u8],
         key: &[u8],
     ) -> Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        log::debug!("read_list {}", String::from_utf8_lossy(label));
+        log::trace!("read_list {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let results = self.select_query::<VERSION>(&storage_key)?;
@@ -806,9 +806,9 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
     ) -> Result<(), Self::Error> {
         let key = epoch_key_pairs_id(group_id, epoch, leaf_index)?;
         let value = bincode::serialize(key_pairs)?;
-        log::debug!("Writing encryption epoch key pairs");
-        log::debug!("  key: {}", hex::encode(&key));
-        log::debug!("  value: {}", hex::encode(&value));
+        log::trace!("Writing encryption epoch key pairs");
+        log::trace!("  key: {}", hex::encode(&key));
+        log::trace!("  value: {}", hex::encode(&value));
 
         self.write::<CURRENT_VERSION>(EPOCH_KEY_PAIRS_LABEL, &key, &value)
     }
@@ -823,11 +823,11 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         epoch: &EpochKey,
         leaf_index: u32,
     ) -> Result<Vec<HpkeKeyPair>, Self::Error> {
-        log::debug!("Reading encryption epoch key pairs");
+        log::trace!("Reading encryption epoch key pairs");
 
         let key = epoch_key_pairs_id(group_id, epoch, leaf_index)?;
         let storage_key = build_key_from_vec::<CURRENT_VERSION>(EPOCH_KEY_PAIRS_LABEL, key);
-        log::debug!("  key: {}", hex::encode(&storage_key));
+        log::trace!("  key: {}", hex::encode(&storage_key));
 
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
@@ -918,7 +918,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<LeafNode>, Self::Error> {
-        log::debug!("own_leaf_nodes");
+        log::trace!("own_leaf_nodes");
         let key = build_key::<CURRENT_VERSION, &GroupId>(OWN_LEAF_NODES_LABEL, group_id)?;
 
         self.read_list(OWN_LEAF_NODES_LABEL, &key)

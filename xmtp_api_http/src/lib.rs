@@ -181,17 +181,15 @@ impl XmtpMlsClient for XmtpHttpApiClient {
     &self,
     request: SubscribeGroupMessagesRequest,
   ) -> Result<GroupMessageStream, Error> {
-    log::debug!("SUBSCRIPTION");
-    let stream = self
-      .http_client
-      .post(&self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES))
-      .json(&request)
-      .send()
-      .await
-      .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-      .bytes_stream();
+    log::debug!("subscribe_group_messages");
+    log::debug!("CREATING STREAM");
 
-    let stream = create_grpc_stream::<GroupMessage>(stream).await;
+    let stream = create_grpc_stream::<_, GroupMessage>(
+      request,
+      self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES),
+      self.http_client.clone(),
+    )
+    .await;
 
     Ok(stream)
   }
@@ -200,17 +198,13 @@ impl XmtpMlsClient for XmtpHttpApiClient {
     &self,
     request: SubscribeWelcomeMessagesRequest,
   ) -> Result<WelcomeMessageStream, Error> {
-    log::debug!("SUBSCRIPTION");
-    let stream = self
-      .http_client
-      .post(&self.endpoint(ApiEndpoints::SUBSCRIBE_WELCOME_MESSAGES))
-      .json(&request)
-      .send()
-      .await
-      .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-      .bytes_stream();
-
-    let stream = create_grpc_stream::<WelcomeMessage>(stream).await;
+    log::debug!("subscribe_welcome_messages");
+    let stream = create_grpc_stream::<_, WelcomeMessage>(
+      request,
+      self.endpoint(ApiEndpoints::SUBSCRIBE_WELCOME_MESSAGES),
+      self.http_client.clone(),
+    )
+    .await;
 
     Ok(stream)
   }

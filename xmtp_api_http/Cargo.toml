@@ -17,9 +17,11 @@ serde_json = { workspace = true }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 async-stream = "0.3"
 bytes = "1.7"
+tokio = { workspace = true, default-features = false, features = ["sync", "rt"] }
+tokio-stream = { version = "0.1", default-features = false }
 
 [dev-dependencies]
-tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 
 [profile.release]
 opt-level = "s"

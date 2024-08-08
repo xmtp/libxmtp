@@ -6425,6 +6425,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tokio-stream",
  "tracing",
  "xmtp_proto",
 ]
@@ -6520,6 +6521,7 @@ dependencies = [
  "async-trait",
  "bincode",
  "chrono",
+ "colored",
  "criterion",
  "ctor",
  "diesel",
