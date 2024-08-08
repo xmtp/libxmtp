@@ -9,7 +9,7 @@ members = [
   "xmtp_user_preferences",
   "xmtp_v2",
   "xmtp_mls",
-  "xmtp_id",
+  "xmtp_id"
 ]
 
 exclude = [
@@ -17,6 +17,7 @@ exclude = [
   "bindings_wasm",
   "xmtp_api_grpc_gateway",
   "bindings_node",
+  "diesel-wasm-sqlite"
 ]
 
 # Make the feature resolver explicit.
@@ -50,7 +51,7 @@ serde_json = "1.0"
 sha2 = "0.10.8"
 thiserror = "1.0"
 tls_codec = "0.4.0"
-tokio = { version = "1.35.1", features = ["macros"] }
+tokio = { version = "1.35.1", default-features = false }
 tonic = "^0.11"
 tracing = { version = "0.1", features = ["release_max_level_debug"] }
 tracing-subscriber = "0.3"
