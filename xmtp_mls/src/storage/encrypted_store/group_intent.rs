@@ -218,20 +218,17 @@ impl DbConnection {
     }
 
     // Set the intent with the given ID to `Committed`
-    pub async fn set_group_intent_committed(&self, intent_id: ID) -> Result<(), StorageError> {
-        log::debug!("setting group intent committed");
-        let res = self
-            .raw_query_async(move |conn| {
-                diesel::update(dsl::group_intents)
-                    .filter(dsl::id.eq(intent_id))
-                    // State machine requires that the only valid state transition to Committed is from
-                    // Published
-                    .filter(dsl::state.eq(IntentState::Published))
-                    .set(dsl::state.eq(IntentState::Committed))
-                    .execute(conn)
-            })
-            .await?;
-        log::debug!("Group intent set to committed");
+    pub fn set_group_intent_committed(&self, intent_id: ID) -> Result<(), StorageError> {
+        let res = self.raw_query(|conn| {
+            diesel::update(dsl::group_intents)
+                .filter(dsl::id.eq(intent_id))
+                // State machine requires that the only valid state transition to Committed is from
+                // Published
+                .filter(dsl::state.eq(IntentState::Published))
+                .set(dsl::state.eq(IntentState::Committed))
+                .execute(conn)
+        })?;
+
         match res {
             // If nothing matched the query, return an error. Either ID or state was wrong
             0 => Err(StorageError::NotFound(format!(
@@ -611,9 +608,7 @@ mod tests {
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
             assert_eq!(intent.post_commit_data, Some(post_commit_data.clone()));
 
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(conn.set_group_intent_committed(intent.id))
-                .unwrap();
+            conn.set_group_intent_committed(intent.id).unwrap();
             // Refresh from the DB
             intent = conn.fetch(&intent.id).unwrap().unwrap();
             assert_eq!(intent.state, IntentState::Committed);
@@ -680,8 +675,8 @@ mod tests {
             .unwrap();
 
             let intent = find_first_intent(conn, group_id.clone());
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            let commit_result = rt.block_on(conn.set_group_intent_committed(intent.id));
+
+            let commit_result = conn.set_group_intent_committed(intent.id);
             assert!(commit_result.is_err());
             assert!(matches!(
                 commit_result.err().unwrap(),

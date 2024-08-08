@@ -28,7 +28,7 @@ use crate::{
     hpke::{encrypt_welcome, HpkeError},
     identity::parse_credential,
     identity_updates::load_identity_updates,
-    retry::Retry,
+    retry::{Retry, RetryableError},
     retry_async,
     storage::{
         db_connection::DbConnection,
@@ -342,19 +342,18 @@ impl MlsGroup {
                     intent.id,
                     group_epoch,
                     message_epoch,
-                    3, // max_past_epochs, TODO: expose from OpenMLS MlsGroup
+                    1, // max_past_epochs, TODO: expose from OpenMLS MlsGroup
                 ) {
                     conn.set_group_intent_to_publish(intent.id)?;
                     return Ok(());
                 }
                 if let Some(id) = intent.message_id()? {
-                    conn.set_delivery_status_to_published(&id, envelope_timestamp_ns)
-                        .await?;
+                    conn.set_delivery_status_to_published(&id, envelope_timestamp_ns)?;
                 }
             }
         };
 
-        conn.set_group_intent_committed(intent.id).await?;
+        conn.set_group_intent_committed(intent.id)?;
 
         Ok(())
     }
@@ -693,7 +692,18 @@ impl MlsGroup {
                 })
             );
             if let Err(e) = result {
+                let is_retryable = e.is_retryable();
+                let error_message = e.to_string();
                 receive_errors.push(e);
+                // If the error is retryable we cannot move on to the next message
+                // otherwise you can get into a forked group state.
+                if is_retryable {
+                    log::error!(
+                        "Aborting message processing for retryable error: {}",
+                        error_message
+                    );
+                    break;
+                }
             }
         }
 

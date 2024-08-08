@@ -175,7 +175,7 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    fn raw_conn(
+    pub(crate) fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
         let pool_guard = self.pool.read();
@@ -184,7 +184,7 @@ impl EncryptedMessageStore {
             .as_ref()
             .ok_or(StorageError::PoolNeedsConnection)?;
 
-        log::info!(
+        log::debug!(
             "Pulling connection from pool, idle_connections={}, total_connections={}",
             pool.state().idle_connections,
             pool.state().connections
@@ -289,26 +289,19 @@ impl EncryptedMessageStore {
         let conn_ref = local_provider.conn_ref();
         match result {
             Ok(value) => {
-                conn_ref
-                    .raw_query_async(|conn| {
-                        PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(
-                            &mut *conn,
-                        )
-                    })
-                    .await?;
+                conn_ref.raw_query(|conn| {
+                    PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
+                })?;
                 log::debug!("Transaction async being committed");
                 Ok(value)
             }
             Err(err) => {
                 log::debug!("Transaction async being rolled back");
-                match conn_ref
-                    .raw_query_async(|conn| {
-                        PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(
-                            &mut *conn,
-                        )
-                    })
-                    .await
-                {
+                match conn_ref.raw_query(|conn| {
+                    PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(
+                        &mut *conn,
+                    )
+                }) {
                     Ok(()) => Err(err),
                     Err(Error::BrokenTransactionManager) => Err(err),
                     Err(rollback) => Err(rollback.into()),
