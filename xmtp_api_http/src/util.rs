@@ -50,7 +50,6 @@ pub async fn create_grpc_stream<
 ) -> BoxStream<'static, Result<R, Error>> {
   let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-  log::debug!("Creating gRPC stream");
   tokio::task::spawn(async move {
     let mut bytes_stream = http_client
       .post(endpoint)
@@ -60,13 +59,11 @@ pub async fn create_grpc_stream<
       .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
       .bytes_stream();
 
-    log::debug!("Spawning grpc stream");
+    log::debug!("Spawning grpc http stream");
     let mut remaining = vec![];
     while let Some(bytes) = bytes_stream.next().await {
       let bytes =
         bytes.map_err(|e| Error::new(ErrorKind::SubscriptionUpdateError).with(e.to_string()))?;
-      let deser = serde_json::from_slice::<serde_json::Value>(bytes.as_ref()).unwrap();
-      log::debug!("DESER: {}", serde_json::to_string_pretty(&deser).unwrap());
 
       let bytes = &[remaining.as_ref(), bytes.as_ref()].concat();
       let de = Deserializer::from_slice(bytes);
@@ -89,10 +86,13 @@ pub async fn create_grpc_stream<
           Some(Ok(GrpcResponse::Empty {})) => continue 'messages,
           None => break 'messages,
         };
-        log::debug!("RES FOR STREAM: {:?}", res);
         if tx.send(res).is_err() {
           break 'messages;
         }
+      }
+      // this will ensure the spawned task is dropped if the receiver stream is dropped
+      if tx.is_closed() {
+        break;
       }
     }
     Ok::<_, Error>(())
