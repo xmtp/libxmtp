@@ -184,7 +184,6 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         request: SubscribeGroupMessagesRequest,
     ) -> Result<GroupMessageStream, Error> {
         log::debug!("subscribe_group_messages");
-        log::debug!("CREATING STREAM");
 
         let stream = create_grpc_stream::<_, GroupMessage>(
             request,
