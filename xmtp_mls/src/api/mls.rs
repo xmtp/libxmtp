@@ -236,13 +236,20 @@ where
             .key_packages
             .into_iter()
             .enumerate()
-            .map(|(idx, key_package)| {
-                (
+            .filter_map(|(idx, key_package)| {
+                if key_package.key_package_tls_serialized.is_empty() {
+                    log::warn!(
+                        "installation key 0x{} has empty key package",
+                        hex::encode(&installation_keys[idx])
+                    );
+                    return None;
+                }
+
+                Some((
                     installation_keys[idx].to_vec(),
                     key_package.key_package_tls_serialized,
-                )
+                ))
             })
-            .filter(|(_, key_package)| key_package.len() > 0)
             .collect();
 
         Ok(mapping)
@@ -683,5 +690,40 @@ pub mod tests {
             .await
             .unwrap();
         assert_eq!(result.len(), 50);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_key_packages_skips_empty() {
+        let mut mock_api = MockApiClient::new();
+        let installation_keys: Vec<Vec<u8>> = vec![vec![1, 2, 3], vec![4, 5, 6], vec![1, 1, 1]];
+        mock_api.expect_fetch_key_packages().returning(move |_| {
+            Ok(FetchKeyPackagesResponse {
+                key_packages: vec![
+                    KeyPackage {
+                        key_package_tls_serialized: vec![7, 8, 9],
+                    },
+                    KeyPackage {
+                        key_package_tls_serialized: vec![],
+                    },
+                    KeyPackage {
+                        key_package_tls_serialized: vec![10, 11, 12],
+                    },
+                ],
+            })
+        });
+        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+        let result = wrapper
+            .fetch_key_packages(installation_keys.clone())
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 2);
+
+        for (k, v) in result {
+            if k.eq(&installation_keys[0]) {
+                assert_eq!(v, vec![7, 8, 9]);
+            } else {
+                assert_eq!(v, vec![10, 11, 12]);
+            }
+        }
     }
 }
