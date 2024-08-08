@@ -5447,7 +5447,11 @@ dependencies = [
  "openmls_rust_crypto",
  "openmls_traits",
  "parking_lot",
+<<<<<<< HEAD
  "prost 0.13.1",
+=======
+ "prost 0.12.6",
+>>>>>>> 340b0b68c9cd3b720e4b443d9f31b1fbc1e3cbf8
  "rand",
  "reqwest 0.12.4",
  "ring 0.17.8",

@@ -290,6 +290,7 @@ mod tests {
         tokio::spawn(async move {
             let mut stream = amal_group_ptr.stream(amal_ptr).await.unwrap();
             while let Some(item) = stream.next().await {
+                log::debug!("GOT SOMETHING-----------------------------");
                 let _ = tx.send(item);
                 notify_ptr.notify_one();
             }

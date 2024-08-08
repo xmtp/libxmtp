@@ -480,7 +480,6 @@ mod tests {
 
         let notify = Delivery::new(None);
         let notify_pointer = notify.clone();
-        log::info!("STREAMING MESSAGES IN TEST");
         let mut handle = Client::<TestClient>::stream_all_messages_with_callback(
             Arc::new(caro),
             move |message| {
@@ -489,7 +488,6 @@ mod tests {
             },
         );
         handle.wait_for_ready().await;
-        log::info!("STREAM READY");
 
         alix_group
             .send_message("first".as_bytes(), &alix)
@@ -551,7 +549,10 @@ mod tests {
             .send_message("first".as_bytes(), &alix)
             .await
             .unwrap();
-        delivery.wait_for_delivery().await.expect("timed out waiting for `first`");
+        delivery
+            .wait_for_delivery()
+            .await
+            .expect("timed out waiting for `first`");
 
         let bo_group = bo
             .create_group(None, GroupMetadataOptions::default())
@@ -565,13 +566,19 @@ mod tests {
             .send_message("second".as_bytes(), &bo)
             .await
             .unwrap();
-        delivery.wait_for_delivery().await.expect("timed out waiting for `second`");
+        delivery
+            .wait_for_delivery()
+            .await
+            .expect("timed out waiting for `second`");
 
         alix_group
             .send_message("third".as_bytes(), &alix)
             .await
             .unwrap();
-        delivery.wait_for_delivery().await.expect("timed out waiting for `third`");
+        delivery
+            .wait_for_delivery()
+            .await
+            .expect("timed out waiting for `third`");
 
         let alix_group_2 = alix
             .create_group(None, GroupMetadataOptions::default())
@@ -585,13 +592,19 @@ mod tests {
             .send_message("fourth".as_bytes(), &alix)
             .await
             .unwrap();
-        delivery.wait_for_delivery().await.expect("timed out waiting for `fourth`");
+        delivery
+            .wait_for_delivery()
+            .await
+            .expect("timed out waiting for `fourth`");
 
         alix_group_2
             .send_message("fifth".as_bytes(), &alix)
             .await
             .unwrap();
-        delivery.wait_for_delivery().await.expect("timed out waiting for `fifth`");
+        delivery
+            .wait_for_delivery()
+            .await
+            .expect("timed out waiting for `fifth`");
 
         {
             let messages = messages.lock().unwrap();

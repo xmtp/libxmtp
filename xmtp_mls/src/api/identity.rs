@@ -17,6 +17,7 @@ use xmtp_proto::xmtp::identity::api::v1::{
 
 const GET_IDENTITY_UPDATES_CHUNK_SIZE: usize = 50;
 
+#[derive(Debug)]
 /// A filter for querying identity updates. `sequence_id` is the starting sequence, and only later updates will be returned.
 pub struct GetIdentityUpdatesV2Filter {
     pub inbox_id: InboxId,

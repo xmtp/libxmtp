@@ -1199,6 +1199,7 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 
 #[cfg(test)]
 mod tests {
+    use diesel::connection::SimpleConnection;
     use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
     use prost::Message;
     use std::sync::Arc;
@@ -1229,7 +1230,7 @@ mod tests {
 
     use super::{
         intents::{Installation, SendWelcomesAction},
-        MlsGroup,
+        GroupError, MlsGroup,
     };
 
     async fn receive_group_invite<ApiClient>(client: &Client<ApiClient>) -> MlsGroup
@@ -1735,6 +1736,66 @@ mod tests {
         let bola_group = receive_group_invite(&bola).await;
         bola_group.sync(&bola).await.unwrap();
         assert!(!bola_group.is_active().unwrap())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_removed_members_cannot_send_message_to_others() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_wallet = &generate_local_wallet();
+        let bola = ClientBuilder::new_test_client(bola_wallet).await;
+        let charlie_wallet = &generate_local_wallet();
+        let charlie = ClientBuilder::new_test_client(charlie_wallet).await;
+
+        let group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        group
+            .add_members(
+                &amal,
+                vec![bola_wallet.get_address(), charlie_wallet.get_address()],
+            )
+            .await
+            .unwrap();
+        assert_eq!(group.members().unwrap().len(), 3);
+
+        group
+            .remove_members(&amal, vec![bola_wallet.get_address()])
+            .await
+            .unwrap();
+        assert_eq!(group.members().unwrap().len(), 2);
+        assert!(group
+            .members()
+            .unwrap()
+            .iter()
+            .all(|m| m.inbox_id != bola.inbox_id()));
+        assert!(group
+            .members()
+            .unwrap()
+            .iter()
+            .any(|m| m.inbox_id == charlie.inbox_id()));
+
+        group.sync(&amal).await.expect("sync failed");
+
+        let message_text = b"hello";
+        group
+            .send_message(message_text, &bola)
+            .await
+            .expect_err("expected send_message to fail");
+
+        group.sync(&bola).await.expect("sync failed");
+        group.sync(&amal).await.expect("sync failed");
+
+        let amal_messages = group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<StoredGroupMessage>>();
+
+        let message = amal_messages.first().unwrap();
+
+        // FIXME:st this is passing ONLY because the message IS being sent to the group
+        assert_eq!(message_text, &message.decrypted_message_bytes[..]);
+        assert_eq!(amal_messages.len(), 1);
     }
 
     // TODO:nm add more tests for filling in missing installations
@@ -2693,5 +2754,55 @@ mod tests {
                 DeliveryStatus::Published,
             ]
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn process_messages_abort_on_retryable_error() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        alix_group
+            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .await
+            .unwrap();
+
+        // Create two commits
+        alix_group
+            .update_group_name(&alix, "foo".to_string())
+            .await
+            .unwrap();
+        alix_group
+            .update_group_name(&alix, "bar".to_string())
+            .await
+            .unwrap();
+
+        let bo_group = receive_group_invite(&bo).await;
+        // Get the group messages before we lock the DB, simulating an error that happens
+        // in the middle of a sync instead of the beginning
+        let bo_messages = bo
+            .query_group_messages(&bo_group.group_id, &bo.store().conn().unwrap())
+            .await
+            .unwrap();
+
+        let conn_1 = bo.store().conn().unwrap();
+        let mut conn_2 = bo.store().raw_conn().unwrap();
+
+        // Begin an exclusive transaction on a second connection to lock the database
+        conn_2.batch_execute("BEGIN EXCLUSIVE").unwrap();
+        let process_result = bo_group.process_messages(bo_messages, conn_1, &bo).await;
+        if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
+            assert_eq!(errors.len(), 1);
+            assert!(errors
+                .first()
+                .unwrap()
+                .to_string()
+                .contains("database is locked"));
+        } else {
+            panic!("Expected error")
+        }
     }
 }
