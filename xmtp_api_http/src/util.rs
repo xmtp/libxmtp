@@ -77,7 +77,7 @@ pub async fn create_grpc_stream<
           Some(Ok(GrpcResponse::Err(e))) => Err(Error::new(ErrorKind::MlsError).with(e.message)),
           Some(Err(e)) => {
             if e.is_eof() {
-              remaining = (&*bytes)[stream.byte_offset()..].to_vec();
+              remaining = (&**bytes)[stream.byte_offset()..].to_vec();
               break 'messages;
             } else {
               Err(Error::new(ErrorKind::MlsError).with(e.to_string()))
