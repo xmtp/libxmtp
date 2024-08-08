@@ -58,6 +58,7 @@ xmtp_cryptography = { workspace = true }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_proto = { workspace = true, features = ["proto_full", "convert"] }
 xmtp_v2 = { path = "../xmtp_v2" }
+async-stream = "0.3"
 
 # Test/Bench Utils
 xmtp_api_grpc = { path = "../xmtp_api_grpc", optional = true }
