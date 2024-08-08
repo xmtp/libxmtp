@@ -67,7 +67,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
   async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error> {
     let res = self
       .http_client
-      .post(&self.endpoint(ApiEndpoints::UPLOAD_KEY_PACKAGE))
+      .post(self.endpoint(ApiEndpoints::UPLOAD_KEY_PACKAGE))
       .json(&request)
       .send()
       .await
@@ -86,7 +86,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
   ) -> Result<FetchKeyPackagesResponse, Error> {
     let res = self
       .http_client
-      .post(&self.endpoint(ApiEndpoints::FETCH_KEY_PACKAGES))
+      .post(self.endpoint(ApiEndpoints::FETCH_KEY_PACKAGES))
       .json(&request)
       .send()
       .await
@@ -102,7 +102,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
   async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), Error> {
     let res = self
       .http_client
-      .post(&self.endpoint(ApiEndpoints::SEND_GROUP_MESSAGES))
+      .post(self.endpoint(ApiEndpoints::SEND_GROUP_MESSAGES))
       .json(&request)
       .send()
       .await
@@ -118,7 +118,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
   async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), Error> {
     let res = self
       .http_client
-      .post(&self.endpoint(ApiEndpoints::SEND_WELCOME_MESSAGES))
+      .post(self.endpoint(ApiEndpoints::SEND_WELCOME_MESSAGES))
       .json(&request)
       .send()
       .await
@@ -145,7 +145,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
   ) -> Result<QueryGroupMessagesResponse, Error> {
     let res = self
       .http_client
-      .post(&self.endpoint(ApiEndpoints::QUERY_GROUP_MESSAGES))
+      .post(self.endpoint(ApiEndpoints::QUERY_GROUP_MESSAGES))
       .json(&request)
       .send()
       .await
@@ -164,7 +164,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
   ) -> Result<QueryWelcomeMessagesResponse, Error> {
     let res = self
       .http_client
-      .post(&self.endpoint(ApiEndpoints::QUERY_WELCOME_MESSAGES))
+      .post(self.endpoint(ApiEndpoints::QUERY_WELCOME_MESSAGES))
       .json(&request)
       .send()
       .await
@@ -219,7 +219,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
   ) -> Result<PublishIdentityUpdateResponse, Error> {
     let res = self
       .http_client
-      .post(&self.endpoint(ApiEndpoints::PUBLISH_IDENTITY_UPDATE))
+      .post(self.endpoint(ApiEndpoints::PUBLISH_IDENTITY_UPDATE))
       .json(&request)
       .send()
       .await
@@ -238,7 +238,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
   ) -> Result<GetIdentityUpdatesV2Response, Error> {
     let res = self
       .http_client
-      .post(&self.endpoint(ApiEndpoints::GET_IDENTITY_UPDATES))
+      .post(self.endpoint(ApiEndpoints::GET_IDENTITY_UPDATES))
       .json(&request)
       .send()
       .await
@@ -254,7 +254,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
   async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, Error> {
     let res = self
       .http_client
-      .post(&self.endpoint(ApiEndpoints::GET_INBOX_IDS))
+      .post(self.endpoint(ApiEndpoints::GET_INBOX_IDS))
       .json(&request)
       .send()
       .await

@@ -64,7 +64,6 @@ impl MlsGroup {
                     .await
             })
         );
-        log::info!("STREAM ENTRY PROCESSED!!!");
 
         if let Some(GroupError::ReceiveError(_)) = process_result.as_ref().err() {
             self.sync(&client).await?;
@@ -141,7 +140,6 @@ impl MlsGroup {
 
 #[cfg(test)]
 mod tests {
-    use futures::pin_mut;
     use prost::Message;
     use std::{sync::Arc, time::Duration};
     use tokio_stream::wrappers::UnboundedReceiverStream;
