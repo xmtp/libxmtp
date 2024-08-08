@@ -128,9 +128,11 @@ where
             .map_err(|e| ClientError::Generic(e.to_string()))?;
 
         let welcome = self.process_streamed_welcome(envelope).await?;
+
         Ok(welcome)
     }
 
+    // really, stream *groups*
     pub async fn stream_conversations(
         &self,
     ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup> + Send + '_>>, ClientError> {
@@ -278,26 +280,40 @@ where
 
     pub async fn stream_all_messages(
         client: Arc<Client<ApiClient>>,
+        is_for_sync_groups: bool,
     ) -> Result<impl Stream<Item = StoredGroupMessage>, ClientError> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         client.sync_welcomes().await?;
 
-        let mut group_id_to_info = client
-            .store()
-            .conn()?
-            .find_groups(None, None, None, None)?
-            .into_iter()
-            .map(Into::into)
-            .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
+        let mut group_id_to_info;
+
+        if !is_for_sync_groups {
+            // Gather all regular conversational groups
+            group_id_to_info = client
+                .store()
+                .conn()?
+                .find_groups(None, None, None, None)?
+                .into_iter()
+                .map(Into::into)
+                .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
+        } else {
+            // Gather the sync groups
+            group_id_to_info = client
+                .store()
+                .conn()?
+                .find_sync_groups()?
+                .into_iter()
+                .map(Into::into)
+                .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
+        }
 
         tokio::spawn(async move {
-            let client = client.clone();
+            let mut convo_stream = Self::stream_conversations(&client).await?;
             let mut messages_stream = client
                 .clone()
                 .stream_messages(group_id_to_info.clone())
                 .await?;
-            let mut convo_stream = Self::stream_conversations(&client).await?;
             let mut extra_messages = Vec::new();
 
             loop {
@@ -362,7 +378,7 @@ where
         let (tx, rx) = oneshot::channel();
 
         let handle = tokio::spawn(async move {
-            let mut stream = Self::stream_all_messages(client).await?;
+            let mut stream = Self::stream_all_messages(client, false).await?;
             let _ = tx.send(());
             while let Some(message) = stream.next().await {
                 callback(message)

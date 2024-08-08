@@ -342,11 +342,13 @@ impl MlsGroup {
 
         let stored_group = provider.conn().insert_or_replace_group(to_store)?;
 
-        Ok(Self::new(
+        let group = Self::new(
             client.context.clone(),
             stored_group.id,
             stored_group.created_at_ns,
-        ))
+        );
+
+        Ok(group)
     }
 
     // Decrypt a welcome message using HPKE and then create and save a group from the stored message
