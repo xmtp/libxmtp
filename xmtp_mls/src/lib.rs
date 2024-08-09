@@ -26,8 +26,31 @@ use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 /// XMTP Api Super Trait
 /// Implements all Trait Network APIs for convenience.
-pub trait XmtpApi: XmtpMlsClient + XmtpIdentityClient {}
-impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient {}
+#[cfg(not(test))]
+pub trait XmtpApi
+where
+    Self: XmtpMlsClient + XmtpIdentityClient,
+{
+}
+#[cfg(not(test))]
+impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ?Sized {}
+
+#[cfg(test)]
+pub trait XmtpApi
+where
+    Self: XmtpMlsClient + XmtpIdentityClient + XmtpTestClient,
+{
+}
+
+#[cfg(test)]
+impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + XmtpTestClient + ?Sized {}
+
+#[cfg(any(test, feature = "test-utils", feature = "bench"))]
+#[async_trait::async_trait]
+pub trait XmtpTestClient {
+    async fn create_local() -> Self;
+    async fn create_dev() -> Self;
+}
 
 pub trait InboxOwner {
     /// Get address of the wallet.
@@ -64,9 +87,9 @@ mod tests {
     use tracing_test::traced_test;
 
     // Execute once before any tests are run
-    #[ctor::ctor]
     // Capture traces in a variable that can be checked in tests, as well as outputting them to stdout on test failure
     #[traced_test]
+    #[ctor::ctor]
     fn setup() {
         // Capture logs (e.g. log::info!()) as traces too
         let _ = tracing_log::LogTracer::init_with_filter(LevelFilter::Debug);

@@ -1,7 +1,7 @@
 //! Utilities for xmtp_mls benchmarks
 //! Utilities mostly include pre-generating identities in order to save time when writing/testing
 //! benchmarks.
-use crate::builder::ClientBuilder;
+use crate::{builder::ClientBuilder, Client};
 use ethers::signers::{LocalWallet, Signer};
 use indicatif::{ProgressBar, ProgressStyle};
 use once_cell::sync::OnceCell;
@@ -174,7 +174,7 @@ async fn create_identities(n: usize, is_dev_network: bool) -> Vec<Identity> {
 /// node still has those identities.
 pub async fn create_identities_if_dont_exist(
     identities: usize,
-    client: &TestClient,
+    client: &Client<TestClient>,
     is_dev_network: bool,
 ) -> Vec<Identity> {
     match load_identities(is_dev_network) {

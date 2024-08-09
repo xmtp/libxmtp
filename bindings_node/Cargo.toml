@@ -10,22 +10,22 @@ crate-type = ["cdylib"]
 # Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
 futures = "0.3.30"
 hex = "0.4.3"
+log = { version = "0.4", features = ["release_max_level_debug"] }
 napi = { version = "2.12.2", default-features = false, features = [
   "napi4",
   "napi6",
   "async",
 ] }
 napi-derive = "2.12.2"
-prost = "^0.12"
+prost = "^0.13"
+rand = "0.8.5"
 tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread", "time"] }
-tonic = { version = "^0.11", features = ["tls"] }
+tonic = { version = "^0.12", features = ["tls"] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
+xmtp_id = { path = "../xmtp_id" }
 xmtp_mls = { path = "../xmtp_mls", features = ["grpc", "native"] }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
-xmtp_id = { path = "../xmtp_id" }
-rand = "0.8.5"
-log = { version = "0.4", features = ["release_max_level_debug"] }
 
 [build-dependencies]
 napi-build = "2.0.1"

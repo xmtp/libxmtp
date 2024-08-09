@@ -1,5 +1,6 @@
+use parking_lot::Mutex;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::storage::RawDbConnection;
 
@@ -27,14 +28,7 @@ impl DbConnection {
     where
         F: FnOnce(&mut RawDbConnection) -> Result<T, diesel::result::Error>,
     {
-        let mut lock = self.wrapped_conn.lock().unwrap_or_else(
-            |err| {
-                log::error!(
-                    "Recovering from poisoned mutex - a thread has previously panicked holding this lock"
-                );
-                err.into_inner()
-            },
-        );
+        let mut lock = self.wrapped_conn.lock();
         fun(&mut lock)
     }
 }

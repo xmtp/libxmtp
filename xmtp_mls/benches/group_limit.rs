@@ -15,13 +15,16 @@ use xmtp_mls::{
         bench::{create_identities_if_dont_exist, init_logging, Identity, BENCH_ROOT_SPAN},
         test::TestClient,
     },
+    Client,
 };
+
+pub type BenchClient = Client<TestClient>;
 
 pub const IDENTITY_SAMPLES: [usize; 9] = [10, 20, 40, 80, 100, 200, 300, 400, 450];
 pub const MAX_IDENTITIES: usize = 1_000;
 pub const SAMPLE_SIZE: usize = 10;
 
-fn setup() -> (Arc<TestClient>, Vec<Identity>, Runtime) {
+fn setup() -> (Arc<BenchClient>, Vec<Identity>, Runtime) {
     let runtime = Builder::new_multi_thread()
         .enable_time()
         .enable_io()

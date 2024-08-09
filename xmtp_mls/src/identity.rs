@@ -43,10 +43,7 @@ use xmtp_id::{
     constants::INSTALLATION_KEY_SIGNATURE_CONTEXT,
     InboxId,
 };
-use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::identity::MlsCredential,
-};
+use xmtp_proto::xmtp::identity::MlsCredential;
 
 #[derive(Debug, Clone)]
 pub enum IdentityStrategy {
@@ -60,7 +57,7 @@ pub enum IdentityStrategy {
 }
 
 impl IdentityStrategy {
-    pub(crate) async fn initialize_identity<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+    pub(crate) async fn initialize_identity<ApiClient: XmtpApi>(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
         store: &EncryptedMessageStore,
@@ -192,7 +189,7 @@ impl Identity {
     ///
     /// If the address is NOT associated with an inbox_id, a new inbox_id will be generated.
     /// Prioritize legacy key if provided, otherwise use wallet to sign.
-    pub(crate) async fn new<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+    pub(crate) async fn new<ApiClient: XmtpApi>(
         inbox_id: InboxId,
         address: String,
         nonce: u64,
