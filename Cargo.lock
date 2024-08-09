@@ -6374,7 +6374,6 @@ dependencies = [
 name = "xmtp_mls"
 version = "0.1.0"
 dependencies = [
- "aes",
  "aes-gcm",
  "anyhow",
  "async-barrier",
