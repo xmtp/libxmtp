@@ -88,11 +88,16 @@ mod tests {
 
     // Execute once before any tests are run
     // Capture traces in a variable that can be checked in tests, as well as outputting them to stdout on test failure
-    #[traced_test]
+    // #[traced_test]
     #[ctor::ctor]
     fn setup() {
+        use tracing_subscriber::{fmt, prelude::*, EnvFilter};
         // Capture logs (e.g. log::info!()) as traces too
-        let _ = tracing_log::LogTracer::init_with_filter(LevelFilter::Debug);
+        // let _ = tracing_log::LogTracer::init_with_filter(LevelFilter::Debug);
+        tracing_subscriber::registry()
+            .with(fmt::layer())
+            .with(EnvFilter::from_default_env())
+            .init();
     }
 
     /// Note: tests that use this must have the #[traced_test] attribute

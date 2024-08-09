@@ -22,6 +22,7 @@ xmtp_mls = { path = "../xmtp_mls", features = ["grpc", "native"] }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
 xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 xmtp_v2 = { path = "../xmtp_v2" }
+parking_lot = "0.12.3"
 
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # NOTE: A regression in openssl-sys exists where libatomic is dynamically linked 
