@@ -8,8 +8,6 @@ async-stream.workspace = true
 base64 = "0.22"
 futures.workspace = true
 hex.workspace = true
-http-body = "1.0"
-hyper = "1.4"
 log = { workspace = true, features = ["std"] }
 pbjson.workspace = true
 pbjson-types.workspace = true 
@@ -21,8 +19,6 @@ tonic = { workspace = true, features = [
     "tls-roots",
     "tls-webpki-roots",
 ] }
-tower = "0.4.13"
-webpki-roots = "0.23.0"
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
 xmtp_v2 = { path = "../xmtp_v2" }
 tracing.workspace = true
