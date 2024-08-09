@@ -51,11 +51,14 @@ serde_json = "1.0"
 sha2 = "0.10.8"
 thiserror = "1.0"
 tls_codec = "0.4.0"
-tokio = { version = "1.35.1", features = ["macros"] }
-tonic = "^0.12"
+tokio = { version = "1.35.1", default-features = false }
+async-stream = "0.3"
 tracing = { version = "0.1", features = ["release_max_level_debug"] }
 tracing-subscriber = "0.3"
 url = "2.5.0"
+tonic = "^0.12"
+pbjson = "0.7.0"
+pbjson-types = "0.7.0"
 
 # Internal Crate Dependencies
 xmtp_cryptography = { path = "xmtp_cryptography" }

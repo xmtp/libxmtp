@@ -51,15 +51,14 @@ sha2.workspace = true
 smart-default = "0.7.1"
 thiserror = { workspace = true }
 tls_codec = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
+async-stream.workspace = true
 toml = "0.8.4"
 xmtp_cryptography = { workspace = true }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_proto = { workspace = true, features = ["proto_full", "convert"] }
 xmtp_v2 = { path = "../xmtp_v2" }
-async-stream = "0.3"
-
 # Test/Bench Utils
 xmtp_api_grpc = { path = "../xmtp_api_grpc", optional = true }
 tracing-subscriber = { workspace = true, optional = true }
@@ -84,7 +83,6 @@ xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 async-barrier = "1.1"
 anyhow.workspace = true
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
-async-stream = "0.3"
 
 [[bench]]
 name = "group_limit"
