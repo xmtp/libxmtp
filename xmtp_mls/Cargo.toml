@@ -15,7 +15,6 @@ native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
 test-utils = []
 bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "tracing-flame", "once_cell", "xmtp_api_grpc"]
 http-api = ["xmtp_api_http"]
-grpc-api = ["xmtp_api_grpc"]
 
 [dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
