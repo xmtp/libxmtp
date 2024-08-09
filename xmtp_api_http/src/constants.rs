@@ -22,5 +22,3 @@ impl ApiEndpoints {
     pub const SUBSCRIBE_WELCOME_MESSAGES: &'static str = "/mls/v1/subscribe-welcome-messages";
     pub const UPLOAD_KEY_PACKAGE: &'static str = "/mls/v1/upload-key-package";
 }
-
-pub const GRPC_DATA_LIMIT: usize = 45 * 1024 * 1024;
