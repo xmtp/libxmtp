@@ -247,11 +247,21 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_multiple() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let group = amal
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let group = Arc::new(
+            amal.create_group(None, GroupMetadataOptions::default())
+                .unwrap(),
+        );
 
-        let stream = group.stream(amal.clone()).await.unwrap();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+        let amal_ptr = amal.clone();
+        let group_ptr = group.clone();
+        tokio::spawn(async move {
+            let mut stream = group_ptr.stream(amal_ptr).await.unwrap();
+            while let Some(item) = stream.next().await {
+                let _ = tx.send(item);
+            }
+        });
 
         for i in 0..10 {
             group

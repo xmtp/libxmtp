@@ -29,9 +29,14 @@ pub struct XmtpHttpApiClient {
 }
 
 impl XmtpHttpApiClient {
-    pub fn create(host_url: String) -> Self {
+    pub fn new(host_url: String) -> Self {
+        let client = reqwest::Client::builder()
+            .connection_verbose(true)
+            .build()
+            .unwrap();
+
         XmtpHttpApiClient {
-            http_client: reqwest::Client::new(),
+            http_client: client,
             host_url,
         }
     }
@@ -184,15 +189,12 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         request: SubscribeGroupMessagesRequest,
     ) -> Result<GroupMessageStream, Error> {
         log::debug!("subscribe_group_messages");
-
-        let stream = create_grpc_stream::<_, GroupMessage>(
+        create_grpc_stream::<_, GroupMessage>(
             request,
             self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES),
             self.http_client.clone(),
         )
-        .await;
-
-        Ok(stream)
+        .await
     }
 
     async fn subscribe_welcome_messages(
@@ -200,14 +202,12 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         request: SubscribeWelcomeMessagesRequest,
     ) -> Result<WelcomeMessageStream, Error> {
         log::debug!("subscribe_welcome_messages");
-        let stream = create_grpc_stream::<_, WelcomeMessage>(
+        create_grpc_stream::<_, WelcomeMessage>(
             request,
             self.endpoint(ApiEndpoints::SUBSCRIBE_WELCOME_MESSAGES),
             self.http_client.clone(),
         )
-        .await;
-
-        Ok(stream)
+        .await
     }
 }
 
@@ -283,7 +283,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_register_installation() {
-        let client = XmtpHttpApiClient::create(ApiUrls::LOCAL_ADDRESS.to_string());
+        let client = XmtpHttpApiClient::new(ApiUrls::LOCAL_ADDRESS.to_string());
         let result = client
             .register_installation(RegisterInstallationRequest {
                 is_inbox_id_credential: false,

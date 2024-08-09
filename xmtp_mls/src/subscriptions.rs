@@ -390,24 +390,40 @@ mod tests {
     };
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_stream_welcomes() {
-        let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-
+        let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let bob = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let alice_bob_group = alice
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
-        let mut bob_stream = bob.stream_conversations().await.unwrap();
+        // FIXME:insipx we run into an issue where the reqwest::post().send() request
+        // blocks the executor and we cannot progress the runtime if we dont `tokio::spawn` this.
+        // A solution might be to use `hyper` instead, and implement a custom connection pool with
+        // `deadpool`. This is a bit more work but shouldn't be too complicated since
+        // we're only using `post` requests. It would be nice for all streams to work
+        // w/o spawning a separate task.
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+        let bob_ptr = bob.clone();
+        tokio::spawn(async move {
+            let mut bob_stream = bob_ptr.stream_conversations().await.unwrap();
+            while let Some(item) = bob_stream.next().await {
+                let _ = tx.send(item);
+            }
+        });
+
+        let group_id = alice_bob_group.group_id.clone();
         alice_bob_group
             .add_members_by_inbox_id(&alice, vec![bob.inbox_id()])
             .await
             .unwrap();
 
-        let bob_received_groups = bob_stream.next().await.unwrap();
-        assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
+        let bob_received_groups = stream.next().await.unwrap();
+        assert_eq!(bob_received_groups.group_id, group_id);
     }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_stream_messages() {
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);

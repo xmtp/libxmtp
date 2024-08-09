@@ -33,7 +33,7 @@ pub async fn create_client(
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
 ) -> Result<WasmClient, JsError> {
-  let api_client = XmtpHttpApiClient::create(host.clone());
+  let api_client = XmtpHttpApiClient::new(host.clone());
 
   let storage_option = StorageOption::Ephemeral;
   let store = match encryption_key {
@@ -86,7 +86,7 @@ pub async fn get_inbox_id_for_address(
   account_address: String,
 ) -> Result<Option<String>, JsError> {
   let account_address = account_address.to_lowercase();
-  let api_client = ApiClientWrapper::new(XmtpHttpApiClient::create(host.clone()), Retry::default());
+  let api_client = ApiClientWrapper::new(XmtpHttpApiClient::new(host.clone()), Retry::default());
 
   let results = api_client
     .get_inbox_ids(vec![account_address.clone()])

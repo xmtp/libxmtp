@@ -47,28 +47,25 @@ pub async fn create_grpc_stream<
     request: T,
     endpoint: String,
     http_client: reqwest::Client,
-) -> BoxStream<'static, Result<R, Error>> {
+) -> Result<BoxStream<'static, Result<R, Error>>, Error> {
     let stream = async_stream::stream! {
-        let bytes_stream = http_client
-            .post(endpoint)
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-            .bytes_stream();
-
         log::debug!("Spawning grpc http stream");
+       let request = http_client
+               .post(endpoint)
+                .json(&request)
+                .send()
+                .await
+                .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+
         let mut remaining = vec![];
-        for await bytes in bytes_stream {
+        for await bytes in request.bytes_stream() {
             let bytes = bytes
                 .map_err(|e| Error::new(ErrorKind::SubscriptionUpdateError).with(e.to_string()))?;
-
             let bytes = &[remaining.as_ref(), bytes.as_ref()].concat();
             let de = Deserializer::from_slice(bytes);
             let mut stream = de.into_iter::<GrpcResponse<R>>();
             'messages: loop {
                 let response = stream.next();
-
                 let res = match response {
                     Some(Ok(GrpcResponse::Ok(response))) => Ok(response),
                     Some(Ok(GrpcResponse::SubscriptionItem(item))) => Ok(item.result),
@@ -91,7 +88,7 @@ pub async fn create_grpc_stream<
         }
     };
 
-    Box::pin(stream)
+    Ok(Box::pin(stream))
 }
 
 #[cfg(test)]

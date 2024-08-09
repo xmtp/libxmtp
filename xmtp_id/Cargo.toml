@@ -9,6 +9,7 @@ chrono.workspace = true
 ed25519-dalek = { workspace = true, features = ["digest"] }
 ed25519.workspace = true
 ethers.workspace = true
+ethers-core.workspace = true
 futures.workspace = true
 hex.workspace = true
 log.workspace = true
@@ -32,7 +33,6 @@ xmtp_proto = { workspace = true, features = ["proto_full"] }
 [dev-dependencies]
 ctor = "0.2.5"
 ed25519-dalek = { workspace = true, features = ["digest"] }
-ethers.workspace = true
 futures = "0.3"
 regex = "1.10"
 tokio = { workspace = true, features = ["macros", "time"] }

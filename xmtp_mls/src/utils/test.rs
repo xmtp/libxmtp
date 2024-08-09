@@ -52,11 +52,11 @@ pub fn rand_time() -> i64 {
 #[cfg(feature = "http-api")]
 impl XmtpTestClient for XmtpHttpApiClient {
     async fn create_local() -> Self {
-        XmtpHttpApiClient::create("http://localhost:5555".into())
+        XmtpHttpApiClient::new("http://localhost:5555".into())
     }
 
     async fn create_dev() -> Self {
-        XmtpHttpApiClient::create("https://grpc.dev.xmtp.network:443".into())
+        XmtpHttpApiClient::new("https://grpc.dev.xmtp.network:443".into())
     }
 }
 

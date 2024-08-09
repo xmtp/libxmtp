@@ -8,7 +8,6 @@ use ethers::{
     signers::{LocalWallet, Signer},
     types::Address,
 };
-use futures::executor;
 use openmls_traits::types::CryptoError;
 use thiserror::Error;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
@@ -54,7 +53,8 @@ impl InboxOwner for LocalWallet {
     }
 
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
-        Ok(executor::block_on(self.sign_message(text))?.to_vec().into())
+        let message_hash = ethers_core::utils::hash_message(text);
+        Ok(self.sign_hash(message_hash)?.to_vec().into())
     }
 }
 

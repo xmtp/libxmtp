@@ -12,9 +12,10 @@ path = "src/bin/update-schema.rs"
 default = ["native"]
 grpc = ["xmtp_proto/grpc"]
 native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
-test-utils = ["xmtp_api_grpc"]
-bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "tracing-flame", "once_cell"]
+test-utils = []
+bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "tracing-flame", "once_cell", "xmtp_api_grpc"]
 http-api = ["xmtp_api_http"]
+grpc-api = ["xmtp_api_grpc"]
 
 [dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
@@ -50,8 +51,8 @@ sha2.workspace = true
 smart-default = "0.7.1"
 thiserror = { workspace = true }
 tls_codec = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "tracing"] }
+tokio-stream = { version = "0.1", features = ["sync"]  }
 async-stream.workspace = true
 toml = "0.8.4"
 xmtp_cryptography = { workspace = true }
@@ -61,17 +62,17 @@ xmtp_v2 = { path = "../xmtp_v2" }
 
 # Test/Bench Utils
 xmtp_api_grpc = { path = "../xmtp_api_grpc", optional = true }
+xmtp_api_http = { path = "../xmtp_api_http", optional = true }
 tracing-subscriber = { workspace = true, optional = true }
 indicatif = { version = "0.17", optional = true }
 anyhow = { workspace = true, optional = true }
 tracing-flame = { version = "0.2", optional = true }
 once_cell = { version = "1.19", optional = true }
-xmtp_api_http = { path = "../xmtp_api_http", optional = true }
 
 [dev-dependencies]
 ctor.workspace = true
 flume = "0.11"
-mockall = "0.11.4"
+mockall = "0.13.0"
 mockito = "1.4.0"
 tempfile = "3.5.0"
 tracing.workspace = true
@@ -83,6 +84,7 @@ xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 async-barrier = "1.1"
 anyhow.workspace = true
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+console-subscriber = "0.4"
 
 [[bench]]
 name = "group_limit"

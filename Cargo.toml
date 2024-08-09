@@ -36,7 +36,7 @@ ethers-core = "2.0.4"
 futures = "0.3.30"
 futures-core = "0.3.30"
 hex = "0.4.3"
-log = { version = "0.4", features = ["release_max_level_debug"] }
+log = { version = "0.4" }
 openmls = { git = "https://github.com/xmtp/openmls", rev = "9cb3207", default-features = false }
 openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "9cb3207" }
 openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "9cb3207" }
@@ -51,7 +51,7 @@ thiserror = "1.0"
 tls_codec = "0.4.0"
 tokio = { version = "1.35.1", default-features = false }
 async-stream = "0.3"
-tracing = { version = "0.1", features = ["release_max_level_debug"] }
+tracing = { version = "0.1" }
 tracing-subscriber = "0.3"
 url = "2.5.0"
 tonic = "^0.11" 
