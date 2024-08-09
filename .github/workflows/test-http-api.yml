@@ -37,4 +37,4 @@ jobs:
       - name: Start Docker containers
         run: dev/up
       - name: Run cargo test on main workspace
-        run: cargo test --workspace --exclude xmtp_api_grpc --features http-api -- --test-threads=3
+        run: cargo test --workspace --exclude xmtp_api_grpc --features http-api -- --test-threads=2
