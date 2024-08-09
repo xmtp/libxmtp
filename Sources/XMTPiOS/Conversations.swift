@@ -1,7 +1,7 @@
 import Foundation
 import LibXMTP
 
-public enum ConversationError: Error, CustomStringConvertible {
+public enum ConversationError: Error, CustomStringConvertible, LocalizedError {
 	case recipientNotOnNetwork, recipientIsSender, v1NotSupported(String)
 
 	public var description: String {
@@ -14,9 +14,13 @@ public enum ConversationError: Error, CustomStringConvertible {
 			return "ConversationError.v1NotSupported: V1 does not support: \(str)"
 		}
 	}
+	
+	public var errorDescription: String? {
+		return description
+	}
 }
 
-public enum GroupError: Error, CustomStringConvertible {
+public enum GroupError: Error, CustomStringConvertible, LocalizedError {
 	case alphaMLSNotEnabled, memberCannotBeSelf, memberNotRegistered([String]), groupsRequireMessagePassed, notSupportedByGroups, streamingFailure
 
 	public var description: String {
@@ -34,6 +38,10 @@ public enum GroupError: Error, CustomStringConvertible {
 		case .streamingFailure:
 			return "GroupError.streamingFailure a stream has failed"
 		}
+	}
+	
+	public var errorDescription: String? {
+		return description
 	}
 }
 
