@@ -2,11 +2,8 @@ use std::{collections::HashMap, pin::Pin, sync::Arc};
 
 use futures::{FutureExt, Stream, StreamExt};
 use prost::Message;
-use tokio::{
-    sync::{mpsc, oneshot},
-    task::JoinHandle,
-};
-use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, UnboundedReceiverStream};
+use tokio::{sync::oneshot, task::JoinHandle};
+use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
 use crate::{
@@ -339,6 +336,7 @@ where
                             }
                         };
 
+                        log::debug!("switching streams");
                         // attempt to drain all ready messages from existing stream
                         while let Some(Some(message)) = messages_stream.next().now_or_never() {
                             extra_messages.push(message);
@@ -385,9 +383,10 @@ mod tests {
         storage::group_message::StoredGroupMessage, Client,
     };
     use futures::StreamExt;
+    use parking_lot::Mutex;
     use std::sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc,
     };
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -482,7 +481,7 @@ mod tests {
         let mut handle = Client::<TestClient>::stream_all_messages_with_callback(
             Arc::new(caro),
             move |message| {
-                (*messages_clone.lock().unwrap()).push(message);
+                (*messages_clone.lock()).push(message);
                 notify_pointer.notify_one();
             },
         );
@@ -512,7 +511,7 @@ mod tests {
             .unwrap();
         notify.wait_for_delivery().await.unwrap();
 
-        let messages = messages.lock().unwrap();
+        let messages = messages.lock();
         assert_eq!(messages[0].decrypted_message_bytes, b"first");
         assert_eq!(messages[1].decrypted_message_bytes, b"second");
         assert_eq!(messages[2].decrypted_message_bytes, b"third");
@@ -540,7 +539,7 @@ mod tests {
         let mut handle =
             Client::<TestClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
                 delivery_pointer.notify_one();
-                (*messages_clone.lock().unwrap()).push(message);
+                (*messages_clone.lock()).push(message);
             });
         handle.wait_for_ready().await;
 
@@ -606,7 +605,7 @@ mod tests {
             .expect("timed out waiting for `fifth`");
 
         {
-            let messages = messages.lock().unwrap();
+            let messages = messages.lock();
             assert_eq!(messages.len(), 5);
         }
 
@@ -621,7 +620,7 @@ mod tests {
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-        let messages = messages.lock().unwrap();
+        let messages = messages.lock();
         assert_eq!(messages.len(), 5);
     }
 
@@ -647,7 +646,7 @@ mod tests {
         let blocked_pointer = blocked.clone();
         let mut handle =
             Client::<TestClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
-                (*messages_clone.lock().unwrap()).push(message);
+                (*messages_clone.lock()).push(message);
                 blocked_pointer.fetch_sub(1, Ordering::SeqCst);
             });
         handle.wait_for_ready().await;
@@ -703,7 +702,7 @@ mod tests {
 
         let closer =
             Client::<TestClient>::stream_conversations_with_callback(alix.clone(), move |g| {
-                let mut groups = groups_pointer.lock().unwrap();
+                let mut groups = groups_pointer.lock();
                 groups.push(g);
                 notify_pointer.notify_one();
             });
@@ -717,7 +716,7 @@ mod tests {
             .expect("Stream never received group");
 
         {
-            let grps = groups.lock().unwrap();
+            let grps = groups.lock();
             assert_eq!(grps.len(), 1);
         }
 
@@ -732,7 +731,7 @@ mod tests {
         notify.wait_for_delivery().await.unwrap();
 
         {
-            let grps = groups.lock().unwrap();
+            let grps = groups.lock();
             assert_eq!(grps.len(), 2);
         }
 

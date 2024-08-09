@@ -18,6 +18,7 @@ xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 bytes = "1.7"
 tokio = { workspace = true, default-features = false, features = ["sync", "rt"] }
 tokio-stream = { version = "0.1", default-features = false }
+async-stream = "0.3"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

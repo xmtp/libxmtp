@@ -159,7 +159,7 @@ impl Delivery {
     }
 }
 
-impl Client<GrpcClient> {
+impl Client<TestClient> {
     pub async fn is_registered(&self, address: &String) -> bool {
         let ids = self
             .api_client

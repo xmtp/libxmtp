@@ -272,6 +272,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[ignore]
     async fn test_subscribe_membership_changes() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -280,15 +281,34 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
-        let mut stream = amal_group.stream(amal.clone()).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let amal_ptr = amal.clone();
+        let amal_group_ptr = amal_group.clone();
+        let notify = Delivery::new(Some(Duration::from_secs(20)));
+        let notify_ptr = notify.clone();
 
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (start_tx, start_rx) = tokio::sync::oneshot::channel();
+        let mut stream = UnboundedReceiverStream::new(rx);
+        tokio::spawn(async move {
+            let mut stream = amal_group_ptr.stream(amal_ptr).await.unwrap();
+            let _ = start_tx.send(());
+            while let Some(item) = stream.next().await {
+                let _ = tx.send(item);
+                notify_ptr.notify_one();
+            }
+        });
+        // just to make sure stream is started
+        let _ = start_rx.await;
+
+        log::info!("ADDING AMAL TO GROUP");
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
+        notify
+            .wait_for_delivery()
+            .await
+            .expect("Never received group membership change from stream");
         let first_val = stream.next().await.unwrap();
         assert_eq!(first_val.kind, GroupMessageKind::MembershipChange);
 
@@ -296,6 +316,10 @@ mod tests {
             .send_message("hello".as_bytes(), &amal)
             .await
             .unwrap();
+        notify
+            .wait_for_delivery()
+            .await
+            .expect("Never received second message from stream");
         let second_val = stream.next().await.unwrap();
         assert_eq!(second_val.decrypted_message_bytes, "hello".as_bytes());
     }

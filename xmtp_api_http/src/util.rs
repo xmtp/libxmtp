@@ -1,4 +1,4 @@
-use futures::{stream::BoxStream, StreamExt};
+use futures::stream::BoxStream;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Deserializer;
 use std::io::Read;
@@ -48,10 +48,8 @@ pub async fn create_grpc_stream<
     endpoint: String,
     http_client: reqwest::Client,
 ) -> BoxStream<'static, Result<R, Error>> {
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-
-    tokio::task::spawn(async move {
-        let mut bytes_stream = http_client
+    let stream = async_stream::stream! {
+        let bytes_stream = http_client
             .post(endpoint)
             .json(&request)
             .send()
@@ -61,7 +59,7 @@ pub async fn create_grpc_stream<
 
         log::debug!("Spawning grpc http stream");
         let mut remaining = vec![];
-        while let Some(bytes) = bytes_stream.next().await {
+        for await bytes in bytes_stream {
             let bytes = bytes
                 .map_err(|e| Error::new(ErrorKind::SubscriptionUpdateError).with(e.to_string()))?;
 
@@ -88,19 +86,12 @@ pub async fn create_grpc_stream<
                     Some(Ok(GrpcResponse::Empty {})) => continue 'messages,
                     None => break 'messages,
                 };
-                if tx.send(res).is_err() {
-                    break 'messages;
-                }
-            }
-            // this will ensure the spawned task is dropped if the receiver stream is dropped
-            if tx.is_closed() {
-                break;
+                yield res;
             }
         }
-        Ok::<_, Error>(())
-    });
+    };
 
-    Box::pin(tokio_stream::wrappers::UnboundedReceiverStream::new(rx))
+    Box::pin(stream)
 }
 
 #[cfg(test)]

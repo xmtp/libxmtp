@@ -45,7 +45,7 @@ where
 #[cfg(test)]
 impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + XmtpTestClient + ?Sized {}
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils", feature = "bench"))]
 #[async_trait::async_trait]
 pub trait XmtpTestClient {
     async fn create_local() -> Self;
