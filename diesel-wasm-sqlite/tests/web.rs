@@ -5,7 +5,7 @@ use diesel_wasm_sqlite::connection::{AsyncConnection, WasmSqliteConnection};
 use wasm_bindgen_test::*;
 use web_sys::console;
 wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
+/*
 #[wasm_bindgen_test]
 async fn test_establish_and_exec() {
     let rng: u16 = rand::random();
@@ -17,7 +17,7 @@ async fn test_establish_and_exec() {
 
     console::log_1(&"CREATE".into());
     raw.exec(
-        " 
+        "
         CREATE TABLE books (
             id INTEGER PRIMARY KEY,
             title TEXT NOT NULL,
@@ -30,7 +30,7 @@ async fn test_establish_and_exec() {
 
     console::log_1(&"INSERT".into());
     raw.exec(
-        " 
+        "
             INSERT INTO books (title, author, published_year, genre) VALUES
             ('To Kill a Mockingbird', 'Harper Lee', 1960, 'Fiction'),
             ('1984', 'George Orwell', 1949, 'Dystopian'),
@@ -58,3 +58,4 @@ async fn test_establish_and_exec() {
     raw.exec("SELECT title, author FROM books WHERE published_year > 1950;".into())
         .await;
 }
+*/

@@ -52,16 +52,21 @@ impl RawConnection {
             | SqliteOpenFlags::SQLITE_OPEN_URI;
 
         let (tx, rx) = oneshot::channel::<JsValue>();
+        // TODO: can make this into function/macro
         wasm_bindgen_futures::spawn_local(async move {
-            let conn = rx.await;
-
-            let sqlite3 = crate::get_sqlite_unchecked();
-
-            match sqlite3.close(&conn.unwrap()).await {
-                Ok(_) => log::debug!("db closed"),
-                Err(e) => {
-                    log::error!("error during db close");
-                    web_sys::console::log_1(&e);
+            match rx.await {
+                Ok(conn) => {
+                    let sqlite3 = crate::get_sqlite_unchecked();
+                    match sqlite3.close(&conn).await {
+                        Ok(_) => log::debug!("db closed"),
+                        Err(e) => {
+                            log::error!("error during db close");
+                            web_sys::console::log_1(&e);
+                        }
+                    }
+                }
+                Err(_) => {
+                    log::error!("RawConnection never dropped.");
                 }
             }
         });
@@ -171,41 +176,10 @@ impl Drop for RawConnection {
             .drop_signal
             .take()
             .expect("Drop is only unwrapped once");
-        sender.send(self.internal_connection.clone());
+        let _ = sender.send(self.internal_connection.clone());
     }
 }
 
-/*
-enum SqliteCallbackError {
-    Abort(&'static str),
-    DieselError(crate::result::Error),
-    Panic(String),
-}
-
-impl SqliteCallbackError {
-    fn emit(&self, ctx: *mut ffi::sqlite3_context) {
-        let s;
-        let msg = match self {
-            SqliteCallbackError::Abort(msg) => *msg,
-            SqliteCallbackError::DieselError(e) => {
-                s = e.to_string();
-                &s
-            }
-            SqliteCallbackError::Panic(msg) => msg,
-        };
-        unsafe {
-            context_error_str(ctx, msg);
-        }
-    }
-}
-
-impl From<crate::result::Error> for SqliteCallbackError {
-    fn from(e: crate::result::Error) -> Self {
-        Self::DieselError(e)
-    }
-}
-*/
-/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -226,4 +200,3 @@ mod tests {
             });
     }
 }
-*/

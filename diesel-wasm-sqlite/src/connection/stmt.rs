@@ -16,13 +16,12 @@ use diesel::{
     result::{Error::DatabaseError, *},
 };
 use std::cell::OnceCell;
-use std::sync::Arc;
 
 use wasm_bindgen::JsValue;
 
 pub(super) struct Statement {
     inner_statement: JsValue,
-    // drop_signal: Option<tokio::sync::oneshot::Sender<Arc<Self>>>,
+    drop_signal: Option<tokio::sync::oneshot::Sender<JsValue>>,
 }
 
 impl Statement {
@@ -51,15 +50,20 @@ impl Statement {
             )
             .await
             .unwrap();
-        /*
-        let (tx, rx) = tokio::sync::oneshot::channel::<Arc<Self>>();
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<JsValue>();
         // We don't have `AsyncDrop` in rust yet.
         // instead, we `send` a signal on Drop for the destructor to run in an
         // asynchronously-spawned task.
 
-        tokio::spawn(async move {
+        wasm_bindgen_futures::spawn_local(async move {
             match rx.await {
-                Ok(this) => {
+                Ok(inner_statement) => {
+                    let this = Statement {
+                        inner_statement,
+                        drop_signal: None,
+                    };
+
                     this.reset().await;
                     this.clear_bindings();
                 }
@@ -68,11 +72,10 @@ impl Statement {
                 }
             }
         });
-        */
 
         Ok(Statement {
             inner_statement: stmt,
-            // drop_signal: Some(tx),
+            drop_signal: Some(tx),
         })
     }
 
@@ -271,20 +274,12 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
 // Eventually replace with `AsyncDrop`: https://github.com/rust-lang/rust/issues/126482
 impl<'stmt, 'query> Drop for BoundStatement<'stmt, 'query> {
     fn drop(&mut self) {
-        /*
-            let sender = self
-                .statement
-                .drop_signal
-                .take()
-                .expect("Drop may only be ran once");
-        */
-        // sender.send(Arc::new(*(&mut self.statement));
-        /*
-        // First reset the statement, otherwise the bind calls
-        // below will fail
-        self.statement.reset();
-        self.statement.clear_bindings();
-        */
+        let sender = self
+            .statement
+            .drop_signal
+            .take()
+            .expect("Drop may only be ran once");
+        let _ = sender.send(self.statement.inner_statement.clone());
         self.query.take();
     }
 }
