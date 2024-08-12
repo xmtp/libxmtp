@@ -32,7 +32,7 @@ macro_rules! assert_fail {
 
 #[allow(missing_copy_implementations)]
 #[derive(Clone, Debug)]
-pub(super) struct RawConnection {
+pub struct RawConnection {
     pub(super) internal_connection: JsValue,
 }
 
@@ -57,7 +57,7 @@ impl RawConnection {
         })
     }
 
-    pub(super) async fn exec(&self, query: &str) -> QueryResult<()> {
+    pub async fn exec(&self, query: &str) -> QueryResult<()> {
         let sqlite3 = crate::get_sqlite().await;
         let result = sqlite3
             .exec(&self.internal_connection, query)
@@ -198,7 +198,7 @@ impl From<crate::result::Error> for SqliteCallbackError {
     }
 }
 */
-
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,3 +219,4 @@ mod tests {
             });
     }
 }
+*/

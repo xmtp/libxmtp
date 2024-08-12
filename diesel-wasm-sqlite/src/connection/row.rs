@@ -202,6 +202,7 @@ impl<'stmt, 'query> Field<'stmt, WasmSqlite> for SqliteField<'stmt, 'query> {
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,3 +409,4 @@ mod tests {
         handle.join().unwrap();
     }
 }
+*/

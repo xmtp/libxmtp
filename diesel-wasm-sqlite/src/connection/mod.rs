@@ -37,7 +37,7 @@ pub struct WasmSqliteConnection {
     // otherwise we will get errors about open statements before closing the
     // connection itself
     statement_cache: StmtCache<WasmSqlite, Statement>,
-    raw_connection: RawConnection,
+    pub raw_connection: RawConnection,
     transaction_state: AnsiTransactionManager,
     // this exists for the sole purpose of implementing `WithMetadataLookup` trait
     // and avoiding static mut which will be deprecated in 2024 edition
@@ -78,6 +78,7 @@ impl AsyncConnection for WasmSqliteConnection {
     type Row<'conn, 'query> = SqliteRow<'conn, 'query>;
 
     async fn establish(database_url: &str) -> diesel::prelude::ConnectionResult<Self> {
+        //TODO: Change to `establish_inner`
         Ok(WasmSqliteConnection {
             statement_cache: StmtCache::new(),
             raw_connection: raw::RawConnection::establish(database_url).await.unwrap(),

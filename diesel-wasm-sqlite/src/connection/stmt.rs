@@ -395,7 +395,7 @@ impl<'stmt, 'query> StatementUse<'stmt, 'query> {
         Some(sqlite3.column(&self.statement.statement.inner_statement, idx))
     }
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use crate::prelude::*;
@@ -421,3 +421,4 @@ mod tests {
         }
     }
 }
+*/

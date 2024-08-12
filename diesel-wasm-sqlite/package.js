@@ -203,9 +203,12 @@ export class SQLite {
 
   async exec(db, query) {
     try {
-      return await this.sqlite3.exec(db, query);
-    } catch {
+      return await this.sqlite3.exec(db, query, (row, columns) => {
+        console.log(row);
+      });
+    } catch (error) {
       console.log("exec err");
+      throw error;
     }
   }
 
