@@ -14,7 +14,9 @@ use crate::{
 };
 use diesel::{result::*, serialize::ToSql, sql_types::HasSqlType};
 use futures::future::BoxFuture;
+use tokio::sync::oneshot;
 use wasm_bindgen::{closure::Closure, JsValue};
+
 /*
 /// For use in FFI function, which cannot unwind.
 /// Print the message, ask to open an issue at Github and [`abort`](std::process::abort).
@@ -31,9 +33,10 @@ macro_rules! assert_fail {
 */
 
 #[allow(missing_copy_implementations)]
-#[derive(Clone, Debug)]
-pub struct RawConnection {
+#[derive(Debug)]
+pub(super) struct RawConnection {
     pub(super) internal_connection: JsValue,
+    drop_signal: Option<oneshot::Sender<JsValue>>,
 }
 
 impl RawConnection {
@@ -48,16 +51,32 @@ impl RawConnection {
             | SqliteOpenFlags::SQLITE_OPEN_CREATE
             | SqliteOpenFlags::SQLITE_OPEN_URI;
 
+        let (tx, rx) = oneshot::channel::<JsValue>();
+        wasm_bindgen_futures::spawn_local(async move {
+            let conn = rx.await;
+
+            let sqlite3 = crate::get_sqlite_unchecked();
+
+            match sqlite3.close(&conn.unwrap()).await {
+                Ok(_) => log::debug!("db closed"),
+                Err(e) => {
+                    log::error!("error during db close");
+                    web_sys::console::log_1(&e);
+                }
+            }
+        });
+
         Ok(RawConnection {
             internal_connection: sqlite3
                 .open_v2(&database_url, Some(flags.bits() as i32))
                 .await
                 .map_err(WasmSqliteError::from)
                 .map_err(ConnectionError::from)?,
+            drop_signal: Some(tx),
         })
     }
 
-    pub async fn exec(&self, query: &str) -> QueryResult<()> {
+    pub(super) async fn exec(&self, query: &str) -> QueryResult<()> {
         let sqlite3 = crate::get_sqlite().await;
         let result = sqlite3
             .exec(&self.internal_connection, query)
@@ -146,27 +165,15 @@ impl RawConnection {
     */
 }
 
-/* TODO: AsyncDrop
 impl Drop for RawConnection {
     fn drop(&mut self) {
-        use std::thread::panicking;
-
-        let sqlite3 = crate::get_sqlite_unchecked();
-
-        let close_result = sqlite3.close(self.internal_connection).unwrap();
-
-        if close_result != ffi::SQLITE_OK {
-            let error_message = super::error_message(close_result);
-            if panicking() {
-                write!(stderr(), "Error closing SQLite connection: {error_message}")
-                    .expect("Error writing to `stderr`");
-            } else {
-                panic!("Error closing SQLite connection: {}", error_message);
-            }
-        }
+        let sender = self
+            .drop_signal
+            .take()
+            .expect("Drop is only unwrapped once");
+        sender.send(self.internal_connection.clone());
     }
 }
-*/
 
 /*
 enum SqliteCallbackError {

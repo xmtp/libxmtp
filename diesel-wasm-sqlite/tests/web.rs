@@ -9,7 +9,7 @@ wasm_bindgen_test_configure!(run_in_dedicated_worker);
 #[wasm_bindgen_test]
 async fn test_establish_and_exec() {
     let rng: u16 = rand::random();
-    let result = WasmSqliteConnection::establish(&format!("test-{}", rng)).await;
+    let result = WasmSqliteConnection::establish("test-15873").await;
     let mut conn = result.unwrap();
     console::log_1(&"CONNECTED".into());
 
