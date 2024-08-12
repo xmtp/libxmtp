@@ -83,7 +83,6 @@ xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 async-barrier = "1.1"
 anyhow.workspace = true
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
-console-subscriber = "0.4"
 
 [[bench]]
 name = "group_limit"

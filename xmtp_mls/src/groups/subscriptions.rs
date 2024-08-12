@@ -281,6 +281,9 @@ mod tests {
         }
     }
 
+    // https://github.com/xmtp/libxmtp/issues/948
+    // This test works in its previous form, with std::time:sleep
+    // with `Notify` it never recieves the add members message
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     #[ignore]
     async fn test_subscribe_membership_changes() {
@@ -310,7 +313,6 @@ mod tests {
         // just to make sure stream is started
         let _ = start_rx.await;
 
-        log::info!("ADDING AMAL TO GROUP");
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
