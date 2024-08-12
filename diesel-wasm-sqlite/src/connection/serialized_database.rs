@@ -1,13 +1,10 @@
-#![allow(unsafe_code)]
-extern crate libsqlite3_sys as ffi;
-
 use std::ops::Deref;
 
 /// `SerializedDatabase` is a wrapper for a serialized database that is dynamically allocated by calling `sqlite3_serialize`.
 /// This RAII wrapper is necessary to deallocate the memory when it goes out of scope with `sqlite3_free`.
 #[derive(Debug)]
 pub struct SerializedDatabase {
-    data: *mut u8,
+    data: JsValue,
     len: usize,
 }
 

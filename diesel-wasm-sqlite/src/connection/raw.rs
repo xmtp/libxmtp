@@ -12,9 +12,8 @@ use crate::{
     sqlite_types::{SqliteFlags, SqliteOpenFlags},
     WasmSqlite, WasmSqliteError,
 };
-use diesel::result::*;
-use diesel::serialize::ToSql;
-use diesel::sql_types::HasSqlType;
+use diesel::{result::*, serialize::ToSql, sql_types::HasSqlType};
+use futures::future::BoxFuture;
 use wasm_bindgen::{closure::Closure, JsValue};
 /*
 /// For use in FFI function, which cannot unwind.
@@ -73,15 +72,17 @@ impl RawConnection {
         sqlite3.changes(&self.internal_connection)
     }
 
-    pub(super) fn register_sql_function<F>(
+    pub(super) fn register_sql_function<F, Ret, RetSqlType>(
         &self,
         fn_name: &str,
-        num_args: i32,
+        num_args: usize,
         deterministic: bool,
         f: F,
     ) -> QueryResult<()>
     where
-        F: FnMut(JsValue, JsValue) + 'static,
+        F: FnMut(JsValue, Vec<JsValue>) -> JsValue + 'static,
+        Ret: ToSql<RetSqlType, WasmSqlite>,
+        WasmSqlite: HasSqlType<RetSqlType>,
     {
         let sqlite3 = crate::get_sqlite_unchecked();
         let flags = Self::get_flags(deterministic);
@@ -91,8 +92,11 @@ impl RawConnection {
             .create_function(
                 &self.internal_connection,
                 fn_name,
-                num_args,
+                num_args
+                    .try_into()
+                    .expect("usize to i32 panicked in register_sql_function"),
                 flags,
+                0,
                 Some(&cb),
                 None,
                 None,
@@ -108,6 +112,38 @@ impl RawConnection {
         }
         flags.bits() as i32
     }
+
+    /* possible to implement this, but would need to fill in the missing wa-sqlite functions
+    pub(super) fn serialize(&mut self) -> SerializedDatabase {
+        unsafe {
+            let mut size: ffi::sqlite3_int64 = 0;
+            let data_ptr = ffi::sqlite3_serialize(
+                self.internal_connection.as_ptr(),
+                std::ptr::null(),
+                &mut size as *mut _,
+                0,
+            );
+            SerializedDatabase::new(data_ptr, size as usize)
+        }
+    }
+
+    pub(super) fn deserialize(&mut self, data: &[u8]) -> QueryResult<()> {
+        // the cast for `ffi::SQLITE_DESERIALIZE_READONLY` is required for old libsqlite3-sys versions
+        #[allow(clippy::unnecessary_cast)]
+        unsafe {
+            let result = ffi::sqlite3_deserialize(
+                self.internal_connection.as_ptr(),
+                std::ptr::null(),
+                data.as_ptr() as *mut u8,
+                data.len() as i64,
+                data.len() as i64,
+                ffi::SQLITE_DESERIALIZE_READONLY as u32,
+            );
+
+            ensure_sqlite_ok(result, self.internal_connection.as_ptr())
+        }
+    }
+    */
 }
 
 /* TODO: AsyncDrop

@@ -273,14 +273,23 @@ export class SQLite {
     }
   }
 
-  create_function(database, functionName, nArg, textRep, xFunc, xStep, xFinal) {
+  create_function(
+    database,
+    functionName,
+    nArg,
+    textRep,
+    pApp,
+    xFunc,
+    xStep,
+    xFinal,
+  ) {
     try {
       sqlite.create_function(
         database,
         functionName,
         nArg,
         textRep,
-        0,
+        pApp, // pApp is ignored
         xFunc,
         xStep,
         xFinal,
@@ -290,4 +299,10 @@ export class SQLite {
       console.log("create function err");
     }
   }
+
+  /*
+  serialize(database, zSchema, size, flags) {
+    return this.module._sqlite3_serialize(database, zSchema, size, flags);
+  }
+  */
 }

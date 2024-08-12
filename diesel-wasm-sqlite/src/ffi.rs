@@ -203,8 +203,9 @@ extern "C" {
         functionName: &str,
         n_arg: i32,
         textRep: i32,
-        x_func: Option<&Closure<dyn FnMut(JsValue, JsValue)>>,
-        x_step: Option<&Closure<dyn FnMut(JsValue, JsValue)>>,
+        pApp: i32, //ignored
+        x_func: Option<&Closure<dyn FnMut(JsValue, Vec<JsValue>) -> JsValue>>,
+        x_step: Option<&Closure<dyn FnMut(JsValue, Vec<JsValue>) -> JsValue>>,
         x_final: Option<&Closure<dyn FnMut(JsValue)>>,
     ) -> Result<(), JsValue>;
 }

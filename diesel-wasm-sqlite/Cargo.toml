@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 # diesel = { git = "https://github.com/xmtp/diesel", branch = "insipx/wasm-backend", default-features = false, features = ["i-implement-a-third-party-backend-and-opt-into-breaking-changes"] }
 diesel = "2.2"
-diesel-async = { git = "https://github.com/insipx/diesel_async", branch = "insipx/wasm-async" }
+diesel-async = { git = "https://github.com/insipx/diesel_async", branch = "insipx/make-stmt-cache-public", features = ["stmt-cache"] }
 wasm-bindgen = "0.2.92"
 wasm-bindgen-futures = "0.4.42"
 log = "0.4"

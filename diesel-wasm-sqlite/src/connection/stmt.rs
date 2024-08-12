@@ -16,11 +16,13 @@ use diesel::{
     result::{Error::DatabaseError, *},
 };
 use std::cell::OnceCell;
+use std::sync::Arc;
 
 use wasm_bindgen::JsValue;
 
 pub(super) struct Statement {
     inner_statement: JsValue,
+    // drop_signal: Option<tokio::sync::oneshot::Sender<Arc<Self>>>,
 }
 
 impl Statement {
@@ -49,9 +51,28 @@ impl Statement {
             )
             .await
             .unwrap();
+        /*
+        let (tx, rx) = tokio::sync::oneshot::channel::<Arc<Self>>();
+        // We don't have `AsyncDrop` in rust yet.
+        // instead, we `send` a signal on Drop for the destructor to run in an
+        // asynchronously-spawned task.
+
+        tokio::spawn(async move {
+            match rx.await {
+                Ok(this) => {
+                    this.reset().await;
+                    this.clear_bindings();
+                }
+                Err(_) => {
+                    log::error!("Statement never dropped");
+                }
+            }
+        });
+        */
 
         Ok(Statement {
             inner_statement: stmt,
+            // drop_signal: Some(tx),
         })
     }
 
@@ -214,7 +235,7 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
             // we don't track binds to free like sqlite3 C bindings
             // The assumption is that wa-sqlite, being WASM run in web browser that
             // lies in the middle of rust -> sqlite, takes care of this for us.
-            // if we run into memory issues, especailly memory leaks
+            // if we run into memory issues, especially memory leaks
             // this should be the first place to pay attention to.
             //
             // The bindings shuold be collected/freed with JS once `clear_bindings` is
@@ -238,20 +259,33 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
         }
         */
     }
+
+    // FIXME: [`AsyncDrop`](https://github.com/rust-lang/rust/issues/126482) is a missing feature in rust.
+    // Until then we need to manually reset the statement object.
+    pub async fn reset(&mut self) {
+        self.statement.reset().await;
+        self.statement.clear_bindings()
+    }
 }
 
-// TODO: AsyncDrop
+// Eventually replace with `AsyncDrop`: https://github.com/rust-lang/rust/issues/126482
 impl<'stmt, 'query> Drop for BoundStatement<'stmt, 'query> {
     fn drop(&mut self) {
+        /*
+            let sender = self
+                .statement
+                .drop_signal
+                .take()
+                .expect("Drop may only be ran once");
+        */
+        // sender.send(Arc::new(*(&mut self.statement));
+        /*
         // First reset the statement, otherwise the bind calls
         // below will fail
         self.statement.reset();
         self.statement.clear_bindings();
-
-        if let Some(query) = &mut self.query {
-            std::mem::drop(query);
-            self.query = None;
-        }
+        */
+        self.query.take();
     }
 }
 

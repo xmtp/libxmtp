@@ -1,22 +1,23 @@
-extern crate libsqlite3_sys as ffi;
-
 use super::raw::RawConnection;
 use super::row::PrivateSqliteRow;
-use super::{Sqlite, SqliteAggregateFunction, SqliteBindValue};
-use crate::backend::Backend;
-use crate::deserialize::{FromSqlRow, StaticallySizedRow};
-use crate::result::{DatabaseErrorKind, Error, QueryResult};
-use crate::row::{Field, PartialRow, Row, RowIndex, RowSealed};
-use crate::serialize::{IsNull, Output, ToSql};
-use crate::sql_types::HasSqlType;
-use crate::sqlite::connection::bind_collector::InternalSqliteBindValue;
-use crate::sqlite::connection::sqlite_value::OwnedSqliteValue;
-use crate::sqlite::SqliteValue;
+use super::{/*SqliteAggregateFunction,*/ SqliteBindValue, WasmSqlite};
+use crate::connection::bind_collector::InternalSqliteBindValue;
+use crate::connection::sqlite_value::OwnedSqliteValue;
+use crate::connection::SqliteValue;
+use diesel::backend::Backend;
+use diesel::deserialize::{FromSqlRow, StaticallySizedRow};
+use diesel::result::{DatabaseErrorKind, Error, QueryResult};
+use diesel::row::{Field, PartialRow, Row, RowIndex, RowSealed};
+use diesel::serialize::{IsNull, Output, ToSql};
+use diesel::sql_types::HasSqlType;
+use futures::future::BoxFuture;
+use futures::FutureExt;
 use std::cell::{Ref, RefCell};
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
 use std::ops::DerefMut;
 use std::rc::Rc;
+use wasm_bindgen::JsValue;
 
 pub(super) fn register<ArgsSqlType, RetSqlType, Args, Ret, F>(
     conn: &RawConnection,
@@ -25,10 +26,10 @@ pub(super) fn register<ArgsSqlType, RetSqlType, Args, Ret, F>(
     mut f: F,
 ) -> QueryResult<()>
 where
-    F: FnMut(&RawConnection, Args) -> Ret + std::panic::UnwindSafe + Send + 'static,
-    Args: FromSqlRow<ArgsSqlType, Sqlite> + StaticallySizedRow<ArgsSqlType, Sqlite>,
-    Ret: ToSql<RetSqlType, Sqlite>,
-    Sqlite: HasSqlType<RetSqlType>,
+    F: FnMut(&RawConnection, Args) -> BoxFuture<'static, Ret>,
+    Args: FromSqlRow<ArgsSqlType, WasmSqlite> + StaticallySizedRow<ArgsSqlType, WasmSqlite>,
+    Ret: ToSql<RetSqlType, WasmSqlite>,
+    WasmSqlite: HasSqlType<RetSqlType>,
 {
     let fields_needed = Args::FIELD_COUNT;
     if fields_needed > 127 {
@@ -39,13 +40,19 @@ where
     }
 
     conn.register_sql_function(fn_name, fields_needed, deterministic, move |conn, args| {
-        let args = build_sql_function_args::<ArgsSqlType, Args>(args)?;
-
-        Ok(f(conn, args))
+        async {
+            let args = build_sql_function_args::<ArgsSqlType, Args>(args)?;
+            let conn = RawConnection {
+                internal_connection: conn,
+            };
+            Ok(f(&conn, args).await)
+        }
+        .boxed()
     })?;
     Ok(())
 }
 
+/*
 pub(super) fn register_noargs<RetSqlType, Ret, F>(
     conn: &RawConnection,
     fn_name: &str,
@@ -54,8 +61,8 @@ pub(super) fn register_noargs<RetSqlType, Ret, F>(
 ) -> QueryResult<()>
 where
     F: FnMut() -> Ret + std::panic::UnwindSafe + Send + 'static,
-    Ret: ToSql<RetSqlType, Sqlite>,
-    Sqlite: HasSqlType<RetSqlType>,
+    Ret: ToSql<RetSqlType, WasmSqlite>,
+    WasmSqlite: HasSqlType<RetSqlType>,
 {
     conn.register_sql_function(fn_name, 0, deterministic, move |_, _| Ok(f()))?;
     Ok(())
@@ -67,9 +74,9 @@ pub(super) fn register_aggregate<ArgsSqlType, RetSqlType, Args, Ret, A>(
 ) -> QueryResult<()>
 where
     A: SqliteAggregateFunction<Args, Output = Ret> + 'static + Send + std::panic::UnwindSafe,
-    Args: FromSqlRow<ArgsSqlType, Sqlite> + StaticallySizedRow<ArgsSqlType, Sqlite>,
-    Ret: ToSql<RetSqlType, Sqlite>,
-    Sqlite: HasSqlType<RetSqlType>,
+    Args: FromSqlRow<ArgsSqlType, WasmSqlite> + StaticallySizedRow<ArgsSqlType, WasmSqlite>,
+    Ret: ToSql<RetSqlType, WasmSqlite>,
+    WasmSqlite: HasSqlType<RetSqlType>,
 {
     let fields_needed = Args::FIELD_COUNT;
     if fields_needed > 127 {
@@ -86,12 +93,11 @@ where
 
     Ok(())
 }
+*/
 
-pub(super) fn build_sql_function_args<ArgsSqlType, Args>(
-    args: &mut [*mut ffi::sqlite3_value],
-) -> Result<Args, Error>
+pub(super) fn build_sql_function_args<ArgsSqlType, Args>(args: Vec<JsValue>) -> Result<Args, Error>
 where
-    Args: FromSqlRow<ArgsSqlType, Sqlite>,
+    Args: FromSqlRow<ArgsSqlType, WasmSqlite>,
 {
     let row = FunctionRow::new(args);
     Args::build_from_row(&row).map_err(Error::DeserializationError)
@@ -104,8 +110,8 @@ pub(super) fn process_sql_function_result<RetSqlType, Ret>(
     result: &'_ Ret,
 ) -> QueryResult<InternalSqliteBindValue<'_>>
 where
-    Ret: ToSql<RetSqlType, Sqlite>,
-    Sqlite: HasSqlType<RetSqlType>,
+    Ret: ToSql<RetSqlType, WasmSqlite>,
+    WasmSqlite: HasSqlType<RetSqlType>,
 {
     let mut metadata_lookup = ();
     let value = SqliteBindValue {
@@ -126,7 +132,7 @@ struct FunctionRow<'a> {
     // as this buffer is owned by sqlite not by diesel
     args: Rc<RefCell<ManuallyDrop<PrivateSqliteRow<'a, 'static>>>>,
     field_count: usize,
-    marker: PhantomData<&'a ffi::sqlite3_value>,
+    marker: PhantomData<&'a JsValue>,
 }
 
 impl<'a> Drop for FunctionRow<'a> {
@@ -148,37 +154,17 @@ impl<'a> Drop for FunctionRow<'a> {
 
 impl<'a> FunctionRow<'a> {
     #[allow(unsafe_code)] // complicated ptr cast
-    fn new(args: &mut [*mut ffi::sqlite3_value]) -> Self {
+    fn new(args: Vec<JsValue>) -> Self {
         let lengths = args.len();
-        let args = unsafe {
-            Vec::from_raw_parts(
-                // This cast is safe because:
-                // * Casting from a pointer to an array to a pointer to the first array
-                // element is safe
-                // * Casting from a raw pointer to `NonNull<T>` is safe,
-                // because `NonNull` is #[repr(transparent)]
-                // * Casting from `NonNull<T>` to `OwnedSqliteValue` is safe,
-                // as the struct is `#[repr(transparent)]
-                // * Casting from `NonNull<T>` to `Option<NonNull<T>>` as the documentation
-                // states: "This is so that enums may use this forbidden value as a discriminant –
-                // Option<NonNull<T>> has the same size as *mut T"
-                // * The last point remains true for `OwnedSqliteValue` as `#[repr(transparent)]
-                // guarantees the same layout as the inner type
-                // * It's unsafe to drop the vector (and the vector elements)
-                // because of this we wrap the vector (or better the Row)
-                // Into `ManualDrop` to prevent the dropping
-                args as *mut [*mut ffi::sqlite3_value] as *mut ffi::sqlite3_value
-                    as *mut Option<OwnedSqliteValue>,
-                lengths,
-                lengths,
-            )
-        };
 
         Self {
             field_count: lengths,
             args: Rc::new(RefCell::new(ManuallyDrop::new(
                 PrivateSqliteRow::Duplicated {
-                    values: args,
+                    values: args
+                        .into_iter()
+                        .map(|a| Some(OwnedSqliteValue { value: a.into() }))
+                        .collect(),
                     column_names: Rc::from(vec![None; lengths]),
                 },
             ))),
@@ -189,7 +175,7 @@ impl<'a> FunctionRow<'a> {
 
 impl RowSealed for FunctionRow<'_> {}
 
-impl<'a> Row<'a, Sqlite> for FunctionRow<'a> {
+impl<'a> Row<'a, WasmSqlite> for FunctionRow<'a> {
     type Field<'f> = FunctionArgument<'f> where 'a: 'f, Self: 'f;
     type InnerPartialRow = Self;
 
@@ -200,7 +186,7 @@ impl<'a> Row<'a, Sqlite> for FunctionRow<'a> {
     fn get<'b, I>(&'b self, idx: I) -> Option<Self::Field<'b>>
     where
         'a: 'b,
-        Self: crate::row::RowIndex<I>,
+        Self: RowIndex<I>,
     {
         let idx = self.idx(idx)?;
         Some(FunctionArgument {
@@ -235,7 +221,7 @@ struct FunctionArgument<'a> {
     col_idx: i32,
 }
 
-impl<'a> Field<'a, Sqlite> for FunctionArgument<'a> {
+impl<'a> Field<'a, WasmSqlite> for FunctionArgument<'a> {
     fn field_name(&self) -> Option<&str> {
         None
     }
@@ -244,7 +230,7 @@ impl<'a> Field<'a, Sqlite> for FunctionArgument<'a> {
         self.value().is_none()
     }
 
-    fn value(&self) -> Option<<Sqlite as Backend>::RawValue<'_>> {
+    fn value(&self) -> Option<<WasmSqlite as Backend>::RawValue<'_>> {
         SqliteValue::new(
             Ref::map(Ref::clone(&self.args), |drop| std::ops::Deref::deref(drop)),
             self.col_idx,
