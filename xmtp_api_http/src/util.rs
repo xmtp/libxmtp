@@ -50,8 +50,8 @@ pub async fn create_grpc_stream<
 ) -> Result<BoxStream<'static, Result<R, Error>>, Error> {
     let stream = async_stream::stream! {
         log::debug!("Spawning grpc http stream");
-       let request = http_client
-               .post(endpoint)
+        let request = http_client
+                .post(endpoint)
                 .json(&request)
                 .send()
                 .await
