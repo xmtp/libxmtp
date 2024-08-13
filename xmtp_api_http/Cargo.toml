@@ -19,6 +19,7 @@ tokio = { workspace = true, features = ["sync", "rt", "macros"] }
 tokio-stream = { version = "0.1", default-features = false }
 async-stream.workspace = true
 bytes = "1.7"
+thiserror = "1.0"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

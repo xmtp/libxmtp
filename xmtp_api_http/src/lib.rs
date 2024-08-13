@@ -23,22 +23,27 @@ use xmtp_proto::{
 
 use crate::constants::ApiEndpoints;
 
+#[derive(Debug, thiserror::Error)]
+pub enum HttpClientError {
+    #[error(transparent)]
+    Reqwest(#[from] reqwest::Error),
+}
+
 pub struct XmtpHttpApiClient {
     http_client: reqwest::Client,
     host_url: String,
 }
 
 impl XmtpHttpApiClient {
-    pub fn new(host_url: String) -> Self {
+    pub fn new(host_url: String) -> Result<Self, HttpClientError> {
         let client = reqwest::Client::builder()
             .connection_verbose(true)
-            .build()
-            .unwrap();
+            .build()?;
 
-        XmtpHttpApiClient {
+        Ok(XmtpHttpApiClient {
             http_client: client,
             host_url,
-        }
+        })
     }
 
     fn endpoint(&self, endpoint: &str) -> String {
