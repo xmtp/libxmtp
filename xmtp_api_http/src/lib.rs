@@ -288,7 +288,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_register_installation() {
-        let client = XmtpHttpApiClient::new(ApiUrls::LOCAL_ADDRESS.to_string());
+        let client = XmtpHttpApiClient::new(ApiUrls::LOCAL_ADDRESS.to_string()).unwrap();
         let result = client
             .register_installation(RegisterInstallationRequest {
                 is_inbox_id_credential: false,
