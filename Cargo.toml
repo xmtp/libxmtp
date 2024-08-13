@@ -5,6 +5,7 @@ members = [
   "mls_validation_service",
   "xmtp_cryptography",
   "xmtp_api_grpc",
+  "xmtp_api_http",
   "xmtp_proto",
   "xmtp_user_preferences",
   "xmtp_v2",
@@ -35,13 +36,11 @@ ethers-core = "2.0.4"
 futures = "0.3.30"
 futures-core = "0.3.30"
 hex = "0.4.3"
-log = { version = "0.4", features = ["release_max_level_debug"] }
+log = { version = "0.4" }
 openmls = { git = "https://github.com/xmtp/openmls", rev = "9cb3207", default-features = false }
 openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "9cb3207" }
 openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "9cb3207" }
 openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "9cb3207" }
-prost = "^0.12"
-prost-types = "^0.12"
 rand = "0.8.5"
 regex = "1.10.4"
 rustc-hex = "2.1.0"
@@ -50,11 +49,16 @@ serde_json = "1.0"
 sha2 = "0.10.8"
 thiserror = "1.0"
 tls_codec = "0.4.0"
-tokio = { version = "1.35.1", features = ["macros"] }
-tonic = "^0.11"
-tracing = { version = "0.1", features = ["release_max_level_debug"] }
+tokio = { version = "1.35.1", default-features = false }
+async-stream = "0.3"
+tracing = { version = "0.1" }
 tracing-subscriber = "0.3"
 url = "2.5.0"
+tonic = "^0.11" 
+prost = "^0.12"
+prost-types = "^0.12"
+pbjson = "0.6.0"
+pbjson-types = "0.6.0"
 
 # Internal Crate Dependencies
 xmtp_cryptography = { path = "xmtp_cryptography" }

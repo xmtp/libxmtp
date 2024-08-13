@@ -130,7 +130,6 @@ impl MlsGroup {
         if !errors.is_empty() {
             return Err(GroupError::Sync(errors));
         }
-
         Ok(())
     }
 
