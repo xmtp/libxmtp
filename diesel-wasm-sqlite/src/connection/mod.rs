@@ -18,7 +18,6 @@ use self::raw::RawConnection;
 use self::stmt::{Statement, StatementUse};
 use crate::query_builder::*;
 use diesel::{connection::{statement_cache::StatementCacheKey, DefaultLoadingMode, LoadConnection}, deserialize::{FromSqlRow, StaticallySizedRow}, expression::QueryMetadata, query_builder::QueryBuilder as _, result::*, serialize::ToSql, sql_types::HasSqlType};
-use futures::future::Either;
 use futures::{FutureExt, TryFutureExt};
 use std::sync::{Arc, Mutex};
 
@@ -76,14 +75,7 @@ impl AsyncConnection for WasmSqliteConnection {
     type Row<'conn, 'query> = SqliteRow<'conn, 'query>;
 
     async fn establish(database_url: &str) -> diesel::prelude::ConnectionResult<Self> {
-        //TODO: Change to `establish_inner`
-        Ok(WasmSqliteConnection {
-            statement_cache: StmtCache::new(),
-            raw_connection: raw::RawConnection::establish(database_url).await.unwrap(),
-            transaction_state: Default::default(),
-            metadata_lookup: (),
-            instrumentation: Arc::new(Mutex::new(None))
-        })
+        WasmSqliteConnection::establish_inner(database_url).await
     }
 
     fn load<'conn, 'query, T>(&'conn mut self, _source: T) -> Self::LoadFuture<'conn, 'query>
@@ -281,193 +273,20 @@ impl WasmSqliteConnection {
         Ok(StatementUse::bind(statement, source, self.instrumentation.as_ref())?)
         
     }
-          /*
-    #[doc(hidden)]
-    pub fn register_sql_function<ArgsSqlType, RetSqlType, Args, Ret, F>(
-        &mut self,
-        fn_name: &str,
-        deterministic: bool,
-        mut f: F,
-    ) -> QueryResult<()>
-    where
-        F: FnMut(Args) -> Ret + std::panic::UnwindSafe + Send + 'static,
-        Args: FromSqlRow<ArgsSqlType, WasmSqlite> + StaticallySizedRow<ArgsSqlType, WasmSqlite>,
-        Ret: ToSql<RetSqlType, WasmSqlite>,
-        WasmSqlite: HasSqlType<RetSqlType>,
-    {
-        functions::register(
-            &self.raw_connection,
-            fn_name,
-            deterministic,
-            move |_, args| f(args),
-        )
-    }
     
-    #[doc(hidden)]
-    pub fn register_noarg_sql_function<RetSqlType, Ret, F>(
-        &self,
-        fn_name: &str,
-        deterministic: bool,
-        f: F,
-    ) -> QueryResult<()>
-    where
-        F: FnMut() -> Ret + std::panic::UnwindSafe + Send + 'static,
-        Ret: ToSql<RetSqlType, WasmSqlite>,
-        WasmSqlite: HasSqlType<RetSqlType>,
-    {
-        functions::register_noargs(&self.raw_connection, fn_name, deterministic, f)
-    }
-
-    #[doc(hidden)]
-    pub fn register_aggregate_function<ArgsSqlType, RetSqlType, Args, Ret, A>(
-        &mut self,
-        fn_name: &str,
-    ) -> QueryResult<()>
-    where
-        A: SqliteAggregateFunction<Args, Output = Ret> + 'static + Send + std::panic::UnwindSafe,
-        Args: FromSqlRow<ArgsSqlType, Sqlite> + StaticallySizedRow<ArgsSqlType, Sqlite>,
-        Ret: ToSql<RetSqlType, Sqlite>,
-        Sqlite: HasSqlType<RetSqlType>,
-    {
-        functions::register_aggregate::<_, _, _, _, A>(&self.raw_connection, fn_name)
-    }
-    
-    /// Register a collation function.
-    ///
-    /// `collation` must always return the same answer given the same inputs.
-    /// If `collation` panics and unwinds the stack, the process is aborted, since it is used
-    /// across a C FFI boundary, which cannot be unwound across and there is no way to
-    /// signal failures via the SQLite interface in this case..
-    ///
-    /// If the name is already registered it will be overwritten.
-    ///
-    /// This method will return an error if registering the function fails, either due to an
-    /// out-of-memory situation or because a collation with that name already exists and is
-    /// currently being used in parallel by a query.
-    ///
-    /// The collation needs to be specified when creating a table:
-    /// `CREATE TABLE my_table ( str TEXT COLLATE MY_COLLATION )`,
-    /// where `MY_COLLATION` corresponds to name passed as `collation_name`.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # include!("../../doctest_setup.rs");
-    /// #
-    /// # fn main() {
-    /// #     run_test().unwrap();
-    /// # }
-    /// #
-    /// # fn run_test() -> QueryResult<()> {
-    /// #     let mut conn = SqliteConnection::establish(":memory:").unwrap();
-    /// // sqlite NOCASE only works for ASCII characters,
-    /// // this collation allows handling UTF-8 (barring locale differences)
-    /// conn.register_collation("RUSTNOCASE", |rhs, lhs| {
-    ///     rhs.to_lowercase().cmp(&lhs.to_lowercase())
-    /// })
-    /// # }
-    /// ```
-    pub fn register_collation<F>(&mut self, collation_name: &str, collation: F) -> QueryResult<()>
-    where
-        F: Fn(&str, &str) -> std::cmp::Ordering + Send + 'static + std::panic::UnwindSafe,
-    {
-        self.raw_connection
-            .register_collation_function(collation_name, collation)
-    }
-    /// Serialize the current SQLite database into a byte buffer.
-    ///
-    /// The serialized data is identical to the data that would be written to disk if the database
-    /// was saved in a file.
-    ///
-    /// # Returns
-    ///
-    /// This function returns a byte slice representing the serialized database.
-    pub fn serialize_database_to_buffer(&mut self) -> SerializedDatabase {
-        self.raw_connection.serialize()
-    }
-    
-    /// Deserialize an SQLite database from a byte buffer.
-    ///
-    /// This function takes a byte slice and attempts to deserialize it into a SQLite database.
-    /// If successful, the database is loaded into the connection. If the deserialization fails,
-    /// an error is returned.
-    ///
-    /// The database is opened in READONLY mode.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use diesel::sqlite::SerializedDatabase;
-    /// # use diesel::sqlite::SqliteConnection;
-    /// # use diesel::result::QueryResult;
-    /// # use diesel::sql_query;
-    /// # use diesel::Connection;
-    /// # use diesel::RunQueryDsl;
-    /// # fn main() {
-    /// let connection = &mut SqliteConnection::establish(":memory:").unwrap();
-    ///
-    /// sql_query("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)")
-    ///     .execute(connection).unwrap();
-    /// sql_query("INSERT INTO users (name, email) VALUES ('John Doe', 'john.doe@example.com'), ('Jane Doe', 'jane.doe@example.com')")
-    ///     .execute(connection).unwrap();
-    ///
-    /// // Serialize the database to a byte vector
-    /// let serialized_db: SerializedDatabase = connection.serialize_database_to_buffer();
-    ///
-    /// // Create a new in-memory SQLite database
-    /// let connection = &mut SqliteConnection::establish(":memory:").unwrap();
-    ///
-    /// // Deserialize the byte vector into the new database
-    /// connection.deserialize_readonly_database_from_buffer(serialized_db.as_slice()).unwrap();
-    /// #
-    /// # }
-    /// ```
-    pub fn deserialize_readonly_database_from_buffer(&mut self, data: &[u8]) -> QueryResult<()> {
-        self.raw_connection.deserialize(data)
-    }
-    */
-   /* 
-    async fn register_diesel_sql_functions(&self) -> QueryResult<()> {
-        use diesel::sql_types::{Integer, Text};
-
-        functions::register::<Text, Integer, _, _, _>(
-            &self.raw_connection,
-            "diesel_manage_updated_at",
-            false,
-            |conn, table_name: String| async {
-                conn.exec(&format!(
-                    include_str!("diesel_manage_updated_at.sql"),
-                    table_name = table_name
-                ))
-                .await
-                .expect("Failed to create trigger");
-                0 // have to return *something*
-            }.boxed(),
-        )
-    }
-    */
-
     async fn establish_inner(database_url: &str) -> Result<WasmSqliteConnection, ConnectionError> {
         use diesel::result::ConnectionError::CouldntSetupConfiguration;
         let raw_connection = RawConnection::establish(database_url).await.unwrap();
-        let conn = Self {
+        let sqlite3 = crate::get_sqlite().await;
+        
+        sqlite3.register_diesel_sql_functions(&raw_connection.internal_connection).map_err(WasmSqliteError::from)?;
+
+        Ok(Self {
             statement_cache: StmtCache::new(),
             raw_connection,
             transaction_state: AnsiTransactionManager::default(),
             metadata_lookup: (),
             instrumentation: Arc::new(Mutex::new(None)),
-        };
-        /*
-        conn.register_diesel_sql_functions()
-            .map_err(CouldntSetupConfiguration).await?;
-    */
-        Ok(conn)
+        })
     }
 }
-
-/*
-fn error_message(err_code: i32) -> &'static str {
-    let sqlite3 = diesel::get_sqlite_unchecked();
-    sqlite3.code_to_str(err_code)
-}
-*/

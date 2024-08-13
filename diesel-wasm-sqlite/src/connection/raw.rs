@@ -1,43 +1,15 @@
-#![allow(unsafe_code)] // ffi calls
-
-// use std::io::{stderr, Write};
-
-// use super::functions::{build_sql_function_args, process_sql_function_result};
-// use super::serialized_database::SerializedDatabase;
-// use super::stmt::ensure_sqlite_ok;
-// use super::{Sqlite, SqliteAggregateFunction};
-// use crate::deserialize::FromSqlRow;
-// use crate::result::Error::DatabaseError;
 use crate::{
     sqlite_types::{SqliteFlags, SqliteOpenFlags},
     SqliteType, WasmSqlite, WasmSqliteError,
 };
 use diesel::{
-    connection::statement_cache::PrepareForCache,
-    result::*,
-    serialize::ToSql,
-    sql_types::{HasSqlType, TypeMetadata},
+    connection::statement_cache::PrepareForCache, result::*, serialize::ToSql,
+    sql_types::HasSqlType,
 };
-use futures::future::BoxFuture;
 use tokio::sync::oneshot;
 use wasm_bindgen::{closure::Closure, JsValue};
 
 use super::stmt::Statement;
-
-/*
-/// For use in FFI function, which cannot unwind.
-/// Print the message, ask to open an issue at Github and [`abort`](std::process::abort).
-macro_rules! assert_fail {
-    ($fmt:expr $(,$args:tt)*) => {
-        eprint!(concat!(
-            $fmt,
-            "If you see this message, please open an issue at https://github.com/diesel-rs/diesel/issues/new.\n",
-            "Source location: {}:{}\n",
-        ), $($args,)* file!(), line!());
-        std::process::abort()
-    };
-}
-*/
 
 #[allow(missing_copy_implementations)]
 #[derive(Debug)]

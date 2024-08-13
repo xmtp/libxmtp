@@ -21,8 +21,8 @@ pub mod consts {
 // Constants
 #[wasm_bindgen(module = "/src/wa-sqlite-diesel-bundle.js")]
 extern "C" {
-    pub static SqliteDone: i32;
-    pub static SqliteRow: i32;
+    pub static SQLITE_DONE: i32;
+    pub static SQLITE_ROW: i32;
 
     // Fundamental datatypes.
     // https://www.sqlite.org/c3ref/c_blob.html
@@ -208,6 +208,9 @@ extern "C" {
         x_step: Option<&Closure<dyn FnMut(JsValue, Vec<JsValue>) -> JsValue>>,
         x_final: Option<&Closure<dyn FnMut(JsValue)>>,
     ) -> Result<(), JsValue>;
+
+    #[wasm_bindgen(method, catch)]
+    pub fn register_diesel_sql_functions(this: &SQLite, database: &JsValue) -> Result<(), JsValue>;
 }
 
 impl std::fmt::Debug for SQLite {
