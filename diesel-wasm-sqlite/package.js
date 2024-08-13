@@ -217,6 +217,7 @@ export class SQLite {
       return this.sqlite3.finalize(stmt);
     } catch (error) {
       console.log("stmt error");
+      throw error;
     }
   }
 
@@ -271,8 +272,9 @@ export class SQLite {
     try {
       return this.sqlite3.exec(database, query);
       console.log("Batch exec'ed");
-    } catch {
+    } catch (error) {
       console.log("exec err");
+      throw error;
     }
   }
 
@@ -298,8 +300,9 @@ export class SQLite {
         xFinal,
       );
       console.log("create function");
-    } catch {
+    } catch (error) {
       console.log("create function err");
+      throw error;
     }
   }
   //TODO: At some point need a way to register functions from rust
