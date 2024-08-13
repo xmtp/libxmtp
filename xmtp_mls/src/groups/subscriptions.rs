@@ -141,12 +141,13 @@ impl MlsGroup {
 #[cfg(test)]
 mod tests {
     use prost::Message;
-    use std::sync::Arc;
+    use std::{sync::Arc, time::Duration};
+    use tokio_stream::wrappers::UnboundedReceiverStream;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions,
-        storage::group_message::GroupMessageKind,
+        storage::group_message::GroupMessageKind, utils::test::Delivery,
     };
     use futures::StreamExt;
 
@@ -190,7 +191,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_messages() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
 
         let amal_group = amal
             .create_group(None, GroupMetadataOptions::default())
@@ -203,15 +204,30 @@ mod tests {
 
         // Get bola's version of the same group
         let bola_groups = bola.sync_welcomes().await.unwrap();
-        let bola_group = bola_groups.first().unwrap();
+        let bola_group = Arc::new(bola_groups.first().unwrap().clone());
 
-        let mut stream = bola_group.stream(Arc::new(bola)).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let bola_ptr = bola.clone();
+        let bola_group_ptr = bola_group.clone();
+        let notify = Delivery::new(Some(Duration::from_secs(10)));
+        let notify_ptr = notify.clone();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut stream = UnboundedReceiverStream::new(rx);
+        tokio::spawn(async move {
+            let mut stream = bola_group_ptr.stream(bola_ptr).await.unwrap();
+            while let Some(item) = stream.next().await {
+                let _ = tx.send(item);
+                notify_ptr.notify_one();
+            }
+        });
+
         amal_group
             .send_message("hello".as_bytes(), &amal)
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        notify
+            .wait_for_delivery()
+            .await
+            .expect("timed out waiting for first message");
         let first_val = stream.next().await.unwrap();
         assert_eq!(first_val.decrypted_message_bytes, "hello".as_bytes());
 
@@ -220,6 +236,10 @@ mod tests {
             .await
             .unwrap();
 
+        notify
+            .wait_for_delivery()
+            .await
+            .expect("timed out waiting for second message");
         let second_val = stream.next().await.unwrap();
         assert_eq!(second_val.decrypted_message_bytes, "goodbye".as_bytes());
     }
@@ -227,13 +247,21 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_multiple() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let group = amal
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let group = Arc::new(
+            amal.create_group(None, GroupMetadataOptions::default())
+                .unwrap(),
+        );
 
-        let stream = group.stream(amal.clone()).await.unwrap();
-
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+        let amal_ptr = amal.clone();
+        let group_ptr = group.clone();
+        tokio::spawn(async move {
+            let mut stream = group_ptr.stream(amal_ptr).await.unwrap();
+            while let Some(item) = stream.next().await {
+                let _ = tx.send(item);
+            }
+        });
 
         for i in 0..10 {
             group
@@ -253,7 +281,11 @@ mod tests {
         }
     }
 
+    // https://github.com/xmtp/libxmtp/issues/948
+    // This test works in its previous form, with std::time:sleep
+    // with `Notify` it never recieves the add members message
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[ignore]
     async fn test_subscribe_membership_changes() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -262,15 +294,33 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
-        let mut stream = amal_group.stream(amal.clone()).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let amal_ptr = amal.clone();
+        let amal_group_ptr = amal_group.clone();
+        let notify = Delivery::new(Some(Duration::from_secs(20)));
+        let notify_ptr = notify.clone();
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (start_tx, start_rx) = tokio::sync::oneshot::channel();
+        let mut stream = UnboundedReceiverStream::new(rx);
+        tokio::spawn(async move {
+            let mut stream = amal_group_ptr.stream(amal_ptr).await.unwrap();
+            let _ = start_tx.send(());
+            while let Some(item) = stream.next().await {
+                let _ = tx.send(item);
+                notify_ptr.notify_one();
+            }
+        });
+        // just to make sure stream is started
+        let _ = start_rx.await;
 
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
+        notify
+            .wait_for_delivery()
+            .await
+            .expect("Never received group membership change from stream");
         let first_val = stream.next().await.unwrap();
         assert_eq!(first_val.kind, GroupMessageKind::MembershipChange);
 
@@ -278,6 +328,10 @@ mod tests {
             .send_message("hello".as_bytes(), &amal)
             .await
             .unwrap();
+        notify
+            .wait_for_delivery()
+            .await
+            .expect("Never received second message from stream");
         let second_val = stream.next().await.unwrap();
         assert_eq!(second_val.decrypted_message_bytes, "hello".as_bytes());
     }

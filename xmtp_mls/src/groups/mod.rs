@@ -1199,6 +1199,7 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 
 #[cfg(test)]
 mod tests {
+    use diesel::connection::SimpleConnection;
     use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
     use prost::Message;
     use std::sync::Arc;
@@ -1229,7 +1230,7 @@ mod tests {
 
     use super::{
         intents::{Installation, SendWelcomesAction},
-        MlsGroup,
+        GroupError, MlsGroup,
     };
 
     async fn receive_group_invite<ApiClient>(client: &Client<ApiClient>) -> MlsGroup
@@ -2753,5 +2754,55 @@ mod tests {
                 DeliveryStatus::Published,
             ]
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn process_messages_abort_on_retryable_error() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        alix_group
+            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .await
+            .unwrap();
+
+        // Create two commits
+        alix_group
+            .update_group_name(&alix, "foo".to_string())
+            .await
+            .unwrap();
+        alix_group
+            .update_group_name(&alix, "bar".to_string())
+            .await
+            .unwrap();
+
+        let bo_group = receive_group_invite(&bo).await;
+        // Get the group messages before we lock the DB, simulating an error that happens
+        // in the middle of a sync instead of the beginning
+        let bo_messages = bo
+            .query_group_messages(&bo_group.group_id, &bo.store().conn().unwrap())
+            .await
+            .unwrap();
+
+        let conn_1 = bo.store().conn().unwrap();
+        let mut conn_2 = bo.store().raw_conn().unwrap();
+
+        // Begin an exclusive transaction on a second connection to lock the database
+        conn_2.batch_execute("BEGIN EXCLUSIVE").unwrap();
+        let process_result = bo_group.process_messages(bo_messages, conn_1, &bo).await;
+        if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
+            assert_eq!(errors.len(), 1);
+            assert!(errors
+                .first()
+                .unwrap()
+                .to_string()
+                .contains("database is locked"));
+        } else {
+            panic!("Expected error")
+        }
     }
 }

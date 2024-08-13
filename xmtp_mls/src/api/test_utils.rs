@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use mockall::mock;
-use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
 use xmtp_proto::{
     api_client::{
         Error, GroupMessageStream, WelcomeMessageStream, XmtpIdentityClient, XmtpMlsClient,
@@ -21,17 +20,7 @@ use xmtp_proto::{
     },
 };
 
-use super::ApiClientWrapper;
-use crate::retry::Retry;
-
-pub async fn get_test_api_client() -> ApiClientWrapper<GrpcClient> {
-    ApiClientWrapper::new(
-        GrpcClient::create("http://localhost:5556".to_string(), false)
-            .await
-            .unwrap(),
-        Retry::default(),
-    )
-}
+use crate::XmtpTestClient;
 
 pub fn build_group_messages(num_messages: usize, group_id: Vec<u8>) -> Vec<GroupMessage> {
     let mut out: Vec<GroupMessage> = vec![];
@@ -81,5 +70,11 @@ mock! {
         async fn publish_identity_update(&self, request: PublishIdentityUpdateRequest) -> Result<PublishIdentityUpdateResponse, Error>;
         async fn get_identity_updates_v2(&self, request: GetIdentityUpdatesV2Request) -> Result<GetIdentityUpdatesV2Response, Error>;
         async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, Error>;
+    }
+
+    #[async_trait]
+    impl XmtpTestClient for ApiClient {
+        async fn create_local() -> Self { ApiClient }
+        async fn create_dev() -> Self { ApiClient }
     }
 }

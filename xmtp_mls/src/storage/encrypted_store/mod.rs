@@ -175,7 +175,7 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    fn raw_conn(
+    pub(crate) fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
         let pool_guard = self.pool.read();
@@ -184,7 +184,7 @@ impl EncryptedMessageStore {
             .as_ref()
             .ok_or(StorageError::PoolNeedsConnection)?;
 
-        log::info!(
+        log::debug!(
             "Pulling connection from pool, idle_connections={}, total_connections={}",
             pool.state().idle_connections,
             pool.state().connections
