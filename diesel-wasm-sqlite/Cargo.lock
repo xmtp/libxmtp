@@ -142,7 +142,7 @@ dependencies = [
 [[package]]
 name = "diesel-async"
 version = "0.5.0"
-source = "git+https://github.com/insipx/diesel_async?branch=insipx/make-stmt-cache-public#2cd189fb9300dcaeb204d05526cc9b0e079096c2"
+source = "git+https://github.com/insipx/diesel_async?branch=insipx/make-stmt-cache-public#86a24a38d9d841ef9e92022cd983bbd700286397"
 dependencies = [
  "async-trait",
  "diesel",

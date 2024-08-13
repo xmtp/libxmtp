@@ -17,13 +17,11 @@ use self::raw::RawConnection;
 // use self::statement_iterator::*;
 use self::stmt::{Statement, StatementUse};
 use crate::query_builder::*;
-use diesel::connection::{DefaultLoadingMode, LoadConnection};
-use diesel::deserialize::{FromSqlRow, StaticallySizedRow};
-use diesel::expression::QueryMetadata;
-use diesel::result::*;
-use diesel::serialize::ToSql;
-use diesel::sql_types::HasSqlType;
+use diesel::{connection::{statement_cache::StatementCacheKey, DefaultLoadingMode, LoadConnection}, deserialize::{FromSqlRow, StaticallySizedRow}, expression::QueryMetadata, query_builder::QueryBuilder as _, result::*, serialize::ToSql, sql_types::HasSqlType};
+use futures::future::Either;
 use futures::{FutureExt, TryFutureExt};
+use std::sync::{Arc, Mutex};
+
 
 use diesel::{connection::{ConnectionSealed, Instrumentation, WithMetadataLookup}, query_builder::{AsQuery, QueryFragment, QueryId}, sql_types::TypeMetadata, QueryResult};
 pub use diesel_async::{AnsiTransactionManager, AsyncConnection, SimpleAsyncConnection, TransactionManager, stmt_cache::StmtCache};
@@ -42,7 +40,7 @@ pub struct WasmSqliteConnection {
     // this exists for the sole purpose of implementing `WithMetadataLookup` trait
     // and avoiding static mut which will be deprecated in 2024 edition
     metadata_lookup: (),
-    instrumentation: Option<Box<dyn Instrumentation>>,
+    instrumentation: Arc<Mutex<Option<Box<dyn Instrumentation>>>>,
 }
 
 
@@ -84,7 +82,7 @@ impl AsyncConnection for WasmSqliteConnection {
             raw_connection: raw::RawConnection::establish(database_url).await.unwrap(),
             transaction_state: Default::default(),
             metadata_lookup: (),
-            instrumentation: None
+            instrumentation: Arc::new(Mutex::new(None))
         })
     }
 
@@ -252,8 +250,8 @@ impl WasmSqliteConnection {
             }
         }
     }
-/*
-    fn prepared_query<'conn, 'query, T>(
+    
+    async fn prepared_query<'conn, 'query, T>(
         &'conn mut self,
         source: T,
     ) -> QueryResult<StatementUse<'conn, 'query>>
@@ -262,22 +260,27 @@ impl WasmSqliteConnection {
     {
         let raw_connection = &self.raw_connection;
         let cache = &mut self.statement_cache;
-        let statement = match cache.cached_prepared_statement(
-            &source,
-            &WasmSqlite,
-            &[],
-            |sql, is_cached| Statement::prepare(raw_connection, sql, is_cached),
-            &mut self.instrumentation,
-        ) {
-            Ok(statement) => statement,
-            Err(e) => {
-                return Err(e);
-            }
-        };
+        let maybe_type_id = T::query_id();
+        let cache_key = StatementCacheKey::for_source(maybe_type_id, &source, &[], &WasmSqlite)?;
+       
 
-        StatementUse::bind(statement, source, &mut self.instrumentation)
+        let is_safe_to_cache_prepared = source.is_safe_to_cache_prepared(&WasmSqlite)?;
+        let mut qb = SqliteQueryBuilder::new();
+        let sql = source.to_sql(&mut qb, &WasmSqlite).map(|()| qb.finish())?;
+        
+        let statement = cache.cached_prepared_statement(
+            cache_key,
+            sql,
+            is_safe_to_cache_prepared,
+            &[],
+            raw_connection.clone(),
+            &self.instrumentation,
+        ).await?.0;
+        
+
+        Ok(StatementUse::bind(statement, source, self.instrumentation.as_ref())?)
+        
     }
-    */
           /*
     #[doc(hidden)]
     pub fn register_sql_function<ArgsSqlType, RetSqlType, Args, Ret, F>(
@@ -452,7 +455,7 @@ impl WasmSqliteConnection {
             raw_connection,
             transaction_state: AnsiTransactionManager::default(),
             metadata_lookup: (),
-            instrumentation: None,
+            instrumentation: Arc::new(Mutex::new(None)),
         };
         /*
         conn.register_diesel_sql_functions()

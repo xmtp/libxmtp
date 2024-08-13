@@ -16,9 +16,12 @@ use diesel::{
     result::{Error::DatabaseError, *},
 };
 use std::cell::OnceCell;
+use std::sync::Mutex;
 
 use wasm_bindgen::JsValue;
 
+// this is OK b/c web runs in one thread
+unsafe impl Send for Statement {}
 pub(super) struct Statement {
     inner_statement: JsValue,
     drop_signal: Option<tokio::sync::oneshot::Sender<JsValue>>,
@@ -52,10 +55,10 @@ impl Statement {
             .unwrap();
 
         let (tx, rx) = tokio::sync::oneshot::channel::<JsValue>();
+
         // We don't have `AsyncDrop` in rust yet.
         // instead, we `send` a signal on Drop for the destructor to run in an
         // asynchronously-spawned task.
-
         wasm_bindgen_futures::spawn_local(async move {
             match rx.await {
                 Ok(inner_statement) => {
@@ -183,7 +186,7 @@ struct BoundStatement<'stmt, 'query> {
     // generic type, we use NonNull to communicate
     // that this is a shared buffer
     query: Option<Box<dyn QueryFragment<WasmSqlite> + 'query>>,
-    instrumentation: &'stmt mut dyn Instrumentation,
+    instrumentation: &'stmt Mutex<dyn Instrumentation>,
     has_error: bool,
 }
 
@@ -191,7 +194,7 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
     fn bind<T>(
         statement: MaybeCached<'stmt, Statement>,
         query: T,
-        instrumentation: &'stmt mut dyn Instrumentation,
+        instrumentation: &'stmt Mutex<dyn Instrumentation>,
     ) -> QueryResult<BoundStatement<'stmt, 'query>>
     where
         T: QueryFragment<WasmSqlite> + QueryId + 'query,
@@ -294,7 +297,7 @@ impl<'stmt, 'query> StatementUse<'stmt, 'query> {
     pub(super) fn bind<T>(
         statement: MaybeCached<'stmt, Statement>,
         query: T,
-        instrumentation: &'stmt mut dyn Instrumentation,
+        instrumentation: &'stmt Mutex<dyn Instrumentation>,
     ) -> QueryResult<StatementUse<'stmt, 'query>>
     where
         T: QueryFragment<WasmSqlite> + QueryId + 'query,

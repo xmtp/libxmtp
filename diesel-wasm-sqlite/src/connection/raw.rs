@@ -10,12 +10,19 @@
 // use crate::result::Error::DatabaseError;
 use crate::{
     sqlite_types::{SqliteFlags, SqliteOpenFlags},
-    WasmSqlite, WasmSqliteError,
+    SqliteType, WasmSqlite, WasmSqliteError,
 };
-use diesel::{result::*, serialize::ToSql, sql_types::HasSqlType};
+use diesel::{
+    connection::statement_cache::PrepareForCache,
+    result::*,
+    serialize::ToSql,
+    sql_types::{HasSqlType, TypeMetadata},
+};
 use futures::future::BoxFuture;
 use tokio::sync::oneshot;
 use wasm_bindgen::{closure::Closure, JsValue};
+
+use super::stmt::Statement;
 
 /*
 /// For use in FFI function, which cannot unwind.
@@ -37,6 +44,15 @@ macro_rules! assert_fail {
 pub(super) struct RawConnection {
     pub(super) internal_connection: JsValue,
     drop_signal: Option<oneshot::Sender<JsValue>>,
+}
+
+impl Clone for RawConnection {
+    fn clone(&self) -> Self {
+        Self {
+            internal_connection: self.internal_connection.clone(),
+            drop_signal: None,
+        }
+    }
 }
 
 impl RawConnection {
@@ -170,13 +186,26 @@ impl RawConnection {
     */
 }
 
+#[async_trait::async_trait(?Send)]
+impl diesel_async::stmt_cache::PrepareCallback<Statement, SqliteType> for RawConnection {
+    async fn prepare(
+        self,
+        sql: &str,
+        _metadata: &[SqliteType],
+        is_for_cache: PrepareForCache,
+    ) -> QueryResult<(Statement, Self)> {
+        let stmt = Statement::prepare(&self, sql, is_for_cache).await;
+        Ok((stmt?, self))
+    }
+}
+
 impl Drop for RawConnection {
     fn drop(&mut self) {
-        let sender = self
-            .drop_signal
-            .take()
-            .expect("Drop is only unwrapped once");
-        let _ = sender.send(self.internal_connection.clone());
+        if let Some(s) = self.drop_signal.take() {
+            let _ = s.send(self.internal_connection.clone());
+        } else {
+            log::warn!("RawConnection not dropped because drop_signal is empty");
+        }
     }
 }
 
