@@ -275,7 +275,7 @@ impl WasmSqliteConnection {
             &[],
             raw_connection.clone(),
             &self.instrumentation,
-        ).await?.0;
+        ).await?.0; // Cloned RawConnection is dropped here
         
 
         Ok(StatementUse::bind(statement, source, self.instrumentation.as_ref())?)

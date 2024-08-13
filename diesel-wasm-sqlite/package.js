@@ -269,7 +269,7 @@ export class SQLite {
 
   batch_execute(database, query) {
     try {
-      return sqlite3.exec(database, query);
+      return this.sqlite3.exec(database, query);
       console.log("Batch exec'ed");
     } catch {
       console.log("exec err");
@@ -287,7 +287,7 @@ export class SQLite {
     xFinal,
   ) {
     try {
-      sqlite.create_function(
+      this.sqlite3.create_function(
         database,
         functionName,
         nArg,
@@ -300,6 +300,44 @@ export class SQLite {
       console.log("create function");
     } catch {
       console.log("create function err");
+    }
+  }
+
+  register_diesel_sql_functions(database) {
+    try {
+      this.sqlite3.create_function(
+        database,
+        "diesel_manage_updated_at",
+        1,
+        WasmSQLiteLibrary.SQLITE_UTF8,
+        0,
+        (context, values) => {
+          const table_name = this.sqlite3.value_text(values[0]);
+
+          this.sqlite3.exec(
+            context,
+            `CREATE TRIGGER __diesel_manage_updated_at_${table_name}
+            AFTER UPDATE ON ${table_name}
+            FOR EACH ROW WHEN
+              old.updated_at IS NULL AND
+              new.updated_at IS NULL OR
+              old.updated_at == new.updated_at
+            BEGIN
+            UPDATE ${table_name}
+            SET updated_at = CURRENT_TIMESTAMP
+            WHERE ROWID = new.ROWID;
+            END`,
+            (row, columns) => {
+              console.log(`------------------------------------`);
+              console.log(`Created trigger for ${table_name}`);
+              console.log(row);
+              console.log(columns);
+              console.log(`------------------------------------`);
+            },
+          );
+        },
+      );
+    } catch (error) {
     }
   }
 
