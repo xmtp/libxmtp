@@ -32,8 +32,6 @@ pub enum KeyPackageVerificationError {
     InvalidCredential,
     #[error(transparent)]
     Association(#[from] AssociationError),
-    #[error("invalid lifetime")]
-    InvalidLifetime,
     #[error("generic: {0}")]
     Generic(String),
     #[error("wrong credential type")]
