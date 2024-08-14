@@ -13,7 +13,7 @@ use diesel::{
         Instrumentation,
     },
     query_builder::{QueryFragment, QueryId},
-    result::{Error::DatabaseError, *},
+    result::{Error, QueryResult},
 };
 use std::cell::OnceCell;
 use std::sync::Mutex;

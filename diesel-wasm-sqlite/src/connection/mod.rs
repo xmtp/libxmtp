@@ -5,7 +5,7 @@ mod raw;
 mod row;
 // mod serialized_database;
 mod sqlite_value;
-// mod statement_iterator;
+mod statement_stream;
 mod stmt;
 
 pub(crate) use self::bind_collector::SqliteBindCollector;
@@ -17,14 +17,16 @@ use self::raw::RawConnection;
 // use self::statement_iterator::*;
 use self::stmt::{Statement, StatementUse};
 use crate::query_builder::*;
-use diesel::{connection::{statement_cache::StatementCacheKey, DefaultLoadingMode, LoadConnection}, deserialize::{FromSqlRow, StaticallySizedRow}, expression::QueryMetadata, query_builder::QueryBuilder as _, result::*, serialize::ToSql, sql_types::HasSqlType};
-use futures::{FutureExt, TryFutureExt};
+use diesel::{connection::{statement_cache::StatementCacheKey}, query_builder::QueryBuilder as _, result::*};
+use futures::future::LocalBoxFuture;
+use futures::stream::LocalBoxStream;
+use futures::FutureExt;
+use statement_stream::PrivateStatementStream;
 use std::sync::{Arc, Mutex};
 
 
-use diesel::{connection::{ConnectionSealed, Instrumentation, WithMetadataLookup}, query_builder::{AsQuery, QueryFragment, QueryId}, sql_types::TypeMetadata, QueryResult};
+use diesel::{connection::{ConnectionSealed, Instrumentation}, query_builder::{AsQuery, QueryFragment, QueryId}, QueryResult};
 pub use diesel_async::{AnsiTransactionManager, AsyncConnection, SimpleAsyncConnection, TransactionManager, stmt_cache::StmtCache};
-use futures::{future::BoxFuture, stream::BoxStream};
 use row::SqliteRow;
 
 use crate::{get_sqlite_unchecked, WasmSqlite, WasmSqliteError};
@@ -69,21 +71,24 @@ impl SimpleAsyncConnection for WasmSqliteConnection {
 impl AsyncConnection for WasmSqliteConnection {
     type Backend = WasmSqlite;
     type TransactionManager = AnsiTransactionManager;
-    type ExecuteFuture<'conn, 'query> = BoxFuture<'query, QueryResult<usize>>;
-    type LoadFuture<'conn, 'query> = BoxFuture<'query, QueryResult<Self::Stream<'conn, 'query>>>;
-    type Stream<'conn, 'query> = BoxStream<'static, QueryResult<SqliteRow<'conn, 'query>>>;
+    type ExecuteFuture<'conn, 'query> = LocalBoxFuture<'query, QueryResult<usize>>;
+    type LoadFuture<'conn, 'query> = LocalBoxFuture<'query, QueryResult<Self::Stream<'conn, 'query>>>;
+    type Stream<'conn, 'query> = LocalBoxStream<'query, QueryResult<SqliteRow<'conn, 'query>>>;
     type Row<'conn, 'query> = SqliteRow<'conn, 'query>;
 
     async fn establish(database_url: &str) -> diesel::prelude::ConnectionResult<Self> {
         WasmSqliteConnection::establish_inner(database_url).await
     }
 
-    fn load<'conn, 'query, T>(&'conn mut self, _source: T) -> Self::LoadFuture<'conn, 'query>
+    fn load<'conn, 'query, T>(&'conn mut self, source: T) -> Self::LoadFuture<'conn, 'query>
     where
         T: AsQuery + 'query,
         T::Query: QueryFragment<Self::Backend> + QueryId + 'query,
     {
-        todo!()
+        async {
+            let statement = self.prepared_query(source.as_query()).await?;
+            Ok(PrivateStatementStream::new(statement).stream())
+        }.boxed_local()
     }
 
     fn execute_returning_count<'conn, 'query, T>(
@@ -275,7 +280,7 @@ impl WasmSqliteConnection {
     }
     
     async fn establish_inner(database_url: &str) -> Result<WasmSqliteConnection, ConnectionError> {
-        use diesel::result::ConnectionError::CouldntSetupConfiguration;
+        // use diesel::result::ConnectionError::CouldntSetupConfiguration;
         let raw_connection = RawConnection::establish(database_url).await.unwrap();
         let sqlite3 = crate::get_sqlite().await;
         

@@ -2,7 +2,7 @@
 
 use std::cell::Ref;
 
-use crate::ffi::{self, SQLiteCompatibleType};
+use crate::ffi::SQLiteCompatibleType;
 use crate::{backend::SqliteType, sqlite_types};
 use wasm_bindgen::JsValue;
 
