@@ -13,11 +13,10 @@ use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
     api_client::{GroupMessageStream, WelcomeMessageStream, XmtpMlsClient},
     xmtp::mls::api::v1::{
-        FetchKeyPackagesRequest, FetchKeyPackagesResponse, GetIdentityUpdatesRequest,
-        GetIdentityUpdatesResponse, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
-        QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, RegisterInstallationRequest,
-        RegisterInstallationResponse, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
-        SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
+        FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
+        QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
+        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
+        SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
     },
 };
 
@@ -54,25 +53,6 @@ impl XmtpHttpApiClient {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl XmtpMlsClient for XmtpHttpApiClient {
-    async fn register_installation(
-        &self,
-        request: RegisterInstallationRequest,
-    ) -> Result<RegisterInstallationResponse, Error> {
-        let res = self
-            .http_client
-            .post(self.endpoint(ApiEndpoints::REGISTER_INSTALLATION))
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?
-            .bytes()
-            .await
-            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
-
-        log::debug!("register_installation");
-        handle_error(&*res)
-    }
-
     async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error> {
         let res = self
             .http_client
@@ -141,14 +121,6 @@ impl XmtpMlsClient for XmtpHttpApiClient {
 
         log::debug!("send_welcome_messages");
         handle_error(&*res)
-    }
-
-    // deprecated
-    async fn get_identity_updates(
-        &self,
-        _request: GetIdentityUpdatesRequest,
-    ) -> Result<GetIdentityUpdatesResponse, Error> {
-        unimplemented!()
     }
 
     async fn query_group_messages(
@@ -287,10 +259,10 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_register_installation() {
+    async fn test_upload_key_package() {
         let client = XmtpHttpApiClient::new(ApiUrls::LOCAL_ADDRESS.to_string()).unwrap();
         let result = client
-            .register_installation(RegisterInstallationRequest {
+            .upload_key_package(UploadKeyPackageRequest {
                 is_inbox_id_credential: false,
                 key_package: Some(KeyPackageUpload {
                     key_package_tls_serialized: vec![1, 2, 3],

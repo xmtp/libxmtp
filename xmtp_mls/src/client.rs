@@ -664,7 +664,7 @@ mod tests {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let result = client
             .api_client
-            .register_installation(vec![1, 2, 3], false)
+            .upload_key_package(vec![1, 2, 3], false)
             .await;
 
         assert!(result.is_err());

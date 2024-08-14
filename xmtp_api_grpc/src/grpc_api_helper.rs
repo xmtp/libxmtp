@@ -21,11 +21,10 @@ use xmtp_proto::{
     },
     xmtp::mls::api::v1::{
         mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
-        FetchKeyPackagesResponse, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
-        QueryGroupMessagesRequest, QueryGroupMessagesResponse, QueryWelcomeMessagesRequest,
-        QueryWelcomeMessagesResponse, RegisterInstallationRequest, RegisterInstallationResponse,
-        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
-        SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
+        FetchKeyPackagesResponse, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
+        QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, SendGroupMessagesRequest,
+        SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
+        UploadKeyPackageRequest,
     },
 };
 
@@ -345,19 +344,6 @@ impl MutableApiSubscription for GrpcMutableSubscription {
 #[async_trait]
 impl XmtpMlsClient for Client {
     #[tracing::instrument(level = "trace", skip_all)]
-    async fn register_installation(
-        &self,
-        req: RegisterInstallationRequest,
-    ) -> Result<RegisterInstallationResponse, Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client.register_installation(req).await;
-        match res {
-            Ok(response) => Ok(response.into_inner()),
-            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
-        }
-    }
-
-    #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Error> {
         let client = &mut self.mls_client.clone();
         let res = client.upload_key_package(req).await;
@@ -420,18 +406,6 @@ impl XmtpMlsClient for Client {
     ) -> Result<QueryWelcomeMessagesResponse, Error> {
         let client = &mut self.mls_client.clone();
         let res = client.query_welcome_messages(req).await;
-
-        res.map(|r| r.into_inner())
-            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
-    }
-
-    #[tracing::instrument(level = "trace", skip_all)]
-    async fn get_identity_updates(
-        &self,
-        req: GetIdentityUpdatesRequest,
-    ) -> Result<GetIdentityUpdatesResponse, Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client.get_identity_updates(req).await;
 
         res.map(|r| r.into_inner())
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
