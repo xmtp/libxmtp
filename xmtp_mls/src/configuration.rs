@@ -22,8 +22,6 @@ pub const MAX_GROUP_SIZE: u16 = 400;
 /// we leave 5 * 1024 * 1024 as extra buffer room
 pub const GRPC_DATA_LIMIT: usize = 45 * 1024 * 1024;
 
-pub const DELIMITER: char = '\x01';
-
 /// MLS Extension Types
 ///
 /// Copied from draft-ietf-mls-protocol-16:

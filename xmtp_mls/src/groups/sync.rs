@@ -17,12 +17,12 @@ use crate::{
     client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{
-        DELIMITER, GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS,
+        GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS,
         UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
     groups::{
         intents::UpdateMetadataIntentData,
-        message_history::{decrypt_history_file, download_history_bundle},
+        message_history::{decrypt_history_file, download_history_bundle, MessageHistoryContent},
         validated_commit::ValidatedCommit,
     },
     hpke::{encrypt_welcome, HpkeError},
@@ -72,7 +72,7 @@ use xmtp_proto::xmtp::mls::{
             v2::MessageType::{Reply, Request},
             Content, V1, V2,
         },
-        GroupUpdated, MessageHistoryReply, MessageHistoryRequest, PlaintextEnvelope,
+        GroupUpdated, PlaintextEnvelope,
     },
 };
 
@@ -408,26 +408,27 @@ impl MlsGroup {
                         idempotency_key,
                         message_type,
                     })) => match message_type {
-                        Some(Request(MessageHistoryRequest {
-                            request_id,
-                            pin_code,
-                        })) => {
-                            // store the request message
-                            let contents =
-                                format!("{request_id}{DELIMITER}{pin_code}").into_bytes();
+                        Some(Request(history_request)) => {
+                            let request_id = history_request.request_id.clone();
+                            let content: MessageHistoryContent =
+                                MessageHistoryContent::Request(history_request).into();
+                            let bytes = bincode::serialize(&content)
+                                .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
                             let message_id =
-                                calculate_message_id(&self.group_id, &contents, &idempotency_key);
-                            let message = StoredGroupMessage {
+                                calculate_message_id(&self.group_id, &bytes, &idempotency_key);
+
+                            // store the request message
+                            StoredGroupMessage {
                                 id: message_id,
                                 group_id: self.group_id.clone(),
-                                decrypted_message_bytes: contents,
+                                decrypted_message_bytes: bytes,
                                 sent_at_ns: envelope_timestamp_ns as i64,
                                 kind: GroupMessageKind::Application,
                                 sender_installation_id,
                                 sender_inbox_id: sender_inbox_id.clone(),
                                 delivery_status: DeliveryStatus::Published,
-                            };
-                            message.store(provider.conn_ref())?;
+                            }
+                            .store(provider.conn_ref())?;
 
                             // ensure the requester is a member of all the groups
                             let _ = client
@@ -457,33 +458,29 @@ impl MlsGroup {
                                 }
                             }
                         }
-                        Some(Reply(MessageHistoryReply {
-                            request_id: _,
-                            url,
-                            encryption_key,
-                            signing_key,
-                            bundle_hash,
-                        })) => {
-                            let Some(sign_key) = signing_key else {
+                        Some(Reply(history_reply)) => {
+                            let Some(signing_key) = history_reply.signing_key.clone() else {
                                 return Err(MessageProcessingError::InvalidPayload);
                             };
 
-                            let Some(enc_key) = encryption_key else {
+                            let Some(encryption_key) = history_reply.encryption_key.clone() else {
                                 return Err(MessageProcessingError::InvalidPayload);
                             };
+
+                            let bundle_hash = history_reply.bundle_hash.clone();
+                            let url = history_reply.url.clone();
+                            let content: MessageHistoryContent =
+                                MessageHistoryContent::Reply(history_reply).into();
+                            let bytes = bincode::serialize(&content)
+                                .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
+                            let message_id =
+                                calculate_message_id(&self.group_id, &bytes, &idempotency_key);
 
                             // store the reply message
-                            let contents = format!(
-                                "{url}{DELIMITER}{:?}{DELIMITER}{:?}{DELIMITER}{:?}",
-                                enc_key, sign_key, bundle_hash
-                            )
-                            .into_bytes();
-                            let message_id =
-                                calculate_message_id(&self.group_id, &contents, &idempotency_key);
                             StoredGroupMessage {
                                 id: message_id,
                                 group_id: self.group_id.clone(),
-                                decrypted_message_bytes: contents,
+                                decrypted_message_bytes: bytes,
                                 sent_at_ns: envelope_timestamp_ns as i64,
                                 kind: GroupMessageKind::Application,
                                 sender_installation_id,
@@ -494,13 +491,13 @@ impl MlsGroup {
 
                             // handle the reply and fetch the history
                             let enc_file_path =
-                                download_history_bundle(&url, bundle_hash, sign_key)
+                                download_history_bundle(&url, bundle_hash, signing_key)
                                     .await
                                     .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
 
                             let messages_path = std::env::temp_dir().join("messages.jsonl");
 
-                            decrypt_history_file(&enc_file_path, &messages_path, enc_key)
+                            decrypt_history_file(&enc_file_path, &messages_path, encryption_key)
                                 .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
 
                             client

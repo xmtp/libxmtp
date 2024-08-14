@@ -13,7 +13,7 @@ use rand::{
     Rng, RngCore,
 };
 use ring::hmac;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use xmtp_cryptography::utils as crypto_utils;
@@ -32,7 +32,6 @@ use super::GroupError;
 use crate::XmtpApi;
 use crate::{
     client::ClientError,
-    configuration::DELIMITER,
     groups::{intents::SendMessageIntentData, GroupMessageKind, StoredGroupMessage},
     storage::{
         group::StoredGroup,
@@ -44,6 +43,12 @@ use crate::{
 
 const ENC_KEY_SIZE: usize = 32; // 256-bit key
 const NONCE_SIZE: usize = 12; // 96-bit nonce
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum MessageHistoryContent {
+    Request(MessageHistoryRequest),
+    Reply(MessageHistoryReply),
+}
 
 #[derive(Debug, Error)]
 pub enum MessageHistoryError {
