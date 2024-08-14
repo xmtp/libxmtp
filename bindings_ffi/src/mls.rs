@@ -2287,9 +2287,9 @@ mod tests {
         // Recreate client2 (new installation)
         let client2 = new_test_client_with_wallet(wallet2).await;
 
-        // Send a message that will break the group
+        // Send a message that will add the new installation key to the group
         client1_group
-            .send("This message will break the group".as_bytes().to_vec())
+            .send("This message will add the new installation key to the group".as_bytes().to_vec())
             .await
             .unwrap();
 
@@ -2301,6 +2301,78 @@ mod tests {
         let client2_group = client2.group(group.id()).unwrap();
         let client2_members = client2_group.list_members().unwrap();
         assert_eq!(client2_members.len(), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_remove_user_after_create_new_installations() {
+        let wallet1_key = &mut rng();
+        let wallet1 = xmtp_cryptography::utils::LocalWallet::new(wallet1_key);
+        let wallet2_key = &mut rng();
+        let wallet2 = xmtp_cryptography::utils::LocalWallet::new(wallet2_key);
+
+        // Create clients
+        let client1 = new_test_client_with_wallet(wallet1).await;
+        let client2 = new_test_client_with_wallet(wallet2.clone()).await;
+        // Create a new group with client1 including wallet2
+
+        let group = client1
+            .conversations()
+            .create_group(
+                vec![client2.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Sync groups
+        client1.conversations().sync().await.unwrap();
+        client2.conversations().sync().await.unwrap();
+
+        // Find groups for both clients
+        let client1_group = client1.group(group.id()).unwrap();
+        let client2_group = client2.group(group.id()).unwrap();
+
+        // Assert both clients see 2 members
+        let client1_members = client1_group.list_members().unwrap();
+        assert_eq!(client1_members.len(), 2);
+
+        let client2_members = client2_group.list_members().unwrap();
+        assert_eq!(client2_members.len(), 2);
+
+        // Drop and delete local database for client2
+        client2.release_db_connection().unwrap();
+
+        // Recreate client2 (new installation)
+        let client2 = new_test_client_with_wallet(wallet2).await;
+
+        // Send a message that will add the new installation key to the group
+        client1_group
+            .send("This message will add the new installation key to the group".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        client2.conversations().sync().await.unwrap();
+        let client2_group = client2.group(group.id()).unwrap();
+        client2_group.sync().await.unwrap();
+
+        // Assert client1 still sees 2 members
+        let client1_members = client1_group.list_members().unwrap();
+        assert_eq!(client1_members.len(), 2);
+
+        client1_group.remove_members(vec![client2.account_address.clone()]).await.unwrap();
+        client1.conversations().sync().await.unwrap();
+
+        // // Assert client1 sees 1 members
+        let client1_members = client1_group.list_members().unwrap();
+        assert_eq!(client1_members.len(), 1);
+
+        client2.conversations().sync().await.unwrap();
+        client2_group.sync().await.unwrap();
+
+        let client2_group = client2.group(group.id()).unwrap();
+        let client2_members = client2_group.list_members().unwrap();
+        assert_eq!(client2_members.len(), 2);
+        assert_eq!(client2_group.is_active().unwrap(), false);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
