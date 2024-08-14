@@ -84,7 +84,7 @@ pub async fn create_groups(
         group.add_members_by_inbox_id(client, ids.clone()).await?;
         for msg_index in 0..num_msgs {
             group
-                .send_message(format!("Alix message {msg_index}").as_bytes(), &client)
+                .send_message(format!("Alix message {msg_index}").as_bytes(), client)
                 .await?;
         }
         groups.push(group);
@@ -102,7 +102,7 @@ pub async fn create_messages<S: AsRef<str>>(
     let name = name.as_ref();
     for msg_index in 0..num_msgs {
         group
-            .send_message(format!("{name} Message {msg_index}").as_bytes(), &client)
+            .send_message(format!("{name} Message {msg_index}").as_bytes(), client)
             .await?;
         messages += 1;
     }
