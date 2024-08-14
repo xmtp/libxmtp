@@ -70,9 +70,6 @@ impl VerifiedKeyPackage {
                 ),
             );
         }
-        if !kp.life_time().is_valid() {
-            return Err(KeyPackageVerificationError::InvalidLifetime);
-        }
 
         Ok(Self::new(kp, account_address))
     }
