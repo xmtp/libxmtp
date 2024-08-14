@@ -7,10 +7,12 @@ use rand::{
 use std::sync::Arc;
 use tokio::{sync::Notify, time::error::Elapsed};
 use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
+use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_id::associations::{generate_inbox_id, RecoverableEcdsaSignature};
 
 use crate::{
     builder::ClientBuilder,
+    groups::{GroupMetadataOptions, MlsGroup},
     identity::IdentityStrategy,
     storage::{EncryptedMessageStore, StorageOption},
     types::Address,
@@ -46,6 +48,65 @@ pub fn tmp_path() -> String {
 pub fn rand_time() -> i64 {
     let mut rng = rand::thread_rng();
     rng.gen_range(0..1_000_000_000)
+}
+
+/// Create a bunch of random clients
+pub async fn create_bulk_clients(num: usize) -> Vec<Arc<Client<TestClient>>> {
+    let mut futures = vec![];
+    for _ in 0..num {
+        futures.push(async move {
+            let local = generate_local_wallet();
+            Arc::new(ClientBuilder::new_test_client(&local).await)
+        });
+    }
+    futures::future::join_all(futures).await
+}
+
+pub async fn create_groups(
+    client: &Client<TestClient>,
+    peers: &[Arc<Client<TestClient>>],
+    num_groups: usize,
+    num_msgs: usize,
+) -> Result<Vec<MlsGroup>, anyhow::Error> {
+    let mut groups = vec![];
+    let ids = peers.iter().map(|p| p.inbox_id()).collect::<Vec<String>>();
+
+    for index in 0..num_groups {
+        let group = client.create_group(
+            None,
+            GroupMetadataOptions {
+                name: Some(format!("group {index}")),
+                image_url_square: Some(format!("www.group{index}.com")),
+                description: Some(format!("group {index}")),
+                ..Default::default()
+            },
+        )?;
+        group.add_members_by_inbox_id(client, ids.clone()).await?;
+        for msg_index in 0..num_msgs {
+            group
+                .send_message(format!("Alix message {msg_index}").as_bytes(), &client)
+                .await?;
+        }
+        groups.push(group);
+    }
+    Ok(groups)
+}
+
+pub async fn create_messages<S: AsRef<str>>(
+    group: &MlsGroup,
+    client: &Client<TestClient>,
+    num_msgs: usize,
+    name: S,
+) -> Result<usize, anyhow::Error> {
+    let mut messages = 0;
+    let name = name.as_ref();
+    for msg_index in 0..num_msgs {
+        group
+            .send_message(format!("{name} Message {msg_index}").as_bytes(), &client)
+            .await?;
+        messages += 1;
+    }
+    Ok(messages)
 }
 
 #[async_trait::async_trait]

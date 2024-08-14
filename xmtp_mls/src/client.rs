@@ -229,7 +229,7 @@ impl XmtpMlsLocalContext {
         self.identity.installation_keys.to_public_vec()
     }
 
-    /// Get the account address of the blockchain account associated with this client
+    /// Get the inbox id associated with this client
     pub fn inbox_id(&self) -> InboxId {
         self.identity.inbox_id().clone()
     }

@@ -231,13 +231,13 @@ where
     ApiClient: XmtpApi,
 {
     pub fn stream_conversations_with_callback(
-        client: Arc<Client<ApiClient>>,
+        self: Arc<Self>,
         mut convo_callback: impl FnMut(MlsGroup) + Send + 'static,
     ) -> StreamHandle<Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
         let handle = tokio::spawn(async move {
-            let mut stream = client.stream_conversations().await.unwrap();
+            let mut stream = self.stream_conversations().await.unwrap();
             let _ = tx.send(());
             while let Some(convo) = stream.next().await {
                 convo_callback(convo)
@@ -252,14 +252,14 @@ where
     }
 
     pub(crate) fn stream_messages_with_callback(
-        client: Arc<Client<ApiClient>>,
+        self: Arc<Self>,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
     ) -> StreamHandle<Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
         let handle = tokio::spawn(async move {
-            let mut stream = Self::stream_messages(client, group_id_to_info).await?;
+            let mut stream = Self::stream_messages(self, group_id_to_info).await?;
             let _ = tx.send(());
             while let Some(message) = stream.next().await {
                 callback(message)
@@ -274,11 +274,11 @@ where
     }
 
     pub async fn stream_all_messages(
-        client: Arc<Client<ApiClient>>,
+        self: Arc<Self>,
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage, ClientError>>, ClientError> {
-        client.sync_welcomes().await?;
+        self.sync_welcomes().await?;
 
-        let mut group_id_to_info = client
+        let mut group_id_to_info = self
             .store()
             .conn()?
             .find_groups(None, None, None, None)?
@@ -287,8 +287,8 @@ where
             .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
 
         let stream = async_stream::stream! {
-            let client = client.clone();
-            let mut messages_stream = client
+            let client = self.clone();
+            let mut messages_stream = self
                 .clone()
                 .stream_messages(group_id_to_info.clone())
                 .await?;
@@ -351,13 +351,13 @@ where
     }
 
     pub fn stream_all_messages_with_callback(
-        client: Arc<Client<ApiClient>>,
+        self: Arc<Self>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
     ) -> StreamHandle<Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
         let handle = tokio::spawn(async move {
-            let mut stream = Self::stream_all_messages(client).await?;
+            let mut stream = Self::stream_all_messages(self).await?;
             let _ = tx.send(());
             while let Some(message) = stream.next().await {
                 match message {

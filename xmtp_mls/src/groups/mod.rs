@@ -1202,7 +1202,10 @@ mod tests {
     use diesel::connection::SimpleConnection;
     use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
     use prost::Message;
-    use std::sync::Arc;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
     use tracing_test::traced_test;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
@@ -1224,6 +1227,7 @@ mod tests {
             group_intent::IntentState,
             group_message::{GroupMessageKind, StoredGroupMessage},
         },
+        utils::test,
         xmtp_openmls_provider::XmtpOpenMlsProvider,
         Client, InboxOwner, XmtpApi,
     };
@@ -2804,5 +2808,87 @@ mod tests {
         } else {
             panic!("Expected error")
         }
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    async fn group_intent_could_not_be_committed() {
+        let alix_wallet = generate_local_wallet();
+        let alix = Arc::new(ClientBuilder::new_test_client(&alix_wallet).await);
+        let peers = test::create_bulk_clients(20).await;
+        let bo = peers[0].clone();
+
+        let group_callbacks = Arc::new(AtomicUsize::new(0));
+        let msg_callbacks = Arc::new(AtomicUsize::new(0));
+        let bo_group_callbacks = Arc::new(AtomicUsize::new(0));
+        let bo_message_callbacks = Arc::new(AtomicUsize::new(0));
+
+        let mut handle = alix.clone().stream_conversations_with_callback({
+            let group_callbacks = group_callbacks.clone();
+            move |_convo| {
+                group_callbacks.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        handle.wait_for_ready().await;
+
+        let mut handle = alix.clone().stream_all_messages_with_callback({
+            let msg_callbacks = msg_callbacks.clone();
+            move |_message| {
+                msg_callbacks.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        handle.wait_for_ready().await;
+
+        let mut handle = bo.clone().stream_conversations_with_callback({
+            let bo_group_callbacks = bo_group_callbacks.clone();
+            move |_convo| {
+                bo_group_callbacks.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        handle.wait_for_ready().await;
+
+        let mut handle = bo.clone().stream_all_messages_with_callback({
+            let bo_message_callbacks = bo_message_callbacks.clone();
+            move |_message| {
+                bo_message_callbacks.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        handle.wait_for_ready().await;
+
+        let groups = test::create_groups(&alix, &peers, 1, 10).await.unwrap();
+
+        log::info!(
+            "Alix streamed {} groups (1)",
+            group_callbacks.load(Ordering::SeqCst)
+        );
+        log::info!(
+            "Alix streamed {} messages (10)",
+            msg_callbacks.load(Ordering::SeqCst)
+        );
+
+        let alix_group = groups[0].clone();
+        let bo_group = bo.group(alix_group.group_id.clone()).unwrap();
+
+        test::create_messages(&bo_group, &bo, 10, "Bo")
+            .await
+            .unwrap();
+        test::create_messages(&alix_group, &alix, 10, "Alix")
+            .await
+            .unwrap();
+
+        log::info!(
+            "Alix Streamed {} groups (1)",
+            group_callbacks.load(Ordering::SeqCst)
+        );
+        log::info!(
+            "Alix Streamed {} messages (30)",
+            msg_callbacks.load(Ordering::SeqCst)
+        );
+        log::info!(
+            "Bo Streamed {} groups (1)",
+            bo_group_callbacks.load(Ordering::SeqCst),
+        );
+        log::info!(
+            "Bo Streamed {} messages (30)",
+            bo_message_callbacks.load(Ordering::SeqCst)
+        );
     }
 }
