@@ -1,22 +1,21 @@
 #![allow(unsafe_code)] //TODO: can probably remove for wa-sqlite
-use super::bind_collector::{InternalSqliteBindValue, SqliteBindCollector};
+use super::bind_collector::{OwnedSqliteBindValue, SqliteBindCollectorData};
 use super::raw::RawConnection;
 use super::sqlite_value::OwnedSqliteValue;
 use crate::ffi::SQLiteCompatibleType;
 use crate::{
     sqlite_types::{self, PrepareOptions, SqlitePrepareFlags},
-    SqliteType, WasmSqlite,
+    SqliteType,
 };
 use diesel::{
     connection::{
         statement_cache::{MaybeCached, PrepareForCache},
         Instrumentation,
     },
-    query_builder::{QueryFragment, QueryId},
-    result::{Error::DatabaseError, *},
+    result::{Error, QueryResult},
 };
 use std::cell::OnceCell;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use wasm_bindgen::JsValue;
 
@@ -90,7 +89,7 @@ impl Statement {
     fn bind(
         &self,
         _tpe: SqliteType,
-        value: InternalSqliteBindValue<'_>,
+        value: OwnedSqliteBindValue,
         bind_index: i32,
     ) -> QueryResult<i32> {
         let sqlite3 = crate::get_sqlite_unchecked();
@@ -100,7 +99,7 @@ impl Statement {
             .bind(&self.inner_statement, bind_index, value.into())
             .unwrap();
 
-        // TODO:insipx Pretty sure we can have a simpler implementation here
+        // TODO:insipx Pretty sure we can have a simpler implementation here vs diesel
         // making use of `wa-sqlite` `bind` which abstracts over the individual bind functions in
         // sqlite3. However, not sure  how this will work further up the stack.
         // This might not work because of differences in how serde_json recognizes js types
@@ -178,48 +177,33 @@ impl Drop for Statement {
 // * https://github.com/weiznich/diesel/pull/7
 // * https://users.rust-lang.org/t/code-review-for-unsafe-code-in-diesel/66798/
 // * https://github.com/rust-lang/unsafe-code-guidelines/issues/194
-struct BoundStatement<'stmt, 'query> {
+struct BoundStatement<'stmt> {
     statement: MaybeCached<'stmt, Statement>,
     // we need to store the query here to ensure no one does
     // drop it till the end of the statement
     // We use a boxed queryfragment here just to erase the
     // generic type, we use NonNull to communicate
     // that this is a shared buffer
-    query: Option<Box<dyn QueryFragment<WasmSqlite> + 'query>>,
-    instrumentation: &'stmt Mutex<dyn Instrumentation>,
+    // query: Option<Box<dyn QueryFragment<WasmSqlite>>>,
+    #[allow(unused)]
+    instrumentation: Arc<Mutex<dyn Instrumentation>>,
     has_error: bool,
 }
 
-impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
-    fn bind<T>(
+impl<'stmt> BoundStatement<'stmt> {
+    fn bind(
         statement: MaybeCached<'stmt, Statement>,
-        query: T,
-        instrumentation: &'stmt Mutex<dyn Instrumentation>,
-    ) -> QueryResult<BoundStatement<'stmt, 'query>>
-    where
-        T: QueryFragment<WasmSqlite> + QueryId + 'query,
-    {
-        // Don't use a trait object here to prevent using a virtual function call
-        // For sqlite this can introduce a measurable overhead
-        // Query is boxed here to make sure it won't move in memory anymore, so any bind
-        // it could output would stay valid.
-        let query = Box::new(query);
-
-        let mut bind_collector = SqliteBindCollector::new();
-        query.collect_binds(&mut bind_collector, &mut (), &WasmSqlite)?;
-        let SqliteBindCollector { binds } = bind_collector;
-
+        bind_collector: SqliteBindCollectorData,
+        instrumentation: Arc<Mutex<dyn Instrumentation>>,
+    ) -> QueryResult<BoundStatement<'stmt>> {
+        let SqliteBindCollectorData { binds } = bind_collector;
         let mut ret = BoundStatement {
             statement,
-            query: None,
             instrumentation,
             has_error: false,
         };
 
         ret.bind_buffers(binds)?;
-
-        let query = query as Box<dyn QueryFragment<WasmSqlite> + 'query>;
-        ret.query = Some(query);
 
         Ok(ret)
     }
@@ -227,10 +211,7 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
     // This is a separated function so that
     // not the whole constructor is generic over the query type T.
     // This hopefully prevents binary bloat.
-    fn bind_buffers(
-        &mut self,
-        binds: Vec<(InternalSqliteBindValue<'_>, SqliteType)>,
-    ) -> QueryResult<()> {
+    fn bind_buffers(&mut self, binds: Vec<(OwnedSqliteBindValue, SqliteType)>) -> QueryResult<()> {
         for (bind_idx, (bind, tpe)) in (1..).zip(binds) {
             // It's safe to call bind here as:
             // * The type and value matches
@@ -252,18 +233,6 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
 
     fn finish_query_with_error(mut self, _e: &Error) {
         self.has_error = true;
-        /*
-        if let Some(q) = self.query {
-            // it's safe to get a reference from this ptr as it's guaranteed to not be null
-            let q = unsafe { q.as_ref() };
-            self.instrumentation.on_connection_event(
-                diesel::connection::InstrumentationEvent::FinishQuery {
-                    query: &crate::debug_query(&q),
-                    error: Some(e),
-                },
-            );
-        }
-        */
     }
 
     // FIXME: [`AsyncDrop`](https://github.com/rust-lang/rust/issues/126482) is a missing feature in rust.
@@ -275,7 +244,7 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
 }
 
 // Eventually replace with `AsyncDrop`: https://github.com/rust-lang/rust/issues/126482
-impl<'stmt, 'query> Drop for BoundStatement<'stmt, 'query> {
+impl<'stmt> Drop for BoundStatement<'stmt> {
     fn drop(&mut self) {
         let sender = self
             .statement
@@ -283,27 +252,24 @@ impl<'stmt, 'query> Drop for BoundStatement<'stmt, 'query> {
             .take()
             .expect("Drop may only be ran once");
         let _ = sender.send(self.statement.inner_statement.clone());
-        self.query.take();
     }
 }
 
 #[allow(missing_debug_implementations)]
-pub struct StatementUse<'stmt, 'query> {
-    statement: BoundStatement<'stmt, 'query>,
+pub struct StatementUse<'stmt> {
+    statement: BoundStatement<'stmt>,
     column_names: OnceCell<Vec<String>>,
 }
 
-impl<'stmt, 'query> StatementUse<'stmt, 'query> {
-    pub(super) fn bind<T>(
+impl<'stmt> StatementUse<'stmt> {
+    pub(super) fn bind(
         statement: MaybeCached<'stmt, Statement>,
-        query: T,
-        instrumentation: &'stmt Mutex<dyn Instrumentation>,
-    ) -> QueryResult<StatementUse<'stmt, 'query>>
-    where
-        T: QueryFragment<WasmSqlite> + QueryId + 'query,
-    {
+        bind_collector: SqliteBindCollectorData,
+        instrumentation: Arc<Mutex<dyn Instrumentation>>,
+    ) -> QueryResult<StatementUse<'stmt>>
+where {
         Ok(Self {
-            statement: BoundStatement::bind(statement, query, instrumentation)?,
+            statement: BoundStatement::bind(statement, bind_collector, instrumentation)?,
             column_names: OnceCell::new(),
         })
     }

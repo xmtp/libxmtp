@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+// functions are needed, but missing functionality means they aren't used yet.
+
 use crate::{
     sqlite_types::{SqliteFlags, SqliteOpenFlags},
     SqliteType, WasmSqlite, WasmSqliteError,
@@ -159,7 +162,7 @@ impl RawConnection {
 }
 
 #[async_trait::async_trait(?Send)]
-impl diesel_async::stmt_cache::PrepareCallback<Statement, SqliteType> for RawConnection {
+impl diesel_async::stmt_cache::PrepareCallback<Statement, SqliteType> for &'_ mut RawConnection {
     async fn prepare(
         self,
         sql: &str,

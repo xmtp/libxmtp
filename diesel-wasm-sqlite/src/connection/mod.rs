@@ -5,7 +5,7 @@ mod raw;
 mod row;
 // mod serialized_database;
 mod sqlite_value;
-// mod statement_iterator;
+mod statement_stream;
 mod stmt;
 
 pub(crate) use self::bind_collector::SqliteBindCollector;
@@ -17,15 +17,19 @@ use self::raw::RawConnection;
 // use self::statement_iterator::*;
 use self::stmt::{Statement, StatementUse};
 use crate::query_builder::*;
-use diesel::{connection::{statement_cache::StatementCacheKey, DefaultLoadingMode, LoadConnection}, deserialize::{FromSqlRow, StaticallySizedRow}, expression::QueryMetadata, query_builder::QueryBuilder as _, result::*, serialize::ToSql, sql_types::HasSqlType};
-use futures::{FutureExt, TryFutureExt};
+use diesel::query_builder::MoveableBindCollector;
+use diesel::{connection::{statement_cache::StatementCacheKey}, query_builder::QueryBuilder as _, result::*};
+use futures::future::LocalBoxFuture;
+use futures::stream::LocalBoxStream;
+use futures::FutureExt;
+use owned_row::OwnedSqliteRow;
+use statement_stream::StatementStream;
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 
-use diesel::{connection::{ConnectionSealed, Instrumentation, WithMetadataLookup}, query_builder::{AsQuery, QueryFragment, QueryId}, sql_types::TypeMetadata, QueryResult};
+use diesel::{connection::{ConnectionSealed, Instrumentation}, query_builder::{AsQuery, QueryFragment, QueryId}, QueryResult};
 pub use diesel_async::{AnsiTransactionManager, AsyncConnection, SimpleAsyncConnection, TransactionManager, stmt_cache::StmtCache};
-use futures::{future::BoxFuture, stream::BoxStream};
-use row::SqliteRow;
 
 use crate::{get_sqlite_unchecked, WasmSqlite, WasmSqliteError};
 
@@ -35,10 +39,9 @@ pub struct WasmSqliteConnection {
     // connection itself
     statement_cache: StmtCache<WasmSqlite, Statement>,
     pub raw_connection: RawConnection,
-    transaction_state: AnsiTransactionManager,
+    transaction_manager: AnsiTransactionManager,
     // this exists for the sole purpose of implementing `WithMetadataLookup` trait
     // and avoiding static mut which will be deprecated in 2024 edition
-    metadata_lookup: (),
     instrumentation: Arc<Mutex<Option<Box<dyn Instrumentation>>>>,
 }
 
@@ -69,37 +72,44 @@ impl SimpleAsyncConnection for WasmSqliteConnection {
 impl AsyncConnection for WasmSqliteConnection {
     type Backend = WasmSqlite;
     type TransactionManager = AnsiTransactionManager;
-    type ExecuteFuture<'conn, 'query> = BoxFuture<'query, QueryResult<usize>>;
-    type LoadFuture<'conn, 'query> = BoxFuture<'query, QueryResult<Self::Stream<'conn, 'query>>>;
-    type Stream<'conn, 'query> = BoxStream<'static, QueryResult<SqliteRow<'conn, 'query>>>;
-    type Row<'conn, 'query> = SqliteRow<'conn, 'query>;
+    type ExecuteFuture<'conn, 'query> = LocalBoxFuture<'conn, QueryResult<usize>>;
+    type LoadFuture<'conn, 'query> = LocalBoxFuture<'conn, QueryResult<Self::Stream<'conn, 'query>>>;
+    type Stream<'conn, 'query> = LocalBoxStream<'conn, QueryResult<Self::Row<'conn, 'query>>>;
+    type Row<'conn, 'query> = OwnedSqliteRow;
 
     async fn establish(database_url: &str) -> diesel::prelude::ConnectionResult<Self> {
         WasmSqliteConnection::establish_inner(database_url).await
     }
 
-    fn load<'conn, 'query, T>(&'conn mut self, _source: T) -> Self::LoadFuture<'conn, 'query>
+    fn load<'conn, 'query, T>(&'conn mut self, source: T) -> Self::LoadFuture<'conn, 'query>
     where
-        T: AsQuery + 'query,
-        T::Query: QueryFragment<Self::Backend> + QueryId + 'query,
+        T: AsQuery,
+        T::Query: QueryFragment<Self::Backend> + QueryId,
     {
-        todo!()
+        let query = source.as_query();
+        self.with_prepared_statement(query, |_, statement| async move {
+            Ok(StatementStream::new(statement).stream())
+        })
     }
 
     fn execute_returning_count<'conn, 'query, T>(
         &'conn mut self,
-        _source: T,
+        query: T,
     ) -> Self::ExecuteFuture<'conn, 'query>
     where
         T: QueryFragment<Self::Backend> + QueryId + 'query,
     {
-        todo!()
+        self.with_prepared_statement(query, |conn, statement| async move {
+            statement.run().await.map(|_| {
+                conn.rows_affected_by_last_query()
+            })
+        })
     }
     
     fn transaction_state(
         &mut self,
     ) -> &mut <Self::TransactionManager as diesel_async::TransactionManager<Self>>::TransactionStateData{
-        todo!()
+        &mut self.transaction_manager
     }
 
     fn instrumentation(&mut self) -> &mut dyn Instrumentation {
@@ -111,32 +121,7 @@ impl AsyncConnection for WasmSqliteConnection {
     }
 }
 
-/*
-impl LoadConnection<DefaultLoadingMode> for WasmSqliteConnection {
-    type Cursor<'conn, 'query> = StatementIterator<'conn, 'query>;
-    type Row<'conn, 'query> = self::row::SqliteRow<'conn, 'query>;
 
-    fn load<'conn, 'query, T>(
-        &'conn mut self,
-        source: T,
-    ) -> QueryResult<Self::Cursor<'conn, 'query>>
-    where
-        T: Query + QueryFragment<Self::Backend> + QueryId + 'query,
-        Self::Backend: QueryMetadata<T::SqlType>,
-    {
-        let statement = self.prepared_query(source)?;
-
-        Ok(StatementIterator::new(statement))
-    }
-}
-*/
-/*
-impl WithMetadataLookup for WasmSqliteConnection {
-    fn metadata_lookup(&mut self) -> &mut <WasmSqlite as TypeMetadata>::MetadataLookup {
-        &mut self.metadata_lookup
-    }
-}
- */
 
 #[cfg(feature = "r2d2")]
 impl crate::r2d2::R2D2Connection for crate::sqlite::SqliteConnection {
@@ -243,39 +228,53 @@ impl WasmSqliteConnection {
         }
     }
     
-    async fn prepared_query<'conn, 'query, T>(
+    fn with_prepared_statement<'conn, Q, F, R>(
         &'conn mut self,
-        source: T,
-    ) -> QueryResult<StatementUse<'conn, 'query>>
+        query: Q,
+        callback: impl (FnOnce(&'conn mut RawConnection, StatementUse<'conn>) -> F) + 'conn
+    ) -> LocalBoxFuture<'_, QueryResult<R>>
     where
-        T: QueryFragment<WasmSqlite> + QueryId + 'query,
+        Q: QueryFragment<WasmSqlite> + QueryId,
+        F: Future<Output = QueryResult<R>>,
     {
-        let raw_connection = &self.raw_connection;
-        let cache = &mut self.statement_cache;
-        let maybe_type_id = T::query_id();
-        let cache_key = StatementCacheKey::for_source(maybe_type_id, &source, &[], &WasmSqlite)?;
-       
-
-        let is_safe_to_cache_prepared = source.is_safe_to_cache_prepared(&WasmSqlite)?;
+        let WasmSqliteConnection {
+            ref mut raw_connection,
+            ref mut statement_cache,
+            ref mut instrumentation,
+            ..
+        } = self;
+        
+        let maybe_type_id = Q::query_id();
+        let instrumentation = instrumentation.clone();
+        
+        let cache_key = StatementCacheKey::for_source(maybe_type_id, &query, &[], &WasmSqlite);
+        let is_safe_to_cache_prepared = query.is_safe_to_cache_prepared(&WasmSqlite);
+      
+        // C put this in box to avoid virtual fn call for SQLite C
+        // not sure if that still applies here
+        let query = Box::new(query);
+        let mut bind_collector = SqliteBindCollector::new();
+        let bind_collector = query.collect_binds(&mut bind_collector, &mut (), &WasmSqlite).map(|()| bind_collector.moveable());
+        
         let mut qb = SqliteQueryBuilder::new();
-        let sql = source.to_sql(&mut qb, &WasmSqlite).map(|()| qb.finish())?;
+        let sql = query.to_sql(&mut qb, &WasmSqlite).map(|()| qb.finish()); 
         
-        let statement = cache.cached_prepared_statement(
-            cache_key,
-            sql,
-            is_safe_to_cache_prepared,
-            &[],
-            raw_connection.clone(),
-            &self.instrumentation,
-        ).await?.0; // Cloned RawConnection is dropped here
-        
-
-        Ok(StatementUse::bind(statement, source, self.instrumentation.as_ref())?)
-        
+        async move {
+            let (statement, conn) = statement_cache.cached_prepared_statement(
+                cache_key?,
+                sql?,
+                is_safe_to_cache_prepared?,
+                &[],
+                raw_connection,
+                &instrumentation,
+            ).await?; // Cloned RawConnection is dropped here
+            let statement = StatementUse::bind(statement, bind_collector?, instrumentation)?;
+            callback(conn, statement).await
+        }.boxed_local()
     }
     
     async fn establish_inner(database_url: &str) -> Result<WasmSqliteConnection, ConnectionError> {
-        use diesel::result::ConnectionError::CouldntSetupConfiguration;
+        // use diesel::result::ConnectionError::CouldntSetupConfiguration;
         let raw_connection = RawConnection::establish(database_url).await.unwrap();
         let sqlite3 = crate::get_sqlite().await;
         
@@ -284,8 +283,7 @@ impl WasmSqliteConnection {
         Ok(Self {
             statement_cache: StmtCache::new(),
             raw_connection,
-            transaction_state: AnsiTransactionManager::default(),
-            metadata_lookup: (),
+            transaction_manager: AnsiTransactionManager::default(),
             instrumentation: Arc::new(Mutex::new(None)),
         })
     }

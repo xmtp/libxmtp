@@ -2,7 +2,7 @@
 
 use std::cell::Ref;
 
-use crate::ffi::{self, SQLiteCompatibleType};
+use crate::ffi::SQLiteCompatibleType;
 use crate::{backend::SqliteType, sqlite_types};
 use wasm_bindgen::JsValue;
 
@@ -14,11 +14,11 @@ use super::row::PrivateSqliteRow;
 /// Use existing `FromSql` implementations to convert this into
 /// rust values
 #[allow(missing_debug_implementations, missing_copy_implementations)]
-pub struct SqliteValue<'row, 'stmt, 'query> {
+pub struct SqliteValue<'row, 'stmt> {
     // This field exists to ensure that nobody
     // can modify the underlying row while we are
     // holding a reference to some row value here
-    _row: Option<Ref<'row, PrivateSqliteRow<'stmt, 'query>>>,
+    _row: Option<Ref<'row, PrivateSqliteRow<'stmt>>>,
     // we extract the raw value pointer as part of the constructor
     // to safe the match statements for each method
     // According to benchmarks this leads to a ~20-30% speedup
@@ -39,11 +39,11 @@ pub(super) struct OwnedSqliteValue {
 // see https://www.sqlite.org/c3ref/value.html
 unsafe impl Send for OwnedSqliteValue {}
 
-impl<'row, 'stmt, 'query> SqliteValue<'row, 'stmt, 'query> {
+impl<'row, 'stmt> SqliteValue<'row, 'stmt> {
     pub(super) fn new(
-        row: Ref<'row, PrivateSqliteRow<'stmt, 'query>>,
+        row: Ref<'row, PrivateSqliteRow<'stmt>>,
         col_idx: i32,
-    ) -> Option<SqliteValue<'row, 'stmt, 'query>> {
+    ) -> Option<SqliteValue<'row, 'stmt>> {
         let value = match &*row {
             PrivateSqliteRow::Direct(stmt) => stmt.column_value(col_idx)?,
             PrivateSqliteRow::Duplicated { values, .. } => values
@@ -67,7 +67,7 @@ impl<'row, 'stmt, 'query> SqliteValue<'row, 'stmt, 'query> {
     pub(super) fn from_owned_row(
         row: &'row OwnedSqliteRow,
         col_idx: i32,
-    ) -> Option<SqliteValue<'row, 'stmt, 'query>> {
+    ) -> Option<SqliteValue<'row, 'stmt>> {
         let value = row
             .values
             .get(col_idx as usize)
@@ -81,38 +81,39 @@ impl<'row, 'stmt, 'query> SqliteValue<'row, 'stmt, 'query> {
             Some(ret)
         }
     }
+    /*
+        pub(crate) fn parse_string<R>(&self, f: impl FnOnce(String) -> R) -> R {
+            let sqlite3 = crate::get_sqlite_unchecked();
+            let s = sqlite3.value_text(&self.value);
+            f(s)
+        }
 
-    pub(crate) fn parse_string<R>(&self, f: impl FnOnce(String) -> R) -> R {
-        let sqlite3 = crate::get_sqlite_unchecked();
-        let s = sqlite3.value_text(&self.value);
-        f(s)
-    }
+        // TODO: Wasm bindgen can't work with references yet
+        // not sure if this will effect perf
+        pub(crate) fn read_text(&self) -> String {
+            self.parse_string(|s| s)
+        }
 
-    // TODO: Wasm bindgen can't work with references yet
-    // not sure if this will effect perf
-    pub(crate) fn read_text(&self) -> String {
-        self.parse_string(|s| s)
-    }
+        pub(crate) fn read_blob(&self) -> Vec<u8> {
+            let sqlite3 = crate::get_sqlite_unchecked();
+            sqlite3.value_blob(&self.value)
+        }
 
-    pub(crate) fn read_blob(&self) -> Vec<u8> {
-        let sqlite3 = crate::get_sqlite_unchecked();
-        sqlite3.value_blob(&self.value)
-    }
+        pub(crate) fn read_integer(&self) -> i32 {
+            let sqlite3 = crate::get_sqlite_unchecked();
+            sqlite3.value_int(&self.value)
+        }
 
-    pub(crate) fn read_integer(&self) -> i32 {
-        let sqlite3 = crate::get_sqlite_unchecked();
-        sqlite3.value_int(&self.value)
-    }
+        pub(crate) fn read_long(&self) -> i64 {
+            let sqlite3 = crate::get_sqlite_unchecked();
+            sqlite3.value_int64(&self.value)
+        }
 
-    pub(crate) fn read_long(&self) -> i64 {
-        let sqlite3 = crate::get_sqlite_unchecked();
-        sqlite3.value_int64(&self.value)
-    }
-
-    pub(crate) fn read_double(&self) -> f64 {
-        let sqlite3 = crate::get_sqlite_unchecked();
-        sqlite3.value_double(&self.value)
-    }
+        pub(crate) fn read_double(&self) -> f64 {
+            let sqlite3 = crate::get_sqlite_unchecked();
+            sqlite3.value_double(&self.value)
+        }
+    */
 
     /// Get the type of the value as returned by sqlite
     pub fn value_type(&self) -> Option<SqliteType> {
