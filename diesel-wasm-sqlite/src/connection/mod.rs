@@ -21,7 +21,9 @@ use diesel::{connection::{statement_cache::StatementCacheKey}, query_builder::Qu
 use futures::future::LocalBoxFuture;
 use futures::stream::LocalBoxStream;
 use futures::FutureExt;
-use statement_stream::PrivateStatementStream;
+use owned_row::OwnedSqliteRow;
+use statement_stream::StatementStream;
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 
@@ -72,9 +74,9 @@ impl AsyncConnection for WasmSqliteConnection {
     type Backend = WasmSqlite;
     type TransactionManager = AnsiTransactionManager;
     type ExecuteFuture<'conn, 'query> = LocalBoxFuture<'query, QueryResult<usize>>;
-    type LoadFuture<'conn, 'query> = LocalBoxFuture<'query, QueryResult<Self::Stream<'conn, 'query>>>;
-    type Stream<'conn, 'query> = LocalBoxStream<'query, QueryResult<SqliteRow<'conn, 'query>>>;
-    type Row<'conn, 'query> = SqliteRow<'conn, 'query>;
+    type LoadFuture<'conn, 'query> = LocalBoxFuture<'static, QueryResult<Self::Stream<'conn, 'query>>>;
+    type Stream<'conn, 'query> = LocalBoxStream<'conn, QueryResult<OwnedSqliteRow>>;
+    type Row<'conn, 'query> = OwnedSqliteRow;
 
     async fn establish(database_url: &str) -> diesel::prelude::ConnectionResult<Self> {
         WasmSqliteConnection::establish_inner(database_url).await
@@ -85,10 +87,9 @@ impl AsyncConnection for WasmSqliteConnection {
         T: AsQuery + 'query,
         T::Query: QueryFragment<Self::Backend> + QueryId + 'query,
     {
-        async {
-            let statement = self.prepared_query(source.as_query()).await?;
-            Ok(PrivateStatementStream::new(statement).stream())
-        }.boxed_local()
+        self.with_prepared_statement(source.as_query(), |statement| async move {
+            Ok(StatementStream::new(statement).stream())
+        })
     }
 
     fn execute_returning_count<'conn, 'query, T>(
@@ -248,35 +249,44 @@ impl WasmSqliteConnection {
         }
     }
     
-    async fn prepared_query<'conn, 'query, T>(
+    fn with_prepared_statement<'conn, T, F, R>(
         &'conn mut self,
         source: T,
-    ) -> QueryResult<StatementUse<'conn, 'query>>
+        callback: impl (FnOnce(StatementUse<'conn>) -> F) + 'conn
+    ) -> LocalBoxFuture<'conn, QueryResult<R>>
     where
-        T: QueryFragment<WasmSqlite> + QueryId + 'query,
+        T: QueryFragment<WasmSqlite> + QueryId,
+        F: Future<Output = QueryResult<R>>,
+        R: 'conn
     {
-        let raw_connection = &self.raw_connection;
-        let cache = &mut self.statement_cache;
+        let WasmSqliteConnection {
+            ref mut raw_connection,
+            ref mut statement_cache,
+            ref mut instrumentation,
+            ..
+        } = self;
         let maybe_type_id = T::query_id();
-        let cache_key = StatementCacheKey::for_source(maybe_type_id, &source, &[], &WasmSqlite)?;
-       
 
-        let is_safe_to_cache_prepared = source.is_safe_to_cache_prepared(&WasmSqlite)?;
-        let mut qb = SqliteQueryBuilder::new();
-        let sql = source.to_sql(&mut qb, &WasmSqlite).map(|()| qb.finish())?;
-        
-        let statement = cache.cached_prepared_statement(
-            cache_key,
-            sql,
-            is_safe_to_cache_prepared,
-            &[],
-            raw_connection.clone(),
-            &self.instrumentation,
-        ).await?.0; // Cloned RawConnection is dropped here
-        
+        let instrumentation = instrumentation.clone();
+        async move {
+            let cache_key = StatementCacheKey::for_source(maybe_type_id, &source, &[], &WasmSqlite)?;
+           
 
-        Ok(StatementUse::bind(statement, source, self.instrumentation.as_ref())?)
-        
+            let is_safe_to_cache_prepared = source.is_safe_to_cache_prepared(&WasmSqlite)?;
+            let mut qb = SqliteQueryBuilder::new();
+            let sql = source.to_sql(&mut qb, &WasmSqlite).map(|()| qb.finish())?;
+            
+            let statement = statement_cache.cached_prepared_statement(
+                cache_key,
+                sql,
+                is_safe_to_cache_prepared,
+                &[],
+                raw_connection,
+                &instrumentation,
+            ).await?.0; // Cloned RawConnection is dropped here
+            let statement = StatementUse::bind(statement, source, instrumentation)?;
+            callback(statement).await
+        }.boxed_local()
     }
     
     async fn establish_inner(database_url: &str) -> Result<WasmSqliteConnection, ConnectionError> {

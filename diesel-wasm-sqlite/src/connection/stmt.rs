@@ -16,7 +16,7 @@ use diesel::{
     result::{Error, QueryResult},
 };
 use std::cell::OnceCell;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use wasm_bindgen::JsValue;
 
@@ -178,26 +178,26 @@ impl Drop for Statement {
 // * https://github.com/weiznich/diesel/pull/7
 // * https://users.rust-lang.org/t/code-review-for-unsafe-code-in-diesel/66798/
 // * https://github.com/rust-lang/unsafe-code-guidelines/issues/194
-struct BoundStatement<'stmt, 'query> {
+struct BoundStatement<'stmt> {
     statement: MaybeCached<'stmt, Statement>,
     // we need to store the query here to ensure no one does
     // drop it till the end of the statement
     // We use a boxed queryfragment here just to erase the
     // generic type, we use NonNull to communicate
     // that this is a shared buffer
-    query: Option<Box<dyn QueryFragment<WasmSqlite> + 'query>>,
-    instrumentation: &'stmt Mutex<dyn Instrumentation>,
+    query: Option<Box<dyn QueryFragment<WasmSqlite>>>,
+    instrumentation: Arc<Mutex<dyn Instrumentation>>,
     has_error: bool,
 }
 
-impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
+impl<'stmt> BoundStatement<'stmt> {
     fn bind<T>(
         statement: MaybeCached<'stmt, Statement>,
         query: T,
-        instrumentation: &'stmt Mutex<dyn Instrumentation>,
-    ) -> QueryResult<BoundStatement<'stmt, 'query>>
+        instrumentation: Arc<Mutex<dyn Instrumentation>>,
+    ) -> QueryResult<BoundStatement<'stmt>>
     where
-        T: QueryFragment<WasmSqlite> + QueryId + 'query,
+        T: QueryFragment<WasmSqlite> + QueryId,
     {
         // Don't use a trait object here to prevent using a virtual function call
         // For sqlite this can introduce a measurable overhead
@@ -218,7 +218,7 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
 
         ret.bind_buffers(binds)?;
 
-        let query = query as Box<dyn QueryFragment<WasmSqlite> + 'query>;
+        let query = query as Box<dyn QueryFragment<WasmSqlite> + 'static>;
         ret.query = Some(query);
 
         Ok(ret)
@@ -275,7 +275,7 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
 }
 
 // Eventually replace with `AsyncDrop`: https://github.com/rust-lang/rust/issues/126482
-impl<'stmt, 'query> Drop for BoundStatement<'stmt, 'query> {
+impl<'stmt> Drop for BoundStatement<'stmt> {
     fn drop(&mut self) {
         let sender = self
             .statement
@@ -288,19 +288,19 @@ impl<'stmt, 'query> Drop for BoundStatement<'stmt, 'query> {
 }
 
 #[allow(missing_debug_implementations)]
-pub struct StatementUse<'stmt, 'query> {
-    statement: BoundStatement<'stmt, 'query>,
+pub struct StatementUse<'stmt> {
+    statement: BoundStatement<'stmt>,
     column_names: OnceCell<Vec<String>>,
 }
 
-impl<'stmt, 'query> StatementUse<'stmt, 'query> {
+impl<'stmt> StatementUse<'stmt> {
     pub(super) fn bind<T>(
         statement: MaybeCached<'stmt, Statement>,
         query: T,
-        instrumentation: &'stmt Mutex<dyn Instrumentation>,
-    ) -> QueryResult<StatementUse<'stmt, 'query>>
+        instrumentation: Arc<Mutex<dyn Instrumentation>>,
+    ) -> QueryResult<StatementUse<'stmt>>
     where
-        T: QueryFragment<WasmSqlite> + QueryId + 'query,
+        T: QueryFragment<WasmSqlite> + QueryId,
     {
         Ok(Self {
             statement: BoundStatement::bind(statement, query, instrumentation)?,

@@ -159,7 +159,7 @@ impl RawConnection {
 }
 
 #[async_trait::async_trait(?Send)]
-impl diesel_async::stmt_cache::PrepareCallback<Statement, SqliteType> for RawConnection {
+impl diesel_async::stmt_cache::PrepareCallback<Statement, SqliteType> for &'_ mut RawConnection {
     async fn prepare(
         self,
         sql: &str,

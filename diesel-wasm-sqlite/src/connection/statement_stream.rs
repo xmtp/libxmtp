@@ -1,42 +1,27 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use super::owned_row::OwnedSqliteRow;
 use super::row::{PrivateSqliteRow, SqliteRow};
 use super::stmt::StatementUse;
 use diesel::result::QueryResult;
+use diesel::row::IntoOwnedRow;
 use futures::stream::LocalBoxStream;
-use futures::{Stream, TryStreamExt};
-
-pub struct StatementStream<'stmt, 'quer> {
-    stream: LocalBoxStream<'query, QueryResult<SqliteRow<'stmt, 'query>>>,
-}
-
-impl<'stmt, 'query> Stream for StatementStream<'stmt, 'query> {
-    type Item = QueryResult<SqliteRow<'stmt, 'query>>;
-
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        let stream = &mut self.stream;
-        stream.try_poll_next_unpin(cx)
-    }
-}
 
 #[allow(missing_debug_implementations)]
-pub struct PrivateStatementStream<'stmt, 'query> {
-    inner: StatementStreamState<'stmt, 'query>,
+pub struct StatementStream<'stmt> {
+    inner: StatementStreamState<'stmt>,
     column_names: Option<Rc<[Option<String>]>>,
     field_count: usize,
 }
 
-impl<'stmt, 'query> PrivateStatementStream<'stmt, 'query> {
+impl<'stmt> StatementStream<'stmt> {
     #[cold]
     async fn handle_duplicated_row_case(
-        outer_last_row: &mut Rc<RefCell<PrivateSqliteRow<'stmt, 'query>>>,
+        outer_last_row: &mut Rc<RefCell<PrivateSqliteRow<'stmt>>>,
         column_names: &mut Option<Rc<[Option<String>]>>,
         field_count: usize,
-    ) -> Option<QueryResult<SqliteRow<'stmt, 'query>>> {
+    ) -> Option<QueryResult<OwnedSqliteRow>> {
         // We don't own the statement. There is another existing reference, likely because
         // a user stored the row in some long time container before calling next another time
         // In this case we copy out the current values into a temporary store and advance
@@ -65,7 +50,8 @@ impl<'stmt, 'query> PrivateStatementStream<'stmt, 'query> {
                 Ok(true) => Some(Ok(SqliteRow {
                     inner: Rc::clone(outer_last_row),
                     field_count,
-                })),
+                }
+                .into_owned(&mut None))),
             }
         } else {
             // any other state than `PrivateSqliteRow::Direct` is invalid here
@@ -81,13 +67,13 @@ impl<'stmt, 'query> PrivateStatementStream<'stmt, 'query> {
     }
 }
 
-enum StatementStreamState<'stmt, 'query> {
-    NotStarted(Option<StatementUse<'stmt, 'query>>),
-    Started(Rc<RefCell<PrivateSqliteRow<'stmt, 'query>>>),
+enum StatementStreamState<'stmt> {
+    NotStarted(Option<StatementUse<'stmt>>),
+    Started(Rc<RefCell<PrivateSqliteRow<'stmt>>>),
 }
 
-impl<'stmt, 'query> PrivateStatementStream<'stmt, 'query> {
-    pub fn new(stmt: StatementUse<'stmt, 'query>) -> PrivateStatementStream<'stmt, 'query> {
+impl<'stmt> StatementStream<'stmt> {
+    pub fn new(stmt: StatementUse<'stmt>) -> StatementStream<'stmt> {
         Self {
             inner: StatementStreamState::NotStarted(Some(stmt)),
             column_names: None,
@@ -95,11 +81,11 @@ impl<'stmt, 'query> PrivateStatementStream<'stmt, 'query> {
         }
     }
 }
-/// Rolling a custom `Stream` impl on PrivateStatementStream was taking too long/tricky
+/// Rolling a custom `Stream` impl on StatementStream was taking too long/tricky
 /// so using `futures::unfold`. Rolling a custom `Stream` would probably be better,
 /// but performance wise/code-readability sense not very different
-impl<'stmt, 'query> PrivateStatementStream<'stmt, 'query> {
-    pub fn stream(self) -> LocalBoxStream<'query, QueryResult<SqliteRow<'stmt, 'query>>> {
+impl<'stmt> StatementStream<'stmt> {
+    pub fn stream(self) -> LocalBoxStream<'stmt, QueryResult<OwnedSqliteRow>> {
         use StatementStreamState::{NotStarted, Started};
         let stream = futures::stream::unfold(self, |mut statement| async move {
             match statement.inner {
@@ -114,7 +100,7 @@ impl<'stmt, 'query> PrivateStatementStream<'stmt, 'query> {
                             let inner = Rc::new(RefCell::new(PrivateSqliteRow::Direct(stmt)));
                             let new_inner = inner.clone();
                             Some((
-                                Ok(SqliteRow { inner, field_count }),
+                                Ok(SqliteRow { inner, field_count }.into_owned(&mut None)),
                                 Self {
                                     inner: Started(new_inner),
                                     ..statement
@@ -162,7 +148,8 @@ impl<'stmt, 'query> PrivateStatementStream<'stmt, 'query> {
                                         Ok(SqliteRow {
                                             inner: Rc::clone(last_row),
                                             field_count,
-                                        }),
+                                        }
+                                        .into_owned(&mut None)),
                                         Self {
                                             inner: Started(Rc::clone(last_row)),
                                             ..statement
