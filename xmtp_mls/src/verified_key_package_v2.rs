@@ -75,10 +75,6 @@ impl TryFrom<KeyPackage> for VerifiedKeyPackageV2 {
         let pub_key_bytes = leaf_node.signature_key().as_slice().to_vec();
         let credential = MlsCredential::decode(basic_credential.identity())?;
 
-        if !kp.life_time().is_valid() {
-            return Err(KeyPackageVerificationError::InvalidLifetime);
-        }
-
         Ok(Self::new(kp, credential, pub_key_bytes))
     }
 }

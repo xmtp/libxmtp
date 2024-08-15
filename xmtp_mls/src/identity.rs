@@ -269,9 +269,8 @@ impl Identity {
                     .await?,
                 ))
                 .await?;
-            let identity_update = signature_request.build_identity_update()?;
-            api_client.publish_identity_update(identity_update).await?;
 
+            // Make sure to register the identity before applying the signature request
             let identity = Self {
                 inbox_id: inbox_id.clone(),
                 installation_keys: signature_keys,
@@ -280,6 +279,9 @@ impl Identity {
             };
 
             identity.register(provider, api_client).await?;
+
+            let identity_update = signature_request.build_identity_update()?;
+            api_client.publish_identity_update(identity_update).await?;
 
             Ok(identity)
         } else {
@@ -424,7 +426,7 @@ impl Identity {
         }
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
-        api_client.register_installation(kp_bytes, true).await?;
+        api_client.upload_key_package(kp_bytes, true).await?;
 
         Ok(StoredIdentity::from(self).store(provider.conn_ref())?)
     }
