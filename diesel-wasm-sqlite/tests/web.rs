@@ -1,11 +1,13 @@
 #![cfg(target_arch = "wasm32")]
 
-use diesel::connection::Connection;
-use diesel_wasm_sqlite::connection::{AsyncConnection, WasmSqliteConnection};
+use diesel_async::RunQueryDsl;
+use diesel_wasm_sqlite::{
+    connection::{AsyncConnection, WasmSqliteConnection},
+    WasmSqlite,
+};
 use wasm_bindgen_test::*;
 use web_sys::console;
 
-use crate::WasmSqliteConnection;
 use chrono::NaiveDateTime;
 use diesel::debug_query;
 use diesel::insert_into;
@@ -45,19 +47,20 @@ pub struct User {
     updated_at: NaiveDateTime,
 }
 
-pub fn insert_default_values(conn: &mut WasmSqliteConnection) -> QueryResult<usize> {
+pub async fn insert_default_values(conn: &mut WasmSqliteConnection) -> QueryResult<usize> {
     use schema::users::dsl::*;
 
-    insert_into(users).default_values().execute(conn)
+    insert_into(users).default_values().execute(conn).await
 }
 
-#[test]
+#[wasm_bindgen_test]
 fn examine_sql_from_insert_default_values() {
     use schema::users::dsl::*;
 
     let query = insert_into(users).default_values();
     let sql = "INSERT INTO `users` DEFAULT VALUES -- binds: []";
-    assert_eq!(sql, debug_query::<Sqlite, _>(&query).to_string());
+    assert_eq!(sql, debug_query::<WasmSqlite, _>(&query).to_string());
+    console::log_1(&debug_query::<WasmSqlite, _>(&query).to_string().into());
 }
 
 /*

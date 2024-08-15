@@ -183,24 +183,3 @@ impl Drop for RawConnection {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::connection::{AsyncConnection, WasmSqliteConnection};
-    use diesel::connection::Connection;
-    use wasm_bindgen_test::*;
-    use web_sys::console;
-    wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
-    #[wasm_bindgen_test]
-    async fn test_fn_registration() {
-        let mut result = WasmSqliteConnection::establish("test").await;
-        let mut conn = result.unwrap();
-        console::log_1(&"CONNECTED".into());
-        conn.raw
-            .register_sql_function("test", 0, true, |ctx, values| {
-                console::log_1(&"Inside Fn".into());
-            });
-    }
-}
