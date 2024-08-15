@@ -89,19 +89,23 @@ impl AsyncConnection for WasmSqliteConnection {
         T::Query: QueryFragment<Self::Backend> + QueryId,
     {
         let query = source.as_query();
-        self.with_prepared_statement(query, |statement| async move {
+        self.with_prepared_statement(query, |_, statement| async move {
             Ok(StatementStream::new(statement).stream())
         })
     }
 
     fn execute_returning_count<'conn, 'query, T>(
         &'conn mut self,
-        _source: T,
+        query: T,
     ) -> Self::ExecuteFuture<'conn, 'query>
     where
         T: QueryFragment<Self::Backend> + QueryId + 'query,
     {
-        todo!()
+        self.with_prepared_statement(query, |conn, statement| async move {
+            statement.run().await.map(|_| {
+                conn.rows_affected_by_last_query()
+            })
+        })
     }
     
     fn transaction_state(
@@ -254,7 +258,7 @@ impl WasmSqliteConnection {
     fn with_prepared_statement<'conn, Q, F, R>(
         &'conn mut self,
         query: Q,
-        callback: impl (FnOnce(StatementUse<'conn>) -> F) + 'conn
+        callback: impl (FnOnce(&'conn mut RawConnection, StatementUse<'conn>) -> F) + 'conn
     ) -> LocalBoxFuture<'_, QueryResult<R>>
     where
         Q: QueryFragment<WasmSqlite> + QueryId,
@@ -283,16 +287,16 @@ impl WasmSqliteConnection {
         let sql = query.to_sql(&mut qb, &WasmSqlite).map(|()| qb.finish()); 
         
         async move {
-            let statement = statement_cache.cached_prepared_statement(
+            let (statement, conn) = statement_cache.cached_prepared_statement(
                 cache_key?,
                 sql?,
                 is_safe_to_cache_prepared?,
                 &[],
                 raw_connection,
                 &instrumentation,
-            ).await?.0; // Cloned RawConnection is dropped here
+            ).await?; // Cloned RawConnection is dropped here
             let statement = StatementUse::bind(statement, bind_collector?, instrumentation)?;
-            callback(statement).await
+            callback(conn, statement).await
         }.boxed_local()
     }
     
