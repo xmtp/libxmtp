@@ -10,18 +10,18 @@ import LibXMTP
 import os
 
 class XMTPLogger: FfiLogger {
-	let logger = Logger()
+	let logger = Logger(subsystem: "XMTP", category: "libxmtp")
 
 	func log(level: UInt32, levelLabel: String, message: String) {
 		switch level {
 		case 1:
-			logger.error("libxmtp[\(levelLabel)] - \(message)")
+			logger.error("libxmtp[\(levelLabel, privacy: .public)] - \(message)")
 		case 2, 3:
-			logger.info("libxmtp[\(levelLabel)] - \(message)")
+			logger.info("libxmtp[\(levelLabel, privacy: .public)] - \(message)")
 		case 4:
-			logger.debug("libxmtp[\(levelLabel)] - \(message)")
+			logger.debug("libxmtp[\(levelLabel, privacy: .public)] - \(message)")
 		case 5:
-			logger.trace("libxmtp[\(levelLabel)] - \(message)")
+			logger.trace("libxmtp[\(levelLabel, privacy: .public)] - \(message)")
 		default:
 			print("libxmtp[\(levelLabel)] - \(message)")
 		}
