@@ -40,7 +40,7 @@ pub struct WasmSqliteConnection {
     // connection itself
     statement_cache: StmtCache<WasmSqlite, Statement>,
     pub raw_connection: RawConnection,
-    transaction_state: AnsiTransactionManager,
+    transaction_manager: AnsiTransactionManager,
     // this exists for the sole purpose of implementing `WithMetadataLookup` trait
     // and avoiding static mut which will be deprecated in 2024 edition
     metadata_lookup: (),
@@ -111,7 +111,7 @@ impl AsyncConnection for WasmSqliteConnection {
     fn transaction_state(
         &mut self,
     ) -> &mut <Self::TransactionManager as diesel_async::TransactionManager<Self>>::TransactionStateData{
-        todo!()
+        &mut self.transaction_manager
     }
 
     fn instrumentation(&mut self) -> &mut dyn Instrumentation {
@@ -123,32 +123,7 @@ impl AsyncConnection for WasmSqliteConnection {
     }
 }
 
-/*
-impl LoadConnection<DefaultLoadingMode> for WasmSqliteConnection {
-    type Cursor<'conn, 'query> = StatementIterator<'conn, 'query>;
-    type Row<'conn, 'query> = self::row::SqliteRow<'conn, 'query>;
 
-    fn load<'conn, 'query, T>(
-        &'conn mut self,
-        source: T,
-    ) -> QueryResult<Self::Cursor<'conn, 'query>>
-    where
-        T: Query + QueryFragment<Self::Backend> + QueryId + 'query,
-        Self::Backend: QueryMetadata<T::SqlType>,
-    {
-        let statement = self.prepared_query(source)?;
-
-        Ok(StatementIterator::new(statement))
-    }
-}
-*/
-/*
-impl WithMetadataLookup for WasmSqliteConnection {
-    fn metadata_lookup(&mut self) -> &mut <WasmSqlite as TypeMetadata>::MetadataLookup {
-        &mut self.metadata_lookup
-    }
-}
- */
 
 #[cfg(feature = "r2d2")]
 impl crate::r2d2::R2D2Connection for crate::sqlite::SqliteConnection {
@@ -310,7 +285,7 @@ impl WasmSqliteConnection {
         Ok(Self {
             statement_cache: StmtCache::new(),
             raw_connection,
-            transaction_state: AnsiTransactionManager::default(),
+            transaction_manager: AnsiTransactionManager::default(),
             metadata_lookup: (),
             instrumentation: Arc::new(Mutex::new(None)),
         })
