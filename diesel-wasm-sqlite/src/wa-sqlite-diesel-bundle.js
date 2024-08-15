@@ -2916,6 +2916,7 @@ class SQLite {
       return this.sqlite3.finalize(stmt);
     } catch (error) {
       console.log("stmt error");
+      throw error;
     }
   }
 
@@ -2970,8 +2971,9 @@ class SQLite {
     try {
       return this.sqlite3.exec(database, query);
       console.log("Batch exec'ed");
-    } catch {
+    } catch (error) {
       console.log("exec err");
+      throw error;
     }
   }
 
@@ -2997,11 +2999,13 @@ class SQLite {
         xFinal,
       );
       console.log("create function");
-    } catch {
+    } catch (error) {
       console.log("create function err");
+      throw error;
     }
   }
-
+  //TODO: At some point need a way to register functions from rust
+  //but for just libxmtp this is fine.
   register_diesel_sql_functions(database) {
     try {
       this.sqlite3.create_function(
@@ -3010,10 +3014,10 @@ class SQLite {
         1,
         SQLITE_UTF8,
         0,
-        (context, values) => {
+        async (context, values) => {
           const table_name = this.sqlite3.value_text(values[0]);
 
-          this.sqlite3.exec(
+          await this.sqlite3.exec(
             context,
             `CREATE TRIGGER __diesel_manage_updated_at_${table_name}
             AFTER UPDATE ON ${table_name}
@@ -3037,6 +3041,8 @@ class SQLite {
         },
       );
     } catch (error) {
+      console.log("error creating diesel trigger");
+      throw error;
     }
   }
 

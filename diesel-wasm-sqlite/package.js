@@ -315,7 +315,7 @@ export class SQLite {
         1,
         WasmSQLiteLibrary.SQLITE_UTF8,
         0,
-        (context, values) => {
+        async (context, values) => {
           const table_name = this.sqlite3.value_text(values[0]);
 
           await this.sqlite3.exec(

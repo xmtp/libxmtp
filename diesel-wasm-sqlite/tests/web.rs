@@ -4,7 +4,62 @@ use diesel::connection::Connection;
 use diesel_wasm_sqlite::connection::{AsyncConnection, WasmSqliteConnection};
 use wasm_bindgen_test::*;
 use web_sys::console;
+
+use crate::WasmSqliteConnection;
+use chrono::NaiveDateTime;
+use diesel::debug_query;
+use diesel::insert_into;
+use diesel::prelude::*;
+use serde::Deserialize;
+use std::error::Error;
+
 wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
+mod schema {
+    diesel::table! {
+        users {
+            id -> Integer,
+            name -> Text,
+            hair_color -> Nullable<Text>,
+            created_at -> Timestamp,
+            updated_at -> Timestamp,
+        }
+    }
+}
+
+use schema::users;
+
+#[derive(Deserialize, Insertable)]
+#[diesel(table_name = users)]
+pub struct UserForm<'a> {
+    name: &'a str,
+    hair_color: Option<&'a str>,
+}
+
+#[derive(Queryable, PartialEq, Debug)]
+pub struct User {
+    id: i32,
+    name: String,
+    hair_color: Option<String>,
+    created_at: NaiveDateTime,
+    updated_at: NaiveDateTime,
+}
+
+pub fn insert_default_values(conn: &mut WasmSqliteConnection) -> QueryResult<usize> {
+    use schema::users::dsl::*;
+
+    insert_into(users).default_values().execute(conn)
+}
+
+#[test]
+fn examine_sql_from_insert_default_values() {
+    use schema::users::dsl::*;
+
+    let query = insert_into(users).default_values();
+    let sql = "INSERT INTO `users` DEFAULT VALUES -- binds: []";
+    assert_eq!(sql, debug_query::<Sqlite, _>(&query).to_string());
+}
+
 /*
 #[wasm_bindgen_test]
 async fn test_establish_and_exec() {
