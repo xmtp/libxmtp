@@ -30,7 +30,6 @@ use std::sync::{Arc, Mutex};
 
 use diesel::{connection::{ConnectionSealed, Instrumentation}, query_builder::{AsQuery, QueryFragment, QueryId}, QueryResult};
 pub use diesel_async::{AnsiTransactionManager, AsyncConnection, SimpleAsyncConnection, TransactionManager, stmt_cache::StmtCache};
-use row::SqliteRow;
 
 use crate::{get_sqlite_unchecked, WasmSqlite, WasmSqliteError};
 
@@ -43,7 +42,6 @@ pub struct WasmSqliteConnection {
     transaction_manager: AnsiTransactionManager,
     // this exists for the sole purpose of implementing `WithMetadataLookup` trait
     // and avoiding static mut which will be deprecated in 2024 edition
-    metadata_lookup: (),
     instrumentation: Arc<Mutex<Option<Box<dyn Instrumentation>>>>,
 }
 
@@ -286,7 +284,6 @@ impl WasmSqliteConnection {
             statement_cache: StmtCache::new(),
             raw_connection,
             transaction_manager: AnsiTransactionManager::default(),
-            metadata_lookup: (),
             instrumentation: Arc::new(Mutex::new(None)),
         })
     }

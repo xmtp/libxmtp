@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+// functions are needed, but missing functionality means they aren't used yet.
+
 use crate::{
     sqlite_types::{SqliteFlags, SqliteOpenFlags},
     SqliteType, WasmSqlite, WasmSqliteError,

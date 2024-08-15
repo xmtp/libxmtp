@@ -1,21 +1,17 @@
 #![allow(unsafe_code)] //TODO: can probably remove for wa-sqlite
-use super::bind_collector::{
-    InternalSqliteBindValue, OwnedSqliteBindValue, SqliteBindCollector, SqliteBindCollectorData,
-};
+use super::bind_collector::{OwnedSqliteBindValue, SqliteBindCollectorData};
 use super::raw::RawConnection;
 use super::sqlite_value::OwnedSqliteValue;
 use crate::ffi::SQLiteCompatibleType;
 use crate::{
     sqlite_types::{self, PrepareOptions, SqlitePrepareFlags},
-    SqliteType, WasmSqlite,
+    SqliteType,
 };
-use diesel::query_builder::bind_collector;
 use diesel::{
     connection::{
         statement_cache::{MaybeCached, PrepareForCache},
         Instrumentation,
     },
-    query_builder::{QueryFragment, QueryId},
     result::{Error, QueryResult},
 };
 use std::cell::OnceCell;
@@ -189,6 +185,7 @@ struct BoundStatement<'stmt> {
     // generic type, we use NonNull to communicate
     // that this is a shared buffer
     // query: Option<Box<dyn QueryFragment<WasmSqlite>>>,
+    #[allow(unused)]
     instrumentation: Arc<Mutex<dyn Instrumentation>>,
     has_error: bool,
 }

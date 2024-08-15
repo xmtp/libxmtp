@@ -81,38 +81,39 @@ impl<'row, 'stmt> SqliteValue<'row, 'stmt> {
             Some(ret)
         }
     }
+    /*
+        pub(crate) fn parse_string<R>(&self, f: impl FnOnce(String) -> R) -> R {
+            let sqlite3 = crate::get_sqlite_unchecked();
+            let s = sqlite3.value_text(&self.value);
+            f(s)
+        }
 
-    pub(crate) fn parse_string<R>(&self, f: impl FnOnce(String) -> R) -> R {
-        let sqlite3 = crate::get_sqlite_unchecked();
-        let s = sqlite3.value_text(&self.value);
-        f(s)
-    }
+        // TODO: Wasm bindgen can't work with references yet
+        // not sure if this will effect perf
+        pub(crate) fn read_text(&self) -> String {
+            self.parse_string(|s| s)
+        }
 
-    // TODO: Wasm bindgen can't work with references yet
-    // not sure if this will effect perf
-    pub(crate) fn read_text(&self) -> String {
-        self.parse_string(|s| s)
-    }
+        pub(crate) fn read_blob(&self) -> Vec<u8> {
+            let sqlite3 = crate::get_sqlite_unchecked();
+            sqlite3.value_blob(&self.value)
+        }
 
-    pub(crate) fn read_blob(&self) -> Vec<u8> {
-        let sqlite3 = crate::get_sqlite_unchecked();
-        sqlite3.value_blob(&self.value)
-    }
+        pub(crate) fn read_integer(&self) -> i32 {
+            let sqlite3 = crate::get_sqlite_unchecked();
+            sqlite3.value_int(&self.value)
+        }
 
-    pub(crate) fn read_integer(&self) -> i32 {
-        let sqlite3 = crate::get_sqlite_unchecked();
-        sqlite3.value_int(&self.value)
-    }
+        pub(crate) fn read_long(&self) -> i64 {
+            let sqlite3 = crate::get_sqlite_unchecked();
+            sqlite3.value_int64(&self.value)
+        }
 
-    pub(crate) fn read_long(&self) -> i64 {
-        let sqlite3 = crate::get_sqlite_unchecked();
-        sqlite3.value_int64(&self.value)
-    }
-
-    pub(crate) fn read_double(&self) -> f64 {
-        let sqlite3 = crate::get_sqlite_unchecked();
-        sqlite3.value_double(&self.value)
-    }
+        pub(crate) fn read_double(&self) -> f64 {
+            let sqlite3 = crate::get_sqlite_unchecked();
+            sqlite3.value_double(&self.value)
+        }
+    */
 
     /// Get the type of the value as returned by sqlite
     pub fn value_type(&self) -> Option<SqliteType> {
