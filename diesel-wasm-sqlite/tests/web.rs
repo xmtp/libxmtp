@@ -1,14 +1,15 @@
+#![recursion_limit = "256"]
 #![cfg(target_arch = "wasm32")]
 
 use diesel_async::RunQueryDsl;
 use diesel_wasm_sqlite::{
-    connection::{AsyncConnection, WasmSqliteConnection},
+    connection::{AsyncConnection, SimpleAsyncConnection, WasmSqliteConnection},
     WasmSqlite,
 };
 use wasm_bindgen_test::*;
 use web_sys::console;
 
-use chrono::NaiveDateTime;
+use chrono::{NaiveDate, NaiveDateTime};
 use diesel::debug_query;
 use diesel::insert_into;
 use diesel::prelude::*;
@@ -19,48 +20,132 @@ wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 mod schema {
     diesel::table! {
-        users {
+        books {
             id -> Integer,
-            name -> Text,
-            hair_color -> Nullable<Text>,
-            created_at -> Timestamp,
-            updated_at -> Timestamp,
+            title -> Text,
+            author -> Nullable<Text>,
+            // published_year -> Timestamp,
         }
     }
 }
 
-use schema::users;
+use schema::books;
 
 #[derive(Deserialize, Insertable)]
-#[diesel(table_name = users)]
-pub struct UserForm<'a> {
-    name: &'a str,
-    hair_color: Option<&'a str>,
+#[diesel(table_name = books)]
+pub struct BookForm<'a> {
+    title: &'a str,
+    author: Option<&'a str>,
+    // published_year: NaiveDateTime,
 }
 
-#[derive(Queryable, PartialEq, Debug)]
-pub struct User {
+#[derive(Queryable, Selectable, PartialEq, Debug)]
+pub struct Book {
     id: i32,
-    name: String,
-    hair_color: Option<String>,
-    created_at: NaiveDateTime,
-    updated_at: NaiveDateTime,
+    title: String,
+    author: Option<String>,
+    // published_year: NaiveDateTime,
 }
 
-pub async fn insert_default_values(conn: &mut WasmSqliteConnection) -> QueryResult<usize> {
-    use schema::users::dsl::*;
+async fn establish_connection() -> WasmSqliteConnection {
+    let rng: u16 = rand::random();
+    let result = WasmSqliteConnection::establish(&format!("test-{}", rng)).await;
+    let mut conn = result.unwrap();
 
-    insert_into(users).default_values().execute(conn).await
+    //TODO: we can use `embed_migrations` to run our migrations
+
+    conn.batch_execute(
+        "
+        CREATE TABLE books (
+            id INTEGER PRIMARY KEY,
+            title TEXT NOT NULL,
+            author TEXT,
+        );
+    ",
+    )
+    .await
+    .expect("Batch exec failed to run");
+    conn
+}
+
+async fn insert_books(
+    conn: &mut WasmSqliteConnection,
+    new_books: Vec<BookForm<'_>>,
+) -> QueryResult<usize> {
+    use schema::books::dsl::*;
+    for book in new_books.into_iter() {
+        insert_into(books).values(book).execute(conn).await.unwrap();
+    }
+    Ok(0)
 }
 
 #[wasm_bindgen_test]
 fn examine_sql_from_insert_default_values() {
-    use schema::users::dsl::*;
+    use schema::books::dsl::*;
 
-    let query = insert_into(users).default_values();
-    let sql = "INSERT INTO `users` DEFAULT VALUES -- binds: []";
+    let query = insert_into(books).default_values();
+    let sql = "INSERT INTO `books` DEFAULT VALUES -- binds: []";
     assert_eq!(sql, debug_query::<WasmSqlite, _>(&query).to_string());
     console::log_1(&debug_query::<WasmSqlite, _>(&query).to_string().into());
+}
+
+#[wasm_bindgen_test]
+async fn test_orm_insert() {
+    use schema::books::dsl::*;
+    let mut conn = establish_connection().await;
+
+    insert_books(
+        &mut conn,
+        vec![
+            BookForm {
+                title: "Game of Thrones",
+                author: Some("George R.R"),
+                // published_year: NaiveDate::from_ymd_opt(2015, 5, 3).unwrap(),
+            },
+            BookForm {
+                title: "The Hobbit",
+                author: Some("J.R.R. Tolkien"),
+                // published_year: NaiveDate::from_ymd_opt(1937, 9, 21).unwrap(),
+            },
+            BookForm {
+                title: "To Kill a Mockingbird",
+                author: Some("Harper Lee"),
+                // published_year: NaiveDate::from_ymd_opt(1960, 7, 11).unwrap(),
+            },
+            BookForm {
+                title: "1984",
+                author: Some("George Orwell"),
+                // published_year: NaiveDate::from_ymd_opt(1949, 6, 8).unwrap(),
+            },
+            BookForm {
+                title: "Pride and Prejudice",
+                author: Some("Jane Austen"),
+                // published_year: NaiveDate::from_ymd_opt(1813, 1, 28).unwrap(),
+            },
+            BookForm {
+                title: "Moby-Dick",
+                author: Some("Herman Melville"),
+                // published_year: NaiveDate::from_ymd_opt(1851, 10, 18).unwrap(),
+            },
+        ],
+    )
+    .await;
+
+    console::log_1(&"Showing Users".into());
+    /*let query = books
+    .limit(5)
+    .select::<SelectBy<_, WasmSqlite>>(Book::as_select());*/
+
+    // console::log_1(&debug_query::<WasmSqlite, _>(&query).to_string().into());
+    // .load(&mut conn)
+    // .await
+    // .expect("Error loading users");
+
+    /*
+        for book in books {
+            console::log_1(&format!("{}", book.title).into());
+        }
+    */
 }
 
 /*

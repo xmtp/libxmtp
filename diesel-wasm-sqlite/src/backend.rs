@@ -1,4 +1,4 @@
-//! The SQLite backend
+//! The WasmSQLite backend
 
 use super::connection::SqliteBindCollector;
 use super::connection::SqliteValue;

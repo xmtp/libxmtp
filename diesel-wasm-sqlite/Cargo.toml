@@ -28,7 +28,9 @@ rand = "0.8"
 getrandom = { version = "0.2", features = ["js"] }
 wasm-bindgen-test = "0.3.42"
 web-sys = { version = "0.3", features = ["console"] }
-chrono = { version = "0.4", features = ["wasmbind"] }
+chrono = { version = "0.4", features = ["wasmbind", "serde"] }
+diesel_migrations = "2.2"
+diesel = { version = "2.2", features = ["chrono"]}
 
 
 [lib]
