@@ -2313,6 +2313,7 @@ mod tests {
         let bo = new_test_client_with_wallet(bo_wallet.clone()).await;
         let caro = new_test_client().await;
 
+        // Alix begins a stream for all messages
         let message_callbacks = RustStreamCallback::default();
         let stream_messages = alix
             .conversations()
@@ -2320,6 +2321,7 @@ mod tests {
             .await;
         stream_messages.wait_for_ready().await;
 
+        // Alix creates a group with Bo and Caro
         let group = alix
             .conversations()
             .create_group(
@@ -2329,57 +2331,63 @@ mod tests {
             .await
             .unwrap();
 
-        // Sync groups
+        // Alix and Caro Sync groups
         alix.conversations().sync().await.unwrap();
-        bo.conversations().sync().await.unwrap();
         caro.conversations().sync().await.unwrap();
 
-        // Find groups for both clients
+        // Alix and Caro find the group
         let alix_group = alix.group(group.id()).unwrap();
-        let caro_group = bo.group(group.id()).unwrap();
+        let caro_group = caro.group(group.id()).unwrap();
 
-        // Send messages
+        // Alix sends a message in the group
         alix_group
             .send("First message".as_bytes().to_vec())
             .await
             .unwrap();
 
+        // Caro sends a message in the group
         caro_group
             .send("Second message".as_bytes().to_vec())
             .await
             .unwrap();
 
-        // Drop and delete local database for client2
+        // Bo logs out and deletes database
         bo.release_db_connection().unwrap();
 
-        // Recreate client2 (new installation)
+        // Bo logs back in with a new installation
         let bo2 = new_test_client_with_wallet(bo_wallet).await;
 
-        // let bo_message_callbacks = RustStreamCallback::default();
-        // let bo_stream_messages = bo2
-        //     .conversations()
-        //     .stream_all_messages(Box::new(bo_message_callbacks.clone()))
-        //     .await;
-        // bo_stream_messages.wait_for_ready().await;
+        // Bo begins a stream for all messages
+        let bo_message_callbacks = RustStreamCallback::default();
+        let bo_stream_messages = bo2
+            .conversations()
+            .stream_all_messages(Box::new(bo_message_callbacks.clone()))
+            .await;
+        bo_stream_messages.wait_for_ready().await;
 
-        // Send a message that will break the group
+        // Alix sends a message to the group
         alix_group
             .send("Third message".as_bytes().to_vec())
             .await
             .unwrap();
 
+        // New installation of bo finds the group
+        bo2.conversations().sync().await.unwrap();
         let bo_group = bo2.group(group.id()).unwrap();
 
+        // Bo sends a message to the group
         bo_group
             .send("Fourth message".as_bytes().to_vec())
             .await
             .unwrap();
 
+        // Caro sends a message in the group
         caro_group
             .send("Fifth message".as_bytes().to_vec())
             .await
             .unwrap();
 
+        // Get the message count for all the clients
         let caro_messages = caro_group
             .find_messages(FfiListMessagesOptions::default())
             .unwrap();
