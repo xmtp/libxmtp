@@ -185,7 +185,7 @@ impl<'a> BindCollector<'a, WasmSqlite> for SqliteBindCollector<'a> {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
-enum OwnedSqliteBindValue {
+pub enum OwnedSqliteBindValue {
     String(Box<str>),
     Binary(Box<[u8]>),
     I32(i32),
@@ -229,7 +229,7 @@ impl<'a> std::convert::From<&OwnedSqliteBindValue> for InternalSqliteBindValue<'
 #[derive(Debug)]
 /// Sqlite bind collector data that is movable across threads
 pub struct SqliteBindCollectorData {
-    binds: Vec<(OwnedSqliteBindValue, SqliteType)>,
+    pub binds: Vec<(OwnedSqliteBindValue, SqliteType)>,
 }
 
 impl MoveableBindCollector<WasmSqlite> for SqliteBindCollector<'_> {
