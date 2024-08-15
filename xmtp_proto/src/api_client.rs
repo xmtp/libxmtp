@@ -13,12 +13,10 @@ use crate::xmtp::identity::api::v1::{
     GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
 };
 use crate::xmtp::mls::api::v1::{
-    FetchKeyPackagesRequest, FetchKeyPackagesResponse, GetIdentityUpdatesRequest,
-    GetIdentityUpdatesResponse, GroupMessage, QueryGroupMessagesRequest,
+    FetchKeyPackagesRequest, FetchKeyPackagesResponse, GroupMessage, QueryGroupMessagesRequest,
     QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
-    RegisterInstallationRequest, RegisterInstallationResponse, SendGroupMessagesRequest,
-    SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-    UploadKeyPackageRequest, WelcomeMessage,
+    SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
+    SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage,
 };
 
 #[derive(Debug)]
@@ -144,10 +142,6 @@ pub type WelcomeMessageStream = Pin<Box<dyn Stream<Item = Result<WelcomeMessage,
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait XmtpMlsClient: Send + Sync + 'static {
-    async fn register_installation(
-        &self,
-        request: RegisterInstallationRequest,
-    ) -> Result<RegisterInstallationResponse, Error>;
     async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
     async fn fetch_key_packages(
         &self,
@@ -156,10 +150,6 @@ pub trait XmtpMlsClient: Send + Sync + 'static {
     async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), Error>;
     async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest)
         -> Result<(), Error>;
-    async fn get_identity_updates(
-        &self,
-        request: GetIdentityUpdatesRequest,
-    ) -> Result<GetIdentityUpdatesResponse, Error>;
     async fn query_group_messages(
         &self,
         request: QueryGroupMessagesRequest,
