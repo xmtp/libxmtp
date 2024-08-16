@@ -39,6 +39,8 @@ pub enum GenericError {
     SignatureRequestError(#[from] xmtp_id::associations::builder::SignatureRequestError),
     #[error(transparent)]
     Erc1271SignatureError(#[from] xmtp_id::associations::signature::SignatureError),
+    #[error("Join error: {0}")]
+    JoinError(#[from] tokio::task::JoinError),
 }
 
 impl From<String> for GenericError {

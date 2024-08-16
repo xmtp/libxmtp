@@ -5,7 +5,7 @@ use crate::GenericError;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::Arc;
-use tokio::{sync::Mutex, task::AbortHandle};
+use tokio::{sync::Mutex, task::spawn_blocking, task::AbortHandle};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::{
     associations::{
@@ -885,29 +885,38 @@ impl FfiGroup {
         Ok(ffi_message)
     }
 
-    pub fn list_members(&self) -> Result<Vec<FfiGroupMember>, GenericError> {
+    pub async fn list_members(&self) -> Result<Vec<FfiGroupMember>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        let members: Vec<FfiGroupMember> = group
-            .members()?
-            .into_iter()
-            .map(|member| FfiGroupMember {
-                inbox_id: member.inbox_id,
-                account_addresses: member.account_addresses,
-                installation_ids: member.installation_ids,
-                permission_level: match member.permission_level {
-                    PermissionLevel::Member => FfiPermissionLevel::Member,
-                    PermissionLevel::Admin => FfiPermissionLevel::Admin,
-                    PermissionLevel::SuperAdmin => FfiPermissionLevel::SuperAdmin,
-                },
-            })
-            .collect();
+        let members = spawn_blocking(move || {
+            // Perform the blocking operation inside the closure
+            group
+                .members()
+                .map(|members| {
+                    members
+                        .into_iter()
+                        .map(|member| FfiGroupMember {
+                            inbox_id: member.inbox_id,
+                            account_addresses: member.account_addresses,
+                            installation_ids: member.installation_ids,
+                            permission_level: match member.permission_level {
+                                PermissionLevel::Member => FfiPermissionLevel::Member,
+                                PermissionLevel::Admin => FfiPermissionLevel::Admin,
+                                PermissionLevel::SuperAdmin => FfiPermissionLevel::SuperAdmin,
+                            },
+                        })
+                        .collect()
+                })
+                .map_err(|e| GenericError::from(e)) // Convert the error to the appropriate type explicitly
+        })
+        .await
+        .map_err(|e| GenericError::from(e))?; // Handle the error from the JoinHandle if necessary
 
-        Ok(members)
+        members
     }
 
     pub async fn add_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
@@ -1496,7 +1505,8 @@ mod tests {
         self,
         distributions::{Alphanumeric, DistString},
     };
-    use tokio::{sync::Notify, time::error::Elapsed};
+    use futures::future;
+    use tokio::{sync::Notify, task, time::error::Elapsed};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::generate_inbox_id;
     use xmtp_mls::{storage::EncryptionKey, InboxOwner};
@@ -2078,8 +2088,38 @@ mod tests {
             .await
             .unwrap();
 
-        let members = group.list_members().unwrap();
+        let members = group.list_members().await.unwrap();
         assert_eq!(members.len(), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_can_list_members_in_parallel() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+        let mut groups = Vec::new();
+
+        for _ in 0..50 {
+            let group = alix
+                .conversations()
+                .create_group(
+                    vec![bo.account_address.clone()],
+                    FfiCreateGroupOptions::default(),
+                )
+                .await
+                .unwrap();
+            groups.push(group);
+        }
+
+        let tasks: Vec<_> = groups
+            .into_iter()
+            .map(|group| task::spawn(async move { group.list_members().await.unwrap() }))
+            .collect();
+
+        // Await all tasks in parallel and handle any errors
+        match future::try_join_all(tasks).await {
+            Ok(_) => println!("Test completed successfully"),
+            Err(e) => println!("Failed to list 20 groups members: {}", e),
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -2103,7 +2143,7 @@ mod tests {
             .await
             .unwrap();
 
-        let members = group.list_members().unwrap();
+        let members = group.list_members().await.unwrap();
         assert_eq!(members.len(), 2);
         assert_eq!(group.group_name().unwrap(), "Group Name");
         assert_eq!(group.group_image_url_square().unwrap(), "url");
@@ -2275,10 +2315,10 @@ mod tests {
         client2_group.sync().await.unwrap();
 
         // Assert both clients see 2 members
-        let client1_members = client1_group.list_members().unwrap();
+        let client1_members = client1_group.list_members().await.unwrap();
         assert_eq!(client1_members.len(), 2);
 
-        let client2_members = client2_group.list_members().unwrap();
+        let client2_members = client2_group.list_members().await.unwrap();
         assert_eq!(client2_members.len(), 2);
 
         // Drop and delete local database for client2
@@ -2294,12 +2334,12 @@ mod tests {
             .unwrap();
 
         // Assert client1 still sees 2 members
-        let client1_members = client1_group.list_members().unwrap();
+        let client1_members = client1_group.list_members().await.unwrap();
         assert_eq!(client1_members.len(), 2);
 
         client2.conversations().sync().await.unwrap();
         let client2_group = client2.group(group.id()).unwrap();
-        let client2_members = client2_group.list_members().unwrap();
+        let client2_members = client2_group.list_members().await.unwrap();
         assert_eq!(client2_members.len(), 2);
     }
 
@@ -2546,11 +2586,11 @@ mod tests {
             .unwrap();
 
         bo_group.sync().await.unwrap();
-        let bo_members = bo_group.list_members().unwrap();
+        let bo_members = bo_group.list_members().await.unwrap();
         assert_eq!(bo_members.len(), 4);
 
         alix_group.sync().await.unwrap();
-        let alix_members = alix_group.list_members().unwrap();
+        let alix_members = alix_group.list_members().await.unwrap();
         assert_eq!(alix_members.len(), 4);
     }
 
