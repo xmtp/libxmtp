@@ -1455,7 +1455,7 @@ mod tests {
         bola_group
             .add_members_by_inbox_id(&bola, vec![charlie.inbox_id()])
             .await
-            .expect_err("expected error");
+            .expect("bola's add should succeed in a no-op");
 
         amal_group
             .receive(&amal.store().conn().unwrap(), &amal)
@@ -1494,8 +1494,8 @@ mod tests {
                 None,
             )
             .unwrap();
-        // Bola should have one uncommitted intent in `Error::Failed` state for the failed attempt at adding Charlie, who is already in the group
-        assert_eq!(bola_failed_intents.len(), 1);
+        // Bola's attempted add should be deleted, since it will have been a no-op on the second try
+        assert_eq!(bola_failed_intents.len(), 0);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
