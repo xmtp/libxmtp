@@ -2333,10 +2333,12 @@ mod tests {
 
         // Alix and Caro Sync groups
         alix.conversations().sync().await.unwrap();
+        bo.conversations().sync().await.unwrap();
         caro.conversations().sync().await.unwrap();
 
         // Alix and Caro find the group
         let alix_group = alix.group(group.id()).unwrap();
+        let bo_group = bo.group(group.id()).unwrap();
         let caro_group = caro.group(group.id()).unwrap();
 
         // Alix sends a message in the group
@@ -2350,9 +2352,6 @@ mod tests {
             .send("Second message".as_bytes().to_vec())
             .await
             .unwrap();
-
-        // Bo logs out and deletes database
-        bo.release_db_connection().unwrap();
 
         // Bo logs back in with a new installation
         let bo2 = new_test_client_with_wallet(bo_wallet).await;
@@ -2373,10 +2372,10 @@ mod tests {
 
         // New installation of bo finds the group
         bo2.conversations().sync().await.unwrap();
-        let bo_group = bo2.group(group.id()).unwrap();
+        let bo2_group = bo2.group(group.id()).unwrap();
 
         // Bo sends a message to the group
-        bo_group
+        bo2_group
             .send("Fourth message".as_bytes().to_vec())
             .await
             .unwrap();
@@ -2394,14 +2393,20 @@ mod tests {
         let alix_messages = alix_group
             .find_messages(FfiListMessagesOptions::default())
             .unwrap();
+        bo_group.sync().await.unwrap();
         let bo_messages = bo_group
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+
+        let bo2_messages = bo2_group
             .find_messages(FfiListMessagesOptions::default())
             .unwrap();
 
         assert_eq!(caro_messages.len(), 5);
         assert_eq!(alix_messages.len(), 6);
+        assert_eq!(bo_messages.len(), 5);
         // Bo 2 only sees three messages since it joined after the first 2 were sent
-        assert_eq!(bo_messages.len(), 3);
+        assert_eq!(bo2_messages.len(), 3);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
