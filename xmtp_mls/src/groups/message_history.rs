@@ -100,8 +100,19 @@ where
     }
 
     pub async fn allow_history_sync(&self) -> Result<(), GroupError> {
-        let history_sync_group = self.create_sync_group()?;
-        history_sync_group.sync(self).await?;
+        // look for the sync group, create if not found
+        let sync_group = match self.get_sync_group() {
+            Ok((_, sync_group)) => sync_group,
+            Err(_) => {
+                // create the sync group
+                let group = self.create_sync_group()?;
+                group
+            }
+        };
+
+        // sync the group
+        sync_group.sync(self).await?;
+
         Ok(())
     }
 
