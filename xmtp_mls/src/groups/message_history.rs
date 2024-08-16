@@ -204,33 +204,24 @@ where
         Ok(())
     }
 
-    pub(crate) fn provide_pin(&self, pin_challenge: &str) -> Result<(), GroupError> {
-        let conn = self.store().conn()?;
-        let sync_group_id = conn
-            .find_sync_groups()?
-            .pop()
-            .ok_or(GroupError::GroupNotFound)?
-            .id;
-
-        let requests = conn.get_group_messages(
-            sync_group_id,
-            None,
-            None,
+    pub(crate) fn verify_pin(&self, request_id: &str, pin_code: &str) -> Result<(), GroupError> {
+        let (_, sync_group) = self.get_sync_group()?;
+        let requests = sync_group.find_messages(
             Some(GroupMessageKind::Application),
+            None,
+            None,
             None,
             None,
         )?;
         let request = requests.into_iter().find(|msg| {
-            let msg_bytes = &msg.decrypted_message_bytes;
-            match msg_bytes.iter().position(|&idx| idx == DELIMITER as u8) {
-                Some(index) => {
-                    let (_id_part, pin_part) = msg_bytes.split_at(index);
-                    let pin = String::from_utf8_lossy(&pin_part[1..]);
-                    verify_pin(&pin, pin_challenge)
+            match bincode::deserialize(&msg.decrypted_message_bytes) {
+                Ok(MessageHistoryContent::Request(request)) => {
+                    request.request_id.eq(request_id) && request.pin_code.eq(pin_code)
                 }
-                None => false,
+                _ => false,
             }
         });
+
         if request.is_none() {
             return Err(GroupError::MessageHistory(Box::new(
                 MessageHistoryError::PinNotFound,
@@ -613,13 +604,6 @@ fn new_pin() -> String {
     format!("{:04}", pin)
 }
 
-// Yes, this is a just a simple string comparison.
-// If we need to add more complex logic, we can do so here.
-// For example if we want to add a time limit or enforce a certain number of attempts.
-fn verify_pin(expected: &str, actual: &str) -> bool {
-    expected.eq(actual)
-}
-
 #[cfg(test)]
 mod tests {
 
@@ -734,7 +718,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     #[ignore] // this test is only relevant if we are enforcing the PIN challenge
-    async fn test_provide_pin_challenge() {
+    async fn test_verify_pin() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
@@ -742,7 +726,7 @@ mod tests {
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
-        let (_, pin_code) = amal_b
+        let (request_id, pin_code) = amal_b
             .send_history_request()
             .await
             .expect("history request");
@@ -752,10 +736,10 @@ mod tests {
         // get the first sync group
         let amal_a_sync_group = amal_a.group(amal_a_sync_groups[0].id.clone()).unwrap();
         amal_a_sync_group.sync(&amal_a).await.expect("sync");
-        let pin_challenge_result = amal_a.provide_pin(&pin_code);
+        let pin_challenge_result = amal_a.verify_pin(&request_id, &pin_code);
         assert_ok!(pin_challenge_result);
 
-        let pin_challenge_result_2 = amal_a.provide_pin("000");
+        let pin_challenge_result_2 = amal_a.verify_pin("000", "000");
         assert!(pin_challenge_result_2.is_err());
     }
 
