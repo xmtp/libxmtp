@@ -127,20 +127,73 @@ where
         Ok(())
     }
 
-    // returns (sync_group_id, pin_code)
-    pub async fn send_history_request(&self) -> Result<(Vec<u8>, String), GroupError> {
+    // returns (request_id, pin_code)
+    pub async fn send_history_request(&self) -> Result<(String, String), GroupError> {
         // find the sync group
         let conn = self.store().conn()?;
-        let sync_group_id = conn
-            .find_sync_groups()?
-            .pop()
-            .ok_or(GroupError::GroupNotFound)?
-            .id;
-        let sync_group = self.group(sync_group_id.clone())?;
+        let (sync_group_id, sync_group) = self.get_sync_group()?;
+
+        // sync the group
+        sync_group.sync(self).await?;
+
+        let installation_id = self.installation_public_key();
+        let messages = sync_group.find_messages(
+            Some(GroupMessageKind::Application),
+            None,
+            None,
+            None,
+            None,
+        )?;
+        // find the most recent history request that has not been replied to
+        let last_history_request: (Option<String>, Option<String>, Option<StoredGroupMessage>) =
+            messages
+                .into_iter()
+                .fold((None, None, None), |mut acc, msg| {
+                    match bincode::deserialize(&msg.decrypted_message_bytes) {
+                        Ok(MessageHistoryContent::Request(request))
+                        // only include requests from the current installation
+                            if msg.sender_installation_id.eq(&installation_id) =>
+                        {
+                            if let Some(ref existing_msg) = acc.2 {
+                                // use the most recent request
+                                if msg.sent_at_ns > existing_msg.sent_at_ns {
+                                    acc.0 = Some(request.request_id.clone());
+                                    acc.1 = Some(request.pin_code.clone());
+                                    acc.2 = Some(msg);
+                                }
+                            } else {
+                                acc.0 = Some(request.request_id.clone());
+                                acc.1 = Some(request.pin_code.clone());
+                                acc.2 = Some(msg);
+                            }
+                        }
+                        Ok(MessageHistoryContent::Reply(reply))
+                        // only include replies to the current installation
+                            if !msg.sender_installation_id.eq(&installation_id) =>
+                        {
+                            if let Some(ref existing_request_id) = acc.0 {
+                                // reset the request if it's been replied to
+                                if existing_request_id.eq(&reply.request_id) {
+                                    acc.0 = None;
+                                    acc.1 = None;
+                                    acc.2 = None;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                    acc
+                });
+
+        // if the latest history request has not been replied to, don't send a new one
+        if let (Some(request_id), Some(pin_code), _) = last_history_request {
+            return Ok((request_id, pin_code));
+        }
 
         // build the request
         let history_request = HistoryRequest::new();
         let pin_code = history_request.pin_code.clone();
+        let request_id = history_request.request_id.clone();
         let idempotency_key = new_request_id();
         let envelope = PlaintextEnvelope {
             content: Some(Content::V2(V2 {
@@ -155,7 +208,8 @@ where
             .encode(&mut encoded_envelope)
             .map_err(GroupError::EncodeError)?;
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        let intent = NewGroupIntent::new(IntentKind::SendMessage, sync_group_id, intent_data);
+        let intent =
+            NewGroupIntent::new(IntentKind::SendMessage, sync_group_id.clone(), intent_data);
         intent.store(&conn)?;
 
         // publish the intent
@@ -163,7 +217,7 @@ where
             log::error!("error publishing sync group intents: {:?}", err);
         }
 
-        Ok((sync_group.group_id, pin_code))
+        Ok((request_id, pin_code))
     }
 
     pub(crate) async fn send_history_reply(
