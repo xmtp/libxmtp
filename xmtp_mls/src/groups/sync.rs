@@ -191,7 +191,10 @@ impl MlsGroup {
                     state: IntentState::Error,
                     ..
                 })) => {
-                    log::warn!("not retrying intent ID {id}. since it is in state Error",);
+                    log::warn!(
+                        "not retrying intent ID {id}. since it is in state Error. {:?}",
+                        last_err
+                    );
                     return Err(last_err.unwrap_or(GroupError::Generic(
                         "Group intent could not be committed".to_string(),
                     )));
@@ -803,50 +806,52 @@ impl MlsGroup {
                 })
             );
 
-            if let Err(err) = result {
-                log::error!("error getting publish intent data {:?}", err);
-                if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
-                    log::error!("intent {} has reached max publish attempts", intent.id);
-                    // TODO: Eventually clean up errored attempts
-                    provider
-                        .conn()
-                        .set_group_intent_error_and_fail_msg(&intent)?;
-                } else {
-                    provider
-                        .conn()
-                        .increment_intent_publish_attempt_count(intent.id)?;
+            match result {
+                Err(err) => {
+                    log::error!("error getting publish intent data {:?}", err);
+                    if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
+                        log::error!("intent {} has reached max publish attempts", intent.id);
+                        // TODO: Eventually clean up errored attempts
+                        provider
+                            .conn()
+                            .set_group_intent_error_and_fail_msg(&intent)?;
+                    } else {
+                        provider
+                            .conn()
+                            .increment_intent_publish_attempt_count(intent.id)?;
+                    }
+
+                    return Err(err);
                 }
+                Ok(Some((payload, post_commit_data))) => {
+                    let payload_slice = payload.as_slice();
 
-                return Err(err);
-            }
-
-            if let Some((payload, post_commit_data)) = result.expect("checked") {
-                let payload_slice = payload.as_slice();
-
-                client
-                    .api_client
-                    .send_group_messages(vec![payload_slice])
-                    .await?;
-                log::info!(
-                    "[{}] published intent [{}] of type [{}]",
-                    client.inbox_id(),
-                    intent.id,
-                    intent.kind
-                );
-                provider.conn().set_group_intent_published(
-                    intent.id,
-                    sha256(payload_slice),
-                    post_commit_data,
-                )?;
-                log::debug!(
-                    "client [{}] set stored intent [{}] to state `published`",
-                    client.inbox_id(),
-                    intent.id
-                );
-            } else {
-                provider
-                    .conn()
-                    .set_group_intent_error_and_fail_msg(&intent)?;
+                    client
+                        .api_client
+                        .send_group_messages(vec![payload_slice])
+                        .await?;
+                    log::info!(
+                        "[{}] published intent [{}] of type [{}]",
+                        client.inbox_id(),
+                        intent.id,
+                        intent.kind
+                    );
+                    provider.conn().set_group_intent_published(
+                        intent.id,
+                        sha256(payload_slice),
+                        post_commit_data,
+                    )?;
+                    log::debug!(
+                        "client [{}] set stored intent [{}] to state `published`",
+                        client.inbox_id(),
+                        intent.id
+                    );
+                }
+                Ok(None) => {
+                    log::info!("Skipping intent because no publish data returned");
+                    let deleter: &dyn Delete<StoredGroupIntent, Key = i32> = &provider.conn();
+                    deleter.delete(intent.id)?;
+                }
             }
         }
 
