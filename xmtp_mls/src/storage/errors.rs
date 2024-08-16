@@ -31,6 +31,12 @@ pub enum StorageError {
     Lock(String),
     #[error("Pool needs to  reconnect before use")]
     PoolNeedsConnection,
+    #[error("Connection pool error")]
+    ConnectionPoolError(String),
+    #[error("Database is encrypted but key is incorrect")]
+    SqlCipherError(String),
+    #[error("Database config error")]
+    DatabaseConfigError(String),
     #[error("Conflict")]
     Conflict(String),
     #[error(transparent)]

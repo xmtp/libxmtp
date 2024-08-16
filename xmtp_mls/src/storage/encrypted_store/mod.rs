@@ -190,12 +190,25 @@ impl EncryptedMessageStore {
             pool.state().connections
         );
 
-        let mut conn = pool.get()?;
+        let mut conn = pool.get().map_err(|e| {
+            log::error!("Failed to get connection from pool: {}", e);
+            StorageError::ConnectionPoolError(format!("Failed to get connection: {}", e))
+        })?;
+
         if let Some(ref key) = self.enc_key {
-            conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
+            log::info!("Applying encryption key to database connection");
+            conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))
+                .map_err(|e| {
+                    log::error!("Failed to apply encryption key: {}", e);
+                    StorageError::SqlCipherError(format!("Failed to apply encryption key: {}", e))
+                })?;
         }
 
-        conn.batch_execute("PRAGMA busy_timeout = 5000;")?;
+        log::info!("Setting busy_timeout to 5000ms");
+        conn.batch_execute("PRAGMA busy_timeout = 5000;").map_err(|e| {
+            log::error!("Failed to set busy_timeout: {}", e);
+            StorageError::DatabaseConfigError(format!("Failed to set busy_timeout: {}", e))
+        })?;
 
         Ok(conn)
     }

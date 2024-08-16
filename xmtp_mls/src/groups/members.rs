@@ -34,18 +34,23 @@ impl MlsGroup {
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<GroupMember>, GroupError> {
+        log::debug!("top of members provider");
         let openmls_group = self.load_mls_group(provider)?;
+        log::debug!("after load mls group");
         let group_membership = extract_group_membership(openmls_group.extensions())?;
+        log::debug!("after extract group membership");
         let requests: Vec<_> = group_membership
             .members
             .into_iter()
             .map(|(inbox_id, sequence_id)| (inbox_id, sequence_id as i64))
             .filter(|(_, sequence_id)| *sequence_id != 0) // Skip the initial state
             .collect();
+        log::debug!("after requests");
 
         let conn = provider.conn_ref();
         let association_states =
             StoredAssociationState::batch_read_from_cache(conn, requests.clone())?;
+        log::debug!("get from the cache");
 
         let mutable_metadata = self.mutable_metadata()?;
         if association_states.len() != requests.len() {
@@ -58,6 +63,8 @@ impl MlsGroup {
             }
             return Err(GroupError::InvalidGroupMembership);
         }
+        log::debug!("after the mutable metadata");
+
 
         // Estimate vector capacity based on the number of association states
         let mut members: Vec<GroupMember> = Vec::with_capacity(association_states.len());
@@ -84,7 +91,9 @@ impl MlsGroup {
                     permission_level,
                 }
             })
-            .collect();
+            .collect();        
+        log::debug!("at the end");
+
 
         Ok(members)
     }
