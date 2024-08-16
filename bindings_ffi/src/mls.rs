@@ -2386,6 +2386,11 @@ mod tests {
             .await
             .unwrap();
 
+        alix_group.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
+        bo2_group.sync().await.unwrap();
+        caro_group.sync().await.unwrap();
+
         // Get the message count for all the clients
         let caro_messages = caro_group
             .find_messages(FfiListMessagesOptions::default())
@@ -2393,11 +2398,9 @@ mod tests {
         let alix_messages = alix_group
             .find_messages(FfiListMessagesOptions::default())
             .unwrap();
-        bo_group.sync().await.unwrap();
         let bo_messages = bo_group
             .find_messages(FfiListMessagesOptions::default())
             .unwrap();
-
         let bo2_messages = bo2_group
             .find_messages(FfiListMessagesOptions::default())
             .unwrap();
