@@ -281,11 +281,7 @@ mod tests {
         }
     }
 
-    // https://github.com/xmtp/libxmtp/issues/948
-    // This test works in its previous form, with std::time:sleep
-    // with `Notify` it never recieves the add members message
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
-    #[ignore]
     async fn test_subscribe_membership_changes() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
