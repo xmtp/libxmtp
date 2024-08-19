@@ -17,7 +17,7 @@ use crate::{
     client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{
-        DELIMITER, GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS,
+        DELIMITER, GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
         UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
     groups::{
@@ -345,7 +345,7 @@ impl MlsGroup {
                     intent.id,
                     group_epoch,
                     message_epoch,
-                    1, // max_past_epochs, TODO: expose from OpenMLS MlsGroup
+                    MAX_PAST_EPOCHS,
                 ) {
                     conn.set_group_intent_to_publish(intent.id)?;
                     return Ok(());
