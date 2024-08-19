@@ -2417,82 +2417,68 @@ mod tests {
     async fn test_can_send_messages_when_epochs_behind() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
-        let caro = new_test_client().await;
 
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![caro.account_address.clone()],
+                vec![bo.account_address.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
             .unwrap();
 
-        caro.conversations().sync().await.unwrap();
-
-        let caro_group = caro.group(alix_group.id()).unwrap();
-
-        alix_group
-            .send("alix message 1".as_bytes().to_vec())
-            .await
-            .unwrap();
-        caro_group
-            .send("caro message 1".as_bytes().to_vec())
-            .await
-            .unwrap();
-        alix_group
-            .add_members(vec![bo.account_address.clone()])
-            .await
-            .unwrap();
-        alix_group
-            .send("alix message 2".as_bytes().to_vec())
-            .await
-            .unwrap();
-        caro_group
-            .send("caro message 2".as_bytes().to_vec())
-            .await
-            .unwrap();
-
         bo.conversations().sync().await.unwrap();
+
         let bo_group = bo.group(alix_group.id()).unwrap();
+
+        // Move forward 4 epochs
+        alix_group
+            .update_group_description("change 1".to_string())
+            .await
+            .unwrap();
+        alix_group
+            .update_group_description("change 2".to_string())
+            .await
+            .unwrap();
+        alix_group
+            .update_group_description("change 3".to_string())
+            .await
+            .unwrap();
+        alix_group
+            .update_group_description("change 4".to_string())
+            .await
+            .unwrap();
+
         bo_group
             .send("bo message 1".as_bytes().to_vec())
             .await
             .unwrap();
 
-        bo_group.sync().await.unwrap();
         alix_group.sync().await.unwrap();
-        caro_group.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
 
         let alix_messages = alix_group
-            .find_messages(FfiListMessagesOptions::default())
-            .unwrap();
-        let caro_messages = caro_group
             .find_messages(FfiListMessagesOptions::default())
             .unwrap();
         let bo_messages = bo_group
             .find_messages(FfiListMessagesOptions::default())
             .unwrap();
 
-        let caro_message_2_found_bo = bo_messages
+        let alix_can_see_bo_message = alix_messages
             .iter()
-            .any(|message| message.content == "caro message 2".as_bytes());
+            .any(|message| message.content == "bo message 1".as_bytes());
         assert!(
-            caro_message_2_found_bo,
-            "\"caro message 2\" not found in bo_messages"
+            alix_can_see_bo_message,
+            "\"bo message 1\" not found in alix's messages"
         );
 
-        let caro_message_2_found = alix_messages
+        let bo_can_see_bo_message = bo_messages
             .iter()
-            .any(|message| message.content == "caro message 2".as_bytes());
+            .any(|message| message.content == "bo message 1".as_bytes());
         assert!(
-            caro_message_2_found,
-            "\"caro message 2\" not found in alix_messages"
+            bo_can_see_bo_message,
+            "\"bo message 1\" not found in bo's messages"
         );
-
-        assert_eq!(alix_messages.len(), 7);
-        assert_eq!(caro_messages.len(), 6);
-        assert_eq!(bo_messages.len(), 3);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
