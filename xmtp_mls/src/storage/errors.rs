@@ -89,6 +89,16 @@ impl RetryableError for openmls::group::CreateCommitError<sql_key_store::SqlKeyS
     fn is_retryable(&self) -> bool {
         match self {
             Self::KeyStoreError(storage) => retryable!(storage),
+            Self::LeafNodeUpdateError(leaf_node_update) => retryable!(leaf_node_update),
+            _ => false,
+        }
+    }
+}
+
+impl RetryableError for openmls::treesync::LeafNodeUpdateError<sql_key_store::SqlKeyStoreError> {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::StorageError(storage) => retryable!(storage),
             _ => false,
         }
     }
@@ -145,7 +155,6 @@ impl RetryableError
     fn is_retryable(&self) -> bool {
         match self {
             Self::CreateCommitError(create_commit) => retryable!(create_commit),
-            Self::MlsGroupStateError(group_state) => retryable!(group_state),
             Self::StorageError(storage) => retryable!(storage),
             _ => false,
         }
