@@ -33,6 +33,14 @@ pub use diesel_async::{AnsiTransactionManager, AsyncConnection, SimpleAsyncConne
 
 use crate::{get_sqlite_unchecked, WasmSqlite, WasmSqliteError};
 
+// This relies on the invariant that RawConnection or Statement are never
+// leaked. If a reference to one of those was held on a different thread, this
+// would not be thread safe.
+// Web is in one thread. Web workers can establish & hold a WasmSqliteConnection
+// separately.
+#[allow(unsafe_code)]
+unsafe impl Send for WasmSqliteConnection {}
+
 pub struct WasmSqliteConnection {
     // statement_cache needs to be before raw_connection
     // otherwise we will get errors about open statements before closing the
@@ -44,17 +52,6 @@ pub struct WasmSqliteConnection {
     // and avoiding static mut which will be deprecated in 2024 edition
     instrumentation: Arc<Mutex<Option<Box<dyn Instrumentation>>>>,
 }
-
-
-// This relies on the invariant that RawConnection or Statement are never
-// leaked. If a reference to one of those was held on a different thread, this
-// would not be thread safe.
-// Web is in one thread. Web workers can be used to hold a WasmSqliteConnection
-// separately.
-
-#[allow(unsafe_code)]
-unsafe impl Send for WasmSqliteConnection {}
-
 
 impl ConnectionSealed for WasmSqliteConnection {}
 
