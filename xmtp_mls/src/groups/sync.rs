@@ -53,6 +53,7 @@ use openmls::{
         ProcessedMessage, ProcessedMessageContent, Sender,
     },
     prelude_test::KeyPackage,
+    treesync::LeafNodeParameters,
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::OpenMlsProvider;
@@ -907,8 +908,11 @@ impl MlsGroup {
                 Ok(Some((msg_bytes, None)))
             }
             IntentKind::KeyUpdate => {
-                let (commit, _, _) = openmls_group
-                    .self_update(&provider, &self.context.identity.installation_keys)?;
+                let (commit, _, _) = openmls_group.self_update(
+                    &provider,
+                    &self.context.identity.installation_keys,
+                    LeafNodeParameters::default(),
+                )?;
 
                 Ok(Some((commit.tls_serialize_detached()?, None)))
             }

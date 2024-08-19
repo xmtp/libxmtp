@@ -416,7 +416,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
             .collect::<Result<Vec<_>, _>>()
     }
 
-    fn treesync<
+    fn tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         TreeSync: traits::TreeSync<CURRENT_VERSION>,
     >(
@@ -733,31 +733,6 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         self.delete::<CURRENT_VERSION>(OWN_LEAF_NODE_INDEX_LABEL, &key)
     }
 
-    fn use_ratchet_tree_extension<GroupId: traits::GroupId<CURRENT_VERSION>>(
-        &self,
-        group_id: &GroupId,
-    ) -> Result<Option<bool>, Self::Error> {
-        let key = build_key::<CURRENT_VERSION, &GroupId>(USE_RATCHET_TREE_LABEL, group_id)?;
-        self.read(USE_RATCHET_TREE_LABEL, &key)
-    }
-
-    fn set_use_ratchet_tree_extension<GroupId: traits::GroupId<CURRENT_VERSION>>(
-        &self,
-        group_id: &GroupId,
-        value: bool,
-    ) -> Result<(), Self::Error> {
-        let key = build_key::<CURRENT_VERSION, &GroupId>(USE_RATCHET_TREE_LABEL, group_id)?;
-        self.write::<CURRENT_VERSION>(USE_RATCHET_TREE_LABEL, &key, &bincode::serialize(&value)?)
-    }
-
-    fn delete_use_ratchet_tree_extension<GroupId: traits::GroupId<CURRENT_VERSION>>(
-        &self,
-        group_id: &GroupId,
-    ) -> Result<(), Self::Error> {
-        let key = build_key::<CURRENT_VERSION, &GroupId>(USE_RATCHET_TREE_LABEL, group_id)?;
-        self.delete::<CURRENT_VERSION>(USE_RATCHET_TREE_LABEL, &key)
-    }
-
     fn group_epoch_secrets<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         GroupEpochSecrets: traits::GroupEpochSecrets<CURRENT_VERSION>,
@@ -938,37 +913,6 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         self.append::<CURRENT_VERSION>(OWN_LEAF_NODES_LABEL, &key, &value)
     }
 
-    fn aad<GroupId: traits::GroupId<CURRENT_VERSION>>(
-        &self,
-        group_id: &GroupId,
-    ) -> Result<Vec<u8>, Self::Error> {
-        let key = build_key::<CURRENT_VERSION, &GroupId>(AAD_LABEL, group_id)?;
-        match self.read::<CURRENT_VERSION, Vec<u8>>(AAD_LABEL, &key) {
-            Ok(Some(value)) => Ok(value),
-            Ok(None) => Ok(Vec::new()),
-            Err(e) => Err(e),
-        }
-    }
-
-    fn write_aad<GroupId: traits::GroupId<CURRENT_VERSION>>(
-        &self,
-        group_id: &GroupId,
-        aad: &[u8],
-    ) -> Result<(), Self::Error> {
-        let key = build_key::<CURRENT_VERSION, &GroupId>(AAD_LABEL, group_id)?;
-        let value = bincode::serialize(&aad)?;
-
-        self.write::<CURRENT_VERSION>(AAD_LABEL, &key, &value)
-    }
-
-    fn delete_aad<GroupId: traits::GroupId<CURRENT_VERSION>>(
-        &self,
-        group_id: &GroupId,
-    ) -> Result<(), Self::Error> {
-        let key = build_key::<CURRENT_VERSION, &GroupId>(AAD_LABEL, group_id)?;
-        self.delete::<CURRENT_VERSION>(AAD_LABEL, &key)
-    }
-
     fn delete_own_leaf_nodes<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
@@ -1130,31 +1074,31 @@ mod tests {
             .is_none());
     }
 
-    #[test]
-    fn list_write_remove() {
-        let db_path = tmp_path();
-        let store = EncryptedMessageStore::new(
-            StorageOption::Persistent(db_path),
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .unwrap();
-        let conn = store.conn().unwrap();
-        let key_store = SqlKeyStore::new(conn.clone());
-        let provider = XmtpOpenMlsProvider::new(conn);
-        let group_id = GroupId::random(provider.rand());
+    // #[test]
+    // fn list_write_remove() {
+    //     let db_path = tmp_path();
+    //     let store = EncryptedMessageStore::new(
+    //         StorageOption::Persistent(db_path),
+    //         EncryptedMessageStore::generate_enc_key(),
+    //     )
+    //     .unwrap();
+    //     let conn = store.conn().unwrap();
+    //     let key_store = SqlKeyStore::new(conn.clone());
+    //     let provider = XmtpOpenMlsProvider::new(conn);
+    //     let group_id = GroupId::random(provider.rand());
 
-        assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
+    //     assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
 
-        key_store
-            .write_aad::<GroupId>(&group_id, "test".as_bytes())
-            .unwrap();
+    //     key_store
+    //         .write_aad::<GroupId>(&group_id, "test".as_bytes())
+    //         .unwrap();
 
-        assert!(!key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
+    //     assert!(!key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
 
-        key_store.delete_aad::<GroupId>(&group_id).unwrap();
+    //     key_store.delete_aad::<GroupId>(&group_id).unwrap();
 
-        assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
-    }
+    //     assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
+    // }
 
     #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
     struct Proposal(Vec<u8>);
