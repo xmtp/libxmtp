@@ -837,4 +837,34 @@ class GroupTests: XCTestCase {
 
 		XCTAssertEqual(preparedMessageId, messages.first!.id)
 	}
+	
+	func testCanListManyMembersInParallelInUnderASecond() async throws {
+		let fixtures = try await localFixtures()
+		var groups: [Group] = []
+
+		for _ in 0..<100 {
+			var group = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address])
+			groups.append(group)
+		}
+		do {
+			let start = Date()
+			let _ = try await listMembersInParallel(groups: groups)
+			let end = Date()
+			print(end.timeIntervalSince(start))
+			XCTAssert(end.timeIntervalSince(start) < 1)
+		} catch {
+			print("Failed to list groups members: \(error)")
+			throw error // Rethrow the error to fail the test if group creation fails
+		}
+	}
+	
+	func listMembersInParallel(groups: [Group]) async throws {
+		await withThrowingTaskGroup(of: [Member].self) { taskGroup in
+			for group in groups {
+				taskGroup.addTask {
+					return try group.members
+				}
+			}
+		}
+	}
 }
