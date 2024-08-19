@@ -121,7 +121,7 @@ impl EncryptedMessageStore {
                     .max_size(1)
                     .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
                 StorageOption::Persistent(ref path) => Pool::builder()
-                    .max_size(25)
+                    .max_size(11)
                     .build(ConnectionManager::<SqliteConnection>::new(path))?,
             };
 
@@ -343,7 +343,7 @@ impl EncryptedMessageStore {
                     .max_size(1)
                     .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
                 StorageOption::Persistent(ref path) => Pool::builder()
-                    .max_size(25)
+                    .max_size(11)
                     .build(ConnectionManager::<SqliteConnection>::new(path))?,
             };
 
