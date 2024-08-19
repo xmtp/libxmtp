@@ -273,12 +273,10 @@ const CONFIRMATION_TAG_LABEL: &[u8] = b"ConfirmationTag";
 const OWN_LEAF_NODE_INDEX_LABEL: &[u8] = b"OwnLeafNodeIndex";
 const EPOCH_SECRETS_LABEL: &[u8] = b"EpochSecrets";
 const MESSAGE_SECRETS_LABEL: &[u8] = b"MessageSecrets";
-const USE_RATCHET_TREE_LABEL: &[u8] = b"UseRatchetTree";
 
 // related to MlsGroup
 const JOIN_CONFIG_LABEL: &[u8] = b"MlsGroupJoinConfig";
 const OWN_LEAF_NODES_LABEL: &[u8] = b"OwnLeafNodes";
-const AAD_LABEL: &[u8] = b"AAD";
 const GROUP_STATE_LABEL: &[u8] = b"GroupState";
 const QUEUED_PROPOSAL_LABEL: &[u8] = b"QueuedProposal";
 const PROPOSAL_QUEUE_REFS_LABEL: &[u8] = b"ProposalQueueRefs";
