@@ -997,8 +997,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let provider = group.mls_provider()?;
-        let group_name = group.group_name(&provider)?;
+        let group_name = group.group_name()?;
 
         Ok(group_name)
     }
@@ -1027,7 +1026,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let group_image_url_square = group.group_image_url_square(group.mls_provider()?)?;
+        let group_image_url_square = group.group_image_url_square()?;
 
         Ok(group_image_url_square)
     }
@@ -1056,7 +1055,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let group_description = group.group_description(group.mls_provider()?)?;
+        let group_description = group.group_description()?;
 
         Ok(group_description)
     }
@@ -1085,7 +1084,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let group_pinned_frame_url = group.group_pinned_frame_url(group.mls_provider()?)?;
+        let group_pinned_frame_url = group.group_pinned_frame_url()?;
 
         Ok(group_pinned_frame_url)
     }
@@ -1097,7 +1096,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let admin_list = group.admin_list(group.mls_provider()?)?;
+        let admin_list = group.admin_list()?;
 
         Ok(admin_list)
     }
@@ -1109,7 +1108,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let super_admin_list = group.super_admin_list(group.mls_provider()?)?;
+        let super_admin_list = group.super_admin_list()?;
 
         Ok(super_admin_list)
     }
@@ -1239,7 +1238,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        Ok(group.is_active(group.mls_provider()?)?)
+        Ok(group.is_active()?)
     }
 
     pub fn added_by_inbox_id(&self) -> Result<String, GenericError> {
@@ -1259,7 +1258,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let metadata = group.metadata(group.mls_provider()?)?;
+        let metadata = group.metadata()?;
         Ok(Arc::new(FfiGroupMetadata {
             inner: Arc::new(metadata),
         }))
@@ -1497,8 +1496,7 @@ mod tests {
         self,
         distributions::{Alphanumeric, DistString},
     };
-    use futures::future;
-    use tokio::{sync::Notify, task, time::error::Elapsed};
+    use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::generate_inbox_id;
     use xmtp_mls::{storage::EncryptionKey, InboxOwner};
@@ -2082,36 +2080,6 @@ mod tests {
 
         let members = group.list_members().unwrap();
         assert_eq!(members.len(), 2);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_can_list_members_in_parallel() {
-        let alix = new_test_client().await;
-        let bo = new_test_client().await;
-        let mut groups = Vec::new();
-
-        for _ in 0..50 {
-            let group = alix
-                .conversations()
-                .create_group(
-                    vec![bo.account_address.clone()],
-                    FfiCreateGroupOptions::default(),
-                )
-                .await
-                .unwrap();
-            groups.push(group);
-        }
-
-        let tasks: Vec<_> = groups
-            .into_iter()
-            .map(|group| task::spawn(async move { group.list_members().unwrap() }))
-            .collect();
-
-        // Await all tasks in parallel and handle any errors
-        match future::try_join_all(tasks).await {
-            Ok(_) => println!("Test completed successfully"),
-            Err(e) => println!("Failed to list 20 groups members: {}", e),
-        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

@@ -6415,7 +6415,6 @@ dependencies = [
  "parking_lot",
  "prost",
  "rand",
- "rayon",
  "reqwest 0.12.5",
  "ring 0.17.8",
  "serde",
