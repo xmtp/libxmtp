@@ -17,9 +17,9 @@ where
   E: std::error::Error;
 
 impl<T: std::error::Error> std::fmt::Display for ErrorWrapper<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", self.0)
-    }
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    write!(f, "{}", self.0)
+  }
 }
 
 impl<T> From<T> for ErrorWrapper<T>
