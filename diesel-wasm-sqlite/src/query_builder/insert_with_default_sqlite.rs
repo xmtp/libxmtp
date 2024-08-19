@@ -243,16 +243,10 @@ impl<V, T, QId, Op, const STATIC_QUERY_ID: bool> ExecuteDsl<WasmSqliteConnection
         InsertStatement<T, BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>, Op>,
     )
 where
-    T: Table + Copy + QueryId + Send + Sync + 'static,
+    T: Table + Copy + QueryId + 'static,
     T::FromClause: QueryFragment<WasmSqlite>,
-    Op: Copy + QueryId + QueryFragment<WasmSqlite> + Send + 'static,
-    V: InsertValues<WasmSqlite, T>
-        + CanInsertInSingleQuery<WasmSqlite>
-        + QueryId
-        + Send
-        + Sync
-        + 'static,
-    <T as diesel::QuerySource>::FromClause: Send,
+    Op: Copy + QueryId + QueryFragment<WasmSqlite> + 'static,
+    V: InsertValues<WasmSqlite, T> + CanInsertInSingleQuery<WasmSqlite> + QueryId + 'static,
 {
     fn execute<'conn, 'query>(
         (Yes, query): Self,
@@ -350,14 +344,11 @@ impl<V, T, QId, Op, const STATIC_QUERY_ID: bool> ExecuteDsl<WasmSqliteConnection
         InsertStatement<T, BatchInsert<V, T, QId, STATIC_QUERY_ID>, Op>,
     )
 where
-    T: Table + QueryId + Send + 'static,
+    T: Table + QueryId + 'static,
     T::FromClause: QueryFragment<WasmSqlite>,
-    Op: QueryFragment<WasmSqlite> + QueryId + Send,
-    QId: Send,
-    V: Send,
+    Op: QueryFragment<WasmSqlite> + QueryId,
     SqliteBatchInsertWrapper<V, T, QId, STATIC_QUERY_ID>:
         QueryFragment<WasmSqlite> + QueryId + CanInsertInSingleQuery<WasmSqlite>,
-    <T as diesel::QuerySource>::FromClause: Send,
 {
     fn execute<'conn, 'query>(
         (No, query): Self,
