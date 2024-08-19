@@ -997,7 +997,8 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let group_name = group.group_name()?;
+        let provider = group.mls_provider()?;
+        let group_name = group.group_name(&provider)?;
 
         Ok(group_name)
     }
@@ -1026,7 +1027,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let group_image_url_square = group.group_image_url_square()?;
+        let group_image_url_square = group.group_image_url_square(group.mls_provider()?)?;
 
         Ok(group_image_url_square)
     }
@@ -1055,7 +1056,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let group_description = group.group_description()?;
+        let group_description = group.group_description(group.mls_provider()?)?;
 
         Ok(group_description)
     }
@@ -1084,7 +1085,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let group_pinned_frame_url = group.group_pinned_frame_url()?;
+        let group_pinned_frame_url = group.group_pinned_frame_url(group.mls_provider()?)?;
 
         Ok(group_pinned_frame_url)
     }
@@ -1096,7 +1097,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let admin_list = group.admin_list()?;
+        let admin_list = group.admin_list(group.mls_provider()?)?;
 
         Ok(admin_list)
     }
@@ -1108,7 +1109,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let super_admin_list = group.super_admin_list()?;
+        let super_admin_list = group.super_admin_list(group.mls_provider()?)?;
 
         Ok(super_admin_list)
     }
@@ -1238,7 +1239,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        Ok(group.is_active()?)
+        Ok(group.is_active(group.mls_provider()?)?)
     }
 
     pub fn added_by_inbox_id(&self) -> Result<String, GenericError> {
@@ -1258,7 +1259,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let metadata = group.metadata()?;
+        let metadata = group.metadata(group.mls_provider()?)?;
         Ok(Arc::new(FfiGroupMetadata {
             inner: Arc::new(metadata),
         }))

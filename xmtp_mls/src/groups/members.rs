@@ -46,7 +46,7 @@ impl MlsGroup {
         let conn = provider.conn_ref();
         let association_states =
             StoredAssociationState::batch_read_from_cache(conn, requests.clone())?;
-        let mutable_metadata = self.mutable_metadata()?;
+        let mutable_metadata = self.mutable_metadata(provider)?;
         if association_states.len() != requests.len() {
             // Cache miss - not expected to happen because:
             // 1. We don't allow updates to the group metadata unless we have already validated the association state
