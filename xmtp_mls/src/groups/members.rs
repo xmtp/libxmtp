@@ -1,5 +1,4 @@
 use xmtp_id::InboxId;
-use rayon::prelude::*;
 
 use super::{validated_commit::extract_group_membership, GroupError, MlsGroup};
 
@@ -25,7 +24,7 @@ pub enum PermissionLevel {
 impl MlsGroup {
     // Load the member list for the group from the DB, merging together multiple installations into a single entry
     pub fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
-        let conn = self.context.store.conn()?; // Reuse the connection
+        let conn = self.context.store.conn()?;
         let provider = self.context.mls_provider(conn);
         self.members_with_provider(&provider)
     }
@@ -34,44 +33,33 @@ impl MlsGroup {
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<GroupMember>, GroupError> {
-        log::debug!("top of members provider");
         let openmls_group = self.load_mls_group(provider)?;
-        log::debug!("after load mls group");
+        // TODO: Replace with try_into from extensions
         let group_membership = extract_group_membership(openmls_group.extensions())?;
-        log::debug!("after extract group membership");
-        let requests: Vec<_> = group_membership
+        let requests = group_membership
             .members
             .into_iter()
             .map(|(inbox_id, sequence_id)| (inbox_id, sequence_id as i64))
             .filter(|(_, sequence_id)| *sequence_id != 0) // Skip the initial state
-            .collect();
-        log::debug!("after requests");
+            .collect::<Vec<_>>();
 
         let conn = provider.conn_ref();
         let association_states =
             StoredAssociationState::batch_read_from_cache(conn, requests.clone())?;
-        log::debug!("get from the cache");
-
         let mutable_metadata = self.mutable_metadata()?;
         if association_states.len() != requests.len() {
-            if log::log_enabled!(log::Level::Error) {
-                log::error!(
-                    "Failed to load all members for group - metadata: {:?}, computed members: {:?}",
-                    requests,
-                    association_states
-                );
-            }
+            // Cache miss - not expected to happen because:
+            // 1. We don't allow updates to the group metadata unless we have already validated the association state
+            // 2. When validating the association state, we must have written it to the cache
+            log::error!(
+                "Failed to load all members for group - metadata: {:?}, computed members: {:?}",
+                requests,
+                association_states
+            );
             return Err(GroupError::InvalidGroupMembership);
         }
-        log::debug!("after the mutable metadata");
-
-
-        // Estimate vector capacity based on the number of association states
-        let mut members: Vec<GroupMember> = Vec::with_capacity(association_states.len());
-
-        // Process association states in parallel
-        members = association_states
-            .into_par_iter()
+        let members = association_states
+            .into_iter()
             .map(|association_state| {
                 let inbox_id_str = association_state.inbox_id().to_string();
                 let is_admin = mutable_metadata.is_admin(&inbox_id_str);
@@ -84,16 +72,14 @@ impl MlsGroup {
                     PermissionLevel::Member
                 };
 
-                GroupMember {
+                Ok(GroupMember {
                     inbox_id: inbox_id_str,
                     account_addresses: association_state.account_addresses(),
                     installation_ids: association_state.installation_ids(),
                     permission_level,
-                }
+                })
             })
-            .collect();        
-        log::debug!("at the end");
-
+            .collect::<Result<Vec<GroupMember>, GroupError>>()?;
 
         Ok(members)
     }
