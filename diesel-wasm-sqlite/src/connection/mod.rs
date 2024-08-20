@@ -110,11 +110,11 @@ impl AsyncConnection for WasmSqliteConnection {
     }
 
     fn instrumentation(&mut self) -> &mut dyn Instrumentation {
-        todo!()
+        Arc::get_mut(&mut self.instrumentation).expect("arc ref").get_mut().expect("Mutex poison")
     }
 
     fn set_instrumentation(&mut self, _instrumentation: impl Instrumentation) {
-        todo!()
+        log::debug!("Set instrumentation");
     }
 }
 

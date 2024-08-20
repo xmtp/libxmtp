@@ -5,7 +5,7 @@ use super::sqlite_value::OwnedSqliteValue;
 use crate::ffi::SQLiteCompatibleType;
 use crate::{
     sqlite_types::{self, PrepareOptions, SqlitePrepareFlags},
-    SqliteType,
+    SqliteType, WasmSqliteError,
 };
 use diesel::{
     connection::{
@@ -97,7 +97,7 @@ impl Statement {
             serde_wasm_bindgen::to_value(&value).expect("Bind value failed to convert to JsValue");
         let result = sqlite3
             .bind(&self.inner_statement, bind_index, value.into())
-            .unwrap();
+            .map_err(WasmSqliteError::from)?;
 
         // TODO:insipx Pretty sure we can have a simpler implementation here vs diesel
         // making use of `wa-sqlite` `bind` which abstracts over the individual bind functions in

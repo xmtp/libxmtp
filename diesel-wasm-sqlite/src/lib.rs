@@ -40,7 +40,7 @@ pub struct WasmSqliteError(JsValue);
 
 impl From<WasmSqliteError> for diesel::result::Error {
     fn from(value: WasmSqliteError) -> diesel::result::Error {
-        log::error!("NOT IMPLEMENTED, {:?}", value);
+        tracing::error!("NOT IMPLEMENTED, {:?}", value);
         diesel::result::Error::NotFound
     }
 }

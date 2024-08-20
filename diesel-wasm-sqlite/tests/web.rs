@@ -100,6 +100,7 @@ fn examine_sql_from_insert_default_values() {
 #[wasm_bindgen_test]
 async fn test_orm_insert() {
     use schema::books::dsl::*;
+    tracing_wasm::set_as_global_default();
     let mut conn = establish_connection().await;
 
     insert_books(
@@ -142,7 +143,8 @@ async fn test_orm_insert() {
 
     insert_book(&mut conn, BookForm { title: "Game of Thrones".into(), author: Some("George R.R.".into())}).await.unwrap();
     console::log_1(&"Showing Users".into());
-   /* 
+   
+    /* 
     let query = books
     .limit(5)
     .select(Book::as_select());

@@ -11,6 +11,7 @@ diesel_derives = "2.2"
 wasm-bindgen = "0.2.92"
 wasm-bindgen-futures = "0.4.42"
 log = "0.4"
+tracing = "0.1"
 rand = "0.8"
 getrandom = { version = "0.2", features = ["js"] }
 web-sys = { version = "0.3", features = ["console"] }
@@ -32,6 +33,7 @@ web-sys = { version = "0.3", features = ["console"] }
 chrono = { version = "0.4", features = ["wasmbind", "serde"] }
 diesel_migrations = "2.2"
 diesel = { version = "2.2", features = ["chrono"]}
+tracing-wasm = { version = "0.2" }
 
 
 [lib]
