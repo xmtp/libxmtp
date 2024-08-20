@@ -7,7 +7,6 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
-use prost::Message;
 use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
@@ -29,16 +28,13 @@ use xmtp_proto::{
 
 use super::GroupError;
 
+use crate::client::MessageProcessingError;
 use crate::XmtpApi;
 use crate::{
     client::ClientError,
     configuration::DELIMITER,
-    groups::{intents::SendMessageIntentData, GroupMessageKind, StoredGroupMessage},
-    storage::{
-        group::StoredGroup,
-        group_intent::{IntentKind, NewGroupIntent},
-        StorageError,
-    },
+    groups::{GroupMessageKind, StoredGroupMessage},
+    storage::{group::StoredGroup, StorageError},
     Client, Store,
 };
 
@@ -112,22 +108,21 @@ where
         // build the request
         let history_request = HistoryRequest::new();
         let pin_code = history_request.pin_code.clone();
-        let idempotency_key = new_request_id();
-        let envelope = PlaintextEnvelope {
-            content: Some(Content::V2(V2 {
-                message_type: Some(Request(history_request.into())),
-                idempotency_key,
-            })),
-        };
 
-        // build the intent
-        let mut encoded_envelope = vec![];
-        envelope
-            .encode(&mut encoded_envelope)
-            .map_err(GroupError::EncodeError)?;
-        let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        let intent = NewGroupIntent::new(IntentKind::SendMessage, sync_group_id, intent_data);
-        intent.store(&conn)?;
+        let content_bytes = format!(
+            "{}{DELIMITER}{}",
+            history_request.request_id, history_request.pin_code
+        )
+        .into_bytes();
+        let _message_id =
+            sync_group.prepare_message(content_bytes.as_slice(), &conn, move |_time_ns| {
+                PlaintextEnvelope {
+                    content: Some(Content::V2(V2 {
+                        message_type: Some(Request(history_request.into())),
+                        idempotency_key: new_request_id(),
+                    })),
+                }
+            })?;
 
         // publish the intent
         if let Err(err) = sync_group.publish_intents(conn, self).await {
@@ -148,27 +143,35 @@ where
             .pop()
             .ok_or(GroupError::GroupNotFound)?
             .id;
+        let sync_group = self.group(sync_group_id)?;
 
-        // build the reply
-        let envelope = PlaintextEnvelope {
-            content: Some(Content::V2(V2 {
-                idempotency_key: new_request_id(),
-                message_type: Some(Reply(contents)),
-            })),
-        };
+        // the reply message
+        let content_bytes = format!(
+            "{}{DELIMITER}{:?}{DELIMITER}{:?}{DELIMITER}{:?}",
+            contents.url,
+            contents
+                .encryption_key
+                .as_ref()
+                .ok_or(MessageProcessingError::InvalidPayload)?,
+            contents
+                .signing_key
+                .as_ref()
+                .ok_or(MessageProcessingError::InvalidPayload)?,
+            contents.bundle_hash.as_slice()
+        )
+        .into_bytes();
 
-        // build the intent
-        let mut encoded_envelope = vec![];
-        envelope
-            .encode(&mut encoded_envelope)
-            .map_err(GroupError::EncodeError)?;
-        let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        let intent =
-            NewGroupIntent::new(IntentKind::SendMessage, sync_group_id.clone(), intent_data);
-        intent.store(&conn)?;
+        let _message_id =
+            sync_group.prepare_message(content_bytes.as_slice(), &conn, move |_time_ns| {
+                PlaintextEnvelope {
+                    content: Some(Content::V2(V2 {
+                        idempotency_key: new_request_id(),
+                        message_type: Some(Reply(contents)),
+                    })),
+                }
+            })?;
 
         // publish the intent
-        let sync_group = self.group(sync_group_id)?;
         if let Err(err) = sync_group.publish_intents(conn, self).await {
             log::error!("error publishing sync group intents: {:?}", err);
         }
