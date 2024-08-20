@@ -226,11 +226,30 @@ where
     ) -> Result<(), GroupError> {
         // find the sync group
         let conn = self.store().conn()?;
-        let sync_group_id = conn
-            .find_sync_groups()?
-            .pop()
-            .ok_or(GroupError::GroupNotFound)?
-            .id;
+        let (sync_group_id, sync_group) = self.get_sync_group()?;
+
+        // sync the group
+        Box::pin(sync_group.sync(self)).await?;
+
+        let messages = sync_group.find_messages(
+            Some(GroupMessageKind::Application),
+            None,
+            None,
+            None,
+            None,
+        )?;
+        // check if the latest history message is a reply
+        let has_replied = messages.last().map_or(false, |msg| {
+            matches!(
+                bincode::deserialize(&msg.decrypted_message_bytes),
+                Ok(MessageHistoryContent::Reply(_))
+            )
+        });
+
+        // if the latest history message is a reply, don't send a new one
+        if has_replied {
+            return Ok(());
+        }
 
         // build the reply
         let envelope = PlaintextEnvelope {
@@ -251,7 +270,6 @@ where
         intent.store(&conn)?;
 
         // publish the intent
-        let sync_group = self.group(sync_group_id)?;
         if let Err(err) = sync_group.publish_intents(conn, self).await {
             log::error!("error publishing sync group intents: {:?}", err);
         }
