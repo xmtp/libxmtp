@@ -630,6 +630,7 @@ class Client() {
     }
 
     fun deleteLocalDatabase() {
+        dropLocalDatabaseConnection()
         File(dbPath).delete()
     }
 
