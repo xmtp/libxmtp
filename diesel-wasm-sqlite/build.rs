@@ -3,6 +3,7 @@ use std::process::Command;
 
 fn main() {
     println!("cargo::rerun-if-changed=package.js");
+    println!("cargo::rerun-if-changed=package.json");
 
     Command::new("yarn")
         .args(["run", "build"])

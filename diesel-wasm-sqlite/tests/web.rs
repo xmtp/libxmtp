@@ -100,7 +100,9 @@ fn examine_sql_from_insert_default_values() {
 #[wasm_bindgen_test]
 async fn test_orm_insert() {
     use schema::books::dsl::*;
+    console_error_panic_hook::set_once();
     tracing_wasm::set_as_global_default();
+    
     let mut conn = establish_connection().await;
 
     insert_books(

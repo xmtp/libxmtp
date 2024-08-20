@@ -66,7 +66,9 @@ impl Statement {
                         drop_signal: None,
                     };
 
-                    this.reset().await;
+                    if let Err(e) = this.reset().await {
+                        tracing::error!("{}", e);
+                    }
                     this.clear_bindings();
                 }
                 Err(_) => {
@@ -95,6 +97,7 @@ impl Statement {
         let sqlite3 = crate::get_sqlite_unchecked();
         let value =
             serde_wasm_bindgen::to_value(&value).expect("Bind value failed to convert to JsValue");
+        tracing::debug!("{:?}", value);
         let result = sqlite3
             .bind(&self.inner_statement, bind_index, value.into())
             .map_err(WasmSqliteError::from)?;
@@ -109,14 +112,21 @@ impl Statement {
         Ok(result)
     }
 
-    async fn reset(&self) {
+    async fn reset(&self) -> QueryResult<()> {
         let sqlite3 = crate::get_sqlite_unchecked();
-        let _ = sqlite3.reset(&self.inner_statement).await.unwrap();
+        let _ = sqlite3
+            .reset(&self.inner_statement)
+            .await
+            .map_err(WasmSqliteError::from)?;
+        Ok(())
     }
 
-    fn clear_bindings(&self) {
+    fn clear_bindings(&self) -> QueryResult<()> {
         let sqlite3 = crate::get_sqlite_unchecked();
-        let _ = sqlite3.clear_bindings(&self.inner_statement).unwrap();
+        let _ = sqlite3
+            .clear_bindings(&self.inner_statement)
+            .map_err(WasmSqliteError::from)?;
+        Ok(())
     }
 
     /* not sure if there is equivalent method or just cloning the stmt is enough
@@ -237,9 +247,10 @@ impl<'stmt> BoundStatement<'stmt> {
 
     // FIXME: [`AsyncDrop`](https://github.com/rust-lang/rust/issues/126482) is a missing feature in rust.
     // Until then we need to manually reset the statement object.
-    pub async fn reset(&mut self) {
-        self.statement.reset().await;
-        self.statement.clear_bindings()
+    pub async fn reset(&mut self) -> QueryResult<()> {
+        self.statement.reset().await?;
+        self.statement.clear_bindings()?;
+        Ok(())
     }
 }
 

@@ -58,3 +58,4 @@ impl From<JsValue> for WasmSqliteError {
         WasmSqliteError(err)
     }
 }
+

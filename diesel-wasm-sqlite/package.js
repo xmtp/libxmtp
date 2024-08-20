@@ -226,7 +226,12 @@ export class SQLite {
   }
 
   clear_bindings(stmt) {
-    return this.sqlite3.clear_bindings(stmt);
+    try {
+      return this.sqlite3.clear_bindings(stmt);
+    } catch (error) {
+      console.log("sqlite3.clear_bindings error");
+      throw error;
+    }
   }
 
   async close(db) {
