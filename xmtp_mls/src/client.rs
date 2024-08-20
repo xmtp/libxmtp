@@ -129,9 +129,7 @@ pub enum MessageProcessingError {
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error("openmls process message error: {0}")]
-    OpenMlsProcessMessage(
-        #[from] openmls::prelude::ProcessMessageError<sql_key_store::SqlKeyStoreError>,
-    ),
+    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
     #[error("merge pending commit: {0}")]
     MergePendingCommit(
         #[from] openmls::group::MergePendingCommitError<sql_key_store::SqlKeyStoreError>,

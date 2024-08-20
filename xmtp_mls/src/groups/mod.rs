@@ -72,7 +72,7 @@ use crate::{
     client::{deserialize_welcome, ClientError, MessageProcessingError, XmtpMlsLocalContext},
     configuration::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
-        MUTABLE_METADATA_EXTENSION_ID,
+        MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
     },
     hpke::{decrypt_welcome, HpkeError},
     identity::{parse_credential, Identity, IdentityError},
@@ -107,7 +107,7 @@ pub enum GroupError {
     #[error("intent error: {0}")]
     Intent(#[from] IntentError),
     #[error("create message: {0}")]
-    CreateMessage(#[from] openmls::prelude::CreateMessageError<sql_key_store::SqlKeyStoreError>),
+    CreateMessage(#[from] openmls::prelude::CreateMessageError),
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
     #[error("SequenceId not found in local db")]
@@ -1164,7 +1164,7 @@ fn build_group_config(
         .capabilities(capabilities)
         .ciphersuite(CIPHERSUITE)
         .wire_format_policy(WireFormatPolicy::default())
-        .max_past_epochs(3) // Trying with 3 max past epochs for now
+        .max_past_epochs(MAX_PAST_EPOCHS)
         .use_ratchet_tree_extension(true)
         .build())
 }
@@ -1211,7 +1211,7 @@ async fn validate_initial_group_membership<ApiClient: XmtpApi>(
 fn build_group_join_config() -> MlsGroupJoinConfig {
     MlsGroupJoinConfig::builder()
         .wire_format_policy(WireFormatPolicy::default())
-        .max_past_epochs(3) // Trying with 3 max past epochs for now
+        .max_past_epochs(MAX_PAST_EPOCHS)
         .use_ratchet_tree_extension(true)
         .build()
 }

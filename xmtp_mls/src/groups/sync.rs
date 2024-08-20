@@ -17,7 +17,7 @@ use crate::{
     client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{
-        DELIMITER, GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS,
+        DELIMITER, GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
         UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
     groups::{
@@ -53,6 +53,7 @@ use openmls::{
         ProcessedMessage, ProcessedMessageContent, Sender,
     },
     prelude_test::KeyPackage,
+    treesync::LeafNodeParameters,
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::OpenMlsProvider;
@@ -344,7 +345,7 @@ impl MlsGroup {
                     intent.id,
                     group_epoch,
                     message_epoch,
-                    1, // max_past_epochs, TODO: expose from OpenMLS MlsGroup
+                    MAX_PAST_EPOCHS,
                 ) {
                     conn.set_group_intent_to_publish(intent.id)?;
                     return Ok(());
@@ -907,8 +908,11 @@ impl MlsGroup {
                 Ok(Some((msg_bytes, None)))
             }
             IntentKind::KeyUpdate => {
-                let (commit, _, _) = openmls_group
-                    .self_update(&provider, &self.context.identity.installation_keys)?;
+                let (commit, _, _) = openmls_group.self_update(
+                    &provider,
+                    &self.context.identity.installation_keys,
+                    LeafNodeParameters::default(),
+                )?;
 
                 Ok(Some((commit.tls_serialize_detached()?, None)))
             }
