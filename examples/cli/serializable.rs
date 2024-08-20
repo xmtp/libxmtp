@@ -30,7 +30,13 @@ impl<'a> From<&'a MlsGroup> for SerializableGroup {
             .map(|m| m.inbox_id)
             .collect::<Vec<String>>();
 
-        let metadata = group.metadata().expect("could not load metadata");
+        let metadata = group
+            .metadata(
+                group
+                    .mls_provider()
+                    .expect("MLS Provider could not be created"),
+            )
+            .expect("could not load metadata");
         let permissions = group.permissions().expect("could not load permissions");
 
         Self {

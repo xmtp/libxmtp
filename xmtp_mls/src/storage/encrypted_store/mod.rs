@@ -121,7 +121,7 @@ impl EncryptedMessageStore {
                     .max_size(1)
                     .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
                 StorageOption::Persistent(ref path) => Pool::builder()
-                    .max_size(10)
+                    .max_size(25)
                     .build(ConnectionManager::<SqliteConnection>::new(path))?,
             };
 
@@ -175,7 +175,7 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    fn raw_conn(
+    pub(crate) fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
         let pool_guard = self.pool.read();
@@ -184,7 +184,7 @@ impl EncryptedMessageStore {
             .as_ref()
             .ok_or(StorageError::PoolNeedsConnection)?;
 
-        log::info!(
+        log::debug!(
             "Pulling connection from pool, idle_connections={}, total_connections={}",
             pool.state().idle_connections,
             pool.state().connections
@@ -330,7 +330,7 @@ impl EncryptedMessageStore {
                     .max_size(1)
                     .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
                 StorageOption::Persistent(ref path) => Pool::builder()
-                    .max_size(10)
+                    .max_size(25)
                     .build(ConnectionManager::<SqliteConnection>::new(path))?,
             };
 

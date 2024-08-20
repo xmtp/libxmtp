@@ -40,12 +40,22 @@ impl StoredAssociationState {
         state: AssociationState,
     ) -> Result<(), StorageError> {
         let state_proto: AssociationStateProto = state.into();
-        StoredAssociationState {
-            inbox_id,
+        let result = StoredAssociationState {
+            inbox_id: inbox_id.clone(),
             sequence_id,
             state: state_proto.encode_to_vec(),
         }
-        .store_or_ignore(conn)
+        .store_or_ignore(conn);
+
+        if result.is_ok() {
+            log::debug!(
+                "Wrote association state to cache: {} {}",
+                inbox_id,
+                sequence_id
+            );
+        }
+
+        result
     }
 
     pub fn read_from_cache(
@@ -56,7 +66,7 @@ impl StoredAssociationState {
         let stored_state: Option<StoredAssociationState> =
             conn.fetch(&(inbox_id.to_string(), sequence_id))?;
 
-        stored_state
+        let result = stored_state
             .map(|stored_state| {
                 stored_state
                     .try_into()
@@ -66,14 +76,23 @@ impl StoredAssociationState {
                         ))
                     })
             })
-            .transpose()
+            .transpose();
+
+        if result.is_ok() && result.as_ref().unwrap().is_some() {
+            log::debug!(
+                "Loaded association state from cache: {} {}",
+                inbox_id,
+                sequence_id
+            );
+        }
+
+        result
     }
 
     pub fn batch_read_from_cache(
         conn: &DbConnection,
         identifiers: Vec<(InboxId, i64)>,
     ) -> Result<Vec<AssociationState>, StorageError> {
-        // If no identifier provided, return empty hash map
         if identifiers.is_empty() {
             return Ok(vec![]);
         }

@@ -17,7 +17,7 @@ use crate::{
     client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{
-        GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS,
+        GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
         UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
     groups::{
@@ -28,7 +28,7 @@ use crate::{
     hpke::{encrypt_welcome, HpkeError},
     identity::parse_credential,
     identity_updates::load_identity_updates,
-    retry::Retry,
+    retry::{Retry, RetryableError},
     retry_async,
     storage::{
         db_connection::DbConnection,
@@ -53,6 +53,7 @@ use openmls::{
         ProcessedMessage, ProcessedMessageContent, Sender,
     },
     prelude_test::KeyPackage,
+    treesync::LeafNodeParameters,
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::OpenMlsProvider;
@@ -130,7 +131,6 @@ impl MlsGroup {
         if !errors.is_empty() {
             return Err(GroupError::Sync(errors));
         }
-
         Ok(())
     }
 
@@ -192,7 +192,10 @@ impl MlsGroup {
                     state: IntentState::Error,
                     ..
                 })) => {
-                    log::warn!("not retrying intent ID {id}. since it is in state Error",);
+                    log::warn!(
+                        "not retrying intent ID {id}. since it is in state Error. {:?}",
+                        last_err
+                    );
                     return Err(last_err.unwrap_or(GroupError::Generic(
                         "Group intent could not be committed".to_string(),
                     )));
@@ -342,7 +345,7 @@ impl MlsGroup {
                     intent.id,
                     group_epoch,
                     message_epoch,
-                    3, // max_past_epochs, TODO: expose from OpenMLS MlsGroup
+                    MAX_PAST_EPOCHS,
                 ) {
                     conn.set_group_intent_to_publish(intent.id)?;
                     return Ok(());
@@ -689,7 +692,18 @@ impl MlsGroup {
                 })
             );
             if let Err(e) = result {
+                let is_retryable = e.is_retryable();
+                let error_message = e.to_string();
                 receive_errors.push(e);
+                // If the error is retryable we cannot move on to the next message
+                // otherwise you can get into a forked group state.
+                if is_retryable {
+                    log::error!(
+                        "Aborting message processing for retryable error: {}",
+                        error_message
+                    );
+                    break;
+                }
             }
         }
 
@@ -790,50 +804,52 @@ impl MlsGroup {
                 })
             );
 
-            if let Err(err) = result {
-                log::error!("error getting publish intent data {:?}", err);
-                if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
-                    log::error!("intent {} has reached max publish attempts", intent.id);
-                    // TODO: Eventually clean up errored attempts
-                    provider
-                        .conn()
-                        .set_group_intent_error_and_fail_msg(&intent)?;
-                } else {
-                    provider
-                        .conn()
-                        .increment_intent_publish_attempt_count(intent.id)?;
+            match result {
+                Err(err) => {
+                    log::error!("error getting publish intent data {:?}", err);
+                    if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
+                        log::error!("intent {} has reached max publish attempts", intent.id);
+                        // TODO: Eventually clean up errored attempts
+                        provider
+                            .conn()
+                            .set_group_intent_error_and_fail_msg(&intent)?;
+                    } else {
+                        provider
+                            .conn()
+                            .increment_intent_publish_attempt_count(intent.id)?;
+                    }
+
+                    return Err(err);
                 }
+                Ok(Some((payload, post_commit_data))) => {
+                    let payload_slice = payload.as_slice();
 
-                return Err(err);
-            }
-
-            if let Some((payload, post_commit_data)) = result.expect("checked") {
-                let payload_slice = payload.as_slice();
-
-                client
-                    .api_client
-                    .send_group_messages(vec![payload_slice])
-                    .await?;
-                log::info!(
-                    "[{}] published intent [{}] of type [{}]",
-                    client.inbox_id(),
-                    intent.id,
-                    intent.kind
-                );
-                provider.conn().set_group_intent_published(
-                    intent.id,
-                    sha256(payload_slice),
-                    post_commit_data,
-                )?;
-                log::debug!(
-                    "client [{}] set stored intent [{}] to state `published`",
-                    client.inbox_id(),
-                    intent.id
-                );
-            } else {
-                provider
-                    .conn()
-                    .set_group_intent_error_and_fail_msg(&intent)?;
+                    client
+                        .api_client
+                        .send_group_messages(vec![payload_slice])
+                        .await?;
+                    log::info!(
+                        "[{}] published intent [{}] of type [{}]",
+                        client.inbox_id(),
+                        intent.id,
+                        intent.kind
+                    );
+                    provider.conn().set_group_intent_published(
+                        intent.id,
+                        sha256(payload_slice),
+                        post_commit_data,
+                    )?;
+                    log::debug!(
+                        "client [{}] set stored intent [{}] to state `published`",
+                        client.inbox_id(),
+                        intent.id
+                    );
+                }
+                Ok(None) => {
+                    log::info!("Skipping intent because no publish data returned");
+                    let deleter: &dyn Delete<StoredGroupIntent, Key = i32> = &provider.conn();
+                    deleter.delete(intent.id)?;
+                }
             }
         }
 
@@ -889,8 +905,11 @@ impl MlsGroup {
                 Ok(Some((msg_bytes, None)))
             }
             IntentKind::KeyUpdate => {
-                let (commit, _, _) = openmls_group
-                    .self_update(&provider, &self.context.identity.installation_keys)?;
+                let (commit, _, _) = openmls_group.self_update(
+                    &provider,
+                    &self.context.identity.installation_keys,
+                    LeafNodeParameters::default(),
+                )?;
 
                 Ok(Some((commit.tls_serialize_detached()?, None)))
             }

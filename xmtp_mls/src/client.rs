@@ -129,9 +129,7 @@ pub enum MessageProcessingError {
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error("openmls process message error: {0}")]
-    OpenMlsProcessMessage(
-        #[from] openmls::prelude::ProcessMessageError<sql_key_store::SqlKeyStoreError>,
-    ),
+    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
     #[error("merge pending commit: {0}")]
     MergePendingCommit(
         #[from] openmls::group::MergePendingCommitError<sql_key_store::SqlKeyStoreError>,
@@ -419,23 +417,20 @@ where
             .collect())
     }
 
-    /// Register the identity with the network
-    /// Callers should always check the result of [`text_to_sign`](Self::text_to_sign) before invoking this function.
-    ///
-    /// If `text_to_sign` returns `None`, then the wallet signature is not required and this function can be called with `None`.
-    ///
-    /// If `text_to_sign` returns `Some`, then the caller should sign the text with their wallet and pass the signature to this function.
+    /// Upload a Key Package to the network and publish the signed identity update
+    /// from the provided SignatureRequest
     pub async fn register_identity(
         &self,
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
         log::info!("registering identity");
-        self.apply_signature_request(signature_request).await?;
-        let connection = self.store().conn()?;
-        let provider = self.mls_provider(connection);
+        // Register the identity before applying the signature request
+        let provider = self.mls_provider(self.store().conn()?);
         self.identity()
             .register(&provider, &self.api_client)
             .await?;
+
+        self.apply_signature_request(signature_request).await?;
 
         Ok(())
     }
@@ -667,7 +662,7 @@ mod tests {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let result = client
             .api_client
-            .register_installation(vec![1, 2, 3], false)
+            .upload_key_package(vec![1, 2, 3], false)
             .await;
 
         assert!(result.is_err());

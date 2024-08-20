@@ -7,8 +7,8 @@ edition = "2021"
 async-trait = { workspace = true }
 futures = { workspace = true }
 futures-core = { workspace = true }
-pbjson = "0.6.0"
-pbjson-types = "0.6.0"
+pbjson.workspace = true
+pbjson-types.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
 # Only necessary if using Protobuf well-known types:
 prost-types = { workspace = true }

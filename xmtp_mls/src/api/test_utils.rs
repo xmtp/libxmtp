@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use mockall::mock;
-use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
 use xmtp_proto::{
     api_client::{
         Error, GroupMessageStream, WelcomeMessageStream, XmtpIdentityClient, XmtpMlsClient,
@@ -12,26 +11,14 @@ use xmtp_proto::{
     },
     xmtp::mls::api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        FetchKeyPackagesRequest, FetchKeyPackagesResponse, GetIdentityUpdatesRequest,
-        GetIdentityUpdatesResponse, GroupMessage, QueryGroupMessagesRequest,
+        FetchKeyPackagesRequest, FetchKeyPackagesResponse, GroupMessage, QueryGroupMessagesRequest,
         QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
-        RegisterInstallationRequest, RegisterInstallationResponse, SendGroupMessagesRequest,
-        SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-        UploadKeyPackageRequest,
+        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
+        SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
     },
 };
 
-use super::ApiClientWrapper;
-use crate::retry::Retry;
-
-pub async fn get_test_api_client() -> ApiClientWrapper<GrpcClient> {
-    ApiClientWrapper::new(
-        GrpcClient::create("http://localhost:5556".to_string(), false)
-            .await
-            .unwrap(),
-        Retry::default(),
-    )
-}
+use crate::XmtpTestClient;
 
 pub fn build_group_messages(num_messages: usize, group_id: Vec<u8>) -> Vec<GroupMessage> {
     let mut out: Vec<GroupMessage> = vec![];
@@ -55,10 +42,6 @@ mock! {
 
     #[async_trait]
     impl XmtpMlsClient for ApiClient {
-        async fn register_installation(
-            &self,
-            request: RegisterInstallationRequest,
-        ) -> Result<RegisterInstallationResponse, Error>;
         async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
         async fn fetch_key_packages(
             &self,
@@ -66,10 +49,6 @@ mock! {
         ) -> Result<FetchKeyPackagesResponse, Error>;
         async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), Error>;
         async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), Error>;
-        async fn get_identity_updates(
-            &self,
-            request: GetIdentityUpdatesRequest,
-        ) -> Result<GetIdentityUpdatesResponse, Error>;
         async fn query_group_messages(&self, request: QueryGroupMessagesRequest) -> Result<QueryGroupMessagesResponse, Error>;
         async fn query_welcome_messages(&self, request: QueryWelcomeMessagesRequest) -> Result<QueryWelcomeMessagesResponse, Error>;
         async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<GroupMessageStream, Error>;
@@ -81,5 +60,11 @@ mock! {
         async fn publish_identity_update(&self, request: PublishIdentityUpdateRequest) -> Result<PublishIdentityUpdateResponse, Error>;
         async fn get_identity_updates_v2(&self, request: GetIdentityUpdatesV2Request) -> Result<GetIdentityUpdatesV2Response, Error>;
         async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, Error>;
+    }
+
+    #[async_trait]
+    impl XmtpTestClient for ApiClient {
+        async fn create_local() -> Self { ApiClient }
+        async fn create_dev() -> Self { ApiClient }
     }
 }

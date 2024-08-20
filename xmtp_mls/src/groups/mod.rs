@@ -72,7 +72,7 @@ use crate::{
     client::{deserialize_welcome, ClientError, MessageProcessingError, XmtpMlsLocalContext},
     configuration::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
-        MUTABLE_METADATA_EXTENSION_ID,
+        MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
     },
     hpke::{decrypt_welcome, HpkeError},
     identity::{parse_credential, Identity, IdentityError},
@@ -107,7 +107,7 @@ pub enum GroupError {
     #[error("intent error: {0}")]
     Intent(#[from] IntentError),
     #[error("create message: {0}")]
-    CreateMessage(#[from] openmls::prelude::CreateMessageError<sql_key_store::SqlKeyStoreError>),
+    CreateMessage(#[from] openmls::prelude::CreateMessageError),
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
     #[error("SequenceId not found in local db")]
@@ -242,6 +242,13 @@ impl MlsGroup {
             group_id,
             created_at_ns,
         }
+    }
+
+    /// Instantiate a new [`XmtpOpenMlsProvider`] pulling a connection from the database.
+    /// prefer to use an already-instantiated mls provider if possible.
+    pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, GroupError> {
+        let conn = self.context.store.conn()?;
+        Ok(self.context.mls_provider(conn))
     }
 
     // Load the stored MLS group from the OpenMLS provider's keystore
@@ -439,7 +446,8 @@ impl MlsGroup {
         self.maybe_update_installations(conn.clone(), update_interval, client)
             .await?;
 
-        let message_id = self.prepare_message(message, &conn);
+        let message_id =
+            self.prepare_message(message, &conn, |now| Self::into_envelope(message, now));
 
         // Skipping a full sync here and instead just firing and forgetting
         if let Err(err) = self.publish_intents(conn.clone(), client).await {
@@ -471,15 +479,29 @@ impl MlsGroup {
     /// Send a message, optimistically returning the ID of the message before the result of a message publish.
     pub fn send_message_optimistic(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
         let conn = self.context.store.conn()?;
-        let message_id = self.prepare_message(message, &conn)?;
-
+        let message_id =
+            self.prepare_message(message, &conn, |now| Self::into_envelope(message, now))?;
         Ok(message_id)
     }
 
-    /// Prepare a message (intent & id) on this users XMTP [`Client`].
-    fn prepare_message(&self, message: &[u8], conn: &DbConnection) -> Result<Vec<u8>, GroupError> {
+    /// Prepare a [`IntentKind::SendMessage`] intent, and [`StoredGroupMessage`] on this users XMTP [`Client`].
+    ///
+    /// # Arguments
+    /// * message: UTF-8 or encoded message bytes
+    /// * conn: Connection to SQLite database
+    /// * envelope: closure that returns context-specific [`PlaintextEnvelope`]. Closure accepts
+    ///     timestamp attached to intent & stored message.
+    fn prepare_message<F>(
+        &self,
+        message: &[u8],
+        conn: &DbConnection,
+        envelope: F,
+    ) -> Result<Vec<u8>, GroupError>
+    where
+        F: FnOnce(i64) -> PlaintextEnvelope,
+    {
         let now = now_ns();
-        let plain_envelope = Self::into_envelope(message, &now.to_string());
+        let plain_envelope = envelope(now);
         let mut encoded_envelope = vec![];
         plain_envelope
             .encode(&mut encoded_envelope)
@@ -507,11 +529,11 @@ impl MlsGroup {
         Ok(message_id)
     }
 
-    fn into_envelope(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {
+    fn into_envelope(encoded_msg: &[u8], idempotency_key: i64) -> PlaintextEnvelope {
         PlaintextEnvelope {
             content: Some(Content::V1(V1 {
                 content: encoded_msg.to_vec(),
-                idempotency_key: idempotency_key.into(),
+                idempotency_key: idempotency_key.to_string(),
             })),
         }
     }
@@ -696,8 +718,8 @@ impl MlsGroup {
             .await
     }
 
-    pub fn group_name(&self) -> Result<String, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
+    pub fn group_name(&self, provider: impl OpenMlsProvider) -> Result<String, GroupError> {
+        let mutable_metadata = self.mutable_metadata(provider)?;
         match mutable_metadata
             .attributes
             .get(&MetadataField::GroupName.to_string())
@@ -730,8 +752,8 @@ impl MlsGroup {
             .await
     }
 
-    pub fn group_description(&self) -> Result<String, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
+    pub fn group_description(&self, provider: impl OpenMlsProvider) -> Result<String, GroupError> {
+        let mutable_metadata = self.mutable_metadata(provider)?;
         match mutable_metadata
             .attributes
             .get(&MetadataField::Description.to_string())
@@ -765,8 +787,11 @@ impl MlsGroup {
             .await
     }
 
-    pub fn group_image_url_square(&self) -> Result<String, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
+    pub fn group_image_url_square(
+        &self,
+        provider: impl OpenMlsProvider,
+    ) -> Result<String, GroupError> {
+        let mutable_metadata = self.mutable_metadata(provider)?;
         match mutable_metadata
             .attributes
             .get(&MetadataField::GroupImageUrlSquare.to_string())
@@ -799,8 +824,11 @@ impl MlsGroup {
             .await
     }
 
-    pub fn group_pinned_frame_url(&self) -> Result<String, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
+    pub fn group_pinned_frame_url(
+        &self,
+        provider: impl OpenMlsProvider,
+    ) -> Result<String, GroupError> {
+        let mutable_metadata = self.mutable_metadata(provider)?;
         match mutable_metadata
             .attributes
             .get(&MetadataField::GroupPinnedFrameUrl.to_string())
@@ -812,23 +840,34 @@ impl MlsGroup {
         }
     }
 
-    pub fn admin_list(&self) -> Result<Vec<String>, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
+    pub fn admin_list(&self, provider: impl OpenMlsProvider) -> Result<Vec<String>, GroupError> {
+        let mutable_metadata = self.mutable_metadata(provider)?;
         Ok(mutable_metadata.admin_list)
     }
 
-    pub fn super_admin_list(&self) -> Result<Vec<String>, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
+    pub fn super_admin_list(
+        &self,
+        provider: impl OpenMlsProvider,
+    ) -> Result<Vec<String>, GroupError> {
+        let mutable_metadata = self.mutable_metadata(provider)?;
         Ok(mutable_metadata.super_admin_list)
     }
 
-    pub fn is_admin(&self, inbox_id: String) -> Result<bool, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
+    pub fn is_admin(
+        &self,
+        inbox_id: String,
+        provider: impl OpenMlsProvider,
+    ) -> Result<bool, GroupError> {
+        let mutable_metadata = self.mutable_metadata(provider)?;
         Ok(mutable_metadata.admin_list.contains(&inbox_id))
     }
 
-    pub fn is_super_admin(&self, inbox_id: String) -> Result<bool, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
+    pub fn is_super_admin(
+        &self,
+        inbox_id: String,
+        provider: impl OpenMlsProvider,
+    ) -> Result<bool, GroupError> {
+        let mutable_metadata = self.mutable_metadata(provider)?;
         Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
     }
 
@@ -884,26 +923,21 @@ impl MlsGroup {
         self.sync_with_conn(conn, client).await
     }
 
-    pub fn is_active(&self) -> Result<bool, GroupError> {
-        let conn = self.context.store.conn()?;
-        let provider = XmtpOpenMlsProvider::new(conn);
-        let mls_group = self.load_mls_group(&provider)?;
-
+    pub fn is_active(&self, provider: impl OpenMlsProvider) -> Result<bool, GroupError> {
+        let mls_group = self.load_mls_group(provider)?;
         Ok(mls_group.is_active())
     }
 
-    pub fn metadata(&self) -> Result<GroupMetadata, GroupError> {
-        let conn = self.context.store.conn()?;
-        let provider = XmtpOpenMlsProvider::new(conn);
-        let mls_group = self.load_mls_group(&provider)?;
-
+    pub fn metadata(&self, provider: impl OpenMlsProvider) -> Result<GroupMetadata, GroupError> {
+        let mls_group = self.load_mls_group(provider)?;
         Ok(extract_group_metadata(&mls_group)?)
     }
 
-    pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
-        let conn = self.context.store.conn()?;
-        let provider = XmtpOpenMlsProvider::new(conn);
-        let mls_group = &self.load_mls_group(&provider)?;
+    pub fn mutable_metadata(
+        &self,
+        provider: impl OpenMlsProvider,
+    ) -> Result<GroupMutableMetadata, GroupError> {
+        let mls_group = &self.load_mls_group(provider)?;
 
         Ok(mls_group.try_into()?)
     }
@@ -1147,7 +1181,7 @@ fn build_group_config(
         .capabilities(capabilities)
         .ciphersuite(CIPHERSUITE)
         .wire_format_policy(WireFormatPolicy::default())
-        .max_past_epochs(3) // Trying with 3 max past epochs for now
+        .max_past_epochs(MAX_PAST_EPOCHS)
         .use_ratchet_tree_extension(true)
         .build())
 }
@@ -1194,13 +1228,14 @@ async fn validate_initial_group_membership<ApiClient: XmtpApi>(
 fn build_group_join_config() -> MlsGroupJoinConfig {
     MlsGroupJoinConfig::builder()
         .wire_format_policy(WireFormatPolicy::default())
-        .max_past_epochs(3) // Trying with 3 max past epochs for now
+        .max_past_epochs(MAX_PAST_EPOCHS)
         .use_ratchet_tree_extension(true)
         .build()
 }
 
 #[cfg(test)]
 mod tests {
+    use diesel::connection::SimpleConnection;
     use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
     use prost::Message;
     use std::sync::Arc;
@@ -1231,7 +1266,7 @@ mod tests {
 
     use super::{
         intents::{Installation, SendWelcomesAction},
-        MlsGroup,
+        GroupError, MlsGroup,
     };
 
     async fn receive_group_invite<ApiClient>(client: &Client<ApiClient>) -> MlsGroup
@@ -1397,7 +1432,9 @@ mod tests {
         bola_group.sync(&bola).await.unwrap();
 
         // Verify bola can see the group name
-        let bola_group_name = bola_group.group_name().unwrap();
+        let bola_group_name = bola_group
+            .group_name(bola_group.mls_provider().unwrap())
+            .unwrap();
         assert_eq!(bola_group_name, "");
 
         // Check if both clients can see the members correctly
@@ -1456,7 +1493,7 @@ mod tests {
         bola_group
             .add_members_by_inbox_id(&bola, vec![charlie.inbox_id()])
             .await
-            .expect_err("expected error");
+            .expect("bola's add should succeed in a no-op");
 
         amal_group
             .receive(&amal.store().conn().unwrap(), &amal)
@@ -1495,8 +1532,8 @@ mod tests {
                 None,
             )
             .unwrap();
-        // Bola should have one uncommitted intent in `Error::Failed` state for the failed attempt at adding Charlie, who is already in the group
-        assert_eq!(bola_failed_intents.len(), 1);
+        // Bola's attempted add should be deleted, since it will have been a no-op on the second try
+        assert_eq!(bola_failed_intents.len(), 0);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1736,7 +1773,69 @@ mod tests {
 
         let bola_group = receive_group_invite(&bola).await;
         bola_group.sync(&bola).await.unwrap();
-        assert!(!bola_group.is_active().unwrap())
+        assert!(!bola_group
+            .is_active(bola_group.mls_provider().unwrap())
+            .unwrap())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_removed_members_cannot_send_message_to_others() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_wallet = &generate_local_wallet();
+        let bola = ClientBuilder::new_test_client(bola_wallet).await;
+        let charlie_wallet = &generate_local_wallet();
+        let charlie = ClientBuilder::new_test_client(charlie_wallet).await;
+
+        let group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        group
+            .add_members(
+                &amal,
+                vec![bola_wallet.get_address(), charlie_wallet.get_address()],
+            )
+            .await
+            .unwrap();
+        assert_eq!(group.members().unwrap().len(), 3);
+
+        group
+            .remove_members(&amal, vec![bola_wallet.get_address()])
+            .await
+            .unwrap();
+        assert_eq!(group.members().unwrap().len(), 2);
+        assert!(group
+            .members()
+            .unwrap()
+            .iter()
+            .all(|m| m.inbox_id != bola.inbox_id()));
+        assert!(group
+            .members()
+            .unwrap()
+            .iter()
+            .any(|m| m.inbox_id == charlie.inbox_id()));
+
+        group.sync(&amal).await.expect("sync failed");
+
+        let message_text = b"hello";
+        group
+            .send_message(message_text, &bola)
+            .await
+            .expect_err("expected send_message to fail");
+
+        group.sync(&bola).await.expect("sync failed");
+        group.sync(&amal).await.expect("sync failed");
+
+        let amal_messages = group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<StoredGroupMessage>>();
+
+        let message = amal_messages.first().unwrap();
+
+        // FIXME:st this is passing ONLY because the message IS being sent to the group
+        assert_eq!(message_text, &message.decrypted_message_bytes[..]);
+        assert_eq!(amal_messages.len(), 1);
     }
 
     // TODO:nm add more tests for filling in missing installations
@@ -1867,7 +1966,9 @@ mod tests {
             )
             .unwrap();
 
-        let binding = amal_group.mutable_metadata().expect("msg");
+        let binding = amal_group
+            .mutable_metadata(amal_group.mls_provider().unwrap())
+            .expect("msg");
         let amal_group_name: &String = binding
             .attributes
             .get(&MetadataField::GroupName.to_string())
@@ -1930,7 +2031,9 @@ mod tests {
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
-        let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+        let group_mutable_metadata = amal_group
+            .mutable_metadata(amal_group.mls_provider().unwrap())
+            .unwrap();
         assert!(group_mutable_metadata.attributes.len().eq(&4));
         assert!(group_mutable_metadata
             .attributes
@@ -1948,7 +2051,9 @@ mod tests {
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
-        let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
+        let group_mutable_metadata = bola_group
+            .mutable_metadata(bola_group.mls_provider().unwrap())
+            .unwrap();
         assert!(group_mutable_metadata
             .attributes
             .get(&MetadataField::GroupName.to_string())
@@ -1968,7 +2073,9 @@ mod tests {
 
         // Verify amal group sees update
         amal_group.sync(&amal).await.unwrap();
-        let binding = amal_group.mutable_metadata().expect("msg");
+        let binding = amal_group
+            .mutable_metadata(amal_group.mls_provider().unwrap())
+            .expect("msg");
         let amal_group_name: &String = binding
             .attributes
             .get(&MetadataField::GroupName.to_string())
@@ -1977,7 +2084,9 @@ mod tests {
 
         // Verify bola group sees update
         bola_group.sync(&bola).await.unwrap();
-        let binding = bola_group.mutable_metadata().expect("msg");
+        let binding = bola_group
+            .mutable_metadata(bola_group.mls_provider().unwrap())
+            .expect("msg");
         let bola_group_name: &String = binding
             .attributes
             .get(&MetadataField::GroupName.to_string())
@@ -1992,7 +2101,9 @@ mod tests {
 
         // Verify bola group does not see an update
         bola_group.sync(&bola).await.unwrap();
-        let binding = bola_group.mutable_metadata().expect("msg");
+        let binding = bola_group
+            .mutable_metadata(bola_group.mls_provider().unwrap())
+            .expect("msg");
         let bola_group_name: &String = binding
             .attributes
             .get(&MetadataField::GroupName.to_string())
@@ -2011,7 +2122,9 @@ mod tests {
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
-        let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+        let group_mutable_metadata = amal_group
+            .mutable_metadata(amal_group.mls_provider().unwrap())
+            .unwrap();
         assert!(group_mutable_metadata
             .attributes
             .get(&MetadataField::GroupImageUrlSquare.to_string())
@@ -2026,7 +2139,9 @@ mod tests {
 
         // Verify amal group sees update
         amal_group.sync(&amal).await.unwrap();
-        let binding = amal_group.mutable_metadata().expect("msg");
+        let binding = amal_group
+            .mutable_metadata(amal_group.mls_provider().unwrap())
+            .expect("msg");
         let amal_group_image_url: &String = binding
             .attributes
             .get(&MetadataField::GroupImageUrlSquare.to_string())
@@ -2045,7 +2160,9 @@ mod tests {
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
-        let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+        let group_mutable_metadata = amal_group
+            .mutable_metadata(amal_group.mls_provider().unwrap())
+            .unwrap();
         assert!(group_mutable_metadata
             .attributes
             .get(&MetadataField::GroupPinnedFrameUrl.to_string())
@@ -2060,7 +2177,9 @@ mod tests {
 
         // Verify amal group sees update
         amal_group.sync(&amal).await.unwrap();
-        let binding = amal_group.mutable_metadata().expect("msg");
+        let binding = amal_group
+            .mutable_metadata(amal_group.mls_provider().unwrap())
+            .expect("msg");
         let amal_group_pinned_frame_url: &String = binding
             .attributes
             .get(&MetadataField::GroupPinnedFrameUrl.to_string())
@@ -2081,7 +2200,9 @@ mod tests {
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
-        let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+        let group_mutable_metadata = amal_group
+            .mutable_metadata(amal_group.mls_provider().unwrap())
+            .unwrap();
         assert!(group_mutable_metadata
             .attributes
             .get(&MetadataField::GroupName.to_string())
@@ -2098,7 +2219,9 @@ mod tests {
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
-        let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
+        let group_mutable_metadata = bola_group
+            .mutable_metadata(bola_group.mls_provider().unwrap())
+            .unwrap();
         assert!(group_mutable_metadata
             .attributes
             .get(&MetadataField::GroupName.to_string())
@@ -2113,7 +2236,9 @@ mod tests {
 
         // Verify amal group sees update
         amal_group.sync(&amal).await.unwrap();
-        let binding = amal_group.mutable_metadata().unwrap();
+        let binding = amal_group
+            .mutable_metadata(amal_group.mls_provider().unwrap())
+            .unwrap();
         let amal_group_name: &String = binding
             .attributes
             .get(&MetadataField::GroupName.to_string())
@@ -2122,7 +2247,9 @@ mod tests {
 
         // Verify bola group sees update
         bola_group.sync(&bola).await.unwrap();
-        let binding = bola_group.mutable_metadata().expect("msg");
+        let binding = bola_group
+            .mutable_metadata(bola_group.mls_provider().unwrap())
+            .expect("msg");
         let bola_group_name: &String = binding
             .attributes
             .get(&MetadataField::GroupName.to_string())
@@ -2137,7 +2264,9 @@ mod tests {
 
         // Verify amal group sees an update
         amal_group.sync(&amal).await.unwrap();
-        let binding = amal_group.mutable_metadata().expect("msg");
+        let binding = amal_group
+            .mutable_metadata(amal_group.mls_provider().unwrap())
+            .expect("msg");
         let amal_group_name: &String = binding
             .attributes
             .get(&MetadataField::GroupName.to_string())
@@ -2171,8 +2300,10 @@ mod tests {
         bola_group.sync(&bola).await.unwrap();
 
         // Verify Amal is the only admin and super admin
-        let admin_list = amal_group.admin_list().unwrap();
-        let super_admin_list = amal_group.super_admin_list().unwrap();
+        let provider = amal_group.mls_provider().unwrap();
+        let admin_list = amal_group.admin_list(&provider).unwrap();
+        let super_admin_list = amal_group.super_admin_list(&provider).unwrap();
+        drop(provider); // allow connection to be cleaned
         assert_eq!(admin_list.len(), 0);
         assert_eq!(super_admin_list.len(), 1);
         assert!(super_admin_list.contains(&amal.inbox_id()));
@@ -2195,8 +2326,17 @@ mod tests {
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
         bola_group.sync(&bola).await.unwrap();
-        assert_eq!(bola_group.admin_list().unwrap().len(), 1);
-        assert!(bola_group.admin_list().unwrap().contains(&bola.inbox_id()));
+        assert_eq!(
+            bola_group
+                .admin_list(bola_group.mls_provider().unwrap())
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(bola_group
+            .admin_list(bola_group.mls_provider().unwrap())
+            .unwrap()
+            .contains(&bola.inbox_id()));
 
         // Verify that bola can now add caro because they are an admin
         bola_group
@@ -2220,8 +2360,17 @@ mod tests {
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
         bola_group.sync(&bola).await.unwrap();
-        assert_eq!(bola_group.admin_list().unwrap().len(), 0);
-        assert!(!bola_group.admin_list().unwrap().contains(&bola.inbox_id()));
+        assert_eq!(
+            bola_group
+                .admin_list(bola_group.mls_provider().unwrap())
+                .unwrap()
+                .len(),
+            0
+        );
+        assert!(!bola_group
+            .admin_list(bola_group.mls_provider().unwrap())
+            .unwrap()
+            .contains(&bola.inbox_id()));
 
         // Verify that bola can not add charlie because they are not an admin
         bola.sync_welcomes().await.unwrap();
@@ -2259,8 +2408,10 @@ mod tests {
         bola_group.sync(&bola).await.unwrap();
 
         // Verify Amal is the only super admin
-        let admin_list = amal_group.admin_list().unwrap();
-        let super_admin_list = amal_group.super_admin_list().unwrap();
+        let provider = amal_group.mls_provider().unwrap();
+        let admin_list = amal_group.admin_list(&provider).unwrap();
+        let super_admin_list = amal_group.super_admin_list(&provider).unwrap();
+        drop(provider); // allow connection to be re-added to pool
         assert_eq!(admin_list.len(), 0);
         assert_eq!(super_admin_list.len(), 1);
         assert!(super_admin_list.contains(&amal.inbox_id()));
@@ -2283,11 +2434,13 @@ mod tests {
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
         bola_group.sync(&bola).await.unwrap();
-        assert_eq!(bola_group.super_admin_list().unwrap().len(), 2);
+        let provider = bola_group.mls_provider().unwrap();
+        assert_eq!(bola_group.super_admin_list(&provider).unwrap().len(), 2);
         assert!(bola_group
-            .super_admin_list()
+            .super_admin_list(&provider)
             .unwrap()
             .contains(&bola.inbox_id()));
+        drop(provider); // allow connection to be re-added to pool
 
         // Verify that bola can now add caro as an admin
         bola_group
@@ -2295,8 +2448,13 @@ mod tests {
             .await
             .unwrap();
         bola_group.sync(&bola).await.unwrap();
-        assert_eq!(bola_group.admin_list().unwrap().len(), 1);
-        assert!(bola_group.admin_list().unwrap().contains(&caro.inbox_id()));
+        let provider = bola_group.mls_provider().unwrap();
+        assert_eq!(bola_group.admin_list(&provider).unwrap().len(), 1);
+        assert!(bola_group
+            .admin_list(&provider)
+            .unwrap()
+            .contains(&caro.inbox_id()));
+        drop(provider); // allow connection to be re-added to pool
 
         // Verify that no one can remove a super admin from a group
         amal_group
@@ -2310,11 +2468,13 @@ mod tests {
             .await
             .unwrap();
         bola_group.sync(&bola).await.unwrap();
-        assert_eq!(bola_group.super_admin_list().unwrap().len(), 1);
+        let provider = bola_group.mls_provider().unwrap();
+        assert_eq!(bola_group.super_admin_list(&provider).unwrap().len(), 1);
         assert!(!bola_group
-            .super_admin_list()
+            .super_admin_list(&provider)
             .unwrap()
             .contains(&bola.inbox_id()));
+        drop(provider); // allow connection to be re-added to pool
 
         // Verify that amal can NOT remove themself as a super admin because they are the only remaining
         amal_group
@@ -2469,11 +2629,15 @@ mod tests {
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
 
-        let mutable_metadata = amal_group.mutable_metadata().unwrap();
+        let mutable_metadata = amal_group
+            .mutable_metadata(amal_group.mls_provider().unwrap())
+            .unwrap();
         assert_eq!(mutable_metadata.super_admin_list.len(), 1);
         assert_eq!(mutable_metadata.super_admin_list[0], amal.inbox_id());
 
-        let protected_metadata: GroupMetadata = amal_group.metadata().unwrap();
+        let protected_metadata: GroupMetadata = amal_group
+            .metadata(amal_group.mls_provider().unwrap())
+            .unwrap();
         assert_eq!(
             protected_metadata.conversation_type,
             ConversationType::Group
@@ -2509,7 +2673,9 @@ mod tests {
             .await
             .unwrap();
         amal_group.sync(&amal).await.unwrap();
-        let name = amal_group.group_name().unwrap();
+        let name = amal_group
+            .group_name(amal_group.mls_provider().unwrap())
+            .unwrap();
         assert_eq!(name, "Name Update 1");
 
         // Step 4:  Bola attempts an action that they do not have permissions for like add admin, fails as expected
@@ -2528,13 +2694,17 @@ mod tests {
         // Step 6: Verify that both clients can sync without error and that the group name has been updated
         amal_group.sync(&amal).await.unwrap();
         bola_group.sync(&bola).await.unwrap();
-        let binding = amal_group.mutable_metadata().expect("msg");
+        let binding = amal_group
+            .mutable_metadata(amal_group.mls_provider().unwrap())
+            .expect("msg");
         let amal_group_name: &String = binding
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap();
         assert_eq!(amal_group_name, "Name Update 2");
-        let binding = bola_group.mutable_metadata().expect("msg");
+        let binding = bola_group
+            .mutable_metadata(bola_group.mls_provider().unwrap())
+            .expect("msg");
         let bola_group_name: &String = binding
             .attributes
             .get(&MetadataField::GroupName.to_string())
@@ -2695,5 +2865,55 @@ mod tests {
                 DeliveryStatus::Published,
             ]
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn process_messages_abort_on_retryable_error() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        alix_group
+            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .await
+            .unwrap();
+
+        // Create two commits
+        alix_group
+            .update_group_name(&alix, "foo".to_string())
+            .await
+            .unwrap();
+        alix_group
+            .update_group_name(&alix, "bar".to_string())
+            .await
+            .unwrap();
+
+        let bo_group = receive_group_invite(&bo).await;
+        // Get the group messages before we lock the DB, simulating an error that happens
+        // in the middle of a sync instead of the beginning
+        let bo_messages = bo
+            .query_group_messages(&bo_group.group_id, &bo.store().conn().unwrap())
+            .await
+            .unwrap();
+
+        let conn_1 = bo.store().conn().unwrap();
+        let mut conn_2 = bo.store().raw_conn().unwrap();
+
+        // Begin an exclusive transaction on a second connection to lock the database
+        conn_2.batch_execute("BEGIN EXCLUSIVE").unwrap();
+        let process_result = bo_group.process_messages(bo_messages, conn_1, &bo).await;
+        if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
+            assert_eq!(errors.len(), 1);
+            assert!(errors
+                .first()
+                .unwrap()
+                .to_string()
+                .contains("database is locked"));
+        } else {
+            panic!("Expected error")
+        }
     }
 }

@@ -7,7 +7,6 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
-use prost::Message;
 use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
@@ -29,15 +28,12 @@ use xmtp_proto::{
 
 use super::{GroupError, MlsGroup};
 
+use crate::client::MessageProcessingError;
 use crate::XmtpApi;
 use crate::{
     client::ClientError,
-    groups::{intents::SendMessageIntentData, GroupMessageKind, StoredGroupMessage},
-    storage::{
-        group::StoredGroup,
-        group_intent::{IntentKind, NewGroupIntent},
-        StorageError,
-    },
+    groups::{GroupMessageKind, StoredGroupMessage},
+    storage::{group::StoredGroup, StorageError},
     Client, Store,
 };
 
@@ -131,7 +127,7 @@ where
     pub async fn send_history_request(&self) -> Result<(String, String), GroupError> {
         // find the sync group
         let conn = self.store().conn()?;
-        let (sync_group_id, sync_group) = self.get_sync_group()?;
+        let (_, sync_group) = self.get_sync_group()?;
 
         // sync the group
         sync_group.sync(self).await?;
@@ -194,23 +190,25 @@ where
         let history_request = HistoryRequest::new();
         let pin_code = history_request.pin_code.clone();
         let request_id = history_request.request_id.clone();
-        let idempotency_key = new_request_id();
-        let envelope = PlaintextEnvelope {
-            content: Some(Content::V2(V2 {
-                message_type: Some(Request(history_request.into())),
-                idempotency_key,
-            })),
-        };
 
-        // build the intent
-        let mut encoded_envelope = vec![];
-        envelope
-            .encode(&mut encoded_envelope)
-            .map_err(GroupError::EncodeError)?;
-        let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        let intent =
-            NewGroupIntent::new(IntentKind::SendMessage, sync_group_id.clone(), intent_data);
-        intent.store(&conn)?;
+        let content: MessageHistoryContent =
+            MessageHistoryContent::Request(MessageHistoryRequest {
+                request_id: request_id.clone(),
+                pin_code: pin_code.clone(),
+            })
+            .into();
+        let content_bytes = bincode::serialize(&content)
+            .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
+
+        let _message_id =
+            sync_group.prepare_message(content_bytes.as_slice(), &conn, move |_time_ns| {
+                PlaintextEnvelope {
+                    content: Some(Content::V2(V2 {
+                        message_type: Some(Request(history_request.into())),
+                        idempotency_key: new_request_id(),
+                    })),
+                }
+            })?;
 
         // publish the intent
         if let Err(err) = sync_group.publish_intents(conn, self).await {
@@ -226,7 +224,7 @@ where
     ) -> Result<(), GroupError> {
         // find the sync group
         let conn = self.store().conn()?;
-        let (sync_group_id, sync_group) = self.get_sync_group()?;
+        let (_, sync_group) = self.get_sync_group()?;
 
         // sync the group
         Box::pin(sync_group.sync(self)).await?;
@@ -251,23 +249,20 @@ where
             return Ok(());
         }
 
-        // build the reply
-        let envelope = PlaintextEnvelope {
-            content: Some(Content::V2(V2 {
-                idempotency_key: new_request_id(),
-                message_type: Some(Reply(contents)),
-            })),
-        };
+        // the reply message
+        let content: MessageHistoryContent = MessageHistoryContent::Reply(contents.clone()).into();
+        let content_bytes = bincode::serialize(&content)
+            .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
 
-        // build the intent
-        let mut encoded_envelope = vec![];
-        envelope
-            .encode(&mut encoded_envelope)
-            .map_err(GroupError::EncodeError)?;
-        let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        let intent =
-            NewGroupIntent::new(IntentKind::SendMessage, sync_group_id.clone(), intent_data);
-        intent.store(&conn)?;
+        let _message_id =
+            sync_group.prepare_message(content_bytes.as_slice(), &conn, move |_time_ns| {
+                PlaintextEnvelope {
+                    content: Some(Content::V2(V2 {
+                        idempotency_key: new_request_id(),
+                        message_type: Some(Reply(contents)),
+                    })),
+                }
+            })?;
 
         // publish the intent
         if let Err(err) = sync_group.publish_intents(conn, self).await {

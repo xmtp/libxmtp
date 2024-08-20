@@ -43,10 +43,7 @@ use xmtp_id::{
     constants::INSTALLATION_KEY_SIGNATURE_CONTEXT,
     InboxId,
 };
-use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient},
-    xmtp::identity::MlsCredential,
-};
+use xmtp_proto::xmtp::identity::MlsCredential;
 
 #[derive(Debug, Clone)]
 pub enum IdentityStrategy {
@@ -60,7 +57,7 @@ pub enum IdentityStrategy {
 }
 
 impl IdentityStrategy {
-    pub(crate) async fn initialize_identity<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+    pub(crate) async fn initialize_identity<ApiClient: XmtpApi>(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
         store: &EncryptedMessageStore,
@@ -192,7 +189,7 @@ impl Identity {
     ///
     /// If the address is NOT associated with an inbox_id, a new inbox_id will be generated.
     /// Prioritize legacy key if provided, otherwise use wallet to sign.
-    pub(crate) async fn new<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+    pub(crate) async fn new<ApiClient: XmtpApi>(
         inbox_id: InboxId,
         address: String,
         nonce: u64,
@@ -272,9 +269,8 @@ impl Identity {
                     .await?,
                 ))
                 .await?;
-            let identity_update = signature_request.build_identity_update()?;
-            api_client.publish_identity_update(identity_update).await?;
 
+            // Make sure to register the identity before applying the signature request
             let identity = Self {
                 inbox_id: inbox_id.clone(),
                 installation_keys: signature_keys,
@@ -283,6 +279,9 @@ impl Identity {
             };
 
             identity.register(provider, api_client).await?;
+
+            let identity_update = signature_request.build_identity_update()?;
+            api_client.publish_identity_update(identity_update).await?;
 
             Ok(identity)
         } else {
@@ -427,7 +426,7 @@ impl Identity {
         }
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
-        api_client.register_installation(kp_bytes, true).await?;
+        api_client.upload_key_package(kp_bytes, true).await?;
 
         Ok(StoredIdentity::from(self).store(provider.conn_ref())?)
     }
