@@ -21,7 +21,6 @@ where
     }
 }
 
-// #[cfg(feature = "sqlite")]
 impl<'a, ST, QS, GB> QueryFragment<WasmSqlite>
     for OnConflictSelectWrapper<BoxedSelectStatement<'a, ST, QS, WasmSqlite, GB>>
 where

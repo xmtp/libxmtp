@@ -31,11 +31,11 @@ mod schema {
 
 use schema::books;
 
-#[derive(Deserialize, Insertable)]
+#[derive(Deserialize, Insertable, Debug, PartialEq, Clone)]
 #[diesel(table_name = books)]
-pub struct BookForm<'a> {
-    title: &'a str,
-    author: Option<&'a str>,
+pub struct BookForm {
+    title: String,
+    author: Option<String>,
     // published_year: NaiveDateTime,
 }
 
@@ -67,15 +67,23 @@ async fn establish_connection() -> WasmSqliteConnection {
     .expect("Batch exec failed to run");
     conn
 }
-
+/*
 async fn insert_books(
     conn: &mut WasmSqliteConnection,
-    new_books: Vec<BookForm<'_>>,
+    new_books: Vec<BookForm>,
 ) -> QueryResult<usize> {
     use schema::books::dsl::*;
-    for book in new_books.into_iter() {
-        insert_into(books).values(book).execute(conn).await.unwrap();
-    }
+    insert_into(books).values(new_books).execute(conn).await.unwrap();
+    Ok(0)
+}
+*/
+
+async fn insert_book(
+    conn: &mut WasmSqliteConnection,
+    new_book: BookForm,
+) -> QueryResult<usize> {
+    use schema::books::dsl::*;
+    insert_into(books).values(new_book).execute(conn).await.unwrap();
     Ok(0)
 }
 
@@ -93,44 +101,46 @@ fn examine_sql_from_insert_default_values() {
 async fn test_orm_insert() {
     use schema::books::dsl::*;
     let mut conn = establish_connection().await;
-
+/*
     insert_books(
         &mut conn,
         vec![
             BookForm {
-                title: "Game of Thrones",
-                author: Some("George R.R"),
+                title: "Game of Thrones".into(),
+                author: Some("George R.R".into()),
                 // published_year: NaiveDate::from_ymd_opt(2015, 5, 3).unwrap(),
             },
             BookForm {
-                title: "The Hobbit",
-                author: Some("J.R.R. Tolkien"),
+                title: "The Hobbit".into(),
+                author: Some("J.R.R. Tolkien".into()),
                 // published_year: NaiveDate::from_ymd_opt(1937, 9, 21).unwrap(),
             },
             BookForm {
-                title: "To Kill a Mockingbird",
-                author: Some("Harper Lee"),
+                title: "To Kill a Mockingbird".into(),
+                author: Some("Harper Lee".into()),
                 // published_year: NaiveDate::from_ymd_opt(1960, 7, 11).unwrap(),
             },
             BookForm {
-                title: "1984",
-                author: Some("George Orwell"),
+                title: "1984".into(),
+                author: Some("George Orwell".into()),
                 // published_year: NaiveDate::from_ymd_opt(1949, 6, 8).unwrap(),
             },
             BookForm {
-                title: "Pride and Prejudice",
-                author: Some("Jane Austen"),
+                title: "Pride and Prejudice".into(),
+                author: Some("Jane Austen".into()),
                 // published_year: NaiveDate::from_ymd_opt(1813, 1, 28).unwrap(),
             },
             BookForm {
-                title: "Moby-Dick",
-                author: Some("Herman Melville"),
+                title: "Moby-Dick".into(),
+                author: Some("Herman Melville".into()),
                 // published_year: NaiveDate::from_ymd_opt(1851, 10, 18).unwrap(),
             },
         ],
     )
     .await;
+*/
 
+    insert_book(&mut conn, BookForm { title: "Game of Thrones".into(), author: Some("George R.R.".into())}).await.unwrap();
     console::log_1(&"Showing Users".into());
     /*let query = books
     .limit(5)

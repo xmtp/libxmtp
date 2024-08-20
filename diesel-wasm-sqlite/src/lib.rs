@@ -5,6 +5,7 @@ pub mod ffi;
 pub mod query_builder;
 pub mod sqlite_types;
 pub mod utils;
+pub mod sqlite_fixes;
 
 #[cfg(not(target_arch = "wasm32"))]
 compile_error!("This crate only suports the `wasm32-unknown-unknown` target");
