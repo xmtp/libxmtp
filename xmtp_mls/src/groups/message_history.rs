@@ -733,10 +733,11 @@ mod tests {
         assert_ok!(client.allow_history_sync().await);
 
         // test that the request is sent, and that the pin code is returned
-        let (_group_id, pin_code) = client
+        let (request_id, pin_code) = client
             .send_history_request()
             .await
             .expect("history request");
+        assert_eq!(request_id.len(), 32);
         assert_eq!(pin_code.len(), 4);
     }
 
