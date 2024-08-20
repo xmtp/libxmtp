@@ -67,7 +67,6 @@ impl RetryableError for StorageError {
             Self::DieselResult(result) => retryable!(result),
             Self::Pool(_) => true,
             Self::Lock(_) => true,
-            Self::PoolNeedsConnection => true,
             Self::SqlCipherNotLoaded => true,
             _ => false,
         }

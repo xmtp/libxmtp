@@ -1164,7 +1164,7 @@ fn build_group_config(
         .capabilities(capabilities)
         .ciphersuite(CIPHERSUITE)
         .wire_format_policy(WireFormatPolicy::default())
-        .max_past_epochs(MAX_PAST_EPOCHS) // Trying with 3 max past epochs for now
+        .max_past_epochs(MAX_PAST_EPOCHS)
         .use_ratchet_tree_extension(true)
         .build())
 }
@@ -1211,7 +1211,7 @@ async fn validate_initial_group_membership<ApiClient: XmtpApi>(
 fn build_group_join_config() -> MlsGroupJoinConfig {
     MlsGroupJoinConfig::builder()
         .wire_format_policy(WireFormatPolicy::default())
-        .max_past_epochs(MAX_PAST_EPOCHS) // Trying with 3 max past epochs for now
+        .max_past_epochs(MAX_PAST_EPOCHS)
         .use_ratchet_tree_extension(true)
         .build()
 }

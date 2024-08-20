@@ -347,7 +347,6 @@ impl MlsGroup {
                     message_epoch,
                     MAX_PAST_EPOCHS,
                 ) {
-                    log::warn!("[{}] Message was sent in an old epoch. Attempting to re-send. Group epoch: {group_epoch}. Message epoch: {message_epoch}", self.context.inbox_id());
                     conn.set_group_intent_to_publish(intent.id)?;
                     return Ok(());
                 }
