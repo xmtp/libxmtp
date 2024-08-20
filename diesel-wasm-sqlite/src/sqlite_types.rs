@@ -3,6 +3,8 @@ use bitflags::bitflags;
 use diesel::sql_types::*;
 use serde::{Deserialize, Serialize};
 
+pub mod to_sql;
+
 //TODO These Database Types are defined in the wasm file and should be imported.
 // this is easier for now because of quirks with converting from JsValue to integer within extern
 // "C" declaration.

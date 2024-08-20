@@ -67,7 +67,7 @@ async fn establish_connection() -> WasmSqliteConnection {
     .expect("Batch exec failed to run");
     conn
 }
-/*
+
 async fn insert_books(
     conn: &mut WasmSqliteConnection,
     new_books: Vec<BookForm>,
@@ -76,7 +76,7 @@ async fn insert_books(
     insert_into(books).values(new_books).execute(conn).await.unwrap();
     Ok(0)
 }
-*/
+
 
 async fn insert_book(
     conn: &mut WasmSqliteConnection,
@@ -101,7 +101,7 @@ fn examine_sql_from_insert_default_values() {
 async fn test_orm_insert() {
     use schema::books::dsl::*;
     let mut conn = establish_connection().await;
-/*
+
     insert_books(
         &mut conn,
         vec![
@@ -138,14 +138,15 @@ async fn test_orm_insert() {
         ],
     )
     .await;
-*/
+
 
     insert_book(&mut conn, BookForm { title: "Game of Thrones".into(), author: Some("George R.R.".into())}).await.unwrap();
     console::log_1(&"Showing Users".into());
-    /*let query = books
+   /* 
+    let query = books
     .limit(5)
-    .select::<SelectBy<_, WasmSqlite>>(Book::as_select());*/
-
+    .select(Book::as_select());
+*/
     // console::log_1(&debug_query::<WasmSqlite, _>(&query).to_string().into());
     // .load(&mut conn)
     // .await
