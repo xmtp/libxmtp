@@ -444,7 +444,8 @@ impl MlsGroup {
         self.maybe_update_installations(conn.clone(), update_interval, client)
             .await?;
 
-        let message_id = self.prepare_message(message, &conn);
+        let message_id =
+            self.prepare_message(message, &conn, |now| Self::into_envelope(message, now));
 
         // Skipping a full sync here and instead just firing and forgetting
         if let Err(err) = self.publish_intents(conn.clone(), client).await {
@@ -476,15 +477,23 @@ impl MlsGroup {
     /// Send a message, optimistically returning the ID of the message before the result of a message publish.
     pub fn send_message_optimistic(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
         let conn = self.context.store.conn()?;
-        let message_id = self.prepare_message(message, &conn)?;
-
+        let message_id =
+            self.prepare_message(message, &conn, |now| Self::into_envelope(message, now))?;
         Ok(message_id)
     }
 
     /// Prepare a message (intent & id) on this users XMTP [`Client`].
-    fn prepare_message(&self, message: &[u8], conn: &DbConnection) -> Result<Vec<u8>, GroupError> {
+    fn prepare_message<F>(
+        &self,
+        message: &[u8],
+        conn: &DbConnection,
+        envelope: F,
+    ) -> Result<Vec<u8>, GroupError>
+    where
+        F: FnOnce(i64) -> PlaintextEnvelope,
+    {
         let now = now_ns();
-        let plain_envelope = Self::into_envelope(message, &now.to_string());
+        let plain_envelope = envelope(now);
         let mut encoded_envelope = vec![];
         plain_envelope
             .encode(&mut encoded_envelope)
@@ -512,11 +521,11 @@ impl MlsGroup {
         Ok(message_id)
     }
 
-    fn into_envelope(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {
+    fn into_envelope(encoded_msg: &[u8], idempotency_key: i64) -> PlaintextEnvelope {
         PlaintextEnvelope {
             content: Some(Content::V1(V1 {
                 content: encoded_msg.to_vec(),
-                idempotency_key: idempotency_key.into(),
+                idempotency_key: idempotency_key.to_string(),
             })),
         }
     }
