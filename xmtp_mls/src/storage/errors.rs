@@ -63,11 +63,12 @@ impl RetryableError for diesel::result::Error {
 impl RetryableError for StorageError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::DieselConnect(connection) => {
-                matches!(connection, diesel::ConnectionError::BadConnection(_))
-            }
+            Self::DieselConnect(_) => true,
             Self::DieselResult(result) => retryable!(result),
             Self::Pool(_) => true,
+            Self::Lock(_) => true,
+            Self::PoolNeedsConnection => true,
+            Self::SqlCipherNotLoaded => true,
             _ => false,
         }
     }
