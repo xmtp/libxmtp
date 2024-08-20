@@ -2566,6 +2566,11 @@ mod tests {
         let bo_members = bo_group.list_members().unwrap();
         assert_eq!(bo_members.len(), 2);
 
+        let bo_messages = bo_group
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        assert_eq!(bo_messages.len(), 0);
+
         alix_group
             .remove_members(vec![
                 bo.account_address.clone(),
@@ -2573,8 +2578,16 @@ mod tests {
             .await
             .unwrap();
 
+        alix_group.send("hello".as_bytes().to_vec()).await.unwrap();
+
         bo_group.sync().await.unwrap();
         assert!(!bo_group.is_active().unwrap());
+
+        let bo_messages = bo_group
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        assert_eq!(bo_messages.len(), 0);
+
         let bo_members = bo_group.list_members().unwrap();
         assert_eq!(bo_members.len(), 2);
 
