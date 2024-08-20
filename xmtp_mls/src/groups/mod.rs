@@ -488,7 +488,7 @@ impl MlsGroup {
     /// * message: UTF-8 or encoded message bytes
     /// * conn: Connection to SQLite database
     /// * envelope: closure that returns context-specific [`PlaintextEnvelope`]. Closure accepts
-    /// timestamp attached to intent & stored message.
+    ///     timestamp attached to intent & stored message.
     fn prepare_message<F>(
         &self,
         message: &[u8],
