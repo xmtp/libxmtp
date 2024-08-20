@@ -2541,6 +2541,49 @@ mod tests {
         assert_eq!(alix_members.len(), 4);
     }
 
+     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_removed_members_no_longer_update() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        bo.conversations().sync().await.unwrap();
+        let bo_group = bo.group(alix_group.id()).unwrap();
+        
+        alix_group.sync().await.unwrap();
+        let alix_members = alix_group.list_members().unwrap();
+        assert_eq!(alix_members.len(), 2);
+
+        bo_group.sync().await.unwrap();
+        let bo_members = bo_group.list_members().unwrap();
+        assert_eq!(bo_members.len(), 2);
+
+        alix_group
+            .remove_members(vec![
+                bo.account_address.clone(),
+            ])
+            .await
+            .unwrap();
+
+        bo_group.sync().await.unwrap();
+        assert!(!bo_group.is_active().unwrap());
+        let bo_members = bo_group.list_members().unwrap();
+        assert_eq!(bo_members.len(), 2);
+
+        alix_group.sync().await.unwrap();
+        let alix_members = alix_group.list_members().unwrap();
+        assert_eq!(alix_members.len(), 1);
+    }
+
+
     // test is also showing intermittent failures with database locked msg
     #[ignore]
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
