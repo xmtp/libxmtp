@@ -1021,7 +1021,10 @@ mod tests {
     use openmls::group::GroupId;
     use openmls_basic_credential::{SignatureKeyPair, StorageId};
     use openmls_traits::{
-        storage::{traits, Entity, Key, StorageProvider, CURRENT_VERSION},
+        storage::{
+            traits::{self},
+            Entity, Key, StorageProvider, CURRENT_VERSION,
+        },
         OpenMlsProvider,
     };
     use serde::{Deserialize, Serialize};
@@ -1071,32 +1074,6 @@ mod tests {
             .unwrap()
             .is_none());
     }
-
-    // #[test]
-    // fn list_write_remove() {
-    //     let db_path = tmp_path();
-    //     let store = EncryptedMessageStore::new(
-    //         StorageOption::Persistent(db_path),
-    //         EncryptedMessageStore::generate_enc_key(),
-    //     )
-    //     .unwrap();
-    //     let conn = store.conn().unwrap();
-    //     let key_store = SqlKeyStore::new(conn.clone());
-    //     let provider = XmtpOpenMlsProvider::new(conn);
-    //     let group_id = GroupId::random(provider.rand());
-
-    //     assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
-
-    //     key_store
-    //         .write_aad::<GroupId>(&group_id, "test".as_bytes())
-    //         .unwrap();
-
-    //     assert!(!key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
-
-    //     key_store.delete_aad::<GroupId>(&group_id).unwrap();
-
-    //     assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
-    // }
 
     #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
     struct Proposal(Vec<u8>);
