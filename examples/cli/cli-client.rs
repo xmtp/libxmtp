@@ -358,7 +358,7 @@ async fn main() {
 
             while let Some(msg) = sync_group_messages_stream.next().await {
                 // Note: sending a reply should trigger automatically when processing the request
-                info!("SYNC Group message: {}", format_message(msg));
+                info!("SYNC Group message: {}", format_message(msg.unwrap()));
             }
 
             info!("Synced history", { command_output: true });

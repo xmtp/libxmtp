@@ -278,32 +278,28 @@ where
     pub async fn stream_all_messages(
         client: Arc<Client<ApiClient>>,
         is_for_sync_groups: bool,
-    ) -> Result<impl Stream<Item = StoredGroupMessage>, ClientError> {
-        let (tx, rx) = mpsc::unbounded_channel();
-
+    ) -> Result<impl Stream<Item = Result<StoredGroupMessage, ClientError>>, ClientError> {
         client.sync_welcomes().await?;
 
-        let mut group_id_to_info;
-
-        if !is_for_sync_groups {
+        let mut group_id_to_info = if !is_for_sync_groups {
             // Gather all regular conversational groups
-            group_id_to_info = client
+            client
                 .store()
                 .conn()?
                 .find_groups(None, None, None, None)?
                 .into_iter()
                 .map(Into::into)
-                .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
+                .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>()
         } else {
             // Gather the sync groups
-            group_id_to_info = client
+            client
                 .store()
                 .conn()?
                 .find_sync_groups()?
                 .into_iter()
                 .map(Into::into)
-                .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
-        }
+                .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>()
+        };
 
         let stream = async_stream::stream! {
             let client = client.clone();
@@ -311,6 +307,7 @@ where
                 .clone()
                 .stream_messages(group_id_to_info.clone())
                 .await?;
+            let mut convo_stream =  Self::stream_conversations(&client).await?;
             let mut extra_messages = Vec::new();
 
             loop {
