@@ -1,16 +1,20 @@
 # Custom Diesel Backend for Wasm wa-sqlite
 
-#### Bundle the javascript in `package.js` to rust
+### Compile rust code without creating a npm package
 
-`yarn run build`
+`cargo build --target wasm32-unknown-unknown`
 
-#### Build the JS WASM interface
+#### Build the JS WASM interfaces
 
 `wasm-pack build`
 
 #### Run the Wasm Tests
 
-wasm-pack test --chrome --headless
+wasm-pack test --chrome
+
+navigate to `http://localhost:8000` to observe test output
+
+(headless tests don't work yet)
 
 # TODO
 
@@ -18,8 +22,8 @@ wasm-pack test --chrome --headless
       issue?)
 - [ ] OPFS
 
-# Notes
+# Setting up the project in VSCode
 
-- rust-analyzer doesn't like crates with different targets in the same
-  workspace. If you want this to work well with your LSP, open
-  `diesel-wasm-sqlite` as it's own project.
+rust-analyzer does not like crates with different targets in the same workspace.
+If you want this to work well with your LSP, open `diesel-wasm-sqlite` as it's
+own project in VSCode.
