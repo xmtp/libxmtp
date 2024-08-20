@@ -543,6 +543,7 @@ public final class Client {
 	}
 
 	public func deleteLocalDatabase() throws {
+		try dropLocalDatabaseConnection()
 		let fm = FileManager.default
 		try fm.removeItem(atPath: dbPath)
 	}
