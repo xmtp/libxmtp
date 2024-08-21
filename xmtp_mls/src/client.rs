@@ -842,7 +842,7 @@ mod tests {
             .send_message(vec![1, 2, 3].as_slice(), &alix)
             .await
             .unwrap();
-        
+
         bo.sync_all_groups(bo_groups).await.unwrap();
 
         let bo_messages1 = bo_group1

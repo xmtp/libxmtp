@@ -754,7 +754,7 @@ impl FfiConversations {
 
     pub async fn sync_all_groups(&self) -> Result<(), GenericError> {
         let inner = self.inner_client.as_ref();
-        let groups = inner.find_groups(None,None,None,None)?;
+        let groups = inner.find_groups(None, None, None, None)?;
 
         inner.sync_all_groups(groups).await?;
         Ok(())
