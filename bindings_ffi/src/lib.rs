@@ -1,4 +1,5 @@
 #![recursion_limit = "256"]
+#![cfg_attr(not(test), warn(clippy::unwrap_used))]
 pub mod inbox_owner;
 pub mod logger;
 pub mod mls;

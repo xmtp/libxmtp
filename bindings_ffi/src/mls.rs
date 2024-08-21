@@ -69,7 +69,6 @@ pub type RustXmtpClient = MlsClient<TonicApiClient>;
 /// xmtp.create_client(account_address, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
 /// ```
 #[allow(clippy::too_many_arguments)]
-#[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_client(
     logger: Box<dyn FfiLogger>,

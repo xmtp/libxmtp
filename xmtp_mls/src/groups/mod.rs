@@ -180,6 +180,8 @@ pub enum GroupError {
     PublishPanicked,
     #[error("Missing metadata field {name}")]
     MissingMetadataField { name: String },
+    #[error("Message was processed but is missing")]
+    MissingMessage,
 }
 
 impl RetryableError for GroupError {
