@@ -145,7 +145,11 @@ where
             messages
                 .into_iter()
                 .fold((None, None, None), |mut acc, msg| {
-                    match bincode::deserialize(&msg.decrypted_message_bytes) {
+                    let message_history_content = serde_json::from_slice::<MessageHistoryContent>(
+                        &msg.decrypted_message_bytes,
+                    );
+
+                    match message_history_content {
                         Ok(MessageHistoryContent::Request(request))
                         // only include requests from the current installation
                             if msg.sender_installation_id.eq(&installation_id) =>
@@ -191,13 +195,11 @@ where
         let pin_code = history_request.pin_code.clone();
         let request_id = history_request.request_id.clone();
 
-        let content: MessageHistoryContent =
-            MessageHistoryContent::Request(MessageHistoryRequest {
-                request_id: request_id.clone(),
-                pin_code: pin_code.clone(),
-            })
-            .into();
-        let content_bytes = bincode::serialize(&content)
+        let content = MessageHistoryContent::Request(MessageHistoryRequest {
+            request_id: request_id.clone(),
+            pin_code: pin_code.clone(),
+        });
+        let content_bytes = serde_json::to_vec(&content)
             .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
 
         let _message_id =
@@ -238,10 +240,9 @@ where
         )?;
         // check if the latest history message is a reply
         let has_replied = messages.last().map_or(false, |msg| {
-            matches!(
-                bincode::deserialize(&msg.decrypted_message_bytes),
-                Ok(MessageHistoryContent::Reply(_))
-            )
+            let message_history_content =
+                serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
+            matches!(message_history_content, Ok(MessageHistoryContent::Reply(_)))
         });
 
         // if the latest history message is a reply, don't send a new one
@@ -250,8 +251,8 @@ where
         }
 
         // the reply message
-        let content: MessageHistoryContent = MessageHistoryContent::Reply(contents.clone()).into();
-        let content_bytes = bincode::serialize(&content)
+        let content = MessageHistoryContent::Reply(contents.clone());
+        let content_bytes = serde_json::to_vec(&content)
             .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
 
         let _message_id =
@@ -281,7 +282,10 @@ where
             None,
         )?;
         let request = requests.into_iter().find(|msg| {
-            match bincode::deserialize(&msg.decrypted_message_bytes) {
+            let message_history_content =
+                serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
+
+            match message_history_content {
                 Ok(MessageHistoryContent::Request(request)) => {
                     request.request_id.eq(request_id) && request.pin_code.eq(pin_code)
                 }
@@ -734,6 +738,14 @@ mod tests {
             .expect("history request");
         assert_eq!(request_id.len(), 32);
         assert_eq!(pin_code.len(), 4);
+
+        // test that another request will return the same request_id and pin_code
+        let (request_id2, pin_code2) = client
+            .send_history_request()
+            .await
+            .expect("history request");
+        assert_eq!(request_id, request_id2);
+        assert_eq!(pin_code, pin_code2);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
