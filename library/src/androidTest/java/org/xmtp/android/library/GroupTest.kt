@@ -892,4 +892,49 @@ class GroupTest {
 
         assertEquals(preparedMessageId, message.id)
     }
+
+    @Test
+    fun testSyncsAllGroupsInParallel() {
+        val boGroup = runBlocking {
+            boClient.conversations.newGroup(
+                listOf(
+                    alix.walletAddress,
+                )
+            )
+        }
+        val boGroup2 = runBlocking {
+            boClient.conversations.newGroup(
+                listOf(
+                    alix.walletAddress,
+                )
+            )
+        }
+        runBlocking { alixClient.conversations.syncGroups() }
+        val alixGroup: Group = alixClient.findGroup(boGroup.id)!!
+        val alixGroup2: Group = alixClient.findGroup(boGroup2.id)!!
+
+        assertEquals(alixGroup.messages().size, 0)
+        assertEquals(alixGroup2.messages().size, 0)
+
+        runBlocking {
+            boGroup.send("hi")
+            boGroup2.send("hi")
+            alixClient.conversations.syncAllGroups()
+        }
+
+        assertEquals(alixGroup.messages().size, 1)
+        assertEquals(alixGroup2.messages().size, 1)
+
+        runBlocking {
+            boGroup2.removeMembers(listOf(alix.walletAddress))
+            boGroup.send("hi")
+            boGroup.send("hi")
+            boGroup2.send("hi")
+            boGroup2.send("hi")
+            alixClient.conversations.syncAllGroups()
+        }
+
+        assertEquals(alixGroup.messages().size, 3)
+        assertEquals(alixGroup2.messages().size, 2)
+    }
 }

@@ -187,8 +187,14 @@ data class Conversations(
         return Group(client, group)
     }
 
+    // Sync from the network the latest list of groups
     suspend fun syncGroups() {
         libXMTPConversations?.sync()
+    }
+
+    // Sync all existing local groups data from the network (Note: call syncGroups() first to get the latest list of groups)
+    suspend fun syncAllGroups() {
+        libXMTPConversations?.syncAllGroups()
     }
 
     suspend fun listGroups(
