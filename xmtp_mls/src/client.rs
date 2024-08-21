@@ -800,6 +800,62 @@ mod tests {
         assert_eq!(duplicate_received_groups.len(), 0);
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_sync_all_groups() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let alix_bo_group1 = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        let alix_bo_group2 = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        alix_bo_group1
+            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .await
+            .unwrap();
+        alix_bo_group2
+            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .await
+            .unwrap();
+
+        let bob_received_groups = bo.sync_welcomes().await.unwrap();
+        assert_eq!(bob_received_groups.len(), 2);
+
+        let bo_groups = bo.find_groups(None, None, None, None).unwrap();
+        let bo_group1 = bo.group(alix_bo_group1.clone().group_id).unwrap();
+        let bo_messages1 = bo_group1
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(bo_messages1.len(), 0);
+        let bo_group2 = bo.group(alix_bo_group2.clone().group_id).unwrap();
+        let bo_messages2 = bo_group2
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(bo_messages2.len(), 0);
+        alix_bo_group1
+            .send_message(vec![1, 2, 3].as_slice(), &alix)
+            .await
+            .unwrap();
+        alix_bo_group2
+            .send_message(vec![1, 2, 3].as_slice(), &alix)
+            .await
+            .unwrap();
+        
+        bo.sync_all(bo_groups).await.unwrap();
+
+        let bo_messages1 = bo_group1
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(bo_messages1.len(), 1);
+        let bo_group2 = bo.group(alix_bo_group2.clone().group_id).unwrap();
+        let bo_messages2 = bo_group2
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(bo_messages2.len(), 1);
+    }
+
     #[tokio::test]
     async fn test_can_message() {
         // let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
