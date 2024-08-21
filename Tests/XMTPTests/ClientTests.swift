@@ -455,4 +455,41 @@ class ClientTests: XCTestCase {
 
 		XCTAssertEqual(inboxId, alixClient.inboxID)
 	}
+	
+	func testRevokesAllOtherInstallations() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let alix = try PrivateKey.generate()
+		let options = ClientOptions.init(
+			api: .init(env: .local, isSecure: false),
+			   enableV3: true,
+			   encryptionKey: key
+		   )
+
+		let alixClient = try await Client.create(
+			account: alix,
+			options: options
+		)
+		try alixClient.dropLocalDatabaseConnection()
+		try alixClient.deleteLocalDatabase()
+		
+		let alixClient2 = try await Client.create(
+			account: alix,
+			options: options
+		)
+		try alixClient2.dropLocalDatabaseConnection()
+		try alixClient2.deleteLocalDatabase()
+
+		let alixClient3 = try await Client.create(
+			account: alix,
+			options: options
+		)
+		
+		let state = try await alixClient3.inboxState(refreshFromNetwork: true)
+		XCTAssertEqual(state.installationIds.count, 3)
+		
+		try await alixClient3.revokeAllOtherInstallations(signingKey: alix)
+		
+		let newState = try await alixClient3.inboxState(refreshFromNetwork: true)
+		XCTAssertEqual(newState.installationIds.count, 1)
+	}
 }
