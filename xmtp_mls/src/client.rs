@@ -238,14 +238,15 @@ impl XmtpMlsLocalContext {
         self.identity.sequence_id(conn)
     }
 
+    /// Pulls a new database connection and creates a new provider
+    pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
+        Ok(self.store.conn()?.into())
+    }
+
     /// Integrators should always check the `signature_request` return value of this function before calling [`register_identity`](Self::register_identity).
     /// If `signature_request` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
     pub fn signature_request(&self) -> Option<SignatureRequest> {
         self.identity.signature_request()
-    }
-
-    pub(crate) fn mls_provider(&self, conn: DbConnection) -> XmtpOpenMlsProvider {
-        XmtpOpenMlsProvider::new(conn)
     }
 }
 
@@ -278,6 +279,11 @@ where
 
     pub fn inbox_id(&self) -> String {
         self.context.inbox_id()
+    }
+
+    /// Pulls a connection and creates a new MLS Provider
+    pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
+        self.context.mls_provider()
     }
 
     pub async fn find_inbox_id_from_address(
@@ -330,10 +336,6 @@ where
 
     pub fn identity(&self) -> &Identity {
         &self.context.identity
-    }
-
-    pub(crate) fn mls_provider(&self, conn: DbConnection) -> XmtpOpenMlsProvider {
-        XmtpOpenMlsProvider::new(conn)
     }
 
     pub fn context(&self) -> &Arc<XmtpMlsLocalContext> {
@@ -439,7 +441,8 @@ where
     ) -> Result<(), ClientError> {
         log::info!("registering identity");
         // Register the identity before applying the signature request
-        let provider = self.mls_provider(self.store().conn()?);
+        let provider: XmtpOpenMlsProvider = self.store().conn()?.into();
+
         self.identity()
             .register(&provider, &self.api_client)
             .await?;
@@ -452,10 +455,9 @@ where
     /// Upload a new key package to the network replacing an existing key package
     /// This is expected to be run any time the client receives new Welcome messages
     pub async fn rotate_key_package(&self) -> Result<(), ClientError> {
-        let connection = self.store().conn()?;
-        let kp = self
-            .identity()
-            .new_key_package(&self.mls_provider(connection))?;
+        let provider: XmtpOpenMlsProvider = self.store().conn()?.into();
+
+        let kp = self.identity().new_key_package(&provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
         self.api_client.upload_key_package(kp_bytes, true).await?;
 
@@ -499,8 +501,7 @@ where
     ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError> {
         let key_package_results = self.api_client.fetch_key_packages(installation_ids).await?;
 
-        let conn = self.store().conn()?;
-        let mls_provider = self.mls_provider(conn);
+        let mls_provider = self.mls_provider()?;
         Ok(key_package_results
             .values()
             .map(|bytes| VerifiedKeyPackageV2::from_bytes(mls_provider.crypto(), bytes.as_slice()))
@@ -522,7 +523,7 @@ where
             .transaction_async(|provider| async move {
                 let is_updated =
                     provider
-                        .conn()
+                        .conn_ref()
                         .update_cursor(entity_id, entity_kind, cursor as i64)?;
                 if !is_updated {
                     return Err(MessageProcessingError::AlreadyProcessed(cursor));
@@ -589,30 +590,36 @@ where
     }
 
     pub async fn sync_all_groups(&self, groups: Vec<MlsGroup>) -> Result<(), GroupError> {
+        use scoped_futures::ScopedFutureExt;
+
         // Acquire a single connection to be reused
-        let conn = &self.store().conn()?;
+        let provider: XmtpOpenMlsProvider = self.mls_provider()?;
 
         let sync_futures: Vec<_> = groups
             .into_iter()
             .map(|group| {
-                let conn = conn.clone();
-                let mls_provider = self.mls_provider(conn.clone());
+                async {
+                    // create new provider ref that gets moved, leaving original
+                    // provider alone.
+                    let provider_ref = &provider;
+                    async move {
+                        log::info!("[{}] syncing group", self.inbox_id());
+                        log::info!(
+                            "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
+                            self.inbox_id(),
+                            group.load_mls_group(provider_ref)?.epoch()
+                        );
 
-                async move {
-                    log::info!("[{}] syncing group", self.inbox_id());
-                    log::info!(
-                        "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
-                        self.inbox_id(),
-                        group.load_mls_group(mls_provider.clone()).unwrap().epoch()
-                    );
+                        group
+                            .maybe_update_installations(provider_ref, None, self)
+                            .await?;
 
-                    group
-                        .maybe_update_installations(conn.clone(), None, self)
-                        .await?;
-
-                    group.sync_with_conn(conn.clone(), self).await?;
-                    Ok::<(), GroupError>(())
+                        group.sync_with_conn(provider_ref, self).await?;
+                        Ok::<(), GroupError>(())
+                    }
+                    .await
                 }
+                .scoped()
             })
             .collect();
 
@@ -904,8 +911,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_welcome_encryption() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let conn = client.store().conn().unwrap();
-        let provider = client.mls_provider(conn);
+        let provider = client.mls_provider().unwrap();
 
         let kp = client.identity().new_key_package(&provider).unwrap();
         let hpke_public_key = kp.hpke_init_key().as_slice();
