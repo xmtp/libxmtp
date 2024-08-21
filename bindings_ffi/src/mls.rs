@@ -1273,7 +1273,7 @@ impl FfiGroup {
     }
 }
 
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Enum, PartialEq)]
 pub enum FfiGroupMessageKind {
     Application,
     MembershipChange,
@@ -1479,9 +1479,10 @@ impl FfiGroupPermissions {
 mod tests {
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
-        FfiConversationCallback, FfiCreateGroupOptions, FfiGroup, FfiGroupPermissionsOptions,
-        FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField,
-        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType,
+        FfiConversationCallback, FfiCreateGroupOptions, FfiGroup, FfiGroupMessageKind,
+        FfiGroupPermissionsOptions, FfiInboxOwner, FfiListConversationsOptions,
+        FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy, FfiPermissionPolicySet,
+        FfiPermissionUpdateType,
     };
     use std::{
         env,
@@ -2539,6 +2540,60 @@ mod tests {
         alix_group.sync().await.unwrap();
         let alix_members = alix_group.list_members().unwrap();
         assert_eq!(alix_members.len(), 4);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_removed_members_no_longer_update() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        bo.conversations().sync().await.unwrap();
+        let bo_group = bo.group(alix_group.id()).unwrap();
+
+        alix_group.sync().await.unwrap();
+        let alix_members = alix_group.list_members().unwrap();
+        assert_eq!(alix_members.len(), 2);
+
+        bo_group.sync().await.unwrap();
+        let bo_members = bo_group.list_members().unwrap();
+        assert_eq!(bo_members.len(), 2);
+
+        let bo_messages = bo_group
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        assert_eq!(bo_messages.len(), 0);
+
+        alix_group
+            .remove_members(vec![bo.account_address.clone()])
+            .await
+            .unwrap();
+
+        alix_group.send("hello".as_bytes().to_vec()).await.unwrap();
+
+        bo_group.sync().await.unwrap();
+        assert!(!bo_group.is_active().unwrap());
+
+        let bo_messages = bo_group
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        assert!(bo_messages.first().unwrap().kind == FfiGroupMessageKind::MembershipChange);
+        assert_eq!(bo_messages.len(), 1);
+
+        let bo_members = bo_group.list_members().unwrap();
+        assert_eq!(bo_members.len(), 1);
+
+        alix_group.sync().await.unwrap();
+        let alix_members = alix_group.list_members().unwrap();
+        assert_eq!(alix_members.len(), 1);
     }
 
     // test is also showing intermittent failures with database locked msg
