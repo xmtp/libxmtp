@@ -20,7 +20,7 @@ use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationErro
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestError},
-        AssociationError,
+        AssociationError, AssociationState,
     },
     InboxId,
 };
@@ -37,7 +37,7 @@ use crate::{
         GroupMetadataOptions, IntentError, MlsGroup,
     },
     identity::{parse_credential, Identity, IdentityError},
-    identity_updates::IdentityUpdateError,
+    identity_updates::{load_identity_updates, IdentityUpdateError},
     retry::Retry,
     retry_async, retryable,
     storage::{
@@ -297,6 +297,19 @@ where
     /// Get sequence id, may not be consistent with the backend
     pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
         self.context.inbox_sequence_id(conn)
+    }
+
+    pub async fn inbox_state(
+        &self,
+        refresh_from_network: bool,
+    ) -> Result<AssociationState, ClientError> {
+        let conn = self.store().conn()?;
+        let inbox_id = self.inbox_id();
+        if refresh_from_network {
+            load_identity_updates(&self.api_client, &conn, vec![inbox_id.clone()]).await?;
+        }
+        let state = self.get_association_state(&conn, inbox_id, None).await?;
+        Ok(state)
     }
 
     pub fn store(&self) -> &EncryptedMessageStore {
