@@ -82,6 +82,21 @@ impl MlsGroup {
         Ok(new_message)
     }
 
+    pub async fn process_streamed_group_message<ApiClient>(
+        &self,
+        envelope_bytes: Vec<u8>,
+        client: Arc<Client<ApiClient>>,
+    ) -> Result<StoredGroupMessage, GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let envelope = GroupMessage::decode(envelope_bytes.as_slice())
+            .map_err(|e| GroupError::Generic(e.to_string()))?;
+
+        let message = self.process_stream_entry(envelope, client).await?;
+        message.ok_or(GroupError::MissingMessage)
+    }
+
     pub async fn stream<ApiClient>(
         &self,
         client: Arc<Client<ApiClient>>,
@@ -98,21 +113,6 @@ impl MlsGroup {
                 },
             )]))
             .await?)
-    }
-
-    pub async fn process_streamed_group_message<ApiClient>(
-        &self,
-        envelope_bytes: Vec<u8>,
-        client: Arc<Client<ApiClient>>,
-    ) -> Result<StoredGroupMessage, GroupError>
-    where
-        ApiClient: XmtpApi,
-    {
-        let envelope = GroupMessage::decode(envelope_bytes.as_slice())
-            .map_err(|e| GroupError::Generic(e.to_string()))?;
-
-        let message = self.process_stream_entry(envelope, client).await?;
-        message.ok_or(GroupError::MissingMessage)
     }
 
     pub fn stream_with_callback<ApiClient>(
