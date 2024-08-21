@@ -2963,4 +2963,33 @@ mod tests {
             .unwrap();
         assert_eq!(alix_member.installation_ids.len(), 1);
     }
+    // This test will start failing when we update the backend to block adding identity updates that
+    // add installations with no key packages
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_add_member_with_no_key_package() {
+        // Alix is a normal user
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Bo has two installations. One with a key package and one without
+        let bo_wallet = generate_local_wallet();
+        let bo_good = ClientBuilder::new_test_client(&bo_wallet).await;
+        let bo_bad = ClientBuilder::new_test_client_without_key_package(&bo_wallet).await;
+        assert_eq!(bo_bad.inbox_id(), bo_good.inbox_id());
+
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        // Currently fails here
+        assert_eq!(
+            alix_group
+                .add_members_by_inbox_id(&alix, vec![bo_good.inbox_id()])
+                .await
+                .err()
+                .unwrap()
+                .to_string(),
+            "Errors occurred during sync [Client(KeyPackageVerification(TlsError(EndOfStream)))]"
+                .to_string()
+        );
+    }
 }

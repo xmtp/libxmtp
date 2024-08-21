@@ -7,7 +7,9 @@ use rand::{
 use std::sync::Arc;
 use tokio::{sync::Notify, time::error::Elapsed};
 use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
-use xmtp_id::associations::{generate_inbox_id, RecoverableEcdsaSignature};
+use xmtp_id::associations::{
+    builder::SignatureRequest, generate_inbox_id, RecoverableEcdsaSignature,
+};
 
 use crate::{
     builder::ClientBuilder,
@@ -132,6 +134,39 @@ impl ClientBuilder<TestClient> {
 
         client
     }
+
+    /**
+     * This will break once a future PR goes in to xmtp-node-go to disallow
+     * creating a client without a key package.
+     */
+    pub async fn new_test_client_without_key_package(
+        owner: &impl InboxOwner,
+    ) -> Client<TestClient> {
+        let nonce = 1;
+        let inbox_id = generate_inbox_id(&owner.get_address(), &nonce);
+
+        let client = Self::new(IdentityStrategy::CreateIfNotFound(
+            inbox_id,
+            owner.get_address(),
+            nonce,
+            None,
+        ))
+        .temp_store()
+        .local_client()
+        .await
+        .build()
+        .await
+        .unwrap();
+
+        let mut signature_request = client.context.signature_request().unwrap();
+        sign_with_wallet(&mut signature_request, owner).await;
+        client
+            .apply_signature_request(signature_request)
+            .await
+            .unwrap();
+
+        client
+    }
 }
 
 /// wrapper over a `Notify` with a 60-scond timeout for waiting
@@ -170,16 +205,19 @@ impl Client<TestClient> {
     }
 }
 
-pub async fn register_client<T: XmtpApi>(client: &Client<T>, owner: &impl InboxOwner) {
-    let mut signature_request = client.context.signature_request().unwrap();
+pub async fn sign_with_wallet(signature_request: &mut SignatureRequest, wallet: &impl InboxOwner) {
     let signature_text = signature_request.signature_text();
     signature_request
         .add_signature(Box::new(RecoverableEcdsaSignature::new(
             signature_text.clone(),
-            owner.sign(&signature_text).unwrap().into(),
+            wallet.sign(&signature_text).unwrap().into(),
         )))
         .await
         .unwrap();
+}
 
+pub async fn register_client<T: XmtpApi>(client: &Client<T>, owner: &impl InboxOwner) {
+    let mut signature_request = client.context.signature_request().unwrap();
+    sign_with_wallet(&mut signature_request, owner).await;
     client.register_identity(signature_request).await.unwrap();
 }
