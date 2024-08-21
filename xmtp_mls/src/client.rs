@@ -1,6 +1,7 @@
 use std::{collections::HashMap, mem::Discriminant, sync::Arc};
 
 use futures::{
+    future::join_all,
     stream::{self, StreamExt},
     Future,
 };
@@ -587,6 +588,43 @@ where
         Ok(groups)
     }
 
+    pub async fn sync_all_groups(&self, groups: Vec<MlsGroup>) -> Result<(), GroupError> {
+        // Acquire a single connection to be reused
+        let conn = &self.store().conn()?;
+
+        let sync_futures: Vec<_> = groups
+            .into_iter()
+            .map(|group| {
+                let conn = conn.clone();
+                let mls_provider = self.mls_provider(conn.clone());
+
+                async move {
+                    log::info!("[{}] syncing group", self.inbox_id());
+                    log::info!(
+                        "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
+                        self.inbox_id(),
+                        group.load_mls_group(mls_provider.clone()).unwrap().epoch()
+                    );
+
+                    group
+                        .maybe_update_installations(conn.clone(), None, self)
+                        .await?;
+
+                    group.sync_with_conn(conn.clone(), self).await?;
+                    Ok::<(), GroupError>(())
+                }
+            })
+            .collect();
+
+        // Run all sync operations concurrently
+        join_all(sync_futures)
+            .await
+            .into_iter()
+            .collect::<Result<(), _>>()?;
+
+        Ok(())
+    }
+
     /**
      * Validates a credential against the given installation public key
      *
@@ -774,6 +812,62 @@ mod tests {
 
         let duplicate_received_groups = bob.sync_welcomes().await.unwrap();
         assert_eq!(duplicate_received_groups.len(), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_sync_all_groups() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let alix_bo_group1 = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        let alix_bo_group2 = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        alix_bo_group1
+            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .await
+            .unwrap();
+        alix_bo_group2
+            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .await
+            .unwrap();
+
+        let bob_received_groups = bo.sync_welcomes().await.unwrap();
+        assert_eq!(bob_received_groups.len(), 2);
+
+        let bo_groups = bo.find_groups(None, None, None, None).unwrap();
+        let bo_group1 = bo.group(alix_bo_group1.clone().group_id).unwrap();
+        let bo_messages1 = bo_group1
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(bo_messages1.len(), 0);
+        let bo_group2 = bo.group(alix_bo_group2.clone().group_id).unwrap();
+        let bo_messages2 = bo_group2
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(bo_messages2.len(), 0);
+        alix_bo_group1
+            .send_message(vec![1, 2, 3].as_slice(), &alix)
+            .await
+            .unwrap();
+        alix_bo_group2
+            .send_message(vec![1, 2, 3].as_slice(), &alix)
+            .await
+            .unwrap();
+
+        bo.sync_all_groups(bo_groups).await.unwrap();
+
+        let bo_messages1 = bo_group1
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(bo_messages1.len(), 1);
+        let bo_group2 = bo.group(alix_bo_group2.clone().group_id).unwrap();
+        let bo_messages2 = bo_group2
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(bo_messages2.len(), 1);
     }
 
     #[tokio::test]

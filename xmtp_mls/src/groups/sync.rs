@@ -98,7 +98,7 @@ impl MlsGroup {
     }
 
     #[tracing::instrument(level = "trace", skip(client, self, conn))]
-    pub(super) async fn sync_with_conn<ApiClient>(
+    pub async fn sync_with_conn<ApiClient>(
         &self,
         conn: DbConnection,
         client: &Client<ApiClient>,
@@ -1000,7 +1000,7 @@ impl MlsGroup {
         Ok(())
     }
 
-    pub(super) async fn maybe_update_installations<ApiClient>(
+    pub async fn maybe_update_installations<ApiClient>(
         &self,
         conn: DbConnection,
         update_interval: Option<i64>,
