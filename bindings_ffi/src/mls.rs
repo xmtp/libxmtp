@@ -752,6 +752,20 @@ impl FfiConversations {
         Ok(())
     }
 
+    pub async fn sync_all(&self, opts: FfiListConversationsOptions) -> Result<(), GenericError> {
+        let inner = self.inner_client.as_ref();
+        let groups = inner.find_groups(
+            None,
+            opts.created_after_ns,
+            opts.created_before_ns,
+            opts.limit,
+        );
+
+        inner.sync_all(&self.inner_client, groups).await?;
+
+        Ok(())
+    }
+
     pub async fn list(
         &self,
         opts: FfiListConversationsOptions,

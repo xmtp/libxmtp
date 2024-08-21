@@ -587,6 +587,33 @@ where
         Ok(groups)
     }
 
+    pub async fn sync_all(&self, groups: Vec<MlsGroup>) -> Result<(), GroupError> {
+        // Acquire a single connection to be reused
+        let conn = &self.store().conn()?;
+
+        // Iterate over the groups and sync each one
+        for group in groups {
+            let mls_provider = &self.mls_provider(conn.clone());
+
+            log::info!("[{}] syncing group", &self.inbox_id());
+            log::info!(
+                "current epoch for [{}] in sync_all() is Epoch: [{}]",
+                &self.inbox_id(),
+                group.load_mls_group(mls_provider.clone()).unwrap().epoch()
+            );
+
+            // Perform the necessary updates
+            group
+                .maybe_update_installations(conn.clone(), None, &self)
+                .await?;
+
+            // Sync the group with the connection
+            group.sync_with_conn(conn.clone(), &self).await?;
+        }
+
+        Ok(())
+    }
+
     /**
      * Validates a credential against the given installation public key
      *

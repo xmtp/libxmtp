@@ -253,7 +253,10 @@ impl MlsGroup {
 
     // Load the stored MLS group from the OpenMLS provider's keystore
     #[tracing::instrument(level = "trace", skip_all)]
-    fn load_mls_group(&self, provider: impl OpenMlsProvider) -> Result<OpenMlsGroup, GroupError> {
+    pub fn load_mls_group(
+        &self,
+        provider: impl OpenMlsProvider,
+    ) -> Result<OpenMlsGroup, GroupError> {
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
                 .map_err(|_| GroupError::GroupNotFound)?
