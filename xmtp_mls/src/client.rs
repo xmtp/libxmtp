@@ -1,6 +1,7 @@
 use std::{collections::HashMap, mem::Discriminant, sync::Arc};
 
 use futures::{
+    future::join_all,
     stream::{self, StreamExt},
     Future,
 };
@@ -591,22 +592,35 @@ where
         // Acquire a single connection to be reused
         let conn = &self.store().conn()?;
 
-        for group in groups {
-            let mls_provider = &self.mls_provider(conn.clone());
+        let sync_futures: Vec<_> = groups
+            .into_iter()
+            .map(|group| {
+                let conn = conn.clone();
+                let mls_provider = self.mls_provider(conn.clone());
 
-            log::info!("[{}] syncing group", &self.inbox_id());
-            log::info!(
-                "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
-                &self.inbox_id(),
-                group.load_mls_group(mls_provider.clone()).unwrap().epoch()
-            );
+                async move {
+                    log::info!("[{}] syncing group", self.inbox_id());
+                    log::info!(
+                        "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
+                        self.inbox_id(),
+                        group.load_mls_group(mls_provider.clone()).unwrap().epoch()
+                    );
 
-            group
-                .maybe_update_installations(conn.clone(), None, self)
-                .await?;
+                    group
+                        .maybe_update_installations(conn.clone(), None, self)
+                        .await?;
 
-            group.sync_with_conn(conn.clone(), self).await?;
-        }
+                    group.sync_with_conn(conn.clone(), self).await?;
+                    Ok::<(), GroupError>(())
+                }
+            })
+            .collect();
+
+        // Run all sync operations concurrently
+        join_all(sync_futures)
+            .await
+            .into_iter()
+            .collect::<Result<(), _>>()?;
 
         Ok(())
     }
