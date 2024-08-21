@@ -587,7 +587,7 @@ where
         Ok(groups)
     }
 
-    pub async fn sync_all(&self, groups: Vec<MlsGroup>) -> Result<(), GroupError> {
+    pub async fn sync_all_groups(&self, groups: Vec<MlsGroup>) -> Result<(), GroupError> {
         // Acquire a single connection to be reused
         let conn = &self.store().conn()?;
 
@@ -596,16 +596,16 @@ where
 
             log::info!("[{}] syncing group", &self.inbox_id());
             log::info!(
-                "current epoch for [{}] in sync_all() is Epoch: [{}]",
+                "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
                 &self.inbox_id(),
                 group.load_mls_group(mls_provider.clone()).unwrap().epoch()
             );
 
             group
-                .maybe_update_installations(conn.clone(), None, &self)
+                .maybe_update_installations(conn.clone(), None, self)
                 .await?;
 
-            group.sync_with_conn(conn.clone(), &self).await?;
+            group.sync_with_conn(conn.clone(), self).await?;
         }
 
         Ok(())
@@ -843,7 +843,7 @@ mod tests {
             .await
             .unwrap();
         
-        bo.sync_all(bo_groups).await.unwrap();
+        bo.sync_all_groups(bo_groups).await.unwrap();
 
         let bo_messages1 = bo_group1
             .find_messages(None, None, None, None, None)
