@@ -2245,6 +2245,58 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_sync_all_groups() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        for _i in 0..30 {
+            alix
+                .conversations()
+                .create_group(
+                    vec![bo.account_address.clone()],
+                    FfiCreateGroupOptions::default(),
+                )
+                .await
+                .unwrap();
+        }
+
+        bo.conversations().sync().await.unwrap();
+        let alix_groups = alix
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
+
+        let alix_group1 = alix_groups[0].clone();
+        let alix_group5 = alix_groups[5].clone();
+        let bo_group1 = bo.group(alix_group1.id()).unwrap();
+        let bo_group5 = bo.group(alix_group5.id()).unwrap();
+        
+        alix_group1.send("alix1".as_bytes().to_vec()).await.unwrap();
+        alix_group5.send("alix1".as_bytes().to_vec()).await.unwrap();
+
+        let bo_messages1 = bo_group1
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let bo_messages5 = bo_group5
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        assert_eq!(bo_messages1.len(), 0);
+        assert_eq!(bo_messages5.len(), 0);
+
+        bo.conversations().sync_all_groups().await.unwrap();
+        
+        let bo_messages1 = bo_group1
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let bo_messages5 = bo_group5
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        assert_eq!(bo_messages1.len(), 1);
+        assert_eq!(bo_messages5.len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_can_send_message_when_out_of_sync() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
