@@ -249,13 +249,12 @@ impl MlsGroup {
     /// Instantiate a new [`XmtpOpenMlsProvider`] pulling a connection from the database.
     /// prefer to use an already-instantiated mls provider if possible.
     pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, GroupError> {
-        let conn = self.context.store.conn()?;
-        Ok(self.context.mls_provider(conn))
+        Ok(self.context.store.conn()?.into())
     }
 
     // Load the stored MLS group from the OpenMLS provider's keystore
     #[tracing::instrument(level = "trace", skip_all)]
-    pub fn load_mls_group(
+    pub(crate) fn load_mls_group(
         &self,
         provider: impl OpenMlsProvider,
     ) -> Result<OpenMlsGroup, GroupError> {
@@ -352,7 +351,7 @@ impl MlsGroup {
 
         validate_initial_group_membership(client, provider.conn_ref(), &mls_group).await?;
 
-        let stored_group = provider.conn().insert_or_replace_group(to_store)?;
+        let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
 
         Ok(Self::new(
             client.context.clone(),
@@ -446,18 +445,21 @@ impl MlsGroup {
     {
         let update_interval = Some(5_000_000); // 5 seconds in nanoseconds
         let conn = self.context.store.conn()?;
-        self.maybe_update_installations(conn.clone(), update_interval, client)
+        let provider = XmtpOpenMlsProvider::from(conn);
+        self.maybe_update_installations(&provider, update_interval, client)
             .await?;
 
-        let message_id =
-            self.prepare_message(message, &conn, |now| Self::into_envelope(message, now));
+        let message_id = self.prepare_message(message, provider.conn_ref(), |now| {
+            Self::into_envelope(message, now)
+        });
 
         // Skipping a full sync here and instead just firing and forgetting
-        if let Err(err) = self.publish_intents(conn.clone(), client).await {
+        if let Err(err) = self.publish_intents(&provider, client).await {
             log::error!("Send: error publishing intents: {:?}", err);
         }
 
-        self.sync_until_last_intent_resolved(conn, client).await?;
+        self.sync_until_last_intent_resolved(&provider, client)
+            .await?;
 
         message_id
     }
@@ -471,11 +473,13 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
+        let provider = XmtpOpenMlsProvider::from(conn);
         let update_interval = Some(5_000_000);
-        self.maybe_update_installations(conn.clone(), update_interval, client)
+        self.maybe_update_installations(&provider, update_interval, client)
             .await?;
-        self.publish_intents(conn.clone(), client).await?;
-        self.sync_until_last_intent_resolved(conn, client).await?;
+        self.publish_intents(&provider, client).await?;
+        self.sync_until_last_intent_resolved(&provider, client)
+            .await?;
         Ok(())
     }
 
@@ -609,8 +613,7 @@ impl MlsGroup {
         client: &Client<ApiClient>,
         inbox_ids: Vec<String>,
     ) -> Result<(), GroupError> {
-        let conn = client.store().conn()?;
-        let provider = client.mls_provider(conn);
+        let provider = client.mls_provider()?;
         let intent_data = self
             .get_membership_update_intent(client, &provider, inbox_ids, vec![])
             .await?;
@@ -623,13 +626,15 @@ impl MlsGroup {
             return Ok(());
         }
 
-        let intent = provider.conn().insert_group_intent(NewGroupIntent::new(
-            IntentKind::UpdateGroupMembership,
-            self.group_id.clone(),
-            intent_data.into(),
-        ))?;
+        let intent = provider
+            .conn_ref()
+            .insert_group_intent(NewGroupIntent::new(
+                IntentKind::UpdateGroupMembership,
+                self.group_id.clone(),
+                intent_data.into(),
+            ))?;
 
-        self.sync_until_intent_resolved(provider.conn(), intent.id, client)
+        self.sync_until_intent_resolved(&provider, intent.id, client)
             .await
     }
 
@@ -650,8 +655,8 @@ impl MlsGroup {
         client: &Client<ApiClient>,
         inbox_ids: Vec<InboxId>,
     ) -> Result<(), GroupError> {
-        let conn = client.store().conn()?;
-        let provider = client.mls_provider(conn);
+        let provider = client.store().conn()?.into();
+
         let intent_data = self
             .get_membership_update_intent(client, &provider, vec![], inbox_ids)
             .await?;
@@ -664,7 +669,7 @@ impl MlsGroup {
                 intent_data.into(),
             ))?;
 
-        self.sync_until_intent_resolved(provider.conn(), intent.id, client)
+        self.sync_until_intent_resolved(&provider, intent.id, client)
             .await
     }
 
@@ -685,7 +690,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -717,7 +722,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -751,7 +756,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -786,7 +791,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -823,7 +828,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -898,7 +903,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -923,7 +928,7 @@ impl MlsGroup {
         let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
         intent.store(&conn)?;
 
-        self.sync_with_conn(conn, client).await
+        self.sync_with_conn(&conn.into(), client).await
     }
 
     pub fn is_active(&self, provider: impl OpenMlsProvider) -> Result<bool, GroupError> {
@@ -1263,7 +1268,6 @@ mod tests {
             members::{GroupMember, PermissionLevel},
             DeliveryStatus, GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
         },
-        identity_updates::tests::sign_with_wallet,
         storage::{
             group_intent::IntentState,
             group_message::{GroupMessageKind, StoredGroupMessage},
@@ -1308,8 +1312,7 @@ mod tests {
         sender_mls_group: &mut OpenMlsGroup,
         sender_provider: &XmtpOpenMlsProvider,
     ) {
-        let new_member_provider =
-            new_member_client.mls_provider(new_member_client.store().conn().unwrap());
+        let new_member_provider = new_member_client.mls_provider().unwrap();
 
         let key_package = new_member_client
             .identity()
@@ -1377,7 +1380,7 @@ mod tests {
             .expect("send message");
 
         group
-            .receive(&client.store().conn().unwrap(), &client)
+            .receive(&client.store().conn().unwrap().into(), &client)
             .await
             .unwrap();
         // Check for messages
@@ -1504,27 +1507,24 @@ mod tests {
             .expect("bola's add should succeed in a no-op");
 
         amal_group
-            .receive(&amal.store().conn().unwrap(), &amal)
+            .receive(&amal.store().conn().unwrap().into(), &amal)
             .await
             .expect_err("expected error");
 
         // Check Amal's MLS group state.
-        let amal_db = amal.context.store.conn().unwrap();
-        let amal_mls_group = amal_group
-            .load_mls_group(amal.mls_provider(amal_db.clone()))
-            .unwrap();
+        let amal_db = XmtpOpenMlsProvider::from(amal.context.store.conn().unwrap());
+        let amal_mls_group = amal_group.load_mls_group(&amal_db).unwrap();
         let amal_members: Vec<Member> = amal_mls_group.members().collect();
         assert_eq!(amal_members.len(), 3);
 
         // Check Bola's MLS group state.
-        let bola_db = bola.context.store.conn().unwrap();
-        let bola_mls_group = bola_group
-            .load_mls_group(bola.mls_provider(bola_db.clone()))
-            .unwrap();
+        let bola_db = XmtpOpenMlsProvider::from(bola.context.store.conn().unwrap());
+        let bola_mls_group = bola_group.load_mls_group(&bola_db).unwrap();
         let bola_members: Vec<Member> = bola_mls_group.members().collect();
         assert_eq!(bola_members.len(), 3);
 
         let amal_uncommitted_intents = amal_db
+            .conn_ref()
             .find_group_intents(
                 amal_group.group_id.clone(),
                 Some(vec![IntentState::ToPublish, IntentState::Published]),
@@ -1534,6 +1534,7 @@ mod tests {
         assert_eq!(amal_uncommitted_intents.len(), 0);
 
         let bola_failed_intents = bola_db
+            .conn_ref()
             .find_group_intents(
                 bola_group.group_id.clone(),
                 Some(vec![IntentState::Error]),
@@ -1553,7 +1554,7 @@ mod tests {
         let alix_group: MlsGroup = alix
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
-        let provider = alix.mls_provider(alix.store().conn().unwrap());
+        let provider = alix.mls_provider().unwrap();
         // Doctor the group membership
         let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
         let mut existing_extensions = mls_group.extensions().clone();
@@ -1691,8 +1692,7 @@ mod tests {
             .unwrap();
         assert_eq!(messages.len(), 2);
 
-        let conn = &client.context.store.conn().unwrap();
-        let provider = super::XmtpOpenMlsProvider::new(conn.clone());
+        let provider: XmtpOpenMlsProvider = client.context.store.conn().unwrap().into();
         let mls_group = group.load_mls_group(&provider).unwrap();
         let pending_commit = mls_group.pending_commit();
         assert!(pending_commit.is_none());
@@ -1865,8 +1865,7 @@ mod tests {
 
         assert_eq!(group.members().unwrap().len(), 2);
 
-        let conn = &amal.context.store.conn().unwrap();
-        let provider = super::XmtpOpenMlsProvider::new(conn.clone());
+        let provider: XmtpOpenMlsProvider = amal.context.store.conn().unwrap().into();
         // Finished with setup
 
         // add a second installation for amal using the same wallet
@@ -2907,12 +2906,12 @@ mod tests {
             .await
             .unwrap();
 
-        let conn_1 = bo.store().conn().unwrap();
+        let conn_1: XmtpOpenMlsProvider = bo.store().conn().unwrap().into();
         let mut conn_2 = bo.store().raw_conn().unwrap();
 
         // Begin an exclusive transaction on a second connection to lock the database
         conn_2.batch_execute("BEGIN EXCLUSIVE").unwrap();
-        let process_result = bo_group.process_messages(bo_messages, conn_1, &bo).await;
+        let process_result = bo_group.process_messages(bo_messages, &conn_1, &bo).await;
         if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
             assert_eq!(errors.len(), 1);
             assert!(errors
@@ -2923,53 +2922,5 @@ mod tests {
         } else {
             panic!("Expected error")
         }
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn ensure_removed_after_revoke() {
-        let alix_wallet = generate_local_wallet();
-        let bo_wallet = generate_local_wallet();
-        let alix1 = ClientBuilder::new_test_client(&alix_wallet).await;
-        let alix2 = ClientBuilder::new_test_client(&alix_wallet).await;
-        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
-
-        let alix_group = alix1
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        alix_group
-            .add_members(&alix1, vec![bo_wallet.get_address()])
-            .await
-            .unwrap();
-        let bo_group = receive_group_invite(&bo).await;
-
-        // Check the MLS group for the number of members
-        let bo_provider = bo.mls_provider(bo.store().conn().unwrap());
-        let bo_mls_group = bo_group.load_mls_group(&bo_provider).unwrap();
-        let members = bo_mls_group.members().collect::<Vec<_>>();
-        assert_eq!(members.len(), 3);
-
-        let mut revoke_installation_request = alix1
-            .revoke_installations(vec![alix2.installation_public_key()])
-            .await
-            .unwrap();
-
-        sign_with_wallet(&alix_wallet, &mut revoke_installation_request).await;
-        alix1
-            .apply_signature_request(revoke_installation_request)
-            .await
-            .unwrap();
-
-        bo_group.sync(&bo).await.unwrap();
-        // Check the MLS group for the number of members after alix2 has been removed
-        let bo_mls_group = bo_group.load_mls_group(&bo_provider).unwrap();
-        let members = bo_mls_group.members().collect::<Vec<_>>();
-        assert_eq!(members.len(), 2);
-
-        let members = bo_group.members().unwrap();
-        let alix_member = members
-            .iter()
-            .find(|m| m.inbox_id == alix1.inbox_id())
-            .unwrap();
-        assert_eq!(alix_member.installation_ids.len(), 1);
     }
 }

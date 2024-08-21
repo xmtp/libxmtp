@@ -125,7 +125,7 @@ where
             })?;
 
         // publish the intent
-        if let Err(err) = sync_group.publish_intents(conn, self).await {
+        if let Err(err) = sync_group.publish_intents(&conn.into(), self).await {
             log::error!("error publishing sync group intents: {:?}", err);
         }
 
@@ -172,7 +172,7 @@ where
             })?;
 
         // publish the intent
-        if let Err(err) = sync_group.publish_intents(conn, self).await {
+        if let Err(err) = sync_group.publish_intents(&conn.into(), self).await {
             log::error!("error publishing sync group intents: {:?}", err);
         }
         Ok(())
