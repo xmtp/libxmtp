@@ -42,6 +42,9 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["console_error_panic_hook"]
+# enables a `DebugQueryWrapper` for diesel
+# but is unsafe because of mem::transmute
+unsafe-debug-query = []
 
 [build]
 target = "wasm32-unknown-unknown"
