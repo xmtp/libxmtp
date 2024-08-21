@@ -333,12 +333,9 @@ impl FfiXmtpClient {
         existing_wallet_address: &str,
         new_wallet_address: &str,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
-        let inbox_id = self.inner_client.inbox_id();
-        let signature_request = self.inner_client.associate_wallet(
-            inbox_id,
-            existing_wallet_address.into(),
-            new_wallet_address.into(),
-        )?;
+        let signature_request = self
+            .inner_client
+            .associate_wallet(existing_wallet_address.into(), new_wallet_address.into())?;
 
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
@@ -364,10 +361,9 @@ impl FfiXmtpClient {
         &self,
         wallet_address: &str,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
-        let inbox_id = self.inner_client.inbox_id();
         let signature_request = self
             .inner_client
-            .revoke_wallet(inbox_id, wallet_address.into())
+            .revoke_wallets(vec![wallet_address.into()])
             .await?;
 
         let request = Arc::new(FfiSignatureRequest {

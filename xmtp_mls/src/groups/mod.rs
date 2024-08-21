@@ -1254,6 +1254,7 @@ mod tests {
             members::{GroupMember, PermissionLevel},
             DeliveryStatus, GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
         },
+        identity_updates::tests::sign_with_wallet,
         storage::{
             group_intent::IntentState,
             group_message::{GroupMessageKind, StoredGroupMessage},
@@ -2913,5 +2914,52 @@ mod tests {
         } else {
             panic!("Expected error")
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn ensure_removed_after_revoke() {
+        let wallet = generate_local_wallet();
+        let alix1 = ClientBuilder::new_test_client(&wallet).await;
+        let alix2 = ClientBuilder::new_test_client(&wallet).await;
+        let bo = ClientBuilder::new_test_client(&wallet).await;
+
+        let alix_group = alix1
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        alix_group
+            .add_members(&alix1, vec![wallet.get_address()])
+            .await
+            .unwrap();
+        let bo_group = receive_group_invite(&bo).await;
+
+        // Check the MLS group for the number of members
+        let bo_provider = bo.mls_provider(bo.store().conn().unwrap());
+        let bo_mls_group = bo_group.load_mls_group(&bo_provider).unwrap();
+        let members = bo_mls_group.members().collect::<Vec<_>>();
+        assert_eq!(members.len(), 3);
+
+        let mut revoke_installation_request = alix1
+            .revoke_installations(vec![alix2.installation_public_key()])
+            .await
+            .unwrap();
+
+        sign_with_wallet(&wallet, &mut revoke_installation_request).await;
+        alix1
+            .apply_signature_request(revoke_installation_request)
+            .await
+            .unwrap();
+
+        bo_group.sync(&bo).await.unwrap();
+        // Check the MLS group for the number of members after alix2 has been removed
+        let bo_mls_group = bo_group.load_mls_group(&bo_provider).unwrap();
+        let members = bo_mls_group.members().collect::<Vec<_>>();
+        assert_eq!(members.len(), 2);
+
+        let members = bo_group.members().unwrap();
+        let alix_member = members
+            .iter()
+            .find(|m| m.inbox_id == alix1.inbox_id())
+            .unwrap();
+        assert_eq!(alix_member.installation_ids.len(), 1);
     }
 }
