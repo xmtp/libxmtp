@@ -760,7 +760,42 @@ mod tests {
         let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
         let reply = HistoryReply::new(&request_id, url, backup_hash, signing_key, encryption_key);
         let result = client.send_history_reply(reply.into()).await;
+
+        // the reply should fail because there's no pending request to reply to
+        assert!(result.is_err());
+
+        let (request_id, _) = client
+            .send_history_request()
+            .await
+            .expect("history request");
+
+        let request_id2 = new_request_id();
+        let url = "https://test.com/abc-123";
+        let backup_hash = b"ABC123".into();
+        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let reply = HistoryReply::new(&request_id2, url, backup_hash, signing_key, encryption_key);
+        let result = client.send_history_reply(reply.into()).await;
+
+        // the reply should fail because there's a mismatched request ID
+        assert!(result.is_err());
+
+        let url = "https://test.com/abc-123";
+        let backup_hash = b"ABC123".into();
+        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let reply = HistoryReply::new(&request_id, url, backup_hash, signing_key, encryption_key);
+        let result = client.send_history_reply(reply.into()).await;
+
+        // the reply should succeed with a valid request ID
         assert_ok!(result);
+
+        // make sure there's 2 messages in the sync group
+        let (_, sync_group) = client.get_sync_group().unwrap();
+        let messages = sync_group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap();
+        assert_eq!(messages.len(), 2);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
