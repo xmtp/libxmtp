@@ -7,6 +7,7 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use tokio::{sync::Mutex, task::AbortHandle};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_id::associations::AssociationState;
 use xmtp_id::{
     associations::{
         builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id,
@@ -295,6 +296,31 @@ impl FfiXmtpClient {
         let result = inner.find_inbox_id_from_address(address).await?;
         Ok(result)
     }
+
+    /**
+     * Get the client's inbox state.
+     *
+     * If `refresh_from_network` is true, the client will go to the network first to refresh the state.
+     * Otherwise, the state will be read from the local database.
+     */
+    pub async fn inbox_state(
+        &self,
+        refresh_from_network: bool,
+    ) -> Result<FfiInboxState, GenericError> {
+        let state = self.inner_client.inbox_state(refresh_from_network).await?;
+        Ok(state.into())
+    }
+
+    pub async fn get_latest_inbox_state(
+        &self,
+        inbox_id: String,
+    ) -> Result<FfiInboxState, GenericError> {
+        let state = self
+            .inner_client
+            .get_latest_association_state(&self.inner_client.store().conn()?, &inbox_id)
+            .await?;
+        Ok(state.into())
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -371,6 +397,49 @@ impl FfiXmtpClient {
         });
 
         Ok(request)
+    }
+
+    /**
+     * Revokes all installations except the one the client is currently using
+     */
+    pub async fn revoke_all_other_installations(
+        &self,
+    ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
+        let installation_id = self.inner_client.installation_public_key();
+        let inbox_state = self.inner_client.inbox_state(true).await?;
+        let other_installation_ids = inbox_state
+            .installation_ids()
+            .into_iter()
+            .filter(|id| id != &installation_id)
+            .collect();
+
+        let signature_request = self
+            .inner_client
+            .revoke_installations(other_installation_ids)
+            .await?;
+
+        Ok(Arc::new(FfiSignatureRequest {
+            inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+        }))
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiInboxState {
+    pub inbox_id: String,
+    pub recovery_address: String,
+    pub installation_ids: Vec<Vec<u8>>,
+    pub account_addresses: Vec<String>,
+}
+
+impl From<AssociationState> for FfiInboxState {
+    fn from(state: AssociationState) -> Self {
+        Self {
+            inbox_id: state.inbox_id().to_string(),
+            recovery_address: state.recovery_address().to_string(),
+            installation_ids: state.installation_ids(),
+            account_addresses: state.account_addresses(),
+        }
     }
 }
 
@@ -3263,5 +3332,45 @@ mod tests {
             .await;
 
         assert!(results_4.is_ok());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_revoke_all_installations() {
+        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let client_1 = new_test_client_with_wallet(wallet.clone()).await;
+        let client_2 = new_test_client_with_wallet(wallet.clone()).await;
+
+        let client_1_state = client_1.inbox_state(true).await.unwrap();
+        let client_2_state = client_2.inbox_state(true).await.unwrap();
+        assert_eq!(client_1_state.installation_ids.len(), 2);
+        assert_eq!(client_2_state.installation_ids.len(), 2);
+
+        let signature_request = client_1.revoke_all_other_installations().await.unwrap();
+        sign_with_wallet(&wallet, &signature_request).await;
+        client_1
+            .apply_signature_request(signature_request)
+            .await
+            .unwrap();
+
+        let client_1_state_after_revoke = client_1.inbox_state(true).await.unwrap();
+        let client_2_state_after_revoke = client_2.inbox_state(true).await.unwrap();
+        assert_eq!(client_1_state_after_revoke.installation_ids.len(), 1);
+        assert_eq!(client_2_state_after_revoke.installation_ids.len(), 1);
+        assert_eq!(
+            client_1_state_after_revoke
+                .installation_ids
+                .first()
+                .unwrap()
+                .clone(),
+            client_1.installation_id()
+        );
+        assert_eq!(
+            client_2_state_after_revoke
+                .installation_ids
+                .first()
+                .unwrap()
+                .clone(),
+            client_1.installation_id()
+        );
     }
 }
