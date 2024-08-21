@@ -1225,6 +1225,12 @@ mod tests {
     }
 
     #[test]
+    fn test_new_request_id() {
+        let request_id = new_request_id();
+        assert_eq!(request_id.len(), ENC_KEY_SIZE);
+    }
+
+    #[test]
     fn test_new_key() {
         let sig_key = HistoryKeyType::new_chacha20_poly1305_key();
         let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
