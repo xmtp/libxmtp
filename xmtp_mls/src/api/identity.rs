@@ -140,7 +140,12 @@ where
             .responses
             .into_iter()
             .filter(|inbox_id| inbox_id.inbox_id.is_some())
-            .map(|inbox_id| (inbox_id.address, inbox_id.inbox_id.unwrap()))
+            .map(|inbox_id| {
+                (
+                    inbox_id.address,
+                    inbox_id.inbox_id.expect("Checked for some"),
+                )
+            })
             .collect())
     }
 }

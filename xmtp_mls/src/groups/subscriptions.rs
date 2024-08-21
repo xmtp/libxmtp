@@ -9,7 +9,6 @@ use crate::storage::group_message::StoredGroupMessage;
 use crate::subscriptions::{MessagesStreamInfo, StreamHandle};
 use crate::XmtpApi;
 use crate::{retry::Retry, retry_async, Client};
-use prost::Message;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
 impl MlsGroup {
@@ -82,21 +81,6 @@ impl MlsGroup {
         Ok(new_message)
     }
 
-    pub async fn process_streamed_group_message<ApiClient>(
-        &self,
-        envelope_bytes: Vec<u8>,
-        client: Arc<Client<ApiClient>>,
-    ) -> Result<StoredGroupMessage, GroupError>
-    where
-        ApiClient: XmtpApi,
-    {
-        let envelope = GroupMessage::decode(envelope_bytes.as_slice())
-            .map_err(|e| GroupError::Generic(e.to_string()))?;
-
-        let message = self.process_stream_entry(envelope, client).await?;
-        Ok(message.unwrap())
-    }
-
     pub async fn stream<ApiClient>(
         &self,
         client: Arc<Client<ApiClient>>,
@@ -140,6 +124,7 @@ impl MlsGroup {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use prost::Message;
     use std::{sync::Arc, time::Duration};
     use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -150,6 +135,23 @@ mod tests {
         storage::group_message::GroupMessageKind, utils::test::Delivery,
     };
     use futures::StreamExt;
+
+    impl MlsGroup {
+        pub async fn process_streamed_group_message<ApiClient>(
+            &self,
+            envelope_bytes: Vec<u8>,
+            client: Arc<Client<ApiClient>>,
+        ) -> Result<StoredGroupMessage, GroupError>
+        where
+            ApiClient: XmtpApi,
+        {
+            let envelope = GroupMessage::decode(envelope_bytes.as_slice())
+                .map_err(|e| GroupError::Generic(e.to_string()))?;
+
+            let message = self.process_stream_entry(envelope, client).await?;
+            Ok(message.unwrap())
+        }
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_decode_group_message_bytes() {

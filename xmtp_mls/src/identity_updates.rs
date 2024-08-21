@@ -183,7 +183,7 @@ where
             StoredAssociationState::write_to_cache(
                 conn,
                 inbox_id.as_ref().to_string(),
-                last_sequence_id.unwrap(),
+                last_sequence_id.expect("checked for some"),
                 final_state.clone(),
             )?;
         }

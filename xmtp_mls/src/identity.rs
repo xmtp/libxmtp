@@ -68,7 +68,9 @@ impl IdentityStrategy {
         let stored_identity: Option<Identity> = provider
             .conn()
             .fetch(&())?
-            .map(|i: StoredIdentity| i.into());
+            .map(|i: StoredIdentity| i.try_into())
+            .transpose()?;
+
         debug!("identity in store: {:?}", stored_identity);
         match self {
             IdentityStrategy::CachedOnly => {
@@ -428,7 +430,7 @@ impl Identity {
         let kp_bytes = kp.tls_serialize_detached()?;
         api_client.upload_key_package(kp_bytes, true).await?;
 
-        Ok(StoredIdentity::from(self).store(provider.conn_ref())?)
+        Ok(StoredIdentity::try_from(self)?.store(provider.conn_ref())?)
     }
 }
 
@@ -440,9 +442,7 @@ async fn sign_with_installation_key(
     let verifying_key = signing_key.verifying_key();
     let mut prehashed: Sha512 = Sha512::new();
     prehashed.update(signature_text.clone());
-    let sig = signing_key
-        .sign_prehashed(prehashed, Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))
-        .unwrap();
+    let sig = signing_key.sign_prehashed(prehashed, Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))?;
 
     let installation_key_sig = InstallationKeySignature::new(
         signature_text.clone(),

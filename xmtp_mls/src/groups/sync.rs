@@ -89,7 +89,7 @@ impl MlsGroup {
         log::info!(
             "current epoch for [{}] in sync() is Epoch: [{}]",
             client.inbox_id(),
-            self.load_mls_group(mls_provider).unwrap().epoch()
+            self.load_mls_group(mls_provider)?.epoch()
         );
         self.maybe_update_installations(conn.clone(), None, client)
             .await?;
@@ -984,8 +984,7 @@ impl MlsGroup {
         )?;
 
         for intent in intents {
-            if intent.post_commit_data.is_some() {
-                let post_commit_data = intent.post_commit_data.unwrap();
+            if let Some(post_commit_data) = intent.post_commit_data {
                 let post_commit_action = PostCommitAction::from_bytes(post_commit_data.as_slice())?;
                 match post_commit_action {
                     PostCommitAction::SendWelcomes(action) => {

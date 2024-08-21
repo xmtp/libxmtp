@@ -480,7 +480,8 @@ mod tests {
             credential: Credential::new(CredentialType::Basic, rand_vec()),
             signature_request: None,
         })
-            .into();
+            .try_into()
+            .unwrap();
 
         stored.store(&store.conn().unwrap()).unwrap();
         let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
@@ -506,7 +507,8 @@ mod tests {
             credential: Credential::new(CredentialType::Basic, rand_vec()),
             signature_request: None,
         })
-            .into();
+            .try_into()
+            .unwrap();
 
         stored.store(&store.conn().unwrap()).unwrap();
 

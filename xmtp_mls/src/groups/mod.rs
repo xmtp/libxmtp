@@ -178,6 +178,8 @@ pub enum GroupError {
     PublishCancelled,
     #[error("the publish failed to complete due to panic")]
     PublishPanicked,
+    #[error("Missing metadata field {name}")]
+    MissingMetadataField { name: String },
 }
 
 impl RetryableError for GroupError {
@@ -1069,7 +1071,11 @@ pub fn build_extensions_for_permissions_update(
         PermissionUpdateType::UpdateMetadata => {
             let mut metadata_policy = existing_policy_set.update_metadata_policy.clone();
             metadata_policy.insert(
-                update_permissions_intent.metadata_field_name.unwrap(),
+                update_permissions_intent.metadata_field_name.ok_or(
+                    GroupError::MissingMetadataField {
+                        name: "metadata_field_name".into(),
+                    },
+                )?,
                 update_permissions_intent.policy_option.into(),
             );
             PolicySet::new(
