@@ -139,7 +139,8 @@ impl MlsGroup {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Arc, time::Duration};
+    use super::*;
+    use std::time::Duration;
     use tokio_stream::wrappers::UnboundedReceiverStream;
     use xmtp_cryptography::utils::generate_local_wallet;
 

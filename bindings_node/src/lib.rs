@@ -1,5 +1,5 @@
 #![recursion_limit = "256"]
-#![cfg_attr(not(test), warn(clippy::unwrap_used))]
+#![warn(clippy::unwrap_used)]
 
 mod conversations;
 pub mod encoded_content;

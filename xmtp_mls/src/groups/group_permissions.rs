@@ -72,7 +72,7 @@ impl GroupMutablePermissions {
         if proto.policies.is_none() {
             return Err(GroupMutablePermissionsError::MissingPolicies);
         }
-        let policies = proto.policies.unwrap();
+        let policies = proto.policies.expect("checked for none");
 
         Ok(Self::new(PolicySet::from_proto(policies)?))
     }
@@ -574,6 +574,8 @@ pub enum PolicyError {
     Serialization(#[from] prost::EncodeError),
     #[error("deserialization {0}")]
     Deserialization(#[from] prost::DecodeError),
+    #[error("Missing metadata policy field: {name}")]
+    MissingMetadataPolicyField { name: String },
     #[error("invalid policy")]
     InvalidPolicy,
     #[error("unexpected preset policy")]
@@ -1035,38 +1037,46 @@ impl PolicySet {
 // since the group was created, the number of metadata policies might not match
 // the default All Members Policy Set. As long as all metadata policies are allow, we will
 // match against All Members Preconfigured Policy
-pub fn is_policy_all_members(policy: &PolicySet) -> bool {
+pub fn is_policy_all_members(policy: &PolicySet) -> Result<bool, PolicyError> {
     let mut metadata_policies_equal = true;
     for field_name in policy.update_metadata_policy.keys() {
-        let metadata_policy = policy.update_metadata_policy.get(field_name).unwrap();
+        let metadata_policy = policy.update_metadata_policy.get(field_name).ok_or(
+            PolicyError::MissingMetadataPolicyField {
+                name: field_name.to_string(),
+            },
+        )?;
         metadata_policies_equal =
             metadata_policies_equal && metadata_policy.eq(&MetadataPolicies::allow());
     }
-    metadata_policies_equal
+    Ok(metadata_policies_equal
         && policy.add_member_policy == MembershipPolicies::allow()
         && policy.remove_member_policy == MembershipPolicies::allow_if_actor_admin()
         && policy.add_admin_policy == PermissionsPolicies::allow_if_actor_super_admin()
         && policy.remove_admin_policy == PermissionsPolicies::allow_if_actor_super_admin()
-        && policy.update_permissions_policy == PermissionsPolicies::allow_if_actor_super_admin()
+        && policy.update_permissions_policy == PermissionsPolicies::allow_if_actor_super_admin())
 }
 
 // Depending on if the client is on a newer or older version of libxmtp
 // since the group was created, the number of metadata policies might not match
 // the default Admin Only Policy Set. As long as all metadata policies are admin only, we will
 // match against Admin Only Preconfigured Policy
-pub fn is_policy_admin_only(policy: &PolicySet) -> bool {
+pub fn is_policy_admin_only(policy: &PolicySet) -> Result<bool, PolicyError> {
     let mut metadata_policies_equal = true;
     for field_name in policy.update_metadata_policy.keys() {
-        let metadata_policy = policy.update_metadata_policy.get(field_name).unwrap();
+        let metadata_policy = policy.update_metadata_policy.get(field_name).ok_or(
+            PolicyError::MissingMetadataPolicyField {
+                name: field_name.to_string(),
+            },
+        )?;
         metadata_policies_equal = metadata_policies_equal
             && metadata_policy.eq(&MetadataPolicies::allow_if_actor_admin());
     }
-    metadata_policies_equal
+    Ok(metadata_policies_equal
         && policy.add_member_policy == MembershipPolicies::allow_if_actor_admin()
         && policy.remove_member_policy == MembershipPolicies::allow_if_actor_admin()
         && policy.add_admin_policy == PermissionsPolicies::allow_if_actor_super_admin()
         && policy.remove_admin_policy == PermissionsPolicies::allow_if_actor_super_admin()
-        && policy.update_permissions_policy == PermissionsPolicies::allow_if_actor_super_admin()
+        && policy.update_permissions_policy == PermissionsPolicies::allow_if_actor_super_admin())
 }
 
 /// A policy where any member can add or remove any other member
@@ -1122,9 +1132,9 @@ impl PreconfiguredPolicies {
     }
 
     pub fn from_policy_set(policy_set: &PolicySet) -> Result<Self, PolicyError> {
-        if is_policy_all_members(policy_set) {
+        if is_policy_all_members(policy_set)? {
             Ok(PreconfiguredPolicies::AllMembers)
-        } else if is_policy_admin_only(policy_set) {
+        } else if is_policy_admin_only(policy_set)? {
             Ok(PreconfiguredPolicies::AdminsOnly)
         } else {
             Err(PolicyError::InvalidPresetPolicy)
@@ -1442,7 +1452,7 @@ mod tests {
             update_permissions_policy: PermissionsPolicies::allow_if_actor_super_admin(),
         };
 
-        assert!(is_policy_all_members(&policy_set_new_metadata_permission));
+        assert!(is_policy_all_members(&policy_set_new_metadata_permission).unwrap());
 
         let mut metadata_policies_map =
             MetadataPolicies::default_map(MetadataPolicies::allow_if_actor_admin());
@@ -1459,7 +1469,7 @@ mod tests {
             update_permissions_policy: PermissionsPolicies::allow_if_actor_super_admin(),
         };
 
-        assert!(is_policy_admin_only(&policy_set_new_metadata_permission));
+        assert!(is_policy_admin_only(&policy_set_new_metadata_permission).unwrap());
     }
 
     #[test]

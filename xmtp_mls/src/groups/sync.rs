@@ -321,7 +321,7 @@ impl MlsGroup {
                     return Ok(());
                 }
 
-                let validated_commit = maybe_validated_commit.unwrap();
+                let validated_commit = maybe_validated_commit.expect("Checked for error");
 
                 log::info!(
                     "[{}] merging pending commit for intent {}",
@@ -1021,9 +1021,7 @@ impl MlsGroup {
             .get_installations_time_checked(self.group_id.clone())?;
         let elapsed = now - last;
         if elapsed > interval {
-            self.add_missing_installations(provider, client)
-                .await
-                .unwrap();
+            self.add_missing_installations(provider, client).await?;
             provider
                 .conn_ref()
                 .update_installations_time_checked(self.group_id.clone())?;
