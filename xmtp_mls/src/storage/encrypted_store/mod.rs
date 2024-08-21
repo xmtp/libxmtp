@@ -666,9 +666,9 @@ mod tests {
         let barrier_pointer = barrier.clone();
         let handle = std::thread::spawn(move || {
             store_pointer.transaction(|provider| {
-                let conn1 = provider.conn();
+                let conn1 = provider.conn_ref();
                 StoredIdentity::new("correct".to_string(), rand_vec(), rand_vec())
-                    .store(&conn1)
+                    .store(conn1)
                     .unwrap();
                 // wait for second transaction to start
                 barrier_pointer.wait();
@@ -682,14 +682,14 @@ mod tests {
         let handle2 = std::thread::spawn(move || {
             barrier.wait();
             let result = store_pointer.transaction(|provider| -> Result<(), anyhow::Error> {
-                let connection = provider.conn();
+                let connection = provider.conn_ref();
                 let group = StoredGroup::new(
                     b"should not exist".to_vec(),
                     0,
                     GroupMembershipState::Allowed,
                     "goodbye".to_string(),
                 );
-                group.store(&connection)?;
+                group.store(connection)?;
                 Ok(())
             });
             barrier.wait();
@@ -729,9 +729,9 @@ mod tests {
         let handle = tokio::spawn(async move {
             store_pointer
                 .transaction_async(|provider| async move {
-                    let conn1 = provider.conn();
+                    let conn1 = provider.conn_ref();
                     StoredIdentity::new("crab".to_string(), rand_vec(), rand_vec())
-                        .store(&conn1)
+                        .store(conn1)
                         .unwrap();
 
                     let group = StoredGroup::new(
@@ -740,7 +740,7 @@ mod tests {
                         GroupMembershipState::Allowed,
                         "goodbye".to_string(),
                     );
-                    group.store(&conn1).unwrap();
+                    group.store(conn1).unwrap();
 
                     anyhow::bail!("force a rollback")
                 })

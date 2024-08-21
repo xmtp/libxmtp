@@ -1315,6 +1315,7 @@ mod tests {
     use super::*;
     use crate::builder::ClientBuilder;
     use futures::future;
+    use scoped_futures::ScopedFutureExt;
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -1332,17 +1333,12 @@ mod tests {
         amal_group.send_message_optimistic(b"5").unwrap();
         amal_group.send_message_optimistic(b"6").unwrap();
 
-        let mut futures = vec![];
         let conn = amal.context().store.conn().unwrap();
+        let provider: XmtpOpenMlsProvider = conn.into();
 
+        let mut futures = vec![];
         for _ in 0..10 {
-            let client = amal.clone();
-            let conn = conn.clone();
-            let group = amal_group.clone();
-
-            futures.push(async move {
-                group.publish_intents(conn, &client).await.unwrap();
-            });
+            futures.push(amal_group.publish_intents(&provider, &amal).scoped())
         }
         future::join_all(futures).await;
     }

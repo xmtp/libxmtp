@@ -1042,8 +1042,8 @@ mod tests {
         )
         .unwrap();
 
-        let conn = &store.conn().unwrap();
-        let key_store = SqlKeyStore::new(conn.clone());
+        let conn = store.conn().unwrap();
+        let key_store = SqlKeyStore::new(conn);
 
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
         let public_key = StorageId::from(signature_keys.to_public_vec());
@@ -1091,7 +1091,6 @@ mod tests {
         )
         .unwrap();
         let conn = store.conn().unwrap();
-        let key_store = SqlKeyStore::new(conn.clone());
         let provider = XmtpOpenMlsProvider::new(conn);
         let group_id = GroupId::random(provider.rand());
         let proposals = (0..10)
@@ -1100,7 +1099,8 @@ mod tests {
 
         // Store proposals
         for (i, proposal) in proposals.iter().enumerate() {
-            key_store
+            provider
+                .storage()
                 .queue_proposal::<GroupId, ProposalRef, Proposal>(
                     &group_id,
                     &ProposalRef(i),
@@ -1111,7 +1111,8 @@ mod tests {
 
         log::debug!("Finished with queued proposals");
         // Read proposal refs
-        let proposal_refs_read: Vec<ProposalRef> = key_store
+        let proposal_refs_read: Vec<ProposalRef> = provider
+            .storage()
             .queued_proposal_refs(&group_id)
             .expect("Failed to read proposal refs");
         assert_eq!(
@@ -1121,7 +1122,7 @@ mod tests {
 
         // Read proposals
         let proposals_read: Vec<(ProposalRef, Proposal)> =
-            key_store.queued_proposals(&group_id).unwrap();
+            provider.storage().queued_proposals(&group_id).unwrap();
         let proposals_expected: Vec<(ProposalRef, Proposal)> = (0..10)
             .map(ProposalRef)
             .zip(proposals.clone().into_iter())
@@ -1129,18 +1130,19 @@ mod tests {
         assert_eq!(proposals_expected, proposals_read);
 
         // Remove proposal 5
-        key_store
+        provider
+            .storage()
             .remove_proposal(&group_id, &ProposalRef(5))
             .unwrap();
 
         let proposal_refs_read: Vec<ProposalRef> =
-            key_store.queued_proposal_refs(&group_id).unwrap();
+            provider.storage().queued_proposal_refs(&group_id).unwrap();
         let mut expected = (0..10).map(ProposalRef).collect::<Vec<_>>();
         expected.remove(5);
         assert_eq!(expected, proposal_refs_read);
 
         let proposals_read: Vec<(ProposalRef, Proposal)> =
-            key_store.queued_proposals(&group_id).unwrap();
+            provider.storage().queued_proposals(&group_id).unwrap();
         let mut proposals_expected: Vec<(ProposalRef, Proposal)> = (0..10)
             .map(ProposalRef)
             .zip(proposals.clone().into_iter())
@@ -1149,15 +1151,16 @@ mod tests {
         assert_eq!(proposals_expected, proposals_read);
 
         // Clear all proposals
-        key_store
+        provider
+            .storage()
             .clear_proposal_queue::<GroupId, ProposalRef>(&group_id)
             .unwrap();
         let proposal_refs_read: Result<Vec<ProposalRef>, SqlKeyStoreError> =
-            key_store.queued_proposal_refs(&group_id);
+            provider.storage().queued_proposal_refs(&group_id);
         assert!(proposal_refs_read.unwrap().is_empty());
 
         let proposals_read: Result<Vec<(ProposalRef, Proposal)>, SqlKeyStoreError> =
-            key_store.queued_proposals(&group_id);
+            provider.storage().queued_proposals(&group_id);
         assert!(proposals_read.unwrap().is_empty());
     }
 
@@ -1170,7 +1173,6 @@ mod tests {
         )
         .unwrap();
         let conn = store.conn().unwrap();
-        let key_store = SqlKeyStore::new(conn.clone());
         let provider = XmtpOpenMlsProvider::new(conn);
 
         #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
@@ -1181,12 +1183,13 @@ mod tests {
         let group_id = GroupId::random(provider.rand());
 
         // Group state
-        key_store
+        provider
+            .storage()
             .write_group_state(&group_id, &GroupState(77))
             .unwrap();
 
         // Read group state
-        let group_state: Option<GroupState> = key_store.group_state(&group_id).unwrap();
+        let group_state: Option<GroupState> = provider.storage().group_state(&group_id).unwrap();
         assert_eq!(GroupState(77), group_state.unwrap());
     }
 }
