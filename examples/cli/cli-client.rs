@@ -352,7 +352,7 @@ async fn main() {
                 .await
                 .unwrap();
             let mut sync_group_messages_stream =
-                xmtp_mls::Client::stream_all_messages(client.into(), true)
+                xmtp_mls::Client::stream_all_messages(client.into())
                     .await
                     .unwrap();
 
