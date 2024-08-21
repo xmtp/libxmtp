@@ -2918,16 +2918,17 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn ensure_removed_after_revoke() {
-        let wallet = generate_local_wallet();
-        let alix1 = ClientBuilder::new_test_client(&wallet).await;
-        let alix2 = ClientBuilder::new_test_client(&wallet).await;
-        let bo = ClientBuilder::new_test_client(&wallet).await;
+        let alix_wallet = generate_local_wallet();
+        let bo_wallet = generate_local_wallet();
+        let alix1 = ClientBuilder::new_test_client(&alix_wallet).await;
+        let alix2 = ClientBuilder::new_test_client(&alix_wallet).await;
+        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
 
         let alix_group = alix1
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group
-            .add_members(&alix1, vec![wallet.get_address()])
+            .add_members(&alix1, vec![bo_wallet.get_address()])
             .await
             .unwrap();
         let bo_group = receive_group_invite(&bo).await;
@@ -2943,7 +2944,7 @@ mod tests {
             .await
             .unwrap();
 
-        sign_with_wallet(&wallet, &mut revoke_installation_request).await;
+        sign_with_wallet(&alix_wallet, &mut revoke_installation_request).await;
         alix1
             .apply_signature_request(revoke_installation_request)
             .await

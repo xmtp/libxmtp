@@ -225,6 +225,7 @@ where
         existing_wallet_address: String,
         new_wallet_address: String,
     ) -> Result<SignatureRequest, ClientError> {
+        log::info!("Associating new wallet with inbox_id {}", self.inbox_id());
         let inbox_id = self.inbox_id();
         let builder = SignatureRequestBuilder::new(inbox_id);
 
@@ -518,19 +519,6 @@ pub(crate) mod tests {
         let wallet_2_address = wallet_2.get_address();
         let client = ClientBuilder::new_test_client(&wallet).await;
 
-        let mut signature_request: SignatureRequest = client
-            .create_inbox(wallet_address.clone(), None)
-            .await
-            .unwrap();
-        let inbox_id = signature_request.inbox_id();
-
-        sign_with_wallet(&wallet, &mut signature_request).await;
-
-        client
-            .apply_signature_request(signature_request)
-            .await
-            .unwrap();
-
         let mut add_association_request = client
             .associate_wallet(wallet_address.clone(), wallet_2_address.clone())
             .unwrap();
@@ -543,7 +531,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let association_state = get_association_state(&client, inbox_id.clone()).await;
+        let association_state = get_association_state(&client, client.inbox_id()).await;
 
         assert_eq!(association_state.members().len(), 3);
         assert_eq!(association_state.recovery_address(), &wallet_address);
@@ -558,19 +546,7 @@ pub(crate) mod tests {
         let wallet_address = wallet.get_address();
         let wallet_2_address = wallet_2.get_address();
         let client = ClientBuilder::new_test_client(&wallet).await;
-
-        let mut signature_request: SignatureRequest = client
-            .create_inbox(wallet_address.clone(), None)
-            .await
-            .unwrap();
-        let inbox_id = signature_request.inbox_id();
-
-        sign_with_wallet(&wallet, &mut signature_request).await;
-
-        client
-            .apply_signature_request(signature_request)
-            .await
-            .unwrap();
+        let inbox_id = client.inbox_id();
 
         get_association_state(&client, inbox_id.clone()).await;
 
@@ -772,7 +748,7 @@ pub(crate) mod tests {
         // Now revoke the second wallet
 
         let mut revoke_signature_request = client
-            .revoke_wallets(vec![second_wallet.get_address().into()])
+            .revoke_wallets(vec![second_wallet.get_address()])
             .await
             .unwrap();
         sign_with_wallet(&recovery_wallet, &mut revoke_signature_request).await;
