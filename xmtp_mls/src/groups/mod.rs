@@ -247,13 +247,15 @@ impl MlsGroup {
     /// Instantiate a new [`XmtpOpenMlsProvider`] pulling a connection from the database.
     /// prefer to use an already-instantiated mls provider if possible.
     pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, GroupError> {
-        let conn = self.context.store.conn()?;
-        Ok(self.context.mls_provider(conn))
+        Ok(self.context.store.conn()?.into())
     }
 
     // Load the stored MLS group from the OpenMLS provider's keystore
     #[tracing::instrument(level = "trace", skip_all)]
-    fn load_mls_group(&self, provider: impl OpenMlsProvider) -> Result<OpenMlsGroup, GroupError> {
+    pub(crate) fn load_mls_group(
+        &self,
+        provider: impl OpenMlsProvider,
+    ) -> Result<OpenMlsGroup, GroupError> {
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
                 .map_err(|_| GroupError::GroupNotFound)?
@@ -609,8 +611,7 @@ impl MlsGroup {
         client: &Client<ApiClient>,
         inbox_ids: Vec<String>,
     ) -> Result<(), GroupError> {
-        let conn = client.store().conn()?;
-        let provider = client.mls_provider(conn);
+        let provider = client.mls_provider()?;
         let intent_data = self
             .get_membership_update_intent(client, &provider, inbox_ids, vec![])
             .await?;
@@ -1305,8 +1306,7 @@ mod tests {
         sender_mls_group: &mut OpenMlsGroup,
         sender_provider: &XmtpOpenMlsProvider,
     ) {
-        let new_member_provider =
-            new_member_client.mls_provider(new_member_client.store().conn().unwrap());
+        let new_member_provider = new_member_client.mls_provider().unwrap();
 
         let key_package = new_member_client
             .identity()
@@ -1548,7 +1548,7 @@ mod tests {
         let alix_group: MlsGroup = alix
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
-        let provider = alix.mls_provider(alix.store().conn().unwrap());
+        let provider = alix.mls_provider().unwrap();
         // Doctor the group membership
         let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
         let mut existing_extensions = mls_group.extensions().clone();

@@ -4,7 +4,7 @@ use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 use crate::retry::RetryableError;
 use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
-use crate::storage::sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
+use crate::storage::sql_key_store::{SqlKeyStore, SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
 use crate::storage::EncryptedMessageStore;
 use crate::{
     api::{ApiClientWrapper, WrappedApiError},
@@ -352,7 +352,7 @@ impl Identity {
 
     pub(crate) fn new_key_package(
         &self,
-        provider: &XmtpOpenMlsProvider,
+        provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore>,
     ) -> Result<KeyPackage, IdentityError> {
         let last_resort = Extension::LastResort(LastResortExtension::default());
         let key_package_extensions = Extensions::single(last_resort);
@@ -382,7 +382,7 @@ impl Identity {
             .key_package_lifetime(Lifetime::new(6 * 30 * 86400))
             .build(
                 CIPHERSUITE,
-                provider,
+                &provider,
                 &self.installation_keys,
                 CredentialWithKey {
                     credential: self.credential(),

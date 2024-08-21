@@ -98,7 +98,7 @@ impl MlsGroup {
     }
 
     #[tracing::instrument(level = "trace", skip(self, provider, client))]
-    pub(super) async fn sync_with_conn<ApiClient>(
+    pub(crate) async fn sync_with_conn<ApiClient>(
         &self,
         provider: &XmtpOpenMlsProvider,
         client: &Client<ApiClient>,
@@ -338,7 +338,7 @@ impl MlsGroup {
                     conn.set_group_intent_to_publish(intent.id)?;
                 } else {
                     // If no error committing the change, write a transcript message
-                    self.save_transcript_message(&conn, validated_commit, envelope_timestamp_ns)?;
+                    self.save_transcript_message(conn, validated_commit, envelope_timestamp_ns)?;
                 }
             }
             IntentKind::SendMessage => {
@@ -803,7 +803,7 @@ impl MlsGroup {
             let result = retry_async!(
                 Retry::default(),
                 (async {
-                    self.get_publish_intent_data(&provider, client, &mut openmls_group, &intent)
+                    self.get_publish_intent_data(provider, client, &mut openmls_group, &intent)
                         .await
                 })
             );
@@ -1001,7 +1001,7 @@ impl MlsGroup {
         Ok(())
     }
 
-    pub(super) async fn maybe_update_installations<ApiClient>(
+    pub async fn maybe_update_installations<ApiClient>(
         &self,
         provider: &XmtpOpenMlsProvider,
         update_interval: Option<i64>,
@@ -1022,7 +1022,9 @@ impl MlsGroup {
             .get_installations_time_checked(self.group_id.clone())?;
         let elapsed = now - last;
         if elapsed > interval {
-            self.add_missing_installations(&provider, client).await?;
+            self.add_missing_installations(provider, client)
+                .await
+                .unwrap();
             provider
                 .conn_ref()
                 .update_installations_time_checked(self.group_id.clone())?;
