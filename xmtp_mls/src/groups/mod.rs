@@ -347,7 +347,7 @@ impl MlsGroup {
 
         validate_initial_group_membership(client, provider.conn_ref(), &mls_group).await?;
 
-        let stored_group = provider.conn().insert_or_replace_group(to_store)?;
+        let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
 
         Ok(Self::new(
             client.context.clone(),
@@ -441,18 +441,21 @@ impl MlsGroup {
     {
         let update_interval = Some(5_000_000); // 5 seconds in nanoseconds
         let conn = self.context.store.conn()?;
-        self.maybe_update_installations(conn.clone(), update_interval, client)
+        let provider = XmtpOpenMlsProvider::from(conn);
+        self.maybe_update_installations(&provider, update_interval, client)
             .await?;
 
-        let message_id =
-            self.prepare_message(message, &conn, |now| Self::into_envelope(message, now));
+        let message_id = self.prepare_message(message, provider.conn_ref(), |now| {
+            Self::into_envelope(message, now)
+        });
 
         // Skipping a full sync here and instead just firing and forgetting
-        if let Err(err) = self.publish_intents(conn.clone(), client).await {
+        if let Err(err) = self.publish_intents(&provider, client).await {
             log::error!("Send: error publishing intents: {:?}", err);
         }
 
-        self.sync_until_last_intent_resolved(conn, client).await?;
+        self.sync_until_last_intent_resolved(&provider, client)
+            .await?;
 
         message_id
     }
@@ -466,11 +469,13 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
+        let provider = XmtpOpenMlsProvider::from(conn);
         let update_interval = Some(5_000_000);
-        self.maybe_update_installations(conn.clone(), update_interval, client)
+        self.maybe_update_installations(&provider, update_interval, client)
             .await?;
-        self.publish_intents(conn.clone(), client).await?;
-        self.sync_until_last_intent_resolved(conn, client).await?;
+        self.publish_intents(&provider, client).await?;
+        self.sync_until_last_intent_resolved(&provider, client)
+            .await?;
         Ok(())
     }
 
@@ -618,13 +623,15 @@ impl MlsGroup {
             return Ok(());
         }
 
-        let intent = provider.conn().insert_group_intent(NewGroupIntent::new(
-            IntentKind::UpdateGroupMembership,
-            self.group_id.clone(),
-            intent_data.into(),
-        ))?;
+        let intent = provider
+            .conn_ref()
+            .insert_group_intent(NewGroupIntent::new(
+                IntentKind::UpdateGroupMembership,
+                self.group_id.clone(),
+                intent_data.into(),
+            ))?;
 
-        self.sync_until_intent_resolved(provider.conn(), intent.id, client)
+        self.sync_until_intent_resolved(&provider, intent.id, client)
             .await
     }
 
@@ -645,8 +652,8 @@ impl MlsGroup {
         client: &Client<ApiClient>,
         inbox_ids: Vec<InboxId>,
     ) -> Result<(), GroupError> {
-        let conn = client.store().conn()?;
-        let provider = client.mls_provider(conn);
+        let provider = client.store().conn()?.into();
+
         let intent_data = self
             .get_membership_update_intent(client, &provider, vec![], inbox_ids)
             .await?;
@@ -659,7 +666,7 @@ impl MlsGroup {
                 intent_data.into(),
             ))?;
 
-        self.sync_until_intent_resolved(provider.conn(), intent.id, client)
+        self.sync_until_intent_resolved(&provider, intent.id, client)
             .await
     }
 
@@ -680,7 +687,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -712,7 +719,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -746,7 +753,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -781,7 +788,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -818,7 +825,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -893,7 +900,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -918,7 +925,7 @@ impl MlsGroup {
         let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
         intent.store(&conn)?;
 
-        self.sync_with_conn(conn, client).await
+        self.sync_with_conn(&conn.into(), client).await
     }
 
     pub fn is_active(&self, provider: impl OpenMlsProvider) -> Result<bool, GroupError> {

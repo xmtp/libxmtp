@@ -25,7 +25,7 @@ struct StorageData {
     value_bytes: Vec<u8>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct SqlKeyStore {
     // Directly wrap the DbConnection which is a SqliteConnection in this case
     conn: DbConnection,
@@ -36,10 +36,6 @@ impl SqlKeyStore {
         Self { conn }
     }
 
-    pub fn conn(&self) -> DbConnection {
-        self.conn.clone()
-    }
-
     pub fn conn_ref(&self) -> &DbConnection {
         &self.conn
     }
@@ -48,7 +44,7 @@ impl SqlKeyStore {
         &self,
         storage_key: &Vec<u8>,
     ) -> Result<Vec<StorageData>, diesel::result::Error> {
-        self.conn().raw_query(|conn| {
+        self.conn_ref().raw_query(|conn| {
             sql_query(SELECT_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -61,7 +57,7 @@ impl SqlKeyStore {
         storage_key: &Vec<u8>,
         value: &[u8],
     ) -> Result<usize, diesel::result::Error> {
-        self.conn().raw_query(|conn| {
+        self.conn_ref().raw_query(|conn| {
             sql_query(REPLACE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -75,7 +71,7 @@ impl SqlKeyStore {
         storage_key: &Vec<u8>,
         modified_data: &Vec<u8>,
     ) -> Result<usize, diesel::result::Error> {
-        self.conn().raw_query(|conn| {
+        self.conn_ref().raw_query(|conn| {
             sql_query(UPDATE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&modified_data)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
@@ -223,7 +219,7 @@ impl SqlKeyStore {
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
 
-        let _ = self.conn().raw_query(|conn| {
+        let _ = self.conn_ref().raw_query(|conn| {
             sql_query(DELETE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -804,7 +800,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
 
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
-        let data: Vec<StorageData> = self.conn().raw_query(|conn| {
+        let data: Vec<StorageData> = self.conn_ref().raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)

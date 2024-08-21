@@ -277,19 +277,28 @@ impl EncryptedMessageStore {
         log::debug!("Transaction async beginning");
         let mut connection = self.raw_conn()?;
         AnsiTransactionManager::begin_transaction(&mut *connection)?;
-
-        let db_connection = DbConnection::new(connection);
+        let connection = Arc::new(parking_lot::Mutex::new(connection));
+        let local_connection = Arc::clone(&connection);
+        let db_connection = DbConnection::from_arc_mutex(connection);
         let provider = XmtpOpenMlsProvider::new(db_connection);
-        let local_provider = provider.clone();
 
+        // the other connection is dropped in the closure
+        // ensuring we have only one strong reference
         let result = fun(provider).await;
+        if Arc::strong_count(&local_connection) > 1 {
+            log::warn!("More than 1 strong connection references still exist during transaction");
+        }
+
+        if Arc::weak_count(&local_connection) > 1 {
+            log::warn!("More than 1 weak connection references still exist during transaction");
+        }
 
         // after the closure finishes, `local_provider` should have the only reference ('strong')
         // to `XmtpOpenMlsProvider` inner `DbConnection`..
-        let conn_ref = local_provider.conn_ref();
+        let local_connection = DbConnection::from_arc_mutex(local_connection);
         match result {
             Ok(value) => {
-                conn_ref.raw_query(|conn| {
+                local_connection.raw_query(|conn| {
                     PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
                 })?;
                 log::debug!("Transaction async being committed");
@@ -297,7 +306,7 @@ impl EncryptedMessageStore {
             }
             Err(err) => {
                 log::debug!("Transaction async being rolled back");
-                match conn_ref.raw_query(|conn| {
+                match local_connection.raw_query(|conn| {
                     PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(
                         &mut *conn,
                     )

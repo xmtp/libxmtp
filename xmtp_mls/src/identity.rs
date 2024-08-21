@@ -66,7 +66,7 @@ impl IdentityStrategy {
         let conn = store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let stored_identity: Option<Identity> = provider
-            .conn()
+            .conn_ref()
             .fetch(&())?
             .map(|i: StoredIdentity| i.into());
         debug!("identity in store: {:?}", stored_identity);
@@ -419,7 +419,7 @@ impl Identity {
         provider: &XmtpOpenMlsProvider,
         api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
-        let stored_identity: Option<StoredIdentity> = provider.conn().fetch(&())?;
+        let stored_identity: Option<StoredIdentity> = provider.conn_ref().fetch(&())?;
         if stored_identity.is_some() {
             info!("Identity already registered. skipping key package publishing");
             return Ok(());

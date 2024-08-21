@@ -83,24 +83,24 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
-        let mls_provider = client.mls_provider(conn.clone());
+        let mls_provider = XmtpOpenMlsProvider::from(conn);
 
         log::info!("[{}] syncing group", client.inbox_id());
         log::info!(
             "current epoch for [{}] in sync() is Epoch: [{}]",
             client.inbox_id(),
-            self.load_mls_group(mls_provider).unwrap().epoch()
+            self.load_mls_group(&mls_provider).unwrap().epoch()
         );
-        self.maybe_update_installations(conn.clone(), None, client)
+        self.maybe_update_installations(&mls_provider, None, client)
             .await?;
 
-        self.sync_with_conn(conn, client).await
+        self.sync_with_conn(&mls_provider, client).await
     }
 
-    #[tracing::instrument(level = "trace", skip(client, self, conn))]
+    #[tracing::instrument(level = "trace", skip(self, provider, client))]
     pub(super) async fn sync_with_conn<ApiClient>(
         &self,
-        conn: DbConnection,
+        provider: &XmtpOpenMlsProvider,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
@@ -108,21 +108,23 @@ impl MlsGroup {
     {
         let mut errors: Vec<GroupError> = vec![];
 
+        let conn = provider.conn_ref();
+
         // Even if publish fails, continue to receiving
-        if let Err(publish_error) = self.publish_intents(conn.clone(), client).await {
+        if let Err(publish_error) = self.publish_intents(provider, client).await {
             log::error!("Sync: error publishing intents {:?}", publish_error);
             errors.push(publish_error);
         }
 
         // Even if receiving fails, continue to post_commit
-        if let Err(receive_error) = self.receive(&conn, client).await {
+        if let Err(receive_error) = self.receive(provider, client).await {
             log::error!("receive error {:?}", receive_error);
             // We don't return an error if receive fails, because it's possible this is caused
             // by malicious data sent over the network, or messages from before the user was
             // added to the group
         }
 
-        if let Err(post_commit_err) = self.post_commit(&conn, client).await {
+        if let Err(post_commit_err) = self.post_commit(conn, client).await {
             log::error!("post commit error {:?}", post_commit_err);
             errors.push(post_commit_err);
         }
@@ -136,13 +138,13 @@ impl MlsGroup {
 
     pub(super) async fn sync_until_last_intent_resolved<ApiClient>(
         &self,
-        conn: DbConnection,
+        provider: &XmtpOpenMlsProvider,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
-        let intents = conn.find_group_intents(
+        let intents = provider.conn_ref().find_group_intents(
             self.group_id.clone(),
             Some(vec![IntentState::ToPublish, IntentState::Published]),
             None,
@@ -152,7 +154,7 @@ impl MlsGroup {
             return Ok(());
         }
 
-        self.sync_until_intent_resolved(conn, intents[intents.len() - 1].id, client)
+        self.sync_until_intent_resolved(provider, intents[intents.len() - 1].id, client)
             .await
     }
 
@@ -163,10 +165,10 @@ impl MlsGroup {
      *
      * This method will retry up to `crate::configuration::MAX_GROUP_SYNC_RETRIES` times.
      */
-    #[tracing::instrument(level = "trace", skip(client, self, conn))]
+    #[tracing::instrument(level = "trace", skip(client, self, provider))]
     pub(super) async fn sync_until_intent_resolved<ApiClient>(
         &self,
-        conn: DbConnection,
+        provider: &XmtpOpenMlsProvider,
         intent_id: ID,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
@@ -177,12 +179,12 @@ impl MlsGroup {
         // Return the last error to the caller if we fail to sync
         let mut last_err: Option<GroupError> = None;
         while num_attempts < crate::configuration::MAX_GROUP_SYNC_RETRIES {
-            if let Err(err) = self.sync_with_conn(conn.clone(), client).await {
+            if let Err(err) = self.sync_with_conn(provider, client).await {
                 log::error!("error syncing group {:?}", err);
                 last_err = Some(err);
             }
 
-            match Fetch::<StoredGroupIntent>::fetch(&conn, &intent_id) {
+            match Fetch::<StoredGroupIntent>::fetch(provider.conn_ref(), &intent_id) {
                 Ok(None) => {
                     // This is expected. The intent gets deleted on success
                     return Ok(());
@@ -271,7 +273,7 @@ impl MlsGroup {
             message_epoch
         );
 
-        let conn = provider.conn();
+        let conn = provider.conn_ref();
         match intent.kind {
             IntentKind::KeyUpdate
             | IntentKind::UpdateGroupMembership
@@ -301,7 +303,7 @@ impl MlsGroup {
                 );
                 let maybe_validated_commit = ValidatedCommit::from_staged_commit(
                     client,
-                    &conn,
+                    conn,
                     maybe_pending_commit.expect("already checked"),
                     openmls_group,
                 )
@@ -594,7 +596,7 @@ impl MlsGroup {
         }?;
 
         let intent = provider
-            .conn()
+            .conn_ref()
             .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
 
         match intent {
@@ -676,14 +678,13 @@ impl MlsGroup {
     pub async fn process_messages<ApiClient>(
         &self,
         messages: Vec<GroupMessage>,
-        conn: DbConnection,
+        provider: &XmtpOpenMlsProvider,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
-        let provider = self.context.mls_provider(conn);
-        let mut openmls_group = self.load_mls_group(&provider)?;
+        let mut openmls_group = self.load_mls_group(provider)?;
 
         let mut receive_errors = vec![];
         for message in messages.into_iter() {
@@ -718,18 +719,19 @@ impl MlsGroup {
         }
     }
 
-    #[tracing::instrument(level = "trace", skip(conn, client, self))]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(super) async fn receive<ApiClient>(
         &self,
-        conn: &DbConnection,
+        provider: &XmtpOpenMlsProvider,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
-        let messages = client.query_group_messages(&self.group_id, conn).await?;
-        self.process_messages(messages, conn.clone(), client)
+        let messages = client
+            .query_group_messages(&self.group_id, provider.conn_ref())
             .await?;
+        self.process_messages(messages, provider, client).await?;
         Ok(())
     }
 
@@ -780,19 +782,18 @@ impl MlsGroup {
         Ok(Some(msg))
     }
 
-    #[tracing::instrument(level = "trace", skip(conn, self, client))]
+    #[tracing::instrument(level = "trace", skip(self, provider, client))]
     pub(super) async fn publish_intents<ApiClient>(
         &self,
-        conn: DbConnection,
+        provider: &XmtpOpenMlsProvider,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
-        let provider = self.context.mls_provider(conn);
-        let mut openmls_group = self.load_mls_group(&provider)?;
+        let mut openmls_group = self.load_mls_group(provider)?;
 
-        let intents = provider.conn().find_group_intents(
+        let intents = provider.conn_ref().find_group_intents(
             self.group_id.clone(),
             Some(vec![IntentState::ToPublish]),
             None,
@@ -814,11 +815,11 @@ impl MlsGroup {
                         log::error!("intent {} has reached max publish attempts", intent.id);
                         // TODO: Eventually clean up errored attempts
                         provider
-                            .conn()
+                            .conn_ref()
                             .set_group_intent_error_and_fail_msg(&intent)?;
                     } else {
                         provider
-                            .conn()
+                            .conn_ref()
                             .increment_intent_publish_attempt_count(intent.id)?;
                     }
 
@@ -837,7 +838,7 @@ impl MlsGroup {
                         intent.id,
                         intent.kind
                     );
-                    provider.conn().set_group_intent_published(
+                    provider.conn_ref().set_group_intent_published(
                         intent.id,
                         sha256(payload_slice),
                         post_commit_data,
@@ -850,7 +851,7 @@ impl MlsGroup {
                 }
                 Ok(None) => {
                     log::info!("Skipping intent because no publish data returned");
-                    let deleter: &dyn Delete<StoredGroupIntent, Key = i32> = &provider.conn();
+                    let deleter: &dyn Delete<StoredGroupIntent, Key = i32> = provider.conn_ref();
                     deleter.delete(intent.id)?;
                 }
             }
@@ -1002,7 +1003,7 @@ impl MlsGroup {
 
     pub(super) async fn maybe_update_installations<ApiClient>(
         &self,
-        conn: DbConnection,
+        provider: &XmtpOpenMlsProvider,
         update_interval: Option<i64>,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
@@ -1016,12 +1017,15 @@ impl MlsGroup {
         };
 
         let now = crate::utils::time::now_ns();
-        let last = conn.get_installations_time_checked(self.group_id.clone())?;
+        let last = provider
+            .conn_ref()
+            .get_installations_time_checked(self.group_id.clone())?;
         let elapsed = now - last;
         if elapsed > interval {
-            let provider = self.context.mls_provider(conn.clone());
             self.add_missing_installations(&provider, client).await?;
-            conn.update_installations_time_checked(self.group_id.clone())?;
+            provider
+                .conn_ref()
+                .update_installations_time_checked(self.group_id.clone())?;
         }
 
         Ok(())
@@ -1054,14 +1058,14 @@ impl MlsGroup {
 
         debug!("Adding missing installations {:?}", intent_data);
 
-        let conn = provider.conn();
+        let conn = provider.conn_ref();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::UpdateGroupMembership,
             self.group_id.clone(),
             intent_data.into(),
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(provider, intent.id, client)
             .await
     }
 
@@ -1231,7 +1235,7 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
     // This function goes to the network and fills in any missing Identity Updates
     let installation_diff = client
         .get_installation_diff(
-            &provider.conn(),
+            provider.conn_ref(),
             &old_group_membership,
             &new_group_membership,
             &membership_diff,
