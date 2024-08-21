@@ -785,7 +785,7 @@ fn extract_actor(
     if let (Some(path_update_leaf_node), Some(proposal_author_leaf_index)) =
         (path_update_leaf_node, proposal_author_leaf_index)
     {
-        let proposal_author_leaf_index = openmls_group
+        let proposal_author = openmls_group
             .member_at(*proposal_author_leaf_index)
             .ok_or(CommitValidationError::ActorCouldNotBeFound)?;
 
@@ -794,7 +794,7 @@ fn extract_actor(
             .signature_key()
             .as_slice()
             .to_vec()
-            .ne(&proposal_author_leaf_index.signature_key)
+            .ne(&proposal_author.signature_key)
         {
             return Err(CommitValidationError::MultipleActors);
         }
