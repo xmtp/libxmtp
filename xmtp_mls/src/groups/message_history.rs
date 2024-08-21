@@ -70,6 +70,12 @@ pub enum MessageHistoryError {
     Client(#[from] ClientError),
     #[error("group error: {0}")]
     Group(#[from] GroupError),
+    #[error("request ID of reply does not match request")]
+    ReplyRequestIdMismatch,
+    #[error("reply already processed")]
+    ReplyAlreadyProcessed,
+    #[error("no pending request to reply to")]
+    NoPendingRequest,
 }
 
 #[derive(Debug, Deserialize)]
@@ -132,7 +138,6 @@ where
         // sync the group
         sync_group.sync(self).await?;
 
-        let installation_id = self.installation_public_key();
         let messages = sync_group.find_messages(
             Some(GroupMessageKind::Application),
             None,
@@ -140,55 +145,22 @@ where
             None,
             None,
         )?;
-        // find the most recent history request that has not been replied to
-        let last_history_request: (Option<String>, Option<String>, Option<StoredGroupMessage>) =
-            messages
-                .into_iter()
-                .fold((None, None, None), |mut acc, msg| {
-                    let message_history_content = serde_json::from_slice::<MessageHistoryContent>(
-                        &msg.decrypted_message_bytes,
-                    );
 
-                    match message_history_content {
-                        Ok(MessageHistoryContent::Request(request))
-                        // only include requests from the current installation
-                            if msg.sender_installation_id.eq(&installation_id) =>
-                        {
-                            if let Some(ref existing_msg) = acc.2 {
-                                // use the most recent request
-                                if msg.sent_at_ns > existing_msg.sent_at_ns {
-                                    acc.0 = Some(request.request_id.clone());
-                                    acc.1 = Some(request.pin_code.clone());
-                                    acc.2 = Some(msg);
-                                }
-                            } else {
-                                acc.0 = Some(request.request_id.clone());
-                                acc.1 = Some(request.pin_code.clone());
-                                acc.2 = Some(msg);
-                            }
-                        }
-                        Ok(MessageHistoryContent::Reply(reply))
-                        // only include replies to the current installation
-                            if !msg.sender_installation_id.eq(&installation_id) =>
-                        {
-                            if let Some(ref existing_request_id) = acc.0 {
-                                // reset the request if it's been replied to
-                                if existing_request_id.eq(&reply.request_id) {
-                                    acc.0 = None;
-                                    acc.1 = None;
-                                    acc.2 = None;
-                                }
-                            }
-                        }
-                        _ => {}
+        let last_message = messages.last();
+        match last_message {
+            Some(msg) => {
+                let message_history_content =
+                    serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
+                match message_history_content {
+                    // if the last message is a request, return its request ID and pin code
+                    Ok(MessageHistoryContent::Request(request)) => {
+                        return Ok((request.request_id, request.pin_code));
                     }
-                    acc
-                });
-
-        // if the latest history request has not been replied to, don't send a new one
-        if let (Some(request_id), Some(pin_code), _) = last_history_request {
-            return Ok((request_id, pin_code));
-        }
+                    _ => {}
+                }
+            }
+            None => {}
+        };
 
         // build the request
         let history_request = HistoryRequest::new();
@@ -238,17 +210,36 @@ where
             None,
             None,
         )?;
-        // check if the latest history message is a reply
-        let has_replied = messages.last().map_or(false, |msg| {
-            let message_history_content =
-                serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
-            matches!(message_history_content, Ok(MessageHistoryContent::Reply(_)))
-        });
 
-        // if the latest history message is a reply, don't send a new one
-        if has_replied {
-            return Ok(());
-        }
+        let last_message = messages.last();
+        match last_message {
+            Some(msg) => {
+                let message_history_content =
+                    serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
+                match message_history_content {
+                    Ok(MessageHistoryContent::Request(request)) => {
+                        // check that the request ID matches
+                        if !request.request_id.eq(&contents.request_id) {
+                            return Err(GroupError::MessageHistory(Box::new(
+                                MessageHistoryError::ReplyRequestIdMismatch,
+                            )));
+                        }
+                    }
+                    Ok(MessageHistoryContent::Reply(_)) => {
+                        // if last message is a reply, it's already been processed
+                        return Err(GroupError::MessageHistory(Box::new(
+                            MessageHistoryError::ReplyAlreadyProcessed,
+                        )));
+                    }
+                    _ => {}
+                }
+            }
+            None => {
+                return Err(GroupError::MessageHistory(Box::new(
+                    MessageHistoryError::NoPendingRequest,
+                )));
+            }
+        };
 
         // the reply message
         let content = MessageHistoryContent::Reply(contents.clone());
@@ -739,13 +730,21 @@ mod tests {
         assert_eq!(request_id.len(), 32);
         assert_eq!(pin_code.len(), 4);
 
-        // test that another request will return the same request_id and pin_code
+        // test that another request will return the same request_id and
+        // pin_code because it hasn't been replied to yet
         let (request_id2, pin_code2) = client
             .send_history_request()
             .await
             .expect("history request");
         assert_eq!(request_id, request_id2);
         assert_eq!(pin_code, pin_code2);
+
+        // make sure there's only 1 message in the sync group
+        let (_, sync_group) = client.get_sync_group().unwrap();
+        let messages = sync_group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap();
+        assert_eq!(messages.len(), 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
