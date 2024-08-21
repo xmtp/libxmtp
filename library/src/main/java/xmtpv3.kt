@@ -892,6 +892,10 @@ internal interface UniffiLib : Library {
         `ptr`: Pointer,
     ): Long
 
+    fun uniffi_xmtpv3_fn_method_fficonversations_sync_all_groups(
+        `ptr`: Pointer,
+    ): Long
+
     fun uniffi_xmtpv3_fn_clone_ffigroup(
         `ptr`: Pointer, uniffi_out_err: UniffiRustCallStatus,
     ): Pointer
@@ -1208,6 +1212,10 @@ internal interface UniffiLib : Library {
         `ptr`: Pointer, `address`: RustBuffer.ByValue,
     ): Long
 
+    fun uniffi_xmtpv3_fn_method_ffixmtpclient_get_latest_inbox_state(
+        `ptr`: Pointer, `inboxId`: RustBuffer.ByValue,
+    ): Long
+
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_group(
         `ptr`: Pointer, `groupId`: RustBuffer.ByValue, uniffi_out_err: UniffiRustCallStatus,
     ): Pointer
@@ -1215,6 +1223,10 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_inbox_id(
         `ptr`: Pointer, uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
+
+    fun uniffi_xmtpv3_fn_method_ffixmtpclient_inbox_state(
+        `ptr`: Pointer, `refreshFromNetwork`: Byte,
+    ): Long
 
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_installation_id(
         `ptr`: Pointer, uniffi_out_err: UniffiRustCallStatus,
@@ -1233,6 +1245,10 @@ internal interface UniffiLib : Library {
     ): Unit
 
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_request_history_sync(
+        `ptr`: Pointer,
+    ): Long
+
+    fun uniffi_xmtpv3_fn_method_ffixmtpclient_revoke_all_other_installations(
         `ptr`: Pointer,
     ): Long
 
@@ -1648,6 +1664,9 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_checksum_method_fficonversations_sync(
     ): Short
 
+    fun uniffi_xmtpv3_checksum_method_fficonversations_sync_all_groups(
+    ): Short
+
     fun uniffi_xmtpv3_checksum_method_ffigroup_add_admin(
     ): Short
 
@@ -1831,10 +1850,16 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_find_inbox_id(
     ): Short
 
+    fun uniffi_xmtpv3_checksum_method_ffixmtpclient_get_latest_inbox_state(
+    ): Short
+
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_group(
     ): Short
 
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_id(
+    ): Short
+
+    fun uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_state(
     ): Short
 
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_installation_id(
@@ -1850,6 +1875,9 @@ internal interface UniffiLib : Library {
     ): Short
 
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_request_history_sync(
+    ): Short
+
+    fun uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_all_other_installations(
     ): Short
 
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_wallet(
@@ -1957,6 +1985,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversations_sync() != 9054.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversations_sync_all_groups() != 62850.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_add_admin() != 4600.toShort()) {
@@ -2142,10 +2173,16 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_find_inbox_id() != 59020.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_get_latest_inbox_state() != 3165.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_group() != 64533.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_id() != 25128.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_state() != 7826.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_installation_id() != 37173.toShort()) {
@@ -2161,6 +2198,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_request_history_sync() != 22295.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_all_other_installations() != 36450.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_wallet() != 12211.toShort()) {
@@ -2616,6 +2656,8 @@ public interface FfiConversationsInterface {
 
     suspend fun `sync`()
 
+    suspend fun `syncAllGroups`()
+
     companion object
 }
 
@@ -2869,6 +2911,39 @@ open class FfiConversations : Disposable, AutoCloseable, FfiConversationsInterfa
         return uniffiRustCallAsync(
             callWithPointer { thisPtr ->
                 UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversations_sync(
+                    thisPtr,
+
+                    )
+            },
+            { future, callback, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(
+                    future,
+                    callback,
+                    continuation
+                )
+            },
+            { future, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_void(
+                    future,
+                    continuation
+                )
+            },
+            { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_void(future) },
+            // lift function
+            { Unit },
+
+            // Error FFI converter
+            GenericException.ErrorHandler,
+        )
+    }
+
+
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `syncAllGroups`() {
+        return uniffiRustCallAsync(
+            callWithPointer { thisPtr ->
+                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversations_sync_all_groups(
                     thisPtr,
 
                     )
@@ -6059,9 +6134,19 @@ public interface FfiXmtpClientInterface {
 
     suspend fun `findInboxId`(`address`: kotlin.String): kotlin.String?
 
+    suspend fun `getLatestInboxState`(`inboxId`: kotlin.String): FfiInboxState
+
     fun `group`(`groupId`: kotlin.ByteArray): FfiGroup
 
     fun `inboxId`(): kotlin.String
+
+    /**
+     * * Get the client's inbox state.
+     *      *
+     *      * If `refresh_from_network` is true, the client will go to the network first to refresh the state.
+     *      * Otherwise, the state will be read from the local database.
+     */
+    suspend fun `inboxState`(`refreshFromNetwork`: kotlin.Boolean): FfiInboxState
 
     fun `installationId`(): kotlin.ByteArray
 
@@ -6072,6 +6157,11 @@ public interface FfiXmtpClientInterface {
     fun `releaseDbConnection`()
 
     suspend fun `requestHistorySync`()
+
+    /**
+     * * Revokes all installations except the one the client is currently using
+     */
+    suspend fun `revokeAllOtherInstallations`(): FfiSignatureRequest
 
     /**
      * Revokes or removes an identity - really a wallet address - from the existing client
@@ -6347,6 +6437,38 @@ open class FfiXmtpClient : Disposable, AutoCloseable, FfiXmtpClientInterface {
 
 
     @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `getLatestInboxState`(`inboxId`: kotlin.String): FfiInboxState {
+        return uniffiRustCallAsync(
+            callWithPointer { thisPtr ->
+                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_get_latest_inbox_state(
+                    thisPtr,
+                    FfiConverterString.lower(`inboxId`),
+                )
+            },
+            { future, callback, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_rust_buffer(
+                    future,
+                    callback,
+                    continuation
+                )
+            },
+            { future, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_rust_buffer(
+                    future,
+                    continuation
+                )
+            },
+            { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_rust_buffer(future) },
+            // lift function
+            { FfiConverterTypeFfiInboxState.lift(it) },
+            // Error FFI converter
+            GenericException.ErrorHandler,
+        )
+    }
+
+
+    @Throws(GenericException::class)
     override fun `group`(`groupId`: kotlin.ByteArray): FfiGroup {
         return FfiConverterTypeFfiGroup.lift(
             callWithPointer {
@@ -6372,6 +6494,43 @@ open class FfiXmtpClient : Disposable, AutoCloseable, FfiXmtpClientInterface {
         )
     }
 
+
+    /**
+     * * Get the client's inbox state.
+     *      *
+     *      * If `refresh_from_network` is true, the client will go to the network first to refresh the state.
+     *      * Otherwise, the state will be read from the local database.
+     */
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `inboxState`(`refreshFromNetwork`: kotlin.Boolean): FfiInboxState {
+        return uniffiRustCallAsync(
+            callWithPointer { thisPtr ->
+                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_inbox_state(
+                    thisPtr,
+                    FfiConverterBoolean.lower(`refreshFromNetwork`),
+                )
+            },
+            { future, callback, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_rust_buffer(
+                    future,
+                    callback,
+                    continuation
+                )
+            },
+            { future, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_rust_buffer(
+                    future,
+                    continuation
+                )
+            },
+            { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_rust_buffer(future) },
+            // lift function
+            { FfiConverterTypeFfiInboxState.lift(it) },
+            // Error FFI converter
+            GenericException.ErrorHandler,
+        )
+    }
 
     override fun `installationId`(): kotlin.ByteArray {
         return FfiConverterByteArray.lift(
@@ -6471,6 +6630,41 @@ open class FfiXmtpClient : Disposable, AutoCloseable, FfiXmtpClientInterface {
             // lift function
             { Unit },
 
+            // Error FFI converter
+            GenericException.ErrorHandler,
+        )
+    }
+
+
+    /**
+     * * Revokes all installations except the one the client is currently using
+     */
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `revokeAllOtherInstallations`(): FfiSignatureRequest {
+        return uniffiRustCallAsync(
+            callWithPointer { thisPtr ->
+                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_revoke_all_other_installations(
+                    thisPtr,
+
+                    )
+            },
+            { future, callback, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_pointer(
+                    future,
+                    callback,
+                    continuation
+                )
+            },
+            { future, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_pointer(
+                    future,
+                    continuation
+                )
+            },
+            { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_pointer(future) },
+            // lift function
+            { FfiConverterTypeFfiSignatureRequest.lift(it) },
             // Error FFI converter
             GenericException.ErrorHandler,
         )
@@ -6691,6 +6885,42 @@ public object FfiConverterTypeFfiGroupMember : FfiConverterRustBuffer<FfiGroupMe
         FfiConverterSequenceString.write(value.`accountAddresses`, buf)
         FfiConverterSequenceByteArray.write(value.`installationIds`, buf)
         FfiConverterTypeFfiPermissionLevel.write(value.`permissionLevel`, buf)
+    }
+}
+
+
+data class FfiInboxState(
+    var `inboxId`: kotlin.String,
+    var `recoveryAddress`: kotlin.String,
+    var `installationIds`: List<kotlin.ByteArray>,
+    var `accountAddresses`: List<kotlin.String>,
+) {
+
+    companion object
+}
+
+public object FfiConverterTypeFfiInboxState : FfiConverterRustBuffer<FfiInboxState> {
+    override fun read(buf: ByteBuffer): FfiInboxState {
+        return FfiInboxState(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterSequenceByteArray.read(buf),
+            FfiConverterSequenceString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiInboxState) = (
+            FfiConverterString.allocationSize(value.`inboxId`) +
+                    FfiConverterString.allocationSize(value.`recoveryAddress`) +
+                    FfiConverterSequenceByteArray.allocationSize(value.`installationIds`) +
+                    FfiConverterSequenceString.allocationSize(value.`accountAddresses`)
+            )
+
+    override fun write(value: FfiInboxState, buf: ByteBuffer) {
+        FfiConverterString.write(value.`inboxId`, buf)
+        FfiConverterString.write(value.`recoveryAddress`, buf)
+        FfiConverterSequenceByteArray.write(value.`installationIds`, buf)
+        FfiConverterSequenceString.write(value.`accountAddresses`, buf)
     }
 }
 

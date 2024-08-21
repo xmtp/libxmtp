@@ -46,6 +46,7 @@ import uniffi.xmtpv3.createV2Client
 import uniffi.xmtpv3.generateInboxId
 import uniffi.xmtpv3.getInboxIdForAddress
 import uniffi.xmtpv3.getVersionInfo
+import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.InboxState
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
@@ -647,6 +648,24 @@ class Client() {
 
     suspend fun requestMessageHistorySync() {
         v3Client?.requestHistorySync() ?: throw XMTPException("Error no V3 client initialized")
+    }
+
+    suspend fun revokeAllOtherInstallations(signingKey: SigningKey) {
+        if (v3Client == null) throw XMTPException("Error no V3 client initialized")
+        v3Client?.let { client ->
+            val signatureRequest = client.revokeAllOtherInstallations()
+            signingKey.sign(signatureRequest.signatureText())?.let {
+                signatureRequest.addEcdsaSignature(it.rawData)
+                client.applySignatureRequest(signatureRequest)
+            }
+        }
+    }
+
+    suspend fun inboxState(refreshFromNetwork: Boolean): InboxState {
+        v3Client?.let {
+            return InboxState(it.inboxState(refreshFromNetwork))
+        }
+        throw XMTPException("Error no V3 client initialized")
     }
 
     val privateKeyBundle: PrivateKeyBundle

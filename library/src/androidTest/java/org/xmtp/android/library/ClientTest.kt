@@ -439,4 +439,58 @@ class ClientTest {
         }
         assertEquals(boClient.inboxId, boInboxId)
     }
+
+    @Test
+    fun testRevokesAllOtherInstallations() {
+        val key = SecureRandom().generateSeed(32)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val alixWallet = PrivateKeyBuilder()
+        runBlocking {
+            val alixClient = Client().create(
+                account = alixWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    enableV3 = true,
+                    appContext = context,
+                    dbEncryptionKey = key
+                )
+            )
+            alixClient.dropLocalDatabaseConnection()
+            alixClient.deleteLocalDatabase()
+
+            val alixClient2 = Client().create(
+                account = alixWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    enableV3 = true,
+                    appContext = context,
+                    dbEncryptionKey = key
+                )
+            )
+            alixClient2.dropLocalDatabaseConnection()
+            alixClient2.deleteLocalDatabase()
+        }
+
+        val alixClient3 = runBlocking {
+            Client().create(
+                account = alixWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    enableV3 = true,
+                    appContext = context,
+                    dbEncryptionKey = key
+                )
+            )
+        }
+
+        var state = runBlocking { alixClient3.inboxState(true) }
+        assertEquals(state.installationIds.size, 3)
+
+        runBlocking {
+            alixClient3.revokeAllOtherInstallations(alixWallet)
+        }
+
+        state = runBlocking { alixClient3.inboxState(true) }
+        assertEquals(state.installationIds.size, 1)
+    }
 }
