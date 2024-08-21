@@ -25,7 +25,7 @@ pub const SQLITE_NULL: i32 = 5;
 #[derive(Serialize, Deserialize, Default, Clone, Debug, Copy)]
 pub struct PrepareOptions {
     pub flags: Option<i32>,
-    pub unscoped: Option<i32>,
+    pub unscoped: Option<bool>,
 }
 
 macro_rules! impl_has_sql_type {

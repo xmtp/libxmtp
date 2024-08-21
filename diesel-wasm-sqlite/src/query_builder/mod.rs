@@ -4,7 +4,7 @@ use super::backend::WasmSqlite;
 use diesel::query_builder::QueryBuilder;
 use diesel::result::QueryResult;
 
-mod insert_with_default_sqlite;
+pub(super) mod insert_with_default_sqlite;
 mod limit_offset;
 mod query_fragment_impls;
 // mod returning;

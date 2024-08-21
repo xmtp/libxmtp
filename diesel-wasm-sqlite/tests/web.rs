@@ -4,8 +4,10 @@
 use diesel_async::RunQueryDsl;
 use diesel_wasm_sqlite::{
     connection::{AsyncConnection, SimpleAsyncConnection, WasmSqliteConnection},
-    WasmSqlite,
+    WasmSqlite, DebugQueryWrapper
 };
+use diesel_migrations::embed_migrations;
+use diesel_migrations::EmbeddedMigrations;
 use wasm_bindgen_test::*;
 use web_sys::console;
 
@@ -17,6 +19,8 @@ use serde::Deserialize;
 use std::error::Error;
 
 wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./tests/web/migrations/");
 
 mod schema {
     diesel::table! {
@@ -51,7 +55,7 @@ async fn establish_connection() -> WasmSqliteConnection {
     let rng: u16 = rand::random();
     let result = WasmSqliteConnection::establish(&format!("test-{}", rng)).await;
     let mut conn = result.unwrap();
-
+    // conn.run_pending_migrations(MIGRATIONS);
     //TODO: we can use `embed_migrations` to run our migrations
 
     conn.batch_execute(
@@ -59,8 +63,8 @@ async fn establish_connection() -> WasmSqliteConnection {
         CREATE TABLE books (
             id INTEGER PRIMARY KEY,
             title TEXT NOT NULL,
-            author TEXT,
-        );
+            author TEXT
+        )
     ",
     )
     .await
@@ -73,7 +77,10 @@ async fn insert_books(
     new_books: Vec<BookForm>,
 ) -> QueryResult<usize> {
     use schema::books::dsl::*;
-    insert_into(books).values(new_books).execute(conn).await.unwrap();
+    let query = insert_into(books).values(new_books);
+    let sql = DebugQueryWrapper::<_, WasmSqlite>::new(&query).to_string();
+    tracing::info!("QUERY = {}", sql);
+    query.execute(conn).await.unwrap();
     Ok(0)
 }
 
@@ -83,7 +90,10 @@ async fn insert_book(
     new_book: BookForm,
 ) -> QueryResult<usize> {
     use schema::books::dsl::*;
-    insert_into(books).values(new_book).execute(conn).await.unwrap();
+    let query = insert_into(books).values(new_book);
+    let sql = debug_query::<WasmSqlite, _>(&query).to_string();
+    tracing::info!("QUERY = {}", sql);
+    query.execute(conn).await.unwrap();
     Ok(0)
 }
 

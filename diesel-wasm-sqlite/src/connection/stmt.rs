@@ -2,7 +2,7 @@
 use super::bind_collector::{OwnedSqliteBindValue, SqliteBindCollectorData};
 use super::raw::RawConnection;
 use super::sqlite_value::OwnedSqliteValue;
-use crate::ffi::SQLiteCompatibleType;
+use crate::ffi::{self, SQLiteCompatibleType};
 use crate::{
     sqlite_types::{self, PrepareOptions, SqlitePrepareFlags},
     SqliteType, WasmSqliteError,
@@ -14,16 +14,20 @@ use diesel::{
     },
     result::{Error, QueryResult},
 };
+use js_sys::AsyncIterator;
 use std::cell::OnceCell;
 use std::sync::{Arc, Mutex};
 
 use wasm_bindgen::JsValue;
+use wasm_bindgen_futures::JsFuture;
 
 // this is OK b/c web runs in one thread
 unsafe impl Send for Statement {}
 pub(super) struct Statement {
+    // each iteration compiles a new statement for use
+    statement_iterator: js_sys::AsyncIterator,
     inner_statement: JsValue,
-    drop_signal: Option<tokio::sync::oneshot::Sender<JsValue>>,
+    drop_signal: Option<tokio::sync::oneshot::Sender<(AsyncIterator, JsValue)>>,
 }
 
 impl Statement {
@@ -41,7 +45,7 @@ impl Statement {
 
         let options = PrepareOptions {
             flags,
-            unscoped: None,
+            unscoped: Some(true),
         };
 
         let stmt = sqlite3
@@ -51,34 +55,46 @@ impl Statement {
                 serde_wasm_bindgen::to_value(&options).unwrap(),
             )
             .await
-            .unwrap();
+            .map_err(WasmSqliteError::from)?;
 
-        let (tx, rx) = tokio::sync::oneshot::channel::<JsValue>();
+        let statement_iterator = js_sys::AsyncIterator::from(stmt);
+        let inner_statement = JsFuture::from(statement_iterator.next().expect("No Next"))
+            .await
+            .expect("statement failed to compile");
+
+        // could also try testing with serde_wasm_bindgen
+        // not sure if there's a better one w.r.t performance
+        // but using Reflect allows keeping things as JsValues (raw pointers in to wasm memory)
+        // instead of serializiing back and forth in the rest of the code
+        let inner_statement: JsValue = js_sys::Reflect::get(&inner_statement, &"value".into())
+            .expect("Async Iterator JS API should be stable");
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<(AsyncIterator, JsValue)>();
 
         // We don't have `AsyncDrop` in rust yet.
         // instead, we `send` a signal on Drop for the destructor to run in an
         // asynchronously-spawned task.
         wasm_bindgen_futures::spawn_local(async move {
-            match rx.await {
-                Ok(inner_statement) => {
-                    let this = Statement {
-                        inner_statement,
-                        drop_signal: None,
-                    };
+            let result = (|| async move {
+                let (statement_iterator, inner_statement) = rx.await?;
+                let this = Statement {
+                    statement_iterator,
+                    inner_statement,
+                    drop_signal: None,
+                };
 
-                    if let Err(e) = this.reset().await {
-                        tracing::error!("{}", e);
-                    }
-                    this.clear_bindings();
-                }
-                Err(_) => {
-                    log::error!("Statement never dropped");
-                }
+                this.reset().await?;
+                this.clear_bindings()?;
+                Ok::<_, WasmSqliteError>(())
+            })();
+            if let Err(e) = result.await {
+                tracing::error!("Statement never dropped! {}", e);
             }
         });
 
         Ok(Statement {
-            inner_statement: stmt,
+            statement_iterator,
+            inner_statement,
             drop_signal: Some(tx),
         })
     }
@@ -95,12 +111,14 @@ impl Statement {
         bind_index: i32,
     ) -> QueryResult<i32> {
         let sqlite3 = crate::get_sqlite_unchecked();
-        let value =
-            serde_wasm_bindgen::to_value(&value).expect("Bind value failed to convert to JsValue");
-        tracing::debug!("{:?}", value);
+        let value: SQLiteCompatibleType = serde_wasm_bindgen::to_value(&value)
+            .expect("Bind value failed to convert to JsValue")
+            .into();
+        tracing::info!("Statement: {:?}, Value: {:?}", self.inner_statement, value);
+
         let result = sqlite3
-            .bind(&self.inner_statement, bind_index, value.into())
-            .map_err(WasmSqliteError::from)?;
+            .bind(&self.inner_statement, bind_index, value)
+            .expect("could not bind");
 
         // TODO:insipx Pretty sure we can have a simpler implementation here vs diesel
         // making use of `wa-sqlite` `bind` which abstracts over the individual bind functions in
@@ -262,7 +280,10 @@ impl<'stmt> Drop for BoundStatement<'stmt> {
             .drop_signal
             .take()
             .expect("Drop may only be ran once");
-        let _ = sender.send(self.statement.inner_statement.clone());
+        let _ = sender.send((
+            self.statement.statement_iterator.clone(),
+            self.statement.inner_statement.clone(),
+        ));
     }
 }
 

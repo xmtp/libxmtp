@@ -65,9 +65,10 @@ export class SQLite {
 
   bind(stmt, i, value) {
     try {
+      console.log(`VALUE ${JSON.stringify(value)}`);
       return this.sqlite3.bind(stmt, i, value);
     } catch (error) {
-      console.log("bind err");
+      console.log(`bind err ${error}`);
       throw error;
     }
   }
@@ -256,6 +257,19 @@ export class SQLite {
     }
   }
 
+  // there should be a way to do this from Rust
+  // If we pass the statement we get from 'next'
+  // it does not work.
+  async get_stmt_from_iterator(iterator) {
+    try {
+      const stmt = await iterator.next();
+      return stmt;
+    } catch (error) {
+      console.log("sqlite prepare error");
+      throw error;
+    }
+  }
+
   async step(stmt) {
     try {
       return await this.sqlite3.step(stmt);
@@ -273,12 +287,12 @@ export class SQLite {
     return this.sqlite3.column_count(stmt);
   }
 
-  batch_execute(database, query) {
+  async batch_execute(database, query) {
     try {
-      return this.sqlite3.exec(database, query);
-      console.log("Batch exec'ed");
+      console.log("Batch executing");
+      return await this.sqlite3.exec(database, query);
     } catch (error) {
-      console.log("exec err");
+      console.log("batch exec err");
       throw error;
     }
   }

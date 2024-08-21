@@ -197,5 +197,4 @@ impl ToSql<sql_types::Double, WasmSqlite> for f64 {
 )]
 #[derive(Debug, Clone, Copy, Default, QueryId, SqlType)]
 #[diesel(sqlite_type(name = "Text"))]
-#[cfg(feature = "sqlite")]
 pub struct Timestamptz;

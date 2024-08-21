@@ -6,6 +6,10 @@ pub mod query_builder;
 pub mod sqlite_types;
 pub mod utils;
 pub mod sqlite_fixes;
+// pub mod migrations;
+
+pub use query_builder::insert_with_default_sqlite::DebugQueryWrapper;
+
 
 #[cfg(not(target_arch = "wasm32"))]
 compile_error!("This crate only suports the `wasm32-unknown-unknown` target");
@@ -35,8 +39,15 @@ pub(crate) fn get_sqlite_unchecked() -> &'static SQLite {
     SQLITE.get().expect("SQLite is not initialized")
 }
 
-#[derive(Debug)]
-pub struct WasmSqliteError(JsValue);
+#[derive(thiserror::Error, Debug)]
+pub enum WasmSqliteError {
+    #[error("JS Bridge Error {0:?}")]
+    Js(JsValue),
+    #[error(transparent)]
+    OneshotRecv(#[from] tokio::sync::oneshot::error::RecvError),
+    #[error(transparent)]
+    Diesel(#[from] diesel::result::Error)
+}
 
 impl From<WasmSqliteError> for diesel::result::Error {
     fn from(value: WasmSqliteError) -> diesel::result::Error {
@@ -47,15 +58,14 @@ impl From<WasmSqliteError> for diesel::result::Error {
 
 impl From<WasmSqliteError> for diesel::result::ConnectionError {
     fn from(value: WasmSqliteError) -> diesel::result::ConnectionError {
-        log::error!("NOT IMPLEMENTED, {:?}", value);
-        web_sys::console::log_1(&value.0);
+        tracing::error!("{:?}", value);
         diesel::result::ConnectionError::BadConnection("Not implemented".to_string())
     }
 }
 
 impl From<JsValue> for WasmSqliteError {
     fn from(err: JsValue) -> WasmSqliteError {
-        WasmSqliteError(err)
+        WasmSqliteError::Js(err)
     }
 }
 

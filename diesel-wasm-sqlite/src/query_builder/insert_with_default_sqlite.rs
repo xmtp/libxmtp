@@ -15,6 +15,276 @@ use std::fmt::{self, Debug, Display};
 
 // TODO `debug_query` implementation from diesel or custom `debug_query` implementation.
 
+pub trait DebugQueryHelper<ContainsDefaultableValue> {
+    fn fmt_debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+    fn fmt_display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+}
+// FIXME: Here to temporarily workaround private fields of `DebugQuery`.
+// this should never go in prod
+// this is cause `DebugQuery` is private
+#[repr(transparent)]
+struct DebugQueryUnsafe<'a, T: 'a, DB> {
+    pub(crate) query: &'a T,
+    _marker: std::marker::PhantomData<DB>,
+}
+
+impl<'a, T, V, QId, Op, Ret, const STATIC_QUERY_ID: bool> DebugQueryHelper<Yes>
+    for DebugQuery<
+        'a,
+        InsertStatement<T, BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>, Op, Ret>,
+        WasmSqlite,
+    >
+where
+    V: QueryFragment<WasmSqlite>,
+    T: Copy + QuerySource,
+    Op: Copy,
+    Ret: Copy,
+    for<'b> InsertStatement<T, &'b ValuesClause<V, T>, Op, Ret>: QueryFragment<WasmSqlite>,
+{
+    fn fmt_debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let query = unsafe {
+            std::mem::transmute::<
+                &DebugQuery<
+                    'a,
+                    InsertStatement<
+                        T,
+                        BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>,
+                        Op,
+                        Ret,
+                    >,
+                    WasmSqlite,
+                >,
+                &DebugQueryUnsafe<
+                    'a,
+                    InsertStatement<
+                        T,
+                        BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>,
+                        Op,
+                        Ret,
+                    >,
+                    WasmSqlite,
+                >,
+            >(self)
+        };
+        let query = query.query;
+        let mut statements = vec![String::from("BEGIN")];
+        for record in query.records.values.iter() {
+            let stmt = InsertStatement::new(query.target, record, query.operator, query.returning);
+            statements.push(debug_query(&stmt).to_string());
+        }
+        statements.push("COMMIT".into());
+        f.debug_struct("Query")
+            .field("sql", &statements)
+            .field("binds", &[] as &[i32; 0])
+            .finish()
+    }
+
+    fn fmt_display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let query = unsafe {
+            std::mem::transmute::<
+                &DebugQuery<
+                    'a,
+                    InsertStatement<
+                        T,
+                        BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>,
+                        Op,
+                        Ret,
+                    >,
+                    WasmSqlite,
+                >,
+                &DebugQueryUnsafe<
+                    'a,
+                    InsertStatement<
+                        T,
+                        BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>,
+                        Op,
+                        Ret,
+                    >,
+                    WasmSqlite,
+                >,
+            >(self)
+        };
+        let query = query.query;
+        writeln!(f, "BEGIN;")?;
+        for record in query.records.values.iter() {
+            let stmt = InsertStatement::new(query.target, record, query.operator, query.returning);
+            writeln!(f, "{}", debug_query(&stmt))?;
+        }
+        writeln!(f, "COMMIT;")?;
+        Ok(())
+    }
+}
+
+#[allow(unsafe_code)] // cast to transparent wrapper type
+impl<'a, T, V, QId, Op, const STATIC_QUERY_ID: bool> DebugQueryHelper<No>
+    for DebugQuery<'a, InsertStatement<T, BatchInsert<V, T, QId, STATIC_QUERY_ID>, Op>, WasmSqlite>
+where
+    T: Copy + QuerySource,
+    Op: Copy,
+    DebugQuery<
+        'a,
+        InsertStatement<T, SqliteBatchInsertWrapper<V, T, QId, STATIC_QUERY_ID>, Op>,
+        WasmSqlite,
+    >: Debug + Display,
+{
+    fn fmt_debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = unsafe {
+            // This cast is safe as `SqliteBatchInsertWrapper` is #[repr(transparent)]
+            &*(self as *const DebugQuery<
+                'a,
+                InsertStatement<T, BatchInsert<V, T, QId, STATIC_QUERY_ID>, Op>,
+                WasmSqlite,
+            >
+                as *const DebugQuery<
+                    'a,
+                    InsertStatement<T, SqliteBatchInsertWrapper<V, T, QId, STATIC_QUERY_ID>, Op>,
+                    WasmSqlite,
+                >)
+        };
+        <_ as Debug>::fmt(value, f)
+    }
+    fn fmt_display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = unsafe {
+            // This cast is safe as `SqliteBatchInsertWrapper` is #[repr(transparent)]
+            &*(self as *const DebugQuery<
+                'a,
+                InsertStatement<T, BatchInsert<V, T, QId, STATIC_QUERY_ID>, Op>,
+                WasmSqlite,
+            >
+                as *const DebugQuery<
+                    'a,
+                    InsertStatement<T, SqliteBatchInsertWrapper<V, T, QId, STATIC_QUERY_ID>, Op>,
+                    WasmSqlite,
+                >)
+        };
+        <_ as Display>::fmt(value, f)
+    }
+}
+
+pub struct DebugQueryWrapper<'a, T: 'a, DB>(DebugQuery<'a, T, DB>);
+
+
+impl<'a, T, DB> DebugQueryWrapper<'a, T, DB> {
+    pub fn new(query: &'a T) -> Self {
+        DebugQueryWrapper(diesel::debug_query(query))
+    }
+}
+/*
+impl<'a, T, DB> std::ops::Deref for DebugQueryWrapper<'a, T, DB> {
+    type Target = DebugQuery<'a, T, DB>;
+    fn deref(&self) -> &DebugQuery<'a, T, DB> {
+        &self.0
+    }
+}
+
+impl<'a, T, DB> std::ops::DerefMut for DebugQueryWrapper<'a, T, DB> {
+    fn deref_mut(&mut self) -> &mut DebugQuery<'a, T, DB> {
+        &mut self.0
+    }
+}
+*/
+
+impl<'a, T, DB> Display for DebugQueryWrapper<'a, T, DB>
+where
+    DB: Backend + Default,
+    DB::QueryBuilder: Default,
+    T: QueryFragment<DB>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl<'a, T, DB> Debug for DebugQueryWrapper<'a, T, DB>
+where
+    DB: Backend + Default,
+    DB::QueryBuilder: Default,
+    T: QueryFragment<DB>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        std::fmt::Debug::fmt(&self.0, f)
+    }
+}
+
+
+
+impl<'a, T, V, QId, Op, Ret, const STATIC_QUERY_ID: bool> DebugQueryHelper<Yes>
+    for DebugQueryWrapper<
+        'a,
+        InsertStatement<T, BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>, Op, Ret>,
+        WasmSqlite,
+    >
+where
+    V: QueryFragment<WasmSqlite>,
+    T: Copy + QuerySource,
+    Op: Copy,
+    Ret: Copy,
+    for<'b> InsertStatement<T, &'b ValuesClause<V, T>, Op, Ret>: QueryFragment<WasmSqlite>,
+{
+    fn fmt_debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        DebugQueryHelper::fmt_debug(&self.0, f)
+    }
+    
+    fn fmt_display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        DebugQueryHelper::fmt_display(&self.0, f)
+    }
+}
+
+impl<'a, T, V, QId, Op, const STATIC_QUERY_ID: bool> DebugQueryHelper<No>
+    for DebugQueryWrapper<'a, InsertStatement<T, BatchInsert<V, T, QId, STATIC_QUERY_ID>, Op>, WasmSqlite>
+where
+    T: Copy + QuerySource,
+    Op: Copy,
+    DebugQuery<
+        'a,
+        InsertStatement<T, SqliteBatchInsertWrapper<V, T, QId, STATIC_QUERY_ID>, Op>,
+        WasmSqlite,
+    >: Debug + Display,
+{
+    fn fmt_debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        DebugQueryHelper::fmt_debug(&self.0, f)
+    }
+    
+    fn fmt_display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        DebugQueryHelper::fmt_display(&self.0, f)
+    }
+}
+
+
+impl<'a, T, V, QId, Op, O, const STATIC_QUERY_ID: bool> Display
+    for DebugQueryWrapper<
+        'a,
+        InsertStatement<T, BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>, Op>,
+        WasmSqlite,
+    >
+where
+    T: QuerySource,
+    V: ContainsDefaultableValue<Out = O>,
+    Self: DebugQueryHelper<O>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.fmt_display(f)
+    }
+}
+
+
+impl<'a, T, V, QId, Op, O, const STATIC_QUERY_ID: bool> Debug
+    for DebugQueryWrapper<
+        'a,
+        InsertStatement<T, BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>, Op>,
+        WasmSqlite,
+    >
+where
+    T: QuerySource,
+    V: ContainsDefaultableValue<Out = O>,
+    Self: DebugQueryHelper<O>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.fmt_debug(f)
+    }
+}
+
+
 #[allow(missing_debug_implementations, missing_copy_implementations)]
 pub struct Yes;
 

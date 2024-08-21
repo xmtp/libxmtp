@@ -10,11 +10,11 @@ diesel-async = { git = "https://github.com/insipx/diesel_async", branch = "insip
 diesel_derives = "2.2"
 wasm-bindgen = "0.2.92"
 wasm-bindgen-futures = "0.4.42"
-log = "0.4"
 tracing = "0.1"
 rand = "0.8"
 getrandom = { version = "0.2", features = ["js"] }
 web-sys = { version = "0.3", features = ["console"] }
+js-sys = { version = "0.3" }
 # wee_alloc = { version = "0.4.2", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 tokio = { version = "1.38", default-features = false, features = ["rt", "macros", "sync", "io-util", "time"] }
@@ -24,6 +24,7 @@ async-trait = "0.1"
 bitflags = "2.6"
 serde = { version = "1.0", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
+thiserror = "1"
 
 [dev-dependencies]
 rand = "0.8"

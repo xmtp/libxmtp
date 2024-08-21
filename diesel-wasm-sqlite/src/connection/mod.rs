@@ -60,6 +60,7 @@ impl SimpleAsyncConnection for WasmSqliteConnection {
     async fn batch_execute(&mut self, query: &str) -> diesel::prelude::QueryResult<()> {
         get_sqlite_unchecked()
             .batch_execute(&self.raw_connection.internal_connection, query)
+            .await
             .map_err(WasmSqliteError::from)
             .map_err(Into::into)
     }
@@ -114,7 +115,7 @@ impl AsyncConnection for WasmSqliteConnection {
     }
 
     fn set_instrumentation(&mut self, _instrumentation: impl Instrumentation) {
-        log::debug!("Set instrumentation");
+        tracing::debug!("Set instrumentation");
     }
 }
 

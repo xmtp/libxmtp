@@ -49,15 +49,15 @@ impl RawConnection {
                 Ok(conn) => {
                     let sqlite3 = crate::get_sqlite_unchecked();
                     match sqlite3.close(&conn).await {
-                        Ok(_) => log::debug!("db closed"),
+                        Ok(_) => tracing::debug!("db closed"),
                         Err(e) => {
-                            log::error!("error during db close");
+                            tracing::error!("error during db close");
                             web_sys::console::log_1(&e);
                         }
                     }
                 }
                 Err(_) => {
-                    log::error!("RawConnection never dropped.");
+                    tracing::error!("RawConnection never dropped.");
                 }
             }
         });
@@ -179,7 +179,7 @@ impl Drop for RawConnection {
         if let Some(s) = self.drop_signal.take() {
             let _ = s.send(self.internal_connection.clone());
         } else {
-            log::warn!("RawConnection not dropped because drop_signal is empty");
+            tracing::warn!("RawConnection not dropped because drop_signal is empty");
         }
     }
 }
