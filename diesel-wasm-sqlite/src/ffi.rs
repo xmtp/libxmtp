@@ -1,10 +1,65 @@
+use js_sys::WebAssembly::Memory;
+use serde::{Deserialize, Serialize};
+use std::cell::LazyCell;
+use tokio::sync::OnceCell;
 use wasm_bindgen::{prelude::*, JsValue};
+// WASM is ran in the browser thread, either main or worker`. Tokio is only a single-threaded runtime.
+// We need SQLite available globally, so this should be ok until we get threads with WASI or
+// something.
+unsafe impl Send for SQLite {}
+unsafe impl Sync for SQLite {}
 
-/* once https://github.com/rust-lang/rust/issues/128183 is merged this would work
-pub mod consts {
-    pub const SQLITE_INTEGER: i32 = super::SQLITE_INTEGER;
+/// The SQLite Library
+/// this global constant references the loaded SQLite WASM.
+pub(super) static SQLITE: OnceCell<SQLite> = OnceCell::const_new();
+
+pub(super) const WASM: &[u8] =
+    include_bytes!("../node_modules/@sqlite.org/sqlite-wasm/sqlite-wasm/jswasm/sqlite3.wasm");
+
+/// Options for instantiating memory constraints
+#[derive(Serialize, Deserialize)]
+struct MemoryOpts {
+    initial: u32,
+    maximum: u32,
 }
-*/
+/// Opts for the WASM Module
+#[derive(Serialize, Deserialize)]
+struct Opts {
+    /// The Sqlite3 WASM blob, compiled from C
+    wasm_binary: &'static [u8],
+    /// the shared WebAssembly Memory buffer
+    #[serde(with = "serde_wasm_bindgen::preserve")]
+    wasm_memory: js_sys::WebAssembly::Memory,
+}
+
+pub(super) const WASM_MEMORY: LazyCell<js_sys::WebAssembly::Memory> = LazyCell::new(|| {
+    let mem = serde_wasm_bindgen::to_value(&MemoryOpts {
+        initial: 16_777_216 / 65_536,
+        maximum: 2_147_483_648 / 65_536,
+    })
+    .expect("Serialization must be infallible for const struct");
+    js_sys::WebAssembly::Memory::new(&js_sys::Object::from(mem))
+        .expect("Wasm Memory could not be instantiated")
+});
+
+pub(super) async fn get_sqlite() -> &'static SQLite {
+    SQLITE
+        .get_or_init(|| async {
+            let opts = serde_wasm_bindgen::to_value(&Opts {
+                wasm_binary: WASM,
+                wasm_memory: WASM_MEMORY.clone(),
+            })
+            .expect("serialization must be infallible for const struct");
+            let opts = js_sys::Object::from(opts);
+            let module = SQLite::init_module(WASM, &opts).await;
+            SQLite::new(module)
+        })
+        .await
+}
+
+pub(super) fn get_sqlite_unchecked() -> &'static SQLite {
+    SQLITE.get().expect("SQLite is not initialized")
+}
 
 // Constants
 #[wasm_bindgen(module = "/src/wa-sqlite-diesel-bundle.js")]
@@ -21,13 +76,6 @@ extern "C" {
     pub static SQLITE_NULL: i32;
 }
 
-// WASM is ran in the browser `main thread`. Tokio is only a single-threaded runtime.
-// We need SQLite available globally, so this should be ok until we get threads with WASI or
-// something. At which point we can (hopefully) use multi-threaded async runtime to block the
-// thread and get SQLite.
-unsafe impl Send for SQLite {}
-unsafe impl Sync for SQLite {}
-
 /// Direct Shim for wa-sqlite
 #[wasm_bindgen(module = "/src/wa-sqlite-diesel-bundle.js")]
 extern "C" {
@@ -42,7 +90,7 @@ extern "C" {
     pub fn new(module: JsValue) -> SQLite;
 
     #[wasm_bindgen(static_method_of = SQLite)]
-    pub async fn wasm_module() -> JsValue;
+    pub async fn init_module(wasm: &[u8], opts: &js_sys::Object) -> JsValue;
 
     #[wasm_bindgen(method)]
     pub fn result_text(this: &SQLite, context: i32, value: String);
@@ -142,7 +190,7 @@ extern "C" {
     pub fn value_type(this: &SQLite, pValue: &JsValue) -> i32;
 
     #[wasm_bindgen(method, catch)]
-    pub async fn open_v2(
+    pub async fn open(
         this: &SQLite,
         database_url: &str,
         iflags: Option<i32>,

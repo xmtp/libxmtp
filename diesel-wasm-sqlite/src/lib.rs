@@ -3,24 +3,25 @@ pub mod backend;
 pub mod connection;
 pub mod ffi;
 pub mod query_builder;
+pub mod sqlite_fixes;
 pub mod sqlite_types;
 pub mod utils;
-pub mod sqlite_fixes;
 // pub mod migrations;
+//
+use serde::{Deserialize, Serialize};
 
 #[cfg(any(feature = "unsafe-debug-query", test))]
 pub use query_builder::insert_with_default_sqlite::unsafe_debug_query::DebugQueryWrapper;
-
 
 #[cfg(not(target_arch = "wasm32"))]
 compile_error!("This crate only suports the `wasm32-unknown-unknown` target");
 
 use self::ffi::SQLite;
-use tokio::sync::OnceCell;
-use wasm_bindgen::JsValue;
 use std::cell::LazyCell;
+use wasm_bindgen::JsValue;
 
 pub use backend::{SqliteType, WasmSqlite};
+pub(crate) use ffi::{get_sqlite, get_sqlite_unchecked};
 
 /// the local tokio current-thread runtime
 /// dont need locking, because this is current-thread only
@@ -30,25 +31,6 @@ const RUNTIME: LazyCell<tokio::runtime::Runtime> = LazyCell::new(|| {
         .expect("Runtime should never fail to build")
 });
 
-/// The SQLite Library
-/// this global constant references the loaded SQLite WASM.
-static SQLITE: OnceCell<SQLite> = OnceCell::const_new();
-
-pub type SQLiteWasm = &'static JsValue;
-
-pub(crate) async fn get_sqlite() -> &'static SQLite {
-    SQLITE
-        .get_or_init(|| async {
-            let module = SQLite::wasm_module().await;
-            SQLite::new(module)
-        })
-        .await
-}
-
-pub(crate) fn get_sqlite_unchecked() -> &'static SQLite {
-    SQLITE.get().expect("SQLite is not initialized")
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum WasmSqliteError {
     #[error("JS Bridge Error {0:?}")]
@@ -56,7 +38,7 @@ pub enum WasmSqliteError {
     #[error(transparent)]
     OneshotRecv(#[from] tokio::sync::oneshot::error::RecvError),
     #[error(transparent)]
-    Diesel(#[from] diesel::result::Error)
+    Diesel(#[from] diesel::result::Error),
 }
 
 impl From<WasmSqliteError> for diesel::result::Error {
@@ -78,4 +60,3 @@ impl From<JsValue> for WasmSqliteError {
         WasmSqliteError::Js(err)
     }
 }
-

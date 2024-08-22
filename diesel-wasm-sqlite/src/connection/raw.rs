@@ -55,10 +55,10 @@ impl RawConnection {
                 }
             }
         });
-
+        // TODO: flags are ignored for now
         Ok(RawConnection {
             internal_connection: sqlite3
-                .open_v2(&database_url, Some(flags.bits() as i32))
+                .open(&database_url, Some(flags.bits() as i32))
                 .await
                 .map_err(WasmSqliteError::from)
                 .map_err(ConnectionError::from)?,

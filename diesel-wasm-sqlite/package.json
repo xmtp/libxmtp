@@ -8,6 +8,7 @@
     "build": "rollup -c"
   },
   "dependencies": {
+    "@sqlite.org/sqlite-wasm": "latest",
     "@xmtp/wa-sqlite": ">=1.0.3"
   },
   "packageManager": "yarn@4.3.1",

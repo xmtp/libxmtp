@@ -235,6 +235,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@sqlite.org/sqlite-wasm@npm:latest":
+  version: 3.46.1-build1
+  resolution: "@sqlite.org/sqlite-wasm@npm:3.46.1-build1"
+  bin:
+    sqlite-wasm: bin/index.js
+  checksum: 10/cbb6dda0570a73f6614e53a8d46714fbe4e2a935d6668fd19e6dcba23569b4e07b90bc598fddc03a45677a1b35be9415517871c274da78c0ad22f8efe2e6bf14
+  languageName: node
+  linkType: hard
+
 "@types/estree@npm:0.0.39":
   version: 0.0.39
   resolution: "@types/estree@npm:0.0.39"
@@ -507,6 +516,7 @@ __metadata:
   resolution: "diesel-wasm-sqlite@workspace:."
   dependencies:
     "@rollup/plugin-node-resolve": "npm:^15.2.3"
+    "@sqlite.org/sqlite-wasm": "npm:latest"
     "@xmtp/wa-sqlite": "npm:>=1.0.3"
     rollup: "npm:^4.19.0"
     rollup-plugin-base64: "npm:^1.0.1"
