@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use wasm_bindgen::{prelude::*, JsValue};
 
 /* once https://github.com/rust-lang/rust/issues/128183 is merged this would work

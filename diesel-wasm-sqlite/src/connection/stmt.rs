@@ -18,20 +18,18 @@ use js_sys::AsyncIterator;
 use std::cell::OnceCell;
 use std::sync::{Arc, Mutex};
 
+use tokio::sync::oneshot;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
 
-// this is OK b/c web runs in one thread
-unsafe impl Send for Statement {}
-pub(super) struct Statement {
-    // each iteration compiles a new statement for use
+// TODO: Drop impl make sure to free JS async iterat9or
+pub struct StatementFactory {
     statement_iterator: js_sys::AsyncIterator,
-    inner_statement: JsValue,
-    drop_signal: Option<tokio::sync::oneshot::Sender<(AsyncIterator, JsValue)>>,
+    drop_signal: Option<oneshot::Sender<AsyncIterator>>,
 }
 
-impl Statement {
-    pub(super) async fn prepare(
+impl StatementFactory {
+    pub async fn new(
         raw_connection: &RawConnection,
         sql: &str,
         is_cached: PrepareForCache,
@@ -49,6 +47,7 @@ impl Statement {
         };
 
         let stmt = sqlite3
+            // TODO: rename to something more fitting
             .prepare(
                 &raw_connection.internal_connection,
                 sql,
@@ -58,27 +57,48 @@ impl Statement {
             .map_err(WasmSqliteError::from)?;
 
         let statement_iterator = js_sys::AsyncIterator::from(stmt);
+        /*
         let inner_statement = JsFuture::from(statement_iterator.next().expect("No Next"))
             .await
             .expect("statement failed to compile");
-
-        // could also try testing with serde_wasm_bindgen
-        // not sure if there's a better one w.r.t performance
-        // but using Reflect allows keeping things as JsValues (raw pointers in to wasm memory)
-        // instead of serializiing back and forth in the rest of the code
         let inner_statement: JsValue = js_sys::Reflect::get(&inner_statement, &"value".into())
-            .expect("Async Iterator JS API should be stable");
+            .expect("Async Iterator API should be stable");
+        */
 
-        let (tx, rx) = tokio::sync::oneshot::channel::<(AsyncIterator, JsValue)>();
-
+        let (tx, rx) = tokio::sync::oneshot::channel::<AsyncIterator>();
         // We don't have `AsyncDrop` in rust yet.
         // instead, we `send` a signal on Drop for the destructor to run in an
         // asynchronously-spawned task.
         wasm_bindgen_futures::spawn_local(async move {
             let result = (|| async move {
-                let (statement_iterator, inner_statement) = rx.await?;
+                let _ = rx.await;
+                tracing::info!("STATEMENT FACTORY DROPPED");
+                Ok::<_, String>(())
+            })();
+            if let Err(e) = result.await {
+                tracing::error!("Statement never dropped! {}", e);
+            }
+        });
+
+        Ok(Self {
+            statement_iterator,
+            drop_signal: Some(tx),
+        })
+    }
+
+    pub async fn prepare(&self) -> Statement {
+        let inner_statement = JsFuture::from(self.statement_iterator.next().expect("No Next"))
+            .await
+            .expect("statement failed to compile");
+        let inner_statement: JsValue = js_sys::Reflect::get(&inner_statement, &"value".into())
+            .expect("Async Iterator API should be stable");
+        tracing::debug!("Statement: {:?}", inner_statement);
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<JsValue>();
+        wasm_bindgen_futures::spawn_local(async move {
+            let result = (|| async move {
+                let inner_statement = rx.await?;
                 let this = Statement {
-                    statement_iterator,
                     inner_statement,
                     drop_signal: None,
                 };
@@ -92,13 +112,22 @@ impl Statement {
             }
         });
 
-        Ok(Statement {
-            statement_iterator,
+        Statement {
             inner_statement,
             drop_signal: Some(tx),
-        })
+        }
     }
+}
 
+// this is OK b/c web runs in one thread
+unsafe impl Send for Statement {}
+pub(super) struct Statement {
+    // each iteration compiles a new statement for use
+    inner_statement: JsValue,
+    drop_signal: Option<tokio::sync::oneshot::Sender<JsValue>>,
+}
+
+impl Statement {
     // The caller of this function has to ensure that:
     // * Any buffer provided as `SqliteBindValue::BorrowedBinary`, `SqliteBindValue::Binary`
     // `SqliteBindValue::String` or `SqliteBindValue::BorrowedString` is valid
@@ -111,13 +140,12 @@ impl Statement {
         bind_index: i32,
     ) -> QueryResult<i32> {
         let sqlite3 = crate::get_sqlite_unchecked();
-        let value: SQLiteCompatibleType = serde_wasm_bindgen::to_value(&value)
-            .expect("Bind value failed to convert to JsValue")
-            .into();
-        tracing::info!("Statement: {:?}, Value: {:?}", self.inner_statement, value);
+        let value =
+            serde_wasm_bindgen::to_value(&value).expect("Bind value failed to convert to JsValue");
+        tracing::info!("Statement: {:?}", self.inner_statement);
 
         let result = sqlite3
-            .bind(&self.inner_statement, bind_index, value)
+            .bind(&self.inner_statement, bind_index, value.into())
             .expect("could not bind");
 
         // TODO:insipx Pretty sure we can have a simpler implementation here vs diesel
@@ -153,33 +181,6 @@ impl Statement {
     }
     */
 }
-
-/* TODO: Useful for converting JS Error messages to Rust
-fn last_error(raw_connection: *mut ffi::sqlite3) -> Error {
-    let error_message = last_error_message(raw_connection);
-    let error_information = Box::new(error_message);
-    let error_kind = match last_error_code(raw_connection) {
-        ffi::SQLITE_CONSTRAINT_UNIQUE | ffi::SQLITE_CONSTRAINT_PRIMARYKEY => {
-            DatabaseErrorKind::UniqueViolation
-        }
-        ffi::SQLITE_CONSTRAINT_FOREIGNKEY => DatabaseErrorKind::ForeignKeyViolation,
-        ffi::SQLITE_CONSTRAINT_NOTNULL => DatabaseErrorKind::NotNullViolation,
-        ffi::SQLITE_CONSTRAINT_CHECK => DatabaseErrorKind::CheckViolation,
-        _ => DatabaseErrorKind::Unknown,
-    };
-    DatabaseError(error_kind, error_information)
-}
-
-fn last_error_message(conn: *mut ffi::sqlite3) -> String {
-    let c_str = unsafe { CStr::from_ptr(ffi::sqlite3_errmsg(conn)) };
-    c_str.to_string_lossy().into_owned()
-}
-
-
-fn last_error_code(conn: *mut ffi::sqlite3) -> libc::c_int {
-    unsafe { ffi::sqlite3_extended_errcode(conn) }
-}
-*/
 
 impl Drop for Statement {
     fn drop(&mut self) {
@@ -280,10 +281,7 @@ impl<'stmt> Drop for BoundStatement<'stmt> {
             .drop_signal
             .take()
             .expect("Drop may only be ran once");
-        let _ = sender.send((
-            self.statement.statement_iterator.clone(),
-            self.statement.inner_statement.clone(),
-        ));
+        let _ = sender.send(self.statement.inner_statement.clone());
     }
 }
 

@@ -1,22 +1,22 @@
 use crate::{connection::WasmSqliteConnection, WasmSqlite};
-use diesel::backend::Backend;
-use diesel::debug_query;
 use diesel::insertable::InsertValues;
 use diesel::insertable::{CanInsertInSingleQuery, ColumnInsertValue, DefaultableColumnInsertValue};
 use diesel::query_builder::{AstPass, QueryId, ValuesClause};
 use diesel::query_builder::{BatchInsert, InsertStatement};
-use diesel::query_builder::{DebugQuery, QueryFragment};
+use diesel::query_builder::QueryFragment;
 use diesel::{QueryResult, QuerySource, Table};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::{methods::ExecuteDsl, AsyncConnection, RunQueryDsl};
-use futures::FutureExt;
-use futures_util::future::LocalBoxFuture;
-use std::fmt::{self, Debug, Display};
 
 
-#[cfg(feature = "unsafe-debug-query")]
+#[cfg(any(feature = "unsafe-debug-query", test))]
 pub mod unsafe_debug_query {
     use super::*;
+    use diesel::backend::Backend;
+    use diesel::{debug_query, query_builder::DebugQuery};
+    use futures_util::future::LocalBoxFuture;
+    use std::fmt::{self, Debug, Display};
+
     pub trait DebugQueryHelper<ContainsDefaultableValue> {
         fn fmt_debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
         fn fmt_display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
@@ -370,11 +370,13 @@ impl<V, T, QId, Op, const STATIC_QUERY_ID: bool> ExecuteDsl<WasmSqliteConnection
         InsertStatement<T, BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>, Op>,
     )
 where
-    for<'query> T: Table + Copy + QueryId + 'query,
+    for<'query> T: Table + Copy + QueryId + std::fmt::Debug + 'query,
     T::FromClause: QueryFragment<WasmSqlite>,
-    for<'query> Op: Copy + QueryId + QueryFragment<WasmSqlite> + 'query,
+    for<'query> Op: Copy + QueryId + QueryFragment<WasmSqlite> + 'query + std::fmt::Debug,
     for<'query> V:
-        InsertValues<WasmSqlite, T> + CanInsertInSingleQuery<WasmSqlite> + QueryId + 'query,
+        InsertValues<WasmSqlite, T> + CanInsertInSingleQuery<WasmSqlite> + QueryId + std::fmt::Debug + 'query,
+    <T as diesel::QuerySource>::FromClause: std::fmt::Debug,
+    for<'query> QId: std::fmt::Debug + 'query
 {
     fn execute<'conn, 'query>(
         (Yes, query): Self,
@@ -386,9 +388,12 @@ where
         conn.transaction(move |conn| {
             async move {
                 let mut result = 0;
+                // tracing::debug!("QUERY {:?}", query);
                 for record in &query.records.values {
+                  //   tracing::debug!("processing record {:?}", record);
                     let stmt =
                         InsertStatement::new(query.target, record, query.operator, query.returning);
+                    // tracing::debug!("Processing statement {:?}", stmt);
                     result += stmt.execute(conn).await?;
                 }
                 Ok(result)

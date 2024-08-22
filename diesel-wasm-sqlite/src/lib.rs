@@ -8,7 +8,7 @@ pub mod utils;
 pub mod sqlite_fixes;
 // pub mod migrations;
 
-#[cfg(feature = "unsafe-debug-query")]
+#[cfg(any(feature = "unsafe-debug-query", test))]
 pub use query_builder::insert_with_default_sqlite::unsafe_debug_query::DebugQueryWrapper;
 
 

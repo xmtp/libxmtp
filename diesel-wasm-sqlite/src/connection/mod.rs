@@ -46,7 +46,7 @@ pub struct WasmSqliteConnection {
     // otherwise we will get errors about open statements before closing the
     // connection itself
     statement_cache: StmtCache<WasmSqlite, Statement>,
-    pub raw_connection: RawConnection,
+    raw_connection: RawConnection,
     transaction_manager: AnsiTransactionManager,
     // this exists for the sole purpose of implementing `WithMetadataLookup` trait
     // and avoiding static mut which will be deprecated in 2024 edition
@@ -235,6 +235,7 @@ impl WasmSqliteConnection {
         Q: QueryFragment<WasmSqlite> + QueryId,
         F: Future<Output = QueryResult<R>>,
     {
+        tracing::info!("WITH PREPARED STATEMENT");
         let WasmSqliteConnection {
             ref mut raw_connection,
             ref mut statement_cache,
@@ -258,6 +259,7 @@ impl WasmSqliteConnection {
         let sql = query.to_sql(&mut qb, &WasmSqlite).map(|()| qb.finish()); 
         
         async move {
+            tracing::info!("IN FUTURE");
             let (statement, conn) = statement_cache.cached_prepared_statement(
                 cache_key?,
                 sql?,
@@ -265,7 +267,7 @@ impl WasmSqliteConnection {
                 &[],
                 raw_connection,
                 &instrumentation,
-            ).await?; // Cloned RawConnection is dropped here
+            ).await?;
             let statement = StatementUse::bind(statement, bind_collector?, instrumentation)?;
             callback(conn, statement).await
         }.boxed_local()

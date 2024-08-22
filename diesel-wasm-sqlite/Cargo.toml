@@ -2,6 +2,7 @@
 name = "diesel-wasm-sqlite"
 version = "0.1.1"
 edition = "2021"
+resolver = "2"
 
 [dependencies]
 # diesel = { git = "https://github.com/xmtp/diesel", branch = "insipx/wasm-backend", default-features = false, features = ["i-implement-a-third-party-backend-and-opt-into-breaking-changes"] }

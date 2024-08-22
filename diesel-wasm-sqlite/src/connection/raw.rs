@@ -12,7 +12,7 @@ use diesel::{
 use tokio::sync::oneshot;
 use wasm_bindgen::{closure::Closure, JsValue};
 
-use super::stmt::Statement;
+use super::stmt::{Statement, StatementFactory};
 
 #[allow(missing_copy_implementations)]
 #[derive(Debug)]
@@ -169,8 +169,11 @@ impl diesel_async::stmt_cache::PrepareCallback<Statement, SqliteType> for &'_ mu
         _metadata: &[SqliteType],
         is_for_cache: PrepareForCache,
     ) -> QueryResult<(Statement, Self)> {
-        let stmt = Statement::prepare(&self, sql, is_for_cache).await;
-        Ok((stmt?, self))
+        let stmt = StatementFactory::new(&self, sql, is_for_cache)
+            .await?
+            .prepare()
+            .await;
+        Ok((stmt, self))
     }
 }
 

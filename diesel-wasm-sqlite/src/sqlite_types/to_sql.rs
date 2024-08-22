@@ -1,7 +1,7 @@
 // mod date_and_time;
 // mod numeric;
 
-//TODO: CODE CAN BE SHARED
+//TODO: CODE CAN BE SHARED (pretty muhch exactly the same)
 use crate::connection::SqliteValue;
 use crate::WasmSqlite;
 use diesel::deserialize::{self, FromSql, Queryable};
@@ -166,35 +166,6 @@ impl ToSql<sql_types::Double, WasmSqlite> for f64 {
 ///
 /// [`ToSql`]: crate::serialize::ToSql
 /// [`FromSql`]: crate::deserialize::FromSql
-#[cfg_attr(
-    feature = "chrono",
-    doc = " [`chrono::NaiveDateTime`]: chrono::naive::NaiveDateTime"
-)]
-#[cfg_attr(
-    not(feature = "chrono"),
-    doc = " [`chrono::NaiveDateTime`]: https://docs.rs/chrono/0.4.19/chrono/naive/struct.NaiveDateTime.html"
-)]
-#[cfg_attr(feature = "chrono", doc = " [`chrono::DateTime`]: chrono::DateTime")]
-#[cfg_attr(
-    not(feature = "chrono"),
-    doc = " [`chrono::DateTime`]: https://docs.rs/chrono/0.4.19/chrono/struct.DateTime.html"
-)]
-#[cfg_attr(
-    feature = "time",
-    doc = " [`time::PrimitiveDateTime`]: time::PrimitiveDateTime"
-)]
-#[cfg_attr(
-    not(feature = "time"),
-    doc = " [`time::PrimitiveDateTime`]: https://docs.rs/time/0.3.9/time/struct.PrimitiveDateTime.html"
-)]
-#[cfg_attr(
-    feature = "time",
-    doc = " [`time::OffsetDateTime`]: time::OffsetDateTime"
-)]
-#[cfg_attr(
-    not(feature = "time"),
-    doc = " [`time::OffsetDateTime`]: https://docs.rs/time/0.3.9/time/struct.OffsetDateTime.html"
-)]
 #[derive(Debug, Clone, Copy, Default, QueryId, SqlType)]
 #[diesel(sqlite_type(name = "Text"))]
 pub struct Timestamptz;
