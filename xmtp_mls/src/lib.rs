@@ -11,6 +11,7 @@ pub mod groups;
 mod hpke;
 pub mod identity;
 mod identity_updates;
+mod mutex_registry;
 pub mod owner;
 pub mod retry;
 pub mod storage;

@@ -66,7 +66,8 @@ impl MlsGroup {
         );
 
         if let Some(GroupError::ReceiveError(_)) = process_result.as_ref().err() {
-            self.sync(&client).await?;
+            self.sync_with_conn(&client.mls_provider()?, &client)
+                .await?;
         } else if process_result.is_err() {
             log::error!("Process stream entry {:?}", process_result.err());
         }

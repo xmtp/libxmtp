@@ -39,6 +39,7 @@ use crate::{
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
+    mutex_registry::MutexRegistry,
     retry::Retry,
     retry_async, retryable,
     storage::{
@@ -137,10 +138,6 @@ pub enum MessageProcessingError {
     Identity(#[from] IdentityError),
     #[error("openmls process message error: {0}")]
     OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
-    #[error("merge pending commit: {0}")]
-    MergePendingCommit(
-        #[from] openmls::group::MergePendingCommitError<sql_key_store::SqlKeyStoreError>,
-    ),
     #[error("merge staged commit: {0}")]
     MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::SqlKeyStoreError>),
     #[error(
@@ -178,6 +175,8 @@ pub enum MessageProcessingError {
     Group(#[from] Box<GroupError>),
     #[error("generic:{0}")]
     Generic(String),
+    #[error("intent is missing staged_commit field")]
+    IntentMissingStagedCommit,
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {
@@ -186,7 +185,6 @@ impl crate::retry::RetryableError for MessageProcessingError {
             Self::Group(group_error) => retryable!(group_error),
             Self::Identity(identity_error) => retryable!(identity_error),
             Self::OpenMlsProcessMessage(err) => retryable!(err),
-            Self::MergePendingCommit(err) => retryable!(err),
             Self::MergeStagedCommit(err) => retryable!(err),
             Self::Diesel(diesel_error) => retryable!(diesel_error),
             Self::Storage(s) => retryable!(s),
@@ -226,6 +224,7 @@ pub struct XmtpMlsLocalContext {
     pub(crate) identity: Identity,
     /// XMTP Local Storage
     pub(crate) store: EncryptedMessageStore,
+    pub(crate) mutexes: MutexRegistry,
 }
 
 impl XmtpMlsLocalContext {
@@ -269,7 +268,11 @@ where
         store: EncryptedMessageStore,
         history_sync_url: Option<String>,
     ) -> Self {
-        let context = XmtpMlsLocalContext { identity, store };
+        let context = XmtpMlsLocalContext {
+            identity,
+            store,
+            mutexes: MutexRegistry::new(),
+        };
         let (tx, _) = broadcast::channel(10);
         Self {
             api_client,
