@@ -182,6 +182,10 @@ pub enum GroupError {
     MissingMetadataField { name: String },
     #[error("Message was processed but is missing")]
     MissingMessage,
+    #[error("sql key store error: {0}")]
+    SqlKeyStore(#[from] sql_key_store::SqlKeyStoreError),
+    #[error("No pending commit found")]
+    MissingPendingCommit,
 }
 
 impl RetryableError for GroupError {
@@ -927,10 +931,14 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
-        let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
-        intent.store(&conn)?;
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::KeyUpdate,
+            self.group_id.clone(),
+            vec![],
+        ))?;
 
-        self.sync_with_conn(&conn.into(), client).await
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
+            .await
     }
 
     pub fn is_active(&self, provider: impl OpenMlsProvider) -> Result<bool, GroupError> {
@@ -1529,7 +1537,11 @@ mod tests {
             .conn_ref()
             .find_group_intents(
                 amal_group.group_id.clone(),
-                Some(vec![IntentState::ToPublish, IntentState::Published]),
+                Some(vec![
+                    IntentState::ToPublish,
+                    IntentState::Published,
+                    IntentState::Error,
+                ]),
                 None,
             )
             .unwrap();
@@ -1545,6 +1557,25 @@ mod tests {
             .unwrap();
         // Bola's attempted add should be deleted, since it will have been a no-op on the second try
         assert_eq!(bola_failed_intents.len(), 0);
+
+        // Make sure sending and receiving both worked
+        amal_group
+            .send_message("hello from amal".as_bytes(), &amal)
+            .await
+            .unwrap();
+        bola_group
+            .send_message("hello from bola".as_bytes(), &bola)
+            .await
+            .unwrap();
+
+        let bola_messages = bola_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        let matching_message = bola_messages
+            .iter()
+            .find(|m| m.decrypted_message_bytes == "hello from amal".as_bytes());
+        log::info!("found message: {:?}", bola_messages);
+        assert!(matching_message.is_some());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

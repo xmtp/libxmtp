@@ -2465,7 +2465,6 @@ mod tests {
         let alix_group = alix.group(group.id()).unwrap();
         let bo_group = bo.group(group.id()).unwrap();
         let caro_group = caro.group(group.id()).unwrap();
-
         // Alix sends a message in the group
         alix_group
             .send("First message".as_bytes().to_vec())
@@ -2488,6 +2487,7 @@ mod tests {
             .stream_all_messages(Box::new(bo_message_callbacks.clone()))
             .await;
         bo_stream_messages.wait_for_ready().await;
+        tokio::time::sleep(std::time::Duration::from_millis(5000)).await;
 
         // Alix sends a message to the group
         alix_group

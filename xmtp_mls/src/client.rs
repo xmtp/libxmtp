@@ -137,10 +137,6 @@ pub enum MessageProcessingError {
     Identity(#[from] IdentityError),
     #[error("openmls process message error: {0}")]
     OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
-    #[error("merge pending commit: {0}")]
-    MergePendingCommit(
-        #[from] openmls::group::MergePendingCommitError<sql_key_store::SqlKeyStoreError>,
-    ),
     #[error("merge staged commit: {0}")]
     MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::SqlKeyStoreError>),
     #[error(
@@ -178,6 +174,8 @@ pub enum MessageProcessingError {
     Group(#[from] Box<GroupError>),
     #[error("generic:{0}")]
     Generic(String),
+    #[error("intent is missing staged_commit field")]
+    IntentMissingStagedCommit,
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {
@@ -186,7 +184,6 @@ impl crate::retry::RetryableError for MessageProcessingError {
             Self::Group(group_error) => retryable!(group_error),
             Self::Identity(identity_error) => retryable!(identity_error),
             Self::OpenMlsProcessMessage(err) => retryable!(err),
-            Self::MergePendingCommit(err) => retryable!(err),
             Self::MergeStagedCommit(err) => retryable!(err),
             Self::Diesel(diesel_error) => retryable!(diesel_error),
             Self::Storage(s) => retryable!(s),
