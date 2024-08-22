@@ -159,6 +159,7 @@ impl Drop for Statement {
         // in that case we might not know if this errored or not
         // maybe depends how wasm panic/errors work
         // Worth unit testing the Drop implementation.
+        tracing::info!("Statement dropped & finalized!");
         let _ = sqlite3
             .finalize(&self.inner_statement)
             .expect("Error finalized SQLite prepared statement");
@@ -199,7 +200,10 @@ impl<'stmt> BoundStatement<'stmt> {
                 tracing::debug!("BoundStatement::bind, NOT CACHED statement={:?}", s)
             }
             MaybeCached::Cached(s) => {
-                tracing::debug!("BoundStatement::bind, CACHED statement={:?}", s)
+                tracing::debug!(
+                    "BoundStatement::bind, MaybeCached::Cached statement={:?}",
+                    s
+                )
             }
             &_ => todo!(),
         }
@@ -275,7 +279,6 @@ impl<'stmt> BoundStatement<'stmt> {
 // Eventually replace with `AsyncDrop`: https://github.com/rust-lang/rust/issues/126482
 impl<'stmt> Drop for BoundStatement<'stmt> {
     fn drop(&mut self) {
-        tracing::debug!("ATTEMPTING TO DROP BOUND STATEMENT");
         let sender = self.drop_signal.take().expect("Drop may only be ran once");
         let _ = sender.send(self.statement.inner_statement.clone());
     }

@@ -18,8 +18,17 @@ compile_error!("This crate only suports the `wasm32-unknown-unknown` target");
 use self::ffi::SQLite;
 use tokio::sync::OnceCell;
 use wasm_bindgen::JsValue;
+use std::cell::LazyCell;
 
 pub use backend::{SqliteType, WasmSqlite};
+
+/// the local tokio current-thread runtime
+/// dont need locking, because this is current-thread only
+const RUNTIME: LazyCell<tokio::runtime::Runtime> = LazyCell::new(|| {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("Runtime should never fail to build")
+});
 
 /// The SQLite Library
 /// this global constant references the loaded SQLite WASM.

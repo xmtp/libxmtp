@@ -86,6 +86,7 @@ impl AsyncConnection for WasmSqliteConnection {
     {
         let query = source.as_query();
         self.with_prepared_statement(query, |_, statement| async move {
+            tracing::debug!("Loading statement!");
             Ok(StatementStream::new(statement).stream())
         })
     }
@@ -98,6 +99,7 @@ impl AsyncConnection for WasmSqliteConnection {
         T: QueryFragment<Self::Backend> + QueryId + 'query,
     {
         self.with_prepared_statement(query, |conn, statement| async move {
+            tracing::debug!("Running statement!");
             statement.run().await.map(|_| {
                 conn.rows_affected_by_last_query()
             })
@@ -259,7 +261,7 @@ impl WasmSqliteConnection {
         let sql = query.to_sql(&mut qb, &WasmSqlite).map(|()| qb.finish()); 
         
         async move {
-            tracing::info!("IN FUTURE");
+            tracing::info!("IN STATEMENT PREPARE FUTURE");
             let (statement, conn) = statement_cache.cached_prepared_statement(
                 cache_key?,
                 sql?,

@@ -80,8 +80,8 @@ async fn insert_books(
     let query = insert_into(books).values(new_books);
     let sql = DebugQueryWrapper::<_, WasmSqlite>::new(&query).to_string();
     tracing::info!("QUERY = {}", sql);
-    query.execute(conn).await.unwrap();
-    Ok(0)
+    let rows_changed = query.execute(conn).await.unwrap();
+    Ok(rows_changed)
 }
 
 
@@ -93,8 +93,8 @@ async fn insert_book(
     let query = insert_into(books).values(new_book);
     let sql = debug_query::<WasmSqlite, _>(&query).to_string();
     tracing::info!("QUERY = {}", sql);
-    query.execute(conn).await.unwrap();
-    Ok(0)
+    let rows_changed = query.execute(conn).await.unwrap();
+    Ok(rows_changed)
 }
 
 #[wasm_bindgen_test]
@@ -109,13 +109,12 @@ fn examine_sql_from_insert_default_values() {
 
 #[wasm_bindgen_test]
 async fn test_orm_insert() {
-    use schema::books::dsl::*;
     console_error_panic_hook::set_once();
     tracing_wasm::set_as_global_default();
     
     let mut conn = establish_connection().await;
 
-    insert_books(
+    let changed = insert_books(
         &mut conn,
         vec![
             BookForm {
@@ -150,17 +149,19 @@ async fn test_orm_insert() {
             },
         ],
     )
-    .await;
-
-
-    insert_book(&mut conn, BookForm { title: "Game of Thrones".into(), author: Some("George R.R.".into())}).await.unwrap();
+    .await.unwrap();
+    assert_eq!(rows_changed, 6);
+    tracing::info!("{} rows changed", changed);
     console::log_1(&"Showing Users".into());
    
-    /* 
-    let query = books
-    .limit(5)
-    .select(Book::as_select());
-*/
+    let books = schema::books::table
+        .limit(5)
+        .select(Book::as_select())
+        .load(&mut conn)
+        .await
+        .unwrap();
+    tracing::info!("BOOKS??? {:?}----------", books);
+
     // console::log_1(&debug_query::<WasmSqlite, _>(&query).to_string().into());
     // .load(&mut conn)
     // .await

@@ -65,7 +65,6 @@ export class SQLite {
 
   bind(stmt, i, value) {
     try {
-      console.log(`VALUE ${JSON.stringify(value)}`);
       return this.sqlite3.bind(stmt, i, value);
     } catch (error) {
       console.log(`bind err ${error}`);
@@ -186,7 +185,7 @@ export class SQLite {
   }
 
   value_type(pValue) {
-    this.sqlite3.value_type(pValue);
+    return this.sqlite3.value_type(pValue);
   }
 
   async open_v2(database_url, iflags) {
@@ -289,7 +288,6 @@ export class SQLite {
 
   async batch_execute(database, query) {
     try {
-      console.log("Batch executing");
       return await this.sqlite3.exec(database, query);
     } catch (error) {
       console.log("batch exec err");
