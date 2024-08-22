@@ -103,6 +103,13 @@ public actor Conversations {
 		}
 		try await v3Client.conversations().sync()
 	}
+	
+	public func syncAllGroups() async throws {
+		guard let v3Client = client.v3Client else {
+			return
+		}
+		try await v3Client.conversations().syncAllGroups()
+	}
 
 	public func groups(createdAfter: Date? = nil, createdBefore: Date? = nil, limit: Int? = nil) async throws -> [Group] {
 		guard let v3Client = client.v3Client else {

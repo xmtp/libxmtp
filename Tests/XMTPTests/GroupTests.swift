@@ -838,6 +838,34 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(preparedMessageId, messages.first!.id)
 	}
 	
+	func testCanSyncManyGroupsInUnderASecond() async throws {
+		let fixtures = try await localFixtures()
+		var groups: [Group] = []
+
+		for _ in 0..<100 {
+			var group = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address])
+			groups.append(group)
+		}
+		try await fixtures.bobClient.conversations.sync()
+		let bobGroup = try fixtures.bobClient.findGroup(groupId: groups[0].id)
+		try await groups[0].send(content: "hi")
+		let messageCount = try await bobGroup!.messages().count
+		XCTAssertEqual(messageCount, 0)
+		do {
+			let start = Date()
+			let _ = try await fixtures.bobClient.conversations.syncAllGroups()
+			let end = Date()
+			print(end.timeIntervalSince(start))
+			XCTAssert(end.timeIntervalSince(start) < 1)
+		} catch {
+			print("Failed to list groups members: \(error)")
+			throw error // Rethrow the error to fail the test if group creation fails
+		}
+		
+		let messageCount2 = try await bobGroup!.messages().count
+		XCTAssertEqual(messageCount2, 1)
+	}
+	
 	func testCanListManyMembersInParallelInUnderASecond() async throws {
 		let fixtures = try await localFixtures()
 		var groups: [Group] = []
