@@ -1,4 +1,6 @@
 #![recursion_limit = "256"]
+#![warn(clippy::unwrap_used)]
+
 mod conversations;
 pub mod encoded_content;
 mod groups;

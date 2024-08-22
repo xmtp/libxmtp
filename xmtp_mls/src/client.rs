@@ -95,9 +95,15 @@ pub enum ClientError {
     SignatureRequest(#[from] SignatureRequestError),
     // the box is to prevent infinite cycle between client and group errors
     #[error(transparent)]
-    Group(#[from] Box<GroupError>),
+    Group(Box<GroupError>),
     #[error("generic:{0}")]
     Generic(String),
+}
+
+impl From<GroupError> for ClientError {
+    fn from(err: GroupError) -> ClientError {
+        ClientError::Group(Box::new(err))
+    }
 }
 
 impl crate::retry::RetryableError for ClientError {
@@ -355,8 +361,7 @@ where
             GroupMembershipState::Allowed,
             permissions_policy_set.unwrap_or_default(),
             opts,
-        )
-        .map_err(Box::new)?;
+        )?;
 
         // notify any streams of the new group
         let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
@@ -366,8 +371,7 @@ where
 
     pub(crate) fn create_sync_group(&self) -> Result<MlsGroup, ClientError> {
         log::info!("creating sync group");
-        let sync_group =
-            MlsGroup::create_and_insert_sync_group(self.context.clone()).map_err(Box::new)?;
+        let sync_group = MlsGroup::create_and_insert_sync_group(self.context.clone())?;
 
         Ok(sync_group)
     }

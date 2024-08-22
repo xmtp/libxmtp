@@ -1,6 +1,8 @@
 //! Utilities for xmtp_mls benchmarks
 //! Utilities mostly include pre-generating identities in order to save time when writing/testing
 //! benchmarks.
+#![allow(clippy::unwrap_used)]
+
 use crate::{builder::ClientBuilder, Client};
 use ethers::signers::{LocalWallet, Signer};
 use indicatif::{ProgressBar, ProgressStyle};

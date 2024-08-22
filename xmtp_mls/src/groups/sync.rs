@@ -89,7 +89,7 @@ impl MlsGroup {
         log::info!(
             "current epoch for [{}] in sync() is Epoch: [{}]",
             client.inbox_id(),
-            self.load_mls_group(&mls_provider).unwrap().epoch()
+            self.load_mls_group(&mls_provider)?.epoch()
         );
         self.maybe_update_installations(&mls_provider, None, client)
             .await?;
@@ -321,7 +321,7 @@ impl MlsGroup {
                     return Ok(());
                 }
 
-                let validated_commit = maybe_validated_commit.unwrap();
+                let validated_commit = maybe_validated_commit.expect("Checked for error");
 
                 log::info!(
                     "[{}] merging pending commit for intent {}",
@@ -985,8 +985,7 @@ impl MlsGroup {
         )?;
 
         for intent in intents {
-            if intent.post_commit_data.is_some() {
-                let post_commit_data = intent.post_commit_data.unwrap();
+            if let Some(post_commit_data) = intent.post_commit_data {
                 let post_commit_action = PostCommitAction::from_bytes(post_commit_data.as_slice())?;
                 match post_commit_action {
                     PostCommitAction::SendWelcomes(action) => {
@@ -1022,9 +1021,7 @@ impl MlsGroup {
             .get_installations_time_checked(self.group_id.clone())?;
         let elapsed = now - last;
         if elapsed > interval {
-            self.add_missing_installations(provider, client)
-                .await
-                .unwrap();
+            self.add_missing_installations(provider, client).await?;
             provider
                 .conn_ref()
                 .update_installations_time_checked(self.group_id.clone())?;

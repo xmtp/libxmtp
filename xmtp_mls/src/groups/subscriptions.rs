@@ -94,7 +94,7 @@ impl MlsGroup {
             .map_err(|e| GroupError::Generic(e.to_string()))?;
 
         let message = self.process_stream_entry(envelope, client).await?;
-        Ok(message.unwrap())
+        message.ok_or(GroupError::MissingMessage)
     }
 
     pub async fn stream<ApiClient>(
@@ -140,8 +140,8 @@ impl MlsGroup {
 
 #[cfg(test)]
 mod tests {
-    use prost::Message;
-    use std::{sync::Arc, time::Duration};
+    use super::*;
+    use std::time::Duration;
     use tokio_stream::wrappers::UnboundedReceiverStream;
     use xmtp_cryptography::utils::generate_local_wallet;
 

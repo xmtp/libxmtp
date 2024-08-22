@@ -179,11 +179,11 @@ where
         }
 
         log::debug!("Final state at {:?}: {:?}", last_sequence_id, final_state);
-        if last_sequence_id.is_some() {
+        if let Some(last_sequence_id) = last_sequence_id {
             StoredAssociationState::write_to_cache(
                 conn,
                 inbox_id.as_ref().to_string(),
-                last_sequence_id.unwrap(),
+                last_sequence_id,
                 final_state.clone(),
             )?;
         }

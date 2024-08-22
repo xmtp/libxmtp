@@ -782,14 +782,15 @@ fn extract_actor(
         )?;
 
     // If there is both a path update and there are proposals we need to make sure that they are from the same actor
-    if path_update_leaf_node.is_some() && proposal_author_leaf_index.is_some() {
+    if let (Some(path_update_leaf_node), Some(proposal_author_leaf_index)) =
+        (path_update_leaf_node, proposal_author_leaf_index)
+    {
         let proposal_author = openmls_group
-            .member_at(*proposal_author_leaf_index.unwrap())
+            .member_at(*proposal_author_leaf_index)
             .ok_or(CommitValidationError::ActorCouldNotBeFound)?;
 
         // Verify that the signature keys are the same
         if path_update_leaf_node
-            .unwrap()
             .signature_key()
             .as_slice()
             .to_vec()
