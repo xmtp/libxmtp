@@ -269,7 +269,12 @@ impl WasmSqliteConnection {
                 &instrumentation,
             ).await?;
             let statement = StatementUse::bind(statement, bind_collector?, instrumentation)?;
-            callback(conn, statement).await
+            let result = callback(conn, statement).await;
+            // statement is dropped here
+            // we need to yield back to the executor and allow
+            // the destructor for BoundStatement to run
+            tokio::task::yield_now().await;
+            result
         }.boxed_local()
     }
     

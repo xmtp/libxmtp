@@ -2,7 +2,7 @@
 use super::bind_collector::{OwnedSqliteBindValue, SqliteBindCollectorData};
 use super::raw::RawConnection;
 use super::sqlite_value::OwnedSqliteValue;
-use crate::ffi::{self, SQLiteCompatibleType};
+use crate::ffi::SQLiteCompatibleType;
 use crate::{
     sqlite_types::{self, PrepareOptions, SqlitePrepareFlags},
     SqliteType, WasmSqliteError,
@@ -34,6 +34,7 @@ impl StatementFactory {
         sql: &str,
         is_cached: PrepareForCache,
     ) -> QueryResult<Self> {
+        tracing::debug!("new statement factory, is_cached = {:?}", is_cached);
         let sqlite3 = crate::get_sqlite_unchecked();
         let flags = if matches!(is_cached, PrepareForCache::Yes) {
             Some(SqlitePrepareFlags::SQLITE_PREPARE_PERSISTENT.bits())
@@ -57,13 +58,6 @@ impl StatementFactory {
             .map_err(WasmSqliteError::from)?;
 
         let statement_iterator = js_sys::AsyncIterator::from(stmt);
-        /*
-        let inner_statement = JsFuture::from(statement_iterator.next().expect("No Next"))
-            .await
-            .expect("statement failed to compile");
-        let inner_statement: JsValue = js_sys::Reflect::get(&inner_statement, &"value".into())
-            .expect("Async Iterator API should be stable");
-        */
 
         let (tx, rx) = tokio::sync::oneshot::channel::<AsyncIterator>();
         // We don't have `AsyncDrop` in rust yet.
@@ -72,7 +66,7 @@ impl StatementFactory {
         wasm_bindgen_futures::spawn_local(async move {
             let result = (|| async move {
                 let _ = rx.await;
-                tracing::info!("STATEMENT FACTORY DROPPED");
+                tracing::debug!("STATEMENT FACTORY DROPPED");
                 Ok::<_, String>(())
             })();
             if let Err(e) = result.await {
@@ -86,6 +80,7 @@ impl StatementFactory {
         })
     }
 
+    /// compile a new statement based on given SQL in [`StatementFactory`]
     pub async fn prepare(&self) -> Statement {
         let inner_statement = JsFuture::from(self.statement_iterator.next().expect("No Next"))
             .await
@@ -94,37 +89,16 @@ impl StatementFactory {
             .expect("Async Iterator API should be stable");
         tracing::debug!("Statement: {:?}", inner_statement);
 
-        let (tx, rx) = tokio::sync::oneshot::channel::<JsValue>();
-        wasm_bindgen_futures::spawn_local(async move {
-            let result = (|| async move {
-                let inner_statement = rx.await?;
-                let this = Statement {
-                    inner_statement,
-                    drop_signal: None,
-                };
-
-                this.reset().await?;
-                this.clear_bindings()?;
-                Ok::<_, WasmSqliteError>(())
-            })();
-            if let Err(e) = result.await {
-                tracing::error!("Statement never dropped! {}", e);
-            }
-        });
-
-        Statement {
-            inner_statement,
-            drop_signal: Some(tx),
-        }
+        Statement { inner_statement }
     }
 }
 
 // this is OK b/c web runs in one thread
 unsafe impl Send for Statement {}
+#[derive(Debug)]
 pub(super) struct Statement {
     // each iteration compiles a new statement for use
     inner_statement: JsValue,
-    drop_signal: Option<tokio::sync::oneshot::Sender<JsValue>>,
 }
 
 impl Statement {
@@ -174,12 +148,6 @@ impl Statement {
             .map_err(WasmSqliteError::from)?;
         Ok(())
     }
-
-    /* not sure if there is equivalent method or just cloning the stmt is enough
-    fn raw_connection(&self) -> *mut ffi::sqlite3 {
-        unsafe { ffi::sqlite3_db_handle(self.inner_statement.as_ptr()) }
-    }
-    */
 }
 
 impl Drop for Statement {
@@ -217,6 +185,7 @@ struct BoundStatement<'stmt> {
     #[allow(unused)]
     instrumentation: Arc<Mutex<dyn Instrumentation>>,
     has_error: bool,
+    drop_signal: Option<oneshot::Sender<JsValue>>,
 }
 
 impl<'stmt> BoundStatement<'stmt> {
@@ -225,11 +194,41 @@ impl<'stmt> BoundStatement<'stmt> {
         bind_collector: SqliteBindCollectorData,
         instrumentation: Arc<Mutex<dyn Instrumentation>>,
     ) -> QueryResult<BoundStatement<'stmt>> {
+        match &statement {
+            MaybeCached::CannotCache(s) => {
+                tracing::debug!("BoundStatement::bind, NOT CACHED statement={:?}", s)
+            }
+            MaybeCached::Cached(s) => {
+                tracing::debug!("BoundStatement::bind, CACHED statement={:?}", s)
+            }
+            &_ => todo!(),
+        }
         let SqliteBindCollectorData { binds } = bind_collector;
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<JsValue>();
+        wasm_bindgen_futures::spawn_local(async move {
+            let result = (|| async move {
+                let inner_statement = rx.await?;
+                let this = Statement { inner_statement };
+                this.reset().await?;
+                this.clear_bindings()?;
+                tracing::debug!("Bound statement dropped succesfully!");
+                // we forget here because we need a clone that's sent to this task
+                // we don't want to `finalizing` this Statement yet (which is what
+                // dropping it would do);
+                std::mem::forget(this);
+                Ok::<_, WasmSqliteError>(())
+            })();
+            if let Err(e) = result.await {
+                tracing::error!("BoundStatement never dropped! {}", e);
+            }
+        });
+
         let mut ret = BoundStatement {
             statement,
             instrumentation,
             has_error: false,
+            drop_signal: Some(tx),
         };
 
         ret.bind_buffers(binds)?;
@@ -276,11 +275,8 @@ impl<'stmt> BoundStatement<'stmt> {
 // Eventually replace with `AsyncDrop`: https://github.com/rust-lang/rust/issues/126482
 impl<'stmt> Drop for BoundStatement<'stmt> {
     fn drop(&mut self) {
-        let sender = self
-            .statement
-            .drop_signal
-            .take()
-            .expect("Drop may only be ran once");
+        tracing::debug!("ATTEMPTING TO DROP BOUND STATEMENT");
+        let sender = self.drop_signal.take().expect("Drop may only be ran once");
         let _ = sender.send(self.statement.inner_statement.clone());
     }
 }
@@ -389,6 +385,7 @@ where {
         Some(sqlite3.column(&self.statement.statement.inner_statement, idx))
     }
 }
+
 /*
 #[cfg(test)]
 mod tests {

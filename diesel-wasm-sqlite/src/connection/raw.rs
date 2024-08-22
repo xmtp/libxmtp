@@ -6,28 +6,22 @@ use crate::{
     SqliteType, WasmSqlite, WasmSqliteError,
 };
 use diesel::{
-    connection::statement_cache::PrepareForCache, result::*, serialize::ToSql,
+    connection::statement_cache::{PrepareForCache, StatementCacheKey},
+    result::*,
+    serialize::ToSql,
     sql_types::HasSqlType,
 };
+use std::collections::HashMap;
 use tokio::sync::oneshot;
 use wasm_bindgen::{closure::Closure, JsValue};
 
 use super::stmt::{Statement, StatementFactory};
 
 #[allow(missing_copy_implementations)]
-#[derive(Debug)]
 pub(super) struct RawConnection {
     pub(super) internal_connection: JsValue,
+    iterator_cache: HashMap<StatementCacheKey<WasmSqlite>, js_sys::AsyncIterator>,
     drop_signal: Option<oneshot::Sender<JsValue>>,
-}
-
-impl Clone for RawConnection {
-    fn clone(&self) -> Self {
-        Self {
-            internal_connection: self.internal_connection.clone(),
-            drop_signal: None,
-        }
-    }
 }
 
 impl RawConnection {
@@ -68,6 +62,7 @@ impl RawConnection {
                 .await
                 .map_err(WasmSqliteError::from)
                 .map_err(ConnectionError::from)?,
+            iterator_cache: HashMap::new(),
             drop_signal: Some(tx),
         })
     }
