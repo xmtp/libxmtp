@@ -1,17 +1,5 @@
 use wasm_bindgen::{prelude::*, JsValue};
 
-/*
-/// Simple Connection
-#[wasm_bindgen(module = "/src/package.js")]
-extern "C" {
-    #[wasm_bindgen(catch)]
-    pub fn batch_execute(database: &JsValue, query: &str) -> Result<(), JsValue>;
-
-    #[wasm_bindgen(catch)]
-    pub async fn establish(database_url: &str) -> Result<JsValue, JsValue>;
-}
-*/
-
 /* once https://github.com/rust-lang/rust/issues/128183 is merged this would work
 pub mod consts {
     pub const SQLITE_INTEGER: i32 = super::SQLITE_INTEGER;
@@ -44,7 +32,9 @@ unsafe impl Sync for SQLite {}
 #[wasm_bindgen(module = "/src/wa-sqlite-diesel-bundle.js")]
 extern "C" {
     pub type SQLite;
+
     #[derive(Debug, Clone)]
+    #[wasm_bindgen(typescript_type = "SQLiteCompatibleType")]
     pub type SQLiteCompatibleType;
     // pub type SqlitePrepareOptions;
 
@@ -168,6 +158,12 @@ extern "C" {
     pub fn changes(this: &SQLite, database: &JsValue) -> usize;
 
     #[wasm_bindgen(method, catch)]
+    pub async fn get_stmt_from_iterator(
+        this: &SQLite,
+        iterator: &JsValue,
+    ) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(method, catch)]
     pub async fn step(this: &SQLite, stmt: &JsValue) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(method, catch)]
@@ -194,7 +190,11 @@ extern "C" {
     pub fn column_count(this: &SQLite, stmt: &JsValue) -> i32;
 
     #[wasm_bindgen(method, catch)]
-    pub fn batch_execute(this: &SQLite, database: &JsValue, query: &str) -> Result<(), JsValue>;
+    pub async fn batch_execute(
+        this: &SQLite,
+        database: &JsValue,
+        query: &str,
+    ) -> Result<(), JsValue>;
 
     #[wasm_bindgen(method, catch)]
     pub fn create_function(

@@ -33,28 +33,25 @@ pub use diesel_async::{AnsiTransactionManager, AsyncConnection, SimpleAsyncConne
 
 use crate::{get_sqlite_unchecked, WasmSqlite, WasmSqliteError};
 
+// This relies on the invariant that RawConnection or Statement are never
+// leaked. If a reference to one of those was held on a different thread, this
+// would not be thread safe.
+// Web is in one thread. Web workers can establish & hold a WasmSqliteConnection
+// separately.
+#[allow(unsafe_code)]
+unsafe impl Send for WasmSqliteConnection {}
+
 pub struct WasmSqliteConnection {
     // statement_cache needs to be before raw_connection
     // otherwise we will get errors about open statements before closing the
     // connection itself
     statement_cache: StmtCache<WasmSqlite, Statement>,
-    pub raw_connection: RawConnection,
+    raw_connection: RawConnection,
     transaction_manager: AnsiTransactionManager,
     // this exists for the sole purpose of implementing `WithMetadataLookup` trait
     // and avoiding static mut which will be deprecated in 2024 edition
     instrumentation: Arc<Mutex<Option<Box<dyn Instrumentation>>>>,
 }
-
-
-// This relies on the invariant that RawConnection or Statement are never
-// leaked. If a reference to one of those was held on a different thread, this
-// would not be thread safe.
-// Web is in one thread. Web workers can be used to hold a WasmSqliteConnection
-// separately.
-
-#[allow(unsafe_code)]
-unsafe impl Send for WasmSqliteConnection {}
-
 
 impl ConnectionSealed for WasmSqliteConnection {}
 
@@ -63,6 +60,7 @@ impl SimpleAsyncConnection for WasmSqliteConnection {
     async fn batch_execute(&mut self, query: &str) -> diesel::prelude::QueryResult<()> {
         get_sqlite_unchecked()
             .batch_execute(&self.raw_connection.internal_connection, query)
+            .await
             .map_err(WasmSqliteError::from)
             .map_err(Into::into)
     }
@@ -88,6 +86,7 @@ impl AsyncConnection for WasmSqliteConnection {
     {
         let query = source.as_query();
         self.with_prepared_statement(query, |_, statement| async move {
+            tracing::debug!("Loading statement!");
             Ok(StatementStream::new(statement).stream())
         })
     }
@@ -100,6 +99,7 @@ impl AsyncConnection for WasmSqliteConnection {
         T: QueryFragment<Self::Backend> + QueryId + 'query,
     {
         self.with_prepared_statement(query, |conn, statement| async move {
+            tracing::debug!("Running statement!");
             statement.run().await.map(|_| {
                 conn.rows_affected_by_last_query()
             })
@@ -113,11 +113,11 @@ impl AsyncConnection for WasmSqliteConnection {
     }
 
     fn instrumentation(&mut self) -> &mut dyn Instrumentation {
-        todo!()
+        Arc::get_mut(&mut self.instrumentation).expect("arc ref").get_mut().expect("Mutex poison")
     }
 
     fn set_instrumentation(&mut self, _instrumentation: impl Instrumentation) {
-        todo!()
+        tracing::debug!("Set instrumentation");
     }
 }
 
@@ -237,6 +237,7 @@ impl WasmSqliteConnection {
         Q: QueryFragment<WasmSqlite> + QueryId,
         F: Future<Output = QueryResult<R>>,
     {
+        tracing::info!("WITH PREPARED STATEMENT");
         let WasmSqliteConnection {
             ref mut raw_connection,
             ref mut statement_cache,
@@ -260,6 +261,7 @@ impl WasmSqliteConnection {
         let sql = query.to_sql(&mut qb, &WasmSqlite).map(|()| qb.finish()); 
         
         async move {
+            tracing::info!("IN STATEMENT PREPARE FUTURE");
             let (statement, conn) = statement_cache.cached_prepared_statement(
                 cache_key?,
                 sql?,
@@ -267,9 +269,14 @@ impl WasmSqliteConnection {
                 &[],
                 raw_connection,
                 &instrumentation,
-            ).await?; // Cloned RawConnection is dropped here
+            ).await?;
             let statement = StatementUse::bind(statement, bind_collector?, instrumentation)?;
-            callback(conn, statement).await
+            let result = callback(conn, statement).await;
+            // statement is dropped here
+            // we need to yield back to the executor and allow
+            // the destructor for BoundStatement to run
+            tokio::task::yield_now().await;
+            result
         }.boxed_local()
     }
     

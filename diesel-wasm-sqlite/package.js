@@ -67,7 +67,7 @@ export class SQLite {
     try {
       return this.sqlite3.bind(stmt, i, value);
     } catch (error) {
-      console.log("bind err");
+      console.log(`bind err ${error}`);
       throw error;
     }
   }
@@ -185,7 +185,7 @@ export class SQLite {
   }
 
   value_type(pValue) {
-    this.sqlite3.value_type(pValue);
+    return this.sqlite3.value_type(pValue);
   }
 
   async open_v2(database_url, iflags) {
@@ -226,7 +226,12 @@ export class SQLite {
   }
 
   clear_bindings(stmt) {
-    return this.sqlite3.clear_bindings(stmt);
+    try {
+      return this.sqlite3.clear_bindings(stmt);
+    } catch (error) {
+      console.log("sqlite3.clear_bindings error");
+      throw error;
+    }
   }
 
   async close(db) {
@@ -251,6 +256,19 @@ export class SQLite {
     }
   }
 
+  // there should be a way to do this from Rust
+  // If we pass the statement we get from 'next'
+  // it does not work.
+  async get_stmt_from_iterator(iterator) {
+    try {
+      const stmt = await iterator.next();
+      return stmt;
+    } catch (error) {
+      console.log("sqlite prepare error");
+      throw error;
+    }
+  }
+
   async step(stmt) {
     try {
       return await this.sqlite3.step(stmt);
@@ -268,12 +286,11 @@ export class SQLite {
     return this.sqlite3.column_count(stmt);
   }
 
-  batch_execute(database, query) {
+  async batch_execute(database, query) {
     try {
-      return this.sqlite3.exec(database, query);
-      console.log("Batch exec'ed");
+      return await this.sqlite3.exec(database, query);
     } catch (error) {
-      console.log("exec err");
+      console.log("batch exec err");
       throw error;
     }
   }
@@ -315,7 +332,7 @@ export class SQLite {
         1,
         WasmSQLiteLibrary.SQLITE_UTF8,
         0,
-        (context, values) => {
+        async (context, values) => {
           const table_name = this.sqlite3.value_text(values[0]);
 
           await this.sqlite3.exec(

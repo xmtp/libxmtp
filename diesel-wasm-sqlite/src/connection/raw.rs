@@ -6,28 +6,22 @@ use crate::{
     SqliteType, WasmSqlite, WasmSqliteError,
 };
 use diesel::{
-    connection::statement_cache::PrepareForCache, result::*, serialize::ToSql,
+    connection::statement_cache::{PrepareForCache, StatementCacheKey},
+    result::*,
+    serialize::ToSql,
     sql_types::HasSqlType,
 };
+use std::collections::HashMap;
 use tokio::sync::oneshot;
 use wasm_bindgen::{closure::Closure, JsValue};
 
-use super::stmt::Statement;
+use super::stmt::{Statement, StatementFactory};
 
 #[allow(missing_copy_implementations)]
-#[derive(Debug)]
 pub(super) struct RawConnection {
     pub(super) internal_connection: JsValue,
+    iterator_cache: HashMap<StatementCacheKey<WasmSqlite>, js_sys::AsyncIterator>,
     drop_signal: Option<oneshot::Sender<JsValue>>,
-}
-
-impl Clone for RawConnection {
-    fn clone(&self) -> Self {
-        Self {
-            internal_connection: self.internal_connection.clone(),
-            drop_signal: None,
-        }
-    }
 }
 
 impl RawConnection {
@@ -49,15 +43,15 @@ impl RawConnection {
                 Ok(conn) => {
                     let sqlite3 = crate::get_sqlite_unchecked();
                     match sqlite3.close(&conn).await {
-                        Ok(_) => log::debug!("db closed"),
+                        Ok(_) => tracing::debug!("db closed"),
                         Err(e) => {
-                            log::error!("error during db close");
+                            tracing::error!("error during db close");
                             web_sys::console::log_1(&e);
                         }
                     }
                 }
                 Err(_) => {
-                    log::error!("RawConnection never dropped.");
+                    tracing::error!("RawConnection never dropped.");
                 }
             }
         });
@@ -68,6 +62,7 @@ impl RawConnection {
                 .await
                 .map_err(WasmSqliteError::from)
                 .map_err(ConnectionError::from)?,
+            iterator_cache: HashMap::new(),
             drop_signal: Some(tx),
         })
     }
@@ -169,8 +164,11 @@ impl diesel_async::stmt_cache::PrepareCallback<Statement, SqliteType> for &'_ mu
         _metadata: &[SqliteType],
         is_for_cache: PrepareForCache,
     ) -> QueryResult<(Statement, Self)> {
-        let stmt = Statement::prepare(&self, sql, is_for_cache).await;
-        Ok((stmt?, self))
+        let stmt = StatementFactory::new(&self, sql, is_for_cache)
+            .await?
+            .prepare()
+            .await;
+        Ok((stmt, self))
     }
 }
 
@@ -179,28 +177,7 @@ impl Drop for RawConnection {
         if let Some(s) = self.drop_signal.take() {
             let _ = s.send(self.internal_connection.clone());
         } else {
-            log::warn!("RawConnection not dropped because drop_signal is empty");
+            tracing::warn!("RawConnection not dropped because drop_signal is empty");
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::connection::{AsyncConnection, WasmSqliteConnection};
-    use diesel::connection::Connection;
-    use wasm_bindgen_test::*;
-    use web_sys::console;
-    wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
-    #[wasm_bindgen_test]
-    async fn test_fn_registration() {
-        let mut result = WasmSqliteConnection::establish("test").await;
-        let mut conn = result.unwrap();
-        console::log_1(&"CONNECTED".into());
-        conn.raw
-            .register_sql_function("test", 0, true, |ctx, values| {
-                console::log_1(&"Inside Fn".into());
-            });
     }
 }

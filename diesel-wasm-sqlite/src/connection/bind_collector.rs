@@ -6,11 +6,6 @@ use diesel::{
     sql_types::HasSqlType,
 };
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::JsValue;
-
-// TODO:insipx this file remains largely unchanged other than the ffi::. Candidate for shared code?
-
-pub type BindValue = JsValue;
 
 #[derive(Debug, Default)]
 pub struct SqliteBindCollector<'a> {
@@ -131,7 +126,7 @@ impl std::fmt::Display for InternalSqliteBindValue<'_> {
         f.write_str(n)
     }
 }
-
+/*
 impl InternalSqliteBindValue<'_> {
     #[allow(unsafe_code)] // ffi function calls
     pub(crate) fn result_of(self, ctx: &mut i32) {
@@ -148,6 +143,7 @@ impl InternalSqliteBindValue<'_> {
         }
     }
 }
+*/
 
 impl<'a> BindCollector<'a, WasmSqlite> for SqliteBindCollector<'a> {
     type Buffer = SqliteBindValue<'a>;

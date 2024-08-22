@@ -1,4 +1,4 @@
-//! The SQLite backend
+//! The WasmSQLite backend
 
 use super::connection::SqliteBindCollector;
 use super::connection::SqliteValue;
@@ -49,9 +49,6 @@ impl TypeMetadata for WasmSqlite {
 }
 
 impl SqlDialect for WasmSqlite {
-    #[cfg(not(feature = "returning_clauses_for_sqlite_3_35"))]
-    type ReturningClause = sql_dialect::returning_clause::DoesNotSupportReturningClause;
-    #[cfg(feature = "returning_clauses_for_sqlite_3_35")]
     type ReturningClause = SqliteReturningClause;
 
     type OnConflictClause = SqliteOnConflictClause;
