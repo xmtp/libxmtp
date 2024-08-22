@@ -114,7 +114,7 @@ where
             }
         }
 
-        Ok(creation_result.unwrap())
+        Ok(creation_result?)
     }
 
     pub async fn process_streamed_welcome_message(
@@ -237,7 +237,7 @@ where
         let (tx, rx) = oneshot::channel();
 
         let handle = tokio::spawn(async move {
-            let mut stream = client.stream_conversations().await.unwrap();
+            let mut stream = client.stream_conversations().await?;
             let _ = tx.send(());
             while let Some(convo) = stream.next().await {
                 convo_callback(convo)

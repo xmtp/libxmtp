@@ -94,7 +94,7 @@ impl MlsGroup {
             .map_err(|e| GroupError::Generic(e.to_string()))?;
 
         let message = self.process_stream_entry(envelope, client).await?;
-        Ok(message.unwrap())
+        message.ok_or(GroupError::MissingMessage)
     }
 
     pub async fn stream<ApiClient>(
@@ -140,8 +140,8 @@ impl MlsGroup {
 
 #[cfg(test)]
 mod tests {
-    use prost::Message;
-    use std::{sync::Arc, time::Duration};
+    use super::*;
+    use std::time::Duration;
     use tokio_stream::wrappers::UnboundedReceiverStream;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -281,11 +281,7 @@ mod tests {
         }
     }
 
-    // https://github.com/xmtp/libxmtp/issues/948
-    // This test works in its previous form, with std::time:sleep
-    // with `Notify` it never recieves the add members message
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
-    #[ignore]
     async fn test_subscribe_membership_changes() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;

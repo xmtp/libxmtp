@@ -7,6 +7,7 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use tokio::{sync::Mutex, task::AbortHandle};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_id::associations::AssociationState;
 use xmtp_id::{
     associations::{
         builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id,
@@ -68,7 +69,6 @@ pub type RustXmtpClient = MlsClient<TonicApiClient>;
 /// xmtp.create_client(account_address, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
 /// ```
 #[allow(clippy::too_many_arguments)]
-#[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_client(
     logger: Box<dyn FfiLogger>,
@@ -295,6 +295,31 @@ impl FfiXmtpClient {
         let result = inner.find_inbox_id_from_address(address).await?;
         Ok(result)
     }
+
+    /**
+     * Get the client's inbox state.
+     *
+     * If `refresh_from_network` is true, the client will go to the network first to refresh the state.
+     * Otherwise, the state will be read from the local database.
+     */
+    pub async fn inbox_state(
+        &self,
+        refresh_from_network: bool,
+    ) -> Result<FfiInboxState, GenericError> {
+        let state = self.inner_client.inbox_state(refresh_from_network).await?;
+        Ok(state.into())
+    }
+
+    pub async fn get_latest_inbox_state(
+        &self,
+        inbox_id: String,
+    ) -> Result<FfiInboxState, GenericError> {
+        let state = self
+            .inner_client
+            .get_latest_association_state(&self.inner_client.store().conn()?, &inbox_id)
+            .await?;
+        Ok(state.into())
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -333,12 +358,9 @@ impl FfiXmtpClient {
         existing_wallet_address: &str,
         new_wallet_address: &str,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
-        let inbox_id = self.inner_client.inbox_id();
-        let signature_request = self.inner_client.associate_wallet(
-            inbox_id,
-            existing_wallet_address.into(),
-            new_wallet_address.into(),
-        )?;
+        let signature_request = self
+            .inner_client
+            .associate_wallet(existing_wallet_address.into(), new_wallet_address.into())?;
 
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
@@ -364,10 +386,9 @@ impl FfiXmtpClient {
         &self,
         wallet_address: &str,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
-        let inbox_id = self.inner_client.inbox_id();
         let signature_request = self
             .inner_client
-            .revoke_wallet(inbox_id, wallet_address.into())
+            .revoke_wallets(vec![wallet_address.into()])
             .await?;
 
         let request = Arc::new(FfiSignatureRequest {
@@ -375,6 +396,49 @@ impl FfiXmtpClient {
         });
 
         Ok(request)
+    }
+
+    /**
+     * Revokes all installations except the one the client is currently using
+     */
+    pub async fn revoke_all_other_installations(
+        &self,
+    ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
+        let installation_id = self.inner_client.installation_public_key();
+        let inbox_state = self.inner_client.inbox_state(true).await?;
+        let other_installation_ids = inbox_state
+            .installation_ids()
+            .into_iter()
+            .filter(|id| id != &installation_id)
+            .collect();
+
+        let signature_request = self
+            .inner_client
+            .revoke_installations(other_installation_ids)
+            .await?;
+
+        Ok(Arc::new(FfiSignatureRequest {
+            inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+        }))
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiInboxState {
+    pub inbox_id: String,
+    pub recovery_address: String,
+    pub installation_ids: Vec<Vec<u8>>,
+    pub account_addresses: Vec<String>,
+}
+
+impl From<AssociationState> for FfiInboxState {
+    fn from(state: AssociationState) -> Self {
+        Self {
+            inbox_id: state.inbox_id().to_string(),
+            recovery_address: state.recovery_address().to_string(),
+            installation_ids: state.installation_ids(),
+            account_addresses: state.account_addresses(),
+        }
     }
 }
 
@@ -684,6 +748,14 @@ impl FfiConversations {
     pub async fn sync(&self) -> Result<(), GenericError> {
         let inner = self.inner_client.as_ref();
         inner.sync_welcomes().await?;
+        Ok(())
+    }
+
+    pub async fn sync_all_groups(&self) -> Result<(), GenericError> {
+        let inner = self.inner_client.as_ref();
+        let groups = inner.find_groups(None, None, None, None)?;
+
+        inner.sync_all_groups(groups).await?;
         Ok(())
     }
 
@@ -997,7 +1069,8 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let group_name = group.group_name()?;
+        let provider = group.mls_provider()?;
+        let group_name = group.group_name(&provider)?;
 
         Ok(group_name)
     }
@@ -1026,7 +1099,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let group_image_url_square = group.group_image_url_square()?;
+        let group_image_url_square = group.group_image_url_square(group.mls_provider()?)?;
 
         Ok(group_image_url_square)
     }
@@ -1055,7 +1128,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let group_description = group.group_description()?;
+        let group_description = group.group_description(group.mls_provider()?)?;
 
         Ok(group_description)
     }
@@ -1084,7 +1157,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let group_pinned_frame_url = group.group_pinned_frame_url()?;
+        let group_pinned_frame_url = group.group_pinned_frame_url(group.mls_provider()?)?;
 
         Ok(group_pinned_frame_url)
     }
@@ -1096,7 +1169,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let admin_list = group.admin_list()?;
+        let admin_list = group.admin_list(group.mls_provider()?)?;
 
         Ok(admin_list)
     }
@@ -1108,7 +1181,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let super_admin_list = group.super_admin_list()?;
+        let super_admin_list = group.super_admin_list(group.mls_provider()?)?;
 
         Ok(super_admin_list)
     }
@@ -1238,7 +1311,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        Ok(group.is_active()?)
+        Ok(group.is_active(group.mls_provider()?)?)
     }
 
     pub fn added_by_inbox_id(&self) -> Result<String, GenericError> {
@@ -1258,7 +1331,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let metadata = group.metadata()?;
+        let metadata = group.metadata(group.mls_provider()?)?;
         Ok(Arc::new(FfiGroupMetadata {
             inner: Arc::new(metadata),
         }))
@@ -1272,7 +1345,7 @@ impl FfiGroup {
     }
 }
 
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Enum, PartialEq)]
 pub enum FfiGroupMessageKind {
     Application,
     MembershipChange,
@@ -1478,9 +1551,10 @@ impl FfiGroupPermissions {
 mod tests {
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
-        FfiConversationCallback, FfiCreateGroupOptions, FfiGroup, FfiGroupPermissionsOptions,
-        FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField,
-        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType,
+        FfiConversationCallback, FfiCreateGroupOptions, FfiGroup, FfiGroupMessageKind,
+        FfiGroupPermissionsOptions, FfiInboxOwner, FfiListConversationsOptions,
+        FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy, FfiPermissionPolicySet,
+        FfiPermissionUpdateType,
     };
     use std::{
         env,
@@ -2170,6 +2244,57 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_sync_all_groups() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        for _i in 0..30 {
+            alix.conversations()
+                .create_group(
+                    vec![bo.account_address.clone()],
+                    FfiCreateGroupOptions::default(),
+                )
+                .await
+                .unwrap();
+        }
+
+        bo.conversations().sync().await.unwrap();
+        let alix_groups = alix
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
+
+        let alix_group1 = alix_groups[0].clone();
+        let alix_group5 = alix_groups[5].clone();
+        let bo_group1 = bo.group(alix_group1.id()).unwrap();
+        let bo_group5 = bo.group(alix_group5.id()).unwrap();
+
+        alix_group1.send("alix1".as_bytes().to_vec()).await.unwrap();
+        alix_group5.send("alix1".as_bytes().to_vec()).await.unwrap();
+
+        let bo_messages1 = bo_group1
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let bo_messages5 = bo_group5
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        assert_eq!(bo_messages1.len(), 0);
+        assert_eq!(bo_messages5.len(), 0);
+
+        bo.conversations().sync_all_groups().await.unwrap();
+
+        let bo_messages1 = bo_group1
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let bo_messages5 = bo_group5
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        assert_eq!(bo_messages1.len(), 1);
+        assert_eq!(bo_messages5.len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_can_send_message_when_out_of_sync() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
@@ -2304,85 +2429,180 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    async fn test_can_send_messages_when_epochs_behind() {
+    async fn test_create_new_installations_does_not_fork_group() {
+        let bo_wallet_key = &mut rng();
+        let bo_wallet = xmtp_cryptography::utils::LocalWallet::new(bo_wallet_key);
+
+        // Create clients
         let alix = new_test_client().await;
-        let bo = new_test_client().await;
+        let bo = new_test_client_with_wallet(bo_wallet.clone()).await;
         let caro = new_test_client().await;
 
-        let alix_group = alix
+        // Alix begins a stream for all messages
+        let message_callbacks = RustStreamCallback::default();
+        let stream_messages = alix
+            .conversations()
+            .stream_all_messages(Box::new(message_callbacks.clone()))
+            .await;
+        stream_messages.wait_for_ready().await;
+
+        // Alix creates a group with Bo and Caro
+        let group = alix
             .conversations()
             .create_group(
-                vec![caro.account_address.clone()],
+                vec![bo.account_address.clone(), caro.account_address.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
             .unwrap();
 
+        // Alix and Caro Sync groups
+        alix.conversations().sync().await.unwrap();
+        bo.conversations().sync().await.unwrap();
         caro.conversations().sync().await.unwrap();
 
-        let caro_group = caro.group(alix_group.id()).unwrap();
+        // Alix and Caro find the group
+        let alix_group = alix.group(group.id()).unwrap();
+        let bo_group = bo.group(group.id()).unwrap();
+        let caro_group = caro.group(group.id()).unwrap();
 
+        // Alix sends a message in the group
         alix_group
-            .send("alix message 1".as_bytes().to_vec())
+            .send("First message".as_bytes().to_vec())
             .await
             .unwrap();
+
+        // Caro sends a message in the group
         caro_group
-            .send("caro message 1".as_bytes().to_vec())
+            .send("Second message".as_bytes().to_vec())
             .await
             .unwrap();
+
+        // Bo logs back in with a new installation
+        let bo2 = new_test_client_with_wallet(bo_wallet).await;
+
+        // Bo begins a stream for all messages
+        let bo_message_callbacks = RustStreamCallback::default();
+        let bo_stream_messages = bo2
+            .conversations()
+            .stream_all_messages(Box::new(bo_message_callbacks.clone()))
+            .await;
+        bo_stream_messages.wait_for_ready().await;
+
+        // Alix sends a message to the group
         alix_group
-            .add_members(vec![bo.account_address.clone()])
+            .send("Third message".as_bytes().to_vec())
             .await
             .unwrap();
-        alix_group
-            .send("alix message 2".as_bytes().to_vec())
+
+        // New installation of bo finds the group
+        bo2.conversations().sync().await.unwrap();
+        let bo2_group = bo2.group(group.id()).unwrap();
+
+        // Bo sends a message to the group
+        bo2_group
+            .send("Fourth message".as_bytes().to_vec())
             .await
             .unwrap();
+
+        // Caro sends a message in the group
         caro_group
-            .send("caro message 2".as_bytes().to_vec())
+            .send("Fifth message".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        alix_group.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
+        bo2_group.sync().await.unwrap();
+        caro_group.sync().await.unwrap();
+
+        // Get the message count for all the clients
+        let caro_messages = caro_group
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let bo_messages = bo_group
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let bo2_messages = bo2_group
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+
+        assert_eq!(caro_messages.len(), 5);
+        assert_eq!(alix_messages.len(), 6);
+        assert_eq!(bo_messages.len(), 5);
+        // Bo 2 only sees three messages since it joined after the first 2 were sent
+        assert_eq!(bo2_messages.len(), 3);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_send_messages_when_epochs_behind() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
             .await
             .unwrap();
 
         bo.conversations().sync().await.unwrap();
+
         let bo_group = bo.group(alix_group.id()).unwrap();
+
+        // Move forward 4 epochs
+        alix_group
+            .update_group_description("change 1".to_string())
+            .await
+            .unwrap();
+        alix_group
+            .update_group_description("change 2".to_string())
+            .await
+            .unwrap();
+        alix_group
+            .update_group_description("change 3".to_string())
+            .await
+            .unwrap();
+        alix_group
+            .update_group_description("change 4".to_string())
+            .await
+            .unwrap();
+
         bo_group
             .send("bo message 1".as_bytes().to_vec())
             .await
             .unwrap();
 
-        bo_group.sync().await.unwrap();
         alix_group.sync().await.unwrap();
-        caro_group.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
 
         let alix_messages = alix_group
-            .find_messages(FfiListMessagesOptions::default())
-            .unwrap();
-        let caro_messages = caro_group
             .find_messages(FfiListMessagesOptions::default())
             .unwrap();
         let bo_messages = bo_group
             .find_messages(FfiListMessagesOptions::default())
             .unwrap();
 
-        let caro_message_2_found_bo = bo_messages
+        let alix_can_see_bo_message = alix_messages
             .iter()
-            .any(|message| message.content == "caro message 2".as_bytes());
+            .any(|message| message.content == "bo message 1".as_bytes());
         assert!(
-            caro_message_2_found_bo,
-            "\"caro message 2\" not found in bo_messages"
+            alix_can_see_bo_message,
+            "\"bo message 1\" not found in alix's messages"
         );
 
-        let caro_message_2_found = alix_messages
+        let bo_can_see_bo_message = bo_messages
             .iter()
-            .any(|message| message.content == "caro message 2".as_bytes());
+            .any(|message| message.content == "bo message 1".as_bytes());
         assert!(
-            caro_message_2_found,
-            "\"caro message 2\" not found in alix_messages"
+            bo_can_see_bo_message,
+            "\"bo message 1\" not found in bo's messages"
         );
-
-        assert_eq!(alix_messages.len(), 7);
-        assert_eq!(caro_messages.len(), 6);
-        assert_eq!(bo_messages.len(), 3);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -2443,6 +2663,60 @@ mod tests {
         alix_group.sync().await.unwrap();
         let alix_members = alix_group.list_members().unwrap();
         assert_eq!(alix_members.len(), 4);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_removed_members_no_longer_update() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        bo.conversations().sync().await.unwrap();
+        let bo_group = bo.group(alix_group.id()).unwrap();
+
+        alix_group.sync().await.unwrap();
+        let alix_members = alix_group.list_members().unwrap();
+        assert_eq!(alix_members.len(), 2);
+
+        bo_group.sync().await.unwrap();
+        let bo_members = bo_group.list_members().unwrap();
+        assert_eq!(bo_members.len(), 2);
+
+        let bo_messages = bo_group
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        assert_eq!(bo_messages.len(), 0);
+
+        alix_group
+            .remove_members(vec![bo.account_address.clone()])
+            .await
+            .unwrap();
+
+        alix_group.send("hello".as_bytes().to_vec()).await.unwrap();
+
+        bo_group.sync().await.unwrap();
+        assert!(!bo_group.is_active().unwrap());
+
+        let bo_messages = bo_group
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        assert!(bo_messages.first().unwrap().kind == FfiGroupMessageKind::MembershipChange);
+        assert_eq!(bo_messages.len(), 1);
+
+        let bo_members = bo_group.list_members().unwrap();
+        assert_eq!(bo_members.len(), 1);
+
+        alix_group.sync().await.unwrap();
+        let alix_members = alix_group.list_members().unwrap();
+        assert_eq!(alix_members.len(), 1);
     }
 
     // test is also showing intermittent failures with database locked msg
@@ -3171,5 +3445,45 @@ mod tests {
             .await;
 
         assert!(results_4.is_ok());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_revoke_all_installations() {
+        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let client_1 = new_test_client_with_wallet(wallet.clone()).await;
+        let client_2 = new_test_client_with_wallet(wallet.clone()).await;
+
+        let client_1_state = client_1.inbox_state(true).await.unwrap();
+        let client_2_state = client_2.inbox_state(true).await.unwrap();
+        assert_eq!(client_1_state.installation_ids.len(), 2);
+        assert_eq!(client_2_state.installation_ids.len(), 2);
+
+        let signature_request = client_1.revoke_all_other_installations().await.unwrap();
+        sign_with_wallet(&wallet, &signature_request).await;
+        client_1
+            .apply_signature_request(signature_request)
+            .await
+            .unwrap();
+
+        let client_1_state_after_revoke = client_1.inbox_state(true).await.unwrap();
+        let client_2_state_after_revoke = client_2.inbox_state(true).await.unwrap();
+        assert_eq!(client_1_state_after_revoke.installation_ids.len(), 1);
+        assert_eq!(client_2_state_after_revoke.installation_ids.len(), 1);
+        assert_eq!(
+            client_1_state_after_revoke
+                .installation_ids
+                .first()
+                .unwrap()
+                .clone(),
+            client_1.installation_id()
+        );
+        assert_eq!(
+            client_2_state_after_revoke
+                .installation_ids
+                .first()
+                .unwrap()
+                .clone(),
+            client_1.installation_id()
+        );
     }
 }

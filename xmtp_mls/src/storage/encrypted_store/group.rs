@@ -220,7 +220,7 @@ impl DbConnection {
                 .optional()?;
 
             if maybe_inserted_group.is_none() {
-                let existing_group: StoredGroup = dsl::groups.find(group.id).first(conn).unwrap();
+                let existing_group: StoredGroup = dsl::groups.find(group.id).first(conn)?;
                 if existing_group.welcome_id == group.welcome_id {
                     // Error so OpenMLS db transaction are rolled back on duplicate welcomes
                     return Err(diesel::result::Error::DatabaseError(

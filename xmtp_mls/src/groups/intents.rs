@@ -59,16 +59,12 @@ impl SendMessageIntentData {
     }
 
     pub(crate) fn to_bytes(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
         SendMessageData {
             version: Some(SendMessageVersion::V1(SendMessageV1 {
                 payload_bytes: self.message.clone(),
             })),
         }
-        .encode(&mut buf)
-        .unwrap();
-
-        buf
+        .encode_to_vec()
     }
 
     pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
@@ -613,7 +609,6 @@ impl SendWelcomesAction {
     }
 
     pub(crate) fn to_bytes(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
         PostCommitActionProto {
             kind: Some(PostCommitActionKind::SendWelcomes(SendWelcomesProto {
                 installations: self
@@ -625,10 +620,7 @@ impl SendWelcomesAction {
                 welcome_message: self.welcome_message.clone(),
             })),
         }
-        .encode(&mut buf)
-        .unwrap();
-
-        buf
+        .encode_to_vec()
     }
 }
 
@@ -667,9 +659,11 @@ impl PostCommitAction {
     }
 }
 
-impl From<Vec<u8>> for PostCommitAction {
-    fn from(data: Vec<u8>) -> Self {
-        PostCommitAction::from_bytes(data.as_slice()).unwrap()
+impl TryFrom<Vec<u8>> for PostCommitAction {
+    type Error = IntentError;
+
+    fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
+        PostCommitAction::from_bytes(data.as_slice())
     }
 }
 

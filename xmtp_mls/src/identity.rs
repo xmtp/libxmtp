@@ -4,7 +4,7 @@ use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 use crate::retry::RetryableError;
 use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
-use crate::storage::sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
+use crate::storage::sql_key_store::{SqlKeyStore, SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
 use crate::storage::EncryptedMessageStore;
 use crate::{
     api::{ApiClientWrapper, WrappedApiError},
@@ -66,9 +66,11 @@ impl IdentityStrategy {
         let conn = store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let stored_identity: Option<Identity> = provider
-            .conn()
+            .conn_ref()
             .fetch(&())?
-            .map(|i: StoredIdentity| i.into());
+            .map(|i: StoredIdentity| i.try_into())
+            .transpose()?;
+
         debug!("identity in store: {:?}", stored_identity);
         match self {
             IdentityStrategy::CachedOnly => {
@@ -269,9 +271,8 @@ impl Identity {
                     .await?,
                 ))
                 .await?;
-            let identity_update = signature_request.build_identity_update()?;
-            api_client.publish_identity_update(identity_update).await?;
 
+            // Make sure to register the identity before applying the signature request
             let identity = Self {
                 inbox_id: inbox_id.clone(),
                 installation_keys: signature_keys,
@@ -280,6 +281,9 @@ impl Identity {
             };
 
             identity.register(provider, api_client).await?;
+
+            let identity_update = signature_request.build_identity_update()?;
+            api_client.publish_identity_update(identity_update).await?;
 
             Ok(identity)
         } else {
@@ -350,7 +354,7 @@ impl Identity {
 
     pub(crate) fn new_key_package(
         &self,
-        provider: &XmtpOpenMlsProvider,
+        provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore>,
     ) -> Result<KeyPackage, IdentityError> {
         let last_resort = Extension::LastResort(LastResortExtension::default());
         let key_package_extensions = Extensions::single(last_resort);
@@ -380,7 +384,7 @@ impl Identity {
             .key_package_lifetime(Lifetime::new(6 * 30 * 86400))
             .build(
                 CIPHERSUITE,
-                provider,
+                &provider,
                 &self.installation_keys,
                 CredentialWithKey {
                     credential: self.credential(),
@@ -417,16 +421,16 @@ impl Identity {
         provider: &XmtpOpenMlsProvider,
         api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
-        let stored_identity: Option<StoredIdentity> = provider.conn().fetch(&())?;
+        let stored_identity: Option<StoredIdentity> = provider.conn_ref().fetch(&())?;
         if stored_identity.is_some() {
             info!("Identity already registered. skipping key package publishing");
             return Ok(());
         }
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
-        api_client.register_installation(kp_bytes, true).await?;
+        api_client.upload_key_package(kp_bytes, true).await?;
 
-        Ok(StoredIdentity::from(self).store(provider.conn_ref())?)
+        Ok(StoredIdentity::try_from(self)?.store(provider.conn_ref())?)
     }
 }
 
@@ -438,9 +442,7 @@ async fn sign_with_installation_key(
     let verifying_key = signing_key.verifying_key();
     let mut prehashed: Sha512 = Sha512::new();
     prehashed.update(signature_text.clone());
-    let sig = signing_key
-        .sign_prehashed(prehashed, Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))
-        .unwrap();
+    let sig = signing_key.sign_prehashed(prehashed, Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))?;
 
     let installation_key_sig = InstallationKeySignature::new(
         signature_text.clone(),

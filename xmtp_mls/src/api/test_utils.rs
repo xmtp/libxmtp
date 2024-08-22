@@ -11,12 +11,10 @@ use xmtp_proto::{
     },
     xmtp::mls::api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        FetchKeyPackagesRequest, FetchKeyPackagesResponse, GetIdentityUpdatesRequest,
-        GetIdentityUpdatesResponse, GroupMessage, QueryGroupMessagesRequest,
+        FetchKeyPackagesRequest, FetchKeyPackagesResponse, GroupMessage, QueryGroupMessagesRequest,
         QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
-        RegisterInstallationRequest, RegisterInstallationResponse, SendGroupMessagesRequest,
-        SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-        UploadKeyPackageRequest,
+        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
+        SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
     },
 };
 
@@ -44,10 +42,6 @@ mock! {
 
     #[async_trait]
     impl XmtpMlsClient for ApiClient {
-        async fn register_installation(
-            &self,
-            request: RegisterInstallationRequest,
-        ) -> Result<RegisterInstallationResponse, Error>;
         async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
         async fn fetch_key_packages(
             &self,
@@ -55,10 +49,6 @@ mock! {
         ) -> Result<FetchKeyPackagesResponse, Error>;
         async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), Error>;
         async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), Error>;
-        async fn get_identity_updates(
-            &self,
-            request: GetIdentityUpdatesRequest,
-        ) -> Result<GetIdentityUpdatesResponse, Error>;
         async fn query_group_messages(&self, request: QueryGroupMessagesRequest) -> Result<QueryGroupMessagesResponse, Error>;
         async fn query_welcome_messages(&self, request: QueryWelcomeMessagesRequest) -> Result<QueryWelcomeMessagesResponse, Error>;
         async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<GroupMessageStream, Error>;

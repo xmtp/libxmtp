@@ -2049,7 +2049,7 @@ dependencies = [
  "hpke-rs-crypto",
  "log",
  "serde",
- "tls_codec 0.4.0",
+ "tls_codec",
  "zeroize",
 ]
 
@@ -2841,9 +2841,10 @@ dependencies = [
 
 [[package]]
 name = "openmls"
-version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?rev=9cb3207#9cb3207b077fcf6bc327408dfcf3df6237aec49c"
+version = "0.6.0-pre.2"
+source = "git+https://github.com/xmtp/openmls?rev=cf42738018d093434c955a1b50a9de34cc12b8c5#cf42738018d093434c955a1b50a9de34cc12b8c5"
 dependencies = [
+ "backtrace",
  "itertools 0.10.5",
  "log",
  "once_cell",
@@ -2857,27 +2858,27 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "tls_codec 0.4.2-pre.1",
+ "tls_codec",
  "wasm-bindgen-test",
 ]
 
 [[package]]
 name = "openmls_basic_credential"
-version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=9cb3207#9cb3207b077fcf6bc327408dfcf3df6237aec49c"
+version = "0.3.0-pre.1"
+source = "git+https://github.com/xmtp/openmls?rev=cf42738018d093434c955a1b50a9de34cc12b8c5#cf42738018d093434c955a1b50a9de34cc12b8c5"
 dependencies = [
  "ed25519-dalek",
  "openmls_traits",
  "p256",
  "rand",
  "serde",
- "tls_codec 0.4.2-pre.1",
+ "tls_codec",
 ]
 
 [[package]]
 name = "openmls_memory_storage"
-version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=9cb3207#9cb3207b077fcf6bc327408dfcf3df6237aec49c"
+version = "0.3.0-pre.2"
+source = "git+https://github.com/xmtp/openmls?rev=cf42738018d093434c955a1b50a9de34cc12b8c5#cf42738018d093434c955a1b50a9de34cc12b8c5"
 dependencies = [
  "hex",
  "log",
@@ -2889,8 +2890,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_rust_crypto"
-version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=9cb3207#9cb3207b077fcf6bc327408dfcf3df6237aec49c"
+version = "0.3.0-pre.1"
+source = "git+https://github.com/xmtp/openmls?rev=cf42738018d093434c955a1b50a9de34cc12b8c5#cf42738018d093434c955a1b50a9de34cc12b8c5"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -2908,13 +2909,13 @@ dependencies = [
  "serde",
  "sha2",
  "thiserror",
- "tls_codec 0.4.2-pre.1",
+ "tls_codec",
 ]
 
 [[package]]
 name = "openmls_test"
-version = "0.1.0"
-source = "git+https://github.com/xmtp/openmls?rev=9cb3207#9cb3207b077fcf6bc327408dfcf3df6237aec49c"
+version = "0.1.0-pre.1"
+source = "git+https://github.com/xmtp/openmls?rev=cf42738018d093434c955a1b50a9de34cc12b8c5#cf42738018d093434c955a1b50a9de34cc12b8c5"
 dependencies = [
  "ansi_term",
  "openmls_rust_crypto",
@@ -2928,11 +2929,11 @@ dependencies = [
 
 [[package]]
 name = "openmls_traits"
-version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=9cb3207#9cb3207b077fcf6bc327408dfcf3df6237aec49c"
+version = "0.3.0-pre.2"
+source = "git+https://github.com/xmtp/openmls?rev=cf42738018d093434c955a1b50a9de34cc12b8c5#cf42738018d093434c955a1b50a9de34cc12b8c5"
 dependencies = [
  "serde",
- "tls_codec 0.4.2-pre.1",
+ "tls_codec",
 ]
 
 [[package]]
@@ -4074,6 +4075,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "scoped-futures"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1473e24c637950c9bd38763220bea91ec3e095a89f672bbd7a10d03e77ba467"
+dependencies = [
+ "cfg-if",
+ "pin-utils",
+]
+
+[[package]]
 name = "scoped-tls"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4681,40 +4692,20 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tls_codec"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d38a1d5fcfa859f0ec2b5e111dc903890bd7dac7f34713232bf9aa4fd7cad7b2"
+checksum = "b5e78c9c330f8c85b2bae7c8368f2739157db9991235123aa1b15ef9502bfb6a"
 dependencies = [
  "serde",
- "tls_codec_derive 0.4.0",
+ "tls_codec_derive",
  "zeroize",
-]
-
-[[package]]
-name = "tls_codec"
-version = "0.4.2-pre.1"
-source = "git+https://github.com/rustcrypto/formats#ef837bce43803eebc99922c6552b1cb9b2a01a03"
-dependencies = [
- "serde",
- "tls_codec_derive 0.4.1",
- "zeroize",
-]
-
-[[package]]
-name = "tls_codec_derive"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8e00e3e7a54e0f1c8834ce72ed49c8487fbd3f801d8cfe1a0ad0640382f8e15"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.48",
 ]
 
 [[package]]
 name = "tls_codec_derive"
 version = "0.4.1"
-source = "git+https://github.com/rustcrypto/formats#ef837bce43803eebc99922c6552b1cb9b2a01a03"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d9ef545650e79f30233c0003bcc2504d7efac6dad25fca40744de773fe2049c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5850,12 +5841,13 @@ dependencies = [
  "rand",
  "reqwest 0.12.4",
  "ring 0.17.8",
+ "scoped-futures",
  "serde",
  "serde_json",
  "sha2",
  "smart-default",
  "thiserror",
- "tls_codec 0.4.0",
+ "tls_codec",
  "tokio",
  "tokio-stream",
  "toml 0.8.8",

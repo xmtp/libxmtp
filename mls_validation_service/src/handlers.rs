@@ -198,7 +198,8 @@ async fn validate_inbox_id_key_package(
         error_message: "".into(),
         credential: Some(kp.credential),
         installation_public_key: kp.installation_public_key,
-        expiration: kp.inner.life_time().not_after(),
+        // We are deprecating the expiration field and key package lifetimes, so stop checking for its existence
+        expiration: 0,
     })
 }
 
@@ -377,7 +378,7 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
         installation_id: verified_key_package.installation_id(),
         account_address: verified_key_package.account_address,
         credential_identity_bytes: basic_credential.identity().to_vec(),
-        expiration: verified_key_package.inner.life_time().not_after(),
+        expiration: 0,
     })
 }
 

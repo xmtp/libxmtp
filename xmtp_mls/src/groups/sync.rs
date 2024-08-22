@@ -17,7 +17,7 @@ use crate::{
     client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{
-        DELIMITER, GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS,
+        DELIMITER, GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
         UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
     groups::{
@@ -53,6 +53,7 @@ use openmls::{
         ProcessedMessage, ProcessedMessageContent, Sender,
     },
     prelude_test::KeyPackage,
+    treesync::LeafNodeParameters,
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::OpenMlsProvider;
@@ -82,24 +83,24 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
-        let mls_provider = client.mls_provider(conn.clone());
+        let mls_provider = XmtpOpenMlsProvider::from(conn);
 
         log::info!("[{}] syncing group", client.inbox_id());
         log::info!(
             "current epoch for [{}] in sync() is Epoch: [{}]",
             client.inbox_id(),
-            self.load_mls_group(mls_provider).unwrap().epoch()
+            self.load_mls_group(&mls_provider)?.epoch()
         );
-        self.maybe_update_installations(conn.clone(), None, client)
+        self.maybe_update_installations(&mls_provider, None, client)
             .await?;
 
-        self.sync_with_conn(conn, client).await
+        self.sync_with_conn(&mls_provider, client).await
     }
 
-    #[tracing::instrument(level = "trace", skip(client, self, conn))]
-    pub(super) async fn sync_with_conn<ApiClient>(
+    #[tracing::instrument(level = "trace", skip(self, provider, client))]
+    pub(crate) async fn sync_with_conn<ApiClient>(
         &self,
-        conn: DbConnection,
+        provider: &XmtpOpenMlsProvider,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
@@ -107,21 +108,23 @@ impl MlsGroup {
     {
         let mut errors: Vec<GroupError> = vec![];
 
+        let conn = provider.conn_ref();
+
         // Even if publish fails, continue to receiving
-        if let Err(publish_error) = self.publish_intents(conn.clone(), client).await {
+        if let Err(publish_error) = self.publish_intents(provider, client).await {
             log::error!("Sync: error publishing intents {:?}", publish_error);
             errors.push(publish_error);
         }
 
         // Even if receiving fails, continue to post_commit
-        if let Err(receive_error) = self.receive(&conn, client).await {
+        if let Err(receive_error) = self.receive(provider, client).await {
             log::error!("receive error {:?}", receive_error);
             // We don't return an error if receive fails, because it's possible this is caused
             // by malicious data sent over the network, or messages from before the user was
             // added to the group
         }
 
-        if let Err(post_commit_err) = self.post_commit(&conn, client).await {
+        if let Err(post_commit_err) = self.post_commit(conn, client).await {
             log::error!("post commit error {:?}", post_commit_err);
             errors.push(post_commit_err);
         }
@@ -135,13 +138,13 @@ impl MlsGroup {
 
     pub(super) async fn sync_until_last_intent_resolved<ApiClient>(
         &self,
-        conn: DbConnection,
+        provider: &XmtpOpenMlsProvider,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
-        let intents = conn.find_group_intents(
+        let intents = provider.conn_ref().find_group_intents(
             self.group_id.clone(),
             Some(vec![IntentState::ToPublish, IntentState::Published]),
             None,
@@ -151,7 +154,7 @@ impl MlsGroup {
             return Ok(());
         }
 
-        self.sync_until_intent_resolved(conn, intents[intents.len() - 1].id, client)
+        self.sync_until_intent_resolved(provider, intents[intents.len() - 1].id, client)
             .await
     }
 
@@ -162,10 +165,10 @@ impl MlsGroup {
      *
      * This method will retry up to `crate::configuration::MAX_GROUP_SYNC_RETRIES` times.
      */
-    #[tracing::instrument(level = "trace", skip(client, self, conn))]
+    #[tracing::instrument(level = "trace", skip(client, self, provider))]
     pub(super) async fn sync_until_intent_resolved<ApiClient>(
         &self,
-        conn: DbConnection,
+        provider: &XmtpOpenMlsProvider,
         intent_id: ID,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
@@ -176,12 +179,12 @@ impl MlsGroup {
         // Return the last error to the caller if we fail to sync
         let mut last_err: Option<GroupError> = None;
         while num_attempts < crate::configuration::MAX_GROUP_SYNC_RETRIES {
-            if let Err(err) = self.sync_with_conn(conn.clone(), client).await {
+            if let Err(err) = self.sync_with_conn(provider, client).await {
                 log::error!("error syncing group {:?}", err);
                 last_err = Some(err);
             }
 
-            match Fetch::<StoredGroupIntent>::fetch(&conn, &intent_id) {
+            match Fetch::<StoredGroupIntent>::fetch(provider.conn_ref(), &intent_id) {
                 Ok(None) => {
                     // This is expected. The intent gets deleted on success
                     return Ok(());
@@ -191,7 +194,10 @@ impl MlsGroup {
                     state: IntentState::Error,
                     ..
                 })) => {
-                    log::warn!("not retrying intent ID {id}. since it is in state Error",);
+                    log::warn!(
+                        "not retrying intent ID {id}. since it is in state Error. {:?}",
+                        last_err
+                    );
                     return Err(last_err.unwrap_or(GroupError::Generic(
                         "Group intent could not be committed".to_string(),
                     )));
@@ -267,7 +273,7 @@ impl MlsGroup {
             message_epoch
         );
 
-        let conn = provider.conn();
+        let conn = provider.conn_ref();
         match intent.kind {
             IntentKind::KeyUpdate
             | IntentKind::UpdateGroupMembership
@@ -297,7 +303,7 @@ impl MlsGroup {
                 );
                 let maybe_validated_commit = ValidatedCommit::from_staged_commit(
                     client,
-                    &conn,
+                    conn,
                     maybe_pending_commit.expect("already checked"),
                     openmls_group,
                 )
@@ -315,7 +321,7 @@ impl MlsGroup {
                     return Ok(());
                 }
 
-                let validated_commit = maybe_validated_commit.unwrap();
+                let validated_commit = maybe_validated_commit.expect("Checked for error");
 
                 log::info!(
                     "[{}] merging pending commit for intent {}",
@@ -332,7 +338,7 @@ impl MlsGroup {
                     conn.set_group_intent_to_publish(intent.id)?;
                 } else {
                     // If no error committing the change, write a transcript message
-                    self.save_transcript_message(&conn, validated_commit, envelope_timestamp_ns)?;
+                    self.save_transcript_message(conn, validated_commit, envelope_timestamp_ns)?;
                 }
             }
             IntentKind::SendMessage => {
@@ -341,7 +347,7 @@ impl MlsGroup {
                     intent.id,
                     group_epoch,
                     message_epoch,
-                    1, // max_past_epochs, TODO: expose from OpenMLS MlsGroup
+                    MAX_PAST_EPOCHS,
                 ) {
                     conn.set_group_intent_to_publish(intent.id)?;
                     return Ok(());
@@ -590,7 +596,7 @@ impl MlsGroup {
         }?;
 
         let intent = provider
-            .conn()
+            .conn_ref()
             .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
 
         match intent {
@@ -672,14 +678,13 @@ impl MlsGroup {
     pub async fn process_messages<ApiClient>(
         &self,
         messages: Vec<GroupMessage>,
-        conn: DbConnection,
+        provider: &XmtpOpenMlsProvider,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
-        let provider = self.context.mls_provider(conn);
-        let mut openmls_group = self.load_mls_group(&provider)?;
+        let mut openmls_group = self.load_mls_group(provider)?;
 
         let mut receive_errors = vec![];
         for message in messages.into_iter() {
@@ -714,18 +719,19 @@ impl MlsGroup {
         }
     }
 
-    #[tracing::instrument(level = "trace", skip(conn, client, self))]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(super) async fn receive<ApiClient>(
         &self,
-        conn: &DbConnection,
+        provider: &XmtpOpenMlsProvider,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
-        let messages = client.query_group_messages(&self.group_id, conn).await?;
-        self.process_messages(messages, conn.clone(), client)
+        let messages = client
+            .query_group_messages(&self.group_id, provider.conn_ref())
             .await?;
+        self.process_messages(messages, provider, client).await?;
         Ok(())
     }
 
@@ -776,19 +782,18 @@ impl MlsGroup {
         Ok(Some(msg))
     }
 
-    #[tracing::instrument(level = "trace", skip(conn, self, client))]
+    #[tracing::instrument(level = "trace", skip(self, provider, client))]
     pub(super) async fn publish_intents<ApiClient>(
         &self,
-        conn: DbConnection,
+        provider: &XmtpOpenMlsProvider,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
-        let provider = self.context.mls_provider(conn);
-        let mut openmls_group = self.load_mls_group(&provider)?;
+        let mut openmls_group = self.load_mls_group(provider)?;
 
-        let intents = provider.conn().find_group_intents(
+        let intents = provider.conn_ref().find_group_intents(
             self.group_id.clone(),
             Some(vec![IntentState::ToPublish]),
             None,
@@ -798,55 +803,57 @@ impl MlsGroup {
             let result = retry_async!(
                 Retry::default(),
                 (async {
-                    self.get_publish_intent_data(&provider, client, &mut openmls_group, &intent)
+                    self.get_publish_intent_data(provider, client, &mut openmls_group, &intent)
                         .await
                 })
             );
 
-            if let Err(err) = result {
-                log::error!("error getting publish intent data {:?}", err);
-                if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
-                    log::error!("intent {} has reached max publish attempts", intent.id);
-                    // TODO: Eventually clean up errored attempts
-                    provider
-                        .conn()
-                        .set_group_intent_error_and_fail_msg(&intent)?;
-                } else {
-                    provider
-                        .conn()
-                        .increment_intent_publish_attempt_count(intent.id)?;
+            match result {
+                Err(err) => {
+                    log::error!("error getting publish intent data {:?}", err);
+                    if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
+                        log::error!("intent {} has reached max publish attempts", intent.id);
+                        // TODO: Eventually clean up errored attempts
+                        provider
+                            .conn_ref()
+                            .set_group_intent_error_and_fail_msg(&intent)?;
+                    } else {
+                        provider
+                            .conn_ref()
+                            .increment_intent_publish_attempt_count(intent.id)?;
+                    }
+
+                    return Err(err);
                 }
+                Ok(Some((payload, post_commit_data))) => {
+                    let payload_slice = payload.as_slice();
 
-                return Err(err);
-            }
-
-            if let Some((payload, post_commit_data)) = result.expect("checked") {
-                let payload_slice = payload.as_slice();
-
-                client
-                    .api_client
-                    .send_group_messages(vec![payload_slice])
-                    .await?;
-                log::info!(
-                    "[{}] published intent [{}] of type [{}]",
-                    client.inbox_id(),
-                    intent.id,
-                    intent.kind
-                );
-                provider.conn().set_group_intent_published(
-                    intent.id,
-                    sha256(payload_slice),
-                    post_commit_data,
-                )?;
-                log::debug!(
-                    "client [{}] set stored intent [{}] to state `published`",
-                    client.inbox_id(),
-                    intent.id
-                );
-            } else {
-                provider
-                    .conn()
-                    .set_group_intent_error_and_fail_msg(&intent)?;
+                    client
+                        .api_client
+                        .send_group_messages(vec![payload_slice])
+                        .await?;
+                    log::info!(
+                        "[{}] published intent [{}] of type [{}]",
+                        client.inbox_id(),
+                        intent.id,
+                        intent.kind
+                    );
+                    provider.conn_ref().set_group_intent_published(
+                        intent.id,
+                        sha256(payload_slice),
+                        post_commit_data,
+                    )?;
+                    log::debug!(
+                        "client [{}] set stored intent [{}] to state `published`",
+                        client.inbox_id(),
+                        intent.id
+                    );
+                }
+                Ok(None) => {
+                    log::info!("Skipping intent because no publish data returned");
+                    let deleter: &dyn Delete<StoredGroupIntent, Key = i32> = provider.conn_ref();
+                    deleter.delete(intent.id)?;
+                }
             }
         }
 
@@ -902,8 +909,11 @@ impl MlsGroup {
                 Ok(Some((msg_bytes, None)))
             }
             IntentKind::KeyUpdate => {
-                let (commit, _, _) = openmls_group
-                    .self_update(&provider, &self.context.identity.installation_keys)?;
+                let (commit, _, _) = openmls_group.self_update(
+                    &provider,
+                    &self.context.identity.installation_keys,
+                    LeafNodeParameters::default(),
+                )?;
 
                 Ok(Some((commit.tls_serialize_detached()?, None)))
             }
@@ -975,8 +985,7 @@ impl MlsGroup {
         )?;
 
         for intent in intents {
-            if intent.post_commit_data.is_some() {
-                let post_commit_data = intent.post_commit_data.unwrap();
+            if let Some(post_commit_data) = intent.post_commit_data {
                 let post_commit_action = PostCommitAction::from_bytes(post_commit_data.as_slice())?;
                 match post_commit_action {
                     PostCommitAction::SendWelcomes(action) => {
@@ -991,9 +1000,9 @@ impl MlsGroup {
         Ok(())
     }
 
-    pub(super) async fn maybe_update_installations<ApiClient>(
+    pub async fn maybe_update_installations<ApiClient>(
         &self,
-        conn: DbConnection,
+        provider: &XmtpOpenMlsProvider,
         update_interval: Option<i64>,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
@@ -1007,12 +1016,15 @@ impl MlsGroup {
         };
 
         let now = crate::utils::time::now_ns();
-        let last = conn.get_installations_time_checked(self.group_id.clone())?;
+        let last = provider
+            .conn_ref()
+            .get_installations_time_checked(self.group_id.clone())?;
         let elapsed = now - last;
         if elapsed > interval {
-            let provider = self.context.mls_provider(conn.clone());
-            self.add_missing_installations(&provider, client).await?;
-            conn.update_installations_time_checked(self.group_id.clone())?;
+            self.add_missing_installations(provider, client).await?;
+            provider
+                .conn_ref()
+                .update_installations_time_checked(self.group_id.clone())?;
         }
 
         Ok(())
@@ -1045,14 +1057,14 @@ impl MlsGroup {
 
         debug!("Adding missing installations {:?}", intent_data);
 
-        let conn = provider.conn();
+        let conn = provider.conn_ref();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::UpdateGroupMembership,
             self.group_id.clone(),
             intent_data.into(),
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(provider, intent.id, client)
             .await
     }
 
@@ -1222,7 +1234,7 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
     // This function goes to the network and fills in any missing Identity Updates
     let installation_diff = client
         .get_installation_diff(
-            &provider.conn(),
+            provider.conn_ref(),
             &old_group_membership,
             &new_group_membership,
             &membership_diff,
@@ -1302,6 +1314,7 @@ mod tests {
     use super::*;
     use crate::builder::ClientBuilder;
     use futures::future;
+    use scoped_futures::ScopedFutureExt;
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -1319,17 +1332,12 @@ mod tests {
         amal_group.send_message_optimistic(b"5").unwrap();
         amal_group.send_message_optimistic(b"6").unwrap();
 
-        let mut futures = vec![];
         let conn = amal.context().store.conn().unwrap();
+        let provider: XmtpOpenMlsProvider = conn.into();
 
+        let mut futures = vec![];
         for _ in 0..10 {
-            let client = amal.clone();
-            let conn = conn.clone();
-            let group = amal_group.clone();
-
-            futures.push(async move {
-                group.publish_intents(conn, &client).await.unwrap();
-            });
+            futures.push(amal_group.publish_intents(&provider, &amal).scoped())
         }
         future::join_all(futures).await;
     }
