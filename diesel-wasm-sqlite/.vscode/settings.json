@@ -15,6 +15,7 @@
         "ctor": ["ctor"],
         "tokio": ["test"],
         "diesel": ["table"],
+        "wasm-bindgen": ["wasm-bindgen"],
       }
     }
   },

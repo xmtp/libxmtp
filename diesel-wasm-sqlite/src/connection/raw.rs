@@ -15,18 +15,16 @@ use std::collections::HashMap;
 use tokio::sync::oneshot;
 use wasm_bindgen::{closure::Closure, JsValue};
 
-use super::stmt::{Statement, StatementFactory};
+use super::stmt::Statement;
 
 #[allow(missing_copy_implementations)]
 pub(super) struct RawConnection {
     pub(super) internal_connection: JsValue,
-    iterator_cache: HashMap<StatementCacheKey<WasmSqlite>, js_sys::AsyncIterator>,
-    drop_signal: Option<oneshot::Sender<JsValue>>,
 }
 
 impl RawConnection {
-    pub(super) async fn establish(database_url: &str) -> ConnectionResult<Self> {
-        let sqlite3 = crate::get_sqlite().await;
+    pub(super) fn establish(database_url: &str) -> ConnectionResult<Self> {
+        let sqlite3 = crate::get_sqlite_unchecked();
         let database_url = if database_url.starts_with("sqlite://") {
             database_url.replacen("sqlite://", "file:", 1)
         } else {
@@ -36,44 +34,18 @@ impl RawConnection {
             | SqliteOpenFlags::SQLITE_OPEN_CREATE
             | SqliteOpenFlags::SQLITE_OPEN_URI;
 
-        let (tx, rx) = oneshot::channel::<JsValue>();
-        // TODO: can make this into function/macro
-        wasm_bindgen_futures::spawn_local(async move {
-            match rx.await {
-                Ok(conn) => {
-                    let sqlite3 = crate::get_sqlite_unchecked();
-                    match sqlite3.close(&conn).await {
-                        Ok(_) => tracing::debug!("db closed"),
-                        Err(e) => {
-                            tracing::error!("error during db close");
-                            web_sys::console::log_1(&e);
-                        }
-                    }
-                }
-                Err(_) => {
-                    tracing::error!("RawConnection never dropped.");
-                }
-            }
-        });
         // TODO: flags are ignored for now
         Ok(RawConnection {
             internal_connection: sqlite3
                 .open(&database_url, Some(flags.bits() as i32))
-                .await
                 .map_err(WasmSqliteError::from)
                 .map_err(ConnectionError::from)?,
-            iterator_cache: HashMap::new(),
-            drop_signal: Some(tx),
         })
     }
 
-    pub(super) async fn exec(&self, query: &str) -> QueryResult<()> {
-        let sqlite3 = crate::get_sqlite().await;
-        let result = sqlite3
-            .exec(&self.internal_connection, query)
-            .await
-            .unwrap();
-
+    pub(super) fn exec(&self, query: &str) -> QueryResult<()> {
+        let sqlite3 = crate::get_sqlite_unchecked();
+        let result = sqlite3.exec(&self.internal_connection, query).unwrap();
         Ok(result)
     }
 
@@ -156,28 +128,14 @@ impl RawConnection {
     */
 }
 
-#[async_trait::async_trait(?Send)]
-impl diesel_async::stmt_cache::PrepareCallback<Statement, SqliteType> for &'_ mut RawConnection {
-    async fn prepare(
-        self,
-        sql: &str,
-        _metadata: &[SqliteType],
-        is_for_cache: PrepareForCache,
-    ) -> QueryResult<(Statement, Self)> {
-        let stmt = StatementFactory::new(&self, sql, is_for_cache)
-            .await?
-            .prepare()
-            .await;
-        Ok((stmt, self))
-    }
-}
-
 impl Drop for RawConnection {
     fn drop(&mut self) {
-        if let Some(s) = self.drop_signal.take() {
-            let _ = s.send(self.internal_connection.clone());
-        } else {
-            tracing::warn!("RawConnection not dropped because drop_signal is empty");
+        let sqlite3 = crate::get_sqlite_unchecked();
+        match sqlite3.close(&self.internal_connection) {
+            Ok(_) => tracing::info!("RawConnection succesfully dropped & connection closed"),
+            Err(e) => {
+                tracing::error!("Dropping `RawConnection` enocountered {e:?}");
+            }
         }
     }
 }

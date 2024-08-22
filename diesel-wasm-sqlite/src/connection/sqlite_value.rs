@@ -14,11 +14,11 @@ use super::row::PrivateSqliteRow;
 /// Use existing `FromSql` implementations to convert this into
 /// rust values
 #[allow(missing_debug_implementations, missing_copy_implementations)]
-pub struct SqliteValue<'row, 'stmt> {
+pub struct SqliteValue<'row, 'stmt, 'query> {
     // This field exists to ensure that nobody
     // can modify the underlying row while we are
     // holding a reference to some row value here
-    _row: Option<Ref<'row, PrivateSqliteRow<'stmt>>>,
+    _row: Option<Ref<'row, PrivateSqliteRow<'stmt, 'query>>>,
     // we extract the raw value pointer as part of the constructor
     // to safe the match statements for each method
     // According to benchmarks this leads to a ~20-30% speedup
@@ -35,15 +35,22 @@ pub(super) struct OwnedSqliteValue {
     pub(super) value: SQLiteCompatibleType,
 }
 
+impl Drop for OwnedSqliteValue {
+    fn drop(&mut self) {
+        let sqlite3 = crate::get_sqlite_unchecked();
+        sqlite3.value_free(&self.value)
+    }
+}
+
 // Unsafe Send impl safe since sqlite3_value is built with sqlite3_value_dup
 // see https://www.sqlite.org/c3ref/value.html
 unsafe impl Send for OwnedSqliteValue {}
 
-impl<'row, 'stmt> SqliteValue<'row, 'stmt> {
+impl<'row, 'stmt, 'query> SqliteValue<'row, 'stmt, 'query> {
     pub(super) fn new(
-        row: Ref<'row, PrivateSqliteRow<'stmt>>,
+        row: Ref<'row, PrivateSqliteRow<'stmt, 'query>>,
         col_idx: i32,
-    ) -> Option<SqliteValue<'row, 'stmt>> {
+    ) -> Option<SqliteValue<'row, 'stmt, 'query>> {
         let value = match &*row {
             PrivateSqliteRow::Direct(stmt) => stmt.column_value(col_idx)?,
             PrivateSqliteRow::Duplicated { values, .. } => values
@@ -67,7 +74,7 @@ impl<'row, 'stmt> SqliteValue<'row, 'stmt> {
     pub(super) fn from_owned_row(
         row: &'row OwnedSqliteRow,
         col_idx: i32,
-    ) -> Option<SqliteValue<'row, 'stmt>> {
+    ) -> Option<SqliteValue<'row, 'stmt, 'query>> {
         let value = row
             .values
             .get(col_idx as usize)

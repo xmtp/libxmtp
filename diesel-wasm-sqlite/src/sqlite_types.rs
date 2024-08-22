@@ -99,7 +99,7 @@ bitflags! {
 
 // SQLite Prepare Flags https://www.sqlite.org/c3ref/c_prepare_normalize.html#sqlitepreparepersistent
 bitflags! {
-    pub struct SqlitePrepareFlags: i32 {
+    pub struct SqlitePrepareFlags: u32 {
         const SQLITE_PREPARE_PERSISTENT = 0x01;
         const SQLITE_PREPARE_NORMALIZE  = 0x02;
         const SQLITE_PREPARE_NO_VTAB    = 0x04;

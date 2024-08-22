@@ -1,27 +1,26 @@
 use crate::{connection::WasmSqliteConnection, WasmSqlite};
+use diesel::connection::Connection;
 use diesel::insertable::InsertValues;
 use diesel::insertable::{CanInsertInSingleQuery, ColumnInsertValue, DefaultableColumnInsertValue};
+use diesel::prelude::RunQueryDsl;
+use diesel::query_builder::QueryFragment;
 use diesel::query_builder::{AstPass, QueryId, ValuesClause};
 use diesel::query_builder::{BatchInsert, InsertStatement};
-use diesel::query_builder::QueryFragment;
+use diesel::query_dsl::load_dsl::ExecuteDsl;
 use diesel::{QueryResult, QuerySource, Table};
-use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_async::{methods::ExecuteDsl, AsyncConnection, RunQueryDsl};
-
 
 #[cfg(any(feature = "unsafe-debug-query", test))]
 pub mod unsafe_debug_query {
     use super::*;
     use diesel::backend::Backend;
     use diesel::{debug_query, query_builder::DebugQuery};
-    use futures_util::future::LocalBoxFuture;
     use std::fmt::{self, Debug, Display};
 
     pub trait DebugQueryHelper<ContainsDefaultableValue> {
         fn fmt_debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
         fn fmt_display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
     }
-   
+
     // FIXME: Here to temporarily workaround private fields of `DebugQuery`.
     // this should never go in prod
     // this is cause `DebugQuery` is private
@@ -34,7 +33,12 @@ pub mod unsafe_debug_query {
     impl<'a, T, V, QId, Op, Ret, const STATIC_QUERY_ID: bool> DebugQueryHelper<Yes>
         for DebugQuery<
             'a,
-            InsertStatement<T, BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>, Op, Ret>,
+            InsertStatement<
+                T,
+                BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>,
+                Op,
+                Ret,
+            >,
             WasmSqlite,
         >
     where
@@ -72,7 +76,8 @@ pub mod unsafe_debug_query {
             let query = query.query;
             let mut statements = vec![String::from("BEGIN")];
             for record in query.records.values.iter() {
-                let stmt = InsertStatement::new(query.target, record, query.operator, query.returning);
+                let stmt =
+                    InsertStatement::new(query.target, record, query.operator, query.returning);
                 statements.push(debug_query(&stmt).to_string());
             }
             statements.push("COMMIT".into());
@@ -110,7 +115,8 @@ pub mod unsafe_debug_query {
             let query = query.query;
             writeln!(f, "BEGIN;")?;
             for record in query.records.values.iter() {
-                let stmt = InsertStatement::new(query.target, record, query.operator, query.returning);
+                let stmt =
+                    InsertStatement::new(query.target, record, query.operator, query.returning);
                 writeln!(f, "{}", debug_query(&stmt))?;
             }
             writeln!(f, "COMMIT;")?;
@@ -120,7 +126,11 @@ pub mod unsafe_debug_query {
 
     #[allow(unsafe_code)] // cast to transparent wrapper type
     impl<'a, T, V, QId, Op, const STATIC_QUERY_ID: bool> DebugQueryHelper<No>
-        for DebugQuery<'a, InsertStatement<T, BatchInsert<V, T, QId, STATIC_QUERY_ID>, Op>, WasmSqlite>
+        for DebugQuery<
+            'a,
+            InsertStatement<T, BatchInsert<V, T, QId, STATIC_QUERY_ID>, Op>,
+            WasmSqlite,
+        >
     where
         T: Copy + QuerySource,
         Op: Copy,
@@ -140,7 +150,11 @@ pub mod unsafe_debug_query {
                 >
                     as *const DebugQuery<
                         'a,
-                        InsertStatement<T, SqliteBatchInsertWrapper<V, T, QId, STATIC_QUERY_ID>, Op>,
+                        InsertStatement<
+                            T,
+                            SqliteBatchInsertWrapper<V, T, QId, STATIC_QUERY_ID>,
+                            Op,
+                        >,
                         WasmSqlite,
                     >)
             };
@@ -156,7 +170,11 @@ pub mod unsafe_debug_query {
                 >
                     as *const DebugQuery<
                         'a,
-                        InsertStatement<T, SqliteBatchInsertWrapper<V, T, QId, STATIC_QUERY_ID>, Op>,
+                        InsertStatement<
+                            T,
+                            SqliteBatchInsertWrapper<V, T, QId, STATIC_QUERY_ID>,
+                            Op,
+                        >,
                         WasmSqlite,
                     >)
             };
@@ -165,7 +183,6 @@ pub mod unsafe_debug_query {
     }
 
     pub struct DebugQueryWrapper<'a, T: 'a, DB>(DebugQuery<'a, T, DB>);
-
 
     impl<'a, T, DB> DebugQueryWrapper<'a, T, DB> {
         pub fn new(query: &'a T) -> Self {
@@ -195,12 +212,15 @@ pub mod unsafe_debug_query {
         }
     }
 
-
-
     impl<'a, T, V, QId, Op, Ret, const STATIC_QUERY_ID: bool> DebugQueryHelper<Yes>
         for DebugQueryWrapper<
             'a,
-            InsertStatement<T, BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>, Op, Ret>,
+            InsertStatement<
+                T,
+                BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>,
+                Op,
+                Ret,
+            >,
             WasmSqlite,
         >
     where
@@ -213,14 +233,18 @@ pub mod unsafe_debug_query {
         fn fmt_debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             DebugQueryHelper::fmt_debug(&self.0, f)
         }
-        
+
         fn fmt_display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             DebugQueryHelper::fmt_display(&self.0, f)
         }
     }
 
     impl<'a, T, V, QId, Op, const STATIC_QUERY_ID: bool> DebugQueryHelper<No>
-        for DebugQueryWrapper<'a, InsertStatement<T, BatchInsert<V, T, QId, STATIC_QUERY_ID>, Op>, WasmSqlite>
+        for DebugQueryWrapper<
+            'a,
+            InsertStatement<T, BatchInsert<V, T, QId, STATIC_QUERY_ID>, Op>,
+            WasmSqlite,
+        >
     where
         T: Copy + QuerySource,
         Op: Copy,
@@ -233,12 +257,11 @@ pub mod unsafe_debug_query {
         fn fmt_debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             DebugQueryHelper::fmt_debug(&self.0, f)
         }
-        
+
         fn fmt_display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             DebugQueryHelper::fmt_display(&self.0, f)
         }
     }
-
 
     impl<'a, T, V, QId, Op, O, const STATIC_QUERY_ID: bool> Display
         for DebugQueryWrapper<
@@ -255,7 +278,6 @@ pub mod unsafe_debug_query {
             self.fmt_display(f)
         }
     }
-
 
     impl<'a, T, V, QId, Op, O, const STATIC_QUERY_ID: bool> Debug
         for DebugQueryWrapper<
@@ -353,10 +375,7 @@ where
     O: Default,
     (O, Self): ExecuteDsl<WasmSqliteConnection, WasmSqlite>,
 {
-    fn execute<'conn, 'query>(
-        query: Self,
-        conn: &'conn mut WasmSqliteConnection,
-    ) -> <WasmSqliteConnection as AsyncConnection>::ExecuteFuture<'conn, 'query> {
+    fn execute(query: Self, conn: &mut WasmSqliteConnection) -> QueryResult<usize> {
         <(O, Self) as ExecuteDsl<WasmSqliteConnection, WasmSqlite>>::execute(
             (O::default(), query),
             conn,
@@ -370,35 +389,20 @@ impl<V, T, QId, Op, const STATIC_QUERY_ID: bool> ExecuteDsl<WasmSqliteConnection
         InsertStatement<T, BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>, Op>,
     )
 where
-    for<'query> T: Table + Copy + QueryId + std::fmt::Debug + 'query,
+    T: Table + Copy + QueryId + 'static,
     T::FromClause: QueryFragment<WasmSqlite>,
-    for<'query> Op: Copy + QueryId + QueryFragment<WasmSqlite> + 'query + std::fmt::Debug,
-    for<'query> V:
-        InsertValues<WasmSqlite, T> + CanInsertInSingleQuery<WasmSqlite> + QueryId + std::fmt::Debug + 'query,
-    <T as diesel::QuerySource>::FromClause: std::fmt::Debug,
-    for<'query> QId: std::fmt::Debug + 'query
+    Op: Copy + QueryId + QueryFragment<WasmSqlite>,
+    V: InsertValues<WasmSqlite, T> + CanInsertInSingleQuery<WasmSqlite> + QueryId,
 {
-    fn execute<'conn, 'query>(
-        (Yes, query): Self,
-        conn: &'conn mut WasmSqliteConnection,
-    ) -> <WasmSqliteConnection as AsyncConnection>::ExecuteFuture<'conn, 'query>
-    where
-        Self: 'query,
-    {
-        conn.transaction(move |conn| {
-            async move {
-                let mut result = 0;
-                // tracing::debug!("QUERY {:?}", query);
-                for record in &query.records.values {
-                  //   tracing::debug!("processing record {:?}", record);
-                    let stmt =
-                        InsertStatement::new(query.target, record, query.operator, query.returning);
-                    // tracing::debug!("Processing statement {:?}", stmt);
-                    result += stmt.execute(conn).await?;
-                }
-                Ok(result)
+    fn execute((Yes, query): Self, conn: &mut WasmSqliteConnection) -> QueryResult<usize> {
+        conn.transaction(|conn| {
+            let mut result = 0;
+            for record in &query.records.values {
+                let stmt =
+                    InsertStatement::new(query.target, record, query.operator, query.returning);
+                result += stmt.execute(conn)?;
             }
-            .scope_boxed_local()
+            Ok(result)
         })
     }
 }
@@ -477,18 +481,13 @@ impl<V, T, QId, Op, const STATIC_QUERY_ID: bool> ExecuteDsl<WasmSqliteConnection
         InsertStatement<T, BatchInsert<V, T, QId, STATIC_QUERY_ID>, Op>,
     )
 where
-    for<'query> T: Table + QueryId + 'query,
+    T: Table + QueryId + 'static,
     T::FromClause: QueryFragment<WasmSqlite>,
-    for<'query> Op: QueryFragment<WasmSqlite> + QueryId + 'query,
-    for<'query> V: 'query,
-    for<'query> QId: 'query,
+    Op: QueryFragment<WasmSqlite> + QueryId,
     SqliteBatchInsertWrapper<V, T, QId, STATIC_QUERY_ID>:
         QueryFragment<WasmSqlite> + QueryId + CanInsertInSingleQuery<WasmSqlite>,
 {
-    fn execute<'conn, 'query>(
-        (No, query): Self,
-        conn: &'conn mut WasmSqliteConnection,
-    ) -> <WasmSqliteConnection as AsyncConnection>::ExecuteFuture<'conn, 'query> {
+    fn execute((No, query): Self, conn: &mut WasmSqliteConnection) -> QueryResult<usize> {
         let query = InsertStatement::new(
             query.target,
             SqliteBatchInsertWrapper(query.records),

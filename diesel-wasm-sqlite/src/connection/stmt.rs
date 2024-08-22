@@ -5,9 +5,11 @@ use super::sqlite_value::OwnedSqliteValue;
 use crate::ffi::SQLiteCompatibleType;
 use crate::{
     sqlite_types::{self, PrepareOptions, SqlitePrepareFlags},
-    SqliteType, WasmSqliteError,
+    SqliteType, WasmSqliteError, WasmSqlite, connection::{SqliteBindCollector, bind_collector::InternalSqliteBindValue},
+
 };
 use diesel::{
+    query_builder::{QueryId, QueryFragment},
     connection::{
         statement_cache::{MaybeCached, PrepareForCache},
         Instrumentation,
@@ -16,62 +18,10 @@ use diesel::{
 };
 use js_sys::AsyncIterator;
 use std::cell::OnceCell;
-use std::sync::{Arc, Mutex};
 
 use tokio::sync::oneshot;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
-
-// TODO: Drop impl make sure to free JS async iterat9or
-pub struct StatementFactory {
-    statement_iterator: js_sys::AsyncIterator,
-}
-
-impl StatementFactory {
-    pub async fn new(
-        raw_connection: &RawConnection,
-        sql: &str,
-        is_cached: PrepareForCache,
-    ) -> QueryResult<Self> {
-        tracing::debug!("new statement factory, is_cached = {:?}", is_cached);
-        let sqlite3 = crate::get_sqlite_unchecked();
-        let flags = if matches!(is_cached, PrepareForCache::Yes) {
-            Some(SqlitePrepareFlags::SQLITE_PREPARE_PERSISTENT.bits())
-        } else {
-            None
-        };
-
-        let options = PrepareOptions {
-            flags,
-            unscoped: Some(true),
-        };
-
-        let stmt = sqlite3
-            // TODO: rename to something more fitting
-            .prepare(
-                &raw_connection.internal_connection,
-                sql,
-                serde_wasm_bindgen::to_value(&options).unwrap(),
-            )
-            .await
-            .map_err(WasmSqliteError::from)?;
-
-        let statement_iterator = js_sys::AsyncIterator::from(stmt);
-        Ok(Self { statement_iterator })
-    }
-
-    /// compile a new statement based on given SQL in [`StatementFactory`]
-    pub async fn prepare(&self) -> Statement {
-        let inner_statement = JsFuture::from(self.statement_iterator.next().expect("No Next"))
-            .await
-            .expect("statement failed to compile");
-        let inner_statement: JsValue = js_sys::Reflect::get(&inner_statement, &"value".into())
-            .expect("Async Iterator API should be stable");
-        tracing::debug!("Statement: {:?}", inner_statement);
-
-        Statement { inner_statement }
-    }
-}
 
 // this is OK b/c web runs in one thread
 unsafe impl Send for Statement {}
@@ -82,6 +32,35 @@ pub(super) struct Statement {
 }
 
 impl Statement {
+    pub fn prepare(
+        raw_connection: &RawConnection,
+        sql: &str,
+        is_cached: PrepareForCache,
+    ) -> QueryResult<Self> {
+        let sqlite3 = crate::get_sqlite_unchecked();
+        let flags = if matches!(is_cached, PrepareForCache::Yes) {
+            Some(SqlitePrepareFlags::SQLITE_PREPARE_PERSISTENT.bits())
+        } else {
+            None
+        };
+
+        // placeholder until we allocate with `wasm`
+        let stmt = JsValue::NULL;
+
+        let stmt = sqlite3
+            .prepare_v3(
+                &raw_connection.internal_connection,
+                sql,
+                -1,
+                flags.unwrap_or(0),
+                stmt,
+                JsValue::NULL,
+            )
+            .map_err(WasmSqliteError::from)?;
+        Ok(Self {
+            inner_statement: stmt,
+        })
+    }
     // The caller of this function has to ensure that:
     // * Any buffer provided as `SqliteBindValue::BorrowedBinary`, `SqliteBindValue::Binary`
     // `SqliteBindValue::String` or `SqliteBindValue::BorrowedString` is valid
@@ -90,9 +69,9 @@ impl Statement {
     fn bind(
         &self,
         _tpe: SqliteType,
-        value: OwnedSqliteBindValue,
+        value: InternalSqliteBindValue<'_>,
         bind_index: i32,
-    ) -> QueryResult<i32> {
+    ) -> QueryResult<Option<JsValue>> {
         let sqlite3 = crate::get_sqlite_unchecked();
         let value =
             serde_wasm_bindgen::to_value(&value).expect("Bind value failed to convert to JsValue");
@@ -102,21 +81,13 @@ impl Statement {
             .bind(&self.inner_statement, bind_index, value.into())
             .expect("could not bind");
 
-        // TODO:insipx Pretty sure we can have a simpler implementation here vs diesel
-        // making use of `wa-sqlite` `bind` which abstracts over the individual bind functions in
-        // sqlite3. However, not sure  how this will work further up the stack.
-        // This might not work because of differences in how serde_json recognizes js types
-        // and how wa-sqlite recogizes js types. In that case, need to resort to matching on
-        // individual types with bind_$type fns .
-
-        Ok(result)
+        Ok(Some(result))
     }
 
-    async fn reset(&self) -> QueryResult<()> {
+    fn reset(&self) -> QueryResult<()> {
         let sqlite3 = crate::get_sqlite_unchecked();
         let _ = sqlite3
             .reset(&self.inner_statement)
-            .await
             .map_err(WasmSqliteError::from)?;
         Ok(())
     }
@@ -155,67 +126,50 @@ impl Drop for Statement {
 // * https://github.com/weiznich/diesel/pull/7
 // * https://users.rust-lang.org/t/code-review-for-unsafe-code-in-diesel/66798/
 // * https://github.com/rust-lang/unsafe-code-guidelines/issues/194
-struct BoundStatement<'stmt> {
+struct BoundStatement<'stmt, 'query> {
     statement: MaybeCached<'stmt, Statement>,
     // we need to store the query here to ensure no one does
     // drop it till the end of the statement
     // We use a boxed queryfragment here just to erase the
     // generic type, we use NonNull to communicate
     // that this is a shared buffer
-    // query: Option<Box<dyn QueryFragment<WasmSqlite>>>,
+    query: Option<Box<dyn QueryFragment<WasmSqlite> + 'query>>,
+    binds_to_free: Vec<(i32, Option<JsValue>)>,
     #[allow(unused)]
-    instrumentation: Arc<Mutex<dyn Instrumentation>>,
+    instrumentation: &'stmt mut dyn Instrumentation,
     has_error: bool,
-    drop_signal: Option<oneshot::Sender<JsValue>>,
 }
 
-impl<'stmt> BoundStatement<'stmt> {
-    fn bind(
+impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
+    fn bind<T>(
         statement: MaybeCached<'stmt, Statement>,
-        bind_collector: SqliteBindCollectorData,
-        instrumentation: Arc<Mutex<dyn Instrumentation>>,
-    ) -> QueryResult<BoundStatement<'stmt>> {
-        match &statement {
-            MaybeCached::CannotCache(s) => {
-                tracing::debug!("BoundStatement::bind, NOT CACHED statement={:?}", s)
-            }
-            MaybeCached::Cached(s) => {
-                tracing::debug!(
-                    "BoundStatement::bind, MaybeCached::Cached statement={:?}",
-                    s
-                )
-            }
-            &_ => todo!(),
-        }
-        let SqliteBindCollectorData { binds } = bind_collector;
+        query: T,
+        instrumentation: &'stmt mut dyn Instrumentation,
+    ) -> QueryResult<BoundStatement<'stmt, 'query>> 
+    where
+        T: QueryFragment<WasmSqlite> + QueryId + 'query,
+    {
+        // Don't use a trait object here to prevent using a virtual function call
+        // For sqlite this can introduce a measurable overhead
+        // Query is boxed here to make sure it won't move in memory anymore, so any bind
+        // it could output would stay valid.
+        let query = Box::new(query);
 
-        let (tx, rx) = tokio::sync::oneshot::channel::<JsValue>();
-        wasm_bindgen_futures::spawn_local(async move {
-            let result = (|| async move {
-                let inner_statement = rx.await?;
-                let this = Statement { inner_statement };
-                this.reset().await?;
-                this.clear_bindings()?;
-                tracing::debug!("Bound statement dropped succesfully!");
-                // we forget here because we need a clone that's sent to this task
-                // we don't want to `finalizing` this Statement yet (which is what
-                // dropping it would do);
-                std::mem::forget(this);
-                Ok::<_, WasmSqliteError>(())
-            })();
-            if let Err(e) = result.await {
-                tracing::error!("BoundStatement never dropped! {}", e);
-            }
-        });
+        let mut bind_collector = SqliteBindCollector::new();
+        query.collect_binds(&mut bind_collector, &mut (), &WasmSqlite)?;
+        let SqliteBindCollector { binds } = bind_collector;
 
         let mut ret = BoundStatement {
             statement,
+            query: None,
+            binds_to_free: Vec::new(),
             instrumentation,
             has_error: false,
-            drop_signal: Some(tx),
         };
 
         ret.bind_buffers(binds)?;
+
+        let query = query as Box<dyn QueryFragment<WasmSqlite> + 'query>;
 
         Ok(ret)
     }
@@ -223,22 +177,46 @@ impl<'stmt> BoundStatement<'stmt> {
     // This is a separated function so that
     // not the whole constructor is generic over the query type T.
     // This hopefully prevents binary bloat.
-    fn bind_buffers(&mut self, binds: Vec<(OwnedSqliteBindValue, SqliteType)>) -> QueryResult<()> {
+    fn bind_buffers(&mut self, binds: Vec<(InternalSqliteBindValue<'_>, SqliteType)>) -> QueryResult<()> {
+        self.binds_to_free.reserve(
+            binds
+                .iter()
+                .filter(|&(b, _)| {
+                    matches!(
+                        b,
+                        InternalSqliteBindValue::BorrowedBinary(_)
+                            | InternalSqliteBindValue::BorrowedString(_)
+                            | InternalSqliteBindValue::String(_)
+                            | InternalSqliteBindValue::Binary(_)
+                    )
+                })
+                .count(),
+        );
         for (bind_idx, (bind, tpe)) in (1..).zip(binds) {
+            let is_borrowed_bind = matches!(bind,
+                InternalSqliteBindValue::BorrowedString(_)
+                    |   InternalSqliteBindValue::BorrowedBinary(_)
+            );
             // It's safe to call bind here as:
             // * The type and value matches
             // * We ensure that corresponding buffers lives long enough below
             // * The statement is not used yet by `step` or anything else
-            let _ = self.statement.bind(tpe, bind, bind_idx)?;
+            let res = self.statement.bind(tpe, bind, bind_idx)?;
 
-            // we don't track binds to free like sqlite3 C bindings
-            // The assumption is that wa-sqlite, being WASM run in web browser that
-            // lies in the middle of rust -> sqlite, takes care of this for us.
-            // if we run into memory issues, especially memory leaks
-            // this should be the first place to pay attention to.
-            //
-            // The bindings shuold be collected/freed with JS once `clear_bindings` is
-            // run on `Drop` for `BoundStatement`
+            // it's important to push these only after
+            // the call to bind succeeded, otherwise we might attempt to
+            // call bind to an non-existing bind position in
+            // the destructor
+            
+            if let Some(ptr) = res {
+                // Store the id + pointer for a owned bind
+                // as we must unbind and free them on drop
+                self.binds_to_free.push((bind_idx, Some(ptr)));
+            } else if is_borrowed_bind {
+                // Store the id's of borrowed binds to unbind them on drop
+                self.binds_to_free.push((bind_idx, None));
+            }
+
         }
         Ok(())
     }
@@ -246,48 +224,62 @@ impl<'stmt> BoundStatement<'stmt> {
     fn finish_query_with_error(mut self, _e: &Error) {
         self.has_error = true;
     }
-
-    // FIXME: [`AsyncDrop`](https://github.com/rust-lang/rust/issues/126482) is a missing feature in rust.
-    // Until then we need to manually reset the statement object.
-    pub async fn reset(&mut self) -> QueryResult<()> {
-        self.statement.reset().await?;
-        self.statement.clear_bindings()?;
-        Ok(())
-    }
 }
 
-// Eventually replace with `AsyncDrop`: https://github.com/rust-lang/rust/issues/126482
-impl<'stmt> Drop for BoundStatement<'stmt> {
+// we have to free the wawsm memory here not C memory so this will change significantly
+impl<'stmt, 'query> Drop for BoundStatement<'stmt, 'query> {
     fn drop(&mut self) {
-        let sender = self.drop_signal.take().expect("Drop may only be ran once");
-        let _ = sender.send(self.statement.inner_statement.clone());
+        self.statement.reset();
+        self.statement.clear_bindings();
+        for (idx, buffer) in std::mem::take(&mut self.binds_to_free) {
+            // It's always safe to bind null values, as there is no buffer that needs to outlife something
+            self.statement
+                .bind(SqliteType::Text, InternalSqliteBindValue::Null, idx)
+                .expect(
+                    "Binding a null value should never fail. \
+                         If you ever see this error message please open \
+                         an issue at diesels issue tracker containing \
+                         code how to trigger this message.",
+                );
+            /*
+            if let Some(buffer) = buffer {
+                unsafe {
+                    // Constructing the `Box` here is safe as we
+                    // got the pointer from a box + it is guaranteed to be not null.
+                    std::mem::drop(Box::from_raw(buffer.as_ptr()));
+                }
+            }
+            */
+        }
     }
 }
 
 #[allow(missing_debug_implementations)]
-pub struct StatementUse<'stmt> {
-    statement: BoundStatement<'stmt>,
+pub struct StatementUse<'stmt, 'query> {
+    statement: BoundStatement<'stmt, 'query>,
     column_names: OnceCell<Vec<String>>,
 }
 
-impl<'stmt> StatementUse<'stmt> {
-    pub(super) fn bind(
+impl<'stmt, 'query> StatementUse<'stmt, 'query> {
+    pub(super) fn bind<T>(
         statement: MaybeCached<'stmt, Statement>,
-        bind_collector: SqliteBindCollectorData,
-        instrumentation: Arc<Mutex<dyn Instrumentation>>,
-    ) -> QueryResult<StatementUse<'stmt>>
-where {
+        query: T,
+        instrumentation: &'stmt mut dyn Instrumentation,
+    ) -> QueryResult<StatementUse<'stmt, 'query>>
+    where 
+        T: QueryFragment<WasmSqlite> + QueryId + 'query
+    {
         Ok(Self {
-            statement: BoundStatement::bind(statement, bind_collector, instrumentation)?,
+            statement: BoundStatement::bind(statement, query, instrumentation)?,
             column_names: OnceCell::new(),
         })
     }
 
-    pub(super) async fn run(mut self) -> QueryResult<()> {
+    pub(super) fn run(mut self) -> QueryResult<()> {
         // This is safe as we pass `first_step = true`
         // and we consume the statement so nobody could
         // access the columns later on anyway.
-        let r = self.step(true).await.map(|_| ());
+        let r = self.step(true).map(|_| ());
 
         if let Err(ref e) = r {
             self.statement.finish_query_with_error(e);
@@ -301,12 +293,11 @@ where {
     //
     // It's always safe to call this function with `first_step = true` as this removes
     // the cached column names
-    pub(super) async fn step(&mut self, first_step: bool) -> QueryResult<bool> {
+    pub(super) fn step(&mut self, first_step: bool) -> QueryResult<bool> {
         let sqlite3 = crate::get_sqlite_unchecked();
         let res = match serde_wasm_bindgen::from_value::<i32>(
             sqlite3
                 .step(&self.statement.statement.inner_statement)
-                .await
                 .unwrap(),
         )
         .unwrap()

@@ -1,3 +1,6 @@
+mod capi;
+mod wasm;
+
 use js_sys::WebAssembly::Memory;
 use serde::{Deserialize, Serialize};
 use std::cell::LazyCell;
@@ -76,15 +79,20 @@ extern "C" {
     pub static SQLITE_NULL: i32;
 }
 
-/// Direct Shim for wa-sqlite
-#[wasm_bindgen(module = "/src/wa-sqlite-diesel-bundle.js")]
-extern "C" {
-    pub type SQLite;
+#[wasm_bindgen(typescript_custom_section)]
+const SQLITE_COMPATIBLE_TYPE: &'static str = r#"type SQLiteCompatibleType = number|string|Uint8Array|Array<number>|bigint|null"#;
 
+#[wasm_bindgen]
+extern "C" {
     #[derive(Debug, Clone)]
     #[wasm_bindgen(typescript_type = "SQLiteCompatibleType")]
     pub type SQLiteCompatibleType;
-    // pub type SqlitePrepareOptions;
+}
+
+/// Direct Shim for sqlite
+#[wasm_bindgen(module = "/src/wa-sqlite-diesel-bundle.js")]
+extern "C" {
+    pub type SQLite;
 
     #[wasm_bindgen(constructor)]
     pub fn new(module: JsValue) -> SQLite;
@@ -116,7 +124,7 @@ extern "C" {
         stmt: &JsValue,
         idx: i32,
         value: SQLiteCompatibleType,
-    ) -> Result<i32, JsValue>;
+    ) -> Result<JsValue, JsValue>;
     /*
         #[wasm_bindgen(method, catch)]
         pub fn bind_blob(
@@ -159,7 +167,7 @@ extern "C" {
     pub fn bind_text(this: &SQLite, stmt: &JsValue, idx: i32, value: &str) -> Result<i32, JsValue>;
 
     #[wasm_bindgen(method, catch)]
-    pub async fn reset(this: &SQLite, stmt: &JsValue) -> Result<JsValue, JsValue>;
+    pub fn reset(this: &SQLite, stmt: &JsValue) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(method)]
     pub fn value(this: &SQLite, pValue: &JsValue) -> SQLiteCompatibleType;
@@ -190,14 +198,11 @@ extern "C" {
     pub fn value_type(this: &SQLite, pValue: &JsValue) -> i32;
 
     #[wasm_bindgen(method, catch)]
-    pub async fn open(
-        this: &SQLite,
-        database_url: &str,
-        iflags: Option<i32>,
-    ) -> Result<JsValue, JsValue>;
+    pub fn open(this: &SQLite, database_url: &str, iflags: Option<i32>)
+        -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(method, catch)]
-    pub async fn exec(this: &SQLite, database: &JsValue, query: &str) -> Result<(), JsValue>;
+    pub fn exec(this: &SQLite, database: &JsValue, query: &str) -> Result<(), JsValue>;
 
     #[wasm_bindgen(method, catch)]
     pub fn finalize(this: &SQLite, stmt: &JsValue) -> Result<(), JsValue>;
@@ -206,29 +211,29 @@ extern "C" {
     pub fn changes(this: &SQLite, database: &JsValue) -> usize;
 
     #[wasm_bindgen(method, catch)]
-    pub async fn get_stmt_from_iterator(
-        this: &SQLite,
-        iterator: &JsValue,
-    ) -> Result<JsValue, JsValue>;
+    pub fn get_stmt_from_iterator(this: &SQLite, iterator: &JsValue) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(method, catch)]
-    pub async fn step(this: &SQLite, stmt: &JsValue) -> Result<JsValue, JsValue>;
+    pub fn step(this: &SQLite, stmt: &JsValue) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(method, catch)]
     pub fn clear_bindings(this: &SQLite, stmt: &JsValue) -> Result<i32, JsValue>;
 
     #[wasm_bindgen(method, catch)]
-    pub async fn close(this: &SQLite, database: &JsValue) -> Result<(), JsValue>;
+    pub fn close(this: &SQLite, database: &JsValue) -> Result<(), JsValue>;
 
     #[wasm_bindgen(method)]
     pub fn column(this: &SQLite, stmt: &JsValue, idx: i32) -> SQLiteCompatibleType;
 
     #[wasm_bindgen(method, catch)]
-    pub async fn prepare(
+    pub fn prepare_v3(
         this: &SQLite,
         database: &JsValue,
         sql: &str,
-        options: JsValue,
+        n_byte: i32,
+        prep_flags: u32,
+        stmt: JsValue,
+        pzTail: JsValue,
     ) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(method)]
@@ -238,11 +243,7 @@ extern "C" {
     pub fn column_count(this: &SQLite, stmt: &JsValue) -> i32;
 
     #[wasm_bindgen(method, catch)]
-    pub async fn batch_execute(
-        this: &SQLite,
-        database: &JsValue,
-        query: &str,
-    ) -> Result<(), JsValue>;
+    pub fn batch_execute(this: &SQLite, database: &JsValue, query: &str) -> Result<(), JsValue>;
 
     #[wasm_bindgen(method, catch)]
     pub fn create_function(
@@ -259,6 +260,10 @@ extern "C" {
 
     #[wasm_bindgen(method, catch)]
     pub fn register_diesel_sql_functions(this: &SQLite, database: &JsValue) -> Result<(), JsValue>;
+    
+    #[wasm_bindgen(method)]
+    pub fn value_free(this: &SQLite, value: &JsValue);
+
 }
 
 impl std::fmt::Debug for SQLite {

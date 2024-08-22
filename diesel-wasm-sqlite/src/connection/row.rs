@@ -12,20 +12,20 @@ use diesel::{
 };
 
 #[allow(missing_debug_implementations)]
-pub struct SqliteRow<'stmt> {
-    pub(super) inner: Rc<RefCell<PrivateSqliteRow<'stmt>>>,
+pub struct SqliteRow<'stmt, 'query> {
+    pub(super) inner: Rc<RefCell<PrivateSqliteRow<'stmt, 'query>>>,
     pub(super) field_count: usize,
 }
 
-pub(super) enum PrivateSqliteRow<'stmt> {
-    Direct(StatementUse<'stmt>),
+pub(super) enum PrivateSqliteRow<'stmt, 'query> {
+    Direct(StatementUse<'stmt, 'query>),
     Duplicated {
         values: Vec<Option<OwnedSqliteValue>>,
         column_names: Rc<[Option<String>]>,
     },
 }
 
-impl<'stmt> IntoOwnedRow<'stmt, WasmSqlite> for SqliteRow<'stmt> {
+impl<'stmt, 'query> IntoOwnedRow<'stmt, WasmSqlite> for SqliteRow<'stmt, 'query> {
     type OwnedRow = OwnedSqliteRow;
 
     type Cache = Option<Arc<[Option<String>]>>;
@@ -35,11 +35,11 @@ impl<'stmt> IntoOwnedRow<'stmt, WasmSqlite> for SqliteRow<'stmt> {
     }
 }
 
-impl<'stmt> PrivateSqliteRow<'stmt> {
+impl<'stmt, 'query> PrivateSqliteRow<'stmt, 'query> {
     pub(super) fn duplicate(
         &mut self,
         column_names: &mut Option<Rc<[Option<String>]>>,
-    ) -> PrivateSqliteRow<'stmt> {
+    ) -> PrivateSqliteRow<'stmt, 'query> {
         match self {
             PrivateSqliteRow::Direct(stmt) => {
                 let column_names = if let Some(column_names) = column_names {
@@ -129,10 +129,10 @@ impl<'stmt> PrivateSqliteRow<'stmt> {
     }
 }
 
-impl<'stmt> RowSealed for SqliteRow<'stmt> {}
+impl<'stmt, 'query> RowSealed for SqliteRow<'stmt, 'query> {}
 
-impl<'stmt> Row<'stmt, WasmSqlite> for SqliteRow<'stmt> {
-    type Field<'field> = SqliteField<'field> where 'stmt: 'field, Self: 'field;
+impl<'stmt, 'query> Row<'stmt, WasmSqlite> for SqliteRow<'stmt, 'query> {
+    type Field<'field> = SqliteField<'field, 'field> where 'stmt: 'field, Self: 'field;
     type InnerPartialRow = Self;
 
     fn field_count(&self) -> usize {
@@ -156,7 +156,7 @@ impl<'stmt> Row<'stmt, WasmSqlite> for SqliteRow<'stmt> {
     }
 }
 
-impl<'stmt> RowIndex<usize> for SqliteRow<'stmt> {
+impl<'stmt, 'query> RowIndex<usize> for SqliteRow<'stmt, 'query> {
     fn idx(&self, idx: usize) -> Option<usize> {
         if idx < self.field_count {
             Some(idx)
@@ -166,7 +166,7 @@ impl<'stmt> RowIndex<usize> for SqliteRow<'stmt> {
     }
 }
 
-impl<'stmt, 'idx> RowIndex<&'idx str> for SqliteRow<'stmt> {
+impl<'stmt, 'idx, 'query> RowIndex<&'idx str> for SqliteRow<'stmt, 'query> {
     fn idx(&self, field_name: &'idx str) -> Option<usize> {
         match &mut *self.inner.borrow_mut() {
             PrivateSqliteRow::Direct(stmt) => stmt.index_for_column_name(field_name),
@@ -178,12 +178,12 @@ impl<'stmt, 'idx> RowIndex<&'idx str> for SqliteRow<'stmt> {
 }
 
 #[allow(missing_debug_implementations)]
-pub struct SqliteField<'stmt> {
-    pub(super) row: Ref<'stmt, PrivateSqliteRow<'stmt>>,
+pub struct SqliteField<'stmt, 'query> {
+    pub(super) row: Ref<'stmt, PrivateSqliteRow<'stmt, 'query>>,
     pub(super) col_idx: i32,
 }
 
-impl<'stmt> Field<'stmt, WasmSqlite> for SqliteField<'stmt> {
+impl<'stmt, 'query> Field<'stmt, WasmSqlite> for SqliteField<'stmt, 'query> {
     fn field_name(&self) -> Option<&str> {
         match &*self.row {
             PrivateSqliteRow::Direct(stmt) => stmt.field_name(self.col_idx),

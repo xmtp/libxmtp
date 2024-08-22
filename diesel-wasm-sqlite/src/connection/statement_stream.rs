@@ -42,7 +42,7 @@ impl<'stmt> StatementStream<'stmt> {
             std::mem::replace(last_row, duplicated)
         };
         if let PrivateSqliteRow::Direct(mut stmt) = last_row {
-            let res = stmt.step(false).await;
+            let res = stmt.step(false);
             *outer_last_row = Rc::new(RefCell::new(PrivateSqliteRow::Direct(stmt)));
             match res {
                 Err(e) => Some(Err(e)),
@@ -93,7 +93,7 @@ impl<'stmt> StatementStream<'stmt> {
                     let mut stmt = stmt
                         .take()
                         .expect("It must be there because we checked that above");
-                    match stmt.step(true).await {
+                    match stmt.step(true) {
                         Ok(true) => {
                             let field_count = stmt.column_count() as usize;
                             statement.field_count = field_count;
@@ -133,7 +133,7 @@ impl<'stmt> StatementStream<'stmt> {
                             // performed one step. For the first step we would have
                             // used `StatementStreamState::NotStarted` where we don't
                             // have access to `PrivateSqliteRow` at all
-                            match stmt.step(false).await {
+                            match stmt.step(false) {
                                 Err(e) => Some((
                                     Err(e),
                                     Self {
@@ -173,9 +173,8 @@ impl<'stmt> StatementStream<'stmt> {
                             last_row,
                             &mut statement.column_names,
                             statement.field_count,
-                        )
-                        .await;
-                        res.map(|r| {
+                        );
+                        res.await.map(|r| {
                             (
                                 r,
                                 Self {

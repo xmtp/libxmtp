@@ -51,6 +51,30 @@ export class SQLite {
 
   bind(stmt, i, value) {
     try {
+      switch (typeof value) {
+        case "number":
+          if (value === (value | 0)) {
+            return sqlite3.capi.sqlite3_bind_int(stmt, i, value);
+          } else {
+            return sqlite3.capi.sqlite3_bind_double(stmt, i, value);
+          }
+        case "string":
+          return sqlite3.capi.sqlite3_bind_text(stmt, i, value);
+        default:
+          if (value instanceof Uint8Array || Array.isArray(value)) {
+            return sqlite3.capi.sqlite3_bind_blob(stmt, i, value);
+          } else if (value === null) {
+            return sqlite3.capi.sqlite3_bind_null(stmt, i);
+          } else if (typeof value === "bigint") {
+            return sqlite3.capi.sqlite3_bind_int64(stmt, i, value);
+          } else if (value === undefined) {
+            // Existing binding (or NULL) will be used.
+            return sqlite3.capi.SQLITE_NOTICE;
+          } else {
+            console.warn("unknown binding converted to null", value);
+            return sqlite3.bind_null(stmt, i);
+          }
+      }
       return this.sqlite3.capi.sqlite3_bind(stmt, i, value);
     } catch (error) {
       console.log(`bind err ${error}`);
@@ -303,6 +327,7 @@ export class SQLite {
       throw error;
     }
   }
+
   //TODO: At some point need a way to register functions from rust
   //but for just libxmtp this is fine.
   register_diesel_sql_functions(database) {
@@ -311,7 +336,7 @@ export class SQLite {
         database,
         "diesel_manage_updated_at",
         1,
-        WasmSQLiteLibrary.SQLITE_UTF8,
+        sqlite3.capi.SQLITE_UTF8,
         0,
         async (context, values) => {
           const table_name = this.sqlite3.value_text(values[0]);
@@ -342,6 +367,10 @@ export class SQLite {
       console.log("error creating diesel trigger");
       throw error;
     }
+  }
+
+  value_free(value) {
+    return this.sqlite3.capi.sqlite3_value_free(value);
   }
 
   /*
