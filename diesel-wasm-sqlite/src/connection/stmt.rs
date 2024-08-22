@@ -25,7 +25,6 @@ use wasm_bindgen_futures::JsFuture;
 // TODO: Drop impl make sure to free JS async iterat9or
 pub struct StatementFactory {
     statement_iterator: js_sys::AsyncIterator,
-    drop_signal: Option<oneshot::Sender<AsyncIterator>>,
 }
 
 impl StatementFactory {
@@ -58,26 +57,7 @@ impl StatementFactory {
             .map_err(WasmSqliteError::from)?;
 
         let statement_iterator = js_sys::AsyncIterator::from(stmt);
-
-        let (tx, rx) = tokio::sync::oneshot::channel::<AsyncIterator>();
-        // We don't have `AsyncDrop` in rust yet.
-        // instead, we `send` a signal on Drop for the destructor to run in an
-        // asynchronously-spawned task.
-        wasm_bindgen_futures::spawn_local(async move {
-            let result = (|| async move {
-                let _ = rx.await;
-                tracing::debug!("STATEMENT FACTORY DROPPED");
-                Ok::<_, String>(())
-            })();
-            if let Err(e) = result.await {
-                tracing::error!("Statement never dropped! {}", e);
-            }
-        });
-
-        Ok(Self {
-            statement_iterator,
-            drop_signal: Some(tx),
-        })
+        Ok(Self { statement_iterator })
     }
 
     /// compile a new statement based on given SQL in [`StatementFactory`]
