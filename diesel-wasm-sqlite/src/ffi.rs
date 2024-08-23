@@ -29,23 +29,23 @@ struct MemoryOpts {
 #[derive(Serialize, Deserialize)]
 struct Opts {
     /// The Sqlite3 WASM blob, compiled from C
+    #[serde(rename = "wasmBinary")]
     wasm_binary: &'static [u8],
     /// the shared WebAssembly Memory buffer
-    #[serde(with = "serde_wasm_bindgen::preserve")]
-    wasm_memory: js_sys::WebAssembly::Memory,
+    #[serde(with = "serde_wasm_bindgen::preserve", rename = "wasmMemory")]
+    wasm_memory: Memory,
 }
 
-pub(super) const WASM_MEMORY: LazyCell<js_sys::WebAssembly::Memory> = LazyCell::new(|| {
+pub(super) const WASM_MEMORY: LazyCell<Memory> = LazyCell::new(|| {
     let mem = serde_wasm_bindgen::to_value(&MemoryOpts {
         initial: 16_777_216 / 65_536,
         maximum: 2_147_483_648 / 65_536,
     })
     .expect("Serialization must be infallible for const struct");
-    js_sys::WebAssembly::Memory::new(&js_sys::Object::from(mem))
-        .expect("Wasm Memory could not be instantiated")
+    Memory::new(&js_sys::Object::from(mem)).expect("Wasm Memory could not be instantiated")
 });
 
-pub(super) async fn get_sqlite() -> &'static SQLite {
+pub async fn init_sqlite() {
     SQLITE
         .get_or_init(|| async {
             let opts = serde_wasm_bindgen::to_value(&Opts {
@@ -57,11 +57,19 @@ pub(super) async fn get_sqlite() -> &'static SQLite {
             let module = SQLite::init_module(WASM, &opts).await;
             SQLite::new(module)
         })
-        .await
+        .await;
 }
 
 pub(super) fn get_sqlite_unchecked() -> &'static SQLite {
     SQLITE.get().expect("SQLite is not initialized")
+}
+
+// just to make sure we get the file, needed for opfs
+#[wasm_bindgen(module = "/src/sqlite3-opfs-async-proxy.js")]
+extern "C" {
+    // we need to bind to a function to include the file
+    #[wasm_bindgen]
+    fn install_async_proxy();
 }
 
 // Constants
@@ -80,7 +88,8 @@ extern "C" {
 }
 
 #[wasm_bindgen(typescript_custom_section)]
-const SQLITE_COMPATIBLE_TYPE: &'static str = r#"type SQLiteCompatibleType = number|string|Uint8Array|Array<number>|bigint|null"#;
+const SQLITE_COMPATIBLE_TYPE: &'static str =
+    r#"type SQLiteCompatibleType = number|string|Uint8Array|Array<number>|bigint|null"#;
 
 #[wasm_bindgen]
 extern "C" {
@@ -243,9 +252,6 @@ extern "C" {
     pub fn column_count(this: &SQLite, stmt: &JsValue) -> i32;
 
     #[wasm_bindgen(method, catch)]
-    pub fn batch_execute(this: &SQLite, database: &JsValue, query: &str) -> Result<(), JsValue>;
-
-    #[wasm_bindgen(method, catch)]
     pub fn create_function(
         this: &SQLite,
         database: &JsValue,
@@ -260,7 +266,7 @@ extern "C" {
 
     #[wasm_bindgen(method, catch)]
     pub fn register_diesel_sql_functions(this: &SQLite, database: &JsValue) -> Result<(), JsValue>;
-    
+
     #[wasm_bindgen(method)]
     pub fn value_free(this: &SQLite, value: &JsValue);
 

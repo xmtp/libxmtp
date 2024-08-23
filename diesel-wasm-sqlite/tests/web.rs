@@ -1,17 +1,14 @@
 #![recursion_limit = "256"]
 #![cfg(target_arch = "wasm32")]
 
-use diesel_async::RunQueryDsl;
-use diesel_wasm_sqlite::{
-    connection::{AsyncConnection, SimpleAsyncConnection, WasmSqliteConnection},
-    WasmSqlite, DebugQueryWrapper
-};
 use diesel_migrations::embed_migrations;
 use diesel_migrations::EmbeddedMigrations;
+use diesel_wasm_sqlite::{connection::WasmSqliteConnection, DebugQueryWrapper, WasmSqlite};
 use wasm_bindgen_test::*;
 use web_sys::console;
 
 use chrono::{NaiveDate, NaiveDateTime};
+use diesel::connection::SimpleConnection;
 use diesel::debug_query;
 use diesel::insert_into;
 use diesel::prelude::*;
@@ -52,11 +49,14 @@ pub struct Book {
 }
 
 async fn establish_connection() -> WasmSqliteConnection {
+    diesel_wasm_sqlite::init_sqlite().await;
+
     let rng: u16 = rand::random();
-    let result = WasmSqliteConnection::establish(&format!("test-{}", rng)).await;
+    let result = WasmSqliteConnection::establish(&format!("test-{}", rng));
     let mut conn = result.unwrap();
     // conn.run_pending_migrations(MIGRATIONS);
     //TODO: we can use `embed_migrations` to run our migrations
+    tracing::info!("trying to establish...");
 
     conn.batch_execute(
         "
@@ -67,33 +67,25 @@ async fn establish_connection() -> WasmSqliteConnection {
         )
     ",
     )
-    .await
     .expect("Batch exec failed to run");
     conn
 }
 
-async fn insert_books(
-    conn: &mut WasmSqliteConnection,
-    new_books: Vec<BookForm>,
-) -> QueryResult<usize> {
+fn insert_books(conn: &mut WasmSqliteConnection, new_books: Vec<BookForm>) -> QueryResult<usize> {
     use schema::books::dsl::*;
     let query = insert_into(books).values(new_books);
     let sql = DebugQueryWrapper::<_, WasmSqlite>::new(&query).to_string();
     tracing::info!("QUERY = {}", sql);
-    let rows_changed = query.execute(conn).await.unwrap();
+    let rows_changed = query.execute(conn).unwrap();
     Ok(rows_changed)
 }
 
-
-async fn insert_book(
-    conn: &mut WasmSqliteConnection,
-    new_book: BookForm,
-) -> QueryResult<usize> {
+fn insert_book(conn: &mut WasmSqliteConnection, new_book: BookForm) -> QueryResult<usize> {
     use schema::books::dsl::*;
     let query = insert_into(books).values(new_book);
     let sql = debug_query::<WasmSqlite, _>(&query).to_string();
     tracing::info!("QUERY = {}", sql);
-    let rows_changed = query.execute(conn).await.unwrap();
+    let rows_changed = query.execute(conn).unwrap();
     Ok(rows_changed)
 }
 
@@ -111,10 +103,10 @@ fn examine_sql_from_insert_default_values() {
 async fn test_orm_insert() {
     console_error_panic_hook::set_once();
     tracing_wasm::set_as_global_default();
-    
+
     let mut conn = establish_connection().await;
 
-    let changed = insert_books(
+    let rows_changed = insert_books(
         &mut conn,
         vec![
             BookForm {
@@ -149,16 +141,15 @@ async fn test_orm_insert() {
             },
         ],
     )
-    .await.unwrap();
+    .unwrap();
     assert_eq!(rows_changed, 6);
-    tracing::info!("{} rows changed", changed);
+    tracing::info!("{} rows changed", rows_changed);
     console::log_1(&"Showing Users".into());
-   
+
     let books = schema::books::table
         .limit(5)
         .select(Book::as_select())
         .load(&mut conn)
-        .await
         .unwrap();
     tracing::info!("BOOKS??? {:?}----------", books);
 

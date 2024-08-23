@@ -1,27 +1,23 @@
 #![allow(unsafe_code)] //TODO: can probably remove for wa-sqlite
-use super::bind_collector::{OwnedSqliteBindValue, SqliteBindCollectorData};
 use super::raw::RawConnection;
 use super::sqlite_value::OwnedSqliteValue;
 use crate::ffi::SQLiteCompatibleType;
 use crate::{
-    sqlite_types::{self, PrepareOptions, SqlitePrepareFlags},
-    SqliteType, WasmSqliteError, WasmSqlite, connection::{SqliteBindCollector, bind_collector::InternalSqliteBindValue},
-
+    connection::{bind_collector::InternalSqliteBindValue, SqliteBindCollector},
+    sqlite_types::{self, SqlitePrepareFlags},
+    SqliteType, WasmSqlite, WasmSqliteError,
 };
 use diesel::{
-    query_builder::{QueryId, QueryFragment},
     connection::{
         statement_cache::{MaybeCached, PrepareForCache},
         Instrumentation,
     },
+    query_builder::{QueryFragment, QueryId},
     result::{Error, QueryResult},
 };
-use js_sys::AsyncIterator;
 use std::cell::OnceCell;
 
-use tokio::sync::oneshot;
 use wasm_bindgen::JsValue;
-use wasm_bindgen_futures::JsFuture;
 
 // this is OK b/c web runs in one thread
 unsafe impl Send for Statement {}
@@ -145,7 +141,7 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
         statement: MaybeCached<'stmt, Statement>,
         query: T,
         instrumentation: &'stmt mut dyn Instrumentation,
-    ) -> QueryResult<BoundStatement<'stmt, 'query>> 
+    ) -> QueryResult<BoundStatement<'stmt, 'query>>
     where
         T: QueryFragment<WasmSqlite> + QueryId + 'query,
     {
@@ -170,6 +166,7 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
         ret.bind_buffers(binds)?;
 
         let query = query as Box<dyn QueryFragment<WasmSqlite> + 'query>;
+        ret.query = Some(query);
 
         Ok(ret)
     }
@@ -177,7 +174,10 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
     // This is a separated function so that
     // not the whole constructor is generic over the query type T.
     // This hopefully prevents binary bloat.
-    fn bind_buffers(&mut self, binds: Vec<(InternalSqliteBindValue<'_>, SqliteType)>) -> QueryResult<()> {
+    fn bind_buffers(
+        &mut self,
+        binds: Vec<(InternalSqliteBindValue<'_>, SqliteType)>,
+    ) -> QueryResult<()> {
         self.binds_to_free.reserve(
             binds
                 .iter()
@@ -193,9 +193,10 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
                 .count(),
         );
         for (bind_idx, (bind, tpe)) in (1..).zip(binds) {
-            let is_borrowed_bind = matches!(bind,
+            let is_borrowed_bind = matches!(
+                bind,
                 InternalSqliteBindValue::BorrowedString(_)
-                    |   InternalSqliteBindValue::BorrowedBinary(_)
+                    | InternalSqliteBindValue::BorrowedBinary(_)
             );
             // It's safe to call bind here as:
             // * The type and value matches
@@ -207,7 +208,7 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
             // the call to bind succeeded, otherwise we might attempt to
             // call bind to an non-existing bind position in
             // the destructor
-            
+
             if let Some(ptr) = res {
                 // Store the id + pointer for a owned bind
                 // as we must unbind and free them on drop
@@ -216,7 +217,6 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
                 // Store the id's of borrowed binds to unbind them on drop
                 self.binds_to_free.push((bind_idx, None));
             }
-
         }
         Ok(())
     }
@@ -229,9 +229,9 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
 // we have to free the wawsm memory here not C memory so this will change significantly
 impl<'stmt, 'query> Drop for BoundStatement<'stmt, 'query> {
     fn drop(&mut self) {
-        self.statement.reset();
-        self.statement.clear_bindings();
-        for (idx, buffer) in std::mem::take(&mut self.binds_to_free) {
+        self.statement.reset().unwrap();
+        self.statement.clear_bindings().unwrap();
+        for (idx, _buffer) in std::mem::take(&mut self.binds_to_free) {
             // It's always safe to bind null values, as there is no buffer that needs to outlife something
             self.statement
                 .bind(SqliteType::Text, InternalSqliteBindValue::Null, idx)
@@ -266,8 +266,8 @@ impl<'stmt, 'query> StatementUse<'stmt, 'query> {
         query: T,
         instrumentation: &'stmt mut dyn Instrumentation,
     ) -> QueryResult<StatementUse<'stmt, 'query>>
-    where 
-        T: QueryFragment<WasmSqlite> + QueryId + 'query
+    where
+        T: QueryFragment<WasmSqlite> + QueryId + 'query,
     {
         Ok(Self {
             statement: BoundStatement::bind(statement, query, instrumentation)?,

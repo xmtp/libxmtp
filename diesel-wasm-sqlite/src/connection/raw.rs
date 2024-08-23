@@ -3,19 +3,10 @@
 
 use crate::{
     sqlite_types::{SqliteFlags, SqliteOpenFlags},
-    SqliteType, WasmSqlite, WasmSqliteError,
+    WasmSqlite, WasmSqliteError,
 };
-use diesel::{
-    connection::statement_cache::{PrepareForCache, StatementCacheKey},
-    result::*,
-    serialize::ToSql,
-    sql_types::HasSqlType,
-};
-use std::collections::HashMap;
-use tokio::sync::oneshot;
+use diesel::{result::*, serialize::ToSql, sql_types::HasSqlType};
 use wasm_bindgen::{closure::Closure, JsValue};
-
-use super::stmt::Statement;
 
 #[allow(missing_copy_implementations)]
 pub(super) struct RawConnection {

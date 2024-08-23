@@ -1,35 +1,37 @@
 mod bind_collector;
-// mod functions;
 mod owned_row;
 mod raw;
 mod row;
-// mod serialized_database;
 mod sqlite_value;
-// mod statement_stream;
-// mod statement_iterator;
+mod statement_iterator;
 mod stmt;
 
 pub(crate) use self::bind_collector::SqliteBindCollector;
 pub use self::bind_collector::SqliteBindValue;
 pub use self::sqlite_value::SqliteValue;
- // pub use self::serialized_database::SerializedDatabase; 
-               
+// pub use self::serialized_database::SerializedDatabase;
+
 use self::raw::RawConnection;
-// use self::statement_iterator::*;
+pub use self::statement_iterator::*;
 use self::stmt::{Statement, StatementUse};
-use crate::query_builder::*;
-use diesel::query_builder::MoveableBindCollector;
-use diesel::{connection::{statement_cache::{StatementCacheKey, StatementCache}}, query_builder::QueryBuilder as _, result::*};
+use diesel::{
+    connection::WithMetadataLookup,
+    connection::{statement_cache::StatementCache, DefaultLoadingMode, LoadConnection},
+    expression::QueryMetadata,
+    query_builder::Query,
+    result::*,
+    sql_types::TypeMetadata,
+};
 // use diesel::connection::instrumentation::DynInstrumentation
-use futures::future::LocalBoxFuture;
-use futures::stream::LocalBoxStream;
-use futures::FutureExt;
-use owned_row::OwnedSqliteRow;
-use std::future::Future;
-use std::sync::{Arc, Mutex};
 
-
-use diesel::{connection::{ConnectionSealed, Instrumentation, Connection, SimpleConnection, AnsiTransactionManager, TransactionManager}, query_builder::{AsQuery, QueryFragment, QueryId}, QueryResult};
+use diesel::{
+    connection::{
+        AnsiTransactionManager, Connection, ConnectionSealed, Instrumentation, SimpleConnection,
+        TransactionManager,
+    },
+    query_builder::{QueryFragment, QueryId},
+    QueryResult,
+};
 
 use crate::{get_sqlite_unchecked, WasmSqlite, WasmSqliteError};
 
@@ -48,6 +50,7 @@ pub struct WasmSqliteConnection {
     statement_cache: StatementCache<WasmSqlite, Statement>,
     raw_connection: RawConnection,
     transaction_manager: AnsiTransactionManager,
+    metadata_lookup: (),
     // this exists for the sole purpose of implementing `WithMetadataLookup` trait
     // and avoiding static mut which will be deprecated in 2024 edition
     instrumentation: Option<Box<dyn Instrumentation>>,
@@ -55,12 +58,10 @@ pub struct WasmSqliteConnection {
 
 impl ConnectionSealed for WasmSqliteConnection {}
 
-
-
 impl SimpleConnection for WasmSqliteConnection {
     fn batch_execute(&mut self, query: &str) -> diesel::prelude::QueryResult<()> {
         get_sqlite_unchecked()
-            .batch_execute(&self.raw_connection.internal_connection, query)
+            .exec(&self.raw_connection.internal_connection, query)
             .map_err(WasmSqliteError::from)
             .map_err(Into::into)
     }
@@ -69,11 +70,11 @@ impl SimpleConnection for WasmSqliteConnection {
 impl Connection for WasmSqliteConnection {
     type Backend = WasmSqlite;
     type TransactionManager = AnsiTransactionManager;
-    
+
     fn establish(database_url: &str) -> ConnectionResult<Self> {
         WasmSqliteConnection::establish_inner(database_url)
     }
-    
+
     fn execute_returning_count<T>(&mut self, source: &T) -> QueryResult<usize>
     where
         T: QueryFragment<Self::Backend> + QueryId,
@@ -83,16 +84,16 @@ impl Connection for WasmSqliteConnection {
             .run()
             .map(|_| self.raw_connection.rows_affected_by_last_query())
     }
-    
+
     fn set_instrumentation(&mut self, instrumentation: impl Instrumentation) {
         self.instrumentation = Some(Box::new(instrumentation));
     }
 
-    fn instrumentation(&mut self) -> &mut dyn Instrumentation{
+    fn instrumentation(&mut self) -> &mut dyn Instrumentation {
         let instrumentation = self.instrumentation.as_mut().unwrap();
         &mut *instrumentation
     }
-    
+
     fn transaction_state(&mut self) -> &mut AnsiTransactionManager
     where
         Self: Sized,
@@ -100,6 +101,31 @@ impl Connection for WasmSqliteConnection {
         &mut self.transaction_manager
     }
 }
+
+impl LoadConnection<DefaultLoadingMode> for WasmSqliteConnection {
+    type Cursor<'conn, 'query> = StatementIterator<'conn, 'query>;
+    type Row<'conn, 'query> = self::row::SqliteRow<'conn, 'query>;
+
+    fn load<'conn, 'query, T>(
+        &'conn mut self,
+        source: T,
+    ) -> QueryResult<Self::Cursor<'conn, 'query>>
+    where
+        T: Query + QueryFragment<Self::Backend> + QueryId + 'query,
+        Self::Backend: QueryMetadata<T::SqlType>,
+    {
+        let statement = self.prepared_query(source)?;
+
+        Ok(StatementIterator::new(statement))
+    }
+}
+
+impl WithMetadataLookup for WasmSqliteConnection {
+    fn metadata_lookup(&mut self) -> &mut <WasmSqlite as TypeMetadata>::MetadataLookup {
+        &mut self.metadata_lookup
+    }
+}
+
 /*
 #[cfg(feature = "r2d2")]
 impl crate::r2d2::R2D2Connection for crate::sqlite::SqliteConnection {
@@ -113,7 +139,7 @@ impl crate::r2d2::R2D2Connection for crate::sqlite::SqliteConnection {
         AnsiTransactionManager::is_broken_transaction_manager(self)
     }
 }
-                                                
+
 impl MultiConnectionHelper for SqliteConnection {
     fn to_any<'a>(
         lookup: &mut <Self::Backend as crate::sql_types::TypeMetadata>::MetadataLookup,
@@ -127,7 +153,7 @@ impl MultiConnectionHelper for SqliteConnection {
         lookup.downcast_mut()
     }
 }
-*/                      
+*/
 
 impl WasmSqliteConnection {
     /// Run a transaction with `BEGIN IMMEDIATE`
@@ -205,7 +231,6 @@ impl WasmSqliteConnection {
             }
         }
     }
-    
 
     fn prepared_query<'conn, 'query, T>(
         &'conn mut self,
@@ -226,7 +251,7 @@ impl WasmSqliteConnection {
             ref mut instrumentation,
             ..
         } = self;
-        
+
         let statement = match statement_cache.cached_statement(
             &source,
             &WasmSqlite,
@@ -248,18 +273,21 @@ impl WasmSqliteConnection {
         };
 
         StatementUse::bind(statement, source, instrumentation.as_mut().unwrap())
-    } 
-   
+    }
+
     fn establish_inner(database_url: &str) -> Result<WasmSqliteConnection, ConnectionError> {
         let sqlite3 = crate::get_sqlite_unchecked();
         let raw_connection = RawConnection::establish(database_url).unwrap();
-        sqlite3.register_diesel_sql_functions(&raw_connection.internal_connection).map_err(WasmSqliteError::from)?;
+        sqlite3
+            .register_diesel_sql_functions(&raw_connection.internal_connection)
+            .map_err(WasmSqliteError::from)?;
 
         Ok(Self {
             statement_cache: StatementCache::new(),
             raw_connection,
             transaction_manager: AnsiTransactionManager::default(),
-            instrumentation: None ,
+            instrumentation: None,
+            metadata_lookup: (),
         })
     }
 }

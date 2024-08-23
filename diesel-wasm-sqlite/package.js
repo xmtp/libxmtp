@@ -1,7 +1,7 @@
 import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 
 const log = console.log;
-const error = console.error;
+const err_log = console.error;
 
 export class SQLite {
   #module;
@@ -16,7 +16,7 @@ export class SQLite {
   static async init_module(wasm, opts) {
     return await sqlite3InitModule({
       print: log,
-      printErr: error,
+      printErr: err_log,
       ...opts,
     });
   }
@@ -211,6 +211,7 @@ export class SQLite {
   }
 
   exec(db, query) {
+    console.log("RUNNIGN BATCH EXEC");
     try {
       return db.exec(query, {
         callback: (row) => {
@@ -291,15 +292,6 @@ export class SQLite {
     return this.sqlite3.capi.sqlite3_column_count(stmt);
   }
 
-  batch_execute(database, query) {
-    try {
-      return database.exec(database, query);
-    } catch (error) {
-      error("batch exec err");
-      throw error;
-    }
-  }
-
   create_function(
     database,
     functionName,
@@ -331,12 +323,13 @@ export class SQLite {
   //TODO: At some point need a way to register functions from rust
   //but for just libxmtp this is fine.
   register_diesel_sql_functions(database) {
+    console.log("REGISTERING DIESEL");
     try {
       this.sqlite3.capi.sqlite3_create_function(
         database,
         "diesel_manage_updated_at",
         1,
-        sqlite3.capi.SQLITE_UTF8,
+        this.sqlite3.capi.SQLITE_UTF8,
         0,
         async (context, values) => {
           const table_name = this.sqlite3.value_text(values[0]);
