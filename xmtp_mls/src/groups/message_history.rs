@@ -11,7 +11,6 @@ use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
 };
-use ring::hmac;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -107,8 +106,7 @@ where
             Ok((_, sync_group)) => sync_group,
             Err(_) => {
                 // create the sync group
-                let group = self.create_sync_group()?;
-                group
+                self.create_sync_group()?
             }
         };
 
@@ -147,19 +145,13 @@ where
         )?;
 
         let last_message = messages.last();
-        match last_message {
-            Some(msg) => {
-                let message_history_content =
-                    serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
-                match message_history_content {
-                    // if the last message is a request, return its request ID and pin code
-                    Ok(MessageHistoryContent::Request(request)) => {
-                        return Ok((request.request_id, request.pin_code));
-                    }
-                    _ => {}
-                }
+        if let Some(msg) = last_message {
+            let message_history_content =
+                serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
+
+            if let Ok(MessageHistoryContent::Request(request)) = message_history_content {
+                return Ok((request.request_id, request.pin_code));
             }
-            None => {}
         };
 
         // build the request
@@ -327,16 +319,9 @@ where
     ) -> Result<HistoryReply, MessageHistoryError> {
         let (history_file, enc_key) = self.write_history_bundle().await?;
 
-        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
-        upload_history_bundle(url, history_file.clone(), signing_key.as_bytes()).await?;
+        upload_history_bundle(url, history_file.clone()).await?;
 
-        let history_reply = HistoryReply::new(
-            request_id,
-            url,
-            signing_key.as_bytes().to_vec(),
-            signing_key,
-            enc_key,
-        );
+        let history_reply = HistoryReply::new(request_id, url, enc_key);
 
         Ok(history_reply)
     }
@@ -463,52 +448,20 @@ pub(crate) fn decrypt_history_file(
     Ok(())
 }
 
-fn create_bundle_hash(
-    file_path: PathBuf,
-    signing_key: &[u8],
-) -> Result<(Vec<u8>, String), MessageHistoryError> {
+async fn upload_history_bundle(url: &str, file_path: PathBuf) -> Result<(), MessageHistoryError> {
     let mut file = File::open(file_path)?;
     let mut content = Vec::new();
     file.read_to_end(&mut content)?;
 
-    let key = hmac::Key::new(hmac::HMAC_SHA256, signing_key);
-    let tag = hmac::sign(&key, &content);
-    let hmac_hex = hex::encode(tag.as_ref());
-    Ok((content, hmac_hex))
-}
-
-async fn upload_history_bundle(
-    url: &str,
-    file_path: PathBuf,
-    signing_key: &[u8],
-) -> Result<(), MessageHistoryError> {
-    let (content, hmac_hex) = create_bundle_hash(file_path, signing_key)?;
-
     let client = reqwest::Client::new();
-    let _response = client
-        .post(url)
-        .header("X-HMAC", hmac_hex)
-        .body(content)
-        .send()
-        .await?;
+    let _response = client.post(url).body(content).send().await?;
 
     Ok(())
 }
 
-pub(crate) async fn download_history_bundle(
-    url: &str,
-    hmac_value: Vec<u8>,
-    signing_key: MessageHistoryKeyType,
-) -> Result<PathBuf, MessageHistoryError> {
-    let sign_key: HistoryKeyType = signing_key.try_into()?;
-    let sign_key_bytes = sign_key.as_bytes().to_vec();
+pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, MessageHistoryError> {
     let client = reqwest::Client::new();
-    let response = client
-        .get(url)
-        .header("X-HMAC", hmac_value)
-        .header("X-SIGNING-KEY", hex::encode(sign_key_bytes))
-        .send()
-        .await?;
+    let response = client.get(url).send().await?;
 
     if response.status().is_success() {
         let file_path = std::env::temp_dir().join("downloaded_bundle.jsonl.enc");
@@ -558,27 +511,15 @@ pub(crate) struct HistoryReply {
     request_id: String,
     /// URL to download the backup bundle
     url: String,
-    /// HMAC value of the backup bundle
-    bundle_hash: Vec<u8>,
-    /// HMAC Signing key for the backup bundle
-    signing_key: HistoryKeyType,
     /// Encryption key for the backup bundle
     encryption_key: HistoryKeyType,
 }
 
 impl HistoryReply {
-    pub(crate) fn new(
-        id: &str,
-        url: &str,
-        bundle_hash: Vec<u8>,
-        signing_key: HistoryKeyType,
-        encryption_key: HistoryKeyType,
-    ) -> Self {
+    pub(crate) fn new(id: &str, url: &str, encryption_key: HistoryKeyType) -> Self {
         Self {
             request_id: id.into(),
             url: url.into(),
-            bundle_hash,
-            signing_key,
             encryption_key,
         }
     }
@@ -589,9 +530,10 @@ impl From<HistoryReply> for MessageHistoryReply {
         MessageHistoryReply {
             request_id: reply.request_id,
             url: reply.url,
-            bundle_hash: reply.bundle_hash,
-            signing_key: Some(reply.signing_key.into()),
             encryption_key: Some(reply.encryption_key.into()),
+            // deprecated fields
+            bundle_hash: vec![],
+            signing_key: None,
         }
     }
 }
@@ -755,10 +697,8 @@ mod tests {
 
         let request_id = new_request_id();
         let url = "https://test.com/abc-123";
-        let backup_hash = b"ABC123".into();
-        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
         let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
-        let reply = HistoryReply::new(&request_id, url, backup_hash, signing_key, encryption_key);
+        let reply = HistoryReply::new(&request_id, url, encryption_key);
         let result = client.send_history_reply(reply.into()).await;
 
         // the reply should fail because there's no pending request to reply to
@@ -771,20 +711,16 @@ mod tests {
 
         let request_id2 = new_request_id();
         let url = "https://test.com/abc-123";
-        let backup_hash = b"ABC123".into();
-        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
         let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
-        let reply = HistoryReply::new(&request_id2, url, backup_hash, signing_key, encryption_key);
+        let reply = HistoryReply::new(&request_id2, url, encryption_key);
         let result = client.send_history_reply(reply.into()).await;
 
         // the reply should fail because there's a mismatched request ID
         assert!(result.is_err());
 
         let url = "https://test.com/abc-123";
-        let backup_hash = b"ABC123".into();
-        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
         let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
-        let reply = HistoryReply::new(&request_id, url, backup_hash, signing_key, encryption_key);
+        let reply = HistoryReply::new(&request_id, url, encryption_key);
         let result = client.send_history_reply(reply.into()).await;
 
         // the reply should succeed with a valid request ID
@@ -879,9 +815,6 @@ mod tests {
             HISTORY_SERVER_PORT + 1
         );
 
-        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
-        let signing_key_bytes = signing_key.as_bytes();
-
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
         let _group_a = amal_a
@@ -899,8 +832,9 @@ mod tests {
         let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
         encrypt_history_file(input_path, output_path, encryption_key.as_bytes()).unwrap();
 
-        let (content, hmac_hex) =
-            create_bundle_hash(output_path.to_path_buf(), signing_key_bytes).unwrap();
+        let mut file = File::open(output_path).unwrap();
+        let mut content = Vec::new();
+        file.read_to_end(&mut content).unwrap();
 
         let _m = server
             .mock("GET", "/upload")
@@ -929,13 +863,7 @@ mod tests {
         amal_a_sync_group.sync(&amal_a).await.expect("sync");
 
         // amal_a builds and sends a message history reply back
-        let history_reply = HistoryReply::new(
-            &new_request_id(),
-            &history_sync_url,
-            hmac_hex.into(),
-            signing_key,
-            encryption_key,
-        );
+        let history_reply = HistoryReply::new(&new_request_id(), &history_sync_url, encryption_key);
         amal_a
             .send_history_reply(history_reply.into())
             .await
@@ -1074,8 +1002,6 @@ mod tests {
             .with_body("File uploaded")
             .create();
 
-        let key = HistoryKeyType::new_chacha20_poly1305_key();
-        let signing_key = key.as_bytes();
         let file_content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'";
 
         let mut file = NamedTempFile::new().unwrap();
@@ -1087,7 +1013,7 @@ mod tests {
             HISTORY_SERVER_HOST,
             HISTORY_SERVER_PORT + 1
         );
-        let result = upload_history_bundle(&url, file_path.into(), signing_key).await;
+        let result = upload_history_bundle(&url, file_path.into()).await;
 
         assert!(result.is_ok());
         _m.assert_async().await;
@@ -1097,8 +1023,6 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_download_history_bundle() {
         let bundle_id = "test_bundle_id";
-        let hmac_value = "test_hmac_value";
-        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
         let options = mockito::ServerOpts {
             host: HISTORY_SERVER_HOST,
             port: HISTORY_SERVER_PORT,
@@ -1116,7 +1040,7 @@ mod tests {
             "http://{}:{}/files/{bundle_id}",
             HISTORY_SERVER_HOST, HISTORY_SERVER_PORT
         );
-        let output_path = download_history_bundle(&url, hmac_value.into(), signing_key.into())
+        let output_path = download_history_bundle(&url)
             .await
             .expect("could not download history bundle");
 

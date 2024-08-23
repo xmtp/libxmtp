@@ -414,7 +414,7 @@ impl MlsGroup {
                         Some(Request(history_request)) => {
                             let request_id = history_request.request_id.clone();
                             let content: MessageHistoryContent =
-                                MessageHistoryContent::Request(history_request).into();
+                                MessageHistoryContent::Request(history_request);
                             let bytes = bincode::serialize(&content)
                                 .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
                             let message_id =
@@ -462,18 +462,13 @@ impl MlsGroup {
                             }
                         }
                         Some(Reply(history_reply)) => {
-                            let Some(signing_key) = history_reply.signing_key.clone() else {
-                                return Err(MessageProcessingError::InvalidPayload);
-                            };
-
                             let Some(encryption_key) = history_reply.encryption_key.clone() else {
                                 return Err(MessageProcessingError::InvalidPayload);
                             };
 
-                            let bundle_hash = history_reply.bundle_hash.clone();
                             let url = history_reply.url.clone();
                             let content: MessageHistoryContent =
-                                MessageHistoryContent::Reply(history_reply).into();
+                                MessageHistoryContent::Reply(history_reply);
                             let bytes = bincode::serialize(&content)
                                 .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
                             let message_id =
@@ -493,10 +488,9 @@ impl MlsGroup {
                             .store(provider.conn_ref())?;
 
                             // handle the reply and fetch the history
-                            let enc_file_path =
-                                download_history_bundle(&url, bundle_hash, signing_key)
-                                    .await
-                                    .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
+                            let enc_file_path = download_history_bundle(&url)
+                                .await
+                                .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
 
                             let messages_path = std::env::temp_dir().join("messages.jsonl");
 
