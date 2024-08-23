@@ -607,18 +607,21 @@ where
                     // provider alone.
                     let provider_ref = &provider;
                     async move {
+                        let mls_group = group.load_mls_group(provider_ref)?;
                         log::info!("[{}] syncing group", self.inbox_id());
                         log::info!(
                             "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
                             self.inbox_id(),
-                            group.load_mls_group(provider_ref)?.epoch()
+                            mls_group.epoch()
                         );
+                        if mls_group.is_active() {
+                            group
+                                .maybe_update_installations(provider_ref, None, self)
+                                .await?;
 
-                        group
-                            .maybe_update_installations(provider_ref, None, self)
-                            .await?;
+                            group.sync_with_conn(provider_ref, self).await?;
+                        }
 
-                        group.sync_with_conn(provider_ref, self).await?;
                         Ok::<(), GroupError>(())
                     }
                     .await
