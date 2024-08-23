@@ -31,6 +31,7 @@ use openmls::{
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use thiserror::Error;
+use tokio::sync::Mutex;
 
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
@@ -182,6 +183,10 @@ pub enum GroupError {
     MissingMetadataField { name: String },
     #[error("Message was processed but is missing")]
     MissingMessage,
+    #[error("sql key store error: {0}")]
+    SqlKeyStore(#[from] sql_key_store::SqlKeyStoreError),
+    #[error("No pending commit found")]
+    MissingPendingCommit,
 }
 
 impl RetryableError for GroupError {
@@ -210,6 +215,7 @@ pub struct MlsGroup {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
     context: Arc<XmtpMlsLocalContext>,
+    mutex: Arc<Mutex<()>>,
 }
 
 #[derive(Default)]
@@ -226,6 +232,7 @@ impl Clone for MlsGroup {
             context: self.context.clone(),
             group_id: self.group_id.clone(),
             created_at_ns: self.created_at_ns,
+            mutex: self.mutex.clone(),
         }
     }
 }
@@ -241,10 +248,12 @@ pub enum UpdateAdminListType {
 impl MlsGroup {
     // Creates a new group instance. Does not validate that the group exists in the DB
     pub fn new(context: Arc<XmtpMlsLocalContext>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+        let mut mutexes = context.mutexes.clone();
         Self {
             context,
-            group_id,
+            group_id: group_id.clone(),
             created_at_ns,
+            mutex: mutexes.get_mutex(group_id),
         }
     }
 
@@ -455,11 +464,6 @@ impl MlsGroup {
             Self::into_envelope(message, now)
         });
 
-        // Skipping a full sync here and instead just firing and forgetting
-        if let Err(err) = self.publish_intents(&provider, client).await {
-            log::error!("Send: error publishing intents: {:?}", err);
-        }
-
         self.sync_until_last_intent_resolved(&provider, client)
             .await?;
 
@@ -479,7 +483,6 @@ impl MlsGroup {
         let update_interval = Some(5_000_000);
         self.maybe_update_installations(&provider, update_interval, client)
             .await?;
-        self.publish_intents(&provider, client).await?;
         self.sync_until_last_intent_resolved(&provider, client)
             .await?;
         Ok(())
@@ -927,10 +930,14 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
-        let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
-        intent.store(&conn)?;
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::KeyUpdate,
+            self.group_id.clone(),
+            vec![],
+        ))?;
 
-        self.sync_with_conn(&conn.into(), client).await
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
+            .await
     }
 
     pub fn is_active(&self, provider: impl OpenMlsProvider) -> Result<bool, GroupError> {
@@ -1250,6 +1257,7 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 #[cfg(test)]
 mod tests {
     use diesel::connection::SimpleConnection;
+    use futures::future::join_all;
     use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
     use prost::Message;
     use std::sync::Arc;
@@ -1271,7 +1279,7 @@ mod tests {
             DeliveryStatus, GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
         },
         storage::{
-            group_intent::IntentState,
+            group_intent::{IntentKind, IntentState, NewGroupIntent},
             group_message::{GroupMessageKind, StoredGroupMessage},
         },
         xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -1529,7 +1537,11 @@ mod tests {
             .conn_ref()
             .find_group_intents(
                 amal_group.group_id.clone(),
-                Some(vec![IntentState::ToPublish, IntentState::Published]),
+                Some(vec![
+                    IntentState::ToPublish,
+                    IntentState::Published,
+                    IntentState::Error,
+                ]),
                 None,
             )
             .unwrap();
@@ -1545,6 +1557,25 @@ mod tests {
             .unwrap();
         // Bola's attempted add should be deleted, since it will have been a no-op on the second try
         assert_eq!(bola_failed_intents.len(), 0);
+
+        // Make sure sending and receiving both worked
+        amal_group
+            .send_message("hello from amal".as_bytes(), &amal)
+            .await
+            .unwrap();
+        bola_group
+            .send_message("hello from bola".as_bytes(), &bola)
+            .await
+            .unwrap();
+
+        let bola_messages = bola_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        let matching_message = bola_messages
+            .iter()
+            .find(|m| m.decrypted_message_bytes == "hello from amal".as_bytes());
+        log::info!("found message: {:?}", bola_messages);
+        assert!(matching_message.is_some());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -2924,5 +2955,202 @@ mod tests {
         } else {
             panic!("Expected error")
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_paralell_syncs() {
+        let wallet = generate_local_wallet();
+        let alix1 = Arc::new(ClientBuilder::new_test_client(&wallet).await);
+        let alix1_group = alix1
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        let alix2 = ClientBuilder::new_test_client(&wallet).await;
+
+        let sync_tasks: Vec<_> = (0..10)
+            .map(|_| {
+                let group_clone = alix1_group.clone();
+                let client_clone = alix1.clone();
+                // Each of these syncs is going to trigger the client to invite alix2 to the group
+                // because of the race
+                tokio::spawn(async move { group_clone.sync(&client_clone).await })
+            })
+            .collect();
+
+        let results = join_all(sync_tasks).await;
+
+        // Check if any of the syncs failed
+        for result in results.into_iter() {
+            assert!(result.is_ok(), "Sync error {:?}", result.err());
+        }
+
+        // Make sure that only one welcome was sent
+        let alix2_welcomes = alix1
+            .api_client
+            .query_welcome_messages(alix2.installation_public_key(), None)
+            .await
+            .unwrap();
+        assert_eq!(alix2_welcomes.len(), 1);
+
+        // Make sure that only one group message was sent
+        let group_messages = alix1
+            .api_client
+            .query_group_messages(alix1_group.group_id.clone(), None)
+            .await
+            .unwrap();
+        assert_eq!(group_messages.len(), 1);
+
+        let alix2_group = receive_group_invite(&alix2).await;
+
+        // Send a message from alix1
+        alix1_group
+            .send_message("hi from alix1".as_bytes(), &alix1)
+            .await
+            .unwrap();
+        // Send a message from alix2
+        alix2_group
+            .send_message("hi from alix2".as_bytes(), &alix2)
+            .await
+            .unwrap();
+
+        // Sync both clients
+        alix1_group.sync(&alix1).await.unwrap();
+        alix2_group.sync(&alix2).await.unwrap();
+
+        let alix1_messages = alix1_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        let alix2_messages = alix2_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(alix1_messages.len(), alix2_messages.len());
+
+        assert!(alix1_messages
+            .iter()
+            .any(|m| m.decrypted_message_bytes == "hi from alix2".as_bytes()));
+        assert!(alix2_messages
+            .iter()
+            .any(|m| m.decrypted_message_bytes == "hi from alix1".as_bytes()));
+    }
+
+    // Create a membership update intent, but don't sync it yet
+    async fn create_membership_update_no_sync<ApiClient>(
+        group: &MlsGroup,
+        provider: &XmtpOpenMlsProvider,
+        client: &Client<ApiClient>,
+    ) where
+        ApiClient: XmtpApi,
+    {
+        let intent_data = group
+            .get_membership_update_intent(client, provider, vec![], vec![])
+            .await
+            .unwrap();
+
+        // If there is nothing to do, stop here
+        if intent_data.is_empty() {
+            return;
+        }
+
+        let conn = provider.conn_ref();
+        conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::UpdateGroupMembership,
+            group.group_id.clone(),
+            intent_data.into(),
+        ))
+        .unwrap();
+    }
+
+    /**
+     * This test case simulates situations where adding missing
+     * installations gets interrupted before the sync part happens
+     *
+     * We need to be safe even in situations where there are multiple
+     * intents that do the same thing, leading to conflicts
+     */
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn add_missing_installs_reentrancy() {
+        let wallet = generate_local_wallet();
+        let alix1 = ClientBuilder::new_test_client(&wallet).await;
+        let alix1_group = alix1
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        let alix1_provider = alix1.mls_provider().unwrap();
+
+        let alix2 = ClientBuilder::new_test_client(&wallet).await;
+
+        // We are going to run add_missing_installations TWICE
+        // which will create two intents to add the installations
+        create_membership_update_no_sync(&alix1_group, &alix1_provider, &alix1).await;
+        create_membership_update_no_sync(&alix1_group, &alix1_provider, &alix1).await;
+
+        // Now I am going to run publish intents multiple times
+        alix1_group
+            .publish_intents(&alix1_provider, &alix1)
+            .await
+            .expect_err("Expected an error that publish was canceled");
+        alix1_group
+            .publish_intents(&alix1_provider, &alix1)
+            .await
+            .expect_err("Expected an error that publish was canceled");
+
+        // Now I am going to sync twice
+        alix1_group
+            .sync_with_conn(&alix1_provider, &alix1)
+            .await
+            .unwrap();
+        alix1_group
+            .sync_with_conn(&alix1_provider, &alix1)
+            .await
+            .unwrap();
+
+        // Make sure that only one welcome was sent
+        let alix2_welcomes = alix1
+            .api_client
+            .query_welcome_messages(alix2.installation_public_key(), None)
+            .await
+            .unwrap();
+        assert_eq!(alix2_welcomes.len(), 1);
+
+        // We expect two group messages to have been sent,
+        // but only the first is valid
+        let group_messages = alix1
+            .api_client
+            .query_group_messages(alix1_group.group_id.clone(), None)
+            .await
+            .unwrap();
+        assert_eq!(group_messages.len(), 2);
+
+        let alix2_group = receive_group_invite(&alix2).await;
+
+        // Send a message from alix1
+        alix1_group
+            .send_message("hi from alix1".as_bytes(), &alix1)
+            .await
+            .unwrap();
+        // Send a message from alix2
+        alix2_group
+            .send_message("hi from alix2".as_bytes(), &alix2)
+            .await
+            .unwrap();
+
+        // Sync both clients
+        alix1_group.sync(&alix1).await.unwrap();
+        alix2_group.sync(&alix2).await.unwrap();
+
+        let alix1_messages = alix1_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        let alix2_messages = alix2_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(alix1_messages.len(), alix2_messages.len());
+
+        assert!(alix1_messages
+            .iter()
+            .any(|m| m.decrypted_message_bytes == "hi from alix2".as_bytes()));
+        assert!(alix2_messages
+            .iter()
+            .any(|m| m.decrypted_message_bytes == "hi from alix1".as_bytes()));
     }
 }

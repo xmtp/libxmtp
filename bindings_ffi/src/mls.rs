@@ -2465,13 +2465,14 @@ mod tests {
         let alix_group = alix.group(group.id()).unwrap();
         let bo_group = bo.group(group.id()).unwrap();
         let caro_group = caro.group(group.id()).unwrap();
-
+        log::info!("Alix sending first message");
         // Alix sends a message in the group
         alix_group
             .send("First message".as_bytes().to_vec())
             .await
             .unwrap();
 
+        log::info!("Caro sending second message");
         // Caro sends a message in the group
         caro_group
             .send("Second message".as_bytes().to_vec())
@@ -2489,6 +2490,7 @@ mod tests {
             .await;
         bo_stream_messages.wait_for_ready().await;
 
+        log::info!("Alix sending third message after Bo's second installation added");
         // Alix sends a message to the group
         alix_group
             .send("Third message".as_bytes().to_vec())
@@ -2499,21 +2501,27 @@ mod tests {
         bo2.conversations().sync().await.unwrap();
         let bo2_group = bo2.group(group.id()).unwrap();
 
+        log::info!("Bo sending fourth message");
         // Bo sends a message to the group
         bo2_group
             .send("Fourth message".as_bytes().to_vec())
             .await
             .unwrap();
 
+        log::info!("Caro sending fifth message");
         // Caro sends a message in the group
         caro_group
             .send("Fifth message".as_bytes().to_vec())
             .await
             .unwrap();
 
+        log::info!("Syncing alix");
         alix_group.sync().await.unwrap();
+        log::info!("Syncing bo 1");
         bo_group.sync().await.unwrap();
+        log::info!("Syncing bo 2");
         bo2_group.sync().await.unwrap();
+        log::info!("Syncing caro");
         caro_group.sync().await.unwrap();
 
         // Get the message count for all the clients

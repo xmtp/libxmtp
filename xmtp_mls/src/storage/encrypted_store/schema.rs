@@ -18,6 +18,8 @@ diesel::table! {
         payload_hash -> Nullable<Binary>,
         post_commit_data -> Nullable<Binary>,
         publish_attempts -> Integer,
+        staged_commit -> Nullable<Binary>,
+        published_in_epoch -> Nullable<BigInt>,
     }
 }
 
