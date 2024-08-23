@@ -1,8 +1,7 @@
 use std::{collections::HashMap, mem::Discriminant, sync::Arc};
 
 use futures::{
-    future::join_all,
-    stream::{self, StreamExt},
+    stream::{self, FuturesUnordered, StreamExt},
     Future,
 };
 use openmls::{
@@ -594,45 +593,38 @@ where
     }
 
     pub async fn sync_all_groups(&self, groups: Vec<MlsGroup>) -> Result<(), GroupError> {
-        use scoped_futures::ScopedFutureExt;
-
         // Acquire a single connection to be reused
         let provider: XmtpOpenMlsProvider = self.mls_provider()?;
 
-        let sync_futures: Vec<_> = groups
+        let sync_futures = groups
             .into_iter()
             .map(|group| {
-                async {
-                    // create new provider ref that gets moved, leaving original
-                    // provider alone.
-                    let provider_ref = &provider;
-                    async move {
-                        log::info!("[{}] syncing group", self.inbox_id());
-                        log::info!(
-                            "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
-                            self.inbox_id(),
-                            group.load_mls_group(provider_ref)?.epoch()
-                        );
+                // create new provider ref that gets moved, leaving original
+                // provider alone.
+                let provider_ref = &provider;
+                async move {
+                    log::info!("[{}] syncing group", self.inbox_id());
+                    log::info!(
+                        "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
+                        self.inbox_id(),
+                        group.load_mls_group(provider_ref)?.epoch()
+                    );
 
-                        group
-                            .maybe_update_installations(provider_ref, None, self)
-                            .await?;
+                    group
+                        .maybe_update_installations(provider_ref, None, self)
+                        .await?;
 
-                        group.sync_with_conn(provider_ref, self).await?;
-                        Ok::<(), GroupError>(())
-                    }
-                    .await
+                    group.sync_with_conn(provider_ref, self).await?;
+                    Ok::<(), GroupError>(())
                 }
-                .scoped()
             })
-            .collect();
+            .collect::<FuturesUnordered<_>>();
 
-        // Run all sync operations concurrently
-        join_all(sync_futures)
+        sync_futures
+            .collect::<Vec<Result<_, _>>>()
             .await
             .into_iter()
-            .collect::<Result<(), _>>()?;
-
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(())
     }
 
@@ -710,6 +702,8 @@ pub fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientErr
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
@@ -717,6 +711,7 @@ mod tests {
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
         hpke::{decrypt_welcome, encrypt_welcome},
+        utils::test,
     };
 
     #[tokio::test]
@@ -879,6 +874,32 @@ mod tests {
             .find_messages(None, None, None, None, None)
             .unwrap();
         assert_eq!(bo_messages2.len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_sync_all_groups_worst_case() {
+        let alix_wallet = generate_local_wallet();
+        let alix = Arc::new(ClientBuilder::new_test_client(&alix_wallet).await);
+        let peers = test::create_bulk_clients(20).await;
+        let bo = peers[0].clone();
+
+        // create 50 groups with 5 messages each
+        test::create_groups(&alix, &peers, 50, 5).await.unwrap();
+        let groups = bo.sync_welcomes().await.unwrap();
+        assert_eq!(groups.len(), 50);
+        let now = std::time::Instant::now();
+        bo.sync_all_groups(groups).await.unwrap();
+        println!("time to sync? {:?}", now.elapsed());
+
+        let groups = bo
+            .context()
+            .store
+            .conn()
+            .unwrap()
+            .find_groups(None, None, None, None)
+            .unwrap();
+
+        assert_eq!(groups.len(), 50);
     }
 
     #[tokio::test]

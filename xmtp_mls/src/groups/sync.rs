@@ -1314,7 +1314,6 @@ mod tests {
     use super::*;
     use crate::builder::ClientBuilder;
     use futures::future;
-    use scoped_futures::ScopedFutureExt;
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -1337,7 +1336,7 @@ mod tests {
 
         let mut futures = vec![];
         for _ in 0..10 {
-            futures.push(amal_group.publish_intents(&provider, &amal).scoped())
+            futures.push(amal_group.publish_intents(&provider, &amal))
         }
         future::join_all(futures).await;
     }
