@@ -1606,11 +1606,19 @@ mod tests {
         }
     }
 
-    pub struct MockLogger {}
+    pub struct MockLogger {
+        name: String,
+    }
+
+    impl MockLogger {
+        pub fn new(name: String) -> Self {
+            Self { name }
+        }
+    }
 
     impl FfiLogger for MockLogger {
         fn log(&self, _level: u32, level_label: String, message: String) {
-            println!("[{}]{}", level_label, message)
+            println!("[{}][{}]{}", level_label, self.name, message)
         }
     }
 
@@ -1688,13 +1696,16 @@ mod tests {
     /// Create a new test client with a given wallet.
     async fn new_test_client_with_wallet(
         wallet: xmtp_cryptography::utils::LocalWallet,
+        name: Option<&str>,
     ) -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
         let nonce = 1;
         let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
 
         let client = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger::new(
+                name.unwrap_or(inbox_id.as_str()).to_string(),
+            )),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(tmp_path()),
@@ -1714,7 +1725,13 @@ mod tests {
 
     async fn new_test_client() -> Arc<FfiXmtpClient> {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
-        new_test_client_with_wallet(wallet).await
+        let address = wallet.get_address();
+        new_test_client_with_wallet(wallet, Some(address.as_str())).await
+    }
+
+    async fn new_test_client_with_name(name: &str) -> Arc<FfiXmtpClient> {
+        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        new_test_client_with_wallet(wallet, Some(name)).await
     }
 
     #[tokio::test]
@@ -1723,7 +1740,7 @@ mod tests {
         let real_inbox_id = client.inbox_id();
 
         let from_network = get_inbox_id_for_address(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger::new(real_inbox_id.clone())),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             client.account_address.clone(),
@@ -1751,7 +1768,7 @@ mod tests {
         let inbox_id = generate_inbox_id(&account_address, &nonce);
 
         let client = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger::new(inbox_id.clone())),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(tmp_path()),
@@ -1777,7 +1794,7 @@ mod tests {
         let path = tmp_path();
 
         let client_a = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger::new("client_a".to_string())),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -1796,7 +1813,7 @@ mod tests {
         drop(client_a);
 
         let client_b = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger::new("client_b".to_string())),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path),
@@ -1830,7 +1847,7 @@ mod tests {
         let key = static_enc_key().to_vec();
 
         let client_a = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger::new("client_a".to_string())),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -1850,7 +1867,7 @@ mod tests {
         other_key[31] = 1;
 
         let result_errored = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger::new("client_b".to_string())),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path),
@@ -1901,7 +1918,7 @@ mod tests {
         let path = tmp_path();
         let key = static_enc_key().to_vec();
         let client = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger::new("client".to_string())),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -1968,7 +1985,7 @@ mod tests {
         let path = tmp_path();
         let key = static_enc_key().to_vec();
         let client = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger::new("client".to_string())),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -2054,7 +2071,7 @@ mod tests {
         let path = tmp_path();
 
         let client = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger::new("client".to_string())),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -2082,7 +2099,7 @@ mod tests {
         let path = tmp_path();
 
         let client_amal = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger::new("amal".to_string())),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -2109,7 +2126,7 @@ mod tests {
         );
 
         let client_bola = create_client(
-            Box::new(MockLogger {}),
+            Box::new(MockLogger::new("bola".to_string())),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -2140,8 +2157,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_group_with_members() {
-        let amal = new_test_client().await;
-        let bola = new_test_client().await;
+        let amal = new_test_client_with_name("amal").await;
+        let bola = new_test_client_with_name("bola").await;
 
         let group = amal
             .conversations()
@@ -2158,8 +2175,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_group_with_metadata() {
-        let amal = new_test_client().await;
-        let bola = new_test_client().await;
+        let amal = new_test_client_with_name("amal").await;
+        let bola = new_test_client_with_name("bola").await;
 
         let group = amal
             .conversations()
@@ -2189,8 +2206,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     #[ignore]
     async fn test_can_stream_group_messages_for_updates() {
-        let alix = new_test_client().await;
-        let bo = new_test_client().await;
+        let alix = new_test_client_with_name("alix").await;
+        let bo = new_test_client_with_name("bola").await;
 
         // Stream all group messages
         let message_callbacks = RustStreamCallback::default();
@@ -2374,8 +2391,8 @@ mod tests {
         let wallet2 = xmtp_cryptography::utils::LocalWallet::new(wallet2_key);
 
         // Create clients
-        let client1 = new_test_client_with_wallet(wallet1).await;
-        let client2 = new_test_client_with_wallet(wallet2.clone()).await;
+        let client1 = new_test_client_with_wallet(wallet1, Some("client_1")).await;
+        let client2 = new_test_client_with_wallet(wallet2.clone(), Some("client_2")).await;
         // Create a new group with client1 including wallet2
 
         let group = client1
@@ -2410,7 +2427,7 @@ mod tests {
         client2.release_db_connection().unwrap();
 
         // Recreate client2 (new installation)
-        let client2 = new_test_client_with_wallet(wallet2).await;
+        let client2 = new_test_client_with_wallet(wallet2, Some("client2")).await;
 
         // Send a message that will break the group
         client1_group
@@ -2434,9 +2451,9 @@ mod tests {
         let bo_wallet = xmtp_cryptography::utils::LocalWallet::new(bo_wallet_key);
 
         // Create clients
-        let alix = new_test_client().await;
-        let bo = new_test_client_with_wallet(bo_wallet.clone()).await;
-        let caro = new_test_client().await;
+        let alix = new_test_client_with_name("alix").await;
+        let bo = new_test_client_with_wallet(bo_wallet.clone(), Some("bo")).await;
+        let caro = new_test_client_with_name("caro").await;
 
         // Alix begins a stream for all messages
         let message_callbacks = RustStreamCallback::default();
@@ -2480,7 +2497,7 @@ mod tests {
             .unwrap();
 
         // Bo logs back in with a new installation
-        let bo2 = new_test_client_with_wallet(bo_wallet).await;
+        let bo2 = new_test_client_with_wallet(bo_wallet, Some("bo2")).await;
 
         // Bo begins a stream for all messages
         let bo_message_callbacks = RustStreamCallback::default();
@@ -3458,8 +3475,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_revoke_all_installations() {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
-        let client_1 = new_test_client_with_wallet(wallet.clone()).await;
-        let client_2 = new_test_client_with_wallet(wallet.clone()).await;
+        let client_1 = new_test_client_with_wallet(wallet.clone(), Some("client_1")).await;
+        let client_2 = new_test_client_with_wallet(wallet.clone(), Some("client_2")).await;
 
         let client_1_state = client_1.inbox_state(true).await.unwrap();
         let client_2_state = client_2.inbox_state(true).await.unwrap();

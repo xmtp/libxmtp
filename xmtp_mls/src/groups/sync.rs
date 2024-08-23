@@ -42,7 +42,7 @@ use crate::{
     Client, Delete, Fetch, Store, XmtpApi,
 };
 use futures::future::try_join_all;
-use log::debug;
+use log::{debug, info};
 use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
@@ -1091,7 +1091,7 @@ impl MlsGroup {
             return Ok(());
         }
 
-        debug!("Adding missing installations {:?}", intent_data);
+        info!("Adding missing installations {:?}", intent_data);
 
         let conn = provider.conn_ref();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
