@@ -3,10 +3,21 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 extern "C" {
+    #[derive(Debug)]
+    #[wasm_bindgen(extends = super::Inner)]
     pub type Wasm;
 
+    #[wasm_bindgen(method, js_name = "peekPtr")]
+    pub fn peek_ptr(this: &Wasm, stmt: &JsValue) -> JsValue;
+
+    #[wasm_bindgen(method, getter)]
+    pub fn pstack(this: &Wasm) -> PStack;
+}
+
+#[wasm_bindgen]
+extern "C" {
     #[wasm_bindgen(extends = Wasm)]
-    type PStack;
+    pub type PStack;
 
     /// allocate some memory on the WASM stack
     #[wasm_bindgen(method)]
@@ -29,4 +40,17 @@ extern "C" {
     /// sets current pstack
     pub fn restore(this: &PStack);
 
+}
+
+// C-Style API Constants
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(extends = super::Inner)]
+    pub type Capi;
+
+    #[wasm_bindgen(extends = Capi)]
+    pub static SQLITE_DONE: u32;
+
+    #[wasm_bindgen(method, getter)]
+    pub fn SQLITE_PREPARE_PERSISTENT(this: &Capi) -> u32;
 }

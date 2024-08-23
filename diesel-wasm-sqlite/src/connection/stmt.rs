@@ -4,8 +4,7 @@ use super::sqlite_value::OwnedSqliteValue;
 use crate::ffi::SQLiteCompatibleType;
 use crate::{
     connection::{bind_collector::InternalSqliteBindValue, SqliteBindCollector},
-    sqlite_types::{self, SqlitePrepareFlags},
-    SqliteType, WasmSqlite, WasmSqliteError,
+    sqlite_types, SqliteType, WasmSqlite, WasmSqliteError,
 };
 use diesel::{
     connection::{
@@ -34,14 +33,18 @@ impl Statement {
         is_cached: PrepareForCache,
     ) -> QueryResult<Self> {
         let sqlite3 = crate::get_sqlite_unchecked();
+        let capi = sqlite3.inner().capi();
         let flags = if matches!(is_cached, PrepareForCache::Yes) {
-            Some(SqlitePrepareFlags::SQLITE_PREPARE_PERSISTENT.bits())
+            Some(capi.SQLITE_PREPARE_PERSISTENT())
+            //Some(SqlitePrepareFlags::SQLITE_PREPARE_PERSISTENT.bits())
         } else {
             None
         };
+        let wasm = sqlite3.inner().wasm();
+        let stack = wasm.pstack().pointer();
 
-        // placeholder until we allocate with `wasm`
-        let stmt = JsValue::NULL;
+        // allocate one 64bit pointer value
+        let pp_stmt = wasm.pstack().alloc(8);
 
         let stmt = sqlite3
             .prepare_v3(
@@ -49,12 +52,13 @@ impl Statement {
                 sql,
                 -1,
                 flags.unwrap_or(0),
-                stmt,
-                JsValue::NULL,
+                &pp_stmt,
+                &JsValue::NULL,
             )
             .map_err(WasmSqliteError::from)?;
+        let p_stmt = wasm.peek_ptr(&pp_stmt);
         Ok(Self {
-            inner_statement: stmt,
+            inner_statement: p_stmt,
         })
     }
     // The caller of this function has to ensure that:

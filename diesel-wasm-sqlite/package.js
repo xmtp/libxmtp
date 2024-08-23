@@ -50,32 +50,33 @@ export class SQLite {
   }
 
   bind(stmt, i, value) {
+    const lib = this.sqlite3.capi;
     try {
       switch (typeof value) {
         case "number":
           if (value === (value | 0)) {
-            return sqlite3.capi.sqlite3_bind_int(stmt, i, value);
+            return lib.sqlite3_bind_int(stmt, i, value);
           } else {
-            return sqlite3.capi.sqlite3_bind_double(stmt, i, value);
+            return lib.sqlite3_bind_double(stmt, i, value);
           }
         case "string":
-          return sqlite3.capi.sqlite3_bind_text(stmt, i, value);
+          return lib.sqlite3_bind_text(stmt, i, value);
         default:
           if (value instanceof Uint8Array || Array.isArray(value)) {
-            return sqlite3.capi.sqlite3_bind_blob(stmt, i, value);
+            return lib.sqlite3_bind_blob(stmt, i, value);
           } else if (value === null) {
-            return sqlite3.capi.sqlite3_bind_null(stmt, i);
+            return lib.sqlite3_bind_null(stmt, i);
           } else if (typeof value === "bigint") {
-            return sqlite3.capi.sqlite3_bind_int64(stmt, i, value);
+            return lib.sqlite3_bind_int64(stmt, i, value);
           } else if (value === undefined) {
             // Existing binding (or NULL) will be used.
-            return sqlite3.capi.SQLITE_NOTICE;
+            return lib.SQLITE_NOTICE;
           } else {
             console.warn("unknown binding converted to null", value);
-            return sqlite3.bind_null(stmt, i);
+            return lib.bind_null(stmt, i);
           }
       }
-      return this.sqlite3.capi.sqlite3_bind(stmt, i, value);
+      return lib.sqlite3_bind(stmt, i, value);
     } catch (error) {
       console.log(`bind err ${error}`);
       throw error;

@@ -1,4 +1,3 @@
-mod capi;
 mod wasm;
 
 use js_sys::WebAssembly::Memory;
@@ -6,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::cell::LazyCell;
 use tokio::sync::OnceCell;
 use wasm_bindgen::{prelude::*, JsValue};
+
+pub use wasm::*;
 // WASM is ran in the browser thread, either main or worker`. Tokio is only a single-threaded runtime.
 // We need SQLite available globally, so this should be ok until we get threads with WASI or
 // something.
@@ -34,6 +35,8 @@ struct Opts {
     /// the shared WebAssembly Memory buffer
     #[serde(with = "serde_wasm_bindgen::preserve", rename = "wasmMemory")]
     wasm_memory: Memory,
+    #[serde(rename = "proxyUri")]
+    proxy_uri: String,
 }
 
 pub(super) const WASM_MEMORY: LazyCell<Memory> = LazyCell::new(|| {
@@ -51,6 +54,7 @@ pub async fn init_sqlite() {
             let opts = serde_wasm_bindgen::to_value(&Opts {
                 wasm_binary: WASM,
                 wasm_memory: WASM_MEMORY.clone(),
+                proxy_uri: wasm_bindgen::link_to!(module = "/src/sqlite3-opfs-async-proxy.js"),
             })
             .expect("serialization must be infallible for const struct");
             let opts = js_sys::Object::from(opts);
@@ -62,14 +66,6 @@ pub async fn init_sqlite() {
 
 pub(super) fn get_sqlite_unchecked() -> &'static SQLite {
     SQLITE.get().expect("SQLite is not initialized")
-}
-
-// just to make sure we get the file, needed for opfs
-#[wasm_bindgen(module = "/src/sqlite3-opfs-async-proxy.js")]
-extern "C" {
-    // we need to bind to a function to include the file
-    #[wasm_bindgen]
-    fn install_async_proxy();
 }
 
 // Constants
@@ -98,10 +94,24 @@ extern "C" {
     pub type SQLiteCompatibleType;
 }
 
-/// Direct Shim for sqlite
+/// Direct Sqlite3 bindings
 #[wasm_bindgen(module = "/src/wa-sqlite-diesel-bundle.js")]
 extern "C" {
+    #[derive(Debug)]
     pub type SQLite;
+
+    #[derive(Debug)]
+    #[wasm_bindgen(extends = SQLite)]
+    pub type Inner;
+
+    #[wasm_bindgen(method, getter, js_name = "sqlite3")]
+    pub fn inner(this: &SQLite) -> Inner;
+
+    #[wasm_bindgen(method, getter)]
+    pub fn wasm(this: &Inner) -> Wasm;
+
+    #[wasm_bindgen(method, getter)]
+    pub fn capi(this: &Inner) -> Capi;
 
     #[wasm_bindgen(constructor)]
     pub fn new(module: JsValue) -> SQLite;
@@ -134,38 +144,7 @@ extern "C" {
         idx: i32,
         value: SQLiteCompatibleType,
     ) -> Result<JsValue, JsValue>;
-    /*
-        #[wasm_bindgen(method, catch)]
-        pub fn bind_blob(
-            this: &SQLite,
-            stmt: &JsValue,
-            idx: i32,
-            value: Vec<u8>,
-        ) -> Result<i32, JsValue>;
 
-        // JsValue here is an interesting type that needs to be ported in order to make use of this
-        // but not currently using it.
-
-        #[wasm_bindgen(method, catch)]
-        pub fn bind_collection(
-            this: &SQLite,
-            stmt: &JsValue,
-            bindings: JsValue,
-        ) -> Result<i32, JsValue>;
-
-        #[wasm_bindgen(method, catch)]
-        pub fn bind_double(this: &SQLite, stmt: &JsValue, idx: i32, value: f64)
-            -> Result<i32, JsValue>;
-
-        #[wasm_bindgen(method, catch)]
-        pub fn bind_int(this: &SQLite, stmt: &JsValue, idx: i32, value: i32) -> Result<i32, JsValue>;
-
-        #[wasm_bindgen(method, catch)]
-        pub fn bind_int64(this: &SQLite, stmt: &JsValue, idx: i32, value: i64) -> Result<i32, JsValue>;
-
-        #[wasm_bindgen(method, catch)]
-        pub fn bind_null(this: &SQLite, stmt: &JsValue, idx: i32) -> Result<i32, JsValue>;
-    */
     #[wasm_bindgen(method)]
     pub fn bind_parameter_count(this: &SQLite, stmt: &JsValue) -> i32;
 
@@ -241,8 +220,8 @@ extern "C" {
         sql: &str,
         n_byte: i32,
         prep_flags: u32,
-        stmt: JsValue,
-        pzTail: JsValue,
+        stmt: &JsValue,
+        pzTail: &JsValue,
     ) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(method)]
@@ -270,10 +249,4 @@ extern "C" {
     #[wasm_bindgen(method)]
     pub fn value_free(this: &SQLite, value: &JsValue);
 
-}
-
-impl std::fmt::Debug for SQLite {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "SQLite WASM bridge")
-    }
 }

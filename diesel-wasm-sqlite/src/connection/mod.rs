@@ -53,7 +53,7 @@ pub struct WasmSqliteConnection {
     metadata_lookup: (),
     // this exists for the sole purpose of implementing `WithMetadataLookup` trait
     // and avoiding static mut which will be deprecated in 2024 edition
-    instrumentation: Option<Box<dyn Instrumentation>>,
+    instrumentation: Box<dyn Instrumentation>,
 }
 
 impl ConnectionSealed for WasmSqliteConnection {}
@@ -86,12 +86,11 @@ impl Connection for WasmSqliteConnection {
     }
 
     fn set_instrumentation(&mut self, instrumentation: impl Instrumentation) {
-        self.instrumentation = Some(Box::new(instrumentation));
+        self.instrumentation = Box::new(instrumentation);
     }
 
     fn instrumentation(&mut self) -> &mut dyn Instrumentation {
-        let instrumentation = self.instrumentation.as_mut().unwrap();
-        &mut *instrumentation
+        self.instrumentation.as_mut()
     }
 
     fn transaction_state(&mut self) -> &mut AnsiTransactionManager
@@ -257,7 +256,7 @@ impl WasmSqliteConnection {
             &WasmSqlite,
             &[],
             |sql, is_cached| Statement::prepare(raw_connection, sql, is_cached),
-            instrumentation.as_mut().unwrap(),
+            instrumentation.as_mut(),
         ) {
             Ok(statement) => statement,
             Err(e) => {
@@ -272,7 +271,7 @@ impl WasmSqliteConnection {
             }
         };
 
-        StatementUse::bind(statement, source, instrumentation.as_mut().unwrap())
+        StatementUse::bind(statement, source, instrumentation.as_mut())
     }
 
     fn establish_inner(database_url: &str) -> Result<WasmSqliteConnection, ConnectionError> {
@@ -286,8 +285,16 @@ impl WasmSqliteConnection {
             statement_cache: StatementCache::new(),
             raw_connection,
             transaction_manager: AnsiTransactionManager::default(),
-            instrumentation: None,
+            instrumentation: Box::new(Nothing) as Box<dyn Instrumentation>,
             metadata_lookup: (),
         })
+    }
+}
+
+pub struct Nothing;
+
+impl Instrumentation for Nothing {
+    fn on_connection_event(&mut self, event: diesel::connection::InstrumentationEvent<'_>) {
+        tracing::info!("Inst. Event {:?}", event);
     }
 }
