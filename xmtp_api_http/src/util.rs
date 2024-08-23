@@ -48,8 +48,9 @@ pub async fn create_grpc_stream<
     endpoint: String,
     http_client: reqwest::Client,
 ) -> Result<BoxStream<'static, Result<R, Error>>, Error> {
+    log::info!("About to spawn stream");
     let stream = async_stream::stream! {
-        log::debug!("Spawning grpc http stream");
+        log::info!("Spawning grpc http stream");
         let request = http_client
                 .post(endpoint)
                 .json(&request)

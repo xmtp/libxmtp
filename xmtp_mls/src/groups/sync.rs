@@ -46,7 +46,7 @@ use log::debug;
 use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
-    framing::ProtocolMessage,
+    framing::{ContentType, ProtocolMessage},
     group::{GroupEpoch, StagedCommit},
     prelude::{
         tls_codec::{Deserialize, Serialize},
@@ -266,7 +266,6 @@ impl MlsGroup {
         provider: &XmtpOpenMlsProvider,
         message: ProtocolMessage,
         envelope_timestamp_ns: u64,
-        allow_epoch_increment: bool,
     ) -> Result<IntentState, MessageProcessingError> {
         if intent.state == IntentState::Committed {
             return Ok(IntentState::Committed);
@@ -290,9 +289,6 @@ impl MlsGroup {
             | IntentKind::UpdateAdminList
             | IntentKind::MetadataUpdate
             | IntentKind::UpdatePermission => {
-                if !allow_epoch_increment {
-                    return Err(MessageProcessingError::EpochIncrementNotAllowed);
-                }
                 if let Some(published_in_epoch) = intent.published_in_epoch {
                     let published_in_epoch_u64 = published_in_epoch as u64;
                     let group_epoch_u64 = group_epoch.as_u64();
@@ -376,7 +372,6 @@ impl MlsGroup {
         provider: &XmtpOpenMlsProvider,
         message: PrivateMessageIn,
         envelope_timestamp_ns: u64,
-        allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_inbox_id, sender_installation_id) =
@@ -548,9 +543,6 @@ impl MlsGroup {
                 // intentionally left blank.
             }
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                if !allow_epoch_increment {
-                    return Err(MessageProcessingError::EpochIncrementNotAllowed);
-                }
                 log::info!(
                     "[{}] received staged commit. Merging and clearing any pending commits",
                     self.context.inbox_id()
@@ -600,6 +592,10 @@ impl MlsGroup {
             )),
         }?;
 
+        if !allow_epoch_increment && message.content_type() == ContentType::Commit {
+            return Err(MessageProcessingError::EpochIncrementNotAllowed);
+        }
+
         let intent = provider
             .conn_ref()
             .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
@@ -622,7 +618,6 @@ impl MlsGroup {
                         provider,
                         message.into(),
                         envelope.created_ns,
-                        allow_epoch_increment,
                     )
                     .await?
                 {
@@ -654,7 +649,6 @@ impl MlsGroup {
                     provider,
                     message,
                     envelope.created_ns,
-                    allow_epoch_increment,
                 )
                 .await
             }
@@ -875,8 +869,8 @@ impl MlsGroup {
                         intent.kind
                     );
                     if has_staged_commit {
-                        log::info!("Canceling all further publishes, since a commit was found");
-                        return Err(GroupError::PublishCancelled);
+                        log::info!("Commit sent. Stopping further publishes for this round");
+                        return Ok(());
                     }
                 }
                 Ok(None) => {
@@ -1011,7 +1005,7 @@ impl MlsGroup {
         }
     }
 
-    #[tracing::instrument(level = "trace", skip(conn, client))]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn post_commit<ApiClient>(
         &self,
         conn: &DbConnection,
