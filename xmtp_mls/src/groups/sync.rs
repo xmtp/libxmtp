@@ -82,7 +82,7 @@ use xmtp_proto::xmtp::mls::{
 struct PublishIntentData {
     staged_commit: Option<Vec<u8>>,
     post_commit_action: Option<Vec<u8>>,
-    message: Vec<u8>,
+    payload_to_publish: Vec<u8>,
 }
 
 impl MlsGroup {
@@ -324,7 +324,12 @@ impl MlsGroup {
                 )
                 .await;
 
-                if maybe_validated_commit.is_err() {
+                if let Err(err) = maybe_validated_commit {
+                    log::error!(
+                        "Error validating commit for own message. Intent ID [{}]: {:?}",
+                        intent.id,
+                        err
+                    );
                     // Return before merging commit since it does not pass validation
                     // Return OK so that the group intent update is still written to the DB
                     return Ok(IntentState::Error);
@@ -628,10 +633,11 @@ impl MlsGroup {
                         Ok(provider.conn_ref().set_group_intent_committed(intent_id)?)
                     }
                     IntentState::Published => {
-                        log::warn!("Unexpected behaviour: returned intent state published from process_own_message");
+                        log::error!("Unexpected behaviour: returned intent state published from process_own_message");
                         Ok(())
                     }
                     IntentState::Error => {
+                        log::warn!("Intent [{}] moved to error status", intent_id);
                         Ok(provider.conn_ref().set_group_intent_error(intent_id)?)
                     }
                 }
@@ -838,11 +844,11 @@ impl MlsGroup {
                     return Err(err);
                 }
                 Ok(Some(PublishIntentData {
-                    message,
+                    payload_to_publish,
                     post_commit_action,
                     staged_commit,
                 })) => {
-                    let payload_slice = message.as_slice();
+                    let payload_slice = payload_to_publish.as_slice();
                     let has_staged_commit = staged_commit.is_some();
                     provider.conn_ref().set_group_intent_published(
                         intent.id,
@@ -922,7 +928,7 @@ impl MlsGroup {
                 )?;
 
                 Ok(Some(PublishIntentData {
-                    message: msg.tls_serialize_detached()?,
+                    payload_to_publish: msg.tls_serialize_detached()?,
                     post_commit_action: None,
                     staged_commit: None,
                 }))
@@ -935,7 +941,7 @@ impl MlsGroup {
                 )?;
 
                 Ok(Some(PublishIntentData {
-                    message: commit.tls_serialize_detached()?,
+                    payload_to_publish: commit.tls_serialize_detached()?,
                     staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
                     post_commit_action: None,
                 }))
@@ -957,7 +963,7 @@ impl MlsGroup {
                 let commit_bytes = commit.tls_serialize_detached()?;
 
                 Ok(Some(PublishIntentData {
-                    message: commit_bytes,
+                    payload_to_publish: commit_bytes,
                     staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
                     post_commit_action: None,
                 }))
@@ -978,7 +984,7 @@ impl MlsGroup {
                 let commit_bytes = commit.tls_serialize_detached()?;
 
                 Ok(Some(PublishIntentData {
-                    message: commit_bytes,
+                    payload_to_publish: commit_bytes,
                     staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
                     post_commit_action: None,
                 }))
@@ -997,7 +1003,7 @@ impl MlsGroup {
                 )?;
                 let commit_bytes = commit.tls_serialize_detached()?;
                 Ok(Some(PublishIntentData {
-                    message: commit_bytes,
+                    payload_to_publish: commit_bytes,
                     staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
                     post_commit_action: None,
                 }))
@@ -1335,7 +1341,7 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
         .ok_or_else(|| GroupError::MissingPendingCommit)?;
 
     Ok(Some(PublishIntentData {
-        message: commit.tls_serialize_detached()?,
+        payload_to_publish: commit.tls_serialize_detached()?,
         post_commit_action: post_commit_action.map(|action| action.to_bytes()),
         staged_commit: Some(staged_commit),
     }))
