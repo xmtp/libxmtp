@@ -887,9 +887,7 @@ mod tests {
         test::create_groups(&alix, &peers, 50, 5).await.unwrap();
         let groups = bo.sync_welcomes().await.unwrap();
         assert_eq!(groups.len(), 50);
-        let now = std::time::Instant::now();
         bo.sync_all_groups(groups).await.unwrap();
-        println!("time to sync? {:?}", now.elapsed());
 
         let groups = bo
             .context()
