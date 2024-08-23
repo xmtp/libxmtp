@@ -2295,6 +2295,76 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_sync_all_groups_active_only() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Create 30 groups with alix and bo and sync them
+        for _i in 0..30 {
+            alix.conversations()
+                .create_group(
+                    vec![bo.account_address.clone()],
+                    FfiCreateGroupOptions::default(),
+                )
+                .await
+                .unwrap();
+        }
+        bo.conversations().sync().await.unwrap();
+        bo.conversations().sync_all_groups().await.unwrap();
+
+        // Alix sends a message in each group
+        for group in alix
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap()
+        {
+            group.send("hello".as_bytes().to_vec()).await.unwrap();
+        }
+
+        // Get duration to sync all groups
+        let start_time_1 = std::time::Instant::now();
+        bo.conversations().sync_all_groups().await.unwrap();
+        let duration_1 = start_time_1.elapsed();
+
+        // Remove bo from all groups and sync
+        for group in alix
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap()
+        {
+            group
+                .remove_members(vec![bo.account_address.clone()])
+                .await
+                .unwrap();
+        }
+        bo.conversations().sync_all_groups().await.unwrap();
+
+        // Alix sends one more message in each group
+        for group in alix
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap()
+        {
+            group.send("hello".as_bytes().to_vec()).await.unwrap();
+        }
+
+        // Verify that sync all groups is faster after bo is removed
+        let start_time_2 = std::time::Instant::now();
+        bo.conversations().sync_all_groups().await.unwrap();
+        let duration_2 = start_time_2.elapsed();
+
+        println!("Time taken to sync all groups: {:?}", duration_1);
+        println!(
+            "Time taken to sync all groups after being removed: {:?}",
+            duration_2
+        );
+        assert!(duration_2 < duration_1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_can_send_message_when_out_of_sync() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
