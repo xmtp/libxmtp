@@ -66,8 +66,16 @@ impl MlsGroup {
         );
 
         if let Some(GroupError::ReceiveError(_)) = process_result.as_ref().err() {
-            self.sync_with_conn(&client.mls_provider()?, &client)
-                .await?;
+            // Swallow errors here, since another process may have successfully saved the message
+            // to the DB
+            match self.sync_with_conn(&client.mls_provider()?, &client).await {
+                Ok(_) => {
+                    log::debug!("Sync triggered by streamed message successful")
+                }
+                Err(err) => {
+                    log::warn!("Sync triggered by streamed message failed: {}", err);
+                }
+            };
         } else if process_result.is_err() {
             log::error!("Process stream entry {:?}", process_result.err());
         }
@@ -309,6 +317,8 @@ mod tests {
         });
         // just to make sure stream is started
         let _ = start_rx.await;
+        // Adding in a sleep, since the HTTP API client may acknowledge requests before they are ready
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])

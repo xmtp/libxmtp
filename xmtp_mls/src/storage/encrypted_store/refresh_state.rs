@@ -9,7 +9,7 @@ use diesel::{
 };
 
 use super::{db_connection::DbConnection, schema::refresh_state};
-use crate::{impl_store, storage::StorageError, Store};
+use crate::{impl_store, impl_store_or_ignore, storage::StorageError, StoreOrIgnore};
 
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, Hash, FromSqlRow)]
@@ -52,6 +52,7 @@ pub struct RefreshState {
 }
 
 impl_store!(RefreshState, refresh_state);
+impl_store_or_ignore!(RefreshState, refresh_state);
 
 impl DbConnection {
     pub fn get_refresh_state<EntityId: AsRef<Vec<u8>>>(
@@ -69,6 +70,7 @@ impl DbConnection {
 
         Ok(res)
     }
+
     pub fn get_last_cursor_for_id<IdType: AsRef<Vec<u8>>>(
         &self,
         id: IdType,
@@ -83,7 +85,7 @@ impl DbConnection {
                     entity_kind,
                     cursor: 0,
                 };
-                new_state.store(self)?;
+                new_state.store_or_ignore(self)?;
                 Ok(0)
             }
         }
@@ -119,7 +121,7 @@ impl DbConnection {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::storage::encrypted_store::tests::with_connection;
+    use crate::{storage::encrypted_store::tests::with_connection, Store};
 
     #[test]
     fn get_cursor_with_no_existing_state() {

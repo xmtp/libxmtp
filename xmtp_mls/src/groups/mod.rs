@@ -1266,8 +1266,9 @@ mod tests {
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     use crate::{
-        assert_logged,
+        assert_err, assert_logged,
         builder::ClientBuilder,
+        client::MessageProcessingError,
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
             build_group_membership_extension,
@@ -3088,11 +3089,11 @@ mod tests {
         alix1_group
             .publish_intents(&alix1_provider, &alix1)
             .await
-            .expect_err("Expected an error that publish was canceled");
+            .expect("Expect publish to be OK");
         alix1_group
             .publish_intents(&alix1_provider, &alix1)
             .await
-            .expect_err("Expected an error that publish was canceled");
+            .expect("Expected publish to be OK");
 
         // Now I am going to sync twice
         alix1_group
@@ -3152,5 +3153,51 @@ mod tests {
         assert!(alix2_messages
             .iter()
             .any(|m| m.decrypted_message_bytes == "hi from alix1".as_bytes()));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn respect_allow_epoch_increment() {
+        let wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(&wallet).await;
+
+        let group = client
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        let _client_2 = ClientBuilder::new_test_client(&wallet).await;
+
+        // Sync the group to get the message adding client_2 published to the network
+        group.sync(&client).await.unwrap();
+
+        // Retrieve the envelope for the commit from the network
+        let messages = client
+            .api_client
+            .query_group_messages(group.group_id.clone(), None)
+            .await
+            .unwrap();
+
+        let first_envelope = messages.first().unwrap();
+
+        let Some(xmtp_proto::xmtp::mls::api::v1::group_message::Version::V1(first_message)) =
+            first_envelope.clone().version
+        else {
+            panic!("wrong message format")
+        };
+        let provider = client.mls_provider().unwrap();
+        let mut openmls_group = group.load_mls_group(&provider).unwrap();
+        let process_result = group
+            .process_message(
+                &client,
+                &mut openmls_group,
+                &provider,
+                &first_message,
+                false,
+            )
+            .await;
+
+        assert_err!(
+            process_result,
+            MessageProcessingError::EpochIncrementNotAllowed
+        );
     }
 }

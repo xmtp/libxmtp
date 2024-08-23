@@ -123,7 +123,7 @@ mod tests {
     #[macro_export]
     macro_rules! assert_err {
         ( $x:expr , $y:pat $(,)? ) => {
-            assert!(matches!($x, Err($y)));
+            assert!(matches!($x, Err($y)))
         };
 
         ( $x:expr, $y:pat $(,)?, $($msg:tt)+) => {{
