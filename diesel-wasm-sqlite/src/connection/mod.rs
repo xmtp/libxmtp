@@ -22,6 +22,7 @@ use diesel::{
     query_builder::Query,
     result::*,
     sql_types::TypeMetadata,
+    RunQueryDsl,
 };
 // use diesel::connection::instrumentation::DynInstrumentation
 
@@ -126,13 +127,39 @@ impl WithMetadataLookup for WasmSqliteConnection {
     }
 }
 
-/*
-#[cfg(feature = "r2d2")]
-impl crate::r2d2::R2D2Connection for crate::sqlite::SqliteConnection {
-    fn ping(&mut self) -> QueryResult<()> {
-        use crate::RunQueryDsl;
+impl diesel::migration::MigrationConnection for WasmSqliteConnection {
+    fn setup(&mut self) -> QueryResult<usize> {
+        use diesel::RunQueryDsl;
+        diesel::sql_query(diesel::migration::CREATE_MIGRATIONS_TABLE).execute(self)
+    }
+}
 
-        crate::r2d2::CheckConnectionQuery.execute(self).map(|_| ())
+#[derive(diesel::QueryId)]
+pub(crate) struct CheckConnectionQuery;
+
+impl<DB> QueryFragment<DB> for CheckConnectionQuery
+where
+    DB: diesel::backend::Backend,
+{
+    fn walk_ast<'b>(
+        &'b self,
+        mut pass: diesel::query_builder::AstPass<'_, 'b, DB>,
+    ) -> QueryResult<()> {
+        pass.push_sql("SELECT 1");
+        Ok(())
+    }
+}
+
+impl Query for CheckConnectionQuery {
+    type SqlType = diesel::sql_types::Integer;
+}
+
+impl<C> RunQueryDsl<C> for CheckConnectionQuery {}
+
+#[cfg(feature = "r2d2")]
+impl diesel::r2d2::R2D2Connection for crate::connection::WasmSqliteConnection {
+    fn ping(&mut self) -> QueryResult<()> {
+        CheckConnectionQuery.execute(self).map(|_| ())
     }
 
     fn is_broken(&mut self) -> bool {
@@ -140,20 +167,19 @@ impl crate::r2d2::R2D2Connection for crate::sqlite::SqliteConnection {
     }
 }
 
-impl MultiConnectionHelper for SqliteConnection {
+impl diesel::connection::MultiConnectionHelper for WasmSqliteConnection {
     fn to_any<'a>(
-        lookup: &mut <Self::Backend as crate::sql_types::TypeMetadata>::MetadataLookup,
+        lookup: &mut <Self::Backend as diesel::sql_types::TypeMetadata>::MetadataLookup,
     ) -> &mut (dyn std::any::Any + 'a) {
         lookup
     }
 
     fn from_any(
         lookup: &mut dyn std::any::Any,
-    ) -> Option<&mut <Self::Backend as crate::sql_types::TypeMetadata>::MetadataLookup> {
+    ) -> Option<&mut <Self::Backend as diesel::sql_types::TypeMetadata>::MetadataLookup> {
         lookup.downcast_mut()
     }
 }
-*/
 
 impl WasmSqliteConnection {
     /// Run a transaction with `BEGIN IMMEDIATE`

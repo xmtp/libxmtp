@@ -1,8 +1,7 @@
 #![recursion_limit = "256"]
 #![cfg(target_arch = "wasm32")]
 
-use diesel_migrations::embed_migrations;
-use diesel_migrations::EmbeddedMigrations;
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use diesel_wasm_sqlite::{connection::WasmSqliteConnection, DebugQueryWrapper, WasmSqlite};
 use wasm_bindgen_test::*;
 use web_sys::console;
@@ -52,22 +51,11 @@ async fn establish_connection() -> WasmSqliteConnection {
     diesel_wasm_sqlite::init_sqlite().await;
 
     let rng: u16 = rand::random();
+    tracing::info!("trying to establish...");
     let result = WasmSqliteConnection::establish(&format!("test-{}", rng));
     let mut conn = result.unwrap();
-    // conn.run_pending_migrations(MIGRATIONS);
-    //TODO: we can use `embed_migrations` to run our migrations
-    tracing::info!("trying to establish...");
-
-    conn.batch_execute(
-        "
-        CREATE TABLE books (
-            id INTEGER PRIMARY KEY,
-            title TEXT,
-            author TEXT
-        )
-    ",
-    )
-    .expect("Batch exec failed to run");
+    tracing::info!("running migrations...");
+    conn.run_pending_migrations(MIGRATIONS);
     conn
 }
 

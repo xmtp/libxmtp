@@ -25,6 +25,8 @@ serde = { version = "1.0", eatures = ["derive"] }
 serde-wasm-bindgen = "0.6"
 thiserror = "1"
 
+# r2d2 = {version = "0.8", default-features = false, optional = true}
+
 [dev-dependencies]
 rand = "0.8"
 getrandom = { version = "0.2", features = ["js"] }
@@ -41,6 +43,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["console_error_panic_hook"]
+r2d2 = ["diesel/r2d2"]
 # enables a `DebugQueryWrapper` for diesel
 # but is unsafe because of mem::transmute
 unsafe-debug-query = []

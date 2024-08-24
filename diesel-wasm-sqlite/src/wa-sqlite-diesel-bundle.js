@@ -14642,7 +14642,6 @@ class SQLite {
   }
 
   exec(db, query) {
-    console.log("RUNNIGN BATCH EXEC");
     try {
       return db.exec(query, {
         callback: (row) => {
@@ -14650,7 +14649,7 @@ class SQLite {
         },
       });
     } catch (error) {
-      error("exec err");
+      console.error("exec err");
       throw error;
     }
   }
@@ -14659,7 +14658,7 @@ class SQLite {
     try {
       return this.sqlite3.capi.sqlite3_finalize(stmt);
     } catch (error) {
-      error("stmt error");
+      console.error("stmt error");
       throw error;
     }
   }
@@ -14672,7 +14671,7 @@ class SQLite {
     try {
       return this.sqlite3.capi.sqlite3_clear_bindings(stmt);
     } catch (error) {
-      error("sqlite3.clear_bindings error");
+      console.error("sqlite3.clear_bindings error");
       throw error;
     }
   }
@@ -14682,7 +14681,7 @@ class SQLite {
       log("Closing Database!");
       return db.close(db);
     } catch (error) {
-      error("sqlite3.close error");
+      console.error("sqlite3.close error");
       throw error;
     }
   }
@@ -14731,7 +14730,7 @@ class SQLite {
     try {
       return this.sqlite3.capi.sqlite3_column_js(stmt, i);
     } catch (error) {
-      error("Could not convert to JS");
+      console.error("Could not convert to JS");
     }
   }
 

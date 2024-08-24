@@ -67,6 +67,9 @@ pub async fn init_sqlite() {
 }
 
 pub(super) fn get_sqlite_unchecked() -> &'static SQLite {
+    if !SQLITE.initialized() {
+        tracing::error!("NOT INITIALIZED");
+    }
     SQLITE.get().expect("SQLite is not initialized")
 }
 
