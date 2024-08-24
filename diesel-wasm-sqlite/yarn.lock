@@ -299,18 +299,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@xmtp/wa-sqlite@npm:>=1.0.3":
-  version: 1.0.3
-  resolution: "@xmtp/wa-sqlite@npm:1.0.3"
-  dependenciesMeta:
-    monaco-editor@0.34.1:
-      unplugged: true
-    web-test-runner-jasmine@0.0.6:
-      unplugged: true
-  checksum: 10/16f0a79ea4a6a39ae3c38bddf20a83d8ca990a1366800c315059c28f0c712d127c76c64144a87757648343785bd1106096d92288fa6c5b3f97a9d3c81c5e6047
-  languageName: node
-  linkType: hard
-
 "abbrev@npm:^2.0.0":
   version: 2.0.0
   resolution: "abbrev@npm:2.0.0"
@@ -517,7 +505,6 @@ __metadata:
     "@rollup/plugin-node-resolve": "npm:^15.2.3"
     "@rollup/plugin-typescript": "npm:^11.1.6"
     "@sqlite.org/sqlite-wasm": "npm:latest"
-    "@xmtp/wa-sqlite": "npm:>=1.0.3"
     rollup: "npm:^4.19.0"
     rollup-plugin-copy: "npm:^3.5.0"
   languageName: unknown

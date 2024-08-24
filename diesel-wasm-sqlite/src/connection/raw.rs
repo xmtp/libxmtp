@@ -1,10 +1,7 @@
 #![allow(dead_code)]
 // functions are needed, but missing functionality means they aren't used yet.
 
-use crate::{
-    sqlite_types::{SqliteFlags, SqliteOpenFlags},
-    WasmSqlite, WasmSqliteError,
-};
+use crate::{WasmSqlite, WasmSqliteError};
 use diesel::{result::*, serialize::ToSql, sql_types::HasSqlType};
 use wasm_bindgen::{closure::Closure, JsValue};
 
@@ -21,14 +18,15 @@ impl RawConnection {
         } else {
             database_url.to_string()
         };
-        let flags = SqliteOpenFlags::SQLITE_OPEN_READWRITE
-            | SqliteOpenFlags::SQLITE_OPEN_CREATE
-            | SqliteOpenFlags::SQLITE_OPEN_URI;
+
+        let capi = sqlite3.inner().capi();
+        let flags =
+            capi.SQLITE_OPEN_READWRITE() | capi.SQLITE_OPEN_CREATE() | capi.SQLITE_OPEN_URI();
 
         // TODO: flags are ignored for now
         Ok(RawConnection {
             internal_connection: sqlite3
-                .open(&database_url, Some(flags.bits() as i32))
+                .open(&database_url, Some(flags as i32))
                 .map_err(WasmSqliteError::from)
                 .map_err(ConnectionError::from)?,
         })
@@ -79,11 +77,12 @@ impl RawConnection {
     }
 
     fn get_flags(deterministic: bool) -> i32 {
-        let mut flags = SqliteFlags::SQLITE_UTF8;
+        let capi = crate::get_sqlite_unchecked().inner().capi();
+        let mut flags = capi.SQLITE_UTF8();
         if deterministic {
-            flags |= SqliteFlags::SQLITE_DETERMINISTIC;
+            flags |= capi.SQLITE_DETERMINISTIC();
         }
-        flags.bits() as i32
+        flags as i32
     }
 
     /* possible to implement this, but would need to fill in the missing wa-sqlite functions

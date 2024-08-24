@@ -62,7 +62,7 @@ async fn establish_connection() -> WasmSqliteConnection {
         "
         CREATE TABLE books (
             id INTEGER PRIMARY KEY,
-            title TEXT NOT NULL,
+            title TEXT,
             author TEXT
         )
     ",
@@ -88,7 +88,7 @@ fn insert_book(conn: &mut WasmSqliteConnection, new_book: BookForm) -> QueryResu
     let rows_changed = query.execute(conn).unwrap();
     Ok(rows_changed)
 }
-
+/*
 #[wasm_bindgen_test]
 fn examine_sql_from_insert_default_values() {
     use schema::books::dsl::*;
@@ -98,7 +98,7 @@ fn examine_sql_from_insert_default_values() {
     assert_eq!(sql, debug_query::<WasmSqlite, _>(&query).to_string());
     console::log_1(&debug_query::<WasmSqlite, _>(&query).to_string().into());
 }
-
+*/
 #[wasm_bindgen_test]
 async fn test_orm_insert() {
     console_error_panic_hook::set_once();

@@ -2,8 +2,8 @@
 
 use std::cell::Ref;
 
-use crate::ffi::SQLiteCompatibleType;
-use crate::{backend::SqliteType, sqlite_types};
+use crate::backend::SqliteType;
+use crate::ffi::{self, SQLiteCompatibleType};
 use wasm_bindgen::JsValue;
 
 use super::owned_row::OwnedSqliteRow;
@@ -123,12 +123,13 @@ impl<'row, 'stmt, 'query> SqliteValue<'row, 'stmt, 'query> {
     pub fn value_type(&self) -> Option<SqliteType> {
         let sqlite3 = crate::get_sqlite_unchecked();
         let tpe = sqlite3.value_type(&self.value);
+
         match tpe {
-            sqlite_types::SQLITE_TEXT => Some(SqliteType::Text),
-            sqlite_types::SQLITE_INTEGER => Some(SqliteType::Long),
-            sqlite_types::SQLITE_FLOAT => Some(SqliteType::Double),
-            sqlite_types::SQLITE_BLOB => Some(SqliteType::Binary),
-            sqlite_types::SQLITE_NULL => None,
+            _ if *ffi::SQLITE_TEXT == tpe => Some(SqliteType::Text),
+            _ if *ffi::SQLITE_INTEGER == tpe => Some(SqliteType::Long),
+            _ if *ffi::SQLITE_FLOAT == tpe => Some(SqliteType::Double),
+            _ if *ffi::SQLITE_BLOB == tpe => Some(SqliteType::Binary),
+            _ if *ffi::SQLITE_NULL == tpe => None,
             _ => unreachable!(
                 "Sqlite's documentation state that this case ({}) is not reachable. \
                  If you ever see this error message please open an issue at \
@@ -143,7 +144,7 @@ impl OwnedSqliteValue {
     pub(super) fn copy_from_ptr(ptr: &JsValue) -> Option<OwnedSqliteValue> {
         let sqlite3 = crate::get_sqlite_unchecked();
         let tpe = sqlite3.value_type(&ptr);
-        if sqlite_types::SQLITE_NULL == tpe {
+        if *ffi::SQLITE_NULL == tpe {
             return None;
         }
 

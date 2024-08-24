@@ -26,6 +26,8 @@ pub enum WasmSqliteError {
     Js(JsValue),
     #[error(transparent)]
     Diesel(#[from] diesel::result::Error),
+    #[error(transparent)]
+    Bindgen(#[from] serde_wasm_bindgen::Error),
 }
 
 impl From<WasmSqliteError> for diesel::result::Error {

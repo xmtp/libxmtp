@@ -3,6 +3,13 @@ import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 const log = console.log;
 const err_log = console.error;
 
+export class SQLiteError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.code = code;
+  }
+}
+
 export class SQLite {
   #module;
   #sqlite3;
@@ -11,6 +18,13 @@ export class SQLite {
       throw new Error("Cannot be called directly");
     }
     this.sqlite3 = module;
+    this.mapStmtToDB = new Map();
+  }
+
+  verifyStatement(stmt) {
+    if (!mapStmtToDB.has(stmt)) {
+      throw new SQLiteError("not a statement", SQLite.SQLITE_MISUSE);
+    }
   }
 
   static async init_module(wasm, opts) {
@@ -19,6 +33,16 @@ export class SQLite {
       printErr: err_log,
       ...opts,
     });
+  }
+
+  check(code, dbPtr = null, allowed = [this.sqlite3.capi.SQLITE_OK]) {
+    if (allowed.includes(code)) return code;
+    // dbPtr = dbPtr.pointer;
+    const capi = this.sqlite3.capi;
+    const message = dbPtr
+      ? capi.sqlite3_errmsg(dbPtr)
+      : capi.sqlite3_errstr(code);
+    throw new SQLiteError(message, code);
   }
 
   result_js(context, value) {
@@ -258,22 +282,42 @@ export class SQLite {
   }
 
   prepare_v3(db, sql, nByte, prepFlags, ppStmt, pzTail) {
-    this.sqlite3.capi.sqlite3_prepare_v3(
-      db,
+    console.log(`Preparing with flags ${prepFlags}`);
+    const code = this.sqlite3.capi.sqlite3_prepare_v3(
+      db.pointer,
       sql,
       nByte,
       prepFlags,
       ppStmt,
       pzTail,
     );
+
+    if (code !== this.sqlite3.capi.SQLITE_OK) {
+      this.check(code);
+    }
+  }
+
+  into_statement(pStmt) {
+    const BindTypes = {
+      null: 1,
+      number: 2,
+      string: 3,
+      boolean: 4,
+      blob: 5,
+    };
+    BindTypes["undefined"] == BindTypes.null;
+    if (wasm.bigIntEnabled) {
+      BindTypes.bigint = BindTypes.number;
+    }
+
+    new Stmt(this, pStmt, BindTypes);
   }
 
   step(stmt) {
-    try {
-      return this.sqlite3.capi.sqlite3_step(stmt);
-    } catch (error) {
-      error("sqlite step error");
-      throw error;
+    const code = this.sqlite3.capi.sqlite3_step(stmt);
+    if (code !== this.sqlite3.capi.SQLITE_OK) {
+      const capi = this.sqlite3.capi;
+      return this.check(code, null, [capi.SQLITE_ROW, capi.SQLITE_DONE]);
     }
   }
 
@@ -281,7 +325,7 @@ export class SQLite {
     try {
       return this.sqlite3.capi.sqlite3_column_js(stmt, i);
     } catch (error) {
-      error("Could not conver to JS");
+      error("Could not convert to JS");
     }
   }
 

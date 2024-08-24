@@ -33,8 +33,10 @@ struct Opts {
     #[serde(rename = "wasmBinary")]
     wasm_binary: &'static [u8],
     /// the shared WebAssembly Memory buffer
+    /// this allows us to manipulate the WASM memory from rust
     #[serde(with = "serde_wasm_bindgen::preserve", rename = "wasmMemory")]
     wasm_memory: Memory,
+    /// The URI for the OPFS async proxy.
     #[serde(rename = "proxyUri")]
     proxy_uri: String,
 }
@@ -68,21 +70,6 @@ pub(super) fn get_sqlite_unchecked() -> &'static SQLite {
     SQLITE.get().expect("SQLite is not initialized")
 }
 
-// Constants
-#[wasm_bindgen(module = "/src/wa-sqlite-diesel-bundle.js")]
-extern "C" {
-    pub static SQLITE_DONE: i32;
-    pub static SQLITE_ROW: i32;
-
-    // Fundamental datatypes.
-    // https://www.sqlite.org/c3ref/c_blob.html
-    pub static SQLITE_INTEGER: i32;
-    pub static SQLITE_FLOAT: i32;
-    pub static SQLITE_TEXT: i32;
-    pub static SQLITE_BLOB: i32;
-    pub static SQLITE_NULL: i32;
-}
-
 #[wasm_bindgen(typescript_custom_section)]
 const SQLITE_COMPATIBLE_TYPE: &'static str =
     r#"type SQLiteCompatibleType = number|string|Uint8Array|Array<number>|bigint|null"#;
@@ -111,7 +98,7 @@ extern "C" {
     pub fn wasm(this: &Inner) -> Wasm;
 
     #[wasm_bindgen(method, getter)]
-    pub fn capi(this: &Inner) -> Capi;
+    pub fn capi(this: &Inner) -> CApi;
 
     #[wasm_bindgen(constructor)]
     pub fn new(module: JsValue) -> SQLite;
@@ -183,7 +170,7 @@ extern "C" {
     pub fn value_text(this: &SQLite, pValue: &JsValue) -> String;
 
     #[wasm_bindgen(method)]
-    pub fn value_type(this: &SQLite, pValue: &JsValue) -> i32;
+    pub fn value_type(this: &SQLite, pValue: &JsValue) -> u32;
 
     #[wasm_bindgen(method, catch)]
     pub fn open(this: &SQLite, database_url: &str, iflags: Option<i32>)
