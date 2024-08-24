@@ -236,6 +236,7 @@ export class SQLite {
   }
 
   exec(db, query) {
+    console.log(`QUERY: ${query}`);
     try {
       return db.exec(query, {
         callback: (row) => {

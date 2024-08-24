@@ -15,6 +15,7 @@ pub use self::sqlite_value::SqliteValue;
 use self::raw::RawConnection;
 pub use self::statement_iterator::*;
 use self::stmt::{Statement, StatementUse};
+// use diesel::connection::DynInstrumentation;
 use diesel::{
     connection::WithMetadataLookup,
     connection::{statement_cache::StatementCache, DefaultLoadingMode, LoadConnection},
@@ -24,7 +25,6 @@ use diesel::{
     sql_types::TypeMetadata,
     RunQueryDsl,
 };
-// use diesel::connection::instrumentation::DynInstrumentation
 
 use diesel::{
     connection::{

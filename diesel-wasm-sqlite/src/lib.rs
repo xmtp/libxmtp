@@ -6,7 +6,9 @@ pub mod query_builder;
 pub mod sqlite_fixes;
 pub mod sqlite_types;
 pub mod utils;
-// pub mod migrations;
+
+#[global_allocator]
+static ALLOCATOR: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
 
 #[cfg(any(feature = "unsafe-debug-query", test))]
 pub use query_builder::insert_with_default_sqlite::unsafe_debug_query::DebugQueryWrapper;
