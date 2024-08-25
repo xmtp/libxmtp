@@ -40,7 +40,6 @@ pub(super) struct OwnedSqliteValue {
 
 impl Drop for OwnedSqliteValue {
     fn drop(&mut self) {
-        tracing::debug!("DROPPING OwnedSqliteValue");
         let sqlite3 = crate::get_sqlite_unchecked();
         sqlite3.value_free(self.value)
     }
@@ -94,7 +93,6 @@ impl<'row, 'stmt, 'query> SqliteValue<'row, 'stmt, 'query> {
     }
 
     pub(crate) fn read_text(&self) -> String {
-        tracing::debug!("READING TXT");
         self.parse_string(|s| s)
     }
 
@@ -103,7 +101,6 @@ impl<'row, 'stmt, 'query> SqliteValue<'row, 'stmt, 'query> {
     pub(crate) fn parse_string<'value, R>(&self, f: impl FnOnce(String) -> R) -> R {
         let sqlite3 = crate::get_sqlite_unchecked();
         let s = sqlite3.value_text(self.value);
-        tracing::debug!("COPIED FROM SQLITE {:?}", s);
         // let s = unsafe {
         // let ptr = sqlite3.value_text(self.value);
         // let len = sqlite3.value_bytes(self.value);
@@ -122,7 +119,6 @@ impl<'row, 'stmt, 'query> SqliteValue<'row, 'stmt, 'query> {
             let len = sqlite3.value_bytes(self.value);
             let mut bytes = Vec::with_capacity(len as usize);
             ffi::raw_copy_from_sqlite(ptr, len, bytes.as_mut_slice());
-            tracing::debug!("COPIED FROM SQLITE {:?}", bytes);
             // bytes.set_len(len); // not sure we need this
             bytes
         }

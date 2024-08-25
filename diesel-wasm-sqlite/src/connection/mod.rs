@@ -14,8 +14,8 @@ pub use self::sqlite_value::SqliteValue;
 
 use self::raw::RawConnection;
 pub use self::statement_iterator::*;
-pub(self) use err::*;
 use self::stmt::{Statement, StatementUse};
+pub(self) use err::*;
 // use diesel::connection::DynInstrumentation;
 use diesel::{
     connection::WithMetadataLookup,
@@ -266,7 +266,6 @@ impl WasmSqliteConnection {
     where
         T: QueryFragment<WasmSqlite> + QueryId + 'query,
     {
-        tracing::debug!("Preparing query!");
         /*
         self.instrumentation
             .on_connection_event(InstrumentationEvent::StartQuery {
@@ -309,7 +308,6 @@ impl WasmSqliteConnection {
         sqlite3
             .register_diesel_sql_functions(&raw_connection.internal_connection)
             .map_err(WasmSqliteError::from)?;
-        tracing::debug!("Registered fns");
         Ok(Self {
             statement_cache: StatementCache::new(),
             raw_connection,

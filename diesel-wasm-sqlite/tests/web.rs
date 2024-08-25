@@ -1,10 +1,11 @@
+//! Integration-like tests with a persistent database
 #![recursion_limit = "256"]
 #![cfg(target_arch = "wasm32")]
 
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use diesel::connection::LoadConnection;
-use diesel_wasm_sqlite::{connection::WasmSqliteConnection, DebugQueryWrapper, WasmSqlite};
 use diesel::deserialize::FromSqlRow;
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use diesel_wasm_sqlite::{connection::WasmSqliteConnection, DebugQueryWrapper, WasmSqlite};
 use wasm_bindgen_test::*;
 use web_sys::console;
 
@@ -51,7 +52,6 @@ async fn establish_connection() -> WasmSqliteConnection {
     diesel_wasm_sqlite::init_sqlite().await;
 
     let rng: u16 = rand::random();
-    tracing::info!("trying to establish...");
     let result = WasmSqliteConnection::establish(&format!("test-{}", rng));
     let mut conn = result.unwrap();
     tracing::info!("running migrations...");
@@ -134,18 +134,20 @@ async fn test_orm_insert() {
     assert_eq!(rows_changed, 6);
     tracing::info!("{} rows changed", rows_changed);
     console::log_1(&"Showing Users".into());
-    let book = schema::books::table.select(schema::books::title).load::<String>(&mut conn);
+    let book = schema::books::table
+        .select(schema::books::title)
+        .load::<String>(&mut conn);
     tracing::info!("Loaded book {:?}", book);
     let query = schema::books::table.limit(5).select(Book::as_select());
     let books = conn.load(query).unwrap().collect::<Vec<_>>();
-   /* 
-    for row in books.iter() {
-        let deserialized_book = row.as_ref().map(|row| {
-            Book::build_from_row(row).unwrap()
-        });
-        tracing::debug!("BOOK: {:?}", deserialized_book);
-    }
-*/
+    /*
+        for row in books.iter() {
+            let deserialized_book = row.as_ref().map(|row| {
+                Book::build_from_row(row).unwrap()
+            });
+            tracing::debug!("BOOK: {:?}", deserialized_book);
+        }
+    */
     // console::log_1(&debug_query::<WasmSqlite, _>(&query).o_string().into());
     // .load(&mut conn)
     // .await
@@ -157,4 +159,3 @@ async fn test_orm_insert() {
         }
     */
 }
-

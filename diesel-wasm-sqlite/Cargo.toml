@@ -40,6 +40,7 @@ r2d2 = ["diesel/r2d2"]
 # enables a `DebugQueryWrapper` for diesel
 # but is unsafe because of mem::transmute
 unsafe-debug-query = []
+test-util = ["unsafe-debug-query"]
 
 [build]
 target = "wasm32-unknown-unknown"

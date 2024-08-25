@@ -6,15 +6,18 @@ pub mod query_builder;
 pub mod sqlite_fixes;
 pub mod sqlite_types;
 pub mod utils;
-           /*
+
 #[global_allocator]
 static ALLOCATOR: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
-            */
+
 #[cfg(any(feature = "unsafe-debug-query", test))]
 pub use query_builder::insert_with_default_sqlite::unsafe_debug_query::DebugQueryWrapper;
 
 #[cfg(not(target_arch = "wasm32"))]
 compile_error!("This crate only suports the `wasm32-unknown-unknown` target");
+
+#[cfg(any(test))]
+pub use test_common::*;
 
 use wasm_bindgen::JsValue;
 
@@ -49,5 +52,15 @@ impl From<WasmSqliteError> for diesel::result::ConnectionError {
 impl From<JsValue> for WasmSqliteError {
     fn from(err: JsValue) -> WasmSqliteError {
         WasmSqliteError::Js(err)
+    }
+}
+
+#[cfg(any(test, feature = "test-util"))]
+pub mod test_common {
+    use super::connection::WasmSqliteConnection;
+    use diesel::Connection;
+    pub async fn connection() -> WasmSqliteConnection {
+        crate::init_sqlite().await;
+        WasmSqliteConnection::establish(":memory:").unwrap()
     }
 }

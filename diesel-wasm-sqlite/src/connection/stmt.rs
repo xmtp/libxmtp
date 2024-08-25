@@ -170,8 +170,7 @@ impl Statement {
 
     fn clear_bindings(&self) -> QueryResult<()> {
         let sqlite3 = crate::get_sqlite_unchecked();
-        let rc = sqlite3
-            .clear_bindings(&self.inner_statement);
+        let rc = sqlite3.clear_bindings(&self.inner_statement);
         ensure_sqlite_ok(rc, &self.raw_connection())?;
         Ok(())
     }
@@ -294,7 +293,7 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
 
     fn finish_query_with_error(mut self, e: &Error) {
         if let Some(q) = &self.query {
-            tracing::debug!(
+            tracing::warn!(
                 "Query finished with error query={:?}, err={:?}",
                 &diesel::debug_query(&q),
                 e
@@ -307,7 +306,6 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
 // we have to free the wawsm memory here not C memory so this will change significantly
 impl<'stmt, 'query> Drop for BoundStatement<'stmt, 'query> {
     fn drop(&mut self) {
-        tracing::info!("Bound statement about to be dropped and stmt reset");
         self.statement.reset().unwrap();
         self.statement.clear_bindings().unwrap();
         let wasm = ffi::get_sqlite_unchecked().inner().wasm();
@@ -344,7 +342,6 @@ impl<'stmt, 'query> StatementUse<'stmt, 'query> {
     where
         T: QueryFragment<WasmSqlite> + QueryId + 'query,
     {
-        tracing::debug!("Statementuse bind");
         Ok(Self {
             statement: BoundStatement::bind(statement, query, instrumentation)?,
             column_names: OnceCell::new(),
@@ -352,13 +349,11 @@ impl<'stmt, 'query> StatementUse<'stmt, 'query> {
     }
 
     pub(super) fn run(mut self) -> QueryResult<()> {
-        tracing::debug!("Running query");
         // This is safe as we pass `first_step = true`
         // and we consume the statement so nobody could
         // access the columns later on anyway.
         let r = self.step(true).map(|_| ());
         if let Err(ref e) = r {
-            tracing::debug!("Statement errored!");
             self.statement.finish_query_with_error(e);
         }
         r

@@ -63,7 +63,6 @@ struct Opts {
 /// This function requires `dst` to point to a buffer
 /// large enough to fit this array's contents.
 pub fn raw_copy_to_sqlite<B: Into<Uint8Array>>(bytes: B, dst: *mut u8) {
-    tracing::debug!("RAW CPY TO SQLITE");
     let wasm = get_sqlite_unchecked().inner().wasm();
     let bytes: Uint8Array = bytes.into();
     let wasm_sqlite_mem = wasm.heap8u();
@@ -82,7 +81,6 @@ pub fn raw_copy_to_sqlite<B: Into<Uint8Array>>(bytes: B, dst: *mut u8) {
 /// This function requires `buf` to point to a buffer
 /// large enough to fit this array's contents.
 pub unsafe fn raw_copy_from_sqlite(src: *mut u8, len: u32, buf: &mut [u8]) {
-    tracing::debug!("RAW CPY FROM SQLITE");
     let wasm = crate::get_sqlite_unchecked().inner().wasm();
     let mem = wasm.heap8u();
     let offset = (src as u32) / std::mem::size_of::<u8>() as u32;
@@ -168,7 +166,7 @@ extern "C" {
 
     #[wasm_bindgen(method)]
     pub fn version(this: &SQLite) -> JsValue;
-    
+
     #[wasm_bindgen(method)]
     pub fn errstr(this: &SQLite, code: i32) -> String;
 

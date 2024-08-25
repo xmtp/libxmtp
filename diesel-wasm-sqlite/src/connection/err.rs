@@ -3,7 +3,6 @@ use diesel::result::Error::DatabaseError;
 use diesel::result::*;
 use wasm_bindgen::JsValue;
 
-
 pub(super) fn error_message(code: i32) -> String {
     let sqlite3 = crate::get_sqlite_unchecked();
     sqlite3.errstr(code)
