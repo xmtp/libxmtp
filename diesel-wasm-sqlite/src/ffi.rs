@@ -1,11 +1,12 @@
+mod constants;
 mod wasm;
 
-use js_sys::WebAssembly::Memory;
+use js_sys::{Object, Uint8Array, WebAssembly::Memory};
 use serde::{Deserialize, Serialize};
-use std::cell::LazyCell;
 use tokio::sync::OnceCell;
 use wasm_bindgen::{prelude::*, JsValue};
 
+pub use constants::*;
 pub use wasm::*;
 // WASM is ran in the browser thread, either main or worker`. Tokio is only a single-threaded runtime.
 // We need SQLite available globally, so this should be ok until we get threads with WASI or
@@ -17,6 +18,16 @@ unsafe impl Sync for SQLite {}
 /// this global constant references the loaded SQLite WASM.
 pub(super) static SQLITE: OnceCell<SQLite> = OnceCell::const_new();
 
+// it should be possible to:
+// - shared WASM memory between us and SQLite, thereby reducing allocation overhead
+// - Instantiate the WebAssembly.Module + WebAssembly.Instance from Rust (this could enable sharing
+// of memory)
+// - SQLite OpfsVfs just needs to be instantiated from WASM
+//     - OpfsVfs instantiation would be a one-time cost
+// - this would make things overall more efficient since we wouldn't
+// have to go through JS/browser at all.
+
+/// the raw WASM bytes
 pub(super) const WASM: &[u8] =
     include_bytes!("../node_modules/@sqlite.org/sqlite-wasm/sqlite-wasm/jswasm/sqlite3.wasm");
 
@@ -41,47 +52,93 @@ struct Opts {
     proxy_uri: String,
 }
 
-pub(super) const WASM_MEMORY: LazyCell<Memory> = LazyCell::new(|| {
-    let mem = serde_wasm_bindgen::to_value(&MemoryOpts {
-        initial: 16_777_216 / 65_536,
-        maximum: 2_147_483_648 / 65_536,
-    })
-    .expect("Serialization must be infallible for const struct");
-    Memory::new(&js_sys::Object::from(mem)).expect("Wasm Memory could not be instantiated")
-});
+/// Copy the contents of this wasms typed array into SQLite's memory.
+///
+/// This function will efficiently copy the memory from a typed
+/// array into this wasm module's own linear memory, initializing
+/// the memory destination provided.
+///
+/// # Unsafety
+///
+/// This function requires `dst` to point to a buffer
+/// large enough to fit this array's contents.
+pub fn raw_copy_to_sqlite<B: Into<Uint8Array>>(bytes: B, dst: *mut u8) {
+    tracing::debug!("RAW CPY TO SQLITE");
+    let wasm = get_sqlite_unchecked().inner().wasm();
+    let bytes: Uint8Array = bytes.into();
+    let wasm_sqlite_mem = wasm.heap8u();
+    let offset = dst as usize / std::mem::size_of::<u8>();
+    wasm_sqlite_mem.set(&bytes, offset as u32);
+}
+
+/// Copy the contents of this SQLite bytes this Wasms memory.
+///
+/// This function will efficiently copy the memory from a typed
+/// array into this wasm module's own linear memory, initializing
+/// the memory destination provided.
+///
+/// # Unsafety
+///
+/// This function requires `buf` to point to a buffer
+/// large enough to fit this array's contents.
+pub unsafe fn raw_copy_from_sqlite(src: *mut u8, len: u32, buf: &mut [u8]) {
+    tracing::debug!("RAW CPY FROM SQLITE");
+    let wasm = crate::get_sqlite_unchecked().inner().wasm();
+    let mem = wasm.heap8u();
+    let offset = (src as u32) / std::mem::size_of::<u8>() as u32;
+    // this is safe because we view the slice and immediately copy it into
+    // our memory.
+    let view = Uint8Array::new_with_byte_offset_and_length(&mem, offset, len);
+    view.raw_copy_to_ptr(buf.as_mut_ptr())
+}
 
 pub async fn init_sqlite() {
     SQLITE
         .get_or_init(|| async {
+            let mem = serde_wasm_bindgen::to_value(&MemoryOpts {
+                initial: 16_777_216 / 65_536,
+                maximum: 2_147_483_648 / 65_536,
+            })
+            .expect("Serialization must be infallible for const struct");
+            let mem = Memory::new(&js_sys::Object::from(mem))
+                .expect("Wasm Memory could not be instantiated");
             let opts = serde_wasm_bindgen::to_value(&Opts {
                 wasm_binary: WASM,
-                wasm_memory: WASM_MEMORY.clone(),
+                wasm_memory: mem,
                 proxy_uri: wasm_bindgen::link_to!(module = "/src/sqlite3-opfs-async-proxy.js"),
             })
             .expect("serialization must be infallible for const struct");
-            let opts = js_sys::Object::from(opts);
-            let module = SQLite::init_module(WASM, &opts).await;
-            SQLite::new(module)
+            let opts = Object::from(opts);
+            let object = SQLite::init_module(&opts).await;
+            let sqlite3 = SQLite::new(object);
+            let version: crate::ffi::Version = serde_wasm_bindgen::from_value(sqlite3.version())
+                .expect("Version unexpected format");
+            tracing::info!(
+                "SQLite initialized. version={}, download_version={}",
+                version.lib_version,
+                version.download_version
+            );
+
+            sqlite3
         })
         .await;
 }
 
 pub(super) fn get_sqlite_unchecked() -> &'static SQLite {
-    if !SQLITE.initialized() {
-        tracing::error!("NOT INITIALIZED");
-    }
     SQLITE.get().expect("SQLite is not initialized")
 }
 
-#[wasm_bindgen(typescript_custom_section)]
-const SQLITE_COMPATIBLE_TYPE: &'static str =
-    r#"type SQLiteCompatibleType = number|string|Uint8Array|Array<number>|bigint|null"#;
-
 #[wasm_bindgen]
-extern "C" {
-    #[derive(Debug, Clone)]
-    #[wasm_bindgen(typescript_type = "SQLiteCompatibleType")]
-    pub type SQLiteCompatibleType;
+#[derive(Serialize, Deserialize, Debug)]
+struct Version {
+    #[serde(rename = "libVersion")]
+    lib_version: String,
+    #[serde(rename = "libVersionNumber")]
+    lib_version_number: u32,
+    #[serde(rename = "sourceId")]
+    source_id: String,
+    #[serde(rename = "downloadVersion")]
+    download_version: u32,
 }
 
 /// Direct Sqlite3 bindings
@@ -103,11 +160,23 @@ extern "C" {
     #[wasm_bindgen(method, getter)]
     pub fn capi(this: &Inner) -> CApi;
 
+    #[wasm_bindgen(static_method_of = SQLite)]
+    pub async fn init_module(module: &Object) -> JsValue;
+
     #[wasm_bindgen(constructor)]
     pub fn new(module: JsValue) -> SQLite;
 
-    #[wasm_bindgen(static_method_of = SQLite)]
-    pub async fn init_module(wasm: &[u8], opts: &js_sys::Object) -> JsValue;
+    #[wasm_bindgen(method)]
+    pub fn version(this: &SQLite) -> JsValue;
+    
+    #[wasm_bindgen(method)]
+    pub fn errstr(this: &SQLite, code: i32) -> String;
+
+    #[wasm_bindgen(method)]
+    pub fn errmsg(this: &SQLite, conn: &JsValue) -> String;
+
+    #[wasm_bindgen(method)]
+    pub fn extended_errcode(this: &SQLite, conn: &JsValue) -> i32;
 
     #[wasm_bindgen(method)]
     pub fn result_text(this: &SQLite, context: i32, value: String);
@@ -127,53 +196,70 @@ extern "C" {
     #[wasm_bindgen(method)]
     pub fn result_null(this: &SQLite, context: i32);
 
-    #[wasm_bindgen(method, catch)]
-    pub fn bind(
-        this: &SQLite,
-        stmt: &JsValue,
-        idx: i32,
-        value: SQLiteCompatibleType,
-    ) -> Result<JsValue, JsValue>;
-
     #[wasm_bindgen(method)]
     pub fn bind_parameter_count(this: &SQLite, stmt: &JsValue) -> i32;
 
     #[wasm_bindgen(method)]
     pub fn bind_parameter_name(this: &SQLite, stmt: &JsValue, idx: i32) -> String;
 
-    #[wasm_bindgen(method, catch)]
-    pub fn bind_text(this: &SQLite, stmt: &JsValue, idx: i32, value: &str) -> Result<i32, JsValue>;
-
-    #[wasm_bindgen(method, catch)]
-    pub fn reset(this: &SQLite, stmt: &JsValue) -> Result<JsValue, JsValue>;
+    #[wasm_bindgen(method)]
+    pub fn bind_null(this: &SQLite, stmt: &JsValue, idx: i32) -> i32;
 
     #[wasm_bindgen(method)]
-    pub fn value(this: &SQLite, pValue: &JsValue) -> SQLiteCompatibleType;
+    pub fn bind_text(
+        this: &SQLite,
+        stmt: &JsValue,
+        idx: i32,
+        ptr: *mut u8,
+        len: i32,
+        flags: i32,
+    ) -> i32;
 
     #[wasm_bindgen(method)]
-    pub fn value_dup(this: &SQLite, pValue: &JsValue) -> SQLiteCompatibleType;
+    pub fn bind_blob(
+        this: &SQLite,
+        stmt: &JsValue,
+        idx: i32,
+        ptr: *mut u8,
+        len: i32,
+        flags: i32,
+    ) -> i32;
 
     #[wasm_bindgen(method)]
-    pub fn value_blob(this: &SQLite, pValue: &JsValue) -> Vec<u8>;
+    pub fn bind_double(this: &SQLite, stmt: &JsValue, idx: i32, value: f64) -> i32;
 
     #[wasm_bindgen(method)]
-    pub fn value_bytes(this: &SQLite, pValue: &JsValue) -> i32;
+    pub fn bind_int(this: &SQLite, stmt: &JsValue, idx: i32, value: i32) -> i32;
 
     #[wasm_bindgen(method)]
-    pub fn value_double(this: &SQLite, pValue: &JsValue) -> f64;
+    pub fn bind_int64(this: &SQLite, stmt: &JsValue, idx: i32, value: i64) -> i32;
 
     #[wasm_bindgen(method)]
-    pub fn value_int(this: &SQLite, pValue: &JsValue) -> i32;
+    pub fn reset(this: &SQLite, stmt: &JsValue) -> i32;
 
     #[wasm_bindgen(method)]
-    pub fn value_int64(this: &SQLite, pValue: &JsValue) -> i64;
-
-    // TODO: If wasm-bindgen allows returning references, could return &str
-    #[wasm_bindgen(method)]
-    pub fn value_text(this: &SQLite, pValue: &JsValue) -> String;
+    pub fn value_dup(this: &SQLite, pValue: *mut u8) -> *mut u8;
 
     #[wasm_bindgen(method)]
-    pub fn value_type(this: &SQLite, pValue: &JsValue) -> u32;
+    pub fn value_blob(this: &SQLite, pValue: *mut u8) -> *mut u8;
+
+    #[wasm_bindgen(method)]
+    pub fn value_bytes(this: &SQLite, pValue: *mut u8) -> u32;
+
+    #[wasm_bindgen(method)]
+    pub fn value_double(this: &SQLite, pValue: *mut u8) -> f64;
+
+    #[wasm_bindgen(method)]
+    pub fn value_int(this: &SQLite, pValue: *mut u8) -> i32;
+
+    #[wasm_bindgen(method)]
+    pub fn value_int64(this: &SQLite, pValue: *mut u8) -> i64;
+
+    #[wasm_bindgen(method)]
+    pub fn value_text(this: &SQLite, pValue: *mut u8) -> String;
+
+    #[wasm_bindgen(method)]
+    pub fn value_type(this: &SQLite, pValue: *mut u8) -> i32;
 
     #[wasm_bindgen(method, catch)]
     pub fn open(this: &SQLite, database_url: &str, iflags: Option<i32>)
@@ -191,19 +277,22 @@ extern "C" {
     #[wasm_bindgen(method, catch)]
     pub fn get_stmt_from_iterator(this: &SQLite, iterator: &JsValue) -> Result<JsValue, JsValue>;
 
-    #[wasm_bindgen(method, catch)]
-    pub fn step(this: &SQLite, stmt: &JsValue) -> Result<JsValue, JsValue>;
-
-    #[wasm_bindgen(method, catch)]
-    pub fn clear_bindings(this: &SQLite, stmt: &JsValue) -> Result<i32, JsValue>;
-
-    #[wasm_bindgen(method, catch)]
-    pub fn close(this: &SQLite, database: &JsValue) -> Result<(), JsValue>;
+    #[wasm_bindgen(method)]
+    pub fn step(this: &SQLite, stmt: &JsValue) -> i32;
 
     #[wasm_bindgen(method)]
-    pub fn column(this: &SQLite, stmt: &JsValue, idx: i32) -> SQLiteCompatibleType;
+    pub fn clear_bindings(this: &SQLite, stmt: &JsValue) -> i32;
 
-    #[wasm_bindgen(method, catch)]
+    #[wasm_bindgen(method)]
+    pub fn close(this: &SQLite, database: &JsValue) -> i32;
+
+    #[wasm_bindgen(method)]
+    pub fn db_handle(this: &SQLite, stmt: &JsValue) -> JsValue;
+
+    #[wasm_bindgen(method)]
+    pub fn column_value(this: &SQLite, stmt: &JsValue, idx: i32) -> *mut u8;
+
+    #[wasm_bindgen(method)]
     pub fn prepare_v3(
         this: &SQLite,
         database: &JsValue,
@@ -212,7 +301,7 @@ extern "C" {
         prep_flags: u32,
         stmt: &JsValue,
         pzTail: &JsValue,
-    ) -> Result<JsValue, JsValue>;
+    ) -> i32;
 
     #[wasm_bindgen(method)]
     pub fn column_name(this: &SQLite, stmt: &JsValue, idx: i32) -> String;
@@ -237,6 +326,6 @@ extern "C" {
     pub fn register_diesel_sql_functions(this: &SQLite, database: &JsValue) -> Result<(), JsValue>;
 
     #[wasm_bindgen(method)]
-    pub fn value_free(this: &SQLite, value: &JsValue);
+    pub fn value_free(this: &SQLite, value: *mut u8);
 
 }

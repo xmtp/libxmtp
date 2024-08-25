@@ -121,11 +121,12 @@ impl RawConnection {
 impl Drop for RawConnection {
     fn drop(&mut self) {
         let sqlite3 = crate::get_sqlite_unchecked();
-        match sqlite3.close(&self.internal_connection) {
-            Ok(_) => tracing::info!("RawConnection succesfully dropped & connection closed"),
-            Err(e) => {
-                tracing::error!("Dropping `RawConnection` enocountered {e:?}");
-            }
+        
+
+        let result = sqlite3.close(&self.internal_connection); 
+        if result != *crate::ffi::SQLITE_OK {
+            let error_message = super::error_message(result);
+            panic!("Error closing SQLite connection: {}", error_message);
         }
     }
 }

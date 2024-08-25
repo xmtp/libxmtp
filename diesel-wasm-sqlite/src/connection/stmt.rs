@@ -1,10 +1,10 @@
 #![allow(unsafe_code)] //TODO: can probably remove for wa-sqlite
 use super::raw::RawConnection;
 use super::sqlite_value::OwnedSqliteValue;
-use crate::ffi::{self, SQLiteCompatibleType};
+use crate::ffi;
 use crate::{
-    connection::{bind_collector::InternalSqliteBindValue, SqliteBindCollector},
-    SqliteType, WasmSqlite, WasmSqliteError,
+    connection::{bind_collector::InternalSqliteBindValue, err::*, SqliteBindCollector},
+    SqliteType, WasmSqlite,
 };
 use diesel::{
     connection::{
@@ -14,7 +14,7 @@ use diesel::{
     query_builder::{QueryFragment, QueryId},
     result::{Error, QueryResult},
 };
-use std::cell::OnceCell;
+use std::{cell::OnceCell, ptr::NonNull};
 
 use wasm_bindgen::JsValue;
 
@@ -27,6 +27,10 @@ pub(super) struct Statement {
 }
 
 impl Statement {
+    // NOTE: During diesel prepared statements,
+    // statements are cached. WASM might not like statements being cached
+    // since the statement pointer might be invalidated if a memory resize
+    // takes place.
     pub fn prepare(
         raw_connection: &RawConnection,
         sql: &str,
@@ -43,18 +47,18 @@ impl Statement {
 
         // allocate one 64bit pointer value
         let pp_stmt = wasm.pstack().alloc(8);
-        sqlite3
-            .prepare_v3(
-                &raw_connection.internal_connection,
-                sql,
-                -1,
-                flags.unwrap_or(0),
-                &pp_stmt,
-                &JsValue::NULL,
-            )
-            .map_err(WasmSqliteError::from)?;
+        let prepare_result = sqlite3.prepare_v3(
+            &raw_connection.internal_connection,
+            sql,
+            -1,
+            flags.unwrap_or(0),
+            &pp_stmt,
+            &JsValue::NULL,
+        );
 
         let p_stmt = wasm.peek_ptr(&pp_stmt);
+
+        ensure_sqlite_ok(prepare_result, &raw_connection.internal_connection)?;
         wasm.pstack().restore(&stack);
         Ok(Self {
             inner_statement: p_stmt,
@@ -68,50 +72,119 @@ impl Statement {
     // prepared statement is dropped.
     fn bind(
         &self,
-        _tpe: SqliteType,
+        tpe: SqliteType,
         value: InternalSqliteBindValue<'_>,
         bind_index: i32,
-    ) -> QueryResult<Option<JsValue>> {
+    ) -> QueryResult<Option<NonNull<u8>>> {
         let sqlite3 = crate::get_sqlite_unchecked();
-        tracing::info!("BINDING VALUE {:?}", value);
-        let value =
-            serde_wasm_bindgen::to_value(&value).expect("Bind value failed to convert to JsValue");
-        tracing::info!("Statement: {:?}", self.inner_statement);
 
-        let result = sqlite3
-            .bind(&self.inner_statement, bind_index, value.into())
-            .expect("could not bind");
+        let mut ret_ptr = None;
+        let wasm = sqlite3.inner().wasm();
 
-        Ok(Some(result))
+        let result = match (tpe, value) {
+            (_, InternalSqliteBindValue::Null) => {
+                sqlite3.bind_null(&self.inner_statement, bind_index)
+            }
+            (SqliteType::Binary, InternalSqliteBindValue::BorrowedBinary(bytes)) => {
+                // copy bytes from our WASM memory to SQLites WASM memory
+                let ptr = wasm.alloc(bytes.len() as u32);
+                ffi::raw_copy_to_sqlite(bytes, ptr);
+                ret_ptr = NonNull::new(ptr);
+                sqlite3.bind_blob(
+                    &self.inner_statement,
+                    bind_index,
+                    ptr,
+                    bytes.len() as i32,
+                    *ffi::SQLITE_STATIC,
+                )
+            }
+            (SqliteType::Binary, InternalSqliteBindValue::Binary(bytes)) => {
+                let ptr = wasm.alloc(bytes.len() as u32);
+                ffi::raw_copy_to_sqlite(bytes.as_slice(), ptr);
+                ret_ptr = NonNull::new(ptr);
+                sqlite3.bind_blob(
+                    &self.inner_statement,
+                    bind_index,
+                    ptr,
+                    bytes.len() as i32,
+                    *ffi::SQLITE_STATIC,
+                )
+            }
+            (SqliteType::Text, InternalSqliteBindValue::BorrowedString(bytes)) => {
+                let ptr = wasm.alloc_cstring(bytes.to_string());
+                ret_ptr = NonNull::new(ptr);
+                sqlite3.bind_text(
+                    &self.inner_statement,
+                    bind_index,
+                    ptr,
+                    bytes.len() as i32,
+                    *ffi::SQLITE_STATIC,
+                )
+            }
+            (SqliteType::Text, InternalSqliteBindValue::String(bytes)) => {
+                let len = bytes.len();
+                let ptr = wasm.alloc_cstring(bytes);
+                ret_ptr = NonNull::new(ptr);
+                sqlite3.bind_text(
+                    &self.inner_statement,
+                    bind_index,
+                    ptr,
+                    len as i32,
+                    *ffi::SQLITE_STATIC,
+                )
+            }
+            (SqliteType::Float, InternalSqliteBindValue::F64(value))
+            | (SqliteType::Double, InternalSqliteBindValue::F64(value)) => {
+                sqlite3.bind_double(&self.inner_statement, bind_index, value)
+            }
+            (SqliteType::SmallInt, InternalSqliteBindValue::I32(value))
+            | (SqliteType::Integer, InternalSqliteBindValue::I32(value)) => {
+                sqlite3.bind_int(&self.inner_statement, bind_index, value)
+            }
+            (SqliteType::Long, InternalSqliteBindValue::I64(value)) => {
+                sqlite3.bind_int64(&self.inner_statement, bind_index, value)
+            }
+            (t, b) => {
+                return Err(Error::SerializationError(
+                    format!("Type mismatch: Expected {t:?}, got {b}").into(),
+                ))
+            }
+        };
+        match ensure_sqlite_ok(result, &self.raw_connection()) {
+            Ok(()) => Ok(ret_ptr),
+            Err(e) => {
+                if let Some(ptr) = ret_ptr {
+                    wasm.dealloc(ptr);
+                }
+                Err(e)
+            }
+        }
     }
 
     fn reset(&self) -> QueryResult<()> {
-        tracing::debug!("RESETTING STATEMENT");
         let sqlite3 = crate::get_sqlite_unchecked();
-        let _ = sqlite3
-            .reset(&self.inner_statement)
-            .map_err(WasmSqliteError::from)?;
+        let rc = sqlite3.reset(&self.inner_statement);
+        ensure_sqlite_ok(rc, &self.raw_connection())?;
         Ok(())
     }
 
     fn clear_bindings(&self) -> QueryResult<()> {
         let sqlite3 = crate::get_sqlite_unchecked();
-        let _ = sqlite3
-            .clear_bindings(&self.inner_statement)
-            .map_err(WasmSqliteError::from)?;
+        let rc = sqlite3
+            .clear_bindings(&self.inner_statement);
+        ensure_sqlite_ok(rc, &self.raw_connection())?;
         Ok(())
+    }
+
+    fn raw_connection(&self) -> JsValue {
+        let sqlite3 = crate::get_sqlite_unchecked();
+        sqlite3.db_handle(&self.inner_statement)
     }
 }
 
 impl Drop for Statement {
     fn drop(&mut self) {
         let sqlite3 = crate::get_sqlite_unchecked();
-        // TODO:insipx potential problems here.
-        // wa-sqlite does not throw an error if finalize fails:  -- it might just crash
-        // doc: https://rhashimoto.github.io/wa-sqlite/docs/interfaces/SQLiteAPI.html#finalize.finalize-1
-        // in that case we might not know if this errored or not
-        // maybe depends how wasm panic/errors work
-        // Worth unit testing the Drop implementation.
         tracing::info!("Statement dropped & finalized!");
         let _ = sqlite3
             .finalize(&self.inner_statement)
@@ -136,7 +209,7 @@ struct BoundStatement<'stmt, 'query> {
     // generic type, we use NonNull to communicate
     // that this is a shared buffer
     query: Option<Box<dyn QueryFragment<WasmSqlite> + 'query>>,
-    binds_to_free: Vec<(i32, Option<JsValue>)>,
+    binds_to_free: Vec<(i32, Option<NonNull<u8>>)>,
     #[allow(unused)]
     instrumentation: &'stmt mut dyn Instrumentation,
     has_error: bool,
@@ -199,11 +272,6 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
                 .count(),
         );
         for (bind_idx, (bind, tpe)) in (1..).zip(binds) {
-            let is_borrowed_bind = matches!(
-                bind,
-                InternalSqliteBindValue::BorrowedString(_)
-                    | InternalSqliteBindValue::BorrowedBinary(_)
-            );
             // It's safe to call bind here as:
             // * The type and value matches
             // * We ensure that corresponding buffers lives long enough below
@@ -219,15 +287,19 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
                 // Store the id + pointer for a owned bind
                 // as we must unbind and free them on drop
                 self.binds_to_free.push((bind_idx, Some(ptr)));
-            } else if is_borrowed_bind {
-                // Store the id's of borrowed binds to unbind them on drop
-                self.binds_to_free.push((bind_idx, None));
             }
         }
         Ok(())
     }
 
-    fn finish_query_with_error(mut self, _e: &Error) {
+    fn finish_query_with_error(mut self, e: &Error) {
+        if let Some(q) = &self.query {
+            tracing::debug!(
+                "Query finished with error query={:?}, err={:?}",
+                &diesel::debug_query(&q),
+                e
+            );
+        }
         self.has_error = true;
     }
 }
@@ -238,7 +310,8 @@ impl<'stmt, 'query> Drop for BoundStatement<'stmt, 'query> {
         tracing::info!("Bound statement about to be dropped and stmt reset");
         self.statement.reset().unwrap();
         self.statement.clear_bindings().unwrap();
-        for (idx, _buffer) in std::mem::take(&mut self.binds_to_free) {
+        let wasm = ffi::get_sqlite_unchecked().inner().wasm();
+        for (idx, buffer) in std::mem::take(&mut self.binds_to_free) {
             // It's always safe to bind null values, as there is no buffer that needs to outlife something
             self.statement
                 .bind(SqliteType::Text, InternalSqliteBindValue::Null, idx)
@@ -248,15 +321,10 @@ impl<'stmt, 'query> Drop for BoundStatement<'stmt, 'query> {
                          an issue at diesels issue tracker containing \
                          code how to trigger this message.",
                 );
-            /*
+
             if let Some(buffer) = buffer {
-                unsafe {
-                    // Constructing the `Box` here is safe as we
-                    // got the pointer from a box + it is guaranteed to be not null.
-                    std::mem::drop(Box::from_raw(buffer.as_ptr()));
-                }
+                wasm.dealloc(buffer);
             }
-            */
         }
     }
 }
@@ -276,6 +344,7 @@ impl<'stmt, 'query> StatementUse<'stmt, 'query> {
     where
         T: QueryFragment<WasmSqlite> + QueryId + 'query,
     {
+        tracing::debug!("Statementuse bind");
         Ok(Self {
             statement: BoundStatement::bind(statement, query, instrumentation)?,
             column_names: OnceCell::new(),
@@ -283,13 +352,13 @@ impl<'stmt, 'query> StatementUse<'stmt, 'query> {
     }
 
     pub(super) fn run(mut self) -> QueryResult<()> {
-        tracing::info!("RUN STATEMENT");
+        tracing::debug!("Running query");
         // This is safe as we pass `first_step = true`
         // and we consume the statement so nobody could
         // access the columns later on anyway.
         let r = self.step(true).map(|_| ());
-
         if let Err(ref e) = r {
+            tracing::debug!("Statement errored!");
             self.statement.finish_query_with_error(e);
         }
         r
@@ -303,18 +372,11 @@ impl<'stmt, 'query> StatementUse<'stmt, 'query> {
     // the cached column names
     pub(super) fn step(&mut self, first_step: bool) -> QueryResult<bool> {
         let sqlite3 = crate::get_sqlite_unchecked();
-        tracing::debug!("STEPPING");
-        tracing::info!("STMT: {:?}", self.statement.statement.inner_statement);
-        let res = sqlite3
-            .step(&self.statement.statement.inner_statement)
-            .map_err(WasmSqliteError::from)?;
-
-        let res = match serde_wasm_bindgen::from_value::<u32>(res).map_err(WasmSqliteError::from)? {
+        let res = match sqlite3.step(&self.statement.statement.inner_statement) {
             v if *ffi::SQLITE_DONE == v => Ok(false),
             v if *ffi::SQLITE_ROW == v => Ok(true),
-            _ => panic!("SQLite Step returned Unhandled Result Code. Turn into err message"),
+            _ => Err(last_error(&self.statement.statement.raw_connection())),
         };
-        tracing::info!("STEP SUCCESS");
         if first_step {
             self.column_names = OnceCell::new();
         }
@@ -359,12 +421,12 @@ impl<'stmt, 'query> StatementUse<'stmt, 'query> {
     }
 
     pub(super) fn copy_value(&self, idx: i32) -> Option<OwnedSqliteValue> {
-        OwnedSqliteValue::copy_from_ptr(&self.column_value(idx)?.into())
+        OwnedSqliteValue::copy_from_ptr(self.column_value(idx))
     }
 
-    pub(super) fn column_value(&self, idx: i32) -> Option<SQLiteCompatibleType> {
+    pub(super) fn column_value(&self, idx: i32) -> *mut u8 {
         let sqlite3 = crate::get_sqlite_unchecked();
-        Some(sqlite3.column(&self.statement.statement.inner_statement, idx))
+        sqlite3.column_value(&self.statement.statement.inner_statement, idx)
     }
 }
 

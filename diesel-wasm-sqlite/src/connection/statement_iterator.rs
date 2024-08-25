@@ -87,25 +87,37 @@ impl<'stmt, 'query> Iterator for StatementIterator<'stmt, 'query> {
 
     fn next(&mut self) -> Option<Self::Item> {
         use PrivateStatementIterator::{NotStarted, Started};
+        tracing::info!("Calling next on stmt iterator");
         match &mut self.inner {
             NotStarted(ref mut stmt @ Some(_)) => {
+                tracing::debug!("Not started");
                 let mut stmt = stmt
                     .take()
                     .expect("It must be there because we checked that above");
                 let step = stmt.step(true);
+                tracing::info!("Stepped");
                 match step {
-                    Err(e) => Some(Err(e)),
-                    Ok(false) => None,
+                    Err(e) => {
+                        tracing::debug!("TRACE ERR");
+                        Some(Err(e))
+                    }
+                    Ok(false) => {
+                        tracing::debug!("TRACING OK(false)");
+                        None
+                    }
                     Ok(true) => {
                         let field_count = stmt.column_count() as usize;
+                        tracing::debug!("Field Count {}", field_count);
                         self.field_count = field_count;
                         let inner = Rc::new(RefCell::new(PrivateSqliteRow::Direct(stmt)));
                         self.inner = Started(inner.clone());
+                        tracing::debug!("Returning Iterator");
                         Some(Ok(SqliteRow { inner, field_count }))
                     }
                 }
             }
             Started(ref mut last_row) => {
+                tracing::debug!("last row");
                 // There was already at least one iteration step
                 // We check here if the caller already released the row value or not
                 // by checking if our Rc owns the data or not
@@ -116,6 +128,8 @@ impl<'stmt, 'query> Iterator for StatementIterator<'stmt, 'query> {
                     // We don't need to use the runtime borrowing system of the RefCell here
                     // as we have a mutable reference, so all of this below is checked at compile time
                     if let PrivateSqliteRow::Direct(ref mut stmt) = last_row_ref.get_mut() {
+                        tracing::debug!("DIRECT");
+                        tracing::debug!("Direct, stepping!");
                         let step = stmt.step(false);
 
                         match step {
@@ -141,6 +155,7 @@ impl<'stmt, 'query> Iterator for StatementIterator<'stmt, 'query> {
                         )
                     }
                 } else {
+                    tracing::info!("duplicated row case");
                     Self::handle_duplicated_row_case(
                         last_row,
                         &mut self.column_names,

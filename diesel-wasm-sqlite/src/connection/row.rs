@@ -202,14 +202,25 @@ impl<'stmt, 'query> Field<'stmt, WasmSqlite> for SqliteField<'stmt, 'query> {
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::connection::WasmSqliteConnection;
+    use diesel::Connection;
+    use wasm_bindgen_test::*;
+    wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    #[test]
-    fn fun_with_row_iters() {
-        crate::table! {
+    async fn connection() -> WasmSqliteConnection {
+        crate::init_sqlite().await;
+        WasmSqliteConnection::establish(":memory:").unwrap()
+    }
+    /*
+    #[wasm_bindgen_test]
+    async fn fun_with_row_iters() {
+        crate::init_sqlite().await;
+        console_error_panic_hook::set_once();
+        tracing_wasm::set_as_global_default();
+
+        diesel::table! {
             #[allow(unused_parens)]
             users(id) {
                 id -> Integer,
@@ -217,33 +228,35 @@ mod tests {
             }
         }
 
-        use crate::connection::LoadConnection;
-        use crate::deserialize::{FromSql, FromSqlRow};
-        use crate::prelude::*;
-        use crate::row::{Field, Row};
-        use crate::sql_types;
+        use diesel::connection::LoadConnection;
+        use diesel::deserialize::{FromSql, FromSqlRow};
+        use diesel::prelude::*;
+        use diesel::row::{Field, Row};
+        use diesel::sql_types;
 
-        let conn = &mut crate::test_helpers::connection();
+        let conn = &mut connection().await;
 
-        crate::sql_query("CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT NOT NULL);")
+        diesel::sql_query("CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT NOT NULL);")
             .execute(conn)
             .unwrap();
+        tracing::debug!("SQL_QUERY SUCCESS");
 
-        crate::insert_into(users::table)
+        diesel::insert_into(users::table)
             .values(vec![
                 (users::id.eq(1), users::name.eq("Sean")),
                 (users::id.eq(2), users::name.eq("Tess")),
             ])
             .execute(conn)
             .unwrap();
+        tracing::debug!("INSERT INTO SUCCESS");
 
         let query = users::table.select((users::id, users::name));
 
         let expected = vec![(1, String::from("Sean")), (2, String::from("Tess"))];
-
+        tracing::debug!("LOADING FROM QUERY");
         let row_iter = conn.load(query).unwrap();
         for (row, expected) in row_iter.zip(&expected) {
-            let row = row.unwrap();
+            let row = row.expect("Unwrap failed");
 
             let deserialized = <(i32, String) as FromSqlRow<
                 (sql_types::Integer, sql_types::Text),
@@ -331,23 +344,22 @@ mod tests {
             expected[0].0
         );
         assert_eq!(
-            <String as FromSql<sql_types::Text, Sqlite>>::from_nullable_sql(first_values.1)
+            <String as FromSql<sql_types::Text, WasmSqlite>>::from_nullable_sql(first_values.1)
                 .unwrap(),
             expected[0].1
         );
     }
+    */
 
-    #[cfg(feature = "returning_clauses_for_sqlite_3_35")]
+    /*
     crate::define_sql_function! {fn sleep(a: diesel::sql_types::Integer) -> diesel::sql_types::Integer}
-
     #[test]
-    #[cfg(feature = "returning_clauses_for_sqlite_3_35")]
     fn parallel_iter_with_error() {
-        use crate::connection::Connection;
-        use crate::connection::LoadConnection;
-        use crate::connection::SimpleConnection;
-        use crate::expression_methods::ExpressionMethods;
-        use crate::SqliteConnection;
+        use crate::WasmSqliteConnection;
+        use diesel::connection::Connection;
+        use diesel::connection::LoadConnection;
+        use diesel::connection::SimpleConnection;
+        use diesel::expression_methods::ExpressionMethods;
         use std::sync::{Arc, Barrier};
         use std::time::Duration;
 
@@ -408,5 +420,5 @@ mod tests {
         // join the background thread
         handle.join().unwrap();
     }
+    */
 }
-*/

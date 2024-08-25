@@ -12,18 +12,20 @@ use diesel::sql_types::SqlType;
 
 /// The returned pointer is *only* valid for the lifetime to the argument of
 /// `from_sql`. This impl is intended for uses where you want to write a new
-/// impl in terms of `String`, but don't want to allocate. We have to return a
+/// impl in terms of `String`, but don't want to allocate.
+///
+/// FIXME:
+/// We have to return a
 /// raw pointer instead of a reference with a lifetime due to the structure of
-/// `FromSql`
-/// FIXME: THIS IS probably problematic for wa-sqlite
-/// because we allocate a string in `read_text`. So this function would
+/// `FromSql` because we allocate a string in `read_text` (since SQLite memory is not shared with
+/// us). So this function would
 /// producea  dangling pointer.
 /// `*const` types are not unsafe to _create_ but are unsafe once dereferenced/used
 impl FromSql<sql_types::VarChar, WasmSqlite> for *const str {
     fn from_sql(value: SqliteValue<'_, '_, '_>) -> deserialize::Result<Self> {
         let text = value.read_text();
-        let string = text.as_str();
-        Ok(string as *const _)
+        let text = text.as_str();
+        Ok(text as *const _)
     }
 }
 
