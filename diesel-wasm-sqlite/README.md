@@ -57,17 +57,27 @@ async fn code_in_web_worker() -> Result<i32, diesel::QueryResult<usize>> {
 
 ## Development
 
-### Compile rust code without creating a npm package
+### Install yarn dependencies
+
+`yarn install`
+
+### Build the SQLite/OPFS BUndle
+
+`yarn run build`
+
+### Build the rust code, and re-build `package.json` if it changed
 
 `cargo build --target wasm32-unknown-unknown`
 
 ### Run Tests
 
-wasm-pack test --safari
+`wasm-pack test --safari`
 
 navigate to `http://localhost:8000` to observe test output
 
-(headless tests don't work yet)
+### Run Tests (headless)
+
+`wasm-pack test --safari --headless`
 
 ### Setting up the project in VSCode
 
