@@ -10,8 +10,6 @@ use diesel::result::{DatabaseErrorKind, Error, QueryResult};
 use diesel::row::{Field, PartialRow, Row, RowIndex, RowSealed};
 use diesel::serialize::{IsNull, Output, ToSql};
 use diesel::sql_types::HasSqlType;
-use futures::future::BoxFuture;
-use futures::FutureExt;
 use std::cell::{Ref, RefCell};
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
@@ -26,7 +24,7 @@ pub(super) fn register<ArgsSqlType, RetSqlType, Args, Ret, F>(
     mut f: F,
 ) -> QueryResult<()>
 where
-    F: FnMut(&RawConnection, Args) -> BoxFuture<'static, Ret>,
+    F: FnMut(&RawConnection, Args) -> QueryResult<usize>,
     Args: FromSqlRow<ArgsSqlType, WasmSqlite> + StaticallySizedRow<ArgsSqlType, WasmSqlite>,
     Ret: ToSql<RetSqlType, WasmSqlite>,
     WasmSqlite: HasSqlType<RetSqlType>,
@@ -45,7 +43,7 @@ where
             let conn = RawConnection {
                 internal_connection: conn,
             };
-            Ok(f(&conn, args).await)
+            Ok(f(&conn, args))
         }
         .boxed()
     })?;
