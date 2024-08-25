@@ -55,6 +55,8 @@ async fn code_in_web_worker() -> Result<i32, diesel::QueryResult<usize>> {
 }
 ```
 
+look in `tests/web.rs` for working example!
+
 ## Development
 
 ### Install yarn dependencies
