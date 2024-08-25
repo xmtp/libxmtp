@@ -30,6 +30,15 @@ mod schema {
     }
 }
 
+
+#[derive(Deserialize, Insertable, Debug, PartialEq, Clone)]
+#[diesel(table_name = books)]
+pub struct BookForm {
+    title: String,
+    author: Option<String>,
+    // published_year: NaiveDateTime,
+}
+
 // SQLite must be instantiated in a web-worker
 // to take advantage of OPFS
 #[wasm_bindgen]
