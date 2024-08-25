@@ -36,7 +36,6 @@ mod schema {
 pub struct BookForm {
     title: String,
     author: Option<String>,
-    // published_year: NaiveDateTime,
 }
 
 // SQLite must be instantiated in a web-worker
