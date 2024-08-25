@@ -3,6 +3,7 @@ use diesel_wasm_sqlite::{connection::WasmSqliteConnection, test_common::connecti
 use wasm_bindgen_test::*;
 wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+// test copied from diesel
 #[wasm_bindgen_test]
 async fn fun_with_row_iters() {
     diesel_wasm_sqlite::init_sqlite().await;

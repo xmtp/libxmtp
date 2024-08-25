@@ -109,7 +109,6 @@ export class SQLite {
   }
 
   value_dup(pValue) {
-    console.log(`DUPLICATING VALUE`);
     return this.sqlite3.capi.sqlite3_value_dup(pValue);
   }
 
@@ -268,7 +267,6 @@ export class SQLite {
   //TODO: At some point need a way to register functions from rust
   //but for just libxmtp this is fine.
   register_diesel_sql_functions(database) {
-    console.log("REGISTERING DIESEL");
     try {
       this.sqlite3.capi.sqlite3_create_function(
         database,
