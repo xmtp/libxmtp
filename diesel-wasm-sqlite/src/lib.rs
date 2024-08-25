@@ -5,7 +5,6 @@ pub mod ffi;
 pub mod query_builder;
 pub mod sqlite_fixes;
 pub mod sqlite_types;
-pub mod utils;
 
 #[global_allocator]
 static ALLOCATOR: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };

@@ -33,9 +33,10 @@ mod schema {
 // SQLite must be instantiated in a web-worker
 // to take advantage of OPFS
 #[wasm_bindgen]
-fn code_in_web_worker() -> Result<i32, diesel::QueryResult<usize>> {
+async fn code_in_web_worker() -> Result<i32, diesel::QueryResult<usize>> {
     use schema::books::dsl::*;
-    // init_sqlite must be ran before anything else, or we crash.
+    // `init_sqlite` sets up OPFS and SQLite. It must be ran before anything else, 
+    // or we crash once we start trying to do queries.
     diesel_wasm_sqlite::init_sqlite().await;
 
     // create a new persistent SQLite database with OPFS
