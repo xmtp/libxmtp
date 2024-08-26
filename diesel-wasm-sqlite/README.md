@@ -10,7 +10,7 @@ the library.
 ```toml
 [dependencies]
 diesel = { version = "2.2" }
-diesel-wasm-sqlite = { git = "https://github.com/xmtp/libxmtp", branch = "insipx/abandon-async" }
+diesel-wasm-sqlite = { git = "https://github.com/xmtp/libxmtp", branch = "wasm-backend" }
 wasm-bindgen = "0.2"
 ```
 
