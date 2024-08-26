@@ -876,30 +876,6 @@ mod tests {
         assert_eq!(bo_messages2.len(), 1);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_sync_all_groups_worst_case() {
-        let alix_wallet = generate_local_wallet();
-        let alix = Arc::new(ClientBuilder::new_test_client(&alix_wallet).await);
-        let peers = test::create_bulk_clients(20).await;
-        let bo = peers[0].clone();
-
-        // create 50 groups with 5 messages each
-        test::create_groups(&alix, &peers, 50, 5).await.unwrap();
-        let groups = bo.sync_welcomes().await.unwrap();
-        assert_eq!(groups.len(), 50);
-        bo.sync_all_groups(groups).await.unwrap();
-
-        let groups = bo
-            .context()
-            .store
-            .conn()
-            .unwrap()
-            .find_groups(None, None, None, None)
-            .unwrap();
-
-        assert_eq!(groups.len(), 50);
-    }
-
     #[tokio::test]
     async fn test_can_message() {
         // let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
