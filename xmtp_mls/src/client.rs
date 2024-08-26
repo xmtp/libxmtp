@@ -8,8 +8,7 @@ use std::{
 };
 
 use futures::{
-    future::join_all,
-    stream::{self, StreamExt},
+    stream::{self, FuturesUnordered, StreamExt},
     Future,
 };
 use openmls::{
@@ -606,51 +605,46 @@ where
     /// Sync all groups for the current user and return the number of groups that were synced.
     /// Only active groups will be synced.
     pub async fn sync_all_groups(&self, groups: Vec<MlsGroup>) -> Result<usize, GroupError> {
-        use scoped_futures::ScopedFutureExt;
-
         // Acquire a single connection to be reused
         let provider: XmtpOpenMlsProvider = self.mls_provider()?;
 
         let active_group_count = Arc::new(AtomicUsize::new(0));
 
-        let sync_futures: Vec<_> = groups
+        let sync_futures = groups
             .into_iter()
             .map(|group| {
-                async {
-                    // create new provider ref that gets moved, leaving original
-                    // provider alone.
-                    let provider_ref = &provider;
-                    let active_group_count = Arc::clone(&active_group_count);
-                    async move {
-                        let mls_group = group.load_mls_group(provider_ref)?;
-                        log::info!("[{}] syncing group", self.inbox_id());
-                        log::info!(
-                            "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
-                            self.inbox_id(),
-                            mls_group.epoch()
-                        );
-                        if mls_group.is_active() {
-                            group
-                                .maybe_update_installations(provider_ref, None, self)
-                                .await?;
+                // create new provider ref that gets moved, leaving original
+                // provider alone.
+                let provider_ref = &provider;
+                let active_group_count = Arc::clone(&active_group_count);
+                async move {
+                    let mls_group = group.load_mls_group(provider_ref)?;
+                    log::info!("[{}] syncing group", self.inbox_id());
+                    log::info!(
+                        "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
+                        self.inbox_id(),
+                        mls_group.epoch()
+                    );
+                    if mls_group.is_active() {
+                        group
+                            .maybe_update_installations(provider_ref, None, self)
+                            .await?;
 
-                            group.sync_with_conn(provider_ref, self).await?;
-                            active_group_count.fetch_add(1, Ordering::SeqCst);
-                        }
-
-                        Ok::<(), GroupError>(())
+                        group.sync_with_conn(provider_ref, self).await?;
+                        active_group_count.fetch_add(1, Ordering::SeqCst);
                     }
-                    .await
-                }
-                .scoped()
-            })
-            .collect();
 
-        // Run all sync operations concurrently
-        join_all(sync_futures)
+                    Ok::<(), GroupError>(())
+                }
+            })
+            .collect::<FuturesUnordered<_>>();
+
+        sync_futures
+            .collect::<Vec<Result<_, _>>>()
             .await
             .into_iter()
-            .collect::<Result<(), _>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
+
         Ok(active_group_count.load(Ordering::SeqCst))
     }
 

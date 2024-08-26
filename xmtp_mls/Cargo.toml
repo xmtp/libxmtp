@@ -52,7 +52,6 @@ prost = { workspace = true, features = ["prost-derive"] }
 rand = { workspace = true }
 reqwest = { version = "0.12.4", features = ["stream"] }
 ring = "0.17.8"
-scoped-futures = "0.1"
 serde = { workspace = true }
 serde_json.workspace = true
 sha2.workspace = true
