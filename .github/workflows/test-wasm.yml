@@ -1,0 +1,32 @@
+name: Test DIesel WASM Backend
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    # only run tests when related changes are made
+    paths:
+      - ".github/workflows/test-workspace.yml"
+      - "dev/**"
+      - "diesel-wasm-sqlite/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain"
+jobs:
+  test:
+    name: Test
+    runs-on: warp-ubuntu-latest-x64-16x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Update rust toolchains
+        run: rustup update
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: Run cargo test on main workspace
+        run: wasm-pack test --manifest-path diesel-wasm-sqlite/Cargo.toml --features test-util --features unsafe-debug-query

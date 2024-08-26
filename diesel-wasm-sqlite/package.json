@@ -8,7 +8,7 @@
     "build": "rollup -c"
   },
   "dependencies": {
-    "@xmtp/wa-sqlite": ">=1.0.3"
+    "@sqlite.org/sqlite-wasm": "latest"
   },
   "packageManager": "yarn@4.3.1",
   "engines": {
@@ -16,8 +16,8 @@
   },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-typescript": "^11.1.6",
     "rollup": "^4.19.0",
-    "rollup-plugin-base64": "^1.0.1",
     "rollup-plugin-copy": "^3.5.0"
   }
 }

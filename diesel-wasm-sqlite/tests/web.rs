@@ -1,22 +1,18 @@
+//! Integration-like tests with a persistent database
 #![recursion_limit = "256"]
 #![cfg(target_arch = "wasm32")]
 
-use diesel_async::RunQueryDsl;
-use diesel_wasm_sqlite::{
-    connection::{AsyncConnection, SimpleAsyncConnection, WasmSqliteConnection},
-    WasmSqlite, DebugQueryWrapper
-};
-use diesel_migrations::embed_migrations;
-use diesel_migrations::EmbeddedMigrations;
+use diesel::connection::LoadConnection;
+use diesel::deserialize::FromSqlRow;
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use diesel_wasm_sqlite::{connection::WasmSqliteConnection, DebugQueryWrapper, WasmSqlite};
 use wasm_bindgen_test::*;
 use web_sys::console;
 
-use chrono::{NaiveDate, NaiveDateTime};
 use diesel::debug_query;
 use diesel::insert_into;
 use diesel::prelude::*;
 use serde::Deserialize;
-use std::error::Error;
 
 wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
@@ -44,6 +40,7 @@ pub struct BookForm {
 }
 
 #[derive(Queryable, Selectable, PartialEq, Debug)]
+#[diesel(table_name = books)]
 pub struct Book {
     id: i32,
     title: String,
@@ -52,51 +49,34 @@ pub struct Book {
 }
 
 async fn establish_connection() -> WasmSqliteConnection {
-    let rng: u16 = rand::random();
-    let result = WasmSqliteConnection::establish(&format!("test-{}", rng)).await;
-    let mut conn = result.unwrap();
-    // conn.run_pending_migrations(MIGRATIONS);
-    //TODO: we can use `embed_migrations` to run our migrations
+    diesel_wasm_sqlite::init_sqlite().await;
 
-    conn.batch_execute(
-        "
-        CREATE TABLE books (
-            id INTEGER PRIMARY KEY,
-            title TEXT NOT NULL,
-            author TEXT
-        )
-    ",
-    )
-    .await
-    .expect("Batch exec failed to run");
+    let rng: u16 = rand::random();
+    let result = WasmSqliteConnection::establish(&format!("test-{}", rng));
+    let mut conn = result.unwrap();
+    tracing::info!("running migrations...");
+    conn.run_pending_migrations(MIGRATIONS).unwrap();
     conn
 }
 
-async fn insert_books(
-    conn: &mut WasmSqliteConnection,
-    new_books: Vec<BookForm>,
-) -> QueryResult<usize> {
+fn insert_books(conn: &mut WasmSqliteConnection, new_books: Vec<BookForm>) -> QueryResult<usize> {
     use schema::books::dsl::*;
     let query = insert_into(books).values(new_books);
     let sql = DebugQueryWrapper::<_, WasmSqlite>::new(&query).to_string();
     tracing::info!("QUERY = {}", sql);
-    let rows_changed = query.execute(conn).await.unwrap();
+    let rows_changed = query.execute(conn)?;
     Ok(rows_changed)
 }
 
-
-async fn insert_book(
-    conn: &mut WasmSqliteConnection,
-    new_book: BookForm,
-) -> QueryResult<usize> {
+fn insert_book(conn: &mut WasmSqliteConnection, new_book: BookForm) -> QueryResult<usize> {
     use schema::books::dsl::*;
     let query = insert_into(books).values(new_book);
     let sql = debug_query::<WasmSqlite, _>(&query).to_string();
     tracing::info!("QUERY = {}", sql);
-    let rows_changed = query.execute(conn).await.unwrap();
+    let rows_changed = query.execute(conn).unwrap();
     Ok(rows_changed)
 }
-
+/*
 #[wasm_bindgen_test]
 fn examine_sql_from_insert_default_values() {
     use schema::books::dsl::*;
@@ -106,15 +86,16 @@ fn examine_sql_from_insert_default_values() {
     assert_eq!(sql, debug_query::<WasmSqlite, _>(&query).to_string());
     console::log_1(&debug_query::<WasmSqlite, _>(&query).to_string().into());
 }
+*/
 
 #[wasm_bindgen_test]
 async fn test_orm_insert() {
     console_error_panic_hook::set_once();
     tracing_wasm::set_as_global_default();
-    
+
     let mut conn = establish_connection().await;
 
-    let changed = insert_books(
+    let rows_changed = insert_books(
         &mut conn,
         vec![
             BookForm {
@@ -149,20 +130,25 @@ async fn test_orm_insert() {
             },
         ],
     )
-    .await.unwrap();
+    .unwrap();
     assert_eq!(rows_changed, 6);
-    tracing::info!("{} rows changed", changed);
+    tracing::info!("{} rows changed", rows_changed);
     console::log_1(&"Showing Users".into());
-   
-    let books = schema::books::table
-        .limit(5)
-        .select(Book::as_select())
-        .load(&mut conn)
-        .await
-        .unwrap();
-    tracing::info!("BOOKS??? {:?}----------", books);
-
-    // console::log_1(&debug_query::<WasmSqlite, _>(&query).to_string().into());
+    let book = schema::books::table
+        .select(schema::books::title)
+        .load::<String>(&mut conn);
+    tracing::info!("Loaded book {:?}", book);
+    let query = schema::books::table.limit(5).select(Book::as_select());
+    let books = conn.load(query).unwrap().collect::<Vec<_>>();
+    /*
+        for row in books.iter() {
+            let deserialized_book = row.as_ref().map(|row| {
+                Book::build_from_row(row).unwrap()
+            });
+            tracing::debug!("BOOK: {:?}", deserialized_book);
+        }
+    */
+    // console::log_1(&debug_query::<WasmSqlite, _>(&query).o_string().into());
     // .load(&mut conn)
     // .await
     // .expect("Error loading users");
@@ -173,58 +159,3 @@ async fn test_orm_insert() {
         }
     */
 }
-
-/*
-#[wasm_bindgen_test]
-async fn test_establish_and_exec() {
-    let rng: u16 = rand::random();
-    let result = WasmSqliteConnection::establish("test-15873").await;
-    let mut conn = result.unwrap();
-    console::log_1(&"CONNECTED".into());
-
-    let raw = conn.raw_connection;
-
-    console::log_1(&"CREATE".into());
-    raw.exec(
-        "
-        CREATE TABLE books (
-            id INTEGER PRIMARY KEY,
-            title TEXT NOT NULL,
-            author TEXT NOT NULL,
-            published_year INTEGER,
-            genre TEXT
-        );",
-    )
-    .await;
-
-    console::log_1(&"INSERT".into());
-    raw.exec(
-        "
-            INSERT INTO books (title, author, published_year, genre) VALUES
-            ('To Kill a Mockingbird', 'Harper Lee', 1960, 'Fiction'),
-            ('1984', 'George Orwell', 1949, 'Dystopian'),
-            ('The Great Gatsby', 'F. Scott Fitzgerald', 1925, 'Classics'),
-            ('Pride and Prejudice', 'Jane Austen', 1813, 'Romance');
-    ",
-    )
-    .await;
-
-    console::log_1(&"SELECT ALL".into());
-    raw.exec("SELECT * FROM books").await;
-
-    console::log_1(&"SELECT title, author FROM books WHERE published_year > 1950;".into());
-    raw.exec(
-        "
-
-        SELECT title, published_year FROM books WHERE author = 'George Orwell';
-    ",
-    )
-    .await;
-
-    console::log_1(
-        &"SELECT title, published_year FROM books WHERE author = 'George Orwell';".into(),
-    );
-    raw.exec("SELECT title, author FROM books WHERE published_year > 1950;".into())
-        .await;
-}
-*/

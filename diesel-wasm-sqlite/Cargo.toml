@@ -5,29 +5,20 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-# diesel = { git = "https://github.com/xmtp/diesel", branch = "insipx/wasm-backend", default-features = false, features = ["i-implement-a-third-party-backend-and-opt-into-breaking-changes"] }
+talc = { version = "4.4", default-features = false, features = ["lock_api"] }
 diesel = { version = "2.2", features = ["i-implement-a-third-party-backend-and-opt-into-breaking-changes"] }
-diesel-async = { git = "https://github.com/insipx/diesel_async", branch = "insipx/make-stmt-cache-public", features = ["stmt-cache"] }
 diesel_derives = "2.2"
 wasm-bindgen = "0.2.92"
-wasm-bindgen-futures = "0.4.42"
-tracing = "0.1"
-rand = "0.8"
-getrandom = { version = "0.2", features = ["js"] }
-web-sys = { version = "0.3", features = ["console"] }
-js-sys = { version = "0.3" }
-# wee_alloc = { version = "0.4.2", optional = true }
-console_error_panic_hook = { version = "0.1", optional = true }
-tokio = { version = "1.38", default-features = false, features = ["rt", "macros", "sync"] }
-futures = "0.3"
-futures-util = "0.3"
-async-trait = "0.1"
-bitflags = "2.6"
-serde = { version = "1.0", features = ["derive"] }
+wasm-bindgen-futures = "0.4"
+js-sys = { version = "0.3" } 
+tracing = "0.1" 
+tokio = { version = "1.38", default-features = false, features = ["sync"] }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 thiserror = "1"
 
 [dev-dependencies]
+console_error_panic_hook = { version = "0.1"}
 rand = "0.8"
 getrandom = { version = "0.2", features = ["js"] }
 wasm-bindgen-test = "0.3.42"
@@ -42,10 +33,12 @@ tracing-wasm = { version = "0.2" }
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["console_error_panic_hook"]
+default = []
+r2d2 = ["diesel/r2d2"]
 # enables a `DebugQueryWrapper` for diesel
 # but is unsafe because of mem::transmute
 unsafe-debug-query = []
+test-util = ["unsafe-debug-query"]
 
 [build]
 target = "wasm32-unknown-unknown"

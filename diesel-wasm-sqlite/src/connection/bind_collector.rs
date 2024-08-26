@@ -76,7 +76,7 @@ impl<'a> From<&'a str> for SqliteBindValue<'a> {
 impl<'a> From<String> for SqliteBindValue<'a> {
     fn from(s: String) -> Self {
         Self {
-            inner: InternalSqliteBindValue::String(s.into_boxed_str()),
+            inner: InternalSqliteBindValue::String(s),
         }
     }
 }
@@ -84,7 +84,7 @@ impl<'a> From<String> for SqliteBindValue<'a> {
 impl<'a> From<Vec<u8>> for SqliteBindValue<'a> {
     fn from(b: Vec<u8>) -> Self {
         Self {
-            inner: InternalSqliteBindValue::Binary(b.into_boxed_slice()),
+            inner: InternalSqliteBindValue::Binary(b),
         }
     }
 }
@@ -101,9 +101,9 @@ impl<'a> From<&'a [u8]> for SqliteBindValue<'a> {
 #[serde(untagged)]
 pub(crate) enum InternalSqliteBindValue<'a> {
     BorrowedString(&'a str),
-    String(Box<str>),
+    String(String),
     BorrowedBinary(&'a [u8]),
-    Binary(Box<[u8]>),
+    Binary(Vec<u8>),
     I32(i32),
     I64(i64),
     F64(f64),
@@ -182,8 +182,8 @@ impl<'a> BindCollector<'a, WasmSqlite> for SqliteBindCollector<'a> {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum OwnedSqliteBindValue {
-    String(Box<str>),
-    Binary(Box<[u8]>),
+    String(String),
+    Binary(Vec<u8>),
     I32(i32),
     I64(i64),
     F64(f64),
@@ -194,13 +194,9 @@ impl<'a> std::convert::From<&InternalSqliteBindValue<'a>> for OwnedSqliteBindVal
     fn from(value: &InternalSqliteBindValue<'a>) -> Self {
         match value {
             InternalSqliteBindValue::String(s) => Self::String(s.clone()),
-            InternalSqliteBindValue::BorrowedString(s) => {
-                Self::String(String::from(*s).into_boxed_str())
-            }
+            InternalSqliteBindValue::BorrowedString(s) => Self::String(String::from(*s)),
             InternalSqliteBindValue::Binary(b) => Self::Binary(b.clone()),
-            InternalSqliteBindValue::BorrowedBinary(s) => {
-                Self::Binary(Vec::from(*s).into_boxed_slice())
-            }
+            InternalSqliteBindValue::BorrowedBinary(s) => Self::Binary(Vec::from(*s)),
             InternalSqliteBindValue::I32(val) => Self::I32(*val),
             InternalSqliteBindValue::I64(val) => Self::I64(*val),
             InternalSqliteBindValue::F64(val) => Self::F64(*val),
