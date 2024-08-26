@@ -1074,6 +1074,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "diesel-wasm-sqlite"
+version = "0.1.1"
+source = "git+https://github.com/xmtp/libxmtp?branch=insipx/abandon-async#c7ba01ba6dd0023e636a4de5e39e231f4b14aa2f"
+dependencies = [
+ "diesel",
+ "diesel_derives",
+ "js-sys",
+ "serde",
+ "serde-wasm-bindgen",
+ "talc",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
 name = "diesel_derives"
 version = "2.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4616,6 +4634,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "serde_derive"
 version = "1.0.205"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4779,17 +4808,6 @@ name = "smallvec"
 version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
-
-[[package]]
-name = "smart-default"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0eb01866308440fc64d6c44d9e86c5cc17adfe33c4d6eed55da9145044d0ffc1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.72",
-]
 
 [[package]]
 name = "socket2"
@@ -5054,6 +5072,15 @@ checksum = "a75fb188eb626b924683e3b95e3a48e63551fcfb51949de2f06a9d91dbee93c9"
 dependencies = [
  "core-foundation-sys",
  "libc",
+]
+
+[[package]]
+name = "talc"
+version = "4.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04be12ec299aadd63a0bf781d893e4b6139d33cdca6dcd6f6be31f849cedcac8"
+dependencies = [
+ "lock_api",
 ]
 
 [[package]]
@@ -6386,12 +6413,14 @@ dependencies = [
  "criterion",
  "ctor",
  "diesel",
+ "diesel-wasm-sqlite",
  "diesel_migrations",
  "ed25519-dalek",
  "ethers",
  "ethers-core",
  "flume",
  "futures",
+ "getrandom",
  "hex",
  "indicatif",
  "libsqlite3-sys",
@@ -6412,7 +6441,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.8",
- "smart-default",
  "tempfile",
  "thiserror",
  "tls_codec",
