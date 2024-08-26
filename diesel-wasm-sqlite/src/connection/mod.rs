@@ -305,6 +305,10 @@ impl WasmSqliteConnection {
     fn establish_inner(database_url: &str) -> Result<WasmSqliteConnection, ConnectionError> {
         let sqlite3 = crate::get_sqlite_unchecked();
         let raw_connection = RawConnection::establish(database_url).unwrap();
+        tracing::debug!(
+            "Established database at {}",
+            sqlite3.filename(&raw_connection.internal_connection, "main".into())
+        );
         sqlite3
             .register_diesel_sql_functions(&raw_connection.internal_connection)
             .map_err(WasmSqliteError::from)?;
@@ -322,6 +326,6 @@ pub struct Nothing;
 
 impl Instrumentation for Nothing {
     fn on_connection_event(&mut self, event: diesel::connection::InstrumentationEvent<'_>) {
-        tracing::info!("Inst. Event {:?}", event);
+        tracing::trace!("{:?}", event);
     }
 }

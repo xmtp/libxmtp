@@ -24,11 +24,14 @@ pub struct BookForm {
     // published_year: NaiveDateTime,
 }
 
-#[derive(Queryable, Selectable, PartialEq, Debug)]
+#[derive(Queryable, QueryableByName, Selectable, PartialEq, Debug)]
 #[diesel(table_name = books)]
-pub struct Book {
+pub struct StoredBook {
+    #[diesel(sql_type = Integer)]
     id: i32,
+    #[diesel(sql_type = Text)]
     title: String,
+    #[diesel(sql_type = Nullable<String>)]
     author: Option<String>,
     // published_year: NaiveDateTime,
 }
@@ -75,51 +78,97 @@ fn examine_sql_from_insert_default_values() {
 
 #[wasm_bindgen_test]
 async fn test_orm_insert() {
+    init().await;
     let mut conn = establish_connection().await;
-
-    let rows_changed = insert_books(
-        &mut conn,
-        vec![
-            BookForm {
-                title: "Game of Thrones".into(),
-                author: Some("George R.R".into()),
-                // published_year: NaiveDate::from_ymd_opt(2015, 5, 3).unwrap(),
-            },
-            BookForm {
-                title: "The Hobbit".into(),
-                author: Some("J.R.R. Tolkien".into()),
-                // published_year: NaiveDate::from_ymd_opt(1937, 9, 21).unwrap(),
-            },
-            BookForm {
-                title: "To Kill a Mockingbird".into(),
-                author: Some("Harper Lee".into()),
-                // published_year: NaiveDate::from_ymd_opt(1960, 7, 11).unwrap(),
-            },
-            BookForm {
-                title: "1984".into(),
-                author: Some("George Orwell".into()),
-                // published_year: NaiveDate::from_ymd_opt(1949, 6, 8).unwrap(),
-            },
-            BookForm {
-                title: "Pride and Prejudice".into(),
-                author: Some("Jane Austen".into()),
-                // published_year: NaiveDate::from_ymd_opt(1813, 1, 28).unwrap(),
-            },
-            BookForm {
-                title: "Moby-Dick".into(),
-                author: Some("Herman Melville".into()),
-                // published_year: NaiveDate::from_ymd_opt(1851, 10, 18).unwrap(),
-            },
-        ],
-    )
-    .unwrap();
+    let new_books = vec![
+        BookForm {
+            title: "Game of Thrones".into(),
+            author: Some("George R.R".into()),
+            // published_year: NaiveDate::from_ymd_opt(2015, 5, 3).unwrap(),
+        },
+        BookForm {
+            title: "The Hobbit".into(),
+            author: Some("J.R.R. Tolkien".into()),
+            // published_year: NaiveDate::from_ymd_opt(1937, 9, 21).unwrap(),
+        },
+        BookForm {
+            title: "To Kill a Mockingbird".into(),
+            author: Some("Harper Lee".into()),
+            // published_year: NaiveDate::from_ymd_opt(1960, 7, 11).unwrap(),
+        },
+        BookForm {
+            title: "1984".into(),
+            author: Some("George Orwell".into()),
+            // published_year: NaiveDate::from_ymd_opt(1949, 6, 8).unwrap(),
+        },
+        BookForm {
+            title: "Pride and Prejudice".into(),
+            author: Some("Jane Austen".into()),
+            // published_year: NaiveDate::from_ymd_opt(1813, 1, 28).unwrap(),
+        },
+        BookForm {
+            title: "Moby-Dick".into(),
+            author: Some("Herman Melville".into()),
+            // published_year: NaiveDate::from_ymd_opt(1851, 10, 18).unwrap(),
+        },
+    ];
+    let rows_changed = insert_books(&mut conn, new_books).unwrap();
     assert_eq!(rows_changed, 6);
     tracing::info!("{} rows changed", rows_changed);
     console::log_1(&"Showing Users".into());
-    let book = schema::books::table
+    let title = schema::books::table
         .select(schema::books::title)
-        .load::<String>(&mut conn);
-    tracing::info!("Loaded book {:?}", book);
-    let query = schema::books::table.limit(5).select(Book::as_select());
-    let books = conn.load(query).unwrap().collect::<Vec<_>>();
+        .filter(schema::books::id.eq(2))
+        .first::<String>(&mut conn)
+        .unwrap();
+    assert_eq!(title, "The Hobbit");
+
+    let author = schema::books::table
+        .select(schema::books::author)
+        .filter(schema::books::id.eq(1))
+        .first::<Option<String>>(&mut conn)
+        .unwrap();
+    assert_eq!(author, Some("George R.R".into()));
+
+    let id = schema::books::table
+        .select(schema::books::id)
+        .filter(schema::books::id.eq(1))
+        .first::<i32>(&mut conn)
+        .unwrap();
+    assert_eq!(id, 1);
+
+    let loaded_books = schema::books::dsl::books
+        .select(StoredBook::as_select())
+        .limit(5)
+        .load(&mut conn);
+    assert_eq!(
+        loaded_books.unwrap(),
+        vec![
+            StoredBook {
+                id: 1,
+                title: "Game of Thrones".into(),
+                author: Some("George R.R".into()),
+            },
+            StoredBook {
+                id: 2,
+                title: "The Hobbit".into(),
+                author: Some("J.R.R. Tolkien".into()),
+            },
+            StoredBook {
+                id: 3,
+                title: "To Kill a Mockingbird".into(),
+                author: Some("Harper Lee".into()),
+            },
+            StoredBook {
+                id: 4,
+                title: "1984".into(),
+                author: Some("George Orwell".into()),
+            },
+            StoredBook {
+                id: 5,
+                title: "Pride and Prejudice".into(),
+                author: Some("Jane Austen".into()),
+            },
+        ]
+    )
 }

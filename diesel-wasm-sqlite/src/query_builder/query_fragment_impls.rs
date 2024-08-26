@@ -1,13 +1,13 @@
-/*
-// use diesel::query_builder::into_conflict_clause::OnConflictSelectWrapper;
-// use diesel::query_builder::where_clause::BoxedWhereClause;
+use crate::WasmSqlite;
+use diesel::query_builder::into_conflict_clause::OnConflictSelectWrapper;
+use diesel::query_builder::where_clause::BoxedWhereClause;
+use diesel::query_builder::where_clause::WhereClause;
 use diesel::query_builder::AstPass;
 use diesel::query_builder::BoxedSelectStatement;
 use diesel::query_builder::QueryFragment;
 use diesel::query_builder::SelectStatement;
-// use diesel::query_builder::WhereClause;
-use crate::storage::wasm_sqlite::WasmSqlite;
 use diesel::result::QueryResult;
+use diesel::QueryId;
 
 // The corresponding impl for`NoWhereClause` is missing because of
 // https://www.sqlite.org/lang_UPSERT.html (Parsing Ambiguity)
@@ -38,4 +38,3 @@ where
         })
     }
 }
-*/

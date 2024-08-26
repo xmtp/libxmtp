@@ -1,14 +1,18 @@
 //! Common utilities/imports amongst WebAssembly tests
 use prelude::*;
 
-use wasm_bindgen_futures::wasm_bindgen::prelude::*;
+use tokio::sync::OnceCell;
 
-// like ctor but for wasm
-#[wasm_bindgen(start)]
-pub async fn main_js() {
-    console_error_panic_hook::set_once();
-    tracing_wasm::set_as_global_default();
-    diesel_wasm_sqlite::init_sqlite().await;
+static INIT: OnceCell<()> = OnceCell::const_new();
+
+pub async fn init() {
+    INIT.get_or_init(|| async {
+        console::log_1(&"INIT".into());
+        console_error_panic_hook::set_once();
+        tracing_wasm::set_as_global_default();
+        diesel_wasm_sqlite::init_sqlite().await;
+    })
+    .await;
 }
 
 pub async fn connection() -> WasmSqliteConnection {
@@ -17,11 +21,16 @@ pub async fn connection() -> WasmSqliteConnection {
 }
 
 // re-exports used in tests
+#[allow(unused)]
 pub mod prelude {
+    pub(crate) use super::init;
     pub(crate) use diesel::{
         connection::{Connection, LoadConnection},
-        debug_query, insert_into,
+        debug_query,
+        deserialize::{self, FromSql, FromSqlRow},
+        insert_into,
         prelude::*,
+        sql_types::{Integer, Nullable, Text},
     };
     pub(crate) use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
     pub(crate) use diesel_wasm_sqlite::{
