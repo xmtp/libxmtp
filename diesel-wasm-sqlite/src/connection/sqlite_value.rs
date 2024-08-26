@@ -100,6 +100,9 @@ impl<'row, 'stmt, 'query> SqliteValue<'row, 'stmt, 'query> {
     // allocated String
     pub(crate) fn parse_string<'value, R>(&self, f: impl FnOnce(String) -> R) -> R {
         let sqlite3 = crate::get_sqlite_unchecked();
+        // TODO:
+        // for some reason sqlite3_value_text returns the String and not a
+        // pointer. There's probably a way to make it return a pointer
         let s = sqlite3.value_text(self.value);
         // let s = unsafe {
         // let ptr = sqlite3.value_text(self.value);
