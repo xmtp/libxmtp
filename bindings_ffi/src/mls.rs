@@ -751,12 +751,20 @@ impl FfiConversations {
         Ok(())
     }
 
-    pub async fn sync_all_groups(&self) -> Result<(), GenericError> {
+    pub async fn sync_all_groups(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
         let groups = inner.find_groups(None, None, None, None)?;
 
-        inner.sync_all_groups(groups).await?;
-        Ok(())
+        let num_groups_synced: usize = inner.sync_all_groups(groups).await?;
+        // Uniffi does not work with usize, so we need to convert to u32
+        let num_groups_synced: u32 =
+            num_groups_synced
+                .try_into()
+                .map_err(|_| GenericError::Generic {
+                    err: "Failed to convert the number of synced groups from usize to u32"
+                        .to_string(),
+                })?;
+        Ok(num_groups_synced)
     }
 
     pub async fn list(
@@ -2310,22 +2318,8 @@ mod tests {
                 .unwrap();
         }
         bo.conversations().sync().await.unwrap();
-        bo.conversations().sync_all_groups().await.unwrap();
-
-        // Alix sends a message in each group
-        for group in alix
-            .conversations()
-            .list(FfiListConversationsOptions::default())
-            .await
-            .unwrap()
-        {
-            group.send("hello".as_bytes().to_vec()).await.unwrap();
-        }
-
-        // Get duration to sync all groups
-        let start_time_1 = std::time::Instant::now();
-        bo.conversations().sync_all_groups().await.unwrap();
-        let duration_1 = start_time_1.elapsed();
+        let num_groups_synced_1: u32 = bo.conversations().sync_all_groups().await.unwrap();
+        assert!(num_groups_synced_1 == 30);
 
         // Remove bo from all groups and sync
         for group in alix
@@ -2339,29 +2333,14 @@ mod tests {
                 .await
                 .unwrap();
         }
-        bo.conversations().sync_all_groups().await.unwrap();
 
-        // Alix sends one more message in each group
-        for group in alix
-            .conversations()
-            .list(FfiListConversationsOptions::default())
-            .await
-            .unwrap()
-        {
-            group.send("hello".as_bytes().to_vec()).await.unwrap();
-        }
+        // First sync after removal needs to process all groups and set them to inactive
+        let num_groups_synced_2: u32 = bo.conversations().sync_all_groups().await.unwrap();
+        assert!(num_groups_synced_2 == 30);
 
-        // Verify that sync all groups is faster after bo is removed
-        let start_time_2 = std::time::Instant::now();
-        bo.conversations().sync_all_groups().await.unwrap();
-        let duration_2 = start_time_2.elapsed();
-
-        println!("Time taken to sync all groups: {:?}", duration_1);
-        println!(
-            "Time taken to sync all groups after being removed: {:?}",
-            duration_2
-        );
-        assert!(duration_2 < duration_1);
+        // Second sync after removal will not process inactive groups
+        let num_groups_synced_3: u32 = bo.conversations().sync_all_groups().await.unwrap();
+        assert!(num_groups_synced_3 == 0);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
