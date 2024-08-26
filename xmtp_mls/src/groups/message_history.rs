@@ -349,14 +349,7 @@ where
 
     async fn prepare_groups_to_sync(&self) -> Result<Vec<StoredGroup>, MessageHistoryError> {
         let conn = self.store().conn()?;
-        let groups = conn.find_groups(None, None, None, None)?;
-        let mut all_groups: Vec<StoredGroup> = vec![];
-
-        for group in groups.into_iter() {
-            all_groups.push(group);
-        }
-
-        Ok(all_groups)
+        Ok(conn.find_groups(None, None, None, None)?)
     }
 
     async fn prepare_messages_to_sync(
