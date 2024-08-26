@@ -912,6 +912,7 @@ class GroupTest {
         runBlocking { alixClient.conversations.syncGroups() }
         val alixGroup: Group = alixClient.findGroup(boGroup.id)!!
         val alixGroup2: Group = alixClient.findGroup(boGroup2.id)!!
+        var numGroups: UInt?
 
         assertEquals(alixGroup.messages().size, 0)
         assertEquals(alixGroup2.messages().size, 0)
@@ -919,11 +920,12 @@ class GroupTest {
         runBlocking {
             boGroup.send("hi")
             boGroup2.send("hi")
-            alixClient.conversations.syncAllGroups()
+            numGroups = alixClient.conversations.syncAllGroups()
         }
 
         assertEquals(alixGroup.messages().size, 1)
         assertEquals(alixGroup2.messages().size, 1)
+        assertEquals(numGroups, 2u)
 
         runBlocking {
             boGroup2.removeMembers(listOf(alix.walletAddress))
@@ -931,10 +933,18 @@ class GroupTest {
             boGroup.send("hi")
             boGroup2.send("hi")
             boGroup2.send("hi")
-            alixClient.conversations.syncAllGroups()
+            numGroups = alixClient.conversations.syncAllGroups()
         }
 
         assertEquals(alixGroup.messages().size, 3)
         assertEquals(alixGroup2.messages().size, 2)
+        // First syncAllGroups after remove includes the group you're removed from
+        assertEquals(numGroups, 2u)
+
+        runBlocking {
+            numGroups = alixClient.conversations.syncAllGroups()
+        }
+        // Next syncAllGroups will not include the inactive group
+        assertEquals(numGroups, 1u)
     }
 }

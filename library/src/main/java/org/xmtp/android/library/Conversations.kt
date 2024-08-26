@@ -193,8 +193,8 @@ data class Conversations(
     }
 
     // Sync all existing local groups data from the network (Note: call syncGroups() first to get the latest list of groups)
-    suspend fun syncAllGroups() {
-        libXMTPConversations?.syncAllGroups()
+    suspend fun syncAllGroups(): UInt? {
+        return libXMTPConversations?.syncAllGroups()
     }
 
     suspend fun listGroups(

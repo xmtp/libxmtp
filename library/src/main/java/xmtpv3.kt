@@ -49,8 +49,10 @@ open class RustBuffer : Structure() {
     // When dealing with these fields, make sure to call `toULong()`.
     @JvmField
     var capacity: Long = 0
+
     @JvmField
     var len: Long = 0
+
     @JvmField
     var data: Pointer? = null
 
@@ -135,6 +137,7 @@ class RustBufferByReference : ByReference(16) {
 open class ForeignBytes : Structure() {
     @JvmField
     var len: Int = 0
+
     @JvmField
     var data: Pointer? = null
 
@@ -223,6 +226,7 @@ internal const val UNIFFI_CALL_UNEXPECTED_ERROR = 2.toByte()
 internal open class UniffiRustCallStatus : Structure() {
     @JvmField
     var code: Byte = 0
+
     @JvmField
     var error_buf: RustBuffer.ByValue = RustBuffer.ByValue()
 
@@ -1987,7 +1991,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_fficonversations_sync() != 9054.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_fficonversations_sync_all_groups() != 62850.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversations_sync_all_groups() != 3433.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_add_admin() != 4600.toShort()) {
@@ -2656,7 +2660,7 @@ public interface FfiConversationsInterface {
 
     suspend fun `sync`()
 
-    suspend fun `syncAllGroups`()
+    suspend fun `syncAllGroups`(): kotlin.UInt
 
     companion object
 }
@@ -2940,7 +2944,7 @@ open class FfiConversations : Disposable, AutoCloseable, FfiConversationsInterfa
 
     @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `syncAllGroups`() {
+    override suspend fun `syncAllGroups`(): kotlin.UInt {
         return uniffiRustCallAsync(
             callWithPointer { thisPtr ->
                 UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversations_sync_all_groups(
@@ -2949,22 +2953,21 @@ open class FfiConversations : Disposable, AutoCloseable, FfiConversationsInterfa
                     )
             },
             { future, callback, continuation ->
-                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_u32(
                     future,
                     callback,
                     continuation
                 )
             },
             { future, continuation ->
-                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_void(
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_u32(
                     future,
                     continuation
                 )
             },
-            { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_void(future) },
+            { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_u32(future) },
             // lift function
-            { Unit },
-
+            { FfiConverterUInt.lift(it) },
             // Error FFI converter
             GenericException.ErrorHandler,
         )
