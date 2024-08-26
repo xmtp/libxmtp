@@ -8,7 +8,7 @@ resolver = "2"
 talc = { version = "4.4", default-features = false, features = ["lock_api"] }
 diesel = { version = "2.2", features = ["i-implement-a-third-party-backend-and-opt-into-breaking-changes"] }
 diesel_derives = "2.2"
-wasm-bindgen = "0.2.92"
+wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = { version = "0.3" } 
 tracing = "0.1" 
@@ -27,6 +27,7 @@ chrono = { version = "0.4", features = ["wasmbind", "serde"] }
 diesel_migrations = "2.2"
 diesel = { version = "2.2", features = ["chrono"]}
 tracing-wasm = { version = "0.2" }
+ctor = "0.2"
 
 
 [lib]
@@ -38,7 +39,6 @@ r2d2 = ["diesel/r2d2"]
 # enables a `DebugQueryWrapper` for diesel
 # but is unsafe because of mem::transmute
 unsafe-debug-query = []
-test-util = ["unsafe-debug-query"]
 
 [build]
 target = "wasm32-unknown-unknown"

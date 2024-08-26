@@ -1,22 +1,7 @@
-//! Integration-like tests with a persistent database
-#![recursion_limit = "256"]
-#![cfg(target_arch = "wasm32")]
+//! General tests for migrations/diesel ORM/persistant databases
+use crate::common::prelude::*;
 
-use diesel::connection::LoadConnection;
-use diesel::deserialize::FromSqlRow;
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use diesel_wasm_sqlite::{connection::WasmSqliteConnection, DebugQueryWrapper, WasmSqlite};
-use wasm_bindgen_test::*;
-use web_sys::console;
-
-use diesel::debug_query;
-use diesel::insert_into;
-use diesel::prelude::*;
-use serde::Deserialize;
-
-wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
-pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./tests/web/migrations/");
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./tests/migrations/");
 
 mod schema {
     diesel::table! {
@@ -90,9 +75,6 @@ fn examine_sql_from_insert_default_values() {
 
 #[wasm_bindgen_test]
 async fn test_orm_insert() {
-    console_error_panic_hook::set_once();
-    tracing_wasm::set_as_global_default();
-
     let mut conn = establish_connection().await;
 
     let rows_changed = insert_books(
@@ -140,22 +122,4 @@ async fn test_orm_insert() {
     tracing::info!("Loaded book {:?}", book);
     let query = schema::books::table.limit(5).select(Book::as_select());
     let books = conn.load(query).unwrap().collect::<Vec<_>>();
-    /*
-        for row in books.iter() {
-            let deserialized_book = row.as_ref().map(|row| {
-                Book::build_from_row(row).unwrap()
-            });
-            tracing::debug!("BOOK: {:?}", deserialized_book);
-        }
-    */
-    // console::log_1(&debug_query::<WasmSqlite, _>(&query).o_string().into());
-    // .load(&mut conn)
-    // .await
-    // .expect("Error loading users");
-
-    /*
-        for book in books {
-            console::log_1(&format!("{}", book.title).into());
-        }
-    */
 }
