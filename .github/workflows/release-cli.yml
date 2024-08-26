@@ -3,9 +3,7 @@ on:
   push:
     branches:
       - main
-  pull_request: # temp for testing
-    paths:
-      - "*"
+  workflow_dispatch:
 jobs:
   build:
     strategy:
