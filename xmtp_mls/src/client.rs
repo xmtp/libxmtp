@@ -644,6 +644,7 @@ where
             .await
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?;
+
         Ok(active_group_count.load(Ordering::SeqCst))
     }
 
