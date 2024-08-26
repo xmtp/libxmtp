@@ -8,12 +8,10 @@ use rand::{
 use std::sync::Arc;
 use tokio::{sync::Notify, time::error::Elapsed};
 use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
-use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_id::associations::{generate_inbox_id, RecoverableEcdsaSignature};
 
 use crate::{
     builder::ClientBuilder,
-    groups::{GroupMetadataOptions, MlsGroup},
     identity::IdentityStrategy,
     storage::{EncryptedMessageStore, StorageOption},
     types::Address,

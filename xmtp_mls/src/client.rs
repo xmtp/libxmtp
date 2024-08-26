@@ -722,8 +722,6 @@ pub fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientErr
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
@@ -731,7 +729,6 @@ mod tests {
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
         hpke::{decrypt_welcome, encrypt_welcome},
-        utils::test,
     };
 
     #[tokio::test]
