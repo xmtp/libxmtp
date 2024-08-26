@@ -86,6 +86,8 @@ pub enum MessageHistoryError {
     NoReplyToProcess,
     #[error("generic: {0}")]
     Generic(String),
+    #[error("missing history sync url")]
+    MissingHistorySyncUrl,
 }
 
 #[derive(Debug, Deserialize)]
@@ -294,13 +296,15 @@ where
         Ok(request_id)
     }
 
-    pub async fn reply_to_history_request(&self, url: &str) -> Result<(), MessageHistoryError> {
+    pub async fn reply_to_history_request(
+        &self,
+    ) -> Result<MessageHistoryReply, MessageHistoryError> {
         let pending_request = self.get_pending_history_request().await?;
 
         if let Some((request_id, _)) = pending_request {
-            let reply = self.prepare_history_reply(&request_id, url).await?;
-            self.send_history_reply(reply.into()).await?;
-            return Ok(());
+            let reply = self.prepare_history_reply(&request_id).await?;
+            self.send_history_reply(reply.clone().into()).await?;
+            return Ok(reply.into());
         }
 
         Err(MessageHistoryError::NoPendingRequest)
@@ -413,9 +417,12 @@ where
     pub(crate) async fn prepare_history_reply(
         &self,
         request_id: &str,
-        url: &str,
     ) -> Result<HistoryReply, MessageHistoryError> {
         let (history_file, enc_key) = self.write_history_bundle().await?;
+        let url = match &self.history_sync_url {
+            Some(url) => url.as_str(),
+            None => return Err(MessageHistoryError::MissingHistorySyncUrl),
+        };
 
         upload_history_bundle(url, history_file.clone()).await?;
 
@@ -596,7 +603,7 @@ impl From<HistoryRequest> for MessageHistoryRequest {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct HistoryReply {
     /// Unique ID for each client Message History Request
     request_id: String,
@@ -1143,7 +1150,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_prepare_history_reply() {
         let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
         assert_ok!(amal_b.allow_history_sync().await);
 
@@ -1166,7 +1173,8 @@ mod tests {
             .with_body("encrypted_content")
             .create();
 
-        let reply = amal_a.prepare_history_reply(&request_id, &url).await;
+        amal_a.history_sync_url = Some(url);
+        let reply = amal_a.prepare_history_reply(&request_id).await;
         assert!(reply.is_ok());
         _m.assert_async().await;
         server.reset();
