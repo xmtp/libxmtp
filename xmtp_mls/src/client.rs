@@ -1,4 +1,11 @@
-use std::{collections::HashMap, mem::Discriminant, sync::Arc};
+use std::{
+    collections::HashMap,
+    mem::Discriminant,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
 
 use futures::{
     future::join_all,
@@ -596,11 +603,15 @@ where
         Ok(groups)
     }
 
-    pub async fn sync_all_groups(&self, groups: Vec<MlsGroup>) -> Result<(), GroupError> {
+    /// Sync all groups for the current user and return the number of groups that were synced.
+    /// Only active groups will be synced.
+    pub async fn sync_all_groups(&self, groups: Vec<MlsGroup>) -> Result<usize, GroupError> {
         use scoped_futures::ScopedFutureExt;
 
         // Acquire a single connection to be reused
         let provider: XmtpOpenMlsProvider = self.mls_provider()?;
+
+        let active_group_count = Arc::new(AtomicUsize::new(0));
 
         let sync_futures: Vec<_> = groups
             .into_iter()
@@ -609,19 +620,24 @@ where
                     // create new provider ref that gets moved, leaving original
                     // provider alone.
                     let provider_ref = &provider;
+                    let active_group_count = Arc::clone(&active_group_count);
                     async move {
+                        let mls_group = group.load_mls_group(provider_ref)?;
                         log::info!("[{}] syncing group", self.inbox_id());
                         log::info!(
                             "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
                             self.inbox_id(),
-                            group.load_mls_group(provider_ref)?.epoch()
+                            mls_group.epoch()
                         );
+                        if mls_group.is_active() {
+                            group
+                                .maybe_update_installations(provider_ref, None, self)
+                                .await?;
 
-                        group
-                            .maybe_update_installations(provider_ref, None, self)
-                            .await?;
+                            group.sync_with_conn(provider_ref, self).await?;
+                            active_group_count.fetch_add(1, Ordering::SeqCst);
+                        }
 
-                        group.sync_with_conn(provider_ref, self).await?;
                         Ok::<(), GroupError>(())
                     }
                     .await
@@ -635,8 +651,7 @@ where
             .await
             .into_iter()
             .collect::<Result<(), _>>()?;
-
-        Ok(())
+        Ok(active_group_count.load(Ordering::SeqCst))
     }
 
     /**

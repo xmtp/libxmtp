@@ -751,12 +751,20 @@ impl FfiConversations {
         Ok(())
     }
 
-    pub async fn sync_all_groups(&self) -> Result<(), GenericError> {
+    pub async fn sync_all_groups(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
         let groups = inner.find_groups(None, None, None, None)?;
 
-        inner.sync_all_groups(groups).await?;
-        Ok(())
+        let num_groups_synced: usize = inner.sync_all_groups(groups).await?;
+        // Uniffi does not work with usize, so we need to convert to u32
+        let num_groups_synced: u32 =
+            num_groups_synced
+                .try_into()
+                .map_err(|_| GenericError::Generic {
+                    err: "Failed to convert the number of synced groups from usize to u32"
+                        .to_string(),
+                })?;
+        Ok(num_groups_synced)
     }
 
     pub async fn list(
@@ -2292,6 +2300,47 @@ mod tests {
             .unwrap();
         assert_eq!(bo_messages1.len(), 1);
         assert_eq!(bo_messages5.len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_sync_all_groups_active_only() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Create 30 groups with alix and bo and sync them
+        for _i in 0..30 {
+            alix.conversations()
+                .create_group(
+                    vec![bo.account_address.clone()],
+                    FfiCreateGroupOptions::default(),
+                )
+                .await
+                .unwrap();
+        }
+        bo.conversations().sync().await.unwrap();
+        let num_groups_synced_1: u32 = bo.conversations().sync_all_groups().await.unwrap();
+        assert!(num_groups_synced_1 == 30);
+
+        // Remove bo from all groups and sync
+        for group in alix
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap()
+        {
+            group
+                .remove_members(vec![bo.account_address.clone()])
+                .await
+                .unwrap();
+        }
+
+        // First sync after removal needs to process all groups and set them to inactive
+        let num_groups_synced_2: u32 = bo.conversations().sync_all_groups().await.unwrap();
+        assert!(num_groups_synced_2 == 30);
+
+        // Second sync after removal will not process inactive groups
+        let num_groups_synced_3: u32 = bo.conversations().sync_all_groups().await.unwrap();
+        assert!(num_groups_synced_3 == 0);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
