@@ -1,4 +1,4 @@
-name: Test DIesel WASM Backend
+name: Test Diesel WASM Backend
 on:
   push:
     branches:
@@ -19,6 +19,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       - name: Update rust toolchains
         run: rustup update
       - name: Install wasm-pack
@@ -28,5 +29,9 @@ jobs:
         with:
           workspaces: |
             .
-      - name: Run cargo test on main workspace
-        run: wasm-pack test --manifest-path diesel-wasm-sqlite/Cargo.toml --features test-util --features unsafe-debug-query
+      - run: wasm-pack test --headless --safari --features unsafe-debug-query
+        working-directory: diesel-wasm-sqlite
+      - run: wasm-pack test --headless --chrome  --features unsafe-debug-query
+        working-directory: diesel-wasm-sqlite
+      - run: wasm-pack test --headless --firefox --features unsafe-debug-query
+        working-directory: diesel-wasm-sqlite
