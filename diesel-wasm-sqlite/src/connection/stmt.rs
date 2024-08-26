@@ -184,7 +184,7 @@ impl Statement {
 impl Drop for Statement {
     fn drop(&mut self) {
         let sqlite3 = crate::get_sqlite_unchecked();
-        tracing::info!("Statement dropped & finalized!");
+        tracing::trace!("Statement dropped & finalized!");
         let _ = sqlite3
             .finalize(&self.inner_statement)
             .expect("Error finalized SQLite prepared statement");

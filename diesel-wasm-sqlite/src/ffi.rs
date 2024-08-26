@@ -168,6 +168,9 @@ extern "C" {
     pub fn version(this: &SQLite) -> JsValue;
 
     #[wasm_bindgen(method)]
+    pub fn filename(this: &SQLite, db: &JsValue, name: String) -> String;
+
+    #[wasm_bindgen(method)]
     pub fn errstr(this: &SQLite, code: i32) -> String;
 
     #[wasm_bindgen(method)]

@@ -34,6 +34,10 @@ export class SQLite {
     return this.sqlite3.version;
   }
 
+  filename(db, name) {
+    return this.sqlite3.capi.sqlite3_db_filename(db, name);
+  }
+
   extended_errcode(connection) {
     return this.sqlite3.capi.sqlite3_extended_errcode(connection);
   }

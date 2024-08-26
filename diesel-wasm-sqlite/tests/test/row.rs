@@ -1,14 +1,9 @@
-use diesel::Connection;
-use diesel_wasm_sqlite::{connection::WasmSqliteConnection, test_common::connection, WasmSqlite};
-use wasm_bindgen_test::*;
-wasm_bindgen_test_configure!(run_in_dedicated_worker);
+use crate::common::{connection, prelude::*};
 
 // test copied from diesel
 #[wasm_bindgen_test]
 async fn fun_with_row_iters() {
     diesel_wasm_sqlite::init_sqlite().await;
-    console_error_panic_hook::set_once();
-    tracing_wasm::set_as_global_default();
 
     diesel::table! {
         #[allow(unused_parens)]
