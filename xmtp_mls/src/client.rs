@@ -1,4 +1,11 @@
-use std::{collections::HashMap, mem::Discriminant, sync::Arc};
+use std::{
+    collections::HashMap,
+    mem::Discriminant,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
 
 use futures::{
     stream::{self, FuturesUnordered, StreamExt},
@@ -38,6 +45,7 @@ use crate::{
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
+    mutex_registry::MutexRegistry,
     retry::Retry,
     retry_async, retryable,
     storage::{
@@ -136,10 +144,6 @@ pub enum MessageProcessingError {
     Identity(#[from] IdentityError),
     #[error("openmls process message error: {0}")]
     OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
-    #[error("merge pending commit: {0}")]
-    MergePendingCommit(
-        #[from] openmls::group::MergePendingCommitError<sql_key_store::SqlKeyStoreError>,
-    ),
     #[error("merge staged commit: {0}")]
     MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::SqlKeyStoreError>),
     #[error(
@@ -177,6 +181,8 @@ pub enum MessageProcessingError {
     Group(#[from] Box<GroupError>),
     #[error("generic:{0}")]
     Generic(String),
+    #[error("intent is missing staged_commit field")]
+    IntentMissingStagedCommit,
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {
@@ -185,7 +191,6 @@ impl crate::retry::RetryableError for MessageProcessingError {
             Self::Group(group_error) => retryable!(group_error),
             Self::Identity(identity_error) => retryable!(identity_error),
             Self::OpenMlsProcessMessage(err) => retryable!(err),
-            Self::MergePendingCommit(err) => retryable!(err),
             Self::MergeStagedCommit(err) => retryable!(err),
             Self::Diesel(diesel_error) => retryable!(diesel_error),
             Self::Storage(s) => retryable!(s),
@@ -225,6 +230,7 @@ pub struct XmtpMlsLocalContext {
     pub(crate) identity: Identity,
     /// XMTP Local Storage
     pub(crate) store: EncryptedMessageStore,
+    pub(crate) mutexes: MutexRegistry,
 }
 
 impl XmtpMlsLocalContext {
@@ -268,7 +274,11 @@ where
         store: EncryptedMessageStore,
         history_sync_url: Option<String>,
     ) -> Self {
-        let context = XmtpMlsLocalContext { identity, store };
+        let context = XmtpMlsLocalContext {
+            identity,
+            store,
+            mutexes: MutexRegistry::new(),
+        };
         let (tx, _) = broadcast::channel(10);
         Self {
             api_client,
@@ -592,9 +602,13 @@ where
         Ok(groups)
     }
 
-    pub async fn sync_all_groups(&self, groups: Vec<MlsGroup>) -> Result<(), GroupError> {
+    /// Sync all groups for the current user and return the number of groups that were synced.
+    /// Only active groups will be synced.
+    pub async fn sync_all_groups(&self, groups: Vec<MlsGroup>) -> Result<usize, GroupError> {
         // Acquire a single connection to be reused
         let provider: XmtpOpenMlsProvider = self.mls_provider()?;
+
+        let active_group_count = Arc::new(AtomicUsize::new(0));
 
         let sync_futures = groups
             .into_iter()
@@ -602,19 +616,24 @@ where
                 // create new provider ref that gets moved, leaving original
                 // provider alone.
                 let provider_ref = &provider;
+                let active_group_count = Arc::clone(&active_group_count);
                 async move {
+                    let mls_group = group.load_mls_group(provider_ref)?;
                     log::info!("[{}] syncing group", self.inbox_id());
                     log::info!(
                         "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
                         self.inbox_id(),
-                        group.load_mls_group(provider_ref)?.epoch()
+                        mls_group.epoch()
                     );
+                    if mls_group.is_active() {
+                        group
+                            .maybe_update_installations(provider_ref, None, self)
+                            .await?;
 
-                    group
-                        .maybe_update_installations(provider_ref, None, self)
-                        .await?;
+                        group.sync_with_conn(provider_ref, self).await?;
+                        active_group_count.fetch_add(1, Ordering::SeqCst);
+                    }
 
-                    group.sync_with_conn(provider_ref, self).await?;
                     Ok::<(), GroupError>(())
                 }
             })
@@ -625,7 +644,7 @@ where
             .await
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(())
+        Ok(active_group_count.load(Ordering::SeqCst))
     }
 
     /**
