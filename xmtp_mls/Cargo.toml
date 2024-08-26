@@ -3,6 +3,11 @@ edition = "2021"
 name = "xmtp_mls"
 version = "0.1.0"
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+
 [features]
 default = ["native"]
 grpc = ["xmtp_proto/grpc"]
@@ -37,7 +42,6 @@ sha2.workspace = true
 tls_codec = { workspace = true }
 prost = { workspace = true, features = ["prost-derive"] }
 rand = { workspace = true }
-reqwest = { version = "0.12.4", features = ["stream"] }
 serde = { workspace = true }
 serde_json.workspace = true
 thiserror = { workspace = true }
@@ -46,13 +50,14 @@ tokio-stream = { version = "0.1", features = ["sync"]  }
 async-stream.workspace = true
 async-trait.workspace = true
 futures.workspace = true
+reqwest = { version = "0.12.4", features = ["stream"] }
+scoped-futures = "0.1"
 
 # XMTP/Local
 xmtp_cryptography = { workspace = true }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_proto = { workspace = true, features = ["proto_full", "convert"] }
 xmtp_v2 = { path = "../xmtp_v2" }
-scoped-futures = "0.1"
 
 # Optional/Features
 toml = { version = "0.8.4", optional = true }
