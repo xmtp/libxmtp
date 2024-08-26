@@ -252,6 +252,97 @@ where
         Ok(())
     }
 
+    pub async fn get_pending_history_request(
+        &self,
+    ) -> Result<Option<(String, String)>, MessageHistoryError> {
+        let (_, sync_group) = self.get_sync_group()?;
+
+        // sync the group
+        sync_group.sync(self).await?;
+
+        let messages = sync_group.find_messages(
+            Some(GroupMessageKind::Application),
+            None,
+            None,
+            None,
+            None,
+        )?;
+        let last_message = messages.last();
+        let request_id: Option<(String, String)> = match last_message {
+            Some(msg) => {
+                let message_history_content =
+                    serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
+                match message_history_content {
+                    // if the last message is a request, return its request ID and pin code
+                    Ok(MessageHistoryContent::Request(request)) => {
+                        Some((request.request_id, request.pin_code))
+                    }
+                    _ => None,
+                }
+            }
+            None => None,
+        };
+
+        Ok(request_id)
+    }
+
+    pub async fn reply_to_history_request(&self, url: &str) -> Result<(), MessageHistoryError> {
+        let pending_request = self.get_pending_history_request().await?;
+
+        if let Some((request_id, _)) = pending_request {
+            let reply = self.prepare_history_reply(&request_id, url).await?;
+            self.send_history_reply(reply.into()).await?;
+            return Ok(());
+        }
+
+        Err(MessageHistoryError::NoPendingRequest)
+    }
+
+    pub async fn get_latest_history_reply(
+        &self,
+    ) -> Result<Option<MessageHistoryReply>, MessageHistoryError> {
+        let (_, sync_group) = self.get_sync_group()?;
+
+        // sync the group
+        sync_group.sync(self).await?;
+
+        let messages = sync_group.find_messages(
+            Some(GroupMessageKind::Application),
+            None,
+            None,
+            None,
+            None,
+        )?;
+
+        let last_message = messages.last();
+
+        let reply: Option<MessageHistoryReply> = match last_message {
+            Some(msg) => {
+                let message_history_content =
+                    serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
+                match message_history_content {
+                    // if the last message is a reply, return it
+                    Ok(MessageHistoryContent::Reply(reply)) => Some(reply),
+                    _ => None,
+                }
+            }
+            None => None,
+        };
+
+        Ok(reply)
+    }
+
+    pub async fn process_history_reply(&self) -> Result<PathBuf, MessageHistoryError> {
+        let reply = self.get_latest_history_reply().await?;
+
+        if let Some(reply) = reply {
+            let history_bundle = download_history_bundle(&reply.url).await?;
+            return Ok(history_bundle);
+        }
+
+        Err(MessageHistoryError::NoReplyToProcess)
+    }
+
     pub(crate) fn verify_pin(
         &self,
         request_id: &str,
