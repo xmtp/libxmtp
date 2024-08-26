@@ -12,7 +12,6 @@ extern crate xmtp_mls;
 
 use std::iter::Iterator;
 use std::{fs, path::PathBuf, time::Duration};
-use tokio_stream::StreamExt;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder};
@@ -36,7 +35,7 @@ use xmtp_mls::{
     builder::ClientBuilderError,
     client::ClientError,
     codecs::{text::TextCodec, ContentCodec},
-    groups::{GroupMetadataOptions, MlsGroup},
+    groups::{message_history::MessageHistoryUrls, GroupMetadataOptions, MlsGroup},
     identity::IdentityStrategy,
     storage::{
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
@@ -351,17 +350,12 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
-            let mut sync_group_messages_stream =
-                xmtp_mls::Client::stream_all_messages(client.into())
-                    .await
-                    .unwrap();
+            let (group_id, _) = client.get_sync_group().unwrap();
+            let group_id_str = hex::encode(group_id);
+            let reply = client.reply_to_history_request().await.unwrap();
 
-            while let Some(msg) = sync_group_messages_stream.next().await {
-                // Note: sending a reply should trigger automatically when processing the request
-                info!("SYNC Group message: {}", format_message(msg.unwrap()));
-            }
-
-            info!("Synced history", { command_output: true });
+            info!("Sent history sync reply in sync group {group_id_str}", { command_output: true, group_id: group_id_str});
+            info!("Reply: {:?}", reply);
         }
         Commands::Clear {} => {
             fs::remove_file(cli.db.unwrap()).unwrap();
@@ -380,7 +374,7 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
                 .await
                 .unwrap(),
         );
-        builder = builder.history_sync_url("http://0.0.0.0:5558");
+        builder = builder.history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS);
     } else {
         info!("Using dev network");
         builder = builder.api_client(
@@ -388,8 +382,7 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
                 .await
                 .unwrap(),
         );
-        // builder = builder.history_sync_url("https://message-history.dev.xmtp.network");
-        builder = builder.history_sync_url("http://0.0.0.0:5558");
+        builder = builder.history_sync_url(MessageHistoryUrls::DEV_ADDRESS);
     }
 
     let client = builder.build().await.map_err(CliError::ClientBuilder)?;
