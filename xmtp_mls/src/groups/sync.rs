@@ -439,13 +439,7 @@ impl MlsGroup {
                                 .await
                                 .map_err(|e| MessageProcessingError::Group(Box::new(e)));
 
-                            // prepare and send the reply
-                            let Some(ref url) = client.history_sync_url else {
-                                return Err(MessageProcessingError::Generic(
-                                    "history sync url not set".to_string(),
-                                ));
-                            };
-                            match client.prepare_history_reply(&request_id, url).await {
+                            match client.prepare_history_reply(&request_id).await {
                                 Ok(history_reply) => client
                                     .send_history_reply(history_reply.into())
                                     .await
