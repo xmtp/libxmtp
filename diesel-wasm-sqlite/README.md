@@ -81,7 +81,7 @@ look in `tests/web.rs` for working example!
 
 ### Run Tests
 
-`wasm-pack test --safari`
+`wasm-pack test --safari --features unsafe-debug-query`
 
 navigate to `http://localhost:8000` to observe test output
 
