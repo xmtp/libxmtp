@@ -27,7 +27,6 @@ use xmtp_proto::{
 
 use super::{GroupError, MlsGroup};
 
-use crate::client::MessageProcessingError;
 use crate::XmtpApi;
 use crate::{
     client::ClientError,
@@ -75,6 +74,10 @@ pub enum MessageHistoryError {
     ReplyAlreadyProcessed,
     #[error("no pending request to reply to")]
     NoPendingRequest,
+    #[error("no reply to process")]
+    NoReplyToProcess,
+    #[error("generic: {0}")]
+    Generic(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,7 +131,7 @@ where
     }
 
     // returns (request_id, pin_code)
-    pub async fn send_history_request(&self) -> Result<(String, String), GroupError> {
+    pub async fn send_history_request(&self) -> Result<(String, String), MessageHistoryError> {
         // find the sync group
         let conn = self.store().conn()?;
         let (_, sync_group) = self.get_sync_group()?;
@@ -164,7 +167,7 @@ where
             pin_code: pin_code.clone(),
         });
         let content_bytes = serde_json::to_vec(&content)
-            .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
+            .map_err(|e| MessageHistoryError::Generic(format!("{e}")))?;
 
         let _message_id =
             sync_group.prepare_message(content_bytes.as_slice(), &conn, move |_time_ns| {
@@ -187,7 +190,7 @@ where
     pub(crate) async fn send_history_reply(
         &self,
         contents: MessageHistoryReply,
-    ) -> Result<(), GroupError> {
+    ) -> Result<(), MessageHistoryError> {
         // find the sync group
         let conn = self.store().conn()?;
         let (_, sync_group) = self.get_sync_group()?;
@@ -212,31 +215,25 @@ where
                     Ok(MessageHistoryContent::Request(request)) => {
                         // check that the request ID matches
                         if !request.request_id.eq(&contents.request_id) {
-                            return Err(GroupError::MessageHistory(Box::new(
-                                MessageHistoryError::ReplyRequestIdMismatch,
-                            )));
+                            return Err(MessageHistoryError::ReplyRequestIdMismatch);
                         }
                     }
                     Ok(MessageHistoryContent::Reply(_)) => {
                         // if last message is a reply, it's already been processed
-                        return Err(GroupError::MessageHistory(Box::new(
-                            MessageHistoryError::ReplyAlreadyProcessed,
-                        )));
+                        return Err(MessageHistoryError::ReplyAlreadyProcessed);
                     }
                     _ => {}
                 }
             }
             None => {
-                return Err(GroupError::MessageHistory(Box::new(
-                    MessageHistoryError::NoPendingRequest,
-                )));
+                return Err(MessageHistoryError::NoPendingRequest);
             }
         };
 
         // the reply message
         let content = MessageHistoryContent::Reply(contents.clone());
         let content_bytes = serde_json::to_vec(&content)
-            .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
+            .map_err(|e| MessageHistoryError::Generic(format!("{e}")))?;
 
         let _message_id =
             sync_group.prepare_message(content_bytes.as_slice(), &conn, move |_time_ns| {
@@ -255,7 +252,11 @@ where
         Ok(())
     }
 
-    pub(crate) fn verify_pin(&self, request_id: &str, pin_code: &str) -> Result<(), GroupError> {
+    pub(crate) fn verify_pin(
+        &self,
+        request_id: &str,
+        pin_code: &str,
+    ) -> Result<(), MessageHistoryError> {
         let (_, sync_group) = self.get_sync_group()?;
         let requests = sync_group.find_messages(
             Some(GroupMessageKind::Application),
@@ -277,9 +278,7 @@ where
         });
 
         if request.is_none() {
-            return Err(GroupError::MessageHistory(Box::new(
-                MessageHistoryError::PinNotFound,
-            )));
+            return Err(MessageHistoryError::PinNotFound);
         }
 
         Ok(())
