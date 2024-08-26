@@ -482,16 +482,6 @@ fn format_messages(
     Ok(output.join("\n"))
 }
 
-fn format_message(message: StoredGroupMessage) -> String {
-    let text = maybe_get_text(&message).expect("already checked");
-    format!(
-        "[{:>15} ] {}:   {}",
-        pretty_delta(now_ns() as u64, message.sent_at_ns as u64),
-        message.sender_inbox_id,
-        text
-    )
-}
-
 fn static_enc_key() -> EncryptionKey {
     [2u8; 32]
 }
