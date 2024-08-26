@@ -2842,7 +2842,7 @@ dependencies = [
 [[package]]
 name = "openmls"
 version = "0.6.0-pre.2"
-source = "git+https://github.com/xmtp/openmls?rev=cf42738018d093434c955a1b50a9de34cc12b8c5#cf42738018d093434c955a1b50a9de34cc12b8c5"
+source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
 dependencies = [
  "backtrace",
  "itertools 0.10.5",
@@ -2865,7 +2865,7 @@ dependencies = [
 [[package]]
 name = "openmls_basic_credential"
 version = "0.3.0-pre.1"
-source = "git+https://github.com/xmtp/openmls?rev=cf42738018d093434c955a1b50a9de34cc12b8c5#cf42738018d093434c955a1b50a9de34cc12b8c5"
+source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
 dependencies = [
  "ed25519-dalek",
  "openmls_traits",
@@ -2878,7 +2878,7 @@ dependencies = [
 [[package]]
 name = "openmls_memory_storage"
 version = "0.3.0-pre.2"
-source = "git+https://github.com/xmtp/openmls?rev=cf42738018d093434c955a1b50a9de34cc12b8c5#cf42738018d093434c955a1b50a9de34cc12b8c5"
+source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
 dependencies = [
  "hex",
  "log",
@@ -2891,7 +2891,7 @@ dependencies = [
 [[package]]
 name = "openmls_rust_crypto"
 version = "0.3.0-pre.1"
-source = "git+https://github.com/xmtp/openmls?rev=cf42738018d093434c955a1b50a9de34cc12b8c5#cf42738018d093434c955a1b50a9de34cc12b8c5"
+source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -2915,7 +2915,7 @@ dependencies = [
 [[package]]
 name = "openmls_test"
 version = "0.1.0-pre.1"
-source = "git+https://github.com/xmtp/openmls?rev=cf42738018d093434c955a1b50a9de34cc12b8c5#cf42738018d093434c955a1b50a9de34cc12b8c5"
+source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
 dependencies = [
  "ansi_term",
  "openmls_rust_crypto",
@@ -2930,7 +2930,7 @@ dependencies = [
 [[package]]
 name = "openmls_traits"
 version = "0.3.0-pre.2"
-source = "git+https://github.com/xmtp/openmls?rev=cf42738018d093434c955a1b50a9de34cc12b8c5#cf42738018d093434c955a1b50a9de34cc12b8c5"
+source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
 dependencies = [
  "serde",
  "tls_codec",
@@ -4072,16 +4072,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3cbc66816425a074528352f5789333ecff06ca41b36b0b0efdfbb29edc391a19"
 dependencies = [
  "parking_lot",
-]
-
-[[package]]
-name = "scoped-futures"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1473e24c637950c9bd38763220bea91ec3e095a89f672bbd7a10d03e77ba467"
-dependencies = [
- "cfg-if",
- "pin-utils",
 ]
 
 [[package]]
@@ -5830,7 +5820,6 @@ dependencies = [
  "rand",
  "reqwest 0.12.4",
  "ring 0.17.8",
- "scoped-futures",
  "serde",
  "serde_json",
  "sha2",

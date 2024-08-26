@@ -11,6 +11,7 @@ pub mod groups;
 mod hpke;
 pub mod identity;
 mod identity_updates;
+mod mutex_registry;
 pub mod owner;
 pub mod retry;
 pub mod storage;
@@ -122,7 +123,7 @@ mod tests {
     #[macro_export]
     macro_rules! assert_err {
         ( $x:expr , $y:pat $(,)? ) => {
-            assert!(matches!($x, Err($y)));
+            assert!(matches!($x, Err($y)))
         };
 
         ( $x:expr, $y:pat $(,)?, $($msg:tt)+) => {{

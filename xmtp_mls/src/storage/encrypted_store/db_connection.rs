@@ -9,7 +9,7 @@ use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 /// Uses a [`Mutex]` internally for interior mutability, so that the connection
 /// and transaction state can be shared between the OpenMLS Provider and
 /// native XMTP operations
-/// ~~~~ *_NOTE_* ~~~~~
+// ~~~~ _NOTE_ ~~~~~
 // Do not derive clone here.
 // callers should be able to accomplish everything with one conn/reference.
 pub struct DbConnection {
