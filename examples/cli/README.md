@@ -54,14 +54,18 @@ Use the CLI to send a [double ratchet message](https://github.com/xmtp/libxmtp/b
    ```bash
    ./xli.sh --db user2.db3 list-group-messages $GROUP_ID
    ```
-   
-9. Request a Message History Sync 
+
+9. Request a message history sync
 
    ```bash
-   ./xli.sh --db user1.db3 request-history-sync 
+   ./xli.sh --db user1.db3 request-history-sync
    ```
 
+10. Reply to the history sync request
 
+    ```bash
+    ./xli.sh --db user1.db3 reply-to-history-sync-request
+    ```
 
 If you want to run the CLI against localhost, go to the root directory and run `dev/up` to start a local server. Then run the CLI commands using the `--local` flag.
 
