@@ -18,6 +18,8 @@ use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder};
 use kv_log_macro::{error, info};
 use prost::Message;
 use xmtp_id::associations::RecoverableEcdsaSignature;
+use xmtp_mls::groups::message_history::MessageHistoryContent;
+use xmtp_mls::storage::group_message::GroupMessageKind;
 
 use crate::{
     json_logger::make_value,
@@ -111,6 +113,8 @@ enum Commands {
     },
     RequestHistorySync {},
     ReplyToHistorySyncRequest {},
+    ProcessHistorySyncReply {},
+    ListHistorySyncMessages {},
     /// Information about the account that owns the DB
     Info {},
     Clear {},
@@ -344,7 +348,7 @@ async fn main() {
             client.allow_history_sync().await.unwrap();
             let (group_id, _) = client.send_history_request().await.unwrap();
             let group_id_str = hex::encode(group_id);
-            info!("Sent history sync request in sync group {group_id_str}", { command_output: true, group_id: group_id_str})
+            info!("Sent history sync request in sync group {group_id_str}", { group_id: group_id_str})
         }
         Commands::ReplyToHistorySyncRequest {} => {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
@@ -354,8 +358,49 @@ async fn main() {
             let group_id_str = hex::encode(group_id);
             let reply = client.reply_to_history_request().await.unwrap();
 
-            info!("Sent history sync reply in sync group {group_id_str}", { command_output: true, group_id: group_id_str});
+            info!("Sent history sync reply in sync group {group_id_str}", { group_id: group_id_str});
             info!("Reply: {:?}", reply);
+        }
+        Commands::ProcessHistorySyncReply {} => {
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+            client.sync_welcomes().await.unwrap();
+            client.allow_history_sync().await.unwrap();
+            client.process_history_reply().await.unwrap();
+
+            info!("History bundle downloaded and inserted into user DB", {})
+        }
+        Commands::ListHistorySyncMessages {} => {
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+            client.sync_welcomes().await.unwrap();
+            client.allow_history_sync().await.unwrap();
+            let (group_id, group) = client.get_sync_group().unwrap();
+            let group_id_str = hex::encode(group_id);
+            group.sync(&client).await.unwrap();
+            let messages = group
+                .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+                .unwrap();
+            info!("Listing history sync messages", { group_id: group_id_str, messages: messages.len()});
+            for message in messages {
+                let message_history_content = serde_json::from_slice::<MessageHistoryContent>(
+                    &message.decrypted_message_bytes,
+                );
+
+                match message_history_content {
+                    Ok(MessageHistoryContent::Request(ref request)) => {
+                        info!("Request: {:?}", request);
+                    }
+                    Ok(MessageHistoryContent::Reply(ref reply)) => {
+                        info!("Reply: {:?}", reply);
+                    }
+                    _ => {
+                        info!("Unknown message type: {:?}", message);
+                    }
+                }
+            }
         }
         Commands::Clear {} => {
             fs::remove_file(cli.db.unwrap()).unwrap();
