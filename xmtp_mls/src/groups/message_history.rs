@@ -285,19 +285,19 @@ where
             None,
         )?;
         let last_message = messages.last();
-        let history_request: Option<(String, String)> = match last_message {
-            Some(msg) => {
-                let message_history_content =
-                    serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes)?;
-                match message_history_content {
-                    // if the last message is a request, return its request ID and pin code
-                    MessageHistoryContent::Request(request) => {
-                        Some((request.request_id, request.pin_code))
-                    }
-                    _ => None,
+
+        let history_request: Option<(String, String)> = if let Some(msg) = last_message {
+            let message_history_content =
+                serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes)?;
+            match message_history_content {
+                // if the last message is a request, return its request ID and pin code
+                MessageHistoryContent::Request(request) => {
+                    Some((request.request_id, request.pin_code))
                 }
+                _ => None,
             }
-            None => None,
+        } else {
+            None
         };
 
         Ok(history_request)
