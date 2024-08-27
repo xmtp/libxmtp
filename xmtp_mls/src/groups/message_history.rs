@@ -88,6 +88,8 @@ pub enum MessageHistoryError {
     Generic(String),
     #[error("missing history sync url")]
     MissingHistorySyncUrl,
+    #[error("invalid history message payload")]
+    InvalidPayload,
 }
 
 #[derive(Debug, Deserialize)]
@@ -216,8 +218,7 @@ where
             None,
         )?;
 
-        let last_message = messages.last();
-        match last_message {
+        let last_message = match messages.last() {
             Some(msg) => {
                 let message_history_content =
                     serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
@@ -227,18 +228,25 @@ where
                         if !request.request_id.eq(&contents.request_id) {
                             return Err(MessageHistoryError::ReplyRequestIdMismatch);
                         }
+                        Some(msg)
                     }
                     Ok(MessageHistoryContent::Reply(_)) => {
                         // if last message is a reply, it's already been processed
                         return Err(MessageHistoryError::ReplyAlreadyProcessed);
                     }
-                    _ => {}
+                    _ => None,
                 }
             }
             None => {
                 return Err(MessageHistoryError::NoPendingRequest);
             }
         };
+
+        if let Some(msg) = last_message {
+            // ensure the requester is a member of all the groups
+            self.ensure_member_of_all_groups(msg.sender_inbox_id.clone())
+                .await?;
+        }
 
         // the reply message
         let content = MessageHistoryContent::Reply(contents.clone());
@@ -344,12 +352,31 @@ where
         Ok(reply)
     }
 
-    pub async fn process_history_reply(&self) -> Result<PathBuf, MessageHistoryError> {
+    pub async fn process_history_reply(&self) -> Result<(), MessageHistoryError> {
         let reply = self.get_latest_history_reply().await?;
 
         if let Some(reply) = reply {
+            let Some(encryption_key) = reply.encryption_key.clone() else {
+                return Err(MessageHistoryError::InvalidPayload);
+            };
+
             let history_bundle = download_history_bundle(&reply.url).await?;
-            return Ok(history_bundle);
+            let messages_path = std::env::temp_dir().join("messages.jsonl");
+
+            decrypt_history_file(&history_bundle, &messages_path, encryption_key)?;
+
+            self.insert_history_bundle(&messages_path)?;
+
+            self.sync_welcomes().await?;
+
+            let conn = self.store().conn()?;
+            let groups = conn.find_groups(None, None, None, None)?;
+            for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {
+                let group = self.group(id)?;
+                Box::pin(group.sync(self)).await?;
+            }
+
+            return Ok(());
         }
 
         Err(MessageHistoryError::NoReplyToProcess)
@@ -423,12 +450,15 @@ where
             Some(url) => url.as_str(),
             None => return Err(MessageHistoryError::MissingHistorySyncUrl),
         };
+        let upload_url = format!("{}{}", url, "upload");
+        log::info!("using upload url {:?}", upload_url);
 
-        upload_history_bundle(url, history_file.clone()).await?;
+        let bundle_file = upload_history_bundle(&upload_url, history_file.clone()).await?;
+        let bundle_url = format!("{}files/{}", url, bundle_file);
 
-        let history_reply = HistoryReply::new(request_id, url, enc_key);
+        log::info!("history bundle uploaded to {:?}", bundle_url);
 
-        Ok(history_reply)
+        Ok(HistoryReply::new(request_id, &bundle_url, enc_key))
     }
 
     async fn write_history_bundle(&self) -> Result<(PathBuf, HistoryKeyType), MessageHistoryError> {
@@ -546,19 +576,36 @@ pub(crate) fn decrypt_history_file(
     Ok(())
 }
 
-async fn upload_history_bundle(url: &str, file_path: PathBuf) -> Result<(), MessageHistoryError> {
+async fn upload_history_bundle(
+    url: &str,
+    file_path: PathBuf,
+) -> Result<String, MessageHistoryError> {
     let mut file = File::open(file_path)?;
     let mut content = Vec::new();
     file.read_to_end(&mut content)?;
 
     let client = reqwest::Client::new();
-    let _response = client.post(url).body(content).send().await?;
+    let response = client.post(url).body(content).send().await?;
 
-    Ok(())
+    if response.status().is_success() {
+        Ok(response.text().await?)
+    } else {
+        eprintln!(
+            "Failed to upload file. Status code: {} Response: {:?}",
+            response.status(),
+            response
+        );
+        Err(MessageHistoryError::Reqwest(
+            response.error_for_status().unwrap_err(),
+        ))
+    }
 }
 
 pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, MessageHistoryError> {
     let client = reqwest::Client::new();
+
+    log::info!("downloading history bundle from {:?}", url);
+
     let response = client.get(url).send().await?;
 
     if response.status().is_success() {
