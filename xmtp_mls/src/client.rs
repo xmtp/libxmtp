@@ -169,6 +169,8 @@ pub enum MessageProcessingError {
     ClearPendingCommit(#[from] sql_key_store::SqlKeyStoreError),
     #[error(transparent)]
     Group(#[from] Box<GroupError>),
+    #[error("Serialization/Deserialization Error {0}")]
+    Serde(#[from] serde_json::Error),
     #[error("generic:{0}")]
     Generic(String),
 }

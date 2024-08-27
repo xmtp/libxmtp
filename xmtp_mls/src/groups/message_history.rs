@@ -60,8 +60,8 @@ pub enum MessageHistoryError {
     PinMismatch,
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),
-    #[error("JSON serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
+    #[error("Serialization/Deserialization Error {0}")]
+    Serde(#[from] serde_json::Error),
     #[error("AES-GCM encryption error")]
     AesGcm(#[from] aes_gcm::Error),
     #[error("reqwest error: {0}")]
@@ -180,8 +180,7 @@ where
             request_id: request_id.clone(),
             pin_code: pin_code.clone(),
         });
-        let content_bytes = serde_json::to_vec(&content)
-            .map_err(|e| MessageHistoryError::Generic(format!("{e}")))?;
+        let content_bytes = serde_json::to_vec(&content)?;
 
         let _message_id =
             sync_group.prepare_message(content_bytes.as_slice(), &conn, move |_time_ns| {
@@ -252,8 +251,7 @@ where
 
         // the reply message
         let content = MessageHistoryContent::Reply(contents.clone());
-        let content_bytes = serde_json::to_vec(&content)
-            .map_err(|e| MessageHistoryError::Generic(format!("{e}")))?;
+        let content_bytes = serde_json::to_vec(&content)?;
 
         let _message_id =
             sync_group.prepare_message(content_bytes.as_slice(), &conn, move |_time_ns| {

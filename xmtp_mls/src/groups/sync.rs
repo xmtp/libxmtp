@@ -413,8 +413,7 @@ impl MlsGroup {
                         Some(Request(history_request)) => {
                             let content: MessageHistoryContent =
                                 MessageHistoryContent::Request(history_request);
-                            let content_bytes = serde_json::to_vec(&content)
-                                .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
+                            let content_bytes = serde_json::to_vec(&content)?;
                             let message_id = calculate_message_id(
                                 &self.group_id,
                                 &content_bytes,
@@ -437,8 +436,7 @@ impl MlsGroup {
                         Some(Reply(history_reply)) => {
                             let content: MessageHistoryContent =
                                 MessageHistoryContent::Reply(history_reply);
-                            let content_bytes = serde_json::to_vec(&content)
-                                .map_err(|e| MessageProcessingError::Generic(format!("{e}")))?;
+                            let content_bytes = serde_json::to_vec(&content)?;
                             let message_id = calculate_message_id(
                                 &self.group_id,
                                 &content_bytes,
