@@ -278,7 +278,7 @@ where
             None,
         )?;
         let last_message = messages.last();
-        let request_id: Option<(String, String)> = match last_message {
+        let history_request: Option<(String, String)> = match last_message {
             Some(msg) => {
                 let message_history_content =
                     serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
@@ -293,7 +293,7 @@ where
             None => None,
         };
 
-        Ok(request_id)
+        Ok(history_request)
     }
 
     pub async fn reply_to_history_request(
