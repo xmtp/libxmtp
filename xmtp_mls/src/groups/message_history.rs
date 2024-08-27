@@ -105,7 +105,7 @@ impl<ApiClient> Client<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    pub fn get_sync_group(&self) -> Result<(Vec<u8>, MlsGroup), GroupError> {
+    pub fn get_sync_group(&self) -> Result<MlsGroup, GroupError> {
         let conn = self.store().conn()?;
         let sync_group_id = conn
             .find_sync_groups()?
@@ -114,13 +114,13 @@ where
             .id;
         let sync_group = self.group(sync_group_id.clone())?;
 
-        Ok((sync_group_id, sync_group))
+        Ok(sync_group)
     }
 
     pub async fn allow_history_sync(&self) -> Result<(), GroupError> {
         // look for the sync group, create if not found
         let sync_group = match self.get_sync_group() {
-            Ok((_, sync_group)) => sync_group,
+            Ok(group) => group,
             Err(_) => {
                 // create the sync group
                 self.create_sync_group()?
@@ -148,7 +148,7 @@ where
     pub async fn send_history_request(&self) -> Result<(String, String), MessageHistoryError> {
         // find the sync group
         let conn = self.store().conn()?;
-        let (_, sync_group) = self.get_sync_group()?;
+        let sync_group = self.get_sync_group()?;
 
         // sync the group
         sync_group.sync(self).await?;
@@ -207,7 +207,7 @@ where
     ) -> Result<(), MessageHistoryError> {
         // find the sync group
         let conn = self.store().conn()?;
-        let (_, sync_group) = self.get_sync_group()?;
+        let sync_group = self.get_sync_group()?;
 
         // sync the group
         Box::pin(sync_group.sync(self)).await?;
@@ -275,7 +275,7 @@ where
     pub async fn get_pending_history_request(
         &self,
     ) -> Result<Option<(String, String)>, MessageHistoryError> {
-        let (_, sync_group) = self.get_sync_group()?;
+        let sync_group = self.get_sync_group()?;
 
         // sync the group
         sync_group.sync(self).await?;
@@ -323,7 +323,7 @@ where
     pub async fn get_latest_history_reply(
         &self,
     ) -> Result<Option<MessageHistoryReply>, MessageHistoryError> {
-        let (_, sync_group) = self.get_sync_group()?;
+        let sync_group = self.get_sync_group()?;
 
         // sync the group
         sync_group.sync(self).await?;
@@ -402,7 +402,7 @@ where
         request_id: &str,
         pin_code: &str,
     ) -> Result<(), MessageHistoryError> {
-        let (_, sync_group) = self.get_sync_group()?;
+        let sync_group = self.get_sync_group()?;
         let requests = sync_group.find_messages(
             Some(GroupMessageKind::Application),
             None,
@@ -849,7 +849,7 @@ mod tests {
         assert_eq!(pin_code, pin_code2);
 
         // make sure there's only 1 message in the sync group
-        let (_, sync_group) = client.get_sync_group().unwrap();
+        let sync_group = client.get_sync_group().unwrap();
         let messages = sync_group
             .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
             .unwrap();
@@ -894,7 +894,7 @@ mod tests {
         assert_ok!(result);
 
         // make sure there's 2 messages in the sync group
-        let (_, sync_group) = client.get_sync_group().unwrap();
+        let sync_group = client.get_sync_group().unwrap();
         let messages = sync_group
             .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
             .unwrap();
