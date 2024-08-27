@@ -117,7 +117,7 @@ where
         Ok(sync_group)
     }
 
-    pub async fn allow_history_sync(&self) -> Result<(), GroupError> {
+    pub async fn enable_history_sync(&self) -> Result<(), GroupError> {
         // look for the sync group, create if not found
         let sync_group = match self.get_sync_group() {
             Ok(group) => group,
@@ -791,10 +791,10 @@ mod tests {
     use crate::{assert_ok, builder::ClientBuilder, groups::GroupMetadataOptions};
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_allow_history_sync() {
+    async fn test_enable_history_sync() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(client.allow_history_sync().await);
+        assert_ok!(client.enable_history_sync().await);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -803,7 +803,7 @@ mod tests {
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
         let amal_c = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_c.allow_history_sync().await);
+        assert_ok!(amal_c.enable_history_sync().await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
         amal_b.sync_welcomes().await.expect("sync_welcomes");
@@ -829,7 +829,7 @@ mod tests {
     async fn test_send_history_request() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(client.allow_history_sync().await);
+        assert_ok!(client.enable_history_sync().await);
 
         // test that the request is sent, and that the pin code is returned
         let (request_id, pin_code) = client
@@ -860,7 +860,7 @@ mod tests {
     async fn test_send_history_reply() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(client.allow_history_sync().await);
+        assert_ok!(client.enable_history_sync().await);
 
         let request_id = new_request_id();
         let url = "https://test.com/abc-123";
@@ -906,7 +906,7 @@ mod tests {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_b.allow_history_sync().await);
+        assert_ok!(amal_b.enable_history_sync().await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
@@ -939,7 +939,7 @@ mod tests {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_b.allow_history_sync().await);
+        assert_ok!(amal_b.enable_history_sync().await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
@@ -1013,7 +1013,7 @@ mod tests {
         let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
         amal_a.history_sync_url = Some(history_sync_url.clone());
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_b.allow_history_sync().await);
+        assert_ok!(amal_b.enable_history_sync().await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
@@ -1221,7 +1221,7 @@ mod tests {
         let wallet = generate_local_wallet();
         let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_b.allow_history_sync().await);
+        assert_ok!(amal_b.enable_history_sync().await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
@@ -1281,12 +1281,12 @@ mod tests {
     async fn test_externals_cant_join_sync_group() {
         let wallet = generate_local_wallet();
         let amal = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal.allow_history_sync().await);
+        assert_ok!(amal.enable_history_sync().await);
         amal.sync_welcomes().await.expect("sync welcomes");
 
         let external_wallet = generate_local_wallet();
         let external_client = ClientBuilder::new_test_client(&external_wallet).await;
-        assert_ok!(external_client.allow_history_sync().await);
+        assert_ok!(external_client.enable_history_sync().await);
         external_client
             .sync_welcomes()
             .await
