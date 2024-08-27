@@ -67,6 +67,18 @@ Use the CLI to send a [double ratchet message](https://github.com/xmtp/libxmtp/b
     ./xli.sh --db user1.db3 reply-to-history-sync-request
     ```
 
+11. Process the history sync reply
+
+    ```bash
+    ./xli.sh --db user1.db3 process-history-sync-reply
+    ```
+
+12. List the history sync messages
+
+    ```bash
+    ./xli.sh --db user1.db3 list-history-sync-messages
+    ```
+
 If you want to run the CLI against localhost, go to the root directory and run `dev/up` to start a local server. Then run the CLI commands using the `--local` flag.
 
 ## Structured logging
