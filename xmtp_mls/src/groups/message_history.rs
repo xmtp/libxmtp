@@ -90,6 +90,8 @@ pub enum MessageHistoryError {
     MissingHistorySyncUrl,
     #[error("invalid history message payload")]
     InvalidPayload,
+    #[error("invalid history bundle url")]
+    InvalidBundleUrl,
 }
 
 #[derive(Debug, Deserialize)]
@@ -606,13 +608,20 @@ pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, Messag
 
     log::info!("downloading history bundle from {:?}", url);
 
+    let bundle_name = url
+        .split('/')
+        .last()
+        .ok_or(MessageHistoryError::InvalidBundleUrl)?;
+
     let response = client.get(url).send().await?;
 
     if response.status().is_success() {
-        let file_path = std::env::temp_dir().join("downloaded_bundle.jsonl.enc");
+        let file_name = format!("{}.jsonl.enc", bundle_name);
+        let file_path = std::env::temp_dir().join(file_name);
         let mut file = File::create(&file_path)?;
         let bytes = response.bytes().await?;
         file.write_all(&bytes)?;
+        log::info!("downloaded history bundle to {:?}", file_path);
         Ok(file_path)
     } else {
         eprintln!(
