@@ -345,7 +345,7 @@ async fn main() {
                 .await
                 .unwrap();
             client.sync_welcomes().await.unwrap();
-            client.allow_history_sync().await.unwrap();
+            client.enable_history_sync().await.unwrap();
             let (group_id, _) = client.send_history_request().await.unwrap();
             let group_id_str = hex::encode(group_id);
             info!("Sent history sync request in sync group {group_id_str}", { group_id: group_id_str})
@@ -354,8 +354,8 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
-            let (group_id, _) = client.get_sync_group().unwrap();
-            let group_id_str = hex::encode(group_id);
+            let group = client.get_sync_group().unwrap();
+            let group_id_str = hex::encode(group.group_id);
             let reply = client.reply_to_history_request().await.unwrap();
 
             info!("Sent history sync reply in sync group {group_id_str}", { group_id: group_id_str});
@@ -366,7 +366,7 @@ async fn main() {
                 .await
                 .unwrap();
             client.sync_welcomes().await.unwrap();
-            client.allow_history_sync().await.unwrap();
+            client.enable_history_sync().await.unwrap();
             client.process_history_reply().await.unwrap();
 
             info!("History bundle downloaded and inserted into user DB", {})
@@ -376,9 +376,9 @@ async fn main() {
                 .await
                 .unwrap();
             client.sync_welcomes().await.unwrap();
-            client.allow_history_sync().await.unwrap();
-            let (group_id, group) = client.get_sync_group().unwrap();
-            let group_id_str = hex::encode(group_id);
+            client.enable_history_sync().await.unwrap();
+            let group = client.get_sync_group().unwrap();
+            let group_id_str = hex::encode(group.group_id.clone());
             group.sync(&client).await.unwrap();
             let messages = group
                 .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
