@@ -24,7 +24,6 @@ use openmls::{
     extensions::{
         ApplicationIdExtension, Extension, ExtensionType, Extensions, LastResortExtension,
     },
-    key_packages::Lifetime,
     messages::proposals::ProposalType,
     prelude::{Capabilities, Credential as OpenMlsCredential},
     prelude_test::KeyPackage,
@@ -381,7 +380,6 @@ impl Identity {
             .leaf_node_capabilities(capabilities)
             .leaf_node_extensions(leaf_node_extensions)
             .key_package_extensions(key_package_extensions)
-            .key_package_lifetime(Lifetime::new(6 * 30 * 86400))
             .build(
                 CIPHERSUITE,
                 &provider,
