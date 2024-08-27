@@ -414,20 +414,22 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
 
     if cli.local {
         info!("Using local network");
-        builder = builder.api_client(
-            ApiClient::create("http://localhost:5556".into(), false)
-                .await
-                .unwrap(),
-        );
-        builder = builder.history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS);
+        builder = builder
+            .api_client(
+                ApiClient::create("http://localhost:5556".into(), false)
+                    .await
+                    .unwrap(),
+            )
+            .history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS);
     } else {
         info!("Using dev network");
-        builder = builder.api_client(
-            ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true)
-                .await
-                .unwrap(),
-        );
-        builder = builder.history_sync_url(MessageHistoryUrls::DEV_ADDRESS);
+        builder = builder
+            .api_client(
+                ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true)
+                    .await
+                    .unwrap(),
+            )
+            .history_sync_url(MessageHistoryUrls::DEV_ADDRESS);
     }
 
     let client = builder.build().await.map_err(CliError::ClientBuilder)?;
