@@ -164,9 +164,9 @@ where
         let last_message = messages.last();
         if let Some(msg) = last_message {
             let message_history_content =
-                serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
+                serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes)?;
 
-            if let Ok(MessageHistoryContent::Request(request)) = message_history_content {
+            if let MessageHistoryContent::Request(request) = message_history_content {
                 return Ok((request.request_id, request.pin_code));
             }
         };
@@ -222,20 +222,19 @@ where
         let last_message = match messages.last() {
             Some(msg) => {
                 let message_history_content =
-                    serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
+                    serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes)?;
                 match message_history_content {
-                    Ok(MessageHistoryContent::Request(request)) => {
+                    MessageHistoryContent::Request(request) => {
                         // check that the request ID matches
                         if !request.request_id.eq(&contents.request_id) {
                             return Err(MessageHistoryError::ReplyRequestIdMismatch);
                         }
                         Some(msg)
                     }
-                    Ok(MessageHistoryContent::Reply(_)) => {
+                    MessageHistoryContent::Reply(_) => {
                         // if last message is a reply, it's already been processed
                         return Err(MessageHistoryError::ReplyAlreadyProcessed);
                     }
-                    _ => None,
                 }
             }
             None => {
@@ -289,10 +288,10 @@ where
         let history_request: Option<(String, String)> = match last_message {
             Some(msg) => {
                 let message_history_content =
-                    serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
+                    serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes)?;
                 match message_history_content {
                     // if the last message is a request, return its request ID and pin code
-                    Ok(MessageHistoryContent::Request(request)) => {
+                    MessageHistoryContent::Request(request) => {
                         Some((request.request_id, request.pin_code))
                     }
                     _ => None,
@@ -347,10 +346,10 @@ where
                 } else {
                     let message_history_content = serde_json::from_slice::<MessageHistoryContent>(
                         &msg.decrypted_message_bytes,
-                    );
+                    )?;
                     match message_history_content {
                         // if the last message is a reply, return it
-                        Ok(MessageHistoryContent::Reply(reply)) => Some(reply),
+                        MessageHistoryContent::Reply(reply) => Some(reply),
                         _ => None,
                     }
                 }
@@ -415,6 +414,10 @@ where
             match message_history_content {
                 Ok(MessageHistoryContent::Request(request)) => {
                     request.request_id.eq(request_id) && request.pin_code.eq(pin_code)
+                }
+                Err(e) => {
+                    log::debug!("serde_json error: {:?}", e);
+                    false
                 }
                 _ => false,
             }
