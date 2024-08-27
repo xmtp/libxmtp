@@ -1,8 +1,15 @@
 [package]
 name = "diesel-wasm-sqlite"
-version = "0.1.1"
+version = "0.0.1"
 edition = "2021"
 resolver = "2"
+authors = ["XMTP Labs <eng@xmtp.com>"]
+description = "SQLite WebAssembly backend for Diesel"
+homepage = "https://xmtp.org/"
+repository = "https://github.com/xmtp/libxmtp"
+license = "MIT"
+keywords = ["orm", "database", "sql", "wasm"]
+categories = ["database", "wasm"]
 
 [dependencies]
 talc = { version = "4.4", default-features = false, features = ["lock_api"] }

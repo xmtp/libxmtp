@@ -28,8 +28,7 @@ pub(super) static SQLITE: OnceCell<SQLite> = OnceCell::const_new();
 // have to go through JS/browser at all.
 
 /// the raw WASM bytes
-pub(super) const WASM: &[u8] =
-    include_bytes!("../node_modules/@sqlite.org/sqlite-wasm/sqlite-wasm/jswasm/sqlite3.wasm");
+pub(super) const WASM: &[u8] = include_bytes!("js/sqlite3.wasm");
 
 /// Options for instantiating memory constraints
 #[derive(Serialize, Deserialize)]
@@ -103,7 +102,7 @@ pub async fn init_sqlite() {
             let opts = serde_wasm_bindgen::to_value(&Opts {
                 wasm_binary: WASM,
                 wasm_memory: mem,
-                proxy_uri: wasm_bindgen::link_to!(module = "/src/sqlite3-opfs-async-proxy.js"),
+                proxy_uri: wasm_bindgen::link_to!(module = "/src/js/sqlite3-opfs-async-proxy.js"),
             })
             .expect("serialization must be infallible for const struct");
             let opts = Object::from(opts);
@@ -140,7 +139,7 @@ struct Version {
 }
 
 /// Direct Sqlite3 bindings
-#[wasm_bindgen(module = "/src/wa-sqlite-diesel-bundle.js")]
+#[wasm_bindgen(module = "/src/js/wa-sqlite-diesel-bundle.js")]
 extern "C" {
     #[derive(Debug)]
     pub type SQLite;
