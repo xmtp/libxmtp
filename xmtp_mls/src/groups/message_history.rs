@@ -340,12 +340,21 @@ where
 
         let reply: Option<MessageHistoryReply> = match last_message {
             Some(msg) => {
-                let message_history_content =
-                    serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
-                match message_history_content {
-                    // if the last message is a reply, return it
-                    Ok(MessageHistoryContent::Reply(reply)) => Some(reply),
-                    _ => None,
+                // if the message was sent by this installation, ignore it
+                if msg
+                    .sender_installation_id
+                    .eq(&self.installation_public_key())
+                {
+                    None
+                } else {
+                    let message_history_content = serde_json::from_slice::<MessageHistoryContent>(
+                        &msg.decrypted_message_bytes,
+                    );
+                    match message_history_content {
+                        // if the last message is a reply, return it
+                        Ok(MessageHistoryContent::Reply(reply)) => Some(reply),
+                        _ => None,
+                    }
                 }
             }
             None => None,
