@@ -378,6 +378,10 @@ where
 
             self.insert_history_bundle(&messages_path)?;
 
+            // clean up temporary files associated with the bundle
+            std::fs::remove_file(history_bundle.as_path())?;
+            std::fs::remove_file(messages_path.as_path())?;
+
             self.sync_welcomes().await?;
 
             let conn = self.store().conn()?;
