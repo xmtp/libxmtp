@@ -1222,7 +1222,7 @@ mod tests {
         };
         let mut server = mockito::Server::new_with_opts_async(options).await;
 
-        let url = format!("http://{HISTORY_SERVER_HOST}:{port}/upload");
+        let url = format!("http://{HISTORY_SERVER_HOST}:{port}/");
         let _m = server
             .mock("POST", "/upload")
             .with_status(201)
