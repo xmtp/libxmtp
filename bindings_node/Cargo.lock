@@ -5287,7 +5287,6 @@ dependencies = [
  "prost",
  "rand",
  "reqwest 0.12.4",
- "ring 0.17.8",
  "serde",
  "serde_json",
  "sha2",

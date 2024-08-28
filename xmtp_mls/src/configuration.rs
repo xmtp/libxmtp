@@ -28,8 +28,6 @@ pub const MAX_PAST_EPOCHS: usize = 3;
 /// we leave 5 * 1024 * 1024 as extra buffer room
 pub const GRPC_DATA_LIMIT: usize = 45 * 1024 * 1024;
 
-pub const DELIMITER: char = '\x01';
-
 /// MLS Extension Types
 ///
 /// Copied from draft-ietf-mls-protocol-16:

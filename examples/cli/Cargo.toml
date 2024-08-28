@@ -31,6 +31,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 timeago = "0.4.1"
 tokio = "1.28.1"
+tokio-stream = "0.1.15"
 url = "2.3.1"
 xmtp_api_grpc = { path = "../../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../../xmtp_cryptography" }
