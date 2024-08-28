@@ -1333,6 +1333,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_reply_to_history_request() {
+        let wallet = generate_local_wallet();
+        let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let amal_b = ClientBuilder::new_test_client(&wallet).await;
+
+        // enable history sync for both clients
+        assert_ok!(amal_a.enable_history_sync().await);
+        assert_ok!(amal_b.enable_history_sync().await);
+
+        // amal_b sends a history request
+        let (request_id, _pin_code) = amal_b
+            .send_history_request()
+            .await
+            .expect("history request");
+
+        // sync amal_a
+        amal_a.sync_welcomes().await.expect("sync_welcomes");
+
+        // start mock server
+        let options = mockito::ServerOpts {
+            host: HISTORY_SERVER_HOST,
+            port: HISTORY_SERVER_PORT + 3,
+            ..Default::default()
+        };
+        let mut server = mockito::Server::new_with_opts_async(options).await;
+
+        let _m = server
+            .mock("POST", "/upload")
+            .with_status(201)
+            .with_body("File uploaded")
+            .create();
+
+        let url = format!(
+            "http://{}:{}/",
+            HISTORY_SERVER_HOST,
+            HISTORY_SERVER_PORT + 3
+        );
+        amal_a.history_sync_url = Some(url);
+
+        // amal_a replies to the history request
+        let reply = amal_a.reply_to_history_request().await;
+        assert!(reply.is_ok());
+        let reply = reply.unwrap();
+
+        // verify the reply
+        assert_eq!(reply.request_id, request_id);
+        assert!(!reply.url.is_empty());
+        assert!(reply.encryption_key.is_some());
+
+        // check if amal_b received the reply
+        let received_reply = amal_b.get_latest_history_reply().await;
+        assert!(received_reply.is_ok());
+        let received_reply = received_reply.unwrap();
+        assert!(received_reply.is_some());
+        let received_reply = received_reply.unwrap();
+        assert_eq!(received_reply.request_id, request_id);
+        assert_eq!(received_reply.url, reply.url);
+        assert_eq!(received_reply.encryption_key, reply.encryption_key);
+
+        _m.assert_async().await;
+        server.reset();
+    }
+
+    #[tokio::test]
     async fn test_insert_history_bundle() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
