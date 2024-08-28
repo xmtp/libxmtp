@@ -2461,6 +2461,8 @@ mod tests {
         // Recreate client2 (new installation)
         let client2 = new_test_client_with_wallet(wallet2).await;
 
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
         // Send a message that will break the group
         client1_group
             .send("This message will break the group".as_bytes().to_vec())
@@ -2538,6 +2540,8 @@ mod tests {
             .stream_all_messages(Box::new(bo_message_callbacks.clone()))
             .await;
         bo_stream_messages.wait_for_ready().await;
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
         log::info!("Alix sending third message after Bo's second installation added");
         // Alix sends a message to the group
