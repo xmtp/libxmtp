@@ -68,6 +68,7 @@ impl RetryableError for StorageError {
             Self::Pool(_) => true,
             Self::Lock(_) => true,
             Self::SqlCipherNotLoaded => true,
+            Self::PoolNeedsConnection => true,
             _ => false,
         }
     }
