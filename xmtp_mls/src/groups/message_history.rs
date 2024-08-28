@@ -705,9 +705,6 @@ impl From<HistoryReply> for MessageHistoryReply {
             request_id: reply.request_id,
             url: reply.url,
             encryption_key: Some(reply.encryption_key.into()),
-            // deprecated fields
-            bundle_hash: vec![],
-            signing_key: None,
         }
     }
 }
@@ -1316,8 +1313,6 @@ mod tests {
                 request_id: request_id.clone(),
                 url: "http://foo/bar".to_string(),
                 encryption_key: None,
-                signing_key: None,
-                bundle_hash: vec![],
             })
             .await
             .expect("send reply");
