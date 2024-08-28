@@ -612,7 +612,9 @@ async fn upload_history_bundle(
             response
         );
         Err(MessageHistoryError::Reqwest(
-            response.error_for_status().unwrap_err(),
+            response
+                .error_for_status()
+                .expect_err("Checked for success"),
         ))
     }
 }
