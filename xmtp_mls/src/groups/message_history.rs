@@ -606,7 +606,7 @@ async fn upload_history_bundle(
     if response.status().is_success() {
         Ok(response.text().await?)
     } else {
-        eprintln!(
+        log::error!(
             "Failed to upload file. Status code: {} Response: {:?}",
             response.status(),
             response
@@ -640,7 +640,7 @@ pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, Messag
         log::info!("downloaded history bundle to {:?}", file_path);
         Ok(file_path)
     } else {
-        eprintln!(
+        log::error!(
             "Failed to download file. Status code: {} Response: {:?}",
             response.status(),
             response
