@@ -1255,6 +1255,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_get_pending_history_request() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+
+        // enable history sync for the client
+        assert_ok!(amal_a.enable_history_sync().await);
+
+        // ensure there's no pending request initially
+        let initial_request = amal_a.get_pending_history_request().await;
+        assert!(initial_request.is_ok());
+        assert!(initial_request.unwrap().is_none());
+
+        // create a history request
+        let request = amal_a
+            .send_history_request()
+            .await
+            .expect("history request");
+
+        // check for the pending request
+        let pending_request = amal_a.get_pending_history_request().await;
+        assert!(pending_request.is_ok());
+        let pending = pending_request.unwrap();
+        assert!(pending.is_some());
+
+        let (request_id, pin_code) = pending.unwrap();
+        assert_eq!(request_id, request.0);
+        assert_eq!(pin_code, request.1);
+    }
+
+    #[tokio::test]
     async fn test_insert_history_bundle() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
