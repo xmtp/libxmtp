@@ -7,6 +7,7 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use tokio::{sync::Mutex, task::AbortHandle};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_id::associations::AssociationState;
 use xmtp_id::{
     associations::{
         builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id,
@@ -68,7 +69,6 @@ pub type RustXmtpClient = MlsClient<TonicApiClient>;
 /// xmtp.create_client(account_address, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
 /// ```
 #[allow(clippy::too_many_arguments)]
-#[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_client(
     logger: Box<dyn FfiLogger>,
@@ -295,6 +295,31 @@ impl FfiXmtpClient {
         let result = inner.find_inbox_id_from_address(address).await?;
         Ok(result)
     }
+
+    /**
+     * Get the client's inbox state.
+     *
+     * If `refresh_from_network` is true, the client will go to the network first to refresh the state.
+     * Otherwise, the state will be read from the local database.
+     */
+    pub async fn inbox_state(
+        &self,
+        refresh_from_network: bool,
+    ) -> Result<FfiInboxState, GenericError> {
+        let state = self.inner_client.inbox_state(refresh_from_network).await?;
+        Ok(state.into())
+    }
+
+    pub async fn get_latest_inbox_state(
+        &self,
+        inbox_id: String,
+    ) -> Result<FfiInboxState, GenericError> {
+        let state = self
+            .inner_client
+            .get_latest_association_state(&self.inner_client.store().conn()?, &inbox_id)
+            .await?;
+        Ok(state.into())
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -336,12 +361,9 @@ impl FfiXmtpClient {
         existing_wallet_address: &str,
         new_wallet_address: &str,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
-        let inbox_id = self.inner_client.inbox_id();
-        let signature_request = self.inner_client.associate_wallet(
-            inbox_id,
-            existing_wallet_address.into(),
-            new_wallet_address.into(),
-        )?;
+        let signature_request = self
+            .inner_client
+            .associate_wallet(existing_wallet_address.into(), new_wallet_address.into())?;
 
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
@@ -367,10 +389,9 @@ impl FfiXmtpClient {
         &self,
         wallet_address: &str,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
-        let inbox_id = self.inner_client.inbox_id();
         let signature_request = self
             .inner_client
-            .revoke_wallet(inbox_id, wallet_address.into())
+            .revoke_wallets(vec![wallet_address.into()])
             .await?;
 
         let request = Arc::new(FfiSignatureRequest {
@@ -378,6 +399,49 @@ impl FfiXmtpClient {
         });
 
         Ok(request)
+    }
+
+    /**
+     * Revokes all installations except the one the client is currently using
+     */
+    pub async fn revoke_all_other_installations(
+        &self,
+    ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
+        let installation_id = self.inner_client.installation_public_key();
+        let inbox_state = self.inner_client.inbox_state(true).await?;
+        let other_installation_ids = inbox_state
+            .installation_ids()
+            .into_iter()
+            .filter(|id| id != &installation_id)
+            .collect();
+
+        let signature_request = self
+            .inner_client
+            .revoke_installations(other_installation_ids)
+            .await?;
+
+        Ok(Arc::new(FfiSignatureRequest {
+            inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+        }))
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiInboxState {
+    pub inbox_id: String,
+    pub recovery_address: String,
+    pub installation_ids: Vec<Vec<u8>>,
+    pub account_addresses: Vec<String>,
+}
+
+impl From<AssociationState> for FfiInboxState {
+    fn from(state: AssociationState) -> Self {
+        Self {
+            inbox_id: state.inbox_id().to_string(),
+            recovery_address: state.recovery_address().to_string(),
+            installation_ids: state.installation_ids(),
+            account_addresses: state.account_addresses(),
+        }
     }
 }
 
@@ -688,6 +752,22 @@ impl FfiConversations {
         let inner = self.inner_client.as_ref();
         inner.sync_welcomes().await?;
         Ok(())
+    }
+
+    pub async fn sync_all_groups(&self) -> Result<u32, GenericError> {
+        let inner = self.inner_client.as_ref();
+        let groups = inner.find_groups(None, None, None, None)?;
+
+        let num_groups_synced: usize = inner.sync_all_groups(groups).await?;
+        // Uniffi does not work with usize, so we need to convert to u32
+        let num_groups_synced: u32 =
+            num_groups_synced
+                .try_into()
+                .map_err(|_| GenericError::Generic {
+                    err: "Failed to convert the number of synced groups from usize to u32"
+                        .to_string(),
+                })?;
+        Ok(num_groups_synced)
     }
 
     pub async fn list(
@@ -2175,6 +2255,98 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_sync_all_groups() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        for _i in 0..30 {
+            alix.conversations()
+                .create_group(
+                    vec![bo.account_address.clone()],
+                    FfiCreateGroupOptions::default(),
+                )
+                .await
+                .unwrap();
+        }
+
+        bo.conversations().sync().await.unwrap();
+        let alix_groups = alix
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
+
+        let alix_group1 = alix_groups[0].clone();
+        let alix_group5 = alix_groups[5].clone();
+        let bo_group1 = bo.group(alix_group1.id()).unwrap();
+        let bo_group5 = bo.group(alix_group5.id()).unwrap();
+
+        alix_group1.send("alix1".as_bytes().to_vec()).await.unwrap();
+        alix_group5.send("alix1".as_bytes().to_vec()).await.unwrap();
+
+        let bo_messages1 = bo_group1
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let bo_messages5 = bo_group5
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        assert_eq!(bo_messages1.len(), 0);
+        assert_eq!(bo_messages5.len(), 0);
+
+        bo.conversations().sync_all_groups().await.unwrap();
+
+        let bo_messages1 = bo_group1
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let bo_messages5 = bo_group5
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        assert_eq!(bo_messages1.len(), 1);
+        assert_eq!(bo_messages5.len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_sync_all_groups_active_only() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Create 30 groups with alix and bo and sync them
+        for _i in 0..30 {
+            alix.conversations()
+                .create_group(
+                    vec![bo.account_address.clone()],
+                    FfiCreateGroupOptions::default(),
+                )
+                .await
+                .unwrap();
+        }
+        bo.conversations().sync().await.unwrap();
+        let num_groups_synced_1: u32 = bo.conversations().sync_all_groups().await.unwrap();
+        assert!(num_groups_synced_1 == 30);
+
+        // Remove bo from all groups and sync
+        for group in alix
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap()
+        {
+            group
+                .remove_members(vec![bo.account_address.clone()])
+                .await
+                .unwrap();
+        }
+
+        // First sync after removal needs to process all groups and set them to inactive
+        let num_groups_synced_2: u32 = bo.conversations().sync_all_groups().await.unwrap();
+        assert!(num_groups_synced_2 == 30);
+
+        // Second sync after removal will not process inactive groups
+        let num_groups_synced_3: u32 = bo.conversations().sync_all_groups().await.unwrap();
+        assert!(num_groups_synced_3 == 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_can_send_message_when_out_of_sync() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
@@ -2345,13 +2517,14 @@ mod tests {
         let alix_group = alix.group(group.id()).unwrap();
         let bo_group = bo.group(group.id()).unwrap();
         let caro_group = caro.group(group.id()).unwrap();
-
+        log::info!("Alix sending first message");
         // Alix sends a message in the group
         alix_group
             .send("First message".as_bytes().to_vec())
             .await
             .unwrap();
 
+        log::info!("Caro sending second message");
         // Caro sends a message in the group
         caro_group
             .send("Second message".as_bytes().to_vec())
@@ -2369,6 +2542,7 @@ mod tests {
             .await;
         bo_stream_messages.wait_for_ready().await;
 
+        log::info!("Alix sending third message after Bo's second installation added");
         // Alix sends a message to the group
         alix_group
             .send("Third message".as_bytes().to_vec())
@@ -2379,21 +2553,27 @@ mod tests {
         bo2.conversations().sync().await.unwrap();
         let bo2_group = bo2.group(group.id()).unwrap();
 
+        log::info!("Bo sending fourth message");
         // Bo sends a message to the group
         bo2_group
             .send("Fourth message".as_bytes().to_vec())
             .await
             .unwrap();
 
+        log::info!("Caro sending fifth message");
         // Caro sends a message in the group
         caro_group
             .send("Fifth message".as_bytes().to_vec())
             .await
             .unwrap();
 
+        log::info!("Syncing alix");
         alix_group.sync().await.unwrap();
+        log::info!("Syncing bo 1");
         bo_group.sync().await.unwrap();
+        log::info!("Syncing bo 2");
         bo2_group.sync().await.unwrap();
+        log::info!("Syncing caro");
         caro_group.sync().await.unwrap();
 
         // Get the message count for all the clients
@@ -3325,5 +3505,45 @@ mod tests {
             .await;
 
         assert!(results_4.is_ok());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_revoke_all_installations() {
+        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let client_1 = new_test_client_with_wallet(wallet.clone()).await;
+        let client_2 = new_test_client_with_wallet(wallet.clone()).await;
+
+        let client_1_state = client_1.inbox_state(true).await.unwrap();
+        let client_2_state = client_2.inbox_state(true).await.unwrap();
+        assert_eq!(client_1_state.installation_ids.len(), 2);
+        assert_eq!(client_2_state.installation_ids.len(), 2);
+
+        let signature_request = client_1.revoke_all_other_installations().await.unwrap();
+        sign_with_wallet(&wallet, &signature_request).await;
+        client_1
+            .apply_signature_request(signature_request)
+            .await
+            .unwrap();
+
+        let client_1_state_after_revoke = client_1.inbox_state(true).await.unwrap();
+        let client_2_state_after_revoke = client_2.inbox_state(true).await.unwrap();
+        assert_eq!(client_1_state_after_revoke.installation_ids.len(), 1);
+        assert_eq!(client_2_state_after_revoke.installation_ids.len(), 1);
+        assert_eq!(
+            client_1_state_after_revoke
+                .installation_ids
+                .first()
+                .unwrap()
+                .clone(),
+            client_1.installation_id()
+        );
+        assert_eq!(
+            client_2_state_after_revoke
+                .installation_ids
+                .first()
+                .unwrap()
+                .clone(),
+            client_1.installation_id()
+        );
     }
 }

@@ -31,6 +31,7 @@ use openmls::{
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use thiserror::Error;
+use tokio::sync::Mutex;
 
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
@@ -178,6 +179,14 @@ pub enum GroupError {
     PublishCancelled,
     #[error("the publish failed to complete due to panic")]
     PublishPanicked,
+    #[error("Missing metadata field {name}")]
+    MissingMetadataField { name: String },
+    #[error("Message was processed but is missing")]
+    MissingMessage,
+    #[error("sql key store error: {0}")]
+    SqlKeyStore(#[from] sql_key_store::SqlKeyStoreError),
+    #[error("No pending commit found")]
+    MissingPendingCommit,
 }
 
 impl RetryableError for GroupError {
@@ -206,6 +215,7 @@ pub struct MlsGroup {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
     context: Arc<XmtpMlsLocalContext>,
+    mutex: Arc<Mutex<()>>,
 }
 
 #[derive(Default)]
@@ -222,6 +232,7 @@ impl Clone for MlsGroup {
             context: self.context.clone(),
             group_id: self.group_id.clone(),
             created_at_ns: self.created_at_ns,
+            mutex: self.mutex.clone(),
         }
     }
 }
@@ -237,23 +248,27 @@ pub enum UpdateAdminListType {
 impl MlsGroup {
     // Creates a new group instance. Does not validate that the group exists in the DB
     pub fn new(context: Arc<XmtpMlsLocalContext>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+        let mut mutexes = context.mutexes.clone();
         Self {
             context,
-            group_id,
+            group_id: group_id.clone(),
             created_at_ns,
+            mutex: mutexes.get_mutex(group_id),
         }
     }
 
     /// Instantiate a new [`XmtpOpenMlsProvider`] pulling a connection from the database.
     /// prefer to use an already-instantiated mls provider if possible.
     pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, GroupError> {
-        let conn = self.context.store.conn()?;
-        Ok(self.context.mls_provider(conn))
+        Ok(self.context.store.conn()?.into())
     }
 
     // Load the stored MLS group from the OpenMLS provider's keystore
     #[tracing::instrument(level = "trace", skip_all)]
-    fn load_mls_group(&self, provider: impl OpenMlsProvider) -> Result<OpenMlsGroup, GroupError> {
+    pub(crate) fn load_mls_group(
+        &self,
+        provider: impl OpenMlsProvider,
+    ) -> Result<OpenMlsGroup, GroupError> {
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
                 .map_err(|_| GroupError::GroupNotFound)?
@@ -347,7 +362,7 @@ impl MlsGroup {
 
         validate_initial_group_membership(client, provider.conn_ref(), &mls_group).await?;
 
-        let stored_group = provider.conn().insert_or_replace_group(to_store)?;
+        let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
 
         Ok(Self::new(
             client.context.clone(),
@@ -441,18 +456,16 @@ impl MlsGroup {
     {
         let update_interval = Some(5_000_000); // 5 seconds in nanoseconds
         let conn = self.context.store.conn()?;
-        self.maybe_update_installations(conn.clone(), update_interval, client)
+        let provider = XmtpOpenMlsProvider::from(conn);
+        self.maybe_update_installations(&provider, update_interval, client)
             .await?;
 
-        let message_id =
-            self.prepare_message(message, &conn, |now| Self::into_envelope(message, now));
+        let message_id = self.prepare_message(message, provider.conn_ref(), |now| {
+            Self::into_envelope(message, now)
+        });
 
-        // Skipping a full sync here and instead just firing and forgetting
-        if let Err(err) = self.publish_intents(conn.clone(), client).await {
-            log::error!("Send: error publishing intents: {:?}", err);
-        }
-
-        self.sync_until_last_intent_resolved(conn, client).await?;
+        self.sync_until_last_intent_resolved(&provider, client)
+            .await?;
 
         message_id
     }
@@ -466,11 +479,12 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
+        let provider = XmtpOpenMlsProvider::from(conn);
         let update_interval = Some(5_000_000);
-        self.maybe_update_installations(conn.clone(), update_interval, client)
+        self.maybe_update_installations(&provider, update_interval, client)
             .await?;
-        self.publish_intents(conn.clone(), client).await?;
-        self.sync_until_last_intent_resolved(conn, client).await?;
+        self.sync_until_last_intent_resolved(&provider, client)
+            .await?;
         Ok(())
     }
 
@@ -604,8 +618,7 @@ impl MlsGroup {
         client: &Client<ApiClient>,
         inbox_ids: Vec<String>,
     ) -> Result<(), GroupError> {
-        let conn = client.store().conn()?;
-        let provider = client.mls_provider(conn);
+        let provider = client.mls_provider()?;
         let intent_data = self
             .get_membership_update_intent(client, &provider, inbox_ids, vec![])
             .await?;
@@ -618,13 +631,15 @@ impl MlsGroup {
             return Ok(());
         }
 
-        let intent = provider.conn().insert_group_intent(NewGroupIntent::new(
-            IntentKind::UpdateGroupMembership,
-            self.group_id.clone(),
-            intent_data.into(),
-        ))?;
+        let intent = provider
+            .conn_ref()
+            .insert_group_intent(NewGroupIntent::new(
+                IntentKind::UpdateGroupMembership,
+                self.group_id.clone(),
+                intent_data.into(),
+            ))?;
 
-        self.sync_until_intent_resolved(provider.conn(), intent.id, client)
+        self.sync_until_intent_resolved(&provider, intent.id, client)
             .await
     }
 
@@ -645,8 +660,8 @@ impl MlsGroup {
         client: &Client<ApiClient>,
         inbox_ids: Vec<InboxId>,
     ) -> Result<(), GroupError> {
-        let conn = client.store().conn()?;
-        let provider = client.mls_provider(conn);
+        let provider = client.store().conn()?.into();
+
         let intent_data = self
             .get_membership_update_intent(client, &provider, vec![], inbox_ids)
             .await?;
@@ -659,7 +674,7 @@ impl MlsGroup {
                 intent_data.into(),
             ))?;
 
-        self.sync_until_intent_resolved(provider.conn(), intent.id, client)
+        self.sync_until_intent_resolved(&provider, intent.id, client)
             .await
     }
 
@@ -680,7 +695,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -712,7 +727,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -746,7 +761,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -781,7 +796,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -818,7 +833,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -893,7 +908,7 @@ impl MlsGroup {
             intent_data,
         ))?;
 
-        self.sync_until_intent_resolved(conn, intent.id, client)
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
@@ -915,10 +930,14 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
-        let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
-        intent.store(&conn)?;
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::KeyUpdate,
+            self.group_id.clone(),
+            vec![],
+        ))?;
 
-        self.sync_with_conn(conn, client).await
+        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
+            .await
     }
 
     pub fn is_active(&self, provider: impl OpenMlsProvider) -> Result<bool, GroupError> {
@@ -1066,7 +1085,11 @@ pub fn build_extensions_for_permissions_update(
         PermissionUpdateType::UpdateMetadata => {
             let mut metadata_policy = existing_policy_set.update_metadata_policy.clone();
             metadata_policy.insert(
-                update_permissions_intent.metadata_field_name.unwrap(),
+                update_permissions_intent.metadata_field_name.ok_or(
+                    GroupError::MissingMetadataField {
+                        name: "metadata_field_name".into(),
+                    },
+                )?,
                 update_permissions_intent.policy_option.into(),
             );
             PolicySet::new(
@@ -1234,6 +1257,7 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 #[cfg(test)]
 mod tests {
     use diesel::connection::SimpleConnection;
+    use futures::future::join_all;
     use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
     use prost::Message;
     use std::sync::Arc;
@@ -1242,8 +1266,9 @@ mod tests {
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     use crate::{
-        assert_logged,
+        assert_err, assert_logged,
         builder::ClientBuilder,
+        client::MessageProcessingError,
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
             build_group_membership_extension,
@@ -1255,7 +1280,7 @@ mod tests {
             DeliveryStatus, GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
         },
         storage::{
-            group_intent::IntentState,
+            group_intent::{IntentKind, IntentState, NewGroupIntent},
             group_message::{GroupMessageKind, StoredGroupMessage},
         },
         xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -1298,8 +1323,7 @@ mod tests {
         sender_mls_group: &mut OpenMlsGroup,
         sender_provider: &XmtpOpenMlsProvider,
     ) {
-        let new_member_provider =
-            new_member_client.mls_provider(new_member_client.store().conn().unwrap());
+        let new_member_provider = new_member_client.mls_provider().unwrap();
 
         let key_package = new_member_client
             .identity()
@@ -1367,7 +1391,7 @@ mod tests {
             .expect("send message");
 
         group
-            .receive(&client.store().conn().unwrap(), &client)
+            .receive(&client.store().conn().unwrap().into(), &client)
             .await
             .unwrap();
         // Check for messages
@@ -1494,36 +1518,38 @@ mod tests {
             .expect("bola's add should succeed in a no-op");
 
         amal_group
-            .receive(&amal.store().conn().unwrap(), &amal)
+            .receive(&amal.store().conn().unwrap().into(), &amal)
             .await
             .expect_err("expected error");
 
         // Check Amal's MLS group state.
-        let amal_db = amal.context.store.conn().unwrap();
-        let amal_mls_group = amal_group
-            .load_mls_group(amal.mls_provider(amal_db.clone()))
-            .unwrap();
+        let amal_db = XmtpOpenMlsProvider::from(amal.context.store.conn().unwrap());
+        let amal_mls_group = amal_group.load_mls_group(&amal_db).unwrap();
         let amal_members: Vec<Member> = amal_mls_group.members().collect();
         assert_eq!(amal_members.len(), 3);
 
         // Check Bola's MLS group state.
-        let bola_db = bola.context.store.conn().unwrap();
-        let bola_mls_group = bola_group
-            .load_mls_group(bola.mls_provider(bola_db.clone()))
-            .unwrap();
+        let bola_db = XmtpOpenMlsProvider::from(bola.context.store.conn().unwrap());
+        let bola_mls_group = bola_group.load_mls_group(&bola_db).unwrap();
         let bola_members: Vec<Member> = bola_mls_group.members().collect();
         assert_eq!(bola_members.len(), 3);
 
         let amal_uncommitted_intents = amal_db
+            .conn_ref()
             .find_group_intents(
                 amal_group.group_id.clone(),
-                Some(vec![IntentState::ToPublish, IntentState::Published]),
+                Some(vec![
+                    IntentState::ToPublish,
+                    IntentState::Published,
+                    IntentState::Error,
+                ]),
                 None,
             )
             .unwrap();
         assert_eq!(amal_uncommitted_intents.len(), 0);
 
         let bola_failed_intents = bola_db
+            .conn_ref()
             .find_group_intents(
                 bola_group.group_id.clone(),
                 Some(vec![IntentState::Error]),
@@ -1532,6 +1558,25 @@ mod tests {
             .unwrap();
         // Bola's attempted add should be deleted, since it will have been a no-op on the second try
         assert_eq!(bola_failed_intents.len(), 0);
+
+        // Make sure sending and receiving both worked
+        amal_group
+            .send_message("hello from amal".as_bytes(), &amal)
+            .await
+            .unwrap();
+        bola_group
+            .send_message("hello from bola".as_bytes(), &bola)
+            .await
+            .unwrap();
+
+        let bola_messages = bola_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        let matching_message = bola_messages
+            .iter()
+            .find(|m| m.decrypted_message_bytes == "hello from amal".as_bytes());
+        log::info!("found message: {:?}", bola_messages);
+        assert!(matching_message.is_some());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1543,7 +1588,7 @@ mod tests {
         let alix_group: MlsGroup = alix
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
-        let provider = alix.mls_provider(alix.store().conn().unwrap());
+        let provider = alix.mls_provider().unwrap();
         // Doctor the group membership
         let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
         let mut existing_extensions = mls_group.extensions().clone();
@@ -1681,8 +1726,7 @@ mod tests {
             .unwrap();
         assert_eq!(messages.len(), 2);
 
-        let conn = &client.context.store.conn().unwrap();
-        let provider = super::XmtpOpenMlsProvider::new(conn.clone());
+        let provider: XmtpOpenMlsProvider = client.context.store.conn().unwrap().into();
         let mls_group = group.load_mls_group(&provider).unwrap();
         let pending_commit = mls_group.pending_commit();
         assert!(pending_commit.is_none());
@@ -1855,8 +1899,7 @@ mod tests {
 
         assert_eq!(group.members().unwrap().len(), 2);
 
-        let conn = &amal.context.store.conn().unwrap();
-        let provider = super::XmtpOpenMlsProvider::new(conn.clone());
+        let provider: XmtpOpenMlsProvider = amal.context.store.conn().unwrap().into();
         // Finished with setup
 
         // add a second installation for amal using the same wallet
@@ -2897,12 +2940,12 @@ mod tests {
             .await
             .unwrap();
 
-        let conn_1 = bo.store().conn().unwrap();
+        let conn_1: XmtpOpenMlsProvider = bo.store().conn().unwrap().into();
         let mut conn_2 = bo.store().raw_conn().unwrap();
 
         // Begin an exclusive transaction on a second connection to lock the database
         conn_2.batch_execute("BEGIN EXCLUSIVE").unwrap();
-        let process_result = bo_group.process_messages(bo_messages, conn_1, &bo).await;
+        let process_result = bo_group.process_messages(bo_messages, &conn_1, &bo).await;
         if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
             assert_eq!(errors.len(), 1);
             assert!(errors
@@ -2913,5 +2956,248 @@ mod tests {
         } else {
             panic!("Expected error")
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_paralell_syncs() {
+        let wallet = generate_local_wallet();
+        let alix1 = Arc::new(ClientBuilder::new_test_client(&wallet).await);
+        let alix1_group = alix1
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        let alix2 = ClientBuilder::new_test_client(&wallet).await;
+
+        let sync_tasks: Vec<_> = (0..10)
+            .map(|_| {
+                let group_clone = alix1_group.clone();
+                let client_clone = alix1.clone();
+                // Each of these syncs is going to trigger the client to invite alix2 to the group
+                // because of the race
+                tokio::spawn(async move { group_clone.sync(&client_clone).await })
+            })
+            .collect();
+
+        let results = join_all(sync_tasks).await;
+
+        // Check if any of the syncs failed
+        for result in results.into_iter() {
+            assert!(result.is_ok(), "Sync error {:?}", result.err());
+        }
+
+        // Make sure that only one welcome was sent
+        let alix2_welcomes = alix1
+            .api_client
+            .query_welcome_messages(alix2.installation_public_key(), None)
+            .await
+            .unwrap();
+        assert_eq!(alix2_welcomes.len(), 1);
+
+        // Make sure that only one group message was sent
+        let group_messages = alix1
+            .api_client
+            .query_group_messages(alix1_group.group_id.clone(), None)
+            .await
+            .unwrap();
+        assert_eq!(group_messages.len(), 1);
+
+        let alix2_group = receive_group_invite(&alix2).await;
+
+        // Send a message from alix1
+        alix1_group
+            .send_message("hi from alix1".as_bytes(), &alix1)
+            .await
+            .unwrap();
+        // Send a message from alix2
+        alix2_group
+            .send_message("hi from alix2".as_bytes(), &alix2)
+            .await
+            .unwrap();
+
+        // Sync both clients
+        alix1_group.sync(&alix1).await.unwrap();
+        alix2_group.sync(&alix2).await.unwrap();
+
+        let alix1_messages = alix1_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        let alix2_messages = alix2_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(alix1_messages.len(), alix2_messages.len());
+
+        assert!(alix1_messages
+            .iter()
+            .any(|m| m.decrypted_message_bytes == "hi from alix2".as_bytes()));
+        assert!(alix2_messages
+            .iter()
+            .any(|m| m.decrypted_message_bytes == "hi from alix1".as_bytes()));
+    }
+
+    // Create a membership update intent, but don't sync it yet
+    async fn create_membership_update_no_sync<ApiClient>(
+        group: &MlsGroup,
+        provider: &XmtpOpenMlsProvider,
+        client: &Client<ApiClient>,
+    ) where
+        ApiClient: XmtpApi,
+    {
+        let intent_data = group
+            .get_membership_update_intent(client, provider, vec![], vec![])
+            .await
+            .unwrap();
+
+        // If there is nothing to do, stop here
+        if intent_data.is_empty() {
+            return;
+        }
+
+        let conn = provider.conn_ref();
+        conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::UpdateGroupMembership,
+            group.group_id.clone(),
+            intent_data.into(),
+        ))
+        .unwrap();
+    }
+
+    /**
+     * This test case simulates situations where adding missing
+     * installations gets interrupted before the sync part happens
+     *
+     * We need to be safe even in situations where there are multiple
+     * intents that do the same thing, leading to conflicts
+     */
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn add_missing_installs_reentrancy() {
+        let wallet = generate_local_wallet();
+        let alix1 = ClientBuilder::new_test_client(&wallet).await;
+        let alix1_group = alix1
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        let alix1_provider = alix1.mls_provider().unwrap();
+
+        let alix2 = ClientBuilder::new_test_client(&wallet).await;
+
+        // We are going to run add_missing_installations TWICE
+        // which will create two intents to add the installations
+        create_membership_update_no_sync(&alix1_group, &alix1_provider, &alix1).await;
+        create_membership_update_no_sync(&alix1_group, &alix1_provider, &alix1).await;
+
+        // Now I am going to run publish intents multiple times
+        alix1_group
+            .publish_intents(&alix1_provider, &alix1)
+            .await
+            .expect("Expect publish to be OK");
+        alix1_group
+            .publish_intents(&alix1_provider, &alix1)
+            .await
+            .expect("Expected publish to be OK");
+
+        // Now I am going to sync twice
+        alix1_group
+            .sync_with_conn(&alix1_provider, &alix1)
+            .await
+            .unwrap();
+        alix1_group
+            .sync_with_conn(&alix1_provider, &alix1)
+            .await
+            .unwrap();
+
+        // Make sure that only one welcome was sent
+        let alix2_welcomes = alix1
+            .api_client
+            .query_welcome_messages(alix2.installation_public_key(), None)
+            .await
+            .unwrap();
+        assert_eq!(alix2_welcomes.len(), 1);
+
+        // We expect two group messages to have been sent,
+        // but only the first is valid
+        let group_messages = alix1
+            .api_client
+            .query_group_messages(alix1_group.group_id.clone(), None)
+            .await
+            .unwrap();
+        assert_eq!(group_messages.len(), 2);
+
+        let alix2_group = receive_group_invite(&alix2).await;
+
+        // Send a message from alix1
+        alix1_group
+            .send_message("hi from alix1".as_bytes(), &alix1)
+            .await
+            .unwrap();
+        // Send a message from alix2
+        alix2_group
+            .send_message("hi from alix2".as_bytes(), &alix2)
+            .await
+            .unwrap();
+
+        // Sync both clients
+        alix1_group.sync(&alix1).await.unwrap();
+        alix2_group.sync(&alix2).await.unwrap();
+
+        let alix1_messages = alix1_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        let alix2_messages = alix2_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(alix1_messages.len(), alix2_messages.len());
+
+        assert!(alix1_messages
+            .iter()
+            .any(|m| m.decrypted_message_bytes == "hi from alix2".as_bytes()));
+        assert!(alix2_messages
+            .iter()
+            .any(|m| m.decrypted_message_bytes == "hi from alix1".as_bytes()));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn respect_allow_epoch_increment() {
+        let wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(&wallet).await;
+
+        let group = client
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        let _client_2 = ClientBuilder::new_test_client(&wallet).await;
+
+        // Sync the group to get the message adding client_2 published to the network
+        group.sync(&client).await.unwrap();
+
+        // Retrieve the envelope for the commit from the network
+        let messages = client
+            .api_client
+            .query_group_messages(group.group_id.clone(), None)
+            .await
+            .unwrap();
+
+        let first_envelope = messages.first().unwrap();
+
+        let Some(xmtp_proto::xmtp::mls::api::v1::group_message::Version::V1(first_message)) =
+            first_envelope.clone().version
+        else {
+            panic!("wrong message format")
+        };
+        let provider = client.mls_provider().unwrap();
+        let mut openmls_group = group.load_mls_group(&provider).unwrap();
+        let process_result = group
+            .process_message(
+                &client,
+                &mut openmls_group,
+                &provider,
+                &first_message,
+                false,
+            )
+            .await;
+
+        assert_err!(
+            process_result,
+            MessageProcessingError::EpochIncrementNotAllowed
+        );
     }
 }

@@ -3,12 +3,15 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::storage::RawDbConnection;
+use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 
 /// A wrapper for RawDbConnection that houses all XMTP DB operations.
 /// Uses a [`Mutex]` internally for interior mutability, so that the connection
 /// and transaction state can be shared between the OpenMLS Provider and
 /// native XMTP operations
-#[derive(Clone)]
+// ~~~~ _NOTE_ ~~~~~
+// Do not derive clone here.
+// callers should be able to accomplish everything with one conn/reference.
 pub struct DbConnection {
     wrapped_conn: Arc<Mutex<RawDbConnection>>,
 }
@@ -16,10 +19,14 @@ pub struct DbConnection {
 /// Owned DBConnection Methods
 /// Lifetime is 'static' because we are using [`RefOrValue::Value`] variant.
 impl DbConnection {
-    pub(crate) fn new(conn: RawDbConnection) -> Self {
+    pub(super) fn new(conn: RawDbConnection) -> Self {
         Self {
             wrapped_conn: Arc::new(Mutex::new(conn)),
         }
+    }
+
+    pub(super) fn from_arc_mutex(conn: Arc<Mutex<RawDbConnection>>) -> Self {
+        Self { wrapped_conn: conn }
     }
 
     // Note: F is a synchronous fn. If it ever becomes async, we need to use
@@ -30,6 +37,17 @@ impl DbConnection {
     {
         let mut lock = self.wrapped_conn.lock();
         fun(&mut lock)
+    }
+}
+
+// Forces a move for conn
+// This is an important distinction from deriving `Clone` on `DbConnection`.
+// This way, conn will be moved into XmtpOpenMlsProvider. This forces codepaths to
+// use a connection from the provider, rather than pulling a new one from the pool, resulting
+// in two connections in the same scope.
+impl From<DbConnection> for XmtpOpenMlsProvider {
+    fn from(conn: DbConnection) -> XmtpOpenMlsProvider {
+        XmtpOpenMlsProvider::new(conn)
     }
 }
 

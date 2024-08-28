@@ -193,7 +193,7 @@ where
             })?;
 
         // publish the intent
-        if let Err(err) = sync_group.publish_intents(conn, self).await {
+        if let Err(err) = sync_group.publish_intents(&conn.into(), self).await {
             log::error!("error publishing sync group intents: {:?}", err);
         }
 
@@ -263,7 +263,7 @@ where
             })?;
 
         // publish the intent
-        if let Err(err) = sync_group.publish_intents(conn, self).await {
+        if let Err(err) = sync_group.publish_intents(&conn.into(), self).await {
             log::error!("error publishing sync group intents: {:?}", err);
         }
         Ok(())
@@ -644,7 +644,9 @@ pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, Messag
             response
         );
         Err(MessageHistoryError::Reqwest(
-            response.error_for_status().unwrap_err(),
+            response
+                .error_for_status()
+                .expect_err("Checked for success"),
         ))
     }
 }

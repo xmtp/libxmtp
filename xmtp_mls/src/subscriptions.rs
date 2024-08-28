@@ -114,7 +114,7 @@ where
             }
         }
 
-        Ok(creation_result.unwrap())
+        Ok(creation_result?)
     }
 
     pub async fn process_streamed_welcome_message(
