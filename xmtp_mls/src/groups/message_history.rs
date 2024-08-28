@@ -242,6 +242,8 @@ where
             }
         };
 
+        log::info!("{:?}", last_message);
+
         if let Some(msg) = last_message {
             // ensure the requester is a member of all the groups
             self.ensure_member_of_all_groups(msg.sender_inbox_id.clone())
@@ -1282,6 +1284,52 @@ mod tests {
         let (request_id, pin_code) = pending.unwrap();
         assert_eq!(request_id, request.0);
         assert_eq!(pin_code, request.1);
+    }
+
+    #[tokio::test]
+    async fn test_get_latest_history_reply() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let amal_b = ClientBuilder::new_test_client(&wallet).await;
+
+        // enable history sync for both clients
+        assert_ok!(amal_a.enable_history_sync().await);
+        assert_ok!(amal_b.enable_history_sync().await);
+
+        // ensure there's no reply initially
+        let initial_reply = amal_b.get_latest_history_reply().await;
+        assert!(initial_reply.is_ok());
+        assert!(initial_reply.unwrap().is_none());
+
+        // amal_b sends a history request
+        let (request_id, _pin_code) = amal_b
+            .send_history_request()
+            .await
+            .expect("history request");
+
+        // sync amal_a
+        amal_a.sync_welcomes().await.expect("sync_welcomes");
+
+        // amal_a sends a reply
+        amal_a
+            .send_history_reply(MessageHistoryReply {
+                request_id: request_id.clone(),
+                url: "http://foo/bar".to_string(),
+                encryption_key: None,
+                signing_key: None,
+                bundle_hash: vec![],
+            })
+            .await
+            .expect("send reply");
+
+        // check latest reply for amal_b
+        let latest_reply = amal_b.get_latest_history_reply().await;
+        assert!(latest_reply.is_ok());
+        let received_reply = latest_reply.unwrap();
+        assert!(received_reply.is_some());
+
+        let received_reply = received_reply.unwrap();
+        assert_eq!(received_reply.request_id, request_id);
     }
 
     #[tokio::test]
