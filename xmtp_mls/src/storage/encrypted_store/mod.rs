@@ -178,26 +178,33 @@ impl EncryptedMessageStore {
     pub(crate) fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
-        let pool_guard = self.pool.read();
+        for _ in 0..3 {
+            if let Some(pool) = self.pool.read().as_ref() {
+                log::debug!(
+                    "Pulling connection from pool, idle_connections={}, total_connections={}",
+                    pool.state().idle_connections,
+                    pool.state().connections
+                );
 
-        let pool = pool_guard
-            .as_ref()
-            .ok_or(StorageError::PoolNeedsConnection)?;
-
-        log::debug!(
-            "Pulling connection from pool, idle_connections={}, total_connections={}",
-            pool.state().idle_connections,
-            pool.state().connections
-        );
-
-        let mut conn = pool.get()?;
-        if let Some(ref key) = self.enc_key {
-            conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
+                match pool.get() {
+                    Ok(mut conn) => {
+                        if let Some(ref key) = self.enc_key {
+                            conn.batch_execute(&format!(
+                                "PRAGMA key = \"x'{}'\";",
+                                hex::encode(key)
+                            ))?;
+                        }
+                        conn.batch_execute("PRAGMA busy_timeout = 5000;")?;
+                        return Ok(conn);
+                    }
+                    Err(_) => continue,
+                }
+            } else {
+                continue;
+            }
         }
 
-        conn.batch_execute("PRAGMA busy_timeout = 5000;")?;
-
-        Ok(conn)
+        Err(StorageError::PoolNeedsConnection)
     }
 
     pub fn conn(&self) -> Result<DbConnection, StorageError> {
