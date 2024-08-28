@@ -73,7 +73,8 @@ use crate::{
     client::{deserialize_welcome, ClientError, MessageProcessingError, XmtpMlsLocalContext},
     configuration::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
-        MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
+        MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
+        SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
     hpke::{decrypt_welcome, HpkeError},
     identity::{parse_credential, Identity, IdentityError},
@@ -482,7 +483,7 @@ impl MlsGroup {
         let provider = XmtpOpenMlsProvider::from(conn);
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(&provider, update_interval_ns, client)
-            .await?; 
+            .await?;
         self.sync_until_last_intent_resolved(&provider, client)
             .await?;
         Ok(())
