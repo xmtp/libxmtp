@@ -18,7 +18,7 @@ use crate::{
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{
         DELIMITER, GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
-        UPDATE_INSTALLATIONS_INTERVAL_NS,
+        SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
     groups::{
         intents::UpdateMetadataIntentData,
@@ -1045,24 +1045,24 @@ impl MlsGroup {
     pub async fn maybe_update_installations<ApiClient>(
         &self,
         provider: &XmtpOpenMlsProvider,
-        update_interval: Option<i64>,
+        update_interval_ns: Option<i64>,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
         // determine how long of an interval in time to use before updating list
-        let interval = match update_interval {
+        let interval_ns = match update_interval_ns {
             Some(val) => val,
-            None => UPDATE_INSTALLATIONS_INTERVAL_NS,
+            None => SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
         };
 
-        let now = crate::utils::time::now_ns();
-        let last = provider
+        let now_ns = crate::utils::time::now_ns();
+        let last_ns = provider
             .conn_ref()
             .get_installations_time_checked(self.group_id.clone())?;
-        let elapsed = now - last;
-        if elapsed > interval {
+        let elapsed_ns = now_ns - last_ns;
+        if elapsed_ns > interval_ns {
             self.add_missing_installations(provider, client).await?;
             provider
                 .conn_ref()
