@@ -1584,7 +1584,10 @@ mod tests {
     use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::generate_inbox_id;
-    use xmtp_mls::{configuration::SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS, storage::EncryptionKey, InboxOwner};
+    use xmtp_mls::{
+        configuration::SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS, storage::EncryptionKey,
+        InboxOwner,
+    };
 
     #[derive(Clone)]
     pub struct LocalWalletInboxOwner {
@@ -2464,7 +2467,12 @@ mod tests {
         // Recreate client2 (new installation)
         let client2 = new_test_client_with_wallet(wallet2).await;
 
-        tokio::time::sleep(tokio::time::Duration::from_secs(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS.try_into().unwrap())).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(
+            SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS
+                .try_into()
+                .unwrap(),
+        ))
+        .await;
 
         // Send a message that will break the group
         client1_group
@@ -2544,7 +2552,12 @@ mod tests {
             .await;
         bo_stream_messages.wait_for_ready().await;
 
-        tokio::time::sleep(tokio::time::Duration::from_secs(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS.try_into().unwrap())).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(
+            SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS
+                .try_into()
+                .unwrap(),
+        ))
+        .await;
 
         log::info!("Alix sending third message after Bo's second installation added");
         // Alix sends a message to the group
