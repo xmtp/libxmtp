@@ -5,7 +5,7 @@ pub mod group_permissions;
 pub mod intents;
 pub mod members;
 #[allow(dead_code)]
-pub(crate) mod message_history;
+pub mod message_history;
 mod subscriptions;
 mod sync;
 pub mod validated_commit;

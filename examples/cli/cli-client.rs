@@ -10,6 +10,7 @@ extern crate ethers;
 extern crate log;
 extern crate xmtp_mls;
 
+use std::iter::Iterator;
 use std::{fs, path::PathBuf, time::Duration};
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -17,6 +18,8 @@ use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder};
 use kv_log_macro::{error, info};
 use prost::Message;
 use xmtp_id::associations::RecoverableEcdsaSignature;
+use xmtp_mls::groups::message_history::MessageHistoryContent;
+use xmtp_mls::storage::group_message::GroupMessageKind;
 
 use crate::{
     json_logger::make_value,
@@ -34,7 +37,7 @@ use xmtp_mls::{
     builder::ClientBuilderError,
     client::ClientError,
     codecs::{text::TextCodec, ContentCodec},
-    groups::{GroupMetadataOptions, MlsGroup},
+    groups::{message_history::MessageHistoryUrls, GroupMetadataOptions, MlsGroup},
     identity::IdentityStrategy,
     storage::{
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
@@ -108,6 +111,10 @@ enum Commands {
         #[clap(short, long, value_parser, num_args = 1.., value_delimiter = ' ')]
         account_addresses: Vec<String>,
     },
+    RequestHistorySync {},
+    ReplyToHistorySyncRequest {},
+    ProcessHistorySyncReply {},
+    ListHistorySyncMessages {},
     /// Information about the account that owns the DB
     Info {},
     Clear {},
@@ -333,6 +340,68 @@ async fn main() {
             let serializable: SerializableGroup = group.into();
             info!("Group {}", group_id, { command_output: true, group_id: group_id, group_info: make_value(&serializable) })
         }
+        Commands::RequestHistorySync {} => {
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+            client.sync_welcomes().await.unwrap();
+            client.enable_history_sync().await.unwrap();
+            let (group_id, _) = client.send_history_request().await.unwrap();
+            let group_id_str = hex::encode(group_id);
+            info!("Sent history sync request in sync group {group_id_str}", { group_id: group_id_str})
+        }
+        Commands::ReplyToHistorySyncRequest {} => {
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+            let group = client.get_sync_group().unwrap();
+            let group_id_str = hex::encode(group.group_id);
+            let reply = client.reply_to_history_request().await.unwrap();
+
+            info!("Sent history sync reply in sync group {group_id_str}", { group_id: group_id_str});
+            info!("Reply: {:?}", reply);
+        }
+        Commands::ProcessHistorySyncReply {} => {
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+            client.sync_welcomes().await.unwrap();
+            client.enable_history_sync().await.unwrap();
+            client.process_history_reply().await.unwrap();
+
+            info!("History bundle downloaded and inserted into user DB", {})
+        }
+        Commands::ListHistorySyncMessages {} => {
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+            client.sync_welcomes().await.unwrap();
+            client.enable_history_sync().await.unwrap();
+            let group = client.get_sync_group().unwrap();
+            let group_id_str = hex::encode(group.group_id.clone());
+            group.sync(&client).await.unwrap();
+            let messages = group
+                .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+                .unwrap();
+            info!("Listing history sync messages", { group_id: group_id_str, messages: messages.len()});
+            for message in messages {
+                let message_history_content = serde_json::from_slice::<MessageHistoryContent>(
+                    &message.decrypted_message_bytes,
+                );
+
+                match message_history_content {
+                    Ok(MessageHistoryContent::Request(ref request)) => {
+                        info!("Request: {:?}", request);
+                    }
+                    Ok(MessageHistoryContent::Reply(ref reply)) => {
+                        info!("Reply: {:?}", reply);
+                    }
+                    _ => {
+                        info!("Unknown message type: {:?}", message);
+                    }
+                }
+            }
+        }
         Commands::Clear {} => {
             fs::remove_file(cli.db.unwrap()).unwrap();
         }
@@ -345,21 +414,27 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
 
     if cli.local {
         info!("Using local network");
-        builder = builder.api_client(
-            ApiClient::create("http://localhost:5556".into(), false)
-                .await
-                .unwrap(),
-        );
+        builder = builder
+            .api_client(
+                ApiClient::create("http://localhost:5556".into(), false)
+                    .await
+                    .unwrap(),
+            )
+            .history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS);
     } else {
         info!("Using dev network");
-        builder = builder.api_client(
-            ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true)
-                .await
-                .unwrap(),
-        );
+        builder = builder
+            .api_client(
+                ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true)
+                    .await
+                    .unwrap(),
+            )
+            .history_sync_url(MessageHistoryUrls::DEV_ADDRESS);
     }
 
-    builder.build().await.map_err(CliError::ClientBuilder)
+    let client = builder.build().await.map_err(CliError::ClientBuilder)?;
+
+    Ok(client)
 }
 
 async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), CliError> {
