@@ -6314,11 +6314,12 @@ name = "xmtp_cryptography"
 version = "0.1.0"
 dependencies = [
  "curve25519-dalek",
- "ecdsa 0.15.1",
+ "ecdsa 0.16.9",
  "ethers",
  "ethers-core",
+ "getrandom",
  "hex",
- "k256 0.12.0",
+ "k256 0.13.3",
  "log",
  "rand",
  "rand_chacha",
