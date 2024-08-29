@@ -42,6 +42,7 @@ jobs:
       - name: Configure aarch64 toolchain
         if: startsWith(matrix.target, 'aarch64')
         run: |
+          sudo apt-get update
           sudo apt-get install -qq crossbuild-essential-arm64 crossbuild-essential-armhf
           cat >>~/.cargo/config <<EOF
           [target.aarch64-unknown-linux-gnu]
@@ -193,6 +194,11 @@ jobs:
           workspaces: |
             .
             bindings_node
+
+      - name: Upgrade Visual Studio 2022 enterprise
+        uses: crazy-max/ghaction-chocolatey@v3
+        with:
+          args: upgrade visualstudio2022enterprise
 
       - name: Install Visual Studio 2022 build tools
         uses: crazy-max/ghaction-chocolatey@v3
