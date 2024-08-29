@@ -714,14 +714,14 @@ impl FfiConversations {
             _ => None,
         };
 
-        let convo = self
-            .inner_client
-            .create_group(group_permissions, metadata_options)?;
-        if !account_addresses.is_empty() {
-            convo
-                .add_members(&self.inner_client, account_addresses)
-                .await?;
-        }
+        let convo = if account_addresses.is_empty() {
+            self.inner_client
+                .create_group(group_permissions, metadata_options)?
+        } else {
+            self.inner_client
+                .create_group_with_members(account_addresses, group_permissions, metadata_options)
+                .await?
+        };
 
         let out = Arc::new(FfiGroup {
             inner_client: self.inner_client.clone(),
