@@ -19,7 +19,7 @@ tonic = { workspace = true, features = [
     "tls-roots",
     "tls-webpki-roots",
 ] }
-xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
+xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 xmtp_v2 = { path = "../xmtp_v2" }
 tracing.workspace = true
 

@@ -518,6 +518,7 @@ impl serde::Serialize for CreateInbox {
         }
         if self.nonce != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("nonce", ToString::to_string(&self.nonce).as_str())?;
         }
         if let Some(v) = self.initial_address_signature.as_ref() {
@@ -785,6 +786,7 @@ impl serde::Serialize for IdentityUpdate {
         }
         if self.client_timestamp_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("clientTimestampNs", ToString::to_string(&self.client_timestamp_ns).as_str())?;
         }
         if !self.inbox_id.is_empty() {
@@ -1129,6 +1131,7 @@ impl serde::Serialize for MemberIdentifier {
                 }
                 member_identifier::Kind::InstallationPublicKey(v) => {
                     #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
                     struct_ser.serialize_field("installationPublicKey", pbjson::private::base64::encode(&v).as_str())?;
                 }
             }
@@ -1341,6 +1344,7 @@ impl serde::Serialize for RecoverableEcdsaSignature {
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.RecoverableEcdsaSignature", len)?;
         if !self.bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("bytes", pbjson::private::base64::encode(&self.bytes).as_str())?;
         }
         struct_ser.end()
@@ -1438,10 +1442,12 @@ impl serde::Serialize for RecoverableEd25519Signature {
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.RecoverableEd25519Signature", len)?;
         if !self.bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("bytes", pbjson::private::base64::encode(&self.bytes).as_str())?;
         }
         if !self.public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("publicKey", pbjson::private::base64::encode(&self.public_key).as_str())?;
         }
         struct_ser.end()
@@ -1811,10 +1817,12 @@ impl serde::Serialize for SmartContractWalletSignature {
         }
         if self.block_number != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("blockNumber", ToString::to_string(&self.block_number).as_str())?;
         }
         if !self.signature.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("signature", pbjson::private::base64::encode(&self.signature).as_str())?;
         }
         if !self.chain_rpc_url.is_empty() {
