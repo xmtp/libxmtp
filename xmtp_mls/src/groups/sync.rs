@@ -38,7 +38,7 @@ use crate::{
     },
     utils::{hash::sha256, id::calculate_message_id},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Client, Delete, Fetch, Store, XmtpApi,
+    Client, Delete, Fetch, StoreOrIgnore, XmtpApi,
 };
 use futures::future::try_join_all;
 use log::debug;
@@ -411,7 +411,7 @@ impl MlsGroup {
                             sender_inbox_id,
                             delivery_status: DeliveryStatus::Published,
                         }
-                        .store(provider.conn_ref())?
+                        .store_or_ignore(provider.conn_ref())?
                     }
                     Some(Content::V2(V2 {
                         idempotency_key,
@@ -438,7 +438,7 @@ impl MlsGroup {
                                 sender_inbox_id: sender_inbox_id.clone(),
                                 delivery_status: DeliveryStatus::Published,
                             }
-                            .store(provider.conn_ref())?;
+                            .store_or_ignore(provider.conn_ref())?;
                         }
                         Some(Reply(history_reply)) => {
                             let content: MessageHistoryContent =
@@ -461,7 +461,7 @@ impl MlsGroup {
                                 sender_inbox_id,
                                 delivery_status: DeliveryStatus::Published,
                             }
-                            .store(provider.conn_ref())?;
+                            .store_or_ignore(provider.conn_ref())?;
                         }
                         _ => {
                             return Err(MessageProcessingError::InvalidPayload);
@@ -725,7 +725,7 @@ impl MlsGroup {
             delivery_status: DeliveryStatus::Published,
         };
 
-        msg.store(conn)?;
+        msg.store_or_ignore(conn)?;
         Ok(Some(msg))
     }
 
