@@ -72,4 +72,10 @@ pub mod xmtp {
             // @@protoc_insertion_point(xmtp.mls_validation.v1)
         }
     }
+    #[cfg(feature = "xmtp-xmtpv4")]
+    // @@protoc_insertion_point(attribute:xmtp.xmtpv4)
+    pub mod xmtpv4 {
+        include!("xmtp.xmtpv4.rs");
+        // @@protoc_insertion_point(xmtp.xmtpv4)
+    }
 }

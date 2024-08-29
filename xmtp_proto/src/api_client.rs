@@ -31,6 +31,7 @@ pub enum ErrorKind {
     MlsError,
     IdentityError,
     SubscriptionUpdateError,
+    MetadataError,
 }
 
 type ErrorSource = Box<dyn StdError + Send + Sync + 'static>;
@@ -78,6 +79,7 @@ impl fmt::Display for Error {
             ErrorKind::IdentityError => "identity error",
             ErrorKind::MlsError => "mls error",
             ErrorKind::SubscriptionUpdateError => "subscription update error",
+            ErrorKind::MetadataError => "metadata error",
         })?;
         if self.source().is_some() {
             f.write_str(": ")?;
@@ -108,14 +110,17 @@ pub trait MutableApiSubscription: Stream<Item = Result<Envelope, Error>> + Send 
     fn close(&self);
 }
 
+pub trait ClientWithMetadata: Send + Sync {
+    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Error>;
+    fn set_app_version(&mut self, version: String) -> Result<(), Error>;
+}
+
 // Wasm futures don't have `Send` or `Sync` bounds.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait XmtpApiClient: Send + Sync {
     type Subscription: XmtpApiSubscription;
     type MutableSubscription: MutableApiSubscription;
-
-    fn set_app_version(&mut self, version: String);
 
     async fn publish(
         &self,

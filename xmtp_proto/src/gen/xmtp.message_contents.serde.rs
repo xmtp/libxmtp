@@ -4171,7 +4171,7 @@ impl serde::Serialize for private_preferences_action::AllowGroup {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PrivatePreferencesAction.AllowGroup", len)?;
         if !self.group_ids.is_empty() {
-            struct_ser.serialize_field("groupIds", &self.group_ids.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+            struct_ser.serialize_field("groupIds", &self.group_ids)?;
         }
         struct_ser.end()
     }
@@ -4238,10 +4238,7 @@ impl<'de> serde::Deserialize<'de> for private_preferences_action::AllowGroup {
                             if group_ids__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("groupIds"));
                             }
-                            group_ids__ = 
-                                Some(map_.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
-                                    .into_iter().map(|x| x.0).collect())
-                            ;
+                            group_ids__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -4450,7 +4447,7 @@ impl serde::Serialize for private_preferences_action::DenyGroup {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PrivatePreferencesAction.DenyGroup", len)?;
         if !self.group_ids.is_empty() {
-            struct_ser.serialize_field("groupIds", &self.group_ids.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+            struct_ser.serialize_field("groupIds", &self.group_ids)?;
         }
         struct_ser.end()
     }
@@ -4517,10 +4514,7 @@ impl<'de> serde::Deserialize<'de> for private_preferences_action::DenyGroup {
                             if group_ids__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("groupIds"));
                             }
-                            group_ids__ = 
-                                Some(map_.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
-                                    .into_iter().map(|x| x.0).collect())
-                            ;
+                            group_ids__ = Some(map_.next_value()?);
                         }
                     }
                 }

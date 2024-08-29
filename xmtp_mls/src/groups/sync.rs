@@ -18,7 +18,7 @@ use crate::{
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{
         GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
-        UPDATE_INSTALLATIONS_INTERVAL_NS,
+        SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
     groups::{
         intents::UpdateMetadataIntentData, message_history::MessageHistoryContent,
@@ -38,7 +38,7 @@ use crate::{
     },
     utils::{hash::sha256, id::calculate_message_id},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Client, Delete, Fetch, Store, XmtpApi,
+    Client, Delete, Fetch, StoreOrIgnore, XmtpApi,
 };
 use futures::future::try_join_all;
 use log::debug;
@@ -413,7 +413,7 @@ impl MlsGroup {
                             sender_inbox_id,
                             delivery_status: DeliveryStatus::Published,
                         }
-                        .store(provider.conn_ref())?
+                        .store_or_ignore(provider.conn_ref())?
                     }
                     Some(Content::V2(V2 {
                         idempotency_key,
@@ -440,7 +440,7 @@ impl MlsGroup {
                                 sender_inbox_id: sender_inbox_id.clone(),
                                 delivery_status: DeliveryStatus::Published,
                             }
-                            .store(provider.conn_ref())?;
+                            .store_or_ignore(provider.conn_ref())?;
                         }
                         Some(Reply(history_reply)) => {
                             let content: MessageHistoryContent =
@@ -463,7 +463,7 @@ impl MlsGroup {
                                 sender_inbox_id,
                                 delivery_status: DeliveryStatus::Published,
                             }
-                            .store(provider.conn_ref())?;
+                            .store_or_ignore(provider.conn_ref())?;
                         }
                         _ => {
                             return Err(MessageProcessingError::InvalidPayload);
@@ -727,7 +727,7 @@ impl MlsGroup {
             delivery_status: DeliveryStatus::Published,
         };
 
-        msg.store(conn)?;
+        msg.store_or_ignore(conn)?;
         Ok(Some(msg))
     }
 
@@ -976,24 +976,24 @@ impl MlsGroup {
     pub async fn maybe_update_installations<ApiClient>(
         &self,
         provider: &XmtpOpenMlsProvider,
-        update_interval: Option<i64>,
+        update_interval_ns: Option<i64>,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
         // determine how long of an interval in time to use before updating list
-        let interval = match update_interval {
+        let interval_ns = match update_interval_ns {
             Some(val) => val,
-            None => UPDATE_INSTALLATIONS_INTERVAL_NS,
+            None => SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
         };
 
-        let now = crate::utils::time::now_ns();
-        let last = provider
+        let now_ns = crate::utils::time::now_ns();
+        let last_ns = provider
             .conn_ref()
             .get_installations_time_checked(self.group_id.clone())?;
-        let elapsed = now - last;
-        if elapsed > interval {
+        let elapsed_ns = now_ns - last_ns;
+        if elapsed_ns > interval_ns {
             self.add_missing_installations(provider, client).await?;
             provider
                 .conn_ref()

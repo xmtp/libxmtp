@@ -1584,7 +1584,11 @@ mod tests {
     use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::generate_inbox_id;
-    use xmtp_mls::{storage::EncryptionKey, InboxOwner};
+    use xmtp_mls::{
+        groups::{GroupError, MlsGroup},
+        storage::EncryptionKey,
+        InboxOwner,
+    };
 
     #[derive(Clone)]
     pub struct LocalWalletInboxOwner {
@@ -1726,6 +1730,20 @@ mod tests {
     async fn new_test_client() -> Arc<FfiXmtpClient> {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
         new_test_client_with_wallet(wallet).await
+    }
+
+    impl FfiGroup {
+        #[cfg(test)]
+        async fn update_installations(&self) -> Result<(), GroupError> {
+            let group = MlsGroup::new(
+                self.inner_client.context().clone(),
+                self.group_id.clone(),
+                self.created_at_ns,
+            );
+
+            group.update_installations(&self.inner_client).await?;
+            Ok(())
+        }
     }
 
     #[tokio::test]
@@ -2464,6 +2482,8 @@ mod tests {
         // Recreate client2 (new installation)
         let client2 = new_test_client_with_wallet(wallet2).await;
 
+        client1_group.update_installations().await.unwrap();
+
         // Send a message that will break the group
         client1_group
             .send("This message will break the group".as_bytes().to_vec())
@@ -2517,6 +2537,8 @@ mod tests {
         let alix_group = alix.group(group.id()).unwrap();
         let bo_group = bo.group(group.id()).unwrap();
         let caro_group = caro.group(group.id()).unwrap();
+
+        alix_group.update_installations().await.unwrap();
         log::info!("Alix sending first message");
         // Alix sends a message in the group
         alix_group
@@ -2525,6 +2547,7 @@ mod tests {
             .unwrap();
 
         log::info!("Caro sending second message");
+        caro_group.update_installations().await.unwrap();
         // Caro sends a message in the group
         caro_group
             .send("Second message".as_bytes().to_vec())
@@ -2542,6 +2565,8 @@ mod tests {
             .await;
         bo_stream_messages.wait_for_ready().await;
 
+        alix_group.update_installations().await.unwrap();
+
         log::info!("Alix sending third message after Bo's second installation added");
         // Alix sends a message to the group
         alix_group
@@ -2555,6 +2580,7 @@ mod tests {
 
         log::info!("Bo sending fourth message");
         // Bo sends a message to the group
+        bo2_group.update_installations().await.unwrap();
         bo2_group
             .send("Fourth message".as_bytes().to_vec())
             .await
@@ -2562,6 +2588,7 @@ mod tests {
 
         log::info!("Caro sending fifth message");
         // Caro sends a message in the group
+        caro_group.update_installations().await.unwrap();
         caro_group
             .send("Fifth message".as_bytes().to_vec())
             .await
