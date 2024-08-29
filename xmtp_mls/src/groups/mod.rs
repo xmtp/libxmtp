@@ -489,6 +489,21 @@ impl MlsGroup {
         Ok(())
     }
 
+    /// Update group installations
+    pub async fn update_installations<ApiClient>(
+        &self,
+        client: &Client<ApiClient>,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let conn = self.context.store.conn()?;
+        let provider = XmtpOpenMlsProvider::from(conn);
+        self.maybe_update_installations(&provider, Some(0), client)
+            .await?;
+        Ok(())
+    }
+
     /// Send a message, optimistically returning the ID of the message before the result of a message publish.
     pub fn send_message_optimistic(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
         let conn = self.context.store.conn()?;
