@@ -221,8 +221,7 @@ impl MlsGroup {
             num_attempts += 1;
         }
 
-        Err(last_err.unwrap_or(GroupError::SyncFailedToWait)
-        ))
+        Err(last_err.unwrap_or(GroupError::SyncFailedToWait))
     }
 
     fn is_valid_epoch(
