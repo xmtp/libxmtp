@@ -221,9 +221,8 @@ impl MlsGroup {
             num_attempts += 1;
         }
 
-        Err(last_err.unwrap_or(GroupError::SyncFailedToWait(
-            "failed to wait for intent".to_string(),
-        )))
+        Err(last_err.unwrap_or(GroupError::SyncFailedToWait)
+        ))
     }
 
     fn is_valid_epoch(

@@ -188,8 +188,8 @@ pub enum GroupError {
     SqlKeyStore(#[from] sql_key_store::SqlKeyStoreError),
     #[error("No pending commit found")]
     MissingPendingCommit,
-    #[error("Sync failed to wait for intent: {0}")]
-    SyncFailedToWait(String),
+    #[error("Sync failed to wait for intent")]
+    SyncFailedToWait,
 }
 
 impl RetryableError for GroupError {
