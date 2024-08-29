@@ -2983,7 +2983,7 @@ dependencies = [
 
 [[package]]
 name = "mls_validation_service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -6219,7 +6219,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_grpc"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-stream",
  "base64 0.22.1",
@@ -6240,7 +6240,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_http"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -6286,14 +6286,15 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cryptography"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "curve25519-dalek",
- "ecdsa 0.15.1",
+ "ecdsa 0.16.9",
  "ethers",
  "ethers-core",
+ "getrandom",
  "hex",
- "k256 0.12.0",
+ "k256 0.13.3",
  "log",
  "rand",
  "rand_chacha",
@@ -6307,7 +6308,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_id"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6340,7 +6341,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -6398,7 +6399,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_proto"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "futures",
@@ -6415,7 +6416,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_user_preferences"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "base64 0.21.7",
  "libsecp256k1",
@@ -6428,7 +6429,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_v2"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "aes-gcm",
  "ecdsa 0.15.1",
