@@ -1,4 +1,4 @@
-use futures::stream::BoxStream;
+use futures::{stream::LocalBoxStream, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Deserializer;
 use std::io::Read;
@@ -47,7 +47,7 @@ pub async fn create_grpc_stream<
     request: T,
     endpoint: String,
     http_client: reqwest::Client,
-) -> Result<BoxStream<'static, Result<R, Error>>, Error> {
+) -> Result<LocalBoxStream<'static, Result<R, Error>>, Error> {
     log::info!("About to spawn stream");
     let stream = async_stream::stream! {
         log::info!("Spawning grpc http stream");
@@ -89,7 +89,7 @@ pub async fn create_grpc_stream<
         }
     };
 
-    Ok(Box::pin(stream))
+    Ok(stream.boxed_local())
 }
 
 #[cfg(test)]

@@ -29,6 +29,16 @@ pub enum HttpClientError {
     Reqwest(#[from] reqwest::Error),
 }
 
+#[cfg(target_arch = "wasm32")]
+fn reqwest_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn reqwest_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder().connection_verbose(true)
+}
+
 pub struct XmtpHttpApiClient {
     http_client: reqwest::Client,
     host_url: String,
@@ -38,9 +48,7 @@ pub struct XmtpHttpApiClient {
 
 impl XmtpHttpApiClient {
     pub fn new(host_url: String) -> Result<Self, HttpClientError> {
-        let client = reqwest::Client::builder()
-            .connection_verbose(true)
-            .build()?;
+        let client = reqwest_builder().build()?;
 
         Ok(XmtpHttpApiClient {
             http_client: client,
@@ -55,22 +63,31 @@ impl XmtpHttpApiClient {
     }
 }
 
+fn metadata_err<E>(e: E) -> Error
+where
+    E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
+{
+    Error::new(ErrorKind::MetadataError).with(e)
+}
+
 impl ClientWithMetadata for XmtpHttpApiClient {
     fn set_app_version(&mut self, version: String) -> Result<(), Error> {
         self.app_version = Some(version);
 
         let mut headers = header::HeaderMap::new();
         if let Some(app_version) = &self.app_version {
-            headers.insert("x-app-version", app_version.parse().unwrap());
+            headers.insert("x-app-version", app_version.parse().map_err(metadata_err)?);
         }
         if let Some(libxmtp_version) = &self.libxmtp_version {
-            headers.insert("x-libxmtp-version", libxmtp_version.parse().unwrap());
+            headers.insert(
+                "x-libxmtp-version",
+                libxmtp_version.parse().map_err(metadata_err)?,
+            );
         }
-        self.http_client = reqwest::Client::builder()
-            .connection_verbose(true)
+        self.http_client = reqwest_builder()
             .default_headers(headers)
             .build()
-            .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
+            .map_err(metadata_err)?;
         Ok(())
     }
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Error> {
@@ -93,8 +110,7 @@ impl ClientWithMetadata for XmtpHttpApiClient {
                     .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?,
             );
         }
-        self.http_client = reqwest::Client::builder()
-            .connection_verbose(true)
+        self.http_client = reqwest_builder()
             .default_headers(headers)
             .build()
             .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
