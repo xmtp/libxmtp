@@ -1,8 +1,8 @@
 [package]
-name = "xmtp_v2"
-version = "0.1.0"
 edition = "2021"
+name = "xmtp_v2"
 rust-version = "1.64"
+version.workspace = true
 
 [dependencies]
 aes-gcm = "0.10.1"

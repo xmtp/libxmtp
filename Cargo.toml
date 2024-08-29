@@ -19,6 +19,9 @@ exclude = ["bindings_ffi", "bindings_wasm", "bindings_node"]
 # See https://doc.rust-lang.org/edition-guide/rust-2021/default-cargo-resolver.html#details
 resolver = "2"
 
+[workspace.package]
+version = "0.0.1"
+
 [workspace.dependencies]
 anyhow = "1.0"
 async-stream = "0.3"

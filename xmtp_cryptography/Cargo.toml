@@ -1,8 +1,8 @@
 [package]
-name = "xmtp_cryptography"
-version = "0.1.0"
 edition = "2021"
+name = "xmtp_cryptography"
 rust-version = "1.70"
+version.workspace = true
 
 [dependencies]
 curve25519-dalek = "4"

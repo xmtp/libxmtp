@@ -25,28 +25,31 @@ mod xmtp_openmls_provider;
 pub use client::{Client, Network};
 use storage::StorageError;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
-use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
+use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
 
 /// XMTP Api Super Trait
 /// Implements all Trait Network APIs for convenience.
 #[cfg(not(test))]
 pub trait XmtpApi
 where
-    Self: XmtpMlsClient + XmtpIdentityClient,
+    Self: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata,
 {
 }
 #[cfg(not(test))]
-impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ?Sized {}
+impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + ?Sized {}
 
 #[cfg(test)]
 pub trait XmtpApi
 where
-    Self: XmtpMlsClient + XmtpIdentityClient + XmtpTestClient,
+    Self: XmtpMlsClient + XmtpIdentityClient + XmtpTestClient + ClientWithMetadata,
 {
 }
 
 #[cfg(test)]
-impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + XmtpTestClient + ?Sized {}
+impl<T> XmtpApi for T where
+    T: XmtpMlsClient + XmtpIdentityClient + XmtpTestClient + ClientWithMetadata + ?Sized
+{
+}
 
 #[cfg(any(test, feature = "test-utils", feature = "bench"))]
 #[async_trait::async_trait]

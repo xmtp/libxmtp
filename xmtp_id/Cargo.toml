@@ -1,15 +1,15 @@
 [package]
 edition = "2021"
 name = "xmtp_id"
-version = "0.1.0"
+version.workspace = true
 
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true
 ed25519-dalek = { workspace = true, features = ["digest"] }
 ed25519.workspace = true
-ethers.workspace = true
 ethers-core.workspace = true
+ethers.workspace = true
 futures.workspace = true
 hex.workspace = true
 log.workspace = true

@@ -5192,7 +5192,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_grpc"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-stream",
  "base64 0.22.1",
@@ -5212,7 +5212,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cryptography"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "curve25519-dalek",
  "ecdsa 0.16.9",
@@ -5233,7 +5233,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_id"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5264,7 +5264,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "aes-gcm",
  "async-stream",
@@ -5306,7 +5306,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_proto"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "futures",
@@ -5323,7 +5323,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_v2"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "aes-gcm",
  "ecdsa 0.15.1",
