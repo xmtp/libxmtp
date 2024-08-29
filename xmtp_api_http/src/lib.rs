@@ -234,12 +234,11 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         request: SubscribeGroupMessagesRequest,
     ) -> Result<GroupMessageStream, Error> {
         log::debug!("subscribe_group_messages");
-        create_grpc_stream::<_, GroupMessage>(
+        Ok(create_grpc_stream::<_, GroupMessage>(
             request,
             self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES),
             self.http_client.clone(),
-        )
-        .await
+        ))
     }
 
     async fn subscribe_welcome_messages(
@@ -247,12 +246,11 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         request: SubscribeWelcomeMessagesRequest,
     ) -> Result<WelcomeMessageStream, Error> {
         log::debug!("subscribe_welcome_messages");
-        create_grpc_stream::<_, WelcomeMessage>(
+        Ok(create_grpc_stream::<_, WelcomeMessage>(
             request,
             self.endpoint(ApiEndpoints::SUBSCRIBE_WELCOME_MESSAGES),
             self.http_client.clone(),
-        )
-        .await
+        ))
     }
 }
 
