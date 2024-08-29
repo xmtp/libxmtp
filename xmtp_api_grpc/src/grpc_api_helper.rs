@@ -56,7 +56,7 @@ async fn create_tls_channel(address: String) -> Result<Channel, Error> {
         // Functionality: If a ping response is not received within this duration, the connection is presumed to be lost and is closed.
         // Impact: This setting is crucial for quickly detecting unresponsive connections and freeing up resources associated with them. It ensures that the client has up-to-date information on the status of connections and can react accordingly.
         .keep_alive_timeout(Duration::from_secs(25))
-        .tls_config(ClientTlsConfig::new())
+        .tls_config(ClientTlsConfig::new().with_enabled_roots())
         .map_err(|e| Error::new(ErrorKind::SetupTLSConfigError).with(e))?
         .connect()
         .await

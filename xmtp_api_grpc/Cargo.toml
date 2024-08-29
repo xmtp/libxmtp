@@ -16,7 +16,7 @@ serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tonic = { workspace = true, features = [
     "tls",
-    "tls-roots",
+    "tls-native-roots",
     "tls-webpki-roots",
 ] }
 tracing.workspace = true
