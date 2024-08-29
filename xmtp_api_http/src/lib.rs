@@ -1,3 +1,5 @@
+#![warn(clippy::unwrap_used)]
+
 pub mod constants;
 mod util;
 
