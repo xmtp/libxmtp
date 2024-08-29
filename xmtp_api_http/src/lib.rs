@@ -2,8 +2,9 @@ pub mod constants;
 mod util;
 
 use async_trait::async_trait;
+use reqwest::header;
 use util::{create_grpc_stream, handle_error};
-use xmtp_proto::api_client::{Error, ErrorKind, XmtpIdentityClient};
+use xmtp_proto::api_client::{ClientWithMetadata, Error, ErrorKind, XmtpIdentityClient};
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
@@ -31,6 +32,8 @@ pub enum HttpClientError {
 pub struct XmtpHttpApiClient {
     http_client: reqwest::Client,
     host_url: String,
+    app_version: Option<String>,
+    libxmtp_version: Option<String>,
 }
 
 impl XmtpHttpApiClient {
@@ -42,11 +45,60 @@ impl XmtpHttpApiClient {
         Ok(XmtpHttpApiClient {
             http_client: client,
             host_url,
+            app_version: None,
+            libxmtp_version: None,
         })
     }
 
     fn endpoint(&self, endpoint: &str) -> String {
         format!("{}{}", self.host_url, endpoint)
+    }
+}
+
+impl ClientWithMetadata for XmtpHttpApiClient {
+    fn set_app_version(&mut self, version: String) -> Result<(), Error> {
+        self.app_version = Some(version);
+
+        let mut headers = header::HeaderMap::new();
+        if let Some(app_version) = &self.app_version {
+            headers.insert("x-app-version", app_version.parse().unwrap());
+        }
+        if let Some(libxmtp_version) = &self.libxmtp_version {
+            headers.insert("x-libxmtp-version", libxmtp_version.parse().unwrap());
+        }
+        self.http_client = reqwest::Client::builder()
+            .connection_verbose(true)
+            .default_headers(headers)
+            .build()
+            .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
+        Ok(())
+    }
+    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Error> {
+        self.libxmtp_version = Some(version);
+
+        let mut headers = header::HeaderMap::new();
+        if let Some(app_version) = &self.app_version {
+            headers.insert(
+                "x-app-version",
+                app_version
+                    .parse()
+                    .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?,
+            );
+        }
+        if let Some(libxmtp_version) = &self.libxmtp_version {
+            headers.insert(
+                "x-libxmtp-version",
+                libxmtp_version
+                    .parse()
+                    .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?,
+            );
+        }
+        self.http_client = reqwest::Client::builder()
+            .connection_verbose(true)
+            .default_headers(headers)
+            .build()
+            .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
+        Ok(())
     }
 }
 
