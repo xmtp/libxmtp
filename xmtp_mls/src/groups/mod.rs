@@ -74,6 +74,7 @@ use crate::{
     configuration::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
         MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
+        SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
     hpke::{decrypt_welcome, HpkeError},
     identity::{parse_credential, Identity, IdentityError},
@@ -187,6 +188,8 @@ pub enum GroupError {
     SqlKeyStore(#[from] sql_key_store::SqlKeyStoreError),
     #[error("No pending commit found")]
     MissingPendingCommit,
+    #[error("Sync failed to wait for intent")]
+    SyncFailedToWait,
 }
 
 impl RetryableError for GroupError {
@@ -454,10 +457,10 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let update_interval = Some(5_000_000); // 5 seconds in nanoseconds
+        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         let conn = self.context.store.conn()?;
         let provider = XmtpOpenMlsProvider::from(conn);
-        self.maybe_update_installations(&provider, update_interval, client)
+        self.maybe_update_installations(&provider, update_interval_ns, client)
             .await?;
 
         let message_id = self.prepare_message(message, provider.conn_ref(), |now| {
@@ -480,10 +483,25 @@ impl MlsGroup {
     {
         let conn = self.context.store.conn()?;
         let provider = XmtpOpenMlsProvider::from(conn);
-        let update_interval = Some(5_000_000);
-        self.maybe_update_installations(&provider, update_interval, client)
+        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
+        self.maybe_update_installations(&provider, update_interval_ns, client)
             .await?;
         self.sync_until_last_intent_resolved(&provider, client)
+            .await?;
+        Ok(())
+    }
+
+    /// Update group installations
+    pub async fn update_installations<ApiClient>(
+        &self,
+        client: &Client<ApiClient>,
+    ) -> Result<(), GroupError>
+    where
+        ApiClient: XmtpApi,
+    {
+        let conn = self.context.store.conn()?;
+        let provider = XmtpOpenMlsProvider::from(conn);
+        self.maybe_update_installations(&provider, Some(0), client)
             .await?;
         Ok(())
     }

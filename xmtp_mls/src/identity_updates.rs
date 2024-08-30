@@ -1,6 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{retry::RetryableError, retryable, storage::association_state::StoredAssociationState};
+use crate::{
+    retry::{Retry, RetryableError},
+    retry_async, retryable,
+    storage::association_state::StoredAssociationState,
+};
 use prost::Message;
 use thiserror::Error;
 use xmtp_id::associations::{
@@ -239,9 +243,13 @@ where
         wallets_to_revoke: Vec<String>,
     ) -> Result<SignatureRequest, ClientError> {
         let inbox_id = self.inbox_id();
-        let current_state = self
-            .get_association_state(&self.store().conn()?, &inbox_id, None)
-            .await?;
+        let current_state = retry_async!(
+            Retry::default(),
+            (async {
+                self.get_association_state(&self.store().conn()?, &inbox_id, None)
+                    .await
+            })
+        )?;
         let mut builder = SignatureRequestBuilder::new(inbox_id);
 
         for wallet in wallets_to_revoke {
@@ -259,9 +267,14 @@ where
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<SignatureRequest, ClientError> {
         let inbox_id = self.inbox_id();
-        let current_state = self
-            .get_association_state(&self.store().conn()?, &inbox_id, None)
-            .await?;
+
+        let current_state = retry_async!(
+            Retry::default(),
+            (async {
+                self.get_association_state(&self.store().conn()?, &inbox_id, None)
+                    .await
+            })
+        )?;
 
         let mut builder = SignatureRequestBuilder::new(inbox_id);
 
@@ -291,7 +304,17 @@ where
             .await?;
 
         // Load the identity updates for the inbox so that we have a record in our DB
-        load_identity_updates(&self.api_client, &self.store().conn()?, vec![inbox_id]).await?;
+        retry_async!(
+            Retry::default(),
+            (async {
+                load_identity_updates(
+                    &self.api_client,
+                    &self.store().conn()?,
+                    vec![inbox_id.clone()],
+                )
+                .await
+            })
+        )?;
 
         Ok(())
     }

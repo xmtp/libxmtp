@@ -380,6 +380,29 @@ where
         Ok(group)
     }
 
+    pub async fn create_group_with_members(
+        &self,
+        account_addresses: Vec<String>,
+        permissions_policy_set: Option<PolicySet>,
+        opts: GroupMetadataOptions,
+    ) -> Result<MlsGroup, ClientError> {
+        log::info!("creating group");
+
+        let group = MlsGroup::create_and_insert(
+            self.context.clone(),
+            GroupMembershipState::Allowed,
+            permissions_policy_set.unwrap_or_default(),
+            opts,
+        )?;
+
+        group.add_members(self, account_addresses).await?;
+
+        // notify any streams of the new group
+        let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
+
+        Ok(group)
+    }
+
     pub(crate) fn create_sync_group(&self) -> Result<MlsGroup, ClientError> {
         log::info!("creating sync group");
         let sync_group = MlsGroup::create_and_insert_sync_group(self.context.clone())?;
