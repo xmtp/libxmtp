@@ -424,7 +424,7 @@ pub mod tests {
         // Set expectation for first request with no cursor
         mock_api
             .expect_query_group_messages()
-            .withf(move |req| match req.paging_info.clone() {
+            .withf(move |req| match req.paging_info {
                 Some(paging_info) => paging_info.id_cursor == 0,
                 None => true,
             })
@@ -443,7 +443,7 @@ pub mod tests {
         // Set expectation for requests with a cursor
         mock_api
             .expect_query_group_messages()
-            .withf(|req| match req.paging_info.clone() {
+            .withf(|req| match req.paging_info {
                 Some(paging_info) => paging_info.id_cursor > 0,
                 None => false,
             })

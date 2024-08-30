@@ -19,8 +19,8 @@ uniffi_macros = "0.28.0"
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
-xmtp_mls = { path = "../xmtp_mls", features = ["grpc", "native"] }
-xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
+xmtp_mls = { path = "../xmtp_mls", features = ["native"] }
+xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 xmtp_v2 = { path = "../xmtp_v2" }
 

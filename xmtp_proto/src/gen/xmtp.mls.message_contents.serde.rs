@@ -387,10 +387,12 @@ impl serde::Serialize for CredentialRevocation {
             match v {
                 credential_revocation::PublicKey::InstallationKey(v) => {
                     #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
                     struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&v).as_str())?;
                 }
                 credential_revocation::PublicKey::UnsignedLegacyCreateIdentityKey(v) => {
                     #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
                     struct_ser.serialize_field("unsignedLegacyCreateIdentityKey", pbjson::private::base64::encode(&v).as_str())?;
                 }
             }
@@ -626,6 +628,7 @@ impl serde::Serialize for EdDsaSignature {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.EdDsaSignature", len)?;
         if !self.bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("bytes", pbjson::private::base64::encode(&self.bytes).as_str())?;
         }
         struct_ser.end()
@@ -746,6 +749,7 @@ impl serde::Serialize for EncodedContent {
         }
         if !self.content.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("content", pbjson::private::base64::encode(&self.content).as_str())?;
         }
         struct_ser.end()
@@ -906,6 +910,7 @@ impl serde::Serialize for GrantMessagingAccessAssociation {
         }
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
         }
         struct_ser.end()
@@ -2825,6 +2830,7 @@ impl serde::Serialize for MessageHistoryKeyType {
             match v {
                 message_history_key_type::Key::Chacha20Poly1305(v) => {
                     #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
                     struct_ser.serialize_field("chacha20Poly1305", pbjson::private::base64::encode(&v).as_str())?;
                 }
             }
@@ -3547,6 +3553,7 @@ impl serde::Serialize for MlsCredential {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.MlsCredential", len)?;
         if !self.installation_public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("installationPublicKey", pbjson::private::base64::encode(&self.installation_public_key).as_str())?;
         }
         if let Some(v) = self.association.as_ref() {
@@ -4172,6 +4179,7 @@ impl serde::Serialize for plaintext_envelope::V1 {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.PlaintextEnvelope.V1", len)?;
         if !self.content.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("content", pbjson::private::base64::encode(&self.content).as_str())?;
         }
         if !self.idempotency_key.is_empty() {
@@ -4289,6 +4297,7 @@ impl serde::Serialize for plaintext_envelope::V2 {
             match v {
                 plaintext_envelope::v2::MessageType::Content(v) => {
                     #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
                     struct_ser.serialize_field("content", pbjson::private::base64::encode(&v).as_str())?;
                 }
                 plaintext_envelope::v2::MessageType::Request(v) => {
@@ -4605,6 +4614,7 @@ impl serde::Serialize for RecoverableEcdsaSignature {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.RecoverableEcdsaSignature", len)?;
         if !self.bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("bytes", pbjson::private::base64::encode(&self.bytes).as_str())?;
         }
         struct_ser.end()
@@ -4719,6 +4729,7 @@ impl serde::Serialize for RevokeMessagingAccessAssociation {
         }
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
         }
         struct_ser.end()

@@ -110,6 +110,7 @@ impl serde::Serialize for get_identity_updates_request::Request {
         }
         if self.sequence_id != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("sequenceId", ToString::to_string(&self.sequence_id).as_str())?;
         }
         struct_ser.end()
@@ -314,10 +315,12 @@ impl serde::Serialize for get_identity_updates_response::IdentityUpdateLog {
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.GetIdentityUpdatesResponse.IdentityUpdateLog", len)?;
         if self.sequence_id != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("sequenceId", ToString::to_string(&self.sequence_id).as_str())?;
         }
         if self.server_timestamp_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("serverTimestampNs", ToString::to_string(&self.server_timestamp_ns).as_str())?;
         }
         if let Some(v) = self.update.as_ref() {

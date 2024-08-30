@@ -19,7 +19,6 @@ bench = [
     "xmtp_api_grpc",
 ]
 default = ["native"]
-grpc = ["xmtp_proto/grpc"]
 http-api = ["xmtp_api_http"]
 native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
 test-utils = []

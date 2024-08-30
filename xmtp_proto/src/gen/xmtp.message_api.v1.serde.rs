@@ -19,6 +19,7 @@ impl serde::Serialize for AuthData {
         }
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
         }
         struct_ser.end()
@@ -413,10 +414,12 @@ impl serde::Serialize for Envelope {
         }
         if self.timestamp_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("timestampNs", ToString::to_string(&self.timestamp_ns).as_str())?;
         }
         if !self.message.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("message", pbjson::private::base64::encode(&self.message).as_str())?;
         }
         struct_ser.end()
@@ -540,10 +543,12 @@ impl serde::Serialize for IndexCursor {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v1.IndexCursor", len)?;
         if !self.digest.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("digest", pbjson::private::base64::encode(&self.digest).as_str())?;
         }
         if self.sender_time_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("senderTimeNs", ToString::to_string(&self.sender_time_ns).as_str())?;
         }
         struct_ser.end()
@@ -955,10 +960,12 @@ impl serde::Serialize for QueryRequest {
         }
         if self.start_time_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("startTimeNs", ToString::to_string(&self.start_time_ns).as_str())?;
         }
         if self.end_time_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("endTimeNs", ToString::to_string(&self.end_time_ns).as_str())?;
         }
         if let Some(v) = self.paging_info.as_ref() {
@@ -1450,6 +1457,7 @@ impl serde::Serialize for Token {
         }
         if !self.auth_data_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("authDataBytes", pbjson::private::base64::encode(&self.auth_data_bytes).as_str())?;
         }
         if let Some(v) = self.auth_data_signature.as_ref() {

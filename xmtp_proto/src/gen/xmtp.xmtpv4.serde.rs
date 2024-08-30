@@ -22,6 +22,7 @@ impl serde::Serialize for AuthenticatedData {
         }
         if !self.target_topic.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("targetTopic", pbjson::private::base64::encode(&self.target_topic).as_str())?;
         }
         if !self.last_originator_sids.is_empty() {
@@ -425,6 +426,7 @@ impl serde::Serialize for BlockchainProof {
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.BlockchainProof", len)?;
         if self.block_number != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("blockNumber", ToString::to_string(&self.block_number).as_str())?;
         }
         if self.publisher_id != 0 {
@@ -712,6 +714,7 @@ impl serde::Serialize for EnvelopesQuery {
             match v {
                 envelopes_query::Filter::Topic(v) => {
                     #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
                     struct_ser.serialize_field("topic", pbjson::private::base64::encode(&v).as_str())?;
                 }
                 envelopes_query::Filter::OriginatorId(v) => {
@@ -723,10 +726,12 @@ impl serde::Serialize for EnvelopesQuery {
             match v {
                 envelopes_query::LastSeen::OriginatorSid(v) => {
                     #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
                     struct_ser.serialize_field("originatorSid", ToString::to_string(&v).as_str())?;
                 }
                 envelopes_query::LastSeen::GatewaySid(v) => {
                     #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
                     struct_ser.serialize_field("gatewaySid", ToString::to_string(&v).as_str())?;
                 }
             }
@@ -856,6 +861,7 @@ impl serde::Serialize for GatewayEnvelope {
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.GatewayEnvelope", len)?;
         if self.gateway_sid != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("gatewaySid", ToString::to_string(&self.gateway_sid).as_str())?;
         }
         if let Some(v) = self.originator_envelope.as_ref() {
@@ -1159,6 +1165,7 @@ impl serde::Serialize for OriginatorEnvelope {
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.OriginatorEnvelope", len)?;
         if !self.unsigned_originator_envelope.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("unsignedOriginatorEnvelope", pbjson::private::base64::encode(&self.unsigned_originator_envelope).as_str())?;
         }
         if let Some(v) = self.proof.as_ref() {
@@ -1291,6 +1298,7 @@ impl serde::Serialize for PayerEnvelope {
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.PayerEnvelope", len)?;
         if !self.unsigned_client_envelope.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("unsignedClientEnvelope", pbjson::private::base64::encode(&self.unsigned_client_envelope).as_str())?;
         }
         if let Some(v) = self.payer_signature.as_ref() {
@@ -1792,10 +1800,12 @@ impl serde::Serialize for UnsignedOriginatorEnvelope {
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.UnsignedOriginatorEnvelope", len)?;
         if self.originator_sid != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("originatorSid", ToString::to_string(&self.originator_sid).as_str())?;
         }
         if self.originator_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("originatorNs", ToString::to_string(&self.originator_ns).as_str())?;
         }
         if let Some(v) = self.payer_envelope.as_ref() {

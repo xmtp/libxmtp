@@ -16,11 +16,11 @@ serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tonic = { workspace = true, features = [
     "tls",
-    "tls-roots",
+    "tls-native-roots",
     "tls-webpki-roots",
 ] }
 tracing.workspace = true
-xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
+xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 xmtp_v2 = { path = "../xmtp_v2" }
 
 [dev-dependencies]
