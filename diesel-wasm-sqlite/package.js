@@ -313,9 +313,21 @@ export class SQLite {
     return this.sqlite3.capi.sqlite3_value_free(value);
   }
 
-  /*
-  serialize(database, zSchema, size, flags) {
-    return this.module._sqlite3_serialize(database, zSchema, size, flags);
+  sqlite3_serialize(database, z_schema, p_size, m_flags) {
+    try {
+      return this.sqlite3.capi.sqlite3_serialize(database, z_schema, p_size, m_flags);
+    } catch (error) {
+      console.log("error serializing");
+      throw error;
+    }
   }
-  */
+
+  sqlite3_deserialize(database, z_schema, p_data, sz_database, sz_buffer, m_flags) {
+    try {
+      return this.sqlite3.capi.sqlite3_deserialize(database, z_schema, p_data, sz_database, sz_buffer, m_flags);
+    } catch (error) {
+      console.log("error deserializing");
+      throw error;
+    }
+  }
 }

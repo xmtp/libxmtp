@@ -85,37 +85,49 @@ impl RawConnection {
         flags as i32
     }
 
-    /* possible to implement this, but would need to fill in the missing wa-sqlite functions
-    pub(super) fn serialize(&mut self) -> SerializedDatabase {
-        unsafe {
-            let mut size: ffi::sqlite3_int64 = 0;
-            let data_ptr = ffi::sqlite3_serialize(
-                self.internal_connection.as_ptr(),
-                std::ptr::null(),
-                &mut size as *mut _,
-                0,
-            );
-            SerializedDatabase::new(data_ptr, size as usize)
+    pub(super) fn serialize(&self, schema: &str, flags: u32) -> SerializedDatabase {
+        let sqlite3 = crate::get_sqlite_unchecked();
+        let mut p_size: i64 = 0;
+
+        let data_ptr = unsafe { 
+            sqlite3.sqlite3_serialize(
+                &self.internal_connection,
+                schema,
+                Some(&mut p_size),
+                flags
+        )};
+
+        if data_ptr.is_null() {
+            panic!("Serialization failed");
         }
+
+        unsafe { SerializedDatabase::new(data_ptr, p_size as usize) }
     }
 
-    pub(super) fn deserialize(&mut self, data: &[u8]) -> QueryResult<()> {
-        // the cast for `ffi::SQLITE_DESERIALIZE_READONLY` is required for old libsqlite3-sys versions
-        #[allow(clippy::unnecessary_cast)]
-        unsafe {
-            let result = ffi::sqlite3_deserialize(
-                self.internal_connection.as_ptr(),
-                std::ptr::null(),
-                data.as_ptr() as *mut u8,
-                data.len() as i64,
-                data.len() as i64,
-                ffi::SQLITE_DESERIALIZE_READONLY as u32,
-            );
+    pub(super) fn deserialize(&self, schema: &str, serialized_db: SerializedDatabase, total_size: usize, flags: u32) -> i32 {
+        let sqlite3 = crate::get_sqlite_unchecked();
 
-            ensure_sqlite_ok(result, self.internal_connection.as_ptr())
+        if serialized_db.len > total_size {
+            panic!("Serialized database size exceeds the buffer size");
         }
+
+        let result = unsafe {
+            sqlite.sqlite3_deserialize(
+                &self.internal_connection,
+                schema,
+                serialized_db.data,
+                serialized_db.len as i64,
+                total_size as i64,
+                flags,
+            )
+        };
+        
+        if result != 0 {
+            panic!("Deserialization failed");
+        }
+
+        result
     }
-    */
 }
 
 impl Drop for RawConnection {
