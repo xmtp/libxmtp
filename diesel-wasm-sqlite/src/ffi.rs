@@ -328,4 +328,23 @@ extern "C" {
     #[wasm_bindgen(method)]
     pub fn value_free(this: &SQLite, value: *mut u8);
 
+    #[wasm_bindgen(method)]
+    pub fn sqlite3_serialize(
+        this: &SQLite,
+        database: &JsValue,
+        z_schema: &str,
+        p_size: Option<&mut i64>,
+        m_flags: u32
+    ) -> *mut u8;
+
+    #[wasm_bindgen(method)]
+    pub fn sqlite3_deserialize(
+        this: &SQLite,
+        database: &JsValue,
+        z_schema: &str,
+        p_data: &mut u8,
+        sz_database: i64,
+        sz_buffer: i64,
+        m_flags: u32
+    ) -> i32;
 }
