@@ -11,14 +11,19 @@ license = "MIT"
 keywords = ["orm", "database", "sql", "wasm"]
 categories = ["database", "wasm"]
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+targets = ["wasm32-unknown-unknown"]
+
 [dependencies]
 talc = { version = "4.4", default-features = false, features = ["lock_api"] }
 diesel = { version = "2.2", features = ["i-implement-a-third-party-backend-and-opt-into-breaking-changes"] }
 diesel_derives = "2.2"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-js-sys = { version = "0.3" } 
-tracing = "0.1" 
+js-sys = { version = "0.3" }
+tracing = "0.1"
 tokio = { version = "1.38", default-features = false, features = ["sync"] }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde-wasm-bindgen = "0.6"
