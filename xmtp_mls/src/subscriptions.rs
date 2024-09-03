@@ -1,4 +1,4 @@
-use std::{collections::HashMap, pin::Pin, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use futures::{FutureExt, Stream, StreamExt};
 use prost::Message;
@@ -130,7 +130,7 @@ where
 
     pub async fn stream_conversations(
         &self,
-    ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup> + Send + '_>>, ClientError> {
+    ) -> Result<impl Stream<Item = MlsGroup> + '_, ClientError> {
         let event_queue =
             tokio_stream::wrappers::BroadcastStream::new(self.local_events.subscribe());
 
@@ -167,14 +167,14 @@ where
                 }
             });
 
-        Ok(Box::pin(futures::stream::select(stream, event_queue)))
+        Ok(futures::stream::select(stream, event_queue))
     }
 
     #[tracing::instrument(skip(self, group_id_to_info))]
     pub(crate) async fn stream_messages(
         self: Arc<Self>,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
-    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + Send>>, ClientError> {
+    ) -> Result<impl Stream<Item = StoredGroupMessage>, ClientError> {
         let filters: Vec<GroupFilter> = group_id_to_info
             .iter()
             .map(|(group_id, info)| GroupFilter::new(group_id.clone(), Some(info.cursor)))
@@ -221,8 +221,7 @@ where
                     }
                 }
             });
-
-        Ok(Box::pin(stream))
+        Ok(stream)
     }
 }
 
@@ -236,8 +235,9 @@ where
     ) -> StreamHandle<Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
-        let handle = tokio::spawn(async move {
-            let mut stream = client.stream_conversations().await?;
+        let handle = crate::spawn(async move {
+            let stream = client.stream_conversations().await?;
+            futures::pin_mut!(stream);
             let _ = tx.send(());
             while let Some(convo) = stream.next().await {
                 convo_callback(convo)
@@ -258,8 +258,10 @@ where
     ) -> StreamHandle<Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
-        let handle = tokio::spawn(async move {
-            let mut stream = Self::stream_messages(client, group_id_to_info).await?;
+        let handle = crate::spawn(async move {
+            let stream = Self::stream_messages(client, group_id_to_info).await?;
+            futures::pin_mut!(stream);
+
             let _ = tx.send(());
             while let Some(message) = stream.next().await {
                 callback(message)
@@ -288,11 +290,15 @@ where
 
         let stream = async_stream::stream! {
             let client = client.clone();
-            let mut messages_stream = client
+
+            let messages_stream = client
                 .clone()
                 .stream_messages(group_id_to_info.clone())
                 .await?;
-            let mut convo_stream = Self::stream_conversations(&client).await?;
+            futures::pin_mut!(messages_stream);
+
+            let convo_stream = Self::stream_conversations(&client).await?;
+            futures::pin_mut!(convo_stream);
             let mut extra_messages = Vec::new();
 
             loop {
@@ -341,13 +347,13 @@ where
                         while let Some(Some(message)) = messages_stream.next().now_or_never() {
                             extra_messages.push(message);
                         }
-                        let _ = std::mem::replace(&mut messages_stream, new_messages_stream);
+                        messages_stream.set(new_messages_stream);
                     },
                 }
             }
         };
 
-        Ok(Box::pin(stream))
+        Ok(stream)
     }
 
     pub fn stream_all_messages_with_callback(
@@ -356,8 +362,9 @@ where
     ) -> StreamHandle<Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
-        let handle = tokio::spawn(async move {
-            let mut stream = Self::stream_all_messages(client).await?;
+        let handle = crate::spawn(async move {
+            let stream = Self::stream_all_messages(client).await?;
+            futures::pin_mut!(stream);
             let _ = tx.send(());
             while let Some(message) = stream.next().await {
                 match message {
@@ -408,7 +415,8 @@ mod tests {
         let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
         let bob_ptr = bob.clone();
         tokio::spawn(async move {
-            let mut bob_stream = bob_ptr.stream_conversations().await.unwrap();
+            let bob_stream = bob_ptr.stream_conversations().await.unwrap();
+            futures::pin_mut!(bob_stream);
             while let Some(item) = bob_stream.next().await {
                 let _ = tx.send(item);
             }
@@ -445,7 +453,8 @@ mod tests {
         let notify_ptr = notify.clone();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         tokio::spawn(async move {
-            let mut stream = alice_group.stream(alice).await.unwrap();
+            let stream = alice_group.stream(alice).await.unwrap();
+            futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
                 let _ = tx.send(item);
                 notify_ptr.notify_one();

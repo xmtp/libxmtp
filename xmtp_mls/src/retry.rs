@@ -19,7 +19,6 @@
 use std::time::Duration;
 
 use rand::Rng;
-use smart_default::SmartDefault;
 
 /// Specifies which errors are retryable.
 /// All Errors are not retryable by-default.
@@ -28,17 +27,24 @@ pub trait RetryableError: std::error::Error {
 }
 
 /// Options to specify how to retry a function
-#[derive(SmartDefault, Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct Retry {
-    #[default = 5]
     retries: usize,
-    #[default(_code = "std::time::Duration::from_millis(50)")]
     duration: std::time::Duration,
-    #[default = 3]
     // The amount to multiply the duration on each subsequent attempt
     multiplier: u32,
-    #[default = 25]
     max_jitter_ms: usize,
+}
+
+impl Default for Retry {
+    fn default() -> Self {
+        Self {
+            retries: 5,
+            duration: std::time::Duration::from_millis(50),
+            multiplier: 3,
+            max_jitter_ms: 25,
+        }
+    }
 }
 
 impl Retry {

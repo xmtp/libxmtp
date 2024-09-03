@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::GenericSignature;
+
 use super::{
     association_log::{
         Action, AddAssociation, ChangeRecoveryAddress, CreateInbox, RevokeAssociation,
@@ -15,7 +17,7 @@ use super::{
         UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
         UnsignedRevokeAssociation,
     },
-    IdentityUpdate, MemberIdentifier, Signature, SignatureError,
+    IdentityUpdate, MemberIdentifier, SignatureError,
 };
 use prost::{DecodeError, Message};
 use regex::Regex;
@@ -204,7 +206,7 @@ impl From<MemberIdentifierKindProto> for MemberIdentifier {
 fn from_signature_proto_option(
     proto: Option<SignatureWrapperProto>,
     signature_text: String,
-) -> Result<Box<dyn Signature>, DeserializationError> {
+) -> Result<GenericSignature, DeserializationError> {
     match proto {
         None => Err(DeserializationError::Signature),
         Some(signature_proto) => match signature_proto.signature {
@@ -217,7 +219,7 @@ fn from_signature_proto_option(
 fn from_signature_kind_proto(
     proto: SignatureKindProto,
     signature_text: String,
-) -> Result<Box<dyn Signature>, DeserializationError> {
+) -> Result<GenericSignature, DeserializationError> {
     Ok(match proto {
         SignatureKindProto::InstallationKey(installation_key_signature) => {
             Box::new(InstallationKeySignature::new(

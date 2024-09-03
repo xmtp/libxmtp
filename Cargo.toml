@@ -57,7 +57,8 @@ tokio = { version = "1.35.1", default-features = false }
 tonic = "^0.12"
 tracing = { version = "0.1" }
 tracing-subscriber = "0.3"
-url = "2.5.0"
+diesel = { version = "2.2", default-features = false }
+diesel_migrations = { version = "2.2", default-features = false }
 
 # Internal Crate Dependencies
 xmtp_cryptography = { path = "xmtp_cryptography" }

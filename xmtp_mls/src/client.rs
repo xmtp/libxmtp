@@ -555,7 +555,7 @@ where
     ) -> Result<ReturnValue, MessageProcessingError>
     where
         Fut: Future<Output = Result<ReturnValue, MessageProcessingError>>,
-        ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Fut + Send,
+        ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Fut,
     {
         self.store()
             .transaction_async(|provider| async move {

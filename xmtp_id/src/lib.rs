@@ -12,6 +12,13 @@ use openmls_traits::types::CryptoError;
 use thiserror::Error;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
 
+use crate::associations::Signature;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub type GenericSignature = Box<dyn Signature + Send + Sync>;
+#[cfg(target_arch = "wasm32")]
+pub type GenericSignature = Box<dyn Signature + Send + Sync>;
+
 #[derive(Debug, Error)]
 pub enum IdentityError {
     #[error("generating key-pairs: {0}")]

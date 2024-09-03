@@ -4,7 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::utils::now_ns;
+use crate::{utils::now_ns, GenericSignature};
 use thiserror::Error;
 
 use super::{
@@ -14,7 +14,7 @@ use super::{
         UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
         UnsignedRevokeAssociation,
     },
-    Action, IdentityUpdate, MemberIdentifier, MemberKind, Signature, SignatureError,
+    Action, IdentityUpdate, MemberIdentifier, MemberKind, SignatureError,
 };
 
 /// The SignatureField is used to map the signatures from a [SignatureRequest] back to the correct
@@ -169,7 +169,7 @@ pub enum SignatureRequestError {
 pub struct SignatureRequest {
     pending_actions: Vec<PendingIdentityAction>,
     signature_text: String,
-    signatures: HashMap<MemberIdentifier, Box<dyn Signature>>,
+    signatures: HashMap<MemberIdentifier, GenericSignature>,
     client_timestamp_ns: u64,
     inbox_id: String,
 }
@@ -218,7 +218,7 @@ impl SignatureRequest {
 
     pub async fn add_signature(
         &mut self,
-        signature: Box<dyn Signature>,
+        signature: GenericSignature,
     ) -> Result<(), SignatureRequestError> {
         let signer_identity = signature.recover_signer().await?;
         let missing_signatures = self.missing_signatures();
@@ -269,7 +269,7 @@ impl SignatureRequest {
 
 fn build_action(
     pending_action: PendingIdentityAction,
-    signatures: &HashMap<MemberIdentifier, Box<dyn Signature>>,
+    signatures: &HashMap<MemberIdentifier, GenericSignature>,
 ) -> Result<Action, SignatureRequestError> {
     match pending_action.unsigned_action {
         UnsignedAction::CreateInbox(unsigned_action) => {

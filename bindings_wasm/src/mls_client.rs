@@ -22,7 +22,7 @@ pub type RustXmtpClient = MlsClient<XmtpHttpApiClient>;
 pub struct WasmClient {
   account_address: String,
   inner_client: Arc<RustXmtpClient>,
-  signatures: HashMap<MemberIdentifier, Box<dyn Signature>>,
+  signatures: HashMap<MemberIdentifier, GenericSignature>,
 }
 
 #[wasm_bindgen]

@@ -4,6 +4,7 @@ name = "xmtp_id"
 version.workspace = true
 
 [dependencies]
+url = "2.5.2"
 async-trait.workspace = true
 chrono.workspace = true
 ed25519-dalek = { workspace = true, features = ["digest"] }
@@ -13,7 +14,6 @@ ethers.workspace = true
 futures.workspace = true
 hex.workspace = true
 log.workspace = true
-openmls.workspace = true
 openmls_basic_credential.workspace = true
 openmls_rust_crypto.workspace = true
 openmls_traits.workspace = true
@@ -26,9 +26,15 @@ sha2.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros"] }
 tracing.workspace = true
-url.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+openmls = { workspace = true, features = ["js"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+openmls.workspace = true
 
 [dev-dependencies]
 ctor = "0.2.5"

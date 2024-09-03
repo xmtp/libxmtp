@@ -5,13 +5,13 @@ use diesel::{
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
-    sqlite::Sqlite,
 };
 use serde::{Deserialize, Serialize};
 
 use super::{
     db_connection::DbConnection,
     schema::{group_messages, group_messages::dsl},
+    Sqlite,
 };
 use crate::{impl_fetch, impl_store, impl_store_or_ignore, StorageError};
 

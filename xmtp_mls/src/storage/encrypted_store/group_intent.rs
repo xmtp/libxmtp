@@ -5,7 +5,6 @@ use diesel::{
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
-    sqlite::Sqlite,
 };
 use prost::Message;
 
@@ -13,6 +12,7 @@ use super::{
     db_connection::DbConnection,
     group,
     schema::{group_intents, group_intents::dsl},
+    Sqlite,
 };
 use crate::{
     groups::{intents::SendMessageIntentData, IntentError},

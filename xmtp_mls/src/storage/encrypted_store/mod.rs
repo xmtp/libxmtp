@@ -26,7 +26,7 @@ use std::{borrow::Cow, sync::Arc};
 use diesel::{
     connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
     prelude::*,
-    r2d2::{ConnectionManager, Pool, PoolTransactionManager, PooledConnection},
+    r2d2::{self, PoolTransactionManager},
     result::{DatabaseErrorKind, Error},
     sql_query,
 };
@@ -36,6 +36,11 @@ use parking_lot::RwLock;
 use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use diesel::sqlite::Sqlite;
+#[cfg(target_arch = "wasm32")]
+pub use diesel_wasm_sqlite::WasmSqlite as Sqlite;
+
 use self::db_connection::DbConnection;
 
 use super::StorageError;
@@ -43,7 +48,14 @@ use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Store};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
-pub type RawDbConnection = PooledConnection<ConnectionManager<SqliteConnection>>;
+#[cfg(not(target_arch = "wasm32"))]
+pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
+#[cfg(target_arch = "wasm32")]
+pub type ConnectionManager =
+    r2d2::ConnectionManager<diesel_wasm_sqlite::connection::WasmSqliteConnection>;
+
+pub type RawDbConnection = r2d2::PooledConnection<ConnectionManager>;
+pub type Pool = r2d2::Pool<ConnectionManager>;
 
 pub type EncryptionKey = [u8; 32];
 
@@ -90,7 +102,7 @@ pub fn ignore_unique_violation<T>(
 /// Manages a Sqlite db for persisting messages and other objects.
 pub struct EncryptedMessageStore {
     connect_opt: StorageOption,
-    pool: Arc<RwLock<Option<Pool<ConnectionManager<SqliteConnection>>>>>,
+    pool: Arc<RwLock<Option<Pool>>>,
     enc_key: Option<EncryptionKey>,
 }
 
@@ -115,15 +127,14 @@ impl EncryptedMessageStore {
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
         log::info!("Setting up DB connection pool");
-        let pool =
-            match opts {
-                StorageOption::Ephemeral => Pool::builder()
-                    .max_size(1)
-                    .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
-                StorageOption::Persistent(ref path) => Pool::builder()
-                    .max_size(25)
-                    .build(ConnectionManager::<SqliteConnection>::new(path))?,
-            };
+        let pool = match opts {
+            StorageOption::Ephemeral => Pool::builder()
+                .max_size(1)
+                .build(ConnectionManager::new(":memory:"))?,
+            StorageOption::Persistent(ref path) => Pool::builder()
+                .max_size(25)
+                .build(ConnectionManager::new(path))?,
+        };
 
         // TODO: Validate that sqlite is correctly configured. Bad EncKey is not detected until the
         // migrations run which returns an unhelpful error.
@@ -175,9 +186,7 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    pub(crate) fn raw_conn(
-        &self,
-    ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
+    pub(crate) fn raw_conn(&self) -> Result<RawDbConnection, StorageError> {
         let pool_guard = self.pool.read();
 
         let pool = pool_guard
@@ -333,15 +342,14 @@ impl EncryptedMessageStore {
     }
 
     pub fn reconnect(&self) -> Result<(), StorageError> {
-        let pool =
-            match self.connect_opt {
-                StorageOption::Ephemeral => Pool::builder()
-                    .max_size(1)
-                    .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
-                StorageOption::Persistent(ref path) => Pool::builder()
-                    .max_size(25)
-                    .build(ConnectionManager::<SqliteConnection>::new(path))?,
-            };
+        let pool = match self.connect_opt {
+            StorageOption::Ephemeral => Pool::builder()
+                .max_size(1)
+                .build(ConnectionManager::new(":memory:"))?,
+            StorageOption::Persistent(ref path) => Pool::builder()
+                .max_size(25)
+                .build(ConnectionManager::new(path))?,
+        };
 
         let mut pool_write = self.pool.write();
         *pool_write = Some(pool);

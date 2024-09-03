@@ -23,7 +23,9 @@ pub mod verified_key_package_v2;
 mod xmtp_openmls_provider;
 
 pub use client::{Client, Network};
+use std::future::Future;
 use storage::StorageError;
+use tokio::task::JoinHandle;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
 
@@ -85,6 +87,24 @@ pub trait Fetch<Model> {
 pub trait Delete<Model> {
     type Key;
     fn delete(&self, key: Self::Key) -> Result<usize, StorageError>;
+}
+
+#[cfg(target_arch = "wasm32")]
+fn spawn<F>(future: F) -> JoinHandle<F::Output>
+where
+    F: Future + 'static,
+    F::Output: 'static,
+{
+    tokio::task::spawn_local(future)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn spawn<F>(future: F) -> JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: 'static + Send,
+{
+    tokio::task::spawn(future)
 }
 
 #[cfg(test)]

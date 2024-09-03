@@ -5,10 +5,9 @@ use diesel::{
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
-    sqlite::Sqlite,
 };
 
-use super::{db_connection::DbConnection, schema::refresh_state};
+use super::{db_connection::DbConnection, schema::refresh_state, Sqlite};
 use crate::{impl_store, impl_store_or_ignore, storage::StorageError, StoreOrIgnore};
 
 #[repr(i32)]
