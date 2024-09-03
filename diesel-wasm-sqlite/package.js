@@ -79,7 +79,7 @@ export class SQLite {
   }
 
   bind_blob(stmt, i, value, len, flags) {
-    return this.sqlite3.capi.sqlite_bind_blob(stmt, i, value);
+    return this.sqlite3.capi.sqlite3_bind_blob(stmt, i, value, len, flags);
   }
 
   bind_text(stmt, i, value, len, flags) {
