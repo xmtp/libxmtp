@@ -84,16 +84,16 @@ class ConversationTests: XCTestCase {
 	}
 
 	func testDoesNotAllowConversationWithSelf() async throws {
-		let expectation = expectation(description: "convo with self throws")
+		let expectation = XCTestExpectation(description: "convo with self throws")
 		let client = aliceClient!
 
 		do {
-			try await client.conversations.newConversation(with: alice.walletAddress)
+			_ = try await client.conversations.newConversation(with: alice.walletAddress)
 		} catch {
 			expectation.fulfill()
 		}
 
-		wait(for: [expectation], timeout: 0.1)
+		await fulfillment(of: [expectation], timeout: 3)
 	}
 
 	func testCanStreamConversationsV2() async throws {
@@ -103,7 +103,7 @@ class ConversationTests: XCTestCase {
 		
 		let wallet2 = try PrivateKey.generate()
 		let client2 = try await Client.create(account: wallet2, options: options)
-		let expectation1 = expectation(description: "got a conversation")
+		let expectation1 = XCTestExpectation(description: "got a conversation")
 		expectation1.expectedFulfillmentCount = 2
 
 		Task(priority: .userInitiated) {
@@ -140,7 +140,7 @@ class ConversationTests: XCTestCase {
 
 		try await conversation2.send(content: "hi from new wallet")
 
-		await waitForExpectations(timeout: 30)
+		await fulfillment(of: [expectation1], timeout: 30)
 	}
 
 	func publishLegacyContact(client: Client) async throws {
@@ -161,7 +161,7 @@ class ConversationTests: XCTestCase {
 			return
 		}
 
-		let expectation = expectation(description: "got a message")
+		let expectation = XCTestExpectation(description: "got a message")
 
 		Task(priority: .userInitiated) {
 			for try await message in conversation.streamMessages() {
@@ -174,7 +174,7 @@ class ConversationTests: XCTestCase {
 		// Stream a message
 		try await conversation.send(content: "hi alice")
 
-		await waitForExpectations(timeout: 3)
+		await fulfillment(of: [expectation], timeout: 3)
 	}
 
 	func testCanLoadV2Messages() async throws {
@@ -458,7 +458,7 @@ class ConversationTests: XCTestCase {
 		XCTAssertTrue(isAllowed)
         
         try await bobClient.contacts.deny(addresses: [alice.address])
-        try await bobClient.contacts.refreshConsentList()
+        _ = try await bobClient.contacts.refreshConsentList()
 
         let isDenied = (try await bobConversation.consentState()) == .denied
 
@@ -491,7 +491,7 @@ class ConversationTests: XCTestCase {
         XCTAssertTrue(isUnknown)
 
         try await aliceConversation.send(content: "hey bob")
-        try await aliceClient.contacts.refreshConsentList()
+        _ = try await aliceClient.contacts.refreshConsentList()
         let isNowAllowed = (try await aliceConversation.consentState()) == .allowed
 
         // Conversations you send a message to get marked as allowed

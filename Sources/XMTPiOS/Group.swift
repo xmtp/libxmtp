@@ -293,40 +293,60 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 	public func streamMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
 		AsyncThrowingStream { continuation in
-			Task.detached {
-				do {
-					self.streamHolder.stream = try await ffiGroup.stream(
-						messageCallback: MessageCallback(client: self.client) { message in
-							do {
-								continuation.yield(try MessageV3(client: self.client, ffiMessage: message).decode())
-							} catch {
-								print("Error onMessage \(error)")
-							}
+			let task = Task.detached {
+				self.streamHolder.stream = await self.ffiGroup.stream(
+					messageCallback: MessageCallback(client: self.client) { message in
+						guard !Task.isCancelled else {
+							continuation.finish()
+							return
 						}
-					)
-				} catch {
-					print("STREAM ERR: \(error)")
+						do {
+							continuation.yield(try MessageV3(client: self.client, ffiMessage: message).decode())
+						} catch {
+							print("Error onMessage \(error)")
+							continuation.finish(throwing: error)
+						}
+					}
+				)
+				
+				continuation.onTermination = { @Sendable reason in
+					self.streamHolder.stream?.end()
 				}
+			}
+
+			continuation.onTermination = { @Sendable reason in
+				task.cancel()
+				self.streamHolder.stream?.end()
 			}
 		}
 	}
 
 	public func streamDecryptedMessages() -> AsyncThrowingStream<DecryptedMessage, Error> {
 		AsyncThrowingStream { continuation in
-			Task.detached {
-				do {
-					self.streamHolder.stream = try await ffiGroup.stream(
-						messageCallback: MessageCallback(client: self.client) { message in
-							do {
-								continuation.yield(try MessageV3(client: self.client, ffiMessage: message).decrypt())
-							} catch {
-								print("Error onMessage \(error)")
-							}
+			let task = Task.detached {
+				self.streamHolder.stream = await self.ffiGroup.stream(
+					messageCallback: MessageCallback(client: self.client) { message in
+						guard !Task.isCancelled else {
+							continuation.finish()
+							return
 						}
-					)
-				} catch {
-					print("STREAM ERR: \(error)")
+						do {
+							continuation.yield(try MessageV3(client: self.client, ffiMessage: message).decrypt())
+						} catch {
+							print("Error onMessage \(error)")
+							continuation.finish(throwing: error)
+						}
+					}
+				)
+				
+				continuation.onTermination = { @Sendable reason in
+					self.streamHolder.stream?.end()
 				}
+			}
+
+			continuation.onTermination = { @Sendable reason in
+				task.cancel()
+				self.streamHolder.stream?.end()
 			}
 		}
 	}
