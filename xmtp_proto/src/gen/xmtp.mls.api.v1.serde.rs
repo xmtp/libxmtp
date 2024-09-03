@@ -200,6 +200,7 @@ impl serde::Serialize for fetch_key_packages_response::KeyPackage {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.FetchKeyPackagesResponse.KeyPackage", len)?;
         if !self.key_package_tls_serialized.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("keyPackageTlsSerialized", pbjson::private::base64::encode(&self.key_package_tls_serialized).as_str())?;
         }
         struct_ser.end()
@@ -301,6 +302,7 @@ impl serde::Serialize for GetIdentityUpdatesRequest {
         }
         if self.start_time_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("startTimeNs", ToString::to_string(&self.start_time_ns).as_str())?;
         }
         struct_ser.end()
@@ -502,10 +504,12 @@ impl serde::Serialize for get_identity_updates_response::NewInstallationUpdate {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.NewInstallationUpdate", len)?;
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         if !self.credential_identity.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("credentialIdentity", pbjson::private::base64::encode(&self.credential_identity).as_str())?;
         }
         struct_ser.end()
@@ -615,6 +619,7 @@ impl serde::Serialize for get_identity_updates_response::RevokedInstallationUpda
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.RevokedInstallationUpdate", len)?;
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         struct_ser.end()
@@ -713,6 +718,7 @@ impl serde::Serialize for get_identity_updates_response::Update {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.Update", len)?;
         if self.timestamp_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("timestampNs", ToString::to_string(&self.timestamp_ns).as_str())?;
         }
         if let Some(v) = self.kind.as_ref() {
@@ -1041,22 +1047,27 @@ impl serde::Serialize for group_message::V1 {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GroupMessage.V1", len)?;
         if self.id != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("id", ToString::to_string(&self.id).as_str())?;
         }
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
         }
         if !self.group_id.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("groupId", pbjson::private::base64::encode(&self.group_id).as_str())?;
         }
         if !self.data.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("data", pbjson::private::base64::encode(&self.data).as_str())?;
         }
         if !self.sender_hmac.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("senderHmac", pbjson::private::base64::encode(&self.sender_hmac).as_str())?;
         }
         struct_ser.end()
@@ -1305,10 +1316,12 @@ impl serde::Serialize for group_message_input::V1 {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GroupMessageInput.V1", len)?;
         if !self.data.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("data", pbjson::private::base64::encode(&self.data).as_str())?;
         }
         if !self.sender_hmac.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("senderHmac", pbjson::private::base64::encode(&self.sender_hmac).as_str())?;
         }
         struct_ser.end()
@@ -1417,6 +1430,7 @@ impl serde::Serialize for KeyPackageUpload {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.KeyPackageUpload", len)?;
         if !self.key_package_tls_serialized.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("keyPackageTlsSerialized", pbjson::private::base64::encode(&self.key_package_tls_serialized).as_str())?;
         }
         struct_ser.end()
@@ -1526,6 +1540,7 @@ impl serde::Serialize for PagingInfo {
         }
         if self.id_cursor != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("idCursor", ToString::to_string(&self.id_cursor).as_str())?;
         }
         struct_ser.end()
@@ -1648,6 +1663,7 @@ impl serde::Serialize for QueryGroupMessagesRequest {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.QueryGroupMessagesRequest", len)?;
         if !self.group_id.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("groupId", pbjson::private::base64::encode(&self.group_id).as_str())?;
         }
         if let Some(v) = self.paging_info.as_ref() {
@@ -1870,6 +1886,7 @@ impl serde::Serialize for QueryWelcomeMessagesRequest {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.QueryWelcomeMessagesRequest", len)?;
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         if let Some(v) = self.paging_info.as_ref() {
@@ -2199,6 +2216,7 @@ impl serde::Serialize for RegisterInstallationResponse {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.RegisterInstallationResponse", len)?;
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         struct_ser.end()
@@ -2297,6 +2315,7 @@ impl serde::Serialize for RevokeInstallationRequest {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.RevokeInstallationRequest", len)?;
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         if let Some(v) = self.wallet_signature.as_ref() {
@@ -2757,10 +2776,12 @@ impl serde::Serialize for subscribe_group_messages_request::Filter {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.SubscribeGroupMessagesRequest.Filter", len)?;
         if !self.group_id.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("groupId", pbjson::private::base64::encode(&self.group_id).as_str())?;
         }
         if self.id_cursor != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("idCursor", ToString::to_string(&self.id_cursor).as_str())?;
         }
         struct_ser.end()
@@ -2964,10 +2985,12 @@ impl serde::Serialize for subscribe_welcome_messages_request::Filter {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.SubscribeWelcomeMessagesRequest.Filter", len)?;
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         if self.id_cursor != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("idCursor", ToString::to_string(&self.id_cursor).as_str())?;
         }
         struct_ser.end()
@@ -3295,22 +3318,27 @@ impl serde::Serialize for welcome_message::V1 {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.WelcomeMessage.V1", len)?;
         if self.id != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("id", ToString::to_string(&self.id).as_str())?;
         }
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
         }
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         if !self.data.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("data", pbjson::private::base64::encode(&self.data).as_str())?;
         }
         if !self.hpke_public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("hpkePublicKey", pbjson::private::base64::encode(&self.hpke_public_key).as_str())?;
         }
         struct_ser.end()
@@ -3562,14 +3590,17 @@ impl serde::Serialize for welcome_message_input::V1 {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.WelcomeMessageInput.V1", len)?;
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         if !self.data.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("data", pbjson::private::base64::encode(&self.data).as_str())?;
         }
         if !self.hpke_public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("hpkePublicKey", pbjson::private::base64::encode(&self.hpke_public_key).as_str())?;
         }
         struct_ser.end()

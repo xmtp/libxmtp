@@ -1,10 +1,8 @@
 name: Test Workspace
-
 on:
   push:
     branches:
       - main
-
   pull_request:
     # only run tests when related changes are made
     paths:
@@ -20,7 +18,6 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain"
-
 jobs:
   test:
     name: Test
@@ -28,21 +25,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Update rust toolchains
         run: rustup update
-
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
-
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             .
-
       - name: Start Docker containers
         run: dev/up
-
       - name: Run cargo test on main workspace
         run: cargo test -- --test-threads=2

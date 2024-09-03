@@ -185,18 +185,17 @@ checksum = "0c4b4d0bd25bd0b74681c0ad21497610ce1b7c91b1022cd21c80c6fbdd9476b0"
 
 [[package]]
 name = "axum"
-version = "0.6.20"
+version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b829e4e32b91e643de6eafe82b1d90675f5874230191a4ffbc1b336dec4d6bf"
+checksum = "3a6c9af12842a67734c9a2e355436e5d03b22383ed60cf13cd0c18fbfe3dcbcf"
 dependencies = [
  "async-trait",
  "axum-core",
- "bitflags 1.3.2",
  "bytes",
  "futures-util",
- "http 0.2.12",
- "http-body 0.4.6",
- "hyper 0.14.28",
+ "http 1.1.0",
+ "http-body 1.0.0",
+ "http-body-util",
  "itoa",
  "matchit",
  "memchr",
@@ -205,7 +204,7 @@ dependencies = [
  "pin-project-lite",
  "rustversion",
  "serde",
- "sync_wrapper",
+ "sync_wrapper 1.0.1",
  "tower",
  "tower-layer",
  "tower-service",
@@ -213,17 +212,20 @@ dependencies = [
 
 [[package]]
 name = "axum-core"
-version = "0.3.4"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "759fa577a247914fd3f7f76d62972792636412fbfd634cd452f6a385a74d2d2c"
+checksum = "a15c63fd72d41492dc4f497196f5da1fb04fb7529e631d73630d1b491e47a2e3"
 dependencies = [
  "async-trait",
  "bytes",
  "futures-util",
- "http 0.2.12",
- "http-body 0.4.6",
+ "http 1.1.0",
+ "http-body 1.0.0",
+ "http-body-util",
  "mime",
+ "pin-project-lite",
  "rustversion",
+ "sync_wrapper 0.1.2",
  "tower-layer",
  "tower-service",
 ]
@@ -304,7 +306,7 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
- "prost 0.12.6",
+ "prost",
  "rand",
  "tokio",
  "tonic",
@@ -1244,7 +1246,7 @@ dependencies = [
  "ethers-core",
  "ethers-etherscan",
  "eyre",
- "prettyplease 0.2.20",
+ "prettyplease",
  "proc-macro2",
  "quote",
  "regex",
@@ -1869,7 +1871,7 @@ dependencies = [
  "hpke-rs-crypto",
  "log",
  "serde",
- "tls_codec 0.4.1",
+ "tls_codec",
  "zeroize",
 ]
 
@@ -2005,6 +2007,7 @@ dependencies = [
  "http 1.1.0",
  "http-body 1.0.0",
  "httparse",
+ "httpdate",
  "itoa",
  "pin-project-lite",
  "smallvec",
@@ -2028,14 +2031,15 @@ dependencies = [
 
 [[package]]
 name = "hyper-timeout"
-version = "0.4.1"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbb958482e8c7be4bc3cf272a766a2b0bf1a6755e7a6ae777f017a31d11b13b1"
+checksum = "3203a961e5c83b6f5498933e78b6b263e208c197b63e9c6c53cc82ffd3f63793"
 dependencies = [
- "hyper 0.14.28",
+ "hyper 1.3.1",
+ "hyper-util",
  "pin-project-lite",
  "tokio",
- "tokio-io-timeout",
+ "tower-service",
 ]
 
 [[package]]
@@ -2224,6 +2228,15 @@ name = "itertools"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
 dependencies = [
  "either",
 ]
@@ -2476,12 +2489,6 @@ dependencies = [
 
 [[package]]
 name = "multimap"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5ce46fe64a9d73be07dcbe690a38ce1b293be448fd8ce1e6c1b8062c9f72c6a"
-
-[[package]]
-name = "multimap"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "defc4c55412d89136f966bbb339008b474350e5e6e78d2714439c386b3137a03"
@@ -2681,9 +2688,10 @@ dependencies = [
 
 [[package]]
 name = "openmls"
-version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?rev=9cb3207#9cb3207b077fcf6bc327408dfcf3df6237aec49c"
+version = "0.6.0-pre.2"
+source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
 dependencies = [
+ "backtrace",
  "itertools 0.10.5",
  "log",
  "once_cell",
@@ -2697,27 +2705,27 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "tls_codec 0.4.2-pre.1",
+ "tls_codec",
  "wasm-bindgen-test",
 ]
 
 [[package]]
 name = "openmls_basic_credential"
-version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=9cb3207#9cb3207b077fcf6bc327408dfcf3df6237aec49c"
+version = "0.3.0-pre.1"
+source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
 dependencies = [
  "ed25519-dalek",
  "openmls_traits",
  "p256",
  "rand",
  "serde",
- "tls_codec 0.4.2-pre.1",
+ "tls_codec",
 ]
 
 [[package]]
 name = "openmls_memory_storage"
-version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=9cb3207#9cb3207b077fcf6bc327408dfcf3df6237aec49c"
+version = "0.3.0-pre.2"
+source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
 dependencies = [
  "hex",
  "log",
@@ -2729,8 +2737,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_rust_crypto"
-version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=9cb3207#9cb3207b077fcf6bc327408dfcf3df6237aec49c"
+version = "0.3.0-pre.1"
+source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -2748,13 +2756,13 @@ dependencies = [
  "serde",
  "sha2",
  "thiserror",
- "tls_codec 0.4.2-pre.1",
+ "tls_codec",
 ]
 
 [[package]]
 name = "openmls_test"
-version = "0.1.0"
-source = "git+https://github.com/xmtp/openmls?rev=9cb3207#9cb3207b077fcf6bc327408dfcf3df6237aec49c"
+version = "0.1.0-pre.1"
+source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
 dependencies = [
  "ansi_term",
  "openmls_rust_crypto",
@@ -2768,11 +2776,11 @@ dependencies = [
 
 [[package]]
 name = "openmls_traits"
-version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=9cb3207#9cb3207b077fcf6bc327408dfcf3df6237aec49c"
+version = "0.3.0-pre.2"
+source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
 dependencies = [
  "serde",
- "tls_codec 0.4.2-pre.1",
+ "tls_codec",
 ]
 
 [[package]]
@@ -2925,19 +2933,9 @@ checksum = "1e91099d4268b0e11973f036e885d652fb0b21fedcf69738c627f94db6a44f42"
 
 [[package]]
 name = "pbjson"
-version = "0.5.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "048f9ac93c1eab514f9470c4bc8d97ca2a0a236b84f45cc19d69a59fc11467f6"
-dependencies = [
- "base64 0.13.1",
- "serde",
-]
-
-[[package]]
-name = "pbjson"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1030c719b0ec2a2d25a5df729d6cff1acf3cc230bf766f4f97833591f7577b90"
+checksum = "c7e6349fa080353f4a597daffd05cb81572a9c031a6d4fff7e504947496fcc68"
 dependencies = [
  "base64 0.21.7",
  "serde",
@@ -2945,55 +2943,28 @@ dependencies = [
 
 [[package]]
 name = "pbjson-build"
-version = "0.5.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bdbb7b706f2afc610f3853550cdbbf6372fd324824a087806bd4480ea4996e24"
+checksum = "6eea3058763d6e656105d1403cb04e0a41b7bbac6362d413e7c33be0c32279c9"
 dependencies = [
- "heck 0.4.1",
- "itertools 0.10.5",
- "prost 0.11.9",
- "prost-types 0.11.9",
-]
-
-[[package]]
-name = "pbjson-build"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2580e33f2292d34be285c5bc3dba5259542b083cfad6037b6d70345f24dcb735"
-dependencies = [
- "heck 0.4.1",
- "itertools 0.11.0",
- "prost 0.12.6",
- "prost-types 0.12.6",
+ "heck 0.5.0",
+ "itertools 0.13.0",
+ "prost",
+ "prost-types",
 ]
 
 [[package]]
 name = "pbjson-types"
-version = "0.5.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a88c8d87f99a4ac14325e7a4c24af190fca261956e3b82dd7ed67e77e6c7043"
+checksum = "e54e5e7bfb1652f95bc361d76f3c780d8e526b134b85417e774166ee941f0887"
 dependencies = [
  "bytes",
  "chrono",
- "pbjson 0.5.1",
- "pbjson-build 0.5.1",
- "prost 0.11.9",
- "prost-build 0.11.9",
- "serde",
-]
-
-[[package]]
-name = "pbjson-types"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18f596653ba4ac51bdecbb4ef6773bc7f56042dc13927910de1684ad3d32aa12"
-dependencies = [
- "bytes",
- "chrono",
- "pbjson 0.6.0",
- "pbjson-build 0.6.2",
- "prost 0.12.6",
- "prost-build 0.12.6",
+ "pbjson",
+ "pbjson-build",
+ "prost",
+ "prost-build",
  "serde",
 ]
 
@@ -3221,16 +3192,6 @@ checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
 
 [[package]]
 name = "prettyplease"
-version = "0.1.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c8646e95016a7a6c4adea95bafa8a16baab64b583356217f2c85db4a39d9a86"
-dependencies = [
- "proc-macro2",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "prettyplease"
 version = "0.2.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f12335488a2f3b0a83b14edad48dca9879ce89b2edd10e80237e4e852dd645e"
@@ -3298,62 +3259,30 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.11.9"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b82eaa1d779e9a4bc1c3217db8ffbeabaae1dca241bf70183242128d48681cd"
+checksum = "e13db3d3fde688c61e2446b4d843bc27a7e8af269a69440c0308021dc92333cc"
 dependencies = [
  "bytes",
- "prost-derive 0.11.9",
-]
-
-[[package]]
-name = "prost"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "deb1435c188b76130da55f17a466d252ff7b1418b2ad3e037d127b94e3411f29"
-dependencies = [
- "bytes",
- "prost-derive 0.12.6",
+ "prost-derive",
 ]
 
 [[package]]
 name = "prost-build"
-version = "0.11.9"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "119533552c9a7ffacc21e099c24a0ac8bb19c2a2a3f363de84cd9b844feab270"
-dependencies = [
- "bytes",
- "heck 0.4.1",
- "itertools 0.10.5",
- "lazy_static",
- "log",
- "multimap 0.8.3",
- "petgraph",
- "prettyplease 0.1.25",
- "prost 0.11.9",
- "prost-types 0.11.9",
- "regex",
- "syn 1.0.109",
- "tempfile",
- "which",
-]
-
-[[package]]
-name = "prost-build"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22505a5c94da8e3b7c2996394d1c933236c4d743e81a410bcca4e6989fc066a4"
+checksum = "5bb182580f71dd070f88d01ce3de9f4da5021db7115d2e1c3605a754153b77c1"
 dependencies = [
  "bytes",
  "heck 0.5.0",
  "itertools 0.12.1",
  "log",
- "multimap 0.10.0",
+ "multimap",
  "once_cell",
  "petgraph",
- "prettyplease 0.2.20",
- "prost 0.12.6",
- "prost-types 0.12.6",
+ "prettyplease",
+ "prost",
+ "prost-types",
  "regex",
  "syn 2.0.64",
  "tempfile",
@@ -3361,22 +3290,9 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.11.9"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5d2d8d10f3c6ded6da8b05b5fb3b8a5082514344d56c9f871412d29b4e075b4"
-dependencies = [
- "anyhow",
- "itertools 0.10.5",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "prost-derive"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
+checksum = "18bec9b0adc4eba778b33684b7ba3e7137789434769ee3ce3930463ef904cfca"
 dependencies = [
  "anyhow",
  "itertools 0.12.1",
@@ -3387,20 +3303,11 @@ dependencies = [
 
 [[package]]
 name = "prost-types"
-version = "0.11.9"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "213622a1460818959ac1181aaeb2dc9c7f63df720db7d788b3e24eacd1983e13"
+checksum = "cee5168b05f49d4b0ca581206eb14a7b22fafd963efe729ac48eb03266e25cc2"
 dependencies = [
- "prost 0.11.9",
-]
-
-[[package]]
-name = "prost-types"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9091c90b0a32608e984ff2fa4091273cbdd755d54935c51d520887f4a1dbd5b0"
-dependencies = [
- "prost 0.12.6",
+ "prost",
 ]
 
 [[package]]
@@ -3565,7 +3472,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
- "sync_wrapper",
+ "sync_wrapper 0.1.2",
  "system-configuration",
  "tokio",
  "tokio-rustls 0.24.1",
@@ -3608,7 +3515,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
- "sync_wrapper",
+ "sync_wrapper 0.1.2",
  "system-configuration",
  "tokio",
  "tokio-native-tls",
@@ -3790,23 +3697,24 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.22.4"
+version = "0.23.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf4ef73721ac7bcd79b2b315da7779d8fc09718c6b3d2d1b2d94850eb8c18432"
+checksum = "c58f8c84392efc0a126acce10fa59ff7b3d2ac06ab451a33f2741989b806b044"
 dependencies = [
  "log",
+ "once_cell",
  "ring 0.17.8",
  "rustls-pki-types",
- "rustls-webpki 0.102.4",
+ "rustls-webpki 0.102.7",
  "subtle",
  "zeroize",
 ]
 
 [[package]]
 name = "rustls-native-certs"
-version = "0.7.0"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f1fb85efa936c42c6d5fc28d2629bb51e4b2f4b8a5211e297d599cc5a093792"
+checksum = "e5bfb394eeed242e909609f56089eecfe5fda225042e8b171791b9c95f5931e5"
 dependencies = [
  "openssl-probe",
  "rustls-pemfile 2.1.2",
@@ -3842,16 +3750,6 @@ checksum = "976295e77ce332211c0d24d92c0e83e50f5c5f046d11082cea19f3df13a3562d"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.100.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f6a5fc258f1c1276dfe3016516945546e2d5383911efc0fc4f1cdc5df3a4ae3"
-dependencies = [
- "ring 0.16.20",
- "untrusted 0.7.1",
-]
-
-[[package]]
-name = "rustls-webpki"
 version = "0.101.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b6275d1ee7a1cd780b64aca7726599a1dbc893b1e64144529e55c3c2f745765"
@@ -3862,9 +3760,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.102.4"
+version = "0.102.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff448f7e92e913c4b7d4c6d8e4540a1724b319b4152b8aef6d4cf8339712b33e"
+checksum = "84678086bd54edf2b415183ed7a94d0efb049f1b646a33e22a36f3794be6ae56"
 dependencies = [
  "ring 0.17.8",
  "rustls-pki-types",
@@ -4345,6 +4243,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2047c6ded9c721764247e62cd3b03c09ffc529b2ba5b10ec482ae507a4a70160"
 
 [[package]]
+name = "sync_wrapper"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7065abeca94b6a8a577f9bd45aa0867a2238b74e8eb67cf10d492bc39351394"
+
+[[package]]
 name = "system-configuration"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4476,17 +4380,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5e78c9c330f8c85b2bae7c8368f2739157db9991235123aa1b15ef9502bfb6a"
 dependencies = [
  "serde",
- "tls_codec_derive 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "zeroize",
-]
-
-[[package]]
-name = "tls_codec"
-version = "0.4.2-pre.1"
-source = "git+https://github.com/rustcrypto/formats#cf967322b60b14a0db800c9c2652afdb6964453c"
-dependencies = [
- "serde",
- "tls_codec_derive 0.4.1 (git+https://github.com/rustcrypto/formats)",
+ "tls_codec_derive",
  "zeroize",
 ]
 
@@ -4495,16 +4389,6 @@ name = "tls_codec_derive"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d9ef545650e79f30233c0003bcc2504d7efac6dad25fca40744de773fe2049c"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.64",
-]
-
-[[package]]
-name = "tls_codec_derive"
-version = "0.4.1"
-source = "git+https://github.com/rustcrypto/formats#cf967322b60b14a0db800c9c2652afdb6964453c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4525,17 +4409,8 @@ dependencies = [
  "pin-project-lite",
  "socket2",
  "tokio-macros",
+ "tracing",
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "tokio-io-timeout"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30b74022ada614a1b4834de765f9bb43877f910cc8ce4be40e89042c9223a8bf"
-dependencies = [
- "pin-project-lite",
- "tokio",
 ]
 
 [[package]]
@@ -4571,11 +4446,11 @@ dependencies = [
 
 [[package]]
 name = "tokio-rustls"
-version = "0.25.0"
+version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "775e0c0f0adb3a2f22a00c4745d728b479985fc15ee7ca6a2608388c5569860f"
+checksum = "0c7bc40d0e5a97695bb96e27995cd3a08538541b0a846f65bba7a359f36700d4"
 dependencies = [
- "rustls 0.22.4",
+ "rustls 0.23.12",
  "rustls-pki-types",
  "tokio",
 ]
@@ -4667,28 +4542,30 @@ dependencies = [
 
 [[package]]
 name = "tonic"
-version = "0.11.0"
+version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76c4eb7a4e9ef9d4763600161f12f5070b92a578e1b634db88a6887844c91a13"
+checksum = "c6f6ba989e4b2c58ae83d862d3a3e27690b6e3ae630d0deb59f3697f32aa88ad"
 dependencies = [
  "async-stream",
  "async-trait",
  "axum",
- "base64 0.21.7",
+ "base64 0.22.1",
  "bytes",
- "h2 0.3.26",
- "http 0.2.12",
- "http-body 0.4.6",
- "hyper 0.14.28",
+ "h2 0.4.5",
+ "http 1.1.0",
+ "http-body 1.0.0",
+ "http-body-util",
+ "hyper 1.3.1",
  "hyper-timeout",
+ "hyper-util",
  "percent-encoding",
  "pin-project",
- "prost 0.12.6",
+ "prost",
  "rustls-native-certs",
  "rustls-pemfile 2.1.2",
- "rustls-pki-types",
+ "socket2",
  "tokio",
- "tokio-rustls 0.25.0",
+ "tokio-rustls 0.26.0",
  "tokio-stream",
  "tower",
  "tower-layer",
@@ -4735,7 +4612,6 @@ version = "0.1.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3523ab5a71916ccf420eebdf5521fcef02141234bbc0b8a49f2fdc4544364ef"
 dependencies = [
- "log",
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
@@ -5056,15 +4932,6 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "0.23.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b03058f88386e5ff5310d9111d53f48b17d732b401aeb83a8d5190f2ac459338"
-dependencies = [
- "rustls-webpki 0.100.3",
-]
-
-[[package]]
-name = "webpki-roots"
 version = "0.25.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f20c57d8d7db6d3b86154206ae5d8fba62dd39573114de97c2cb0578251f8e1"
@@ -5076,18 +4943,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b3de34ae270483955a94f4b21bdaaeb83d508bb84a01435f393818edb0012009"
 dependencies = [
  "rustls-pki-types",
-]
-
-[[package]]
-name = "which"
-version = "4.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87ba24419a2078cd2b0f2ede2691b6c66d8e47836da3b6db8265ebad47afbfc7"
-dependencies = [
- "either",
- "home",
- "once_cell",
- "rustix",
 ]
 
 [[package]]
@@ -5349,38 +5204,35 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_grpc"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-stream",
- "base64 0.21.7",
+ "base64 0.22.1",
  "futures",
  "hex",
- "http-body 0.4.6",
- "hyper 0.14.28",
  "log",
- "pbjson 0.5.1",
- "pbjson-types 0.5.1",
- "prost 0.12.6",
+ "pbjson",
+ "pbjson-types",
+ "prost",
  "serde",
  "tokio",
  "tonic",
- "tower",
  "tracing",
- "webpki-roots 0.23.1",
  "xmtp_proto",
  "xmtp_v2",
 ]
 
 [[package]]
 name = "xmtp_cryptography"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "curve25519-dalek",
- "ecdsa 0.15.1",
+ "ecdsa 0.16.9",
  "ethers",
  "ethers-core",
+ "getrandom",
  "hex",
- "k256 0.12.0",
+ "k256 0.13.3",
  "log",
  "rand",
  "rand_chacha",
@@ -5393,13 +5245,14 @@ dependencies = [
 
 [[package]]
 name = "xmtp_id"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "chrono",
  "ed25519",
  "ed25519-dalek",
  "ethers",
+ "ethers-core",
  "futures",
  "hex",
  "log",
@@ -5407,7 +5260,7 @@ dependencies = [
  "openmls_basic_credential",
  "openmls_rust_crypto",
  "openmls_traits",
- "prost 0.12.6",
+ "prost",
  "rand",
  "regex",
  "rustc-hex",
@@ -5423,10 +5276,10 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
- "aes",
  "aes-gcm",
+ "async-stream",
  "async-trait",
  "bincode",
  "chrono",
@@ -5444,16 +5297,15 @@ dependencies = [
  "openmls_rust_crypto",
  "openmls_traits",
  "parking_lot",
- "prost 0.12.6",
+ "prost",
  "rand",
  "reqwest 0.12.4",
- "ring 0.17.8",
  "serde",
  "serde_json",
  "sha2",
  "smart-default",
  "thiserror",
- "tls_codec 0.4.1",
+ "tls_codec",
  "tokio",
  "tokio-stream",
  "toml",
@@ -5466,24 +5318,24 @@ dependencies = [
 
 [[package]]
 name = "xmtp_proto"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "futures",
  "futures-core",
  "openmls",
  "openmls_basic_credential",
- "pbjson 0.6.0",
- "pbjson-types 0.6.0",
- "prost 0.12.6",
- "prost-types 0.12.6",
+ "pbjson",
+ "pbjson-types",
+ "prost",
+ "prost-types",
  "serde",
  "tonic",
 ]
 
 [[package]]
 name = "xmtp_v2"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "aes-gcm",
  "ecdsa 0.15.1",

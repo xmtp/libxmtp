@@ -75,6 +75,8 @@ pub struct StoredGroupIntent {
     pub payload_hash: Option<Vec<u8>>,
     pub post_commit_data: Option<Vec<u8>>,
     pub publish_attempts: i32,
+    pub staged_commit: Option<Vec<u8>>,
+    pub published_in_epoch: Option<i64>,
 }
 
 impl StoredGroupIntent {
@@ -189,6 +191,8 @@ impl DbConnection {
         intent_id: ID,
         payload_hash: Vec<u8>,
         post_commit_data: Option<Vec<u8>>,
+        staged_commit: Option<Vec<u8>>,
+        published_in_epoch: i64,
     ) -> Result<(), StorageError> {
         let res = self.raw_query(|conn| {
             diesel::update(dsl::group_intents)
@@ -204,6 +208,8 @@ impl DbConnection {
                     dsl::state.eq(IntentState::Published),
                     dsl::payload_hash.eq(payload_hash),
                     dsl::post_commit_data.eq(post_commit_data),
+                    dsl::staged_commit.eq(staged_commit),
+                    dsl::published_in_epoch.eq(published_in_epoch),
                 ))
                 .execute(conn)
         })?;
@@ -252,6 +258,8 @@ impl DbConnection {
                     // When moving to ToPublish, clear the payload hash and post commit data
                     dsl::payload_hash.eq(None::<Vec<u8>>),
                     dsl::post_commit_data.eq(None::<Vec<u8>>),
+                    dsl::published_in_epoch.eq(None::<i64>),
+                    dsl::staged_commit.eq(None::<Vec<u8>>),
                 ))
                 .execute(conn)
         })?;
@@ -563,6 +571,8 @@ mod tests {
                 intent.id,
                 payload_hash.clone(),
                 Some(post_commit_data.clone()),
+                None,
+                1,
             )
             .unwrap();
 
@@ -572,6 +582,7 @@ mod tests {
                 .unwrap();
 
             assert_eq!(find_result.id, intent.id);
+            assert_eq!(find_result.published_in_epoch, Some(1));
         })
     }
 
@@ -600,6 +611,8 @@ mod tests {
                 intent.id,
                 payload_hash.clone(),
                 Some(post_commit_data.clone()),
+                None,
+                1,
             )
             .unwrap();
 
@@ -642,6 +655,8 @@ mod tests {
                 intent.id,
                 payload_hash.clone(),
                 Some(post_commit_data.clone()),
+                None,
+                1,
             )
             .unwrap();
 

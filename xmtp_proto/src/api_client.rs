@@ -1,7 +1,7 @@
-use std::{error::Error as StdError, fmt, pin::Pin};
+use std::{error::Error as StdError, fmt};
 
 use async_trait::async_trait;
-use futures::Stream;
+use futures::{stream, Stream};
 
 pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PagingInfo, PublishRequest, PublishResponse,
@@ -13,12 +13,10 @@ use crate::xmtp::identity::api::v1::{
     GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
 };
 use crate::xmtp::mls::api::v1::{
-    FetchKeyPackagesRequest, FetchKeyPackagesResponse, GetIdentityUpdatesRequest,
-    GetIdentityUpdatesResponse, GroupMessage, QueryGroupMessagesRequest,
+    FetchKeyPackagesRequest, FetchKeyPackagesResponse, GroupMessage, QueryGroupMessagesRequest,
     QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
-    RegisterInstallationRequest, RegisterInstallationResponse, SendGroupMessagesRequest,
-    SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-    UploadKeyPackageRequest, WelcomeMessage,
+    SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
+    SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage,
 };
 
 #[derive(Debug)]
@@ -33,6 +31,7 @@ pub enum ErrorKind {
     MlsError,
     IdentityError,
     SubscriptionUpdateError,
+    MetadataError,
 }
 
 type ErrorSource = Box<dyn StdError + Send + Sync + 'static>;
@@ -80,6 +79,7 @@ impl fmt::Display for Error {
             ErrorKind::IdentityError => "identity error",
             ErrorKind::MlsError => "mls error",
             ErrorKind::SubscriptionUpdateError => "subscription update error",
+            ErrorKind::MetadataError => "metadata error",
         })?;
         if self.source().is_some() {
             f.write_str(": ")?;
@@ -110,14 +110,17 @@ pub trait MutableApiSubscription: Stream<Item = Result<Envelope, Error>> + Send 
     fn close(&self);
 }
 
+pub trait ClientWithMetadata: Send + Sync {
+    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Error>;
+    fn set_app_version(&mut self, version: String) -> Result<(), Error>;
+}
+
 // Wasm futures don't have `Send` or `Sync` bounds.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait XmtpApiClient: Send + Sync {
     type Subscription: XmtpApiSubscription;
     type MutableSubscription: MutableApiSubscription;
-
-    fn set_app_version(&mut self, version: String);
 
     async fn publish(
         &self,
@@ -137,17 +140,20 @@ pub trait XmtpApiClient: Send + Sync {
     async fn batch_query(&self, request: BatchQueryRequest) -> Result<BatchQueryResponse, Error>;
 }
 
-pub type GroupMessageStream = Pin<Box<dyn Stream<Item = Result<GroupMessage, Error>> + Send>>;
-pub type WelcomeMessageStream = Pin<Box<dyn Stream<Item = Result<WelcomeMessage, Error>> + Send>>;
+#[cfg(not(target_arch = "wasm32"))]
+pub type GroupMessageStream = stream::BoxStream<'static, Result<GroupMessage, Error>>;
+#[cfg(target_arch = "wasm32")]
+pub type GroupMessageStream = stream::LocalBoxStream<'static, Result<GroupMessage, Error>>;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub type WelcomeMessageStream = stream::BoxStream<'static, Result<WelcomeMessage, Error>>;
+#[cfg(target_arch = "wasm32")]
+pub type WelcomeMessageStream = stream::LocalBoxStream<'static, Result<WelcomeMessage, Error>>;
 
 // Wasm futures don't have `Send` or `Sync` bounds.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait XmtpMlsClient: Send + Sync + 'static {
-    async fn register_installation(
-        &self,
-        request: RegisterInstallationRequest,
-    ) -> Result<RegisterInstallationResponse, Error>;
     async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
     async fn fetch_key_packages(
         &self,
@@ -156,10 +162,6 @@ pub trait XmtpMlsClient: Send + Sync + 'static {
     async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), Error>;
     async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest)
         -> Result<(), Error>;
-    async fn get_identity_updates(
-        &self,
-        request: GetIdentityUpdatesRequest,
-    ) -> Result<GetIdentityUpdatesResponse, Error>;
     async fn query_group_messages(
         &self,
         request: QueryGroupMessagesRequest,

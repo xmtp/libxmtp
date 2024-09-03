@@ -32,8 +32,6 @@ pub enum KeyPackageVerificationError {
     InvalidCredential,
     #[error(transparent)]
     Association(#[from] AssociationError),
-    #[error("invalid lifetime")]
-    InvalidLifetime,
     #[error("generic: {0}")]
     Generic(String),
     #[error("wrong credential type")]
@@ -69,9 +67,6 @@ impl VerifiedKeyPackage {
                     account_address,
                 ),
             );
-        }
-        if !kp.life_time().is_valid() {
-            return Err(KeyPackageVerificationError::InvalidLifetime);
         }
 
         Ok(Self::new(kp, account_address))

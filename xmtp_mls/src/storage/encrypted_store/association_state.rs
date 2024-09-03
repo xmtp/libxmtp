@@ -78,7 +78,7 @@ impl StoredAssociationState {
             })
             .transpose();
 
-        if result.is_ok() && result.as_ref().unwrap().is_some() {
+        if let Ok(Some(_)) = result {
             log::debug!(
                 "Loaded association state from cache: {} {}",
                 inbox_id,

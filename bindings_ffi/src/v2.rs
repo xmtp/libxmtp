@@ -317,7 +317,7 @@ impl FfiV2Subscription {
                 return Err(GenericError::Generic {
                     err: format!(
                         "subscription event loop join error {}",
-                        join_result.unwrap_err()
+                        join_result.expect_err("checked for err")
                     ),
                 });
             }

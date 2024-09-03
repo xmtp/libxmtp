@@ -325,6 +325,7 @@ impl serde::Serialize for validate_group_messages_request::GroupMessage {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls_validation.v1.ValidateGroupMessagesRequest.GroupMessage", len)?;
         if !self.group_message_bytes_tls_serialized.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("groupMessageBytesTlsSerialized", pbjson::private::base64::encode(&self.group_message_bytes_tls_serialized).as_str())?;
         }
         struct_ser.end()
@@ -751,10 +752,12 @@ impl serde::Serialize for validate_inbox_id_key_packages_response::Response {
         }
         if !self.installation_public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("installationPublicKey", pbjson::private::base64::encode(&self.installation_public_key).as_str())?;
         }
         if self.expiration != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("expiration", ToString::to_string(&self.expiration).as_str())?;
         }
         struct_ser.end()
@@ -998,6 +1001,7 @@ impl serde::Serialize for validate_inbox_ids_request::ValidationRequest {
         }
         if !self.installation_public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("installationPublicKey", pbjson::private::base64::encode(&self.installation_public_key).as_str())?;
         }
         if !self.identity_updates.is_empty() {
@@ -1433,6 +1437,7 @@ impl serde::Serialize for validate_key_packages_request::KeyPackage {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls_validation.v1.ValidateKeyPackagesRequest.KeyPackage", len)?;
         if !self.key_package_bytes_tls_serialized.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("keyPackageBytesTlsSerialized", pbjson::private::base64::encode(&self.key_package_bytes_tls_serialized).as_str())?;
         }
         if self.is_inbox_id_credential {
@@ -1655,6 +1660,7 @@ impl serde::Serialize for validate_key_packages_response::ValidationResponse {
         }
         if !self.installation_id.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("installationId", pbjson::private::base64::encode(&self.installation_id).as_str())?;
         }
         if !self.account_address.is_empty() {
@@ -1662,10 +1668,12 @@ impl serde::Serialize for validate_key_packages_response::ValidationResponse {
         }
         if !self.credential_identity_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("credentialIdentityBytes", pbjson::private::base64::encode(&self.credential_identity_bytes).as_str())?;
         }
         if self.expiration != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("expiration", ToString::to_string(&self.expiration).as_str())?;
         }
         struct_ser.end()

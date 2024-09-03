@@ -842,10 +842,12 @@ impl serde::Serialize for post_commit_action::Installation {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.PostCommitAction.Installation", len)?;
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         if !self.hpke_public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("hpkePublicKey", pbjson::private::base64::encode(&self.hpke_public_key).as_str())?;
         }
         struct_ser.end()
@@ -961,6 +963,7 @@ impl serde::Serialize for post_commit_action::SendWelcomes {
         }
         if !self.welcome_message.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("welcomeMessage", pbjson::private::base64::encode(&self.welcome_message).as_str())?;
         }
         struct_ser.end()
@@ -1351,6 +1354,7 @@ impl serde::Serialize for send_message_data::V1 {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.SendMessageData.V1", len)?;
         if !self.payload_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("payloadBytes", pbjson::private::base64::encode(&self.payload_bytes).as_str())?;
         }
         struct_ser.end()

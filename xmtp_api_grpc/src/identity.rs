@@ -1,4 +1,4 @@
-use tonic::{async_trait, Request};
+use tonic::async_trait;
 use xmtp_proto::{
     api_client::{Error, ErrorKind, XmtpIdentityClient},
     xmtp::identity::api::v1::{
@@ -17,13 +17,11 @@ impl XmtpIdentityClient for Client {
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Error> {
-        let mut tonic_request = Request::new(request);
-        tonic_request
-            .metadata_mut()
-            .insert("x-app-version", self.app_version.clone());
         let client = &mut self.identity_client.clone();
 
-        let res = client.publish_identity_update(tonic_request).await;
+        let res = client
+            .publish_identity_update(self.build_request(request))
+            .await;
 
         res.map(|response| response.into_inner())
             .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))
@@ -34,13 +32,9 @@ impl XmtpIdentityClient for Client {
         &self,
         request: GetInboxIdsRequest,
     ) -> Result<GetInboxIdsResponse, Error> {
-        let mut tonic_request = Request::new(request);
-        tonic_request
-            .metadata_mut()
-            .insert("x-app-version", self.app_version.clone());
         let client = &mut self.identity_client.clone();
 
-        let res = client.get_inbox_ids(tonic_request).await;
+        let res = client.get_inbox_ids(self.build_request(request)).await;
 
         res.map(|response| response.into_inner())
             .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))
@@ -51,13 +45,11 @@ impl XmtpIdentityClient for Client {
         &self,
         request: GetIdentityUpdatesV2Request,
     ) -> Result<GetIdentityUpdatesV2Response, Error> {
-        let mut tonic_request = Request::new(request);
-        tonic_request
-            .metadata_mut()
-            .insert("x-app-version", self.app_version.clone());
         let client = &mut self.identity_client.clone();
 
-        let res = client.get_identity_updates(tonic_request).await;
+        let res = client
+            .get_identity_updates(self.build_request(request))
+            .await;
 
         res.map(|response| response.into_inner())
             .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))
