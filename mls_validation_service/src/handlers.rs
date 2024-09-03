@@ -11,7 +11,6 @@ use xmtp_id::associations::{
 };
 use xmtp_mls::{
     utils::id::serialize_group_id,
-    verified_key_package::VerifiedKeyPackage,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use xmtp_proto::xmtp::{
@@ -409,7 +408,7 @@ mod tests {
         },
         constants::INSTALLATION_KEY_SIGNATURE_CONTEXT,
     };
-    use xmtp_mls::{credential::Credential, InboxOwner};
+    use xmtp_mls::InboxOwner;
     use xmtp_proto::xmtp::{
         identity::associations::IdentityUpdate as IdentityUpdateProto,
         identity::MlsCredential as InboxIdMlsCredential,
