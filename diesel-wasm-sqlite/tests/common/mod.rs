@@ -34,9 +34,11 @@ pub mod prelude {
     };
     pub(crate) use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
     pub(crate) use diesel_wasm_sqlite::{
-        connection::WasmSqliteConnection, DebugQueryWrapper, WasmSqlite,
+        connection::WasmSqliteConnection, WasmSqlite,
     };
     pub(crate) use serde::Deserialize;
     pub(crate) use wasm_bindgen_test::*;
     pub(crate) use web_sys::console;
+    #[cfg(feature = "unsafe-debug-query")]
+    pub(crate) use diesel_wasm_sqlite::DebugQueryWrapper;
 }

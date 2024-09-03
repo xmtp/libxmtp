@@ -59,8 +59,8 @@ async fn establish_connection() -> WasmSqliteConnection {
 fn insert_books(conn: &mut WasmSqliteConnection, new_books: Vec<BookForm>) -> QueryResult<usize> {
     use schema::books::dsl::*;
     let query = insert_into(books).values(new_books);
-    let sql = DebugQueryWrapper::<_, WasmSqlite>::new(&query).to_string();
-    tracing::info!("QUERY = {}", sql);
+    // let sql = DebugQueryWrapper::<_, WasmSqlite>::new(&query).to_string();
+    // tracing::info!("QUERY = {}", sql);
     let rows_changed = query.execute(conn)?;
     Ok(rows_changed)
 }
@@ -205,8 +205,6 @@ fn insert_or_ignore(updates: &[Item], conn: &mut WasmSqliteConnection) {
 
 #[wasm_bindgen_test]
 async fn can_insert_or_ignore() {
-    use schema::books::dsl::*;
-
     init().await;
     let mut conn = establish_connection().await;
     let updates = vec![
@@ -214,13 +212,13 @@ async fn can_insert_or_ignore() {
             id: "test".into(),
             id2: 13,
             timestamp_ns: 1231232,
-            payload: b"testing this testing this".to_vec()
+            payload: b"testing 1".to_vec()
         },
         Item {
             id: "test2".into(),
             id2: 14,
             timestamp_ns: 1201222,
-            payload: b"222testing this testing this".to_vec()
+            payload: b"testing 2".to_vec()
 
         }
     ];
