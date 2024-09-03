@@ -162,7 +162,7 @@ dependencies = [
 [[package]]
 name = "diesel"
 version = "2.2.0"
-source = "git+https://github.com/insipx/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#e4cb5e4fe408cec9f7c568a2c8e92b91bca15135"
 dependencies = [
  "chrono",
  "diesel_derives 2.2.0",
@@ -199,9 +199,9 @@ dependencies = [
 [[package]]
 name = "diesel_derives"
 version = "2.2.0"
-source = "git+https://github.com/insipx/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#e4cb5e4fe408cec9f7c568a2c8e92b91bca15135"
 dependencies = [
- "diesel_table_macro_syntax 0.2.0 (git+https://github.com/insipx/diesel?branch=insipx/skip-from-public)",
+ "diesel_table_macro_syntax 0.2.0 (git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub)",
  "dsl_auto_type 0.1.0",
  "proc-macro2",
  "quote",
@@ -224,7 +224,7 @@ dependencies = [
 [[package]]
 name = "diesel_migrations"
 version = "2.2.0"
-source = "git+https://github.com/insipx/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#e4cb5e4fe408cec9f7c568a2c8e92b91bca15135"
 dependencies = [
  "diesel",
  "migrations_internals",
@@ -243,7 +243,7 @@ dependencies = [
 [[package]]
 name = "diesel_table_macro_syntax"
 version = "0.2.0"
-source = "git+https://github.com/insipx/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#e4cb5e4fe408cec9f7c568a2c8e92b91bca15135"
 dependencies = [
  "syn",
 ]
@@ -257,7 +257,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "dsl_auto_type"
 version = "0.1.0"
-source = "git+https://github.com/insipx/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#e4cb5e4fe408cec9f7c568a2c8e92b91bca15135"
 dependencies = [
  "darling",
  "either",
@@ -415,7 +415,7 @@ checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 [[package]]
 name = "migrations_internals"
 version = "2.2.0"
-source = "git+https://github.com/insipx/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#e4cb5e4fe408cec9f7c568a2c8e92b91bca15135"
 dependencies = [
  "serde",
  "toml",
@@ -424,7 +424,7 @@ dependencies = [
 [[package]]
 name = "migrations_macros"
 version = "2.2.0"
-source = "git+https://github.com/insipx/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#e4cb5e4fe408cec9f7c568a2c8e92b91bca15135"
 dependencies = [
  "migrations_internals",
  "proc-macro2",

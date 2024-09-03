@@ -4,6 +4,7 @@ use diesel::{
     query_builder::AstPass,
     query_builder::NoFromClause,
     query_builder::QueryFragment,
+    query_builder::{InsertOrIgnore, Replace},
     AppearsOnTable, Column, Expression, QueryId, QueryResult,
 };
 
@@ -38,18 +39,12 @@ where
     }
 }
 
-#[derive(Debug, Copy, Clone, QueryId)]
-pub struct InsertOrIgnore;
-
 impl QueryFragment<WasmSqlite> for InsertOrIgnore {
     fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, WasmSqlite>) -> QueryResult<()> {
         out.push_sql("INSERT OR IGNORE");
         Ok(())
     }
 }
-
-#[derive(Debug, Copy, Clone, QueryId)]
-pub struct Replace;
 
 impl QueryFragment<WasmSqlite> for Replace {
     fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, WasmSqlite>) -> QueryResult<()> {
