@@ -102,6 +102,10 @@ impl Connection for WasmSqliteConnection {
     {
         &mut self.transaction_manager
     }
+
+    fn set_prepared_statement_cache_size(&mut self, size: diesel::connection::CacheSize) {
+        self.statement_cache.set_cache_size(size)
+    }
 }
 
 impl LoadConnection<DefaultLoadingMode> for WasmSqliteConnection {

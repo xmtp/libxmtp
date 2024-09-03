@@ -161,12 +161,12 @@ dependencies = [
 
 [[package]]
 name = "diesel"
-version = "2.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65e13bab2796f412722112327f3e575601a3e9cdcbe426f0d30dbf43f3f5dc71"
+version = "2.2.0"
+source = "git+https://github.com/insipx/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
 dependencies = [
  "chrono",
- "diesel_derives",
+ "diesel_derives 2.2.0",
+ "downcast-rs",
  "r2d2",
 ]
 
@@ -178,7 +178,7 @@ dependencies = [
  "console_error_panic_hook",
  "ctor",
  "diesel",
- "diesel_derives",
+ "diesel_derives 2.2.2",
  "diesel_migrations",
  "getrandom",
  "js-sys",
@@ -198,12 +198,24 @@ dependencies = [
 
 [[package]]
 name = "diesel_derives"
+version = "2.2.0"
+source = "git+https://github.com/insipx/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
+dependencies = [
+ "diesel_table_macro_syntax 0.2.0 (git+https://github.com/insipx/diesel?branch=insipx/skip-from-public)",
+ "dsl_auto_type 0.1.0",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "diesel_derives"
 version = "2.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6ff2be1e7312c858b2ef974f5c7089833ae57b5311b334b30923af58e5718d8"
 dependencies = [
- "diesel_table_macro_syntax",
- "dsl_auto_type",
+ "diesel_table_macro_syntax 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "dsl_auto_type 0.1.2",
  "proc-macro2",
  "quote",
  "syn",
@@ -212,8 +224,7 @@ dependencies = [
 [[package]]
 name = "diesel_migrations"
 version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a73ce704bad4231f001bff3314d91dce4aba0770cee8b233991859abc15c1f6"
+source = "git+https://github.com/insipx/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
 dependencies = [
  "diesel",
  "migrations_internals",
@@ -226,6 +237,33 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "209c735641a413bc68c4923a9d6ad4bcb3ca306b794edaa7eb0b3228a99ffb25"
 dependencies = [
+ "syn",
+]
+
+[[package]]
+name = "diesel_table_macro_syntax"
+version = "0.2.0"
+source = "git+https://github.com/insipx/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
+dependencies = [
+ "syn",
+]
+
+[[package]]
+name = "downcast-rs"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
+
+[[package]]
+name = "dsl_auto_type"
+version = "0.1.0"
+source = "git+https://github.com/insipx/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
+dependencies = [
+ "darling",
+ "either",
+ "heck",
+ "proc-macro2",
+ "quote",
  "syn",
 ]
 
@@ -377,8 +415,7 @@ checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 [[package]]
 name = "migrations_internals"
 version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd01039851e82f8799046eabbb354056283fb265c8ec0996af940f4e85a380ff"
+source = "git+https://github.com/insipx/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
 dependencies = [
  "serde",
  "toml",
@@ -387,8 +424,7 @@ dependencies = [
 [[package]]
 name = "migrations_macros"
 version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffb161cc72176cb37aa47f1fc520d3ef02263d67d661f44f05d05a079e1237fd"
+source = "git+https://github.com/insipx/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
 dependencies = [
  "migrations_internals",
  "proc-macro2",

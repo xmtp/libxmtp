@@ -7,7 +7,7 @@ use diesel::result::QueryResult;
 pub(super) mod insert_with_default_sqlite;
 mod limit_offset;
 // mod query_fragment_impls;
-// mod returning;
+mod returning;
 
 /// Constructs SQL queries for use with the SQLite backend
 #[allow(missing_debug_implementations)]

@@ -37,11 +37,13 @@ impl Statement {
         is_cached: PrepareForCache,
     ) -> QueryResult<Self> {
         let sqlite3 = crate::get_sqlite_unchecked();
-        let flags = if matches!(is_cached, PrepareForCache::Yes) {
+
+        let flags = if matches!(is_cached, PrepareForCache::Yes { counter: _}) {
             Some(*ffi::SQLITE_PREPARE_PERSISTENT)
         } else {
             None
         };
+
         let wasm = sqlite3.inner().wasm();
         let stack = wasm.pstack().pointer();
 
@@ -59,7 +61,14 @@ impl Statement {
         let p_stmt = wasm.peek_ptr(&pp_stmt);
 
         ensure_sqlite_ok(prepare_result, &raw_connection.internal_connection)?;
+
         wasm.pstack().restore(&stack);
+        // sqlite3_prepare_v3 returns a null pointer for empty statements. This includes
+        // empty or only whitespace strings or any other non-op query string like a comment
+        if p_stmt.is_null() {
+            return Err(diesel::result::Error::QueryBuilderError(Box::new(diesel::result::EmptyQuery)))
+        }
+
         Ok(Self {
             inner_statement: p_stmt,
         })

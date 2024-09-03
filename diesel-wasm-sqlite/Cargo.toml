@@ -42,6 +42,11 @@ tracing-wasm = { version = "0.2" }
 ctor = "0.2"
 
 
+[patch.crates-io]
+diesel = { git = "https://github.com/insipx/diesel", branch = "insipx/skip-from-public" }
+diesel_derives = { git = "https://github.com/insipx/diesel", branch = "insipx/skip-from-public" }
+diesel_migrations = { git = "https://github.com/insipx/diesel", branch = "insipx/skip-from-public" }
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
