@@ -58,6 +58,7 @@ tonic = "^0.12"
 tracing = { version = "0.1" }
 tracing-subscriber = "0.3"
 diesel = { version = "2.2", default-features = false }
+diesel-wasm-sqlite = "0.0.1"
 diesel_migrations = { version = "2.2", default-features = false }
 
 # Internal Crate Dependencies
@@ -65,3 +66,9 @@ xmtp_cryptography = { path = "xmtp_cryptography" }
 xmtp_id = { path = "xmtp_id" }
 xmtp_mls = { path = "xmtp_mls" }
 xmtp_proto = { path = "xmtp_proto" }
+
+[patch.crates-io]
+diesel = { git = "https://github.com/xmtp/diesel", branch = "insipx/skip-from-public" }
+diesel_derives = { git = "https://github.com/xmtp/diesel", branch = "insipx/skip-from-public" }
+diesel_migrations = { git = "https://github.com/xmtp/diesel", branch = "insipx/skip-from-public" }
+diesel-wasm-sqlite = { git = "https://github.com/xmtp/libxmtp", branch = "wasm-backend" }

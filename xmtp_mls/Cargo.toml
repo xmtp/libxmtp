@@ -63,7 +63,7 @@ once_cell = { version = "1.19", optional = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Native Dependencies
 libsqlite3-sys = { version = "0.29.0", features = ["bundled-sqlcipher-vendored-openssl" ] }
-diesel = { version = "2.2.2", features = [
+diesel = { workspace = true, features = [
     "r2d2",
     "returning_clauses_for_sqlite_3_35",
     "sqlite",
@@ -76,7 +76,7 @@ openmls = { workspace = true, features = ["test-utils"] }
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-diesel-wasm-sqlite = { version = "0.0.1", features = ["r2d2"] }
+diesel-wasm-sqlite = { workspace = true, features = ["r2d2"] }
 diesel = { workspace = true, features = [
     "r2d2",
     "returning_clauses_for_sqlite_3_35",
@@ -110,7 +110,7 @@ xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 xmtp_api_http = { path = "../xmtp_api_http" }
 tracing-wasm = { version = "0.2" }
-diesel-wasm-sqlite = { version = "0.0.1", features = ["unsafe-debug-query", "r2d2"] }
+diesel-wasm-sqlite = { workspace = true, features = ["unsafe-debug-query", "r2d2"] }
 console_error_panic_hook = { version = "0.1"}
 
 [[bin]]
@@ -126,3 +126,5 @@ harness = false
 [[bench]]
 name = "crypto"
 harness = false
+
+

@@ -1065,11 +1065,11 @@ dependencies = [
 
 [[package]]
 name = "diesel"
-version = "2.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf97ee7261bb708fa3402fa9c17a54b70e90e3cb98afb3dc8999d5512cb03f94"
+version = "2.2.0"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
 dependencies = [
- "diesel_derives",
+ "diesel_derives 2.2.0",
+ "downcast-rs",
  "libsqlite3-sys",
  "r2d2",
  "time",
@@ -1078,11 +1078,10 @@ dependencies = [
 [[package]]
 name = "diesel-wasm-sqlite"
 version = "0.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "174378a6e27ada82d3faaac17ec226044f2b2590554bcb549622d3d2317f9909"
+source = "git+https://github.com/xmtp/libxmtp?branch=wasm-backend#3f4f2f5536621567c81fe148991a153c19f24205"
 dependencies = [
  "diesel",
- "diesel_derives",
+ "diesel_derives 2.2.2",
  "js-sys",
  "serde",
  "serde-wasm-bindgen",
@@ -1096,12 +1095,24 @@ dependencies = [
 
 [[package]]
 name = "diesel_derives"
+version = "2.2.0"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
+dependencies = [
+ "diesel_table_macro_syntax 0.2.0 (git+https://github.com/xmtp/diesel?branch=insipx/skip-from-public)",
+ "dsl_auto_type 0.1.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.72",
+]
+
+[[package]]
+name = "diesel_derives"
 version = "2.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6ff2be1e7312c858b2ef974f5c7089833ae57b5311b334b30923af58e5718d8"
 dependencies = [
- "diesel_table_macro_syntax",
- "dsl_auto_type",
+ "diesel_table_macro_syntax 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "dsl_auto_type 0.1.2",
  "proc-macro2",
  "quote",
  "syn 2.0.72",
@@ -1110,8 +1121,7 @@ dependencies = [
 [[package]]
 name = "diesel_migrations"
 version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a73ce704bad4231f001bff3314d91dce4aba0770cee8b233991859abc15c1f6"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
 dependencies = [
  "diesel",
  "migrations_internals",
@@ -1123,6 +1133,14 @@ name = "diesel_table_macro_syntax"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "209c735641a413bc68c4923a9d6ad4bcb3ca306b794edaa7eb0b3228a99ffb25"
+dependencies = [
+ "syn 2.0.72",
+]
+
+[[package]]
+name = "diesel_table_macro_syntax"
+version = "0.2.0"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
 dependencies = [
  "syn 2.0.72",
 ]
@@ -1195,6 +1213,25 @@ name = "downcast"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1"
+
+[[package]]
+name = "downcast-rs"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
+
+[[package]]
+name = "dsl_auto_type"
+version = "0.1.0"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
+dependencies = [
+ "darling",
+ "either",
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.72",
+]
 
 [[package]]
 name = "dsl_auto_type"
@@ -2954,8 +2991,7 @@ checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 [[package]]
 name = "migrations_internals"
 version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd01039851e82f8799046eabbb354056283fb265c8ec0996af940f4e85a380ff"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
 dependencies = [
  "serde",
  "toml",
@@ -2964,8 +3000,7 @@ dependencies = [
 [[package]]
 name = "migrations_macros"
 version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffb161cc72176cb37aa47f1fc520d3ef02263d67d661f44f05d05a079e1237fd"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/skip-from-public#18dde8741343fa1c5bf5505afb384c94f8f13599"
 dependencies = [
  "migrations_internals",
  "proc-macro2",

@@ -282,7 +282,7 @@ mod tests {
         let amal_ptr = amal.clone();
         let group_ptr = group.clone();
         tokio::spawn(async move {
-            let mut stream = group_ptr.stream(amal_ptr).await.unwrap();
+            let stream = group_ptr.stream(amal_ptr).await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
                 let _ = tx.send(item);
