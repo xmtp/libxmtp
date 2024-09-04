@@ -2,7 +2,7 @@
 // functions are needed, but missing functionality means they aren't used yet.
 
 use crate::{WasmSqlite, WasmSqliteError};
-use diesel::{result::*, serialize::ToSql, sql_types::HasSqlType};
+use diesel::{result::*, sql_types::HasSqlType};
 use wasm_bindgen::{closure::Closure, JsValue};
 
 #[allow(missing_copy_implementations)]
@@ -34,8 +34,8 @@ impl RawConnection {
 
     pub(super) fn exec(&self, query: &str) -> QueryResult<()> {
         let sqlite3 = crate::get_sqlite_unchecked();
-        let result = sqlite3.exec(&self.internal_connection, query).unwrap();
-        Ok(result)
+        sqlite3.exec(&self.internal_connection, query).map_err(WasmSqliteError::from)?;
+        Ok(())
     }
 
     pub(super) fn rows_affected_by_last_query(&self) -> usize {
@@ -43,7 +43,7 @@ impl RawConnection {
         sqlite3.changes(&self.internal_connection)
     }
 
-    pub(super) fn register_sql_function<F, Ret, RetSqlType>(
+    pub(super) fn register_sql_function<F, RetSqlType>(
         &self,
         fn_name: &str,
         num_args: usize,
@@ -52,7 +52,6 @@ impl RawConnection {
     ) -> QueryResult<()>
     where
         F: FnMut(JsValue, Vec<JsValue>) -> JsValue + 'static,
-        Ret: ToSql<RetSqlType, WasmSqlite>,
         WasmSqlite: HasSqlType<RetSqlType>,
     {
         let sqlite3 = crate::get_sqlite_unchecked();

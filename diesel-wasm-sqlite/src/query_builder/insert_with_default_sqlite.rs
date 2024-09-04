@@ -1,12 +1,12 @@
-use crate::{connection::WasmSqliteConnection, WasmSqlite};
+use crate::{WasmSqlite, dsl::ExecuteDsl};
 use diesel::connection::Connection;
 use diesel::insertable::InsertValues;
 use diesel::insertable::{CanInsertInSingleQuery, ColumnInsertValue, DefaultableColumnInsertValue};
-use diesel::prelude::RunQueryDsl;
+// use diesel::prelude::RunQueryDsl;
 use diesel::query_builder::QueryFragment;
 use diesel::query_builder::{AstPass, QueryId, ValuesClause};
 use diesel::query_builder::{BatchInsert, InsertStatement};
-use diesel::query_dsl::load_dsl::ExecuteDsl;
+// use diesel::query_dsl::load_dsl::ExecuteDsl;
 use diesel::{QueryResult, QuerySource, Table};
 
 #[cfg(any(feature = "unsafe-debug-query", test))]
@@ -367,40 +367,42 @@ where
     type Out = T::Out;
 }
 
-impl<V, T, QId, Op, O, const STATIC_QUERY_ID: bool> ExecuteDsl<WasmSqliteConnection, WasmSqlite>
+impl<V, T, QId, C, Op, O, const STATIC_QUERY_ID: bool> ExecuteDsl<C, WasmSqlite>
     for InsertStatement<T, BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>, Op>
 where
     T: QuerySource,
+    C: Connection<Backend = WasmSqlite>,
     V: ContainsDefaultableValue<Out = O>,
     O: Default,
-    (O, Self): ExecuteDsl<WasmSqliteConnection, WasmSqlite>,
+    (O, Self): ExecuteDsl<C, WasmSqlite>,
 {
-    fn execute(query: Self, conn: &mut WasmSqliteConnection) -> QueryResult<usize> {
-        <(O, Self) as ExecuteDsl<WasmSqliteConnection, WasmSqlite>>::execute(
+    fn execute(query: Self, conn: &mut C) -> QueryResult<usize> {
+        <(O, Self) as ExecuteDsl<C, WasmSqlite>>::execute(
             (O::default(), query),
             conn,
         )
     }
 }
 
-impl<V, T, QId, Op, const STATIC_QUERY_ID: bool> ExecuteDsl<WasmSqliteConnection, WasmSqlite>
+impl<V, T, QId, C, Op, const STATIC_QUERY_ID: bool> ExecuteDsl<C, WasmSqlite>
     for (
         Yes,
         InsertStatement<T, BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>, Op>,
     )
 where
     T: Table + Copy + QueryId + 'static,
+    C: Connection<Backend = WasmSqlite>,
     T::FromClause: QueryFragment<WasmSqlite>,
     Op: Copy + QueryId + QueryFragment<WasmSqlite>,
     V: InsertValues<WasmSqlite, T> + CanInsertInSingleQuery<WasmSqlite> + QueryId,
 {
-    fn execute((Yes, query): Self, conn: &mut WasmSqliteConnection) -> QueryResult<usize> {
+    fn execute((Yes, query): Self, conn: &mut C) -> QueryResult<usize> {
         conn.transaction(|conn| {
             let mut result = 0;
             for record in &query.records.values {
                 let stmt =
                     InsertStatement::new(query.target, record, query.operator, query.returning);
-                result += stmt.execute(conn)?;
+                result += ExecuteDsl::<C, WasmSqlite>::execute(stmt, conn)?;
             }
             Ok(result)
         })
@@ -475,7 +477,7 @@ where
         <BatchInsert<V, T, QId, STATIC_QUERY_ID> as QueryId>::HAS_STATIC_QUERY_ID;
 }
 
-impl<V, T, QId, Op, const STATIC_QUERY_ID: bool> ExecuteDsl<WasmSqliteConnection, WasmSqlite>
+impl<V, T, QId, C, Op, const STATIC_QUERY_ID: bool> ExecuteDsl<C, WasmSqlite>
     for (
         No,
         InsertStatement<T, BatchInsert<V, T, QId, STATIC_QUERY_ID>, Op>,
@@ -483,18 +485,19 @@ impl<V, T, QId, Op, const STATIC_QUERY_ID: bool> ExecuteDsl<WasmSqliteConnection
 where
     T: Table + QueryId + 'static,
     T::FromClause: QueryFragment<WasmSqlite>,
+    C: Connection<Backend = WasmSqlite>,
     Op: QueryFragment<WasmSqlite> + QueryId,
     SqliteBatchInsertWrapper<V, T, QId, STATIC_QUERY_ID>:
         QueryFragment<WasmSqlite> + QueryId + CanInsertInSingleQuery<WasmSqlite>,
 {
-    fn execute((No, query): Self, conn: &mut WasmSqliteConnection) -> QueryResult<usize> {
+    fn execute((No, query): Self, conn: &mut C) -> QueryResult<usize> {
         let query = InsertStatement::new(
             query.target,
             SqliteBatchInsertWrapper(query.records),
             query.operator,
             query.returning,
         );
-        query.execute(conn)
+        ExecuteDsl::<C, WasmSqlite>::execute(query, conn)
     }
 }
 

@@ -1,5 +1,6 @@
 //! General tests for migrations/diesel ORM/persistant databases
 use crate::common::prelude::*;
+use diesel_wasm_sqlite::dsl::RunQueryDsl;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./tests/migrations/");
 
