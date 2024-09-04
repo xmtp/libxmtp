@@ -81,17 +81,8 @@ impl std::fmt::Display for SignatureKind {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-#[async_trait]
-pub trait Signature: SignatureClone + std::fmt::Debug + 'static {
-    async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError>;
-    fn signature_kind(&self) -> SignatureKind;
-    fn bytes(&self) -> Vec<u8>;
-    fn to_proto(&self) -> SignatureProto;
-}
-
-#[cfg(target_arch = "wasm32")]
-#[async_trait(?Send)]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 pub trait Signature: SignatureClone + std::fmt::Debug + 'static {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError>;
     fn signature_kind(&self) -> SignatureKind;
@@ -192,8 +183,6 @@ pub struct SmartContractWalletSignature {
     block_number: u64,
     chain_rpc_url: String,
 }
-
-unsafe impl Send for SmartContractWalletSignature {}
 
 impl SmartContractWalletSignature {
     pub fn new(
