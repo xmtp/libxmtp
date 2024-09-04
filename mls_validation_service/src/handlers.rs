@@ -199,18 +199,12 @@ mod tests {
     };
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_rust_crypto::OpenMlsRustCrypto;
-    use sha2::{Digest, Sha512};
-    use xmtp_id::{
-        associations::{
-            generate_inbox_id,
-            unsigned_actions::{
-                SignatureTextCreator as _, UnsignedAction, UnsignedAddAssociation,
-                UnsignedCreateInbox, UnsignedIdentityUpdate,
-            },
-            Action, AddAssociation, CreateInbox, IdentityUpdate, InstallationKeySignature,
-            MemberIdentifier, RecoverableEcdsaSignature,
+    use xmtp_id::associations::{
+        generate_inbox_id,
+        unsigned_actions::{
+            SignatureTextCreator as _, UnsignedAction, UnsignedCreateInbox, UnsignedIdentityUpdate,
         },
-        constants::INSTALLATION_KEY_SIGNATURE_CONTEXT,
+        Action, CreateInbox, IdentityUpdate, RecoverableEcdsaSignature,
     };
     use xmtp_proto::xmtp::identity::{
         associations::IdentityUpdate as IdentityUpdateProto, MlsCredential as InboxIdMlsCredential,
