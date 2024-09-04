@@ -99,7 +99,7 @@ impl PartialEq<MemberIdentifier> for Member {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::associations::test_utils;
 
     use super::*;
@@ -122,7 +122,8 @@ mod tests {
         }
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_identifier_comparisons() {
         let address_1 = MemberIdentifier::Address("0x123".to_string());
         let address_2 = MemberIdentifier::Address("0x456".to_string());

@@ -466,7 +466,7 @@ impl ValidatedLegacySignedPublicKey {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{
         associations::{
@@ -484,7 +484,8 @@ mod tests {
     use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
     use xmtp_v2::k256_helper::sign_sha256;
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn validate_good_key_round_trip() {
         let proto_bytes = vec![
             10, 79, 8, 192, 195, 165, 174, 203, 153, 231, 213, 23, 26, 67, 10, 65, 4, 216, 84, 174,
@@ -507,7 +508,8 @@ mod tests {
         assert_eq!(validated_key.account_address(), account_address);
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn validate_malformed_key() {
         let proto_bytes = vec![
             10, 79, 8, 192, 195, 165, 174, 203, 153, 231, 213, 23, 26, 67, 10, 65, 4, 216, 84, 174,
@@ -527,7 +529,8 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn recover_signer_ecdsa() {
         let wallet: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
         let unsigned_action = UnsignedCreateInbox {
@@ -547,7 +550,8 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn recover_signer_erc1271() {
         let wallet: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
 
@@ -563,7 +567,8 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn recover_signer_installation() {
         let signing_key: SigningKey = SigningKey::generate(&mut rand::thread_rng());
         let verifying_key = signing_key.verifying_key();
@@ -588,7 +593,8 @@ mod tests {
     }
 
     // Test the happy path with LocalWallet & fail path with a secp256k1 signer.
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn recover_signer_legacy() {
         let signature_text = "test_legacy_signature".to_string();
         let account_address = "0x0bd00b21af9a2d538103c3aaf95cb507f8af1b28".to_string();

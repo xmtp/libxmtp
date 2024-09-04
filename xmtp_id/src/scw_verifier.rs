@@ -98,8 +98,8 @@ impl SmartContractWalletVerifier {
     }
 }
 
-#[cfg(test)]
-pub mod tests {
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) mod tests {
     use crate::is_smart_contract;
 
     use super::*;

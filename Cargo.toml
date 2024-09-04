@@ -60,6 +60,8 @@ tracing-subscriber = "0.3"
 diesel = { version = "2.2", default-features = false }
 diesel-wasm-sqlite = "0.0.1"
 diesel_migrations = { version = "2.2", default-features = false }
+wasm-bindgen-test = "0.3"
+gloo-timers = "0.3"
 
 # Internal Crate Dependencies
 xmtp_cryptography = { path = "xmtp_cryptography" }

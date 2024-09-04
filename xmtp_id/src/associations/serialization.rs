@@ -542,7 +542,7 @@ impl From<AccountId> for String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::associations::{
         hashes::generate_inbox_id,
         test_utils::{rand_string, rand_u64},
@@ -550,7 +550,8 @@ mod tests {
 
     use super::*;
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_round_trip() {
         let account_address = rand_string();
         let nonce = rand_u64();
@@ -585,7 +586,8 @@ mod tests {
         assert_eq!(serialized_update, reserialized);
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_accound_id() {
         // valid evm chain
         let text = "eip155:1:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb".to_string();

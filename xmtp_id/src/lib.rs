@@ -69,8 +69,10 @@ impl InboxOwner for LocalWallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scw_verifier::tests::with_smart_contracts;
     use ethers::contract::abigen;
+
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     abigen!(
         CoinbaseSmartWallet,
@@ -84,8 +86,11 @@ mod tests {
         derives(serde::Serialize, serde::Deserialize)
     );
 
-    #[tokio::test]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[cfg(not(target_arch = "wasm32"))]
     async fn test_is_smart_contract() {
+        use crate::scw_verifier::tests::with_smart_contracts;
+
         with_smart_contracts(|anvil, _provider, _client, smart_contracts| async move {
             let deployer: LocalWallet = anvil.keys()[0].clone().into();
             let factory = smart_contracts.coinbase_smart_wallet_factory();
@@ -99,5 +104,19 @@ mod tests {
                 .unwrap());
         })
         .await;
+    }
+
+    // re-export tests since all wasm-bindgen tests need to be at the root
+    #[cfg(target_arch = "wasm32")]
+    mod wasm {
+        pub use crate::associations::builder::tests::*;
+        pub use crate::associations::member::tests::*;
+        pub use crate::associations::serialization::tests::*;
+        pub use crate::associations::signature::tests::*;
+        pub use crate::associations::state::tests::*;
+        pub use crate::associations::tests::*;
+        pub use crate::associations::unsigned_actions::tests::*;
+        // skipping b/c Anvil cant be used in WASM
+        // pub use crate::scw_verifier::tests::*;
     }
 }

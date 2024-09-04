@@ -251,7 +251,7 @@ macro_rules! retry_async {
                     if (&e).is_retryable() && attempts < $retry.retries() {
                         log::warn!("retrying function that failed with error={}", e.to_string());
                         attempts += 1;
-                        tokio::time::sleep($retry.duration(attempts)).await;
+                        crate::sleep($retry.duration(attempts)).await;
                     } else {
                         log::info!("error is not retryable. {:?}", e);
                         break Err(e);
@@ -372,7 +372,7 @@ mod tests {
                 return Ok(());
             }
             // do some work
-            tokio::time::sleep(std::time::Duration::from_nanos(100)).await;
+            crate::sleep(std::time::Duration::from_nanos(100)).await;
             Err(SomeError::ARetryableError)
         }
 
@@ -397,7 +397,7 @@ mod tests {
             }
             *data += 1;
             // do some work
-            tokio::time::sleep(std::time::Duration::from_nanos(100)).await;
+            crate::sleep(std::time::Duration::from_nanos(100)).await;
             Err(SomeError::ARetryableError)
         }
 

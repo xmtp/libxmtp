@@ -336,7 +336,7 @@ mod tests {
         // just to make sure stream is started
         let _ = start_rx.await;
         // Adding in a sleep, since the HTTP API client may acknowledge requests before they are ready
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        crate::sleep(tokio::time::Duration::from_millis(100)).await;
 
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])

@@ -496,7 +496,7 @@ mod tests {
             .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        crate::sleep(std::time::Duration::from_millis(100)).await;
 
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let messages_clone = messages.clone();
@@ -643,7 +643,7 @@ mod tests {
             .send_message("should not show up".as_bytes(), &alix)
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        crate::sleep(std::time::Duration::from_millis(100)).await;
 
         let messages = messages.lock();
         assert_eq!(messages.len(), 5);
@@ -684,7 +684,7 @@ mod tests {
                     .send_message(b"spam", &alix_pointer)
                     .await
                     .unwrap();
-                tokio::time::sleep(std::time::Duration::from_micros(200)).await;
+                crate::sleep(std::time::Duration::from_micros(200)).await;
             }
         });
 

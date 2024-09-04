@@ -178,12 +178,13 @@ impl AssociationState {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::associations::test_utils::rand_string;
 
     use super::*;
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn can_add_remove() {
         let starting_state = AssociationState::new(rand_string(), 0);
         let new_entity = Member::default();
@@ -192,7 +193,8 @@ mod tests {
         assert!(starting_state.get(&new_entity.identifier).is_none());
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn can_diff() {
         let starting_state = AssociationState::new(rand_string(), 0);
         let entity_1 = Member::default();

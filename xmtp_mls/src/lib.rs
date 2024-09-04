@@ -105,6 +105,16 @@ where
     tokio::task::spawn(future)
 }
 
+#[cfg(target_arch = "wasm32")]
+async fn sleep(duration: std::time::Duration) {
+    gloo_timers::future::TimeoutFuture::new(duration.as_millis()).await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn sleep(duration: std::time::Duration) {
+    tokio::time::sleep(duration).await
+}
+
 #[cfg(test)]
 mod tests {
     use log::LevelFilter;

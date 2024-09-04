@@ -21,8 +21,13 @@ tokio-stream = { version = "0.1", default-features = false }
 tracing.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+tokio = { workspace = true, features = ["macros", "time"] }
+wasm-bindgen-test.workspace = true
 
 [profile.release]
 opt-level = "s"
+

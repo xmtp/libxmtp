@@ -14,7 +14,7 @@ use super::{
         UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
         UnsignedRevokeAssociation,
     },
-    Action, IdentityUpdate, MemberIdentifier, MemberKind, SignatureError,
+    Action, IdentityUpdate, MemberIdentifier, MemberKind, Signature, SignatureError,
 };
 
 /// The SignatureField is used to map the signatures from a [SignatureRequest] back to the correct
@@ -363,7 +363,7 @@ fn get_signature_text(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::associations::{
         get_state,
         hashes::generate_inbox_id,
@@ -394,7 +394,8 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_inbox() {
         let account_address = "account_address".to_string();
         let nonce = 0;
@@ -414,7 +415,8 @@ mod tests {
             .expect("should be valid");
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_and_add_identity() {
         let account_address = "account_address".to_string();
         let nonce = 0;
@@ -439,7 +441,8 @@ mod tests {
         assert_eq!(state.members().len(), 2);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_and_revoke() {
         let account_address = "account_address".to_string();
         let nonce = 0;
@@ -464,7 +467,8 @@ mod tests {
         assert_eq!(state.members().len(), 0);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn attempt_adding_unknown_signer() {
         let account_address = "account_address".to_string();
         let nonce = 0;
