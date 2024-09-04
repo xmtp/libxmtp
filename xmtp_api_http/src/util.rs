@@ -1,4 +1,4 @@
-use futures::stream::BoxStream;
+use futures::{stream, Stream, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Deserializer;
 use std::io::Read;
@@ -40,16 +40,43 @@ where
     }
 }
 
-pub async fn create_grpc_stream<
+#[cfg(target_arch = "wasm32")]
+pub fn create_grpc_stream<
     T: Serialize + Send + 'static,
     R: DeserializeOwned + Send + std::fmt::Debug + 'static,
 >(
     request: T,
     endpoint: String,
     http_client: reqwest::Client,
-) -> Result<BoxStream<'static, Result<R, Error>>, Error> {
+) -> stream::LocalBoxStream<'static, Result<R, Error>> {
     log::info!("About to spawn stream");
-    let stream = async_stream::stream! {
+    let stream = create_grpc_stream_inner(request, endpoint, http_client);
+    stream.boxed_local()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn create_grpc_stream<
+    T: Serialize + Send + 'static,
+    R: DeserializeOwned + Send + std::fmt::Debug + 'static,
+>(
+    request: T,
+    endpoint: String,
+    http_client: reqwest::Client,
+) -> stream::BoxStream<'static, Result<R, Error>> {
+    log::info!("About to spawn stream");
+    let stream = create_grpc_stream_inner(request, endpoint, http_client);
+    stream.boxed()
+}
+
+fn create_grpc_stream_inner<
+    T: Serialize + Send + 'static,
+    R: DeserializeOwned + Send + std::fmt::Debug + 'static,
+>(
+    request: T,
+    endpoint: String,
+    http_client: reqwest::Client,
+) -> impl Stream<Item = Result<R, Error>> {
+    async_stream::stream! {
         log::info!("Spawning grpc http stream");
         let request = http_client
                 .post(endpoint)
@@ -87,9 +114,7 @@ pub async fn create_grpc_stream<
                 yield res;
             }
         }
-    };
-
-    Ok(Box::pin(stream))
+    }
 }
 
 #[cfg(test)]

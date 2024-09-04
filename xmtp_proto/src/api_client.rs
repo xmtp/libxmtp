@@ -1,7 +1,7 @@
-use std::{error::Error as StdError, fmt, pin::Pin};
+use std::{error::Error as StdError, fmt};
 
 use async_trait::async_trait;
-use futures::Stream;
+use futures::{stream, Stream};
 
 pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PagingInfo, PublishRequest, PublishResponse,
@@ -140,8 +140,15 @@ pub trait XmtpApiClient: Send + Sync {
     async fn batch_query(&self, request: BatchQueryRequest) -> Result<BatchQueryResponse, Error>;
 }
 
-pub type GroupMessageStream = Pin<Box<dyn Stream<Item = Result<GroupMessage, Error>> + Send>>;
-pub type WelcomeMessageStream = Pin<Box<dyn Stream<Item = Result<WelcomeMessage, Error>> + Send>>;
+#[cfg(not(target_arch = "wasm32"))]
+pub type GroupMessageStream = stream::BoxStream<'static, Result<GroupMessage, Error>>;
+#[cfg(target_arch = "wasm32")]
+pub type GroupMessageStream = stream::LocalBoxStream<'static, Result<GroupMessage, Error>>;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub type WelcomeMessageStream = stream::BoxStream<'static, Result<WelcomeMessage, Error>>;
+#[cfg(target_arch = "wasm32")]
+pub type WelcomeMessageStream = stream::LocalBoxStream<'static, Result<WelcomeMessage, Error>>;
 
 // Wasm futures don't have `Send` or `Sync` bounds.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]

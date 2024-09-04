@@ -47,6 +47,7 @@ pub async fn is_smart_contract(
     Ok(!code.is_empty())
 }
 
+// TODO: Remove this trait
 pub trait InboxOwner {
     /// Get address of the wallet.
     fn get_address(&self) -> String;
