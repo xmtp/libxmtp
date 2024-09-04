@@ -1,12 +1,98 @@
-use crate::WasmSqlite;
+use crate::{connection::WasmSqliteConnection, WasmSqlite};
 use diesel::{
+    associations::HasTable,
+    dsl::{Find, Update},
+    expression::{is_aggregate, MixedAggregates, ValidGrouping},
     insertable::{ColumnInsertValue, DefaultableColumnInsertValue, InsertValues},
-    query_builder::AstPass,
-    query_builder::NoFromClause,
-    query_builder::QueryFragment,
-    query_builder::{InsertOrIgnore, Replace},
-    AppearsOnTable, Column, Expression, QueryId, QueryResult,
+    prelude::{AsChangeset, Identifiable},
+    query_builder::{
+        AstPass, InsertOrIgnore, IntoUpdateTarget, NoFromClause, QueryFragment, Replace,
+    },
+    query_dsl::{
+        methods::{ExecuteDsl, FindDsl, LoadQuery},
+        UpdateAndFetchResults,
+    },
+    AppearsOnTable, Column, Expression, QueryResult, RunQueryDsl, Table,
 };
+
+/// We re-define Dsl traits to make `insert_with_default_sqlite.rs` generic over all `Connection`
+/// implementations with `WasmSqlite` backend`. This works around Rusts orphan rules.
+pub mod dsl {
+    use diesel::{
+        backend::Backend,
+        dsl::Limit,
+        query_builder::{QueryFragment, QueryId},
+        query_dsl::methods::{LimitDsl, LoadQuery},
+        Connection, QueryResult,
+    };
+
+    pub trait ExecuteDsl<
+        Conn: Connection<Backend = DB>,
+        DB: Backend = <Conn as Connection>::Backend,
+    >: Sized
+    {
+        fn execute(query: Self, conn: &mut Conn) -> QueryResult<usize>;
+    }
+
+    impl<Conn, DB, T> ExecuteDsl<Conn, DB> for T
+    where
+        Conn: Connection<Backend = DB>,
+        DB: Backend,
+        T: QueryFragment<DB> + QueryId,
+    {
+        fn execute(query: T, conn: &mut Conn) -> QueryResult<usize> {
+            conn.execute_returning_count(&query)
+        }
+    }
+
+    pub trait RunQueryDsl<Conn>: Sized + diesel::query_dsl::RunQueryDsl<Conn> {
+        fn execute(self, conn: &mut Conn) -> QueryResult<usize>
+        where
+            Conn: Connection,
+            Self: ExecuteDsl<Conn>,
+        {
+            ExecuteDsl::execute(self, conn)
+        }
+
+        fn load<'query, U>(self, conn: &mut Conn) -> QueryResult<Vec<U>>
+        where
+            Self: LoadQuery<'query, Conn, U>,
+        {
+            <Self as diesel::query_dsl::RunQueryDsl<Conn>>::load(self, conn)
+        }
+        fn load_iter<'conn, 'query: 'conn, U, B>(
+            self,
+            conn: &'conn mut Conn,
+        ) -> QueryResult<Self::RowIter<'conn>>
+        where
+            U: 'conn,
+            Self: LoadQuery<'query, Conn, U, B> + 'conn,
+        {
+            <Self as diesel::query_dsl::RunQueryDsl<Conn>>::load_iter(self, conn)
+        }
+        fn get_result<'query, U>(self, conn: &mut Conn) -> QueryResult<U>
+        where
+            Self: LoadQuery<'query, Conn, U>,
+        {
+            <Self as diesel::query_dsl::RunQueryDsl<Conn>>::get_result(self, conn)
+        }
+        fn get_results<'query, U>(self, conn: &mut Conn) -> QueryResult<Vec<U>>
+        where
+            Self: LoadQuery<'query, Conn, U>,
+        {
+            <Self as diesel::query_dsl::RunQueryDsl<Conn>>::get_results(self, conn)
+        }
+        fn first<'query, U>(self, conn: &mut Conn) -> QueryResult<U>
+        where
+            Self: LimitDsl,
+            Limit<Self>: LoadQuery<'query, Conn, U>,
+        {
+            <Self as diesel::query_dsl::RunQueryDsl<Conn>>::first(self, conn)
+        }
+    }
+
+    impl<T, Conn> RunQueryDsl<Conn> for T where T: diesel::query_dsl::RunQueryDsl<Conn> {}
+}
 
 impl<Col, Expr> InsertValues<WasmSqlite, Col::Table>
     for DefaultableColumnInsertValue<ColumnInsertValue<Col, Expr>>
@@ -53,27 +139,31 @@ impl QueryFragment<WasmSqlite> for Replace {
     }
 }
 
+impl<'b, Changes, Output> UpdateAndFetchResults<Changes, Output> for WasmSqliteConnection
+where
+    Changes: Copy + Identifiable,
+    Changes: AsChangeset<Target = <Changes as HasTable>::Table> + IntoUpdateTarget,
+    Changes::Table: FindDsl<Changes::Id>,
+    Update<Changes, Changes>: ExecuteDsl<WasmSqliteConnection>,
+    Find<Changes::Table, Changes::Id>: LoadQuery<'b, WasmSqliteConnection, Output>,
+    <Changes::Table as Table>::AllColumns: ValidGrouping<()>,
+    <<Changes::Table as Table>::AllColumns as ValidGrouping<()>>::IsAggregate:
+        MixedAggregates<is_aggregate::No, Output = is_aggregate::No>,
+{
+    fn update_and_fetch(&mut self, changeset: Changes) -> QueryResult<Output> {
+        diesel::update(changeset).set(changeset).execute(self)?;
+        Changes::table().find(changeset.id()).get_result(self)
+    }
+}
+
 mod parenthesis_wrapper {
     use super::*;
 
     use crate::WasmSqlite;
     // use diesel::query_builder::combination_clause::SupportsCombinationClause;
-    use diesel::query_builder::{AstPass, QueryFragment};
-
-    #[derive(Debug, Copy, Clone, QueryId)]
-    /// Wrapper used to wrap rhs sql in parenthesis when supported by backend
-    pub struct ParenthesisWrapper<T>(T);
-
-    #[derive(Debug, Copy, Clone, QueryId)]
-    /// Keep duplicate rows in the result
-    pub struct All;
-
-    impl QueryFragment<WasmSqlite> for All {
-        fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, WasmSqlite>) -> QueryResult<()> {
-            out.push_sql("ALL ");
-            Ok(())
-        }
-    }
+    use diesel::query_builder::{
+        All, AstPass, Distinct, Except, Intersect, QueryFragment, SupportsCombinationClause, Union, ParenthesisWrapper
+    };
 
     impl<T: QueryFragment<WasmSqlite>> QueryFragment<WasmSqlite> for ParenthesisWrapper<T> {
         fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, WasmSqlite>) -> QueryResult<()> {
@@ -81,40 +171,21 @@ mod parenthesis_wrapper {
             // we can emulate this by construct a fake outer
             // SELECT * FROM (inner_query) statement
             out.push_sql("SELECT * FROM (");
-            self.0.walk_ast(out.reborrow())?;
+            self.inner.walk_ast(out.reborrow())?;
             out.push_sql(")");
             Ok(())
         }
     }
-    /*
+
     impl SupportsCombinationClause<Union, Distinct> for WasmSqlite {}
     impl SupportsCombinationClause<Union, All> for WasmSqlite {}
     impl SupportsCombinationClause<Intersect, Distinct> for WasmSqlite {}
     impl SupportsCombinationClause<Except, Distinct> for WasmSqlite {}
-    */
 }
 
 // Anything commented here are implementation present in diesel
 // but not possible because parts of it exist as private types in diesel.
 
-/*
-impl<'b, Changes, Output> UpdateAndFetchResults<Changes, Output> for SqliteConnection
-where
-    Changes: Copy + Identifiable,
-    Changes: AsChangeset<Target = <Changes as HasTable>::Table> + IntoUpdateTarget,
-    Changes::Table: FindDsl<Changes::Id>,
-    Update<Changes, Changes>: ExecuteDsl<SqliteConnection>,
-    Find<Changes::Table, Changes::Id>: LoadQuery<'b, SqliteConnection, Output>,
-    <Changes::Table as Table>::AllColumns: ValidGrouping<()>,
-    <<Changes::Table as Table>::AllColumns as ValidGrouping<()>>::IsAggregate:
-        MixedAggregates<is_aggregate::No, Output = is_aggregate::No>,
-{
-    fn update_and_fetch(&mut self, changeset: Changes) -> QueryResult<Output> {
-        crate::update(changeset).set(changeset).execute(self)?;
-        Changes::table().find(changeset.id()).get_result(self)
-    }
-}
-*/
 /*
 impl AsExpression<TimestamptzSqlite> for now {
     type Expression = Coerce<now, TimestamptzSqlite>;

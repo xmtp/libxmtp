@@ -15,7 +15,7 @@ pub use self::sqlite_value::SqliteValue;
 use self::raw::RawConnection;
 pub use self::statement_iterator::*;
 use self::stmt::{Statement, StatementUse};
-pub(self) use err::*;
+use err::*;
 // use diesel::connection::DynInstrumentation;
 use diesel::{
     connection::WithMetadataLookup,

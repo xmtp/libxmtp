@@ -1,5 +1,6 @@
 //! General tests for migrations/diesel ORM/persistant databases
 use crate::common::prelude::*;
+use diesel_wasm_sqlite::dsl::RunQueryDsl;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./tests/migrations/");
 
@@ -12,9 +13,18 @@ mod schema {
             // published_year -> Timestamp,
         }
     }
+
+    diesel::table! {
+        test_table (id, id2) {
+            id -> Text,
+            id2 -> BigInt,
+            timestamp_ns -> BigInt,
+            payload -> Binary,
+        }
+    }
 }
 
-use schema::books;
+use schema::{books, test_table};
 
 #[derive(Deserialize, Insertable, Debug, PartialEq, Clone)]
 #[diesel(table_name = books)]
@@ -50,8 +60,8 @@ async fn establish_connection() -> WasmSqliteConnection {
 fn insert_books(conn: &mut WasmSqliteConnection, new_books: Vec<BookForm>) -> QueryResult<usize> {
     use schema::books::dsl::*;
     let query = insert_into(books).values(new_books);
-    let sql = DebugQueryWrapper::<_, WasmSqlite>::new(&query).to_string();
-    tracing::info!("QUERY = {}", sql);
+    // let sql = DebugQueryWrapper::<_, WasmSqlite>::new(&query).to_string();
+    // tracing::info!("QUERY = {}", sql);
     let rows_changed = query.execute(conn)?;
     Ok(rows_changed)
 }
@@ -172,3 +182,49 @@ async fn test_orm_insert() {
         ]
     )
 }
+
+
+/// StoredIdentityUpdate holds a serialized IdentityUpdate record
+#[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
+#[diesel(table_name = test_table)]
+#[diesel(primary_key(id, id2))]
+pub struct Item {
+    pub id: String,
+    pub id2: i64,
+    pub timestamp_ns: i64,
+    pub payload: Vec<u8>,
+}
+
+fn insert_or_ignore(updates: &[Item], conn: &mut WasmSqliteConnection) {
+    use schema::test_table::dsl::*;
+
+    diesel::insert_or_ignore_into(test_table)
+        .values(updates)
+        .execute(conn).unwrap();
+
+}
+
+#[wasm_bindgen_test]
+async fn can_insert_or_ignore() {
+    init().await;
+    let mut conn = establish_connection().await;
+    let updates = vec![
+        Item {
+            id: "test".into(),
+            id2: 13,
+            timestamp_ns: 1231232,
+            payload: b"testing 1".to_vec()
+        },
+        Item {
+            id: "test2".into(),
+            id2: 14,
+            timestamp_ns: 1201222,
+            payload: b"testing 2".to_vec()
+
+        }
+    ];
+    insert_or_ignore(&updates, &mut conn);
+
+}
+
+

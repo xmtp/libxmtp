@@ -20,6 +20,7 @@ use wasm_bindgen::JsValue;
 pub use backend::{SqliteType, WasmSqlite};
 pub(crate) use ffi::get_sqlite_unchecked;
 pub use ffi::init_sqlite;
+pub use sqlite_fixes::dsl;
 
 #[derive(thiserror::Error, Debug)]
 pub enum WasmSqliteError {
