@@ -1,11 +1,6 @@
-use crate::WasmSqlite;
+use crate::{connection::WasmSqliteConnection, WasmSqlite};
 use diesel::{
-    insertable::{ColumnInsertValue, DefaultableColumnInsertValue, InsertValues},
-    query_builder::AstPass,
-    query_builder::NoFromClause,
-    query_builder::QueryFragment,
-    query_builder::{InsertOrIgnore, Replace},
-    AppearsOnTable, Column, Expression, QueryId, QueryResult,
+    RunQueryDsl, associations::HasTable, dsl::{Find, Update}, expression::{is_aggregate, MixedAggregates, ValidGrouping}, insertable::{ColumnInsertValue, DefaultableColumnInsertValue, InsertValues}, prelude::{AsChangeset, Identifiable}, query_builder::{AstPass, InsertOrIgnore, IntoUpdateTarget, NoFromClause, QueryFragment, Replace}, query_dsl::{methods::{ExecuteDsl, FindDsl, LoadQuery}, UpdateAndFetchResults}, AppearsOnTable, Column, Expression, QueryId, QueryResult, Table
 };
 
 impl<Col, Expr> InsertValues<WasmSqlite, Col::Table>
@@ -53,12 +48,29 @@ impl QueryFragment<WasmSqlite> for Replace {
     }
 }
 
+impl<'b, Changes, Output> UpdateAndFetchResults<Changes, Output> for WasmSqliteConnection
+where
+    Changes: Copy + Identifiable,
+    Changes: AsChangeset<Target = <Changes as HasTable>::Table> + IntoUpdateTarget,
+    Changes::Table: FindDsl<Changes::Id>,
+    Update<Changes, Changes>: ExecuteDsl<WasmSqliteConnection>,
+    Find<Changes::Table, Changes::Id>: LoadQuery<'b, WasmSqliteConnection, Output>,
+    <Changes::Table as Table>::AllColumns: ValidGrouping<()>,
+    <<Changes::Table as Table>::AllColumns as ValidGrouping<()>>::IsAggregate:
+        MixedAggregates<is_aggregate::No, Output = is_aggregate::No>,
+{
+    fn update_and_fetch(&mut self, changeset: Changes) -> QueryResult<Output> {
+        diesel::update(changeset).set(changeset).execute(self)?;
+        Changes::table().find(changeset.id()).get_result(self)
+    }
+}
+
 mod parenthesis_wrapper {
     use super::*;
 
     use crate::WasmSqlite;
     // use diesel::query_builder::combination_clause::SupportsCombinationClause;
-    use diesel::query_builder::{AstPass, QueryFragment};
+    use diesel::{dsl::{Distinct, Except, Intersect, Union}, query_builder::{AstPass, QueryFragment}};
 
     #[derive(Debug, Copy, Clone, QueryId)]
     /// Wrapper used to wrap rhs sql in parenthesis when supported by backend
@@ -86,12 +98,12 @@ mod parenthesis_wrapper {
             Ok(())
         }
     }
-    /*
+/*
     impl SupportsCombinationClause<Union, Distinct> for WasmSqlite {}
     impl SupportsCombinationClause<Union, All> for WasmSqlite {}
     impl SupportsCombinationClause<Intersect, Distinct> for WasmSqlite {}
     impl SupportsCombinationClause<Except, Distinct> for WasmSqlite {}
-    */
+*/
 }
 
 // Anything commented here are implementation present in diesel
