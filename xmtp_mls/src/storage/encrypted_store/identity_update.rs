@@ -6,7 +6,12 @@ use super::{
     db_connection::DbConnection,
     schema::identity_updates::{self, dsl},
 };
+#[cfg(not(target_arch = "wasm32"))]
+use diesel::query_dsl::methods::ExecuteDsl;
 use diesel::{dsl::max, prelude::*};
+#[cfg(target_arch = "wasm32")]
+use diesel_wasm_sqlite::dsl::RunQueryDsl;
+
 use xmtp_id::associations::{AssociationError, IdentityUpdate};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record

@@ -68,7 +68,7 @@ xmtp_mls = { path = "xmtp_mls" }
 xmtp_proto = { path = "xmtp_proto" }
 
 [patch.crates-io]
-diesel = { git = "https://github.com/xmtp/diesel", branch = "insipx/skip-from-public" }
-diesel_derives = { git = "https://github.com/xmtp/diesel", branch = "insipx/skip-from-public" }
-diesel_migrations = { git = "https://github.com/xmtp/diesel", branch = "insipx/skip-from-public" }
+diesel = { git = "https://github.com/xmtp/diesel", branch = "insipx/sqlite-replace-ignore-pub" }
+diesel_derives = { git = "https://github.com/xmtp/diesel", branch = "insipx/sqlite-replace-ignore-pub" }
+diesel_migrations = { git = "https://github.com/xmtp/diesel", branch = "insipx/sqlite-replace-ignore-pub" }
 diesel-wasm-sqlite = { git = "https://github.com/xmtp/libxmtp", branch = "wasm-backend" }
