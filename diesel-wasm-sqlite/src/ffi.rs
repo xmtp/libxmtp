@@ -57,7 +57,7 @@ struct Opts {
 /// array into this wasm module's own linear memory, initializing
 /// the memory destination provided.
 ///
-/// # Unsafety
+/// # Safety
 ///
 /// This function requires `dst` to point to a buffer
 /// large enough to fit this array's contents.
@@ -75,7 +75,7 @@ pub fn raw_copy_to_sqlite<B: Into<Uint8Array>>(bytes: B, dst: *mut u8) {
 /// array into this wasm module's own linear memory, initializing
 /// the memory destination provided.
 ///
-/// # Unsafety
+/// # Safety
 ///
 /// This function requires `buf` to point to a buffer
 /// large enough to fit this array's contents.

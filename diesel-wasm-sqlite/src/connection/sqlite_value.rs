@@ -32,7 +32,7 @@ pub struct SqliteValue<'row, 'stmt, 'query> {
     value: *mut u8,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(super) struct OwnedSqliteValue {
     // maybe make JsValue?
     pub(super) value: *mut u8,
@@ -60,7 +60,6 @@ impl<'row, 'stmt, 'query> SqliteValue<'row, 'stmt, 'query> {
                 .get(col_idx as usize)
                 .and_then(|v| v.as_ref())?
                 .value
-                .clone(),
         };
 
         let ret = Self {
@@ -82,8 +81,7 @@ impl<'row, 'stmt, 'query> SqliteValue<'row, 'stmt, 'query> {
             .values
             .get(col_idx as usize)
             .and_then(|v| v.as_ref())?
-            .value
-            .clone();
+            .value;
         let ret = Self { _row: None, value };
         if ret.value_type().is_none() {
             None
@@ -98,7 +96,7 @@ impl<'row, 'stmt, 'query> SqliteValue<'row, 'stmt, 'query> {
 
     // TODO: If we share memory with SQLITE, we can return a &'value str here rathre than an
     // allocated String
-    pub(crate) fn parse_string<'value, R>(&self, f: impl FnOnce(String) -> R) -> R {
+    pub(crate) fn parse_string<R>(&self, f: impl FnOnce(String) -> R) -> R {
         let sqlite3 = crate::get_sqlite_unchecked();
         // TODO:
         // for some reason sqlite3_value_text returns the String and not a
@@ -180,7 +178,7 @@ impl OwnedSqliteValue {
         let sqlite3 = crate::get_sqlite_unchecked();
         let value = sqlite3.value_dup(self.value);
         OwnedSqliteValue {
-            value: value.into(),
+            value
         }
     }
 }

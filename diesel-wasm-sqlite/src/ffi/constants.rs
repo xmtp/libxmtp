@@ -1,5 +1,5 @@
 //! WASM Constant bindings
-use std::cell::LazyCell;
+use std::sync::LazyLock;
 use wasm_bindgen::prelude::*;
 
 /// Normally, statics or methods cannot be pattern-matched.
@@ -24,7 +24,7 @@ use wasm_bindgen::prelude::*;
 /// than on every access thus reducing the context-switching between wasm-js barrier.
 macro_rules! generate_sqlite_constant {
     ($fn_name:ident, $ty: ident) => {
-        pub const $fn_name: LazyCell<$ty> = LazyCell::new(|| {
+        pub static $fn_name: LazyLock<$ty> = LazyLock::new(|| {
             let capi: CApi = crate::get_sqlite_unchecked().inner().capi();
             CApi::$fn_name(&capi)
         });

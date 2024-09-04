@@ -164,9 +164,7 @@ export class SQLite {
   exec(db, query) {
     try {
       return db.exec(query, {
-        callback: (row) => {
-          log(`exec'd ${row}`);
-        },
+        callback: (row) => {},
       });
     } catch (error) {
       throw error;

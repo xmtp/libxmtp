@@ -1,21 +1,38 @@
 use crate::{connection::WasmSqliteConnection, WasmSqlite};
 use diesel::{
-    associations::HasTable, backend::Backend, dsl::{Find, Update}, expression::{is_aggregate, MixedAggregates, ValidGrouping}, insertable::{ColumnInsertValue, DefaultableColumnInsertValue, InsertValues}, prelude::{AsChangeset, Identifiable}, query_builder::{AstPass, InsertOrIgnore, IntoUpdateTarget, NoFromClause, QueryFragment, Replace}, query_dsl::{methods::{FindDsl, LoadQuery, ExecuteDsl}, UpdateAndFetchResults}, AppearsOnTable, Column, Connection, Expression, QueryId, QueryResult, RunQueryDsl, Table
+    associations::HasTable,
+    dsl::{Find, Update},
+    expression::{is_aggregate, MixedAggregates, ValidGrouping},
+    insertable::{ColumnInsertValue, DefaultableColumnInsertValue, InsertValues},
+    prelude::{AsChangeset, Identifiable},
+    query_builder::{
+        AstPass, InsertOrIgnore, IntoUpdateTarget, NoFromClause, QueryFragment, Replace,
+    },
+    query_dsl::{
+        methods::{ExecuteDsl, FindDsl, LoadQuery},
+        UpdateAndFetchResults,
+    },
+    AppearsOnTable, Column, Expression, QueryResult, RunQueryDsl, Table,
 };
-
 
 /// We re-define Dsl traits to make `insert_with_default_sqlite.rs` generic over all `Connection`
 /// implementations with `WasmSqlite` backend`. This works around Rusts orphan rules.
 pub mod dsl {
-    use diesel::{backend::Backend, dsl::Limit, query_builder::{QueryFragment, QueryId}, query_dsl::methods::{LimitDsl, LoadQuery}, Connection, QueryResult};
+    use diesel::{
+        backend::Backend,
+        dsl::Limit,
+        query_builder::{QueryFragment, QueryId},
+        query_dsl::methods::{LimitDsl, LoadQuery},
+        Connection, QueryResult,
+    };
 
-    pub trait ExecuteDsl<Conn: Connection<Backend = DB>, DB: Backend = <Conn as Connection>::Backend>:
-        Sized
+    pub trait ExecuteDsl<
+        Conn: Connection<Backend = DB>,
+        DB: Backend = <Conn as Connection>::Backend,
+    >: Sized
     {
-
         fn execute(query: Self, conn: &mut Conn) -> QueryResult<usize>;
     }
-
 
     impl<Conn, DB, T> ExecuteDsl<Conn, DB> for T
     where
@@ -30,46 +47,52 @@ pub mod dsl {
 
     pub trait RunQueryDsl<Conn>: Sized + diesel::query_dsl::RunQueryDsl<Conn> {
         fn execute(self, conn: &mut Conn) -> QueryResult<usize>
-           where Conn: Connection,
-                 Self: ExecuteDsl<Conn> {
+        where
+            Conn: Connection,
+            Self: ExecuteDsl<Conn>,
+        {
             ExecuteDsl::execute(self, conn)
         }
 
         fn load<'query, U>(self, conn: &mut Conn) -> QueryResult<Vec<U>>
-           where Self: LoadQuery<'query, Conn, U> {
+        where
+            Self: LoadQuery<'query, Conn, U>,
+        {
             <Self as diesel::query_dsl::RunQueryDsl<Conn>>::load(self, conn)
         }
         fn load_iter<'conn, 'query: 'conn, U, B>(
             self,
             conn: &'conn mut Conn,
         ) -> QueryResult<Self::RowIter<'conn>>
-           where U: 'conn,
-                 Self: LoadQuery<'query, Conn, U, B> + 'conn {
+        where
+            U: 'conn,
+            Self: LoadQuery<'query, Conn, U, B> + 'conn,
+        {
             <Self as diesel::query_dsl::RunQueryDsl<Conn>>::load_iter(self, conn)
         }
         fn get_result<'query, U>(self, conn: &mut Conn) -> QueryResult<U>
-           where Self: LoadQuery<'query, Conn, U> {
+        where
+            Self: LoadQuery<'query, Conn, U>,
+        {
             <Self as diesel::query_dsl::RunQueryDsl<Conn>>::get_result(self, conn)
-
         }
         fn get_results<'query, U>(self, conn: &mut Conn) -> QueryResult<Vec<U>>
-           where Self: LoadQuery<'query, Conn, U> {
+        where
+            Self: LoadQuery<'query, Conn, U>,
+        {
             <Self as diesel::query_dsl::RunQueryDsl<Conn>>::get_results(self, conn)
-
         }
         fn first<'query, U>(self, conn: &mut Conn) -> QueryResult<U>
-           where Self: LimitDsl,
-                 Limit<Self>: LoadQuery<'query, Conn, U> {
+        where
+            Self: LimitDsl,
+            Limit<Self>: LoadQuery<'query, Conn, U>,
+        {
             <Self as diesel::query_dsl::RunQueryDsl<Conn>>::first(self, conn)
-
         }
     }
 
     impl<T, Conn> RunQueryDsl<Conn> for T where T: diesel::query_dsl::RunQueryDsl<Conn> {}
-
 }
-
-
 
 impl<Col, Expr> InsertValues<WasmSqlite, Col::Table>
     for DefaultableColumnInsertValue<ColumnInsertValue<Col, Expr>>
@@ -138,22 +161,9 @@ mod parenthesis_wrapper {
 
     use crate::WasmSqlite;
     // use diesel::query_builder::combination_clause::SupportsCombinationClause;
-    use diesel::{dsl::{Distinct, Except, Intersect, Union}, query_builder::{AstPass, QueryFragment}};
-
-    #[derive(Debug, Copy, Clone, QueryId)]
-    /// Wrapper used to wrap rhs sql in parenthesis when supported by backend
-    pub struct ParenthesisWrapper<T>(T);
-
-    #[derive(Debug, Copy, Clone, QueryId)]
-    /// Keep duplicate rows in the result
-    pub struct All;
-
-    impl QueryFragment<WasmSqlite> for All {
-        fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, WasmSqlite>) -> QueryResult<()> {
-            out.push_sql("ALL ");
-            Ok(())
-        }
-    }
+    use diesel::query_builder::{
+        All, AstPass, Distinct, Except, Intersect, QueryFragment, SupportsCombinationClause, Union, ParenthesisWrapper
+    };
 
     impl<T: QueryFragment<WasmSqlite>> QueryFragment<WasmSqlite> for ParenthesisWrapper<T> {
         fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, WasmSqlite>) -> QueryResult<()> {
@@ -161,17 +171,16 @@ mod parenthesis_wrapper {
             // we can emulate this by construct a fake outer
             // SELECT * FROM (inner_query) statement
             out.push_sql("SELECT * FROM (");
-            self.0.walk_ast(out.reborrow())?;
+            self.inner.walk_ast(out.reborrow())?;
             out.push_sql(")");
             Ok(())
         }
     }
-/*
+
     impl SupportsCombinationClause<Union, Distinct> for WasmSqlite {}
     impl SupportsCombinationClause<Union, All> for WasmSqlite {}
     impl SupportsCombinationClause<Intersect, Distinct> for WasmSqlite {}
     impl SupportsCombinationClause<Except, Distinct> for WasmSqlite {}
-*/
 }
 
 // Anything commented here are implementation present in diesel
