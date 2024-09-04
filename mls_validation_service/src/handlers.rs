@@ -258,54 +258,6 @@ mod tests {
         (inbox_id, wallet, signing_key, create)
     }
 
-    async fn generate_installation_association(
-        signing_key: &SigningKey,
-        wallet: LocalWallet,
-        inbox_id: &str,
-    ) -> AddAssociation {
-        let keypair = SignatureKeyPair::from_raw(
-            CIPHERSUITE.signature_algorithm(),
-            signing_key.to_bytes().into(),
-            signing_key.verifying_key().to_bytes().into(),
-        );
-
-        let action = UnsignedAction::AddAssociation(UnsignedAddAssociation {
-            new_member_identifier: MemberIdentifier::Installation(keypair.public().to_vec()),
-        });
-
-        let update = UnsignedIdentityUpdate {
-            client_timestamp_ns: 2_000_000u64,
-            inbox_id: inbox_id.to_owned(),
-            actions: vec![action],
-        };
-
-        let mut prehashed = Sha512::new();
-        prehashed.update(update.signature_text());
-        let signature = signing_key
-            .sign_prehashed(prehashed.clone(), Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))
-            .unwrap();
-        let existing_member = wallet
-            .sign_message(update.signature_text())
-            .await
-            .unwrap()
-            .to_vec();
-
-        let existing_member =
-            RecoverableEcdsaSignature::new(update.signature_text(), existing_member);
-
-        let signature = InstallationKeySignature::new(
-            update.signature_text(),
-            signature.to_vec(),
-            signing_key.verifying_key().as_bytes().to_vec(),
-        );
-
-        AddAssociation {
-            new_member_signature: Box::new(signature),
-            new_member_identifier: MemberIdentifier::Installation(keypair.public().to_vec()),
-            existing_member_signature: Box::new(existing_member),
-        }
-    }
-
     fn build_key_package_bytes(
         keypair: &SignatureKeyPair,
         credential_with_key: &CredentialWithKey,
