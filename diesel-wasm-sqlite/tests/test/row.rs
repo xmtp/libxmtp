@@ -1,4 +1,5 @@
 use crate::common::{connection, prelude::*};
+use diesel_wasm_sqlite::dsl::{ExecuteDsl, RunQueryDsl};
 
 // test copied from diesel
 #[wasm_bindgen_test]
@@ -15,7 +16,6 @@ async fn fun_with_row_iters() {
 
     use diesel::connection::LoadConnection;
     use diesel::deserialize::{FromSql, FromSqlRow};
-    use diesel::prelude::*;
     use diesel::row::{Field, Row};
     use diesel::sql_types;
 
