@@ -751,6 +751,15 @@ mod tests {
             assert_eq!(grps.len(), 2);
         }
 
+        // Verify syncing welcomes while streaming causes no issues
+        alix.sync_welcomes().await.unwrap();
+        let find_groups_results = alix.find_groups(None, None, None, None).unwrap();
+
+        {
+            let grps = groups.lock();
+            assert_eq!(grps.len(), find_groups_results.len());
+        }
+
         closer.handle.abort();
     }
 }

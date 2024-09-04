@@ -607,7 +607,7 @@ where
                                 match result {
                                     Ok(mls_group) => Ok(Some(mls_group)),
                                     Err(err) => {
-                                        log::error!("failed to create group from welcome: {}", err);
+                                        log::warn!("failed to create group from welcome: {}", err);
                                         Err(MessageProcessingError::WelcomeProcessing(
                                             err.to_string(),
                                         ))
