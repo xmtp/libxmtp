@@ -9,8 +9,8 @@ use crate::storage::group_message::StoredGroupMessage;
 use crate::storage::refresh_state::EntityKind;
 use crate::storage::StorageError;
 use crate::subscriptions::{MessagesStreamInfo, StreamHandle};
+use crate::XmtpApi;
 use crate::{retry::Retry, retry_async, Client};
-use crate::{retry_sync, XmtpApi};
 use prost::Message;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
@@ -33,7 +33,7 @@ impl MlsGroup {
         );
         let created_ns = msgv1.created_ns;
 
-        if !self.has_already_synced(msg_id)? {
+        if !self.has_already_synced(msg_id).await? {
             let client_pointer = client.clone();
             let process_result = retry_async!(
                 Retry::default(),
@@ -96,14 +96,13 @@ impl MlsGroup {
     }
 
     // Checks if a message has already been processed through a sync
-    fn has_already_synced(&self, id: u64) -> Result<bool, GroupError> {
+    async fn has_already_synced(&self, id: u64) -> Result<bool, GroupError> {
         let check_for_last_cursor = || -> Result<i64, StorageError> {
             let conn = self.context.store.conn()?;
             conn.get_last_cursor_for_id(&self.group_id, EntityKind::Group)
         };
 
-        let last_id = retry_sync!(Retry::default(), check_for_last_cursor)?;
-
+        let last_id = retry_async!(Retry::default(), (async { check_for_last_cursor() }))?;
         Ok(last_id >= id as i64)
     }
 
