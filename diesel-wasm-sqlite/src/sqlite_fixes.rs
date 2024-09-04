@@ -110,24 +110,6 @@ mod parenthesis_wrapper {
 // but not possible because parts of it exist as private types in diesel.
 
 /*
-impl<'b, Changes, Output> UpdateAndFetchResults<Changes, Output> for SqliteConnection
-where
-    Changes: Copy + Identifiable,
-    Changes: AsChangeset<Target = <Changes as HasTable>::Table> + IntoUpdateTarget,
-    Changes::Table: FindDsl<Changes::Id>,
-    Update<Changes, Changes>: ExecuteDsl<SqliteConnection>,
-    Find<Changes::Table, Changes::Id>: LoadQuery<'b, SqliteConnection, Output>,
-    <Changes::Table as Table>::AllColumns: ValidGrouping<()>,
-    <<Changes::Table as Table>::AllColumns as ValidGrouping<()>>::IsAggregate:
-        MixedAggregates<is_aggregate::No, Output = is_aggregate::No>,
-{
-    fn update_and_fetch(&mut self, changeset: Changes) -> QueryResult<Output> {
-        crate::update(changeset).set(changeset).execute(self)?;
-        Changes::table().find(changeset.id()).get_result(self)
-    }
-}
-*/
-/*
 impl AsExpression<TimestamptzSqlite> for now {
     type Expression = Coerce<now, TimestamptzSqlite>;
 
