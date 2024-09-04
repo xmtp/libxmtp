@@ -1,5 +1,5 @@
 use crate::common::{connection, prelude::*};
-use diesel_wasm_sqlite::dsl::{ExecuteDsl, RunQueryDsl};
+use diesel_wasm_sqlite::dsl::RunQueryDsl;
 
 // test copied from diesel
 #[wasm_bindgen_test]
