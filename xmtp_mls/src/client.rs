@@ -607,7 +607,20 @@ where
                                 match result {
                                     Ok(mls_group) => Ok(Some(mls_group)),
                                     Err(err) => {
-                                        log::warn!("failed to create group from welcome: {}", err);
+                                        if let GroupError::Storage(StorageError::DieselResult(diesel::result::Error::DatabaseError(
+                                            diesel::result::DatabaseErrorKind::UniqueViolation,
+                                            ref error_info,
+                                        ))) = err
+                                        {
+                                            // Only log warning if we are erroring because welcome id already exists
+                                            if error_info.message() == "welcome id already exists" {
+                                                log::warn!("failed to create group from welcome due to duplicate welcome ID: {}", err);
+                                            } else {
+                                                log::error!("failed to create group from welcome (database error): {}", err);
+                                            }
+                                        } else {
+                                            log::error!("failed to create group from welcome (other error): {}", err);
+                                        }
                                         Err(MessageProcessingError::WelcomeProcessing(
                                             err.to_string(),
                                         ))
