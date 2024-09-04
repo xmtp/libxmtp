@@ -6,46 +6,48 @@ pub mod builder;
 pub mod client;
 pub mod codecs;
 pub mod configuration;
-pub mod credential;
 pub mod groups;
 mod hpke;
 pub mod identity;
 mod identity_updates;
+mod mutex_registry;
 pub mod owner;
 pub mod retry;
 pub mod storage;
 pub mod subscriptions;
 pub mod types;
 pub mod utils;
-pub mod verified_key_package;
 pub mod verified_key_package_v2;
 mod xmtp_openmls_provider;
 
 pub use client::{Client, Network};
 use storage::StorageError;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
-use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
+use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
 
 /// XMTP Api Super Trait
 /// Implements all Trait Network APIs for convenience.
 #[cfg(not(test))]
 pub trait XmtpApi
 where
-    Self: XmtpMlsClient + XmtpIdentityClient,
+    Self: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata,
 {
 }
 #[cfg(not(test))]
-impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ?Sized {}
+impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + ?Sized {}
 
 #[cfg(test)]
 pub trait XmtpApi
 where
-    Self: XmtpMlsClient + XmtpIdentityClient + XmtpTestClient,
+    Self: XmtpMlsClient + XmtpIdentityClient + XmtpTestClient + ClientWithMetadata,
 {
 }
 
 #[cfg(test)]
-impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + XmtpTestClient + ?Sized {}
+impl<T> XmtpApi for T where
+    T: XmtpMlsClient + XmtpIdentityClient + XmtpTestClient + ClientWithMetadata + ?Sized
+{
+}
 
 #[cfg(any(test, feature = "test-utils", feature = "bench"))]
 #[async_trait::async_trait]
@@ -122,7 +124,7 @@ mod tests {
     #[macro_export]
     macro_rules! assert_err {
         ( $x:expr , $y:pat $(,)? ) => {
-            assert!(matches!($x, Err($y)));
+            assert!(matches!($x, Err($y)))
         };
 
         ( $x:expr, $y:pat $(,)?, $($msg:tt)+) => {{

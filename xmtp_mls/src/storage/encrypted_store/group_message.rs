@@ -13,7 +13,7 @@ use super::{
     db_connection::DbConnection,
     schema::{group_messages, group_messages::dsl},
 };
-use crate::{impl_fetch, impl_store, StorageError};
+use crate::{impl_fetch, impl_store, impl_store_or_ignore, StorageError};
 
 #[derive(
     Debug, Clone, Serialize, Deserialize, Insertable, Identifiable, Queryable, Eq, PartialEq,
@@ -106,6 +106,7 @@ where
 
 impl_fetch!(StoredGroupMessage, group_messages, Vec<u8>);
 impl_store!(StoredGroupMessage, group_messages);
+impl_store_or_ignore!(StoredGroupMessage, group_messages);
 
 impl DbConnection {
     /// Query for group messages

@@ -18,8 +18,6 @@ pub enum KeyPackageVerificationError {
     TlsError(#[from] TlsCodecError),
     #[error("mls validation: {0}")]
     MlsValidation(#[from] KeyPackageVerifyError),
-    #[error("invalid lifetime")]
-    InvalidLifetime,
     #[error("wrong credential type")]
     WrongCredentialType(#[from] BasicCredentialError),
     #[error(transparent)]

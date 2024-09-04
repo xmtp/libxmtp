@@ -6,6 +6,8 @@ use futures::Stream;
 
 use super::{extract_message_v1, GroupError, MlsGroup};
 use crate::storage::group_message::StoredGroupMessage;
+use crate::storage::refresh_state::EntityKind;
+use crate::storage::StorageError;
 use crate::subscriptions::{MessagesStreamInfo, StreamHandle};
 use crate::XmtpApi;
 use crate::{retry::Retry, retry_async, Client};
@@ -31,44 +33,55 @@ impl MlsGroup {
         );
         let created_ns = msgv1.created_ns;
 
-        let client_pointer = client.clone();
-        let process_result = retry_async!(
-            Retry::default(),
-            (async {
-                let client_pointer = client_pointer.clone();
-                let client_id = client_id.clone();
-                let msgv1 = msgv1.clone();
-                self.context
-                    .store
-                    .transaction_async(|provider| async move {
-                        let mut openmls_group = self.load_mls_group(&provider)?;
+        if !self.has_already_synced(msg_id).await? {
+            let client_pointer = client.clone();
+            let process_result = retry_async!(
+                Retry::default(),
+                (async {
+                    let client_pointer = client_pointer.clone();
+                    let client_id = client_id.clone();
+                    let msgv1 = msgv1.clone();
+                    self.context
+                        .store
+                        .transaction_async(|provider| async move {
+                            let mut openmls_group = self.load_mls_group(&provider)?;
 
-                        // Attempt processing immediately, but fail if the message is not an Application Message
-                        // Returning an error should roll back the DB tx
-                        log::info!(
-                            "current epoch for [{}] in process_stream_entry() is Epoch: [{}]",
-                            client_id,
-                            openmls_group.epoch()
-                        );
+                            // Attempt processing immediately, but fail if the message is not an Application Message
+                            // Returning an error should roll back the DB tx
+                            log::info!(
+                                "current epoch for [{}] in process_stream_entry() is Epoch: [{}]",
+                                client_id,
+                                openmls_group.epoch()
+                            );
 
-                        self.process_message(
-                            client_pointer.as_ref(),
-                            &mut openmls_group,
-                            &provider,
-                            &msgv1,
-                            false,
-                        )
+                            self.process_message(
+                                client_pointer.as_ref(),
+                                &mut openmls_group,
+                                &provider,
+                                &msgv1,
+                                false,
+                            )
+                            .await
+                            .map_err(GroupError::ReceiveError)
+                        })
                         .await
-                        .map_err(GroupError::ReceiveError)
-                    })
-                    .await
-            })
-        );
+                })
+            );
 
-        if let Some(GroupError::ReceiveError(_)) = process_result.as_ref().err() {
-            self.sync(&client).await?;
-        } else if process_result.is_err() {
-            log::error!("Process stream entry {:?}", process_result.err());
+            if let Some(GroupError::ReceiveError(_)) = process_result.as_ref().err() {
+                // Swallow errors here, since another process may have successfully saved the message
+                // to the DB
+                match self.sync_with_conn(&client.mls_provider()?, &client).await {
+                    Ok(_) => {
+                        log::debug!("Sync triggered by streamed message successful")
+                    }
+                    Err(err) => {
+                        log::warn!("Sync triggered by streamed message failed: {}", err);
+                    }
+                };
+            } else if process_result.is_err() {
+                log::error!("Process stream entry {:?}", process_result.err());
+            }
         }
 
         // Load the message from the DB to handle cases where it may have been already processed in
@@ -80,6 +93,17 @@ impl MlsGroup {
             .get_group_message_by_timestamp(&self.group_id, created_ns as i64)?;
 
         Ok(new_message)
+    }
+
+    // Checks if a message has already been processed through a sync
+    async fn has_already_synced(&self, id: u64) -> Result<bool, GroupError> {
+        let check_for_last_cursor = || -> Result<i64, StorageError> {
+            let conn = self.context.store.conn()?;
+            conn.get_last_cursor_for_id(&self.group_id, EntityKind::Group)
+        };
+
+        let last_id = retry_async!(Retry::default(), (async { check_for_last_cursor() }))?;
+        Ok(last_id >= id as i64)
     }
 
     pub async fn process_streamed_group_message<ApiClient>(
@@ -308,6 +332,8 @@ mod tests {
         });
         // just to make sure stream is started
         let _ = start_rx.await;
+        // Adding in a sleep, since the HTTP API client may acknowledge requests before they are ready
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])

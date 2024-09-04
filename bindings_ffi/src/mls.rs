@@ -348,7 +348,10 @@ impl FfiXmtpClient {
     }
 
     pub async fn request_history_sync(&self) -> Result<(), GenericError> {
-        self.inner_client.send_history_request().await?;
+        self.inner_client
+            .send_history_request()
+            .await
+            .map_err(GenericError::from_error)?;
         Ok(())
     }
 
@@ -711,14 +714,14 @@ impl FfiConversations {
             _ => None,
         };
 
-        let convo = self
-            .inner_client
-            .create_group(group_permissions, metadata_options)?;
-        if !account_addresses.is_empty() {
-            convo
-                .add_members(&self.inner_client, account_addresses)
-                .await?;
-        }
+        let convo = if account_addresses.is_empty() {
+            self.inner_client
+                .create_group(group_permissions, metadata_options)?
+        } else {
+            self.inner_client
+                .create_group_with_members(account_addresses, group_permissions, metadata_options)
+                .await?
+        };
 
         let out = Arc::new(FfiGroup {
             inner_client: self.inner_client.clone(),
@@ -751,12 +754,20 @@ impl FfiConversations {
         Ok(())
     }
 
-    pub async fn sync_all_groups(&self) -> Result<(), GenericError> {
+    pub async fn sync_all_groups(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
         let groups = inner.find_groups(None, None, None, None)?;
 
-        inner.sync_all_groups(groups).await?;
-        Ok(())
+        let num_groups_synced: usize = inner.sync_all_groups(groups).await?;
+        // Uniffi does not work with usize, so we need to convert to u32
+        let num_groups_synced: u32 =
+            num_groups_synced
+                .try_into()
+                .map_err(|_| GenericError::Generic {
+                    err: "Failed to convert the number of synced groups from usize to u32"
+                        .to_string(),
+                })?;
+        Ok(num_groups_synced)
     }
 
     pub async fn list(
@@ -1573,7 +1584,11 @@ mod tests {
     use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::generate_inbox_id;
-    use xmtp_mls::{storage::EncryptionKey, InboxOwner};
+    use xmtp_mls::{
+        groups::{GroupError, MlsGroup},
+        storage::EncryptionKey,
+        InboxOwner,
+    };
 
     #[derive(Clone)]
     pub struct LocalWalletInboxOwner {
@@ -1715,6 +1730,20 @@ mod tests {
     async fn new_test_client() -> Arc<FfiXmtpClient> {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
         new_test_client_with_wallet(wallet).await
+    }
+
+    impl FfiGroup {
+        #[cfg(test)]
+        async fn update_installations(&self) -> Result<(), GroupError> {
+            let group = MlsGroup::new(
+                self.inner_client.context().clone(),
+                self.group_id.clone(),
+                self.created_at_ns,
+            );
+
+            group.update_installations(&self.inner_client).await?;
+            Ok(())
+        }
     }
 
     #[tokio::test]
@@ -2295,6 +2324,47 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_sync_all_groups_active_only() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Create 30 groups with alix and bo and sync them
+        for _i in 0..30 {
+            alix.conversations()
+                .create_group(
+                    vec![bo.account_address.clone()],
+                    FfiCreateGroupOptions::default(),
+                )
+                .await
+                .unwrap();
+        }
+        bo.conversations().sync().await.unwrap();
+        let num_groups_synced_1: u32 = bo.conversations().sync_all_groups().await.unwrap();
+        assert!(num_groups_synced_1 == 30);
+
+        // Remove bo from all groups and sync
+        for group in alix
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap()
+        {
+            group
+                .remove_members(vec![bo.account_address.clone()])
+                .await
+                .unwrap();
+        }
+
+        // First sync after removal needs to process all groups and set them to inactive
+        let num_groups_synced_2: u32 = bo.conversations().sync_all_groups().await.unwrap();
+        assert!(num_groups_synced_2 == 30);
+
+        // Second sync after removal will not process inactive groups
+        let num_groups_synced_3: u32 = bo.conversations().sync_all_groups().await.unwrap();
+        assert!(num_groups_synced_3 == 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_can_send_message_when_out_of_sync() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
@@ -2412,6 +2482,8 @@ mod tests {
         // Recreate client2 (new installation)
         let client2 = new_test_client_with_wallet(wallet2).await;
 
+        client1_group.update_installations().await.unwrap();
+
         // Send a message that will break the group
         client1_group
             .send("This message will break the group".as_bytes().to_vec())
@@ -2466,12 +2538,16 @@ mod tests {
         let bo_group = bo.group(group.id()).unwrap();
         let caro_group = caro.group(group.id()).unwrap();
 
+        alix_group.update_installations().await.unwrap();
+        log::info!("Alix sending first message");
         // Alix sends a message in the group
         alix_group
             .send("First message".as_bytes().to_vec())
             .await
             .unwrap();
 
+        log::info!("Caro sending second message");
+        caro_group.update_installations().await.unwrap();
         // Caro sends a message in the group
         caro_group
             .send("Second message".as_bytes().to_vec())
@@ -2489,6 +2565,9 @@ mod tests {
             .await;
         bo_stream_messages.wait_for_ready().await;
 
+        alix_group.update_installations().await.unwrap();
+
+        log::info!("Alix sending third message after Bo's second installation added");
         // Alix sends a message to the group
         alix_group
             .send("Third message".as_bytes().to_vec())
@@ -2499,21 +2578,29 @@ mod tests {
         bo2.conversations().sync().await.unwrap();
         let bo2_group = bo2.group(group.id()).unwrap();
 
+        log::info!("Bo sending fourth message");
         // Bo sends a message to the group
+        bo2_group.update_installations().await.unwrap();
         bo2_group
             .send("Fourth message".as_bytes().to_vec())
             .await
             .unwrap();
 
+        log::info!("Caro sending fifth message");
         // Caro sends a message in the group
+        caro_group.update_installations().await.unwrap();
         caro_group
             .send("Fifth message".as_bytes().to_vec())
             .await
             .unwrap();
 
+        log::info!("Syncing alix");
         alix_group.sync().await.unwrap();
+        log::info!("Syncing bo 1");
         bo_group.sync().await.unwrap();
+        log::info!("Syncing bo 2");
         bo2_group.sync().await.unwrap();
+        log::info!("Syncing caro");
         caro_group.sync().await.unwrap();
 
         // Get the message count for all the clients

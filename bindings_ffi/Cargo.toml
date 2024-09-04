@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "xmtpv3"
-version = "0.1.0"
+version = "0.0.1"
 
 [lib]
 crate-type = ["lib", "cdylib", "staticlib"]
@@ -10,6 +10,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 env_logger = "0.11.3"
 futures = "0.3.28"
 log = { version = "0.4", features = ["std"] }
+parking_lot = "0.12.3"
 thiserror = "1.0"
 thread-id = "4.2.1"
 tokio = { version = "1.28.1", features = ["macros"] }
@@ -18,11 +19,10 @@ uniffi_macros = "0.28.0"
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
-xmtp_mls = { path = "../xmtp_mls", features = ["grpc", "native"] }
-xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
+xmtp_mls = { path = "../xmtp_mls", features = ["native"] }
+xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 xmtp_v2 = { path = "../xmtp_v2" }
-parking_lot = "0.12.3"
 
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # NOTE: A regression in openssl-sys exists where libatomic is dynamically linked 
@@ -47,9 +47,9 @@ ethers-core = "2.0.13"
 tempfile = "3.5.0"
 tokio = { version = "1.28.1", features = ["full"] }
 tokio-test = "0.4"
-uniffi = { version = "0.28.0", features = ["bindgen-tests"] }
 tracing-subscriber = "0.3"
-uuid = { version = "1.9", features = ["v4", "fast-rng" ] }
+uniffi = { version = "0.28.0", features = ["bindgen-tests"] }
+uuid = { version = "1.9", features = ["v4", "fast-rng"] }
 
 # NOTE: The release profile reduces bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093

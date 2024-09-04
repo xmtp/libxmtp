@@ -1,5 +1,10 @@
 # @xmtp/mls-client-bindings-node
 
+## 0.0.10
+
+- Fixed several group syncing issues
+- Improved performance
+
 ## 0.0.9
 
 - Added optimistic sending

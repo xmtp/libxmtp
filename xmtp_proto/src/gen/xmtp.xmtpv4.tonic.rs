@@ -1,15 +1,17 @@
 // @generated
 /// Generated client implementations.
 #[cfg(not(target_arch = "wasm32"))]
-pub mod identity_api_client {
+pub mod replication_api_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
+    /** Replication API
+*/
     #[derive(Debug, Clone)]
-    pub struct IdentityApiClient<T> {
+    pub struct ReplicationApiClient<T> {
         inner: tonic::client::Grpc<T>,
     }
-    impl IdentityApiClient<tonic::transport::Channel> {
+    impl ReplicationApiClient<tonic::transport::Channel> {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
@@ -20,7 +22,7 @@ pub mod identity_api_client {
             Ok(Self::new(conn))
         }
     }
-    impl<T> IdentityApiClient<T>
+    impl<T> ReplicationApiClient<T>
     where
         T: tonic::client::GrpcService<tonic::body::BoxBody>,
         T::Error: Into<StdError>,
@@ -38,7 +40,7 @@ pub mod identity_api_client {
         pub fn with_interceptor<F>(
             inner: T,
             interceptor: F,
-        ) -> IdentityApiClient<InterceptedService<T, F>>
+        ) -> ReplicationApiClient<InterceptedService<T, F>>
         where
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
@@ -52,7 +54,7 @@ pub mod identity_api_client {
                 http::Request<tonic::body::BoxBody>,
             >>::Error: Into<StdError> + Send + Sync,
         {
-            IdentityApiClient::new(InterceptedService::new(inner, interceptor))
+            ReplicationApiClient::new(InterceptedService::new(inner, interceptor))
         }
         /// Compress requests with the given encoding.
         ///
@@ -85,11 +87,15 @@ pub mod identity_api_client {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
         }
-        pub async fn publish_identity_update(
+        /** Subscribe to envelopes
+*/
+        pub async fn batch_subscribe_envelopes(
             &mut self,
-            request: impl tonic::IntoRequest<super::PublishIdentityUpdateRequest>,
+            request: impl tonic::IntoRequest<super::BatchSubscribeEnvelopesRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::PublishIdentityUpdateResponse>,
+            tonic::Response<
+                tonic::codec::Streaming<super::BatchSubscribeEnvelopesResponse>,
+            >,
             tonic::Status,
         > {
             self.inner
@@ -103,23 +109,25 @@ pub mod identity_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.identity.api.v1.IdentityApi/PublishIdentityUpdate",
+                "/xmtp.xmtpv4.ReplicationApi/BatchSubscribeEnvelopes",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
-                        "xmtp.identity.api.v1.IdentityApi",
-                        "PublishIdentityUpdate",
+                        "xmtp.xmtpv4.ReplicationApi",
+                        "BatchSubscribeEnvelopes",
                     ),
                 );
-            self.inner.unary(req, path, codec).await
+            self.inner.server_streaming(req, path, codec).await
         }
-        pub async fn get_identity_updates(
+        /** Query envelopes
+*/
+        pub async fn query_envelopes(
             &mut self,
-            request: impl tonic::IntoRequest<super::GetIdentityUpdatesRequest>,
+            request: impl tonic::IntoRequest<super::QueryEnvelopesRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::GetIdentityUpdatesResponse>,
+            tonic::Response<super::QueryEnvelopesResponse>,
             tonic::Status,
         > {
             self.inner
@@ -133,23 +141,20 @@ pub mod identity_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.identity.api.v1.IdentityApi/GetIdentityUpdates",
+                "/xmtp.xmtpv4.ReplicationApi/QueryEnvelopes",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "xmtp.identity.api.v1.IdentityApi",
-                        "GetIdentityUpdates",
-                    ),
-                );
+                .insert(GrpcMethod::new("xmtp.xmtpv4.ReplicationApi", "QueryEnvelopes"));
             self.inner.unary(req, path, codec).await
         }
-        pub async fn get_inbox_ids(
+        /** Publish envelope
+*/
+        pub async fn publish_envelope(
             &mut self,
-            request: impl tonic::IntoRequest<super::GetInboxIdsRequest>,
+            request: impl tonic::IntoRequest<super::PublishEnvelopeRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::GetInboxIdsResponse>,
+            tonic::Response<super::PublishEnvelopeResponse>,
             tonic::Status,
         > {
             self.inner
@@ -163,12 +168,12 @@ pub mod identity_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.identity.api.v1.IdentityApi/GetInboxIds",
+                "/xmtp.xmtpv4.ReplicationApi/PublishEnvelope",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("xmtp.identity.api.v1.IdentityApi", "GetInboxIds"),
+                    GrpcMethod::new("xmtp.xmtpv4.ReplicationApi", "PublishEnvelope"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -176,43 +181,60 @@ pub mod identity_api_client {
 }
 /// Generated server implementations.
 #[cfg(not(target_arch = "wasm32"))]
-pub mod identity_api_server {
+pub mod replication_api_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
-    /// Generated trait containing gRPC methods that should be implemented for use with IdentityApiServer.
+    /// Generated trait containing gRPC methods that should be implemented for use with ReplicationApiServer.
     #[async_trait]
-    pub trait IdentityApi: Send + Sync + 'static {
-        async fn publish_identity_update(
+    pub trait ReplicationApi: Send + Sync + 'static {
+        /// Server streaming response type for the BatchSubscribeEnvelopes method.
+        type BatchSubscribeEnvelopesStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<
+                    super::BatchSubscribeEnvelopesResponse,
+                    tonic::Status,
+                >,
+            >
+            + Send
+            + 'static;
+        /** Subscribe to envelopes
+*/
+        async fn batch_subscribe_envelopes(
             &self,
-            request: tonic::Request<super::PublishIdentityUpdateRequest>,
+            request: tonic::Request<super::BatchSubscribeEnvelopesRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::PublishIdentityUpdateResponse>,
+            tonic::Response<Self::BatchSubscribeEnvelopesStream>,
             tonic::Status,
         >;
-        async fn get_identity_updates(
+        /** Query envelopes
+*/
+        async fn query_envelopes(
             &self,
-            request: tonic::Request<super::GetIdentityUpdatesRequest>,
+            request: tonic::Request<super::QueryEnvelopesRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::GetIdentityUpdatesResponse>,
+            tonic::Response<super::QueryEnvelopesResponse>,
             tonic::Status,
         >;
-        async fn get_inbox_ids(
+        /** Publish envelope
+*/
+        async fn publish_envelope(
             &self,
-            request: tonic::Request<super::GetInboxIdsRequest>,
+            request: tonic::Request<super::PublishEnvelopeRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::GetInboxIdsResponse>,
+            tonic::Response<super::PublishEnvelopeResponse>,
             tonic::Status,
         >;
     }
+    /** Replication API
+*/
     #[derive(Debug)]
-    pub struct IdentityApiServer<T: IdentityApi> {
+    pub struct ReplicationApiServer<T: ReplicationApi> {
         inner: Arc<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
         max_decoding_message_size: Option<usize>,
         max_encoding_message_size: Option<usize>,
     }
-    impl<T: IdentityApi> IdentityApiServer<T> {
+    impl<T: ReplicationApi> ReplicationApiServer<T> {
         pub fn new(inner: T) -> Self {
             Self::from_arc(Arc::new(inner))
         }
@@ -263,9 +285,9 @@ pub mod identity_api_server {
             self
         }
     }
-    impl<T, B> tonic::codegen::Service<http::Request<B>> for IdentityApiServer<T>
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for ReplicationApiServer<T>
     where
-        T: IdentityApi,
+        T: ReplicationApi,
         B: Body + Send + 'static,
         B::Error: Into<StdError> + Send + 'static,
     {
@@ -280,25 +302,32 @@ pub mod identity_api_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
-                "/xmtp.identity.api.v1.IdentityApi/PublishIdentityUpdate" => {
+                "/xmtp.xmtpv4.ReplicationApi/BatchSubscribeEnvelopes" => {
                     #[allow(non_camel_case_types)]
-                    struct PublishIdentityUpdateSvc<T: IdentityApi>(pub Arc<T>);
+                    struct BatchSubscribeEnvelopesSvc<T: ReplicationApi>(pub Arc<T>);
                     impl<
-                        T: IdentityApi,
-                    > tonic::server::UnaryService<super::PublishIdentityUpdateRequest>
-                    for PublishIdentityUpdateSvc<T> {
-                        type Response = super::PublishIdentityUpdateResponse;
+                        T: ReplicationApi,
+                    > tonic::server::ServerStreamingService<
+                        super::BatchSubscribeEnvelopesRequest,
+                    > for BatchSubscribeEnvelopesSvc<T> {
+                        type Response = super::BatchSubscribeEnvelopesResponse;
+                        type ResponseStream = T::BatchSubscribeEnvelopesStream;
                         type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
+                            tonic::Response<Self::ResponseStream>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::PublishIdentityUpdateRequest>,
+                            request: tonic::Request<
+                                super::BatchSubscribeEnvelopesRequest,
+                            >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as IdentityApi>::publish_identity_update(&inner, request)
+                                <T as ReplicationApi>::batch_subscribe_envelopes(
+                                        &inner,
+                                        request,
+                                    )
                                     .await
                             };
                             Box::pin(fut)
@@ -310,7 +339,53 @@ pub mod identity_api_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = PublishIdentityUpdateSvc(inner);
+                        let method = BatchSubscribeEnvelopesSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.server_streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/xmtp.xmtpv4.ReplicationApi/QueryEnvelopes" => {
+                    #[allow(non_camel_case_types)]
+                    struct QueryEnvelopesSvc<T: ReplicationApi>(pub Arc<T>);
+                    impl<
+                        T: ReplicationApi,
+                    > tonic::server::UnaryService<super::QueryEnvelopesRequest>
+                    for QueryEnvelopesSvc<T> {
+                        type Response = super::QueryEnvelopesResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::QueryEnvelopesRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ReplicationApi>::query_envelopes(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = QueryEnvelopesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -326,25 +401,25 @@ pub mod identity_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/xmtp.identity.api.v1.IdentityApi/GetIdentityUpdates" => {
+                "/xmtp.xmtpv4.ReplicationApi/PublishEnvelope" => {
                     #[allow(non_camel_case_types)]
-                    struct GetIdentityUpdatesSvc<T: IdentityApi>(pub Arc<T>);
+                    struct PublishEnvelopeSvc<T: ReplicationApi>(pub Arc<T>);
                     impl<
-                        T: IdentityApi,
-                    > tonic::server::UnaryService<super::GetIdentityUpdatesRequest>
-                    for GetIdentityUpdatesSvc<T> {
-                        type Response = super::GetIdentityUpdatesResponse;
+                        T: ReplicationApi,
+                    > tonic::server::UnaryService<super::PublishEnvelopeRequest>
+                    for PublishEnvelopeSvc<T> {
+                        type Response = super::PublishEnvelopeResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::GetIdentityUpdatesRequest>,
+                            request: tonic::Request<super::PublishEnvelopeRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as IdentityApi>::get_identity_updates(&inner, request)
+                                <T as ReplicationApi>::publish_envelope(&inner, request)
                                     .await
                             };
                             Box::pin(fut)
@@ -356,52 +431,7 @@ pub mod identity_api_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = GetIdentityUpdatesSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/xmtp.identity.api.v1.IdentityApi/GetInboxIds" => {
-                    #[allow(non_camel_case_types)]
-                    struct GetInboxIdsSvc<T: IdentityApi>(pub Arc<T>);
-                    impl<
-                        T: IdentityApi,
-                    > tonic::server::UnaryService<super::GetInboxIdsRequest>
-                    for GetInboxIdsSvc<T> {
-                        type Response = super::GetInboxIdsResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::GetInboxIdsRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as IdentityApi>::get_inbox_ids(&inner, request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = GetInboxIdsSvc(inner);
+                        let method = PublishEnvelopeSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -435,7 +465,7 @@ pub mod identity_api_server {
             }
         }
     }
-    impl<T: IdentityApi> Clone for IdentityApiServer<T> {
+    impl<T: ReplicationApi> Clone for ReplicationApiServer<T> {
         fn clone(&self) -> Self {
             let inner = self.inner.clone();
             Self {
@@ -447,7 +477,7 @@ pub mod identity_api_server {
             }
         }
     }
-    impl<T: IdentityApi> tonic::server::NamedService for IdentityApiServer<T> {
-        const NAME: &'static str = "xmtp.identity.api.v1.IdentityApi";
+    impl<T: ReplicationApi> tonic::server::NamedService for ReplicationApiServer<T> {
+        const NAME: &'static str = "xmtp.xmtpv4.ReplicationApi";
     }
 }

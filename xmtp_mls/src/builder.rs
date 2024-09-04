@@ -40,6 +40,8 @@ pub enum ClientBuilderError {
     WrappedApiError(#[from] crate::api::WrappedApiError),
     #[error(transparent)]
     GroupError(#[from] crate::groups::GroupError),
+    #[error(transparent)]
+    ApiError(#[from] xmtp_proto::api_client::Error),
 }
 
 pub struct ClientBuilder<ApiClient> {
@@ -48,6 +50,7 @@ pub struct ClientBuilder<ApiClient> {
     store: Option<EncryptedMessageStore>,
     identity_strategy: IdentityStrategy,
     history_sync_url: Option<String>,
+    app_version: Option<String>,
 }
 
 impl<ApiClient> ClientBuilder<ApiClient>
@@ -61,6 +64,7 @@ where
             store: None,
             identity_strategy: strategy,
             history_sync_url: None,
+            app_version: None,
         }
     }
 
@@ -84,14 +88,24 @@ where
         self
     }
 
+    pub fn app_version(mut self, version: String) -> Self {
+        self.app_version = Some(version);
+        self
+    }
+
     pub async fn build(mut self) -> Result<Client<ApiClient>, ClientBuilderError> {
         debug!("Building client");
-        let api_client = self
-            .api_client
-            .take()
-            .ok_or(ClientBuilderError::MissingParameter {
-                parameter: "api_client",
-            })?;
+        let mut api_client =
+            self.api_client
+                .take()
+                .ok_or(ClientBuilderError::MissingParameter {
+                    parameter: "api_client",
+                })?;
+        api_client.set_libxmtp_version(env!("CARGO_PKG_VERSION").to_string())?;
+        if let Some(app_version) = self.app_version {
+            api_client.set_app_version(app_version)?;
+        }
+
         let api_client_wrapper = ApiClientWrapper::new(api_client, Retry::default());
         let store = self
             .store

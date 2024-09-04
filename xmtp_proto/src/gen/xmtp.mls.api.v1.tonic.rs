@@ -1,6 +1,6 @@
 // @generated
 /// Generated client implementations.
-#[cfg(feature = "tonic")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod mls_api_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
@@ -131,33 +131,6 @@ pub mod mls_api_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn register_installation(
-            &mut self,
-            request: impl tonic::IntoRequest<super::RegisterInstallationRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::RegisterInstallationResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/RegisterInstallation",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "RegisterInstallation"),
-                );
-            self.inner.unary(req, path, codec).await
-        }
         pub async fn upload_key_package(
             &mut self,
             request: impl tonic::IntoRequest<super::UploadKeyPackageRequest>,
@@ -203,53 +176,6 @@ pub mod mls_api_client {
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "FetchKeyPackages"));
-            self.inner.unary(req, path, codec).await
-        }
-        pub async fn revoke_installation(
-            &mut self,
-            request: impl tonic::IntoRequest<super::RevokeInstallationRequest>,
-        ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/RevokeInstallation",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "RevokeInstallation"));
-            self.inner.unary(req, path, codec).await
-        }
-        pub async fn get_identity_updates(
-            &mut self,
-            request: impl tonic::IntoRequest<super::GetIdentityUpdatesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::GetIdentityUpdatesResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/GetIdentityUpdates",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "GetIdentityUpdates"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn query_group_messages(
@@ -361,7 +287,7 @@ pub mod mls_api_client {
     }
 }
 /// Generated server implementations.
-#[cfg(feature = "tonic")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod mls_api_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
@@ -376,13 +302,6 @@ pub mod mls_api_server {
             &self,
             request: tonic::Request<super::SendWelcomeMessagesRequest>,
         ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status>;
-        async fn register_installation(
-            &self,
-            request: tonic::Request<super::RegisterInstallationRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::RegisterInstallationResponse>,
-            tonic::Status,
-        >;
         async fn upload_key_package(
             &self,
             request: tonic::Request<super::UploadKeyPackageRequest>,
@@ -392,17 +311,6 @@ pub mod mls_api_server {
             request: tonic::Request<super::FetchKeyPackagesRequest>,
         ) -> std::result::Result<
             tonic::Response<super::FetchKeyPackagesResponse>,
-            tonic::Status,
-        >;
-        async fn revoke_installation(
-            &self,
-            request: tonic::Request<super::RevokeInstallationRequest>,
-        ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status>;
-        async fn get_identity_updates(
-            &self,
-            request: tonic::Request<super::GetIdentityUpdatesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::GetIdentityUpdatesResponse>,
             tonic::Status,
         >;
         async fn query_group_messages(
@@ -448,19 +356,17 @@ pub mod mls_api_server {
     }
     #[derive(Debug)]
     pub struct MlsApiServer<T: MlsApi> {
-        inner: _Inner<T>,
+        inner: Arc<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
         max_decoding_message_size: Option<usize>,
         max_encoding_message_size: Option<usize>,
     }
-    struct _Inner<T>(Arc<T>);
     impl<T: MlsApi> MlsApiServer<T> {
         pub fn new(inner: T) -> Self {
             Self::from_arc(Arc::new(inner))
         }
         pub fn from_arc(inner: Arc<T>) -> Self {
-            let inner = _Inner(inner);
             Self {
                 inner,
                 accept_compression_encodings: Default::default(),
@@ -523,7 +429,6 @@ pub mod mls_api_server {
             Poll::Ready(Ok(()))
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
-            let inner = self.inner.clone();
             match req.uri().path() {
                 "/xmtp.mls.api.v1.MlsApi/SendGroupMessages" => {
                     #[allow(non_camel_case_types)]
@@ -554,7 +459,6 @@ pub mod mls_api_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let inner = inner.0;
                         let method = SendGroupMessagesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
@@ -600,54 +504,7 @@ pub mod mls_api_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let inner = inner.0;
                         let method = SendWelcomeMessagesSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/xmtp.mls.api.v1.MlsApi/RegisterInstallation" => {
-                    #[allow(non_camel_case_types)]
-                    struct RegisterInstallationSvc<T: MlsApi>(pub Arc<T>);
-                    impl<
-                        T: MlsApi,
-                    > tonic::server::UnaryService<super::RegisterInstallationRequest>
-                    for RegisterInstallationSvc<T> {
-                        type Response = super::RegisterInstallationResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::RegisterInstallationRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as MlsApi>::register_installation(&inner, request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = RegisterInstallationSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -692,7 +549,6 @@ pub mod mls_api_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let inner = inner.0;
                         let method = UploadKeyPackageSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
@@ -738,100 +594,7 @@ pub mod mls_api_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let inner = inner.0;
                         let method = FetchKeyPackagesSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/xmtp.mls.api.v1.MlsApi/RevokeInstallation" => {
-                    #[allow(non_camel_case_types)]
-                    struct RevokeInstallationSvc<T: MlsApi>(pub Arc<T>);
-                    impl<
-                        T: MlsApi,
-                    > tonic::server::UnaryService<super::RevokeInstallationRequest>
-                    for RevokeInstallationSvc<T> {
-                        type Response = ::pbjson_types::Empty;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::RevokeInstallationRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as MlsApi>::revoke_installation(&inner, request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = RevokeInstallationSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/xmtp.mls.api.v1.MlsApi/GetIdentityUpdates" => {
-                    #[allow(non_camel_case_types)]
-                    struct GetIdentityUpdatesSvc<T: MlsApi>(pub Arc<T>);
-                    impl<
-                        T: MlsApi,
-                    > tonic::server::UnaryService<super::GetIdentityUpdatesRequest>
-                    for GetIdentityUpdatesSvc<T> {
-                        type Response = super::GetIdentityUpdatesResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::GetIdentityUpdatesRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as MlsApi>::get_identity_updates(&inner, request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = GetIdentityUpdatesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -876,7 +639,6 @@ pub mod mls_api_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let inner = inner.0;
                         let method = QueryGroupMessagesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
@@ -922,7 +684,6 @@ pub mod mls_api_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let inner = inner.0;
                         let method = QueryWelcomeMessagesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
@@ -971,7 +732,6 @@ pub mod mls_api_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let inner = inner.0;
                         let method = SubscribeGroupMessagesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
@@ -1022,7 +782,6 @@ pub mod mls_api_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let inner = inner.0;
                         let method = SubscribeWelcomeMessagesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
@@ -1044,8 +803,11 @@ pub mod mls_api_server {
                         Ok(
                             http::Response::builder()
                                 .status(200)
-                                .header("grpc-status", "12")
-                                .header("content-type", "application/grpc")
+                                .header("grpc-status", tonic::Code::Unimplemented as i32)
+                                .header(
+                                    http::header::CONTENT_TYPE,
+                                    tonic::metadata::GRPC_CONTENT_TYPE,
+                                )
                                 .body(empty_body())
                                 .unwrap(),
                         )
@@ -1064,16 +826,6 @@ pub mod mls_api_server {
                 max_decoding_message_size: self.max_decoding_message_size,
                 max_encoding_message_size: self.max_encoding_message_size,
             }
-        }
-    }
-    impl<T: MlsApi> Clone for _Inner<T> {
-        fn clone(&self) -> Self {
-            Self(Arc::clone(&self.0))
-        }
-    }
-    impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{:?}", self.0)
         }
     }
     impl<T: MlsApi> tonic::server::NamedService for MlsApiServer<T> {

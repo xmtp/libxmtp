@@ -55,13 +55,13 @@ libxmtp/
 
 ├ examples/
 
-   ├ [`android/xmtpv3_example`](./examples/android/xmtpv3_example): Example Android app (in progress)
+│ ├ [`android/xmtpv3_example`](./examples/android/xmtpv3_example): Example Android app (in progress)
 
-   └ [`cli`](./examples/cli): Example XMTP console client. Use the CLI to try out sending double ratchet messages on the XMTP `dev` network.
+│ └ [`cli`](./examples/cli): Example XMTP console client. Use the CLI to try out sending double ratchet messages on the XMTP `dev` network.
 
 ├ [`xmtp_api_grpc`](./xmtp_api_grpc): API client for XMTP's gRPC API, using code from `xmtp_proto`
 
-├ [`xmtp_api_grpc_gateway`](./xmtp_api_grpc_gateway): API client for XMTP's gRPC Gateway API, using code from `xmtp_proto` (in progress)
+├ [`xmtp_api_http`](./xmtp_api_http): API client for XMTP's gRPC Gateway API, using code from `xmtp_proto`
 
 ├ [`xmtp_cryptography`](./xmtp_cryptography): Cryptographic operations
 
@@ -70,7 +70,6 @@ libxmtp/
 ├ [`xmtp_proto`](./xmtp_proto): Generated code for handling XMTP protocol buffers
 
 └ [`xmtp_v2`](./xmtp_v2): Version 2 of XMTP which uses a [user key bundle](https://xmtp.org/docs/concepts/key-generation-and-usage) to encrypt and exchange messages.
-
 
 ### Run the benchmarks
 

@@ -2,7 +2,8 @@ use async_trait::async_trait;
 use mockall::mock;
 use xmtp_proto::{
     api_client::{
-        Error, GroupMessageStream, WelcomeMessageStream, XmtpIdentityClient, XmtpMlsClient,
+        ClientWithMetadata, Error, GroupMessageStream, WelcomeMessageStream, XmtpIdentityClient,
+        XmtpMlsClient,
     },
     xmtp::identity::api::v1::{
         GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
@@ -39,6 +40,11 @@ pub fn build_group_messages(num_messages: usize, group_id: Vec<u8>) -> Vec<Group
 // Create a mock XmtpClient for testing the client wrapper
 mock! {
     pub ApiClient {}
+
+    impl ClientWithMetadata for ApiClient {
+        fn set_libxmtp_version(&mut self, version: String) -> Result<(), Error>;
+        fn set_app_version(&mut self, version: String) -> Result<(), Error>;
+    }
 
     #[async_trait]
     impl XmtpMlsClient for ApiClient {
