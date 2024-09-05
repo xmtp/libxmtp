@@ -151,7 +151,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::super::test_utils::*;
     use super::GetIdentityUpdatesV2Filter;
     use crate::{api::ApiClientWrapper, retry::Retry};

@@ -60,7 +60,7 @@ impl TryFrom<StoredIdentity> for Identity {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::{
         super::{EncryptedMessageStore, StorageOption},
         StoredIdentity,

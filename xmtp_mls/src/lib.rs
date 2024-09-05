@@ -50,7 +50,8 @@ impl<T> XmtpApi for T where
 }
 
 #[cfg(any(test, feature = "test-utils", feature = "bench"))]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait XmtpTestClient {
     async fn create_local() -> Self;
     async fn create_dev() -> Self;
@@ -125,12 +126,13 @@ mod wasm_test {
     pub use crate::groups::group_membership::tests::*;
     pub use crate::groups::group_permissions::tests::*;
     pub use crate::groups::intents::tests::*;
-    pub use crate::groups::members::tests::*;
+    // message history test use `mockito` and `tempfile`
+    // which are incompatible with wasm since they use
+    // system sockets/files
     // pub use crate::groups::message_history::tests::*;
     pub use crate::groups::subscriptions::tests::*;
     pub use crate::groups::sync::tests::*;
     pub use crate::groups::tests::*;
-    pub use crate::groups::validated_commit::tests::*;
     pub use crate::identity_updates::tests::*;
     pub use crate::retry::tests::*;
     pub use crate::storage::encrypted_store::association_state::tests::*;
@@ -146,14 +148,13 @@ mod wasm_test {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use log::LevelFilter;
-    use tracing_test::traced_test;
 
     // Execute once before any tests are run
-    #[ctor::ctor]
+    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
     // Capture traces in a variable that can be checked in tests, as well as outputting them to stdout on test failure
-    #[traced_test]
+    #[cfg_attr(not(target_arch = "wasm32"), tracing_test::traced_test)]
     fn setup() {
         // Capture logs (e.g. log::info!()) as traces too
         let _ = tracing_log::LogTracer::init_with_filter(LevelFilter::Debug);

@@ -48,7 +48,7 @@ impl ContentCodec<GroupMembershipChanges> for GroupMembershipChangeCodec {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use xmtp_proto::xmtp::mls::message_contents::MembershipChange;
 
     use crate::utils::test::{rand_string, rand_vec};

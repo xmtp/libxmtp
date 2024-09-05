@@ -23,10 +23,10 @@ use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
 #[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 use xmtp_api_http::XmtpHttpApiClient;
 
-#[cfg(not(feature = "http-api"))]
+#[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
 pub type TestClient = GrpcClient;
 
-#[cfg(feature = "http-api")]
+#[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 pub type TestClient = XmtpHttpApiClient;
 
 pub fn rand_string() -> String {
@@ -51,8 +51,9 @@ pub fn rand_time() -> i64 {
     rng.gen_range(0..1_000_000_000)
 }
 
-#[async_trait::async_trait]
-#[cfg(feature = "http-api")]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 impl XmtpTestClient for XmtpHttpApiClient {
     async fn create_local() -> Self {
         XmtpHttpApiClient::new("http://localhost:5555".into()).unwrap()
@@ -63,7 +64,8 @@ impl XmtpTestClient for XmtpHttpApiClient {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl XmtpTestClient for GrpcClient {
     async fn create_local() -> Self {
         GrpcClient::create("http://localhost:5556".into(), false)

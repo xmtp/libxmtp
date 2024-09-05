@@ -204,7 +204,7 @@ impl DbConnection {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{
         assert_err, assert_ok,

@@ -130,7 +130,7 @@ impl DbConnection {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::{
         storage::encrypted_store::tests::with_connection,
         utils::test::{rand_time, rand_vec},

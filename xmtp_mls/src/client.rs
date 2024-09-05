@@ -746,7 +746,7 @@ pub fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientErr
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 

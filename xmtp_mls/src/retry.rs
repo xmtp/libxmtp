@@ -214,7 +214,7 @@ impl RetryableError for xmtp_proto::api_client::Error {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use thiserror::Error;
     use tokio::sync::mpsc;

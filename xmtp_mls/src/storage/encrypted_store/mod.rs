@@ -454,7 +454,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::{
         db_connection::DbConnection, identity::StoredIdentity, EncryptedMessageStore, StorageError,
         StorageOption,
@@ -745,7 +745,7 @@ mod tests {
 
         let store_pointer = store.clone();
 
-        let handle = tokio::spawn(async move {
+        let handle = crate::spawn(async move {
             store_pointer
                 .transaction_async(|provider| async move {
                     let conn1 = provider.conn_ref();

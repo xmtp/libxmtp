@@ -383,7 +383,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::utils::test::{Delivery, TestClient};
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions,
@@ -415,7 +415,7 @@ mod tests {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
         let bob_ptr = bob.clone();
-        tokio::spawn(async move {
+        crate::spawn(async move {
             let bob_stream = bob_ptr.stream_conversations().await.unwrap();
             futures::pin_mut!(bob_stream);
             while let Some(item) = bob_stream.next().await {
@@ -457,7 +457,7 @@ mod tests {
         let notify = Delivery::new(None);
         let notify_ptr = notify.clone();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        tokio::spawn(async move {
+        crate::spawn(async move {
             let stream = alice_group.stream(alice).await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
@@ -695,7 +695,7 @@ mod tests {
 
         let alix_group_pointer = alix_group.clone();
         let alix_pointer = alix.clone();
-        tokio::spawn(async move {
+        crate::spawn(async move {
             for _ in 0..50 {
                 alix_group_pointer
                     .send_message(b"spam", &alix_pointer)

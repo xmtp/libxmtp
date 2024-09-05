@@ -446,7 +446,6 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
 #[cfg(test)]
 pub(crate) mod tests {
     use ethers::signers::LocalWallet;
-    use tracing_test::traced_test;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{
         associations::{builder::SignatureRequest, AssociationState, RecoverableEcdsaSignature},
@@ -565,8 +564,11 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    #[traced_test]
+    #[tracing_test::traced_test]
     async fn cache_association_state() {
+        if cfg!(target_arch = "wasm32") {
+            let _ = tracing_log::LogTracer::init_with_filter(log::LevelFilter::Debug);
+        }
         let wallet = generate_local_wallet();
         let wallet_2 = generate_local_wallet();
         let wallet_address = wallet.get_address();

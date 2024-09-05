@@ -89,10 +89,8 @@ gloo-timers = { workspace = true, features = ["futures"] }
 
 
 [dev-dependencies]
-ctor.workspace = true
 ethers.workspace = true
 mockall = "0.13.0"
-mockito = "1.4.0"
 tracing-log = "0.2.0"
 tracing-test = "0.2.4"
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
@@ -102,6 +100,8 @@ anyhow.workspace = true
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 tracing-subscriber.workspace = true
 tempfile = "3.5.0"
+mockito = "1.4.0"
+ctor.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 xmtp_api_http = { path = "../xmtp_api_http" }

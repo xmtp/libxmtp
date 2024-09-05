@@ -46,7 +46,7 @@ impl ContentCodec<GroupUpdated> for GroupUpdatedCodec {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use xmtp_proto::xmtp::mls::message_contents::{group_updated::Inbox, GroupUpdated};
 
     use crate::utils::test::rand_string;

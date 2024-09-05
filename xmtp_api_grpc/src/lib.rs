@@ -8,7 +8,7 @@ pub const DEV_ADDRESS: &str = "https://grpc.dev.xmtp.network:443";
 pub use grpc_api_helper::Client;
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use self::auth_token::Authenticator;

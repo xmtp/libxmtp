@@ -1149,7 +1149,7 @@ impl std::fmt::Display for PreconfiguredPolicies {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::{
         groups::{group_mutable_metadata::MetadataField, validated_commit::MutableMetadataChanges},
         utils::test::{rand_string, rand_vec},

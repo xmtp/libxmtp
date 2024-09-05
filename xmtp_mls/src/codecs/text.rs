@@ -54,7 +54,7 @@ impl ContentCodec<String> for TextCodec {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::codecs::{text::TextCodec, ContentCodec};
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

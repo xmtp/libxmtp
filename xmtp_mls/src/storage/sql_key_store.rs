@@ -1013,7 +1013,7 @@ impl From<bincode::Error> for SqlKeyStoreError {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use openmls::group::GroupId;
     use openmls_basic_credential::{SignatureKeyPair, StorageId};
     use openmls_traits::{

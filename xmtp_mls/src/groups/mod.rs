@@ -3,11 +3,11 @@ pub mod group_metadata;
 pub mod group_mutable_metadata;
 pub mod group_permissions;
 pub mod intents;
-pub mod members;
+pub(super) mod members;
 #[allow(dead_code)]
 pub mod message_history;
-mod subscriptions;
-mod sync;
+pub(super) mod subscriptions;
+pub(super) mod sync;
 pub mod validated_commit;
 
 use intents::SendMessageIntentData;
@@ -1273,13 +1273,12 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use diesel::connection::SimpleConnection;
     use futures::future::join_all;
     use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
     use prost::Message;
     use std::sync::Arc;
-    use tracing_test::traced_test;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
@@ -1607,8 +1606,11 @@ mod tests {
         not(target_arch = "wasm32"),
         tokio::test(flavor = "multi_thread", worker_threads = 1)
     )]
-    #[traced_test]
+    #[tracing_test::traced_test]
     async fn test_create_from_welcome_validation() {
+        if cfg!(target_arch = "wasm32") {
+            let _ = tracing_log::LogTracer::init_with_filter(log::LevelFilter::Debug);
+        }
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
@@ -1950,7 +1952,10 @@ mod tests {
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread", worker_threads = 10))]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_self_resolve_epoch_mismatch() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2069,7 +2074,6 @@ mod tests {
         assert_eq!(amal_group_description, "group description");
         assert_eq!(amal_group_pinned_frame_url, "pinned frame");
     }
-
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
@@ -3009,7 +3013,10 @@ mod tests {
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread", worker_threads = 5))]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 5)
+    )]
     async fn test_parallel_syncs() {
         let wallet = generate_local_wallet();
         let alix1 = Arc::new(ClientBuilder::new_test_client(&wallet).await);
@@ -3025,7 +3032,7 @@ mod tests {
                 let client_clone = alix1.clone();
                 // Each of these syncs is going to trigger the client to invite alix2 to the group
                 // because of the race
-                tokio::spawn(async move { group_clone.sync(&client_clone).await })
+                crate::spawn(async move { group_clone.sync(&client_clone).await })
             })
             .collect();
 
@@ -3119,7 +3126,11 @@ mod tests {
      * We need to be safe even in situations where there are multiple
      * intents that do the same thing, leading to conflicts
      */
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 5)
+    )]
     async fn add_missing_installs_reentrancy() {
         let wallet = generate_local_wallet();
         let alix1 = ClientBuilder::new_test_client(&wallet).await;
@@ -3207,7 +3218,10 @@ mod tests {
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread", worker_threads = 5))]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 5)
+    )]
     async fn respect_allow_epoch_increment() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;

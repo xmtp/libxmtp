@@ -1304,7 +1304,7 @@ fn decode_staged_commit(data: Vec<u8>) -> Result<StagedCommit, MessageProcessing
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::builder::ClientBuilder;
     use futures::future;

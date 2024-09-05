@@ -119,7 +119,7 @@ impl StoredAssociationState {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::storage::encrypted_store::tests::with_connection;
 
     use super::*;

@@ -132,7 +132,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::api::ApiClientWrapper;
     use crate::builder::ClientBuilderError;
     use crate::identity::IdentityError;
