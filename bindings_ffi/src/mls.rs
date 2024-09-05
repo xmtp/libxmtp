@@ -732,6 +732,26 @@ impl FfiConversations {
         Ok(out)
     }
 
+    pub async fn create_dm(
+        &self,
+        target_inbox_id: String,
+    ) -> Result<Arc<FfiGroup>, GenericError> {
+        log::info!(
+            "creating dm with target inbox id: {}",
+            target_inbox_id
+        );
+
+        let convo = self.inner_client.create_dm(target_inbox_id)?;
+
+        let out = Arc::new(FfiGroup {
+            inner_client: self.inner_client.clone(),
+            group_id: convo.group_id,
+            created_at_ns: convo.created_at_ns,
+        });
+
+        Ok(out)
+    }
+
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
