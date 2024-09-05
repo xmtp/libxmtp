@@ -1,3 +1,3 @@
 # Global rule:
 *     @xmtp/Engineering
-*.md  @fabriguespe
+*.md  @xmtp/documentation
