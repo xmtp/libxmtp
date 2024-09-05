@@ -38,8 +38,6 @@ openmls.workspace = true
 
 [dev-dependencies]
 ed25519-dalek = { workspace = true, features = ["digest"] }
-futures = "0.3"
-tokio = { workspace = true, features = ["macros", "time"] }
 xmtp_v2 = { path = "../xmtp_v2" }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
