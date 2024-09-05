@@ -69,7 +69,7 @@ xmtp_id = { path = "xmtp_id" }
 xmtp_mls = { path = "xmtp_mls" }
 xmtp_proto = { path = "xmtp_proto" }
 
-# Patch needed until some items
+# patch needed until some items
 # are made public for third-party dependencies: https://github.com/diesel-rs/diesel/pull/4236
 # (cfg-specific patche support does not exist)
 [patch.crates-io]

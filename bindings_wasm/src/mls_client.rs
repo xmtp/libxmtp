@@ -6,8 +6,11 @@ use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
-use xmtp_id::associations::{
-  AccountId, MemberIdentifier, RecoverableEcdsaSignature, Signature, SmartContractWalletSignature,
+use xmtp_id::{
+  associations::{
+    AccountId, MemberIdentifier, RecoverableEcdsaSignature, SmartContractWalletSignature,
+  },
+  GenericSignature,
 };
 use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::builder::ClientBuilder;
