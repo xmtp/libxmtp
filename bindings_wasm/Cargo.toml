@@ -33,3 +33,7 @@ diesel = { git = "https://github.com/xmtp/diesel", branch = "insipx/sqlite-repla
 diesel_derives = { git = "https://github.com/xmtp/diesel", branch = "insipx/sqlite-replace-ignore-pub" }
 diesel_migrations = { git = "https://github.com/xmtp/diesel", branch = "insipx/sqlite-replace-ignore-pub" }
 diesel-wasm-sqlite = { path = "../diesel-wasm-sqlite" }
+
+[build]
+target = "wasm32-unknown-unknown"
+

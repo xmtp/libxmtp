@@ -28,6 +28,4 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tokio = { workspace = true, features = ["macros", "time"] }
 wasm-bindgen-test.workspace = true
 
-[profile.release]
-opt-level = "s"
 
