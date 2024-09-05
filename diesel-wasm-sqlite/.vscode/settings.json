@@ -1,0 +1,34 @@
+{
+	"rust-analyzer": {
+		"cargo": {
+			"sysroot": "discover",
+			"allTargets": false,
+			"target": "wasm32-unknown-unknown"
+		},
+		"procMacro": {
+			"enable": true,
+			"attributes.enable": true,
+			"ignored": {
+				"async-trait": ["async_trait"],
+				"napi-derive": ["napi"],
+				"async-recursion": ["async_recursion"],
+				"ctor": ["ctor"],
+				"tokio": ["test"],
+				"diesel": ["table"],
+				"wasm-bindgen": ["wasm-bindgen"]
+			}
+		}
+	},
+	"[toml]": {
+		"editor.defaultFormatter": "tamasfe.even-better-toml"
+	},
+	"[typescript]": {
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
+	},
+	"[javascript]": {
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
+	},
+	"[json]": {
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
+	}
+}

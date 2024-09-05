@@ -10,10 +10,15 @@ members = [
   "xmtp_user_preferences",
   "xmtp_v2",
   "xmtp_mls",
-  "xmtp_id",
+  "xmtp_id"
 ]
 
-exclude = ["bindings_ffi", "bindings_wasm", "bindings_node"]
+exclude = [
+  "bindings_ffi",
+  "bindings_wasm",
+  "bindings_node",
+  "diesel-wasm-sqlite"
+]
 
 # Make the feature resolver explicit.
 # See https://doc.rust-lang.org/edition-guide/rust-2021/default-cargo-resolver.html#details

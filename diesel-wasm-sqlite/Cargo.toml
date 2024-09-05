@@ -1,0 +1,62 @@
+[package]
+name = "diesel-wasm-sqlite"
+version = "0.0.1"
+edition = "2021"
+resolver = "2"
+authors = ["XMTP Labs <eng@xmtp.com>"]
+description = "SQLite WebAssembly backend for Diesel"
+homepage = "https://xmtp.org/"
+repository = "https://github.com/xmtp/libxmtp"
+license = "MIT"
+keywords = ["orm", "database", "sql", "wasm"]
+categories = ["database", "wasm"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+targets = ["wasm32-unknown-unknown"]
+
+[dependencies]
+talc = { version = "4.4", default-features = false, features = ["lock_api"] }
+diesel = { version = "2.2", features = ["i-implement-a-third-party-backend-and-opt-into-breaking-changes"] }
+diesel_derives = "2.2"
+wasm-bindgen = "0.2.92"
+wasm-bindgen-futures = "0.4"
+js-sys = { version = "0.3" }
+tracing = "0.1"
+tokio = { version = "1.38", default-features = false, features = ["sync"] }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+thiserror = "1"
+
+[dev-dependencies]
+console_error_panic_hook = { version = "0.1"}
+rand = "0.8"
+getrandom = { version = "0.2", features = ["js"] }
+wasm-bindgen-test = "0.3.42"
+web-sys = { version = "0.3", features = ["console"] }
+chrono = { version = "0.4", features = ["wasmbind", "serde"] }
+diesel_migrations = "2.2"
+diesel = { version = "2.2", features = ["chrono"]}
+tracing-wasm = { version = "0.2" }
+ctor = "0.2"
+
+
+[patch.crates-io]
+diesel = { git = "https://github.com/xmtp/diesel", branch = "insipx/sqlite-replace-ignore-pub" }
+diesel_derives = { git = "https://github.com/xmtp/diesel", branch = "insipx/sqlite-replace-ignore-pub" }
+diesel_migrations = { git = "https://github.com/xmtp/diesel", branch = "insipx/sqlite-replace-ignore-pub" }
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+r2d2 = ["diesel/r2d2"]
+# enables a `DebugQueryWrapper` for diesel
+# but is unsafe because of mem::transmute
+unsafe-debug-query = []
+
+[build]
+target = "wasm32-unknown-unknown"
+
