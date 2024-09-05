@@ -162,7 +162,7 @@ dependencies = [
 [[package]]
 name = "diesel"
 version = "2.2.0"
-source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#ae5dfca02366e23058a94396c1df0753fe9ac4b3"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#78ece4f82ab6f77beb40c162b08444ea3a30b355"
 dependencies = [
  "chrono",
  "diesel_derives 2.2.0",
@@ -199,7 +199,7 @@ dependencies = [
 [[package]]
 name = "diesel_derives"
 version = "2.2.0"
-source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#ae5dfca02366e23058a94396c1df0753fe9ac4b3"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#78ece4f82ab6f77beb40c162b08444ea3a30b355"
 dependencies = [
  "diesel_table_macro_syntax 0.2.0 (git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub)",
  "dsl_auto_type 0.1.0",
@@ -224,7 +224,7 @@ dependencies = [
 [[package]]
 name = "diesel_migrations"
 version = "2.2.0"
-source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#ae5dfca02366e23058a94396c1df0753fe9ac4b3"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#78ece4f82ab6f77beb40c162b08444ea3a30b355"
 dependencies = [
  "diesel",
  "migrations_internals",
@@ -243,7 +243,7 @@ dependencies = [
 [[package]]
 name = "diesel_table_macro_syntax"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#ae5dfca02366e23058a94396c1df0753fe9ac4b3"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#78ece4f82ab6f77beb40c162b08444ea3a30b355"
 dependencies = [
  "syn",
 ]
@@ -257,7 +257,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "dsl_auto_type"
 version = "0.1.0"
-source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#ae5dfca02366e23058a94396c1df0753fe9ac4b3"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#78ece4f82ab6f77beb40c162b08444ea3a30b355"
 dependencies = [
  "darling",
  "either",
@@ -415,7 +415,7 @@ checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 [[package]]
 name = "migrations_internals"
 version = "2.2.0"
-source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#ae5dfca02366e23058a94396c1df0753fe9ac4b3"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#78ece4f82ab6f77beb40c162b08444ea3a30b355"
 dependencies = [
  "serde",
  "toml",
@@ -424,7 +424,7 @@ dependencies = [
 [[package]]
 name = "migrations_macros"
 version = "2.2.0"
-source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#ae5dfca02366e23058a94396c1df0753fe9ac4b3"
+source = "git+https://github.com/xmtp/diesel?branch=insipx/sqlite-replace-ignore-pub#78ece4f82ab6f77beb40c162b08444ea3a30b355"
 dependencies = [
  "migrations_internals",
  "proc-macro2",
@@ -1020,3 +1020,8 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[patch.unused]]
+name = "wasm-bindgen"
+version = "0.2.93"
+source = "git+https://github.com/rustwasm/wasm-bindgen?branch=main#e4f8c4540aee2f3c0798fdae51ac7dace28e102b"
