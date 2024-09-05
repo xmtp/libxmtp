@@ -1,9 +1,10 @@
+use crate::GenericSignature;
+
 use super::hashes::generate_inbox_id;
 use super::member::{Member, MemberIdentifier, MemberKind};
 use super::serialization::{from_identity_update_proto, DeserializationError};
-use super::signature::{Signature, SignatureError, SignatureKind};
+use super::signature::{SignatureError, SignatureKind};
 use super::state::AssociationState;
-use async_trait::async_trait;
 use prost::Message;
 use thiserror::Error;
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate as IdentityUpdateProto;
@@ -38,8 +39,7 @@ pub enum AssociationError {
     MissingIdentityUpdate,
 }
 
-#[async_trait]
-pub trait IdentityAction: Send + 'static {
+pub(crate) trait IdentityAction {
     async fn update_state(
         &self,
         existing_state: Option<AssociationState>,
@@ -62,10 +62,9 @@ pub trait IdentityAction: Send + 'static {
 pub struct CreateInbox {
     pub nonce: u64,
     pub account_address: String,
-    pub initial_address_signature: Box<dyn Signature>,
+    pub initial_address_signature: GenericSignature,
 }
 
-#[async_trait]
 impl IdentityAction for CreateInbox {
     async fn update_state(
         &self,
@@ -105,12 +104,11 @@ impl IdentityAction for CreateInbox {
 /// AddAssociation Action
 #[derive(Debug, Clone)]
 pub struct AddAssociation {
-    pub new_member_signature: Box<dyn Signature>,
+    pub new_member_signature: GenericSignature,
     pub new_member_identifier: MemberIdentifier,
-    pub existing_member_signature: Box<dyn Signature>,
+    pub existing_member_signature: GenericSignature,
 }
 
-#[async_trait::async_trait]
 impl IdentityAction for AddAssociation {
     async fn update_state(
         &self,
@@ -201,11 +199,10 @@ impl IdentityAction for AddAssociation {
 /// RevokeAssociation Action
 #[derive(Debug, Clone)]
 pub struct RevokeAssociation {
-    pub recovery_address_signature: Box<dyn Signature>,
+    pub recovery_address_signature: GenericSignature,
     pub revoked_member: MemberIdentifier,
 }
 
-#[async_trait]
 impl IdentityAction for RevokeAssociation {
     async fn update_state(
         &self,
@@ -257,11 +254,10 @@ impl IdentityAction for RevokeAssociation {
 /// ChangeRecoveryAddress Action
 #[derive(Debug, Clone)]
 pub struct ChangeRecoveryAddress {
-    pub recovery_address_signature: Box<dyn Signature>,
+    pub recovery_address_signature: GenericSignature,
     pub new_recovery_address: String,
 }
 
-#[async_trait]
 impl IdentityAction for ChangeRecoveryAddress {
     async fn update_state(
         &self,
@@ -299,7 +295,6 @@ pub enum Action {
     ChangeRecoveryAddress(ChangeRecoveryAddress),
 }
 
-#[async_trait]
 impl IdentityAction for Action {
     async fn update_state(
         &self,
@@ -366,7 +361,6 @@ impl TryFrom<Vec<u8>> for IdentityUpdate {
     }
 }
 
-#[async_trait]
 impl IdentityAction for IdentityUpdate {
     async fn update_state(
         &self,
@@ -401,7 +395,7 @@ impl IdentityAction for IdentityUpdate {
 }
 
 #[allow(clippy::borrowed_box)]
-fn is_legacy_signature(signature: &Box<dyn Signature>) -> bool {
+fn is_legacy_signature(signature: &GenericSignature) -> bool {
     signature.signature_kind() == SignatureKind::LegacyDelegated
 }
 

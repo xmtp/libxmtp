@@ -668,10 +668,14 @@ impl TryFrom<Vec<u8>> for PostCommitAction {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use super::*;
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_serialize_send_message() {
         let message = vec![1, 2, 3];
         let intent = SendMessageIntentData::new(message.clone());
@@ -681,7 +685,8 @@ mod tests {
         assert_eq!(restored_intent.message, message);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_serialize_update_membership() {
         let mut membership_updates = HashMap::new();
         membership_updates.insert("foo".to_string(), 123);
@@ -700,7 +705,8 @@ mod tests {
         assert_eq!(intent.removed_members, restored_intent.removed_members);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_serialize_update_metadata() {
         let intent = UpdateMetadataIntentData::new_update_group_name("group name".to_string());
         let as_bytes: Vec<u8> = intent.clone().into();

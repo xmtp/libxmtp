@@ -11,7 +11,6 @@ mod hpke;
 pub mod identity;
 mod identity_updates;
 mod mutex_registry;
-pub mod owner;
 pub mod retry;
 pub mod storage;
 pub mod subscriptions;
@@ -21,8 +20,9 @@ pub mod verified_key_package_v2;
 mod xmtp_openmls_provider;
 
 pub use client::{Client, Network};
+use std::future::Future;
 use storage::StorageError;
-use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
+use tokio::task::JoinHandle;
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
 
 /// XMTP Api Super Trait
@@ -50,18 +50,14 @@ impl<T> XmtpApi for T where
 }
 
 #[cfg(any(test, feature = "test-utils", feature = "bench"))]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait XmtpTestClient {
     async fn create_local() -> Self;
     async fn create_dev() -> Self;
 }
 
-pub trait InboxOwner {
-    /// Get address of the wallet.
-    fn get_address(&self) -> String;
-    /// Sign text with the wallet.
-    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError>;
-}
+pub use xmtp_id::InboxOwner;
 
 /// Inserts a model to the underlying data store, erroring if it already exists
 pub trait Store<StorageConnection> {
@@ -85,18 +81,46 @@ pub trait Delete<Model> {
     fn delete(&self, key: Self::Key) -> Result<usize, StorageError>;
 }
 
-#[cfg(test)]
-mod tests {
-    use log::LevelFilter;
-    use tracing_test::traced_test;
+#[cfg(target_arch = "wasm32")]
+fn spawn<F>(future: F) -> JoinHandle<F::Output>
+where
+    F: Future + 'static,
+    F::Output: 'static,
+{
+    tokio::task::spawn_local(future)
+}
 
+#[cfg(not(target_arch = "wasm32"))]
+fn spawn<F>(future: F) -> JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: 'static + Send,
+{
+    tokio::task::spawn(future)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[doc(hidden)]
+pub async fn sleep(duration: std::time::Duration) {
+    gloo_timers::future::TimeoutFuture::new(duration.as_millis() as u32).await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[doc(hidden)]
+pub async fn sleep(duration: std::time::Duration) {
+    tokio::time::sleep(duration).await
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
     // Execute once before any tests are run
-    #[ctor::ctor]
+    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
     // Capture traces in a variable that can be checked in tests, as well as outputting them to stdout on test failure
-    #[traced_test]
+    #[cfg_attr(not(target_arch = "wasm32"), tracing_test::traced_test)]
+    #[cfg(not(target_arch = "wasm32"))]
     fn setup() {
         // Capture logs (e.g. log::info!()) as traces too
-        let _ = tracing_log::LogTracer::init_with_filter(LevelFilter::Debug);
+        let _ = tracing_log::LogTracer::init_with_filter(log::LevelFilter::Debug);
     }
 
     /// Note: tests that use this must have the #[traced_test] attribute

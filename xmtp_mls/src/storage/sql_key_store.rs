@@ -1013,7 +1013,10 @@ impl From<bincode::Error> for SqlKeyStoreError {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use openmls::group::GroupId;
     use openmls_basic_credential::{SignatureKeyPair, StorageId};
     use openmls_traits::{
@@ -1033,7 +1036,8 @@ mod tests {
         xmtp_openmls_provider::XmtpOpenMlsProvider,
     };
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn store_read_delete() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
@@ -1082,7 +1086,8 @@ mod tests {
     impl Key<CURRENT_VERSION> for ProposalRef {}
     impl Entity<CURRENT_VERSION> for ProposalRef {}
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn list_append_remove() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
@@ -1164,7 +1169,8 @@ mod tests {
         assert!(proposals_read.unwrap().is_empty());
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn group_state() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(

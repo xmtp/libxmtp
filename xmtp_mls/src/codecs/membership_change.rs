@@ -48,14 +48,18 @@ impl ContentCodec<GroupMembershipChanges> for GroupMembershipChangeCodec {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use xmtp_proto::xmtp::mls::message_contents::MembershipChange;
 
     use crate::utils::test::{rand_string, rand_vec};
 
     use super::*;
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_encode_decode() {
         let new_member = MembershipChange {
             installation_ids: vec![rand_vec()],

@@ -60,14 +60,18 @@ impl TryFrom<StoredIdentity> for Identity {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use super::{
         super::{EncryptedMessageStore, StorageOption},
         StoredIdentity,
     };
     use crate::{utils::test::rand_vec, Store};
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn can_only_store_one_identity() {
         let store = EncryptedMessageStore::new(
             StorageOption::Ephemeral,

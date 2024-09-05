@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::GenericSignature;
+
 use super::{
     association_log::{
         Action, AddAssociation, ChangeRecoveryAddress, CreateInbox, RevokeAssociation,
@@ -15,7 +17,7 @@ use super::{
         UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
         UnsignedRevokeAssociation,
     },
-    IdentityUpdate, MemberIdentifier, Signature, SignatureError,
+    IdentityUpdate, MemberIdentifier, SignatureError,
 };
 use prost::{DecodeError, Message};
 use regex::Regex;
@@ -204,7 +206,7 @@ impl From<MemberIdentifierKindProto> for MemberIdentifier {
 fn from_signature_proto_option(
     proto: Option<SignatureWrapperProto>,
     signature_text: String,
-) -> Result<Box<dyn Signature>, DeserializationError> {
+) -> Result<GenericSignature, DeserializationError> {
     match proto {
         None => Err(DeserializationError::Signature),
         Some(signature_proto) => match signature_proto.signature {
@@ -217,7 +219,7 @@ fn from_signature_proto_option(
 fn from_signature_kind_proto(
     proto: SignatureKindProto,
     signature_text: String,
-) -> Result<Box<dyn Signature>, DeserializationError> {
+) -> Result<GenericSignature, DeserializationError> {
     Ok(match proto {
         SignatureKindProto::InstallationKey(installation_key_signature) => {
             Box::new(InstallationKeySignature::new(
@@ -540,7 +542,10 @@ impl From<AccountId> for String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use crate::associations::{
         hashes::generate_inbox_id,
         test_utils::{rand_string, rand_u64},
@@ -548,7 +553,8 @@ mod tests {
 
     use super::*;
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_round_trip() {
         let account_address = rand_string();
         let nonce = rand_u64();
@@ -583,7 +589,8 @@ mod tests {
         assert_eq!(serialized_update, reserialized);
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_accound_id() {
         // valid evm chain
         let text = "eip155:1:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb".to_string();

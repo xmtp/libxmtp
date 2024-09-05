@@ -26,7 +26,7 @@ use std::{borrow::Cow, sync::Arc};
 use diesel::{
     connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
     prelude::*,
-    r2d2::{ConnectionManager, Pool, PoolTransactionManager, PooledConnection},
+    r2d2::{self, PoolTransactionManager},
     result::{DatabaseErrorKind, Error},
     sql_query,
 };
@@ -36,6 +36,11 @@ use parking_lot::RwLock;
 use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use diesel::sqlite::Sqlite;
+#[cfg(target_arch = "wasm32")]
+pub use diesel_wasm_sqlite::WasmSqlite as Sqlite;
+
 use self::db_connection::DbConnection;
 
 use super::StorageError;
@@ -43,7 +48,14 @@ use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Store};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
-pub type RawDbConnection = PooledConnection<ConnectionManager<SqliteConnection>>;
+#[cfg(not(target_arch = "wasm32"))]
+pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
+#[cfg(target_arch = "wasm32")]
+pub type ConnectionManager =
+    r2d2::ConnectionManager<diesel_wasm_sqlite::connection::WasmSqliteConnection>;
+
+pub type RawDbConnection = r2d2::PooledConnection<ConnectionManager>;
+pub type Pool = r2d2::Pool<ConnectionManager>;
 
 pub type EncryptionKey = [u8; 32];
 
@@ -90,7 +102,7 @@ pub fn ignore_unique_violation<T>(
 /// Manages a Sqlite db for persisting messages and other objects.
 pub struct EncryptedMessageStore {
     connect_opt: StorageOption,
-    pool: Arc<RwLock<Option<Pool<ConnectionManager<SqliteConnection>>>>>,
+    pool: Arc<RwLock<Option<Pool>>>,
     enc_key: Option<EncryptionKey>,
 }
 
@@ -115,15 +127,14 @@ impl EncryptedMessageStore {
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
         log::info!("Setting up DB connection pool");
-        let pool =
-            match opts {
-                StorageOption::Ephemeral => Pool::builder()
-                    .max_size(1)
-                    .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
-                StorageOption::Persistent(ref path) => Pool::builder()
-                    .max_size(25)
-                    .build(ConnectionManager::<SqliteConnection>::new(path))?,
-            };
+        let pool = match opts {
+            StorageOption::Ephemeral => Pool::builder()
+                .max_size(1)
+                .build(ConnectionManager::new(":memory:"))?,
+            StorageOption::Persistent(ref path) => Pool::builder()
+                .max_size(25)
+                .build(ConnectionManager::new(path))?,
+        };
 
         // TODO: Validate that sqlite is correctly configured. Bad EncKey is not detected until the
         // migrations run which returns an unhelpful error.
@@ -175,9 +186,7 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    pub(crate) fn raw_conn(
-        &self,
-    ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
+    pub(crate) fn raw_conn(&self) -> Result<RawDbConnection, StorageError> {
         let pool_guard = self.pool.read();
 
         let pool = pool_guard
@@ -333,15 +342,14 @@ impl EncryptedMessageStore {
     }
 
     pub fn reconnect(&self) -> Result<(), StorageError> {
-        let pool =
-            match self.connect_opt {
-                StorageOption::Ephemeral => Pool::builder()
-                    .max_size(1)
-                    .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
-                StorageOption::Persistent(ref path) => Pool::builder()
-                    .max_size(25)
-                    .build(ConnectionManager::<SqliteConnection>::new(path))?,
-            };
+        let pool = match self.connect_opt {
+            StorageOption::Ephemeral => Pool::builder()
+                .max_size(1)
+                .build(ConnectionManager::new(":memory:"))?,
+            StorageOption::Persistent(ref path) => Pool::builder()
+                .max_size(25)
+                .build(ConnectionManager::new(path))?,
+        };
 
         let mut pool_write = self.pool.write();
         *pool_write = Some(pool);
@@ -446,7 +454,10 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use super::{
         db_connection::DbConnection, identity::StoredIdentity, EncryptedMessageStore, StorageError,
         StorageOption,
@@ -485,7 +496,8 @@ mod tests {
         }
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn ephemeral_store() {
         let store = EncryptedMessageStore::new(
             StorageOption::Ephemeral,
@@ -503,7 +515,8 @@ mod tests {
         assert_eq!(fetched_identity.inbox_id, inbox_id);
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn persistent_store() {
         let db_path = tmp_path();
         {
@@ -526,7 +539,8 @@ mod tests {
         fs::remove_file(db_path).unwrap();
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn releases_db_lock() {
         let db_path = tmp_path();
         {
@@ -557,7 +571,8 @@ mod tests {
         fs::remove_file(db_path).unwrap();
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn mismatched_encryption_key() {
         let mut enc_key = [1u8; 32];
 
@@ -584,7 +599,8 @@ mod tests {
         fs::remove_file(db_path).unwrap();
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn encrypted_db_with_multiple_connections() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
@@ -604,7 +620,8 @@ mod tests {
         assert_eq!(fetched_identity.inbox_id, inbox_id);
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn it_returns_ok_when_given_ok_result() {
         let result: Result<(), diesel::result::Error> = Ok(());
         assert!(
@@ -613,7 +630,8 @@ mod tests {
         );
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn it_returns_ok_on_unique_violation_error() {
         let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::DatabaseError(
             diesel::result::DatabaseErrorKind::UniqueViolation,
@@ -625,7 +643,8 @@ mod tests {
         );
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn it_returns_err_on_non_unique_violation_database_errors() {
         let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::DatabaseError(
             diesel::result::DatabaseErrorKind::NotNullViolation,
@@ -637,7 +656,8 @@ mod tests {
         );
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn it_returns_err_on_non_database_errors() {
         let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::NotFound);
         assert!(
@@ -651,7 +671,8 @@ mod tests {
     // try to write with second connection
     // write should fail & rollback
     // first thread succeeds
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_transaction_rollback() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
@@ -714,7 +735,8 @@ mod tests {
         assert_eq!(groups, None);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_async_transaction() {
         let db_path = tmp_path();
 
@@ -726,7 +748,7 @@ mod tests {
 
         let store_pointer = store.clone();
 
-        let handle = tokio::spawn(async move {
+        let handle = crate::spawn(async move {
             store_pointer
                 .transaction_async(|provider| async move {
                     let conn1 = provider.conn_ref();

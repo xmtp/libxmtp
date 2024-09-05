@@ -4,16 +4,15 @@ name = "xmtp_id"
 version.workspace = true
 
 [dependencies]
+url = "2.5.2"
 async-trait.workspace = true
 chrono.workspace = true
 ed25519-dalek = { workspace = true, features = ["digest"] }
 ed25519.workspace = true
-ethers-core.workspace = true
 ethers.workspace = true
 futures.workspace = true
 hex.workspace = true
 log.workspace = true
-openmls.workspace = true
 openmls_basic_credential.workspace = true
 openmls_rust_crypto.workspace = true
 openmls_traits.workspace = true
@@ -26,17 +25,24 @@ sha2.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros"] }
 tracing.workspace = true
-url.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
+wasm-timer = "0.2"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+openmls = { workspace = true, features = ["js"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+openmls.workspace = true
 
 [dev-dependencies]
-ctor = "0.2.5"
 ed25519-dalek = { workspace = true, features = ["digest"] }
-futures = "0.3"
-regex = "1.10"
-tokio = { workspace = true, features = ["macros", "time"] }
 xmtp_v2 = { path = "../xmtp_v2" }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test.workspace = true
+gloo-timers.workspace = true
 
 [features]
 test-utils = []

@@ -1,5 +1,5 @@
 use super::MemberIdentifier;
-use crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
+use crate::{constants::INSTALLATION_KEY_SIGNATURE_CONTEXT, GenericSignature};
 use async_trait::async_trait;
 use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey};
 use ethers::{
@@ -81,8 +81,9 @@ impl std::fmt::Display for SignatureKind {
     }
 }
 
-#[async_trait]
-pub trait Signature: SignatureClone + std::fmt::Debug + Send + Sync + 'static {
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+pub trait Signature: SignatureClone + std::fmt::Debug + 'static {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError>;
     fn signature_kind(&self) -> SignatureKind;
     fn bytes(&self) -> Vec<u8>;
@@ -90,20 +91,20 @@ pub trait Signature: SignatureClone + std::fmt::Debug + Send + Sync + 'static {
 }
 
 pub trait SignatureClone {
-    fn clone_box(&self) -> Box<dyn Signature>;
+    fn clone_box(&self) -> GenericSignature;
 }
 
 impl<T> SignatureClone for T
 where
-    T: 'static + Signature + Clone,
+    T: Signature + Clone + Send + Sync + 'static,
 {
-    fn clone_box(&self) -> Box<dyn Signature> {
+    fn clone_box(&self) -> GenericSignature {
         Box::new(self.clone())
     }
 }
 
-impl Clone for Box<dyn Signature> {
-    fn clone(&self) -> Box<dyn Signature> {
+impl Clone for GenericSignature {
+    fn clone(&self) -> GenericSignature {
         self.clone_box()
     }
 }
@@ -124,7 +125,8 @@ impl RecoverableEcdsaSignature {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl Signature for RecoverableEcdsaSignature {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         let signature = ethers::types::Signature::try_from(self.bytes().as_slice())?;
@@ -182,8 +184,6 @@ pub struct SmartContractWalletSignature {
     chain_rpc_url: String,
 }
 
-unsafe impl Send for SmartContractWalletSignature {}
-
 impl SmartContractWalletSignature {
     pub fn new(
         signature_text: String,
@@ -223,7 +223,8 @@ impl SmartContractWalletSignature {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl Signature for SmartContractWalletSignature {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         let verifier =
@@ -287,7 +288,8 @@ impl InstallationKeySignature {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl Signature for InstallationKeySignature {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         let signature: Ed25519Signature =
@@ -342,7 +344,8 @@ impl LegacyDelegatedSignature {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl Signature for LegacyDelegatedSignature {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         // Recover the RecoverableEcdsaSignature of the legacy signer(address of the legacy key)
@@ -463,7 +466,10 @@ impl ValidatedLegacySignedPublicKey {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use super::*;
     use crate::{
         associations::{
@@ -481,7 +487,8 @@ mod tests {
     use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
     use xmtp_v2::k256_helper::sign_sha256;
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn validate_good_key_round_trip() {
         let proto_bytes = vec![
             10, 79, 8, 192, 195, 165, 174, 203, 153, 231, 213, 23, 26, 67, 10, 65, 4, 216, 84, 174,
@@ -504,7 +511,8 @@ mod tests {
         assert_eq!(validated_key.account_address(), account_address);
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn validate_malformed_key() {
         let proto_bytes = vec![
             10, 79, 8, 192, 195, 165, 174, 203, 153, 231, 213, 23, 26, 67, 10, 65, 4, 216, 84, 174,
@@ -524,7 +532,8 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn recover_signer_ecdsa() {
         let wallet: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
         let unsigned_action = UnsignedCreateInbox {
@@ -544,7 +553,8 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn recover_signer_erc1271() {
         let wallet: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
 
@@ -560,7 +570,8 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn recover_signer_installation() {
         let signing_key: SigningKey = SigningKey::generate(&mut rand::thread_rng());
         let verifying_key = signing_key.verifying_key();
@@ -585,7 +596,8 @@ mod tests {
     }
 
     // Test the happy path with LocalWallet & fail path with a secp256k1 signer.
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn recover_signer_legacy() {
         let signature_text = "test_legacy_signature".to_string();
         let account_address = "0x0bd00b21af9a2d538103c3aaf95cb507f8af1b28".to_string();

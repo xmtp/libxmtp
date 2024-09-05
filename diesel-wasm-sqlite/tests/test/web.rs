@@ -183,7 +183,6 @@ async fn test_orm_insert() {
     )
 }
 
-
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
 #[diesel(table_name = test_table)]
@@ -200,8 +199,8 @@ fn insert_or_ignore(updates: &[Item], conn: &mut WasmSqliteConnection) {
 
     diesel::insert_or_ignore_into(test_table)
         .values(updates)
-        .execute(conn).unwrap();
-
+        .execute(conn)
+        .unwrap();
 }
 
 #[wasm_bindgen_test]
@@ -213,18 +212,14 @@ async fn can_insert_or_ignore() {
             id: "test".into(),
             id2: 13,
             timestamp_ns: 1231232,
-            payload: b"testing 1".to_vec()
+            payload: b"testing 1".to_vec(),
         },
         Item {
             id: "test2".into(),
             id2: 14,
             timestamp_ns: 1201222,
-            payload: b"testing 2".to_vec()
-
-        }
+            payload: b"testing 2".to_vec(),
+        },
     ];
     insert_or_ignore(&updates, &mut conn);
-
 }
-
-

@@ -12,6 +12,10 @@ use openmls_traits::types::CryptoError;
 use thiserror::Error;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
 
+use crate::associations::Signature;
+
+pub type GenericSignature = Box<dyn Signature + Send + Sync>;
+
 #[derive(Debug, Error)]
 pub enum IdentityError {
     #[error("generating key-pairs: {0}")]
@@ -40,7 +44,6 @@ pub async fn is_smart_contract(
     Ok(!code.is_empty())
 }
 
-// TODO: Remove this trait
 pub trait InboxOwner {
     /// Get address of the wallet.
     fn get_address(&self) -> String;
@@ -54,7 +57,7 @@ impl InboxOwner for LocalWallet {
     }
 
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
-        let message_hash = ethers_core::utils::hash_message(text);
+        let message_hash = ethers::core::utils::hash_message(text);
         Ok(self.sign_hash(message_hash)?.to_vec().into())
     }
 }
@@ -62,8 +65,10 @@ impl InboxOwner for LocalWallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scw_verifier::tests::with_smart_contracts;
     use ethers::contract::abigen;
+
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     abigen!(
         CoinbaseSmartWallet,
@@ -77,8 +82,11 @@ mod tests {
         derives(serde::Serialize, serde::Deserialize)
     );
 
-    #[tokio::test]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[cfg(not(target_arch = "wasm32"))]
     async fn test_is_smart_contract() {
+        use crate::scw_verifier::tests::with_smart_contracts;
+
         with_smart_contracts(|anvil, _provider, _client, smart_contracts| async move {
             let deployer: LocalWallet = anvil.keys()[0].clone().into();
             let factory = smart_contracts.coinbase_smart_wallet_factory();

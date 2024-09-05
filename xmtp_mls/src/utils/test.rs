@@ -1,5 +1,4 @@
 #![allow(clippy::unwrap_used)]
-use std::env;
 
 use rand::{
     distributions::{Alphanumeric, DistString},
@@ -7,7 +6,6 @@ use rand::{
 };
 use std::sync::Arc;
 use tokio::{sync::Notify, time::error::Elapsed};
-use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
 use xmtp_id::associations::{generate_inbox_id, RecoverableEcdsaSignature};
 
 use crate::{
@@ -18,13 +16,16 @@ use crate::{
     Client, InboxOwner, XmtpApi, XmtpTestClient,
 };
 
-#[cfg(feature = "http-api")]
+#[cfg(not(target_arch = "wasm32"))]
+use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
+
+#[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 use xmtp_api_http::XmtpHttpApiClient;
 
-#[cfg(not(feature = "http-api"))]
+#[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
 pub type TestClient = GrpcClient;
 
-#[cfg(feature = "http-api")]
+#[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 pub type TestClient = XmtpHttpApiClient;
 
 pub fn rand_string() -> String {
@@ -39,9 +40,16 @@ pub fn rand_vec() -> Vec<u8> {
     rand::thread_rng().gen::<[u8; 24]>().to_vec()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn tmp_path() -> String {
     let db_name = rand_string();
-    format!("{}/{}.db3", env::temp_dir().to_str().unwrap(), db_name)
+    format!("{}/{}.db3", std::env::temp_dir().to_str().unwrap(), db_name)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn tmp_path() -> String {
+    let db_name = rand_string();
+    format!("{}/{}.db3", "test_db", db_name)
 }
 
 pub fn rand_time() -> i64 {
@@ -49,8 +57,9 @@ pub fn rand_time() -> i64 {
     rng.gen_range(0..1_000_000_000)
 }
 
-#[async_trait::async_trait]
-#[cfg(feature = "http-api")]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 impl XmtpTestClient for XmtpHttpApiClient {
     async fn create_local() -> Self {
         XmtpHttpApiClient::new("http://localhost:5555".into()).unwrap()
@@ -61,7 +70,8 @@ impl XmtpTestClient for XmtpHttpApiClient {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl XmtpTestClient for GrpcClient {
     async fn create_local() -> Self {
         GrpcClient::create("http://localhost:5556".into(), false)

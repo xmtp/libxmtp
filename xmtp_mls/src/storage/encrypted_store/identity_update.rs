@@ -7,6 +7,10 @@ use super::{
     schema::identity_updates::{self, dsl},
 };
 use diesel::{dsl::max, prelude::*};
+
+#[cfg(target_arch = "wasm32")]
+use diesel_wasm_sqlite::dsl::RunQueryDsl;
+
 use xmtp_id::associations::{AssociationError, IdentityUpdate};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
@@ -126,7 +130,10 @@ impl DbConnection {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use crate::{
         storage::encrypted_store::tests::with_connection,
         utils::test::{rand_time, rand_vec},
@@ -139,7 +146,8 @@ mod tests {
         StoredIdentityUpdate::new(inbox_id.to_string(), sequence_id, rand_time(), rand_vec())
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn insert_and_read() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
@@ -163,7 +171,8 @@ mod tests {
         });
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_filter() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
@@ -195,7 +204,8 @@ mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_get_latest_sequence_id() {
         with_connection(|conn| {
             let inbox_1 = "inbox_1";
@@ -230,7 +240,8 @@ mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn get_single_sequence_id() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";

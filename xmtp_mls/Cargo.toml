@@ -1,103 +1,127 @@
 [package]
 edition = "2021"
 name = "xmtp_mls"
-version.workspace = true
+version = "0.1.0"
 
-[[bin]]
-doc = false
-name = "update-schema"
-path = "src/bin/update-schema.rs"
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown", "aarch64-apple-darwin"]
 
 [features]
-bench = [
-    "test-utils",
-    "indicatif",
-    "tracing-subscriber",
-    "anyhow",
-    "tracing-flame",
-    "once_cell",
-    "xmtp_api_grpc",
-]
-default = ["native"]
-http-api = ["xmtp_api_http"]
-native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
+default = []
 test-utils = []
+bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "tracing-flame", "once_cell", "xmtp_api_grpc", "criterion"]
+update-schema = ["toml"]
+http-api = ["xmtp_api_http"]
 
 [dependencies]
-aes-gcm = { version = "0.10.3", features = ["std"] }
-async-stream.workspace = true
-async-trait.workspace = true
 bincode = "1.3.3"
-chrono = { workspace = true }
-diesel = { version = "2.2.2", features = [
-    "sqlite",
-    "r2d2",
-    "returning_clauses_for_sqlite_3_35",
-] }
-diesel_migrations = { version = "2.2.0", features = ["sqlite"] }
-ed25519-dalek = "2.1.1"
-ethers-core.workspace = true
-ethers.workspace = true
-futures.workspace = true
+parking_lot = "0.12.3"
 hex.workspace = true
-libsqlite3-sys = { version = "0.29.0", optional = true }
 log.workspace = true
-openmls = { workspace = true, features = ["test-utils"] }
+tracing.workspace = true
 openmls_basic_credential = { workspace = true }
 openmls_rust_crypto = { workspace = true }
 openmls_traits = { workspace = true }
-parking_lot = "0.12.3"
+aes-gcm = { version = "0.10.3", features = ["std"] }
+ed25519-dalek = "2.1.1"
+sha2.workspace = true
+tls_codec = { workspace = true }
 prost = { workspace = true, features = ["prost-derive"] }
 rand = { workspace = true }
-reqwest = { version = "0.12.4", features = ["stream"] }
 serde = { workspace = true }
 serde_json.workspace = true
-sha2.workspace = true
-smart-default = "0.7.1"
 thiserror = { workspace = true }
-tls_codec = { workspace = true }
-tokio = { workspace = true, features = [
-    "macros",
-    "rt-multi-thread",
-    "tracing",
-] }
-tokio-stream = { version = "0.1", features = ["sync"] }
-toml = "0.8.4"
-tracing.workspace = true
+tokio-stream = { version = "0.1", features = ["sync"]  }
+async-stream.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+reqwest = { version = "0.12.4", features = ["stream"] }
+
+# XMTP/Local
 xmtp_cryptography = { workspace = true }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_proto = { workspace = true, features = ["proto_full", "convert"] }
 xmtp_v2 = { path = "../xmtp_v2" }
 
-# Test/Bench Utils
-anyhow = { workspace = true, optional = true }
-indicatif = { version = "0.17", optional = true }
-once_cell = { version = "1.19", optional = true }
-tracing-flame = { version = "0.2", optional = true }
-tracing-subscriber = { workspace = true, optional = true }
-xmtp_api_grpc = { path = "../xmtp_api_grpc", optional = true }
+# Optional/Features
+toml = { version = "0.8.4", optional = true }
+# for tests outside of the wasm environment
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }
 
+# Test/Bench Utils
+tracing-subscriber = { workspace = true, features = ["env-filter"], optional = true }
+indicatif = { version = "0.17", optional = true }
+anyhow = { workspace = true, optional = true }
+tracing-flame = { version = "0.2", optional = true }
+once_cell = { version = "1.19", optional = true }
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"], optional = true }
+
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Native Dependencies
+libsqlite3-sys = { version = "0.29.0", features = ["bundled-sqlcipher-vendored-openssl" ] }
+diesel = { workspace = true, features = [
+    "r2d2",
+    "returning_clauses_for_sqlite_3_35",
+    "sqlite",
+] }
+xmtp_api_grpc = { path = "../xmtp_api_grpc", optional = true }
+chrono = { workspace = true, features = ["clock"] }
+tokio = { workspace = true, features = ["macros", "tracing", "rt", "rt-multi-thread"] }
+diesel_migrations = { workspace = true, features = ["sqlite"] }
+openmls = { workspace = true, features = ["test-utils"] }
+
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+diesel-wasm-sqlite = { workspace = true, features = ["r2d2"] }
+diesel = { workspace = true, features = [
+    "r2d2",
+    "returning_clauses_for_sqlite_3_35",
+] }
+diesel_migrations.workspace = true
+getrandom = { version = "0.2", features = ["js"] }
+chrono = { workspace = true, features = ["wasmbind"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+openmls = { workspace = true, features = ["test-utils", "js"] }
+gloo-timers = { workspace = true, features = ["futures"] }
+
+
 [dev-dependencies]
-anyhow.workspace = true
-async-barrier = "1.1"
-criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
-ctor.workspace = true
-flume = "0.11"
+ethers.workspace = true
 mockall = "0.13.0"
-mockito = "1.4.0"
-tempfile = "3.5.0"
 tracing-log = "0.2.0"
-tracing-subscriber.workspace = true
 tracing-test = "0.2.4"
-tracing.workspace = true
-xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
+anyhow.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+xmtp_api_grpc = { path = "../xmtp_api_grpc" }
+tracing-subscriber.workspace = true
+tempfile = "3.5.0"
+mockito = "1.4.0"
+ctor.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+xmtp_api_http = { path = "../xmtp_api_http" }
+tracing-wasm = { version = "0.2" }
+diesel-wasm-sqlite = { workspace = true, features = ["unsafe-debug-query", "r2d2"] }
+console_error_panic_hook = { version = "0.1"}
+wasm-bindgen-test.workspace = true
+
+[[bin]]
+doc = false
+name = "update-schema"
+path = "src/bin/update-schema.rs"
+required-features = ["update-schema"]
 
 [[bench]]
-harness = false
 name = "group_limit"
+harness = false
 
 [[bench]]
-harness = false
 name = "crypto"
+harness = false
+
+

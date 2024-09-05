@@ -19,13 +19,13 @@ uniffi_macros = "0.28.0"
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
-xmtp_mls = { path = "../xmtp_mls", features = ["native"] }
+xmtp_mls = { path = "../xmtp_mls" }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 xmtp_v2 = { path = "../xmtp_v2" }
 
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-# NOTE: A regression in openssl-sys exists where libatomic is dynamically linked 
+# NOTE: A regression in openssl-sys exists where libatomic is dynamically linked
 # for i686-linux-android targets. https://github.com/sfackler/rust-openssl/issues/2163
 #
 # This is fixed in the openssl-sys fork at
