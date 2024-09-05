@@ -41,9 +41,16 @@ pub fn rand_vec() -> Vec<u8> {
     rand::thread_rng().gen::<[u8; 24]>().to_vec()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn tmp_path() -> String {
     let db_name = rand_string();
     format!("{}/{}.db3", env::temp_dir().to_str().unwrap(), db_name)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn tmp_path() -> String {
+    let db_name = rand_string();
+    format!("{}/{}.db3", "test_db", db_name)
 }
 
 pub fn rand_time() -> i64 {
