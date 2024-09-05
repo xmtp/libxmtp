@@ -101,7 +101,7 @@ mod tests {
         })
         .await;
     }
-
+    /*
     // re-export tests since all wasm-bindgen tests need to be at the root
     #[cfg(target_arch = "wasm32")]
     mod wasm {
@@ -115,4 +115,5 @@ mod tests {
         // skipping b/c Anvil cant be used in WASM
         // pub use crate::scw_verifier::tests::*;
     }
+    */
 }

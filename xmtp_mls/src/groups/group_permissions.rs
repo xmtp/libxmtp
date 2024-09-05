@@ -1150,6 +1150,9 @@ impl std::fmt::Display for PreconfiguredPolicies {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use crate::{
         groups::{group_mutable_metadata::MetadataField, validated_commit::MutableMetadataChanges},
         utils::test::{rand_string, rand_vec},

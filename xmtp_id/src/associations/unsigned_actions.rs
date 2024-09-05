@@ -139,6 +139,9 @@ fn pretty_timestamp(ns_date: u64) -> String {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use crate::associations::hashes::generate_inbox_id;
 
     use super::*;

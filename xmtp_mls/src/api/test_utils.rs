@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use mockall::mock;
 use xmtp_proto::{
     api_client::{
@@ -48,7 +47,7 @@ mock! {
         fn set_app_version(&mut self, version: String) -> Result<(), Error>;
     }
 
-    #[async_trait]
+    #[async_trait::async_trait]
     impl XmtpMlsClient for ApiClient {
         async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
         async fn fetch_key_packages(
@@ -63,14 +62,14 @@ mock! {
         async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<WelcomeMessageStream, Error>;
     }
 
-    #[async_trait]
+    #[async_trait::async_trait]
     impl XmtpIdentityClient for ApiClient {
         async fn publish_identity_update(&self, request: PublishIdentityUpdateRequest) -> Result<PublishIdentityUpdateResponse, Error>;
         async fn get_identity_updates_v2(&self, request: GetIdentityUpdatesV2Request) -> Result<GetIdentityUpdatesV2Response, Error>;
         async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, Error>;
     }
 
-    #[async_trait]
+    #[async_trait::async_trait]
     impl XmtpTestClient for ApiClient {
         async fn create_local() -> Self { ApiClient }
         async fn create_dev() -> Self { ApiClient }

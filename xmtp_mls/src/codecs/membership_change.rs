@@ -49,6 +49,9 @@ impl ContentCodec<GroupMembershipChanges> for GroupMembershipChangeCodec {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use xmtp_proto::xmtp::mls::message_contents::MembershipChange;
 
     use crate::utils::test::{rand_string, rand_vec};

@@ -1274,6 +1274,9 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use diesel::connection::SimpleConnection;
     use futures::future::join_all;
     use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};

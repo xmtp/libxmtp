@@ -1,5 +1,4 @@
 #![allow(clippy::unwrap_used)]
-use std::env;
 
 use rand::{
     distributions::{Alphanumeric, DistString},
@@ -44,7 +43,7 @@ pub fn rand_vec() -> Vec<u8> {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn tmp_path() -> String {
     let db_name = rand_string();
-    format!("{}/{}.db3", env::temp_dir().to_str().unwrap(), db_name)
+    format!("{}/{}.db3", std::env::temp_dir().to_str().unwrap(), db_name)
 }
 
 #[cfg(target_arch = "wasm32")]

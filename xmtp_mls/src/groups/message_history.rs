@@ -781,6 +781,8 @@ fn new_pin() -> String {
 
 #[cfg(all(not(target_arch = "wasm32"), test))]
 pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     const HISTORY_SERVER_HOST: &str = "0.0.0.0";
     const HISTORY_SERVER_PORT: u16 = 5558;
