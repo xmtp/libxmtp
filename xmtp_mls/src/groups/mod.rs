@@ -3,7 +3,7 @@ pub mod group_metadata;
 pub mod group_mutable_metadata;
 pub mod group_permissions;
 pub mod intents;
-pub(super) mod members;
+pub mod members;
 #[allow(dead_code)]
 pub mod message_history;
 pub(super) mod subscriptions;
