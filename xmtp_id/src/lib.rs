@@ -101,19 +101,4 @@ mod tests {
         })
         .await;
     }
-    /*
-    // re-export tests since all wasm-bindgen tests need to be at the root
-    #[cfg(target_arch = "wasm32")]
-    mod wasm {
-        pub use crate::associations::builder::tests::*;
-        pub use crate::associations::member::tests::*;
-        pub use crate::associations::serialization::tests::*;
-        pub use crate::associations::signature::tests::*;
-        pub use crate::associations::state::tests::*;
-        pub use crate::associations::tests::*;
-        pub use crate::associations::unsigned_actions::tests::*;
-        // skipping b/c Anvil cant be used in WASM
-        // pub use crate::scw_verifier::tests::*;
-    }
-    */
 }
