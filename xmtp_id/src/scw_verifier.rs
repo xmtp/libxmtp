@@ -98,6 +98,8 @@ impl SmartContractWalletVerifier {
     }
 }
 
+// Anvil does not work with WASM
+// because its a wrapper over the system-binary
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod tests {
     use crate::is_smart_contract;
