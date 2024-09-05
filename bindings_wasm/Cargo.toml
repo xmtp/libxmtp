@@ -20,7 +20,7 @@ xmtp_mls = { path = "../xmtp_mls", features = [] }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3.41"
+wasm-bindgen-test = "0.3.42"
 
 [profile.release]
 opt-level = "s"
