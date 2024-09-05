@@ -11,7 +11,6 @@ mod hpke;
 pub mod identity;
 mod identity_updates;
 mod mutex_registry;
-pub mod owner;
 pub mod retry;
 pub mod storage;
 pub mod subscriptions;
@@ -24,7 +23,6 @@ pub use client::{Client, Network};
 use std::future::Future;
 use storage::StorageError;
 use tokio::task::JoinHandle;
-use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
 
 /// XMTP Api Super Trait
@@ -58,12 +56,7 @@ pub trait XmtpTestClient {
     async fn create_dev() -> Self;
 }
 
-pub trait InboxOwner {
-    /// Get address of the wallet.
-    fn get_address(&self) -> String;
-    /// Sign text with the wallet.
-    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError>;
-}
+pub use xmtp_id::InboxOwner;
 
 /// Inserts a model to the underlying data store, erroring if it already exists
 pub trait Store<StorageConnection> {
@@ -106,13 +99,50 @@ where
 }
 
 #[cfg(target_arch = "wasm32")]
-async fn sleep(duration: std::time::Duration) {
-    gloo_timers::future::TimeoutFuture::new(duration.as_millis()).await;
+#[doc(hidden)]
+pub async fn sleep(duration: std::time::Duration) {
+    gloo_timers::future::TimeoutFuture::new(duration.as_millis() as u32).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn sleep(duration: std::time::Duration) {
+#[doc(hidden)]
+pub async fn sleep(duration: std::time::Duration) {
     tokio::time::sleep(duration).await
+}
+
+// wasm test re-exports
+#[cfg(all(target_arch = "wasm32", test))]
+mod wasm_test {
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
+    pub use crate::api::identity::tests::*;
+    pub use crate::api::mls::tests::*;
+    pub use crate::builder::tests::*;
+    pub use crate::client::tests::*;
+    pub use crate::codecs::group_updated::tests::*;
+    pub use crate::codecs::membership_change::tests::*;
+    pub use crate::codecs::text::tests::*;
+    pub use crate::groups::group_membership::tests::*;
+    pub use crate::groups::group_permissions::tests::*;
+    pub use crate::groups::intents::tests::*;
+    pub use crate::groups::members::tests::*;
+    // pub use crate::groups::message_history::tests::*;
+    pub use crate::groups::subscriptions::tests::*;
+    pub use crate::groups::sync::tests::*;
+    pub use crate::groups::tests::*;
+    pub use crate::groups::validated_commit::tests::*;
+    pub use crate::identity_updates::tests::*;
+    pub use crate::retry::tests::*;
+    pub use crate::storage::encrypted_store::association_state::tests::*;
+    pub use crate::storage::encrypted_store::group::tests::*;
+    pub use crate::storage::encrypted_store::group_intent::tests::*;
+    pub use crate::storage::encrypted_store::group_message::tests::*;
+    pub use crate::storage::encrypted_store::identity::tests::*;
+    pub use crate::storage::encrypted_store::identity_update::tests::*;
+    pub use crate::storage::encrypted_store::refresh_state::tests::*;
+    pub use crate::storage::encrypted_store::tests::*;
+    pub use crate::storage::sql_key_store::tests::*;
+    pub use crate::subscriptions::tests::*;
 }
 
 #[cfg(test)]

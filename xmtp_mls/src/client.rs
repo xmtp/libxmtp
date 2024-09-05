@@ -756,7 +756,8 @@ mod tests {
         hpke::{decrypt_welcome, encrypt_welcome},
     };
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_mls_error() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let result = client
@@ -769,7 +770,8 @@ mod tests {
         assert!(error_string.contains("invalid identity"));
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_register_installation() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -783,7 +785,11 @@ mod tests {
         assert_eq!(association_state.installation_ids().len(), 1);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 1)
+    )]
     async fn test_rotate_key_package() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -809,7 +815,8 @@ mod tests {
         assert_ne!(init1, init2);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_find_groups() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let group_1 = client
@@ -825,7 +832,8 @@ mod tests {
         assert_eq!(groups[1].group_id, group_2.group_id);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_find_inbox_id() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -838,7 +846,11 @@ mod tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 2)
+    )]
     async fn test_sync_welcomes() {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -862,7 +874,11 @@ mod tests {
         assert_eq!(duplicate_received_groups.len(), 0);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 2)
+    )]
     async fn test_sync_all_groups() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -918,38 +934,11 @@ mod tests {
         assert_eq!(bo_messages2.len(), 1);
     }
 
-    #[tokio::test]
-    async fn test_can_message() {
-        // let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        // let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        // let charlie_address = generate_local_wallet().get_address();
-
-        // let can_message_result = amal
-        //     .can_message(vec![
-        //         amal.account_address(),
-        //         bola.account_address(),
-        //         charlie_address.clone(),
-        //     ])
-        //     .await
-        //     .unwrap();
-        // assert_eq!(
-        //     can_message_result.get(&amal.account_address().to_string()),
-        //     Some(&true),
-        //     "Amal's messaging capability should be true"
-        // );
-        // assert_eq!(
-        //     can_message_result.get(&bola.account_address().to_string()),
-        //     Some(&true),
-        //     "Bola's messaging capability should be true"
-        // );
-        // assert_eq!(
-        //     can_message_result.get(&charlie_address),
-        //     Some(&false),
-        //     "Charlie's messaging capability should be false"
-        // );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 1)
+    )]
     async fn test_welcome_encryption() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let provider = client.mls_provider().unwrap();
@@ -966,7 +955,11 @@ mod tests {
         assert_eq!(decrypted, to_encrypt);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 1)
+    )]
     async fn test_add_remove_then_add_again() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;

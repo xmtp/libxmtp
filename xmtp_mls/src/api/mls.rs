@@ -301,7 +301,8 @@ pub mod tests {
         },
     };
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     async fn test_upload_key_package() {
         let mut mock_api = MockApiClient::new();
         let key_package = vec![1, 2, 3];
@@ -322,7 +323,8 @@ pub mod tests {
         assert!(result.is_ok());
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_fetch_key_packages() {
         let mut mock_api = MockApiClient::new();
         let installation_keys: Vec<Vec<u8>> = vec![vec![1, 2, 3], vec![4, 5, 6]];
@@ -354,7 +356,8 @@ pub mod tests {
         }
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_read_group_messages_single_page() {
         let mut mock_api = MockApiClient::new();
         let group_id = vec![1, 2, 3, 4];
@@ -384,7 +387,8 @@ pub mod tests {
         assert_eq!(result.len(), 10);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_read_group_messages_single_page_exactly_100_results() {
         let mut mock_api = MockApiClient::new();
         let group_id = vec![1, 2, 3, 4];
@@ -415,7 +419,8 @@ pub mod tests {
         assert_eq!(result.len(), 100);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_read_topic_multi_page() {
         let mut mock_api = MockApiClient::new();
         let group_id = vec![1, 2, 3, 4];
@@ -465,7 +470,8 @@ pub mod tests {
         assert_eq!(result.len(), 200);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn it_retries_twice_then_succeeds() {
         let mut mock_api = MockApiClient::new();
         let group_id = vec![1, 2, 3];

@@ -14,10 +14,7 @@ use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, Sig
 
 use crate::associations::Signature;
 
-#[cfg(not(target_arch = "wasm32"))]
 pub type GenericSignature = Box<dyn Signature + Send + Sync>;
-#[cfg(target_arch = "wasm32")]
-pub type GenericSignature = Box<dyn Signature>;
 
 #[derive(Debug, Error)]
 pub enum IdentityError {
@@ -61,7 +58,7 @@ impl InboxOwner for LocalWallet {
     }
 
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
-        let message_hash = ethers_core::utils::hash_message(text);
+        let message_hash = ethers::core::utils::hash_message(text);
         Ok(self.sign_hash(message_hash)?.to_vec().into())
     }
 }

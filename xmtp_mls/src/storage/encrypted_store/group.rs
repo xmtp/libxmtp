@@ -335,7 +335,8 @@ pub(crate) mod tests {
         )
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_it_stores_group() {
         with_connection(|conn| {
             let test_group = generate_group(None);
@@ -349,7 +350,8 @@ pub(crate) mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_it_fetches_group() {
         with_connection(|conn| {
             let test_group = generate_group(None);
@@ -366,7 +368,8 @@ pub(crate) mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_it_updates_group_membership_state() {
         with_connection(|conn| {
             let test_group = generate_group(Some(GroupMembershipState::Pending));
@@ -385,8 +388,8 @@ pub(crate) mod tests {
             );
         })
     }
-
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_find_groups() {
         with_connection(|conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Pending));
@@ -422,7 +425,8 @@ pub(crate) mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_installations_last_checked_is_updated() {
         with_connection(|conn| {
             let test_group = generate_group(None);
@@ -443,7 +447,8 @@ pub(crate) mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_new_group_has_correct_purpose() {
         with_connection(|conn| {
             let test_group = generate_group(None);
@@ -462,7 +467,8 @@ pub(crate) mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_new_sync_group() {
         with_connection(|conn| {
             let id = rand_vec();

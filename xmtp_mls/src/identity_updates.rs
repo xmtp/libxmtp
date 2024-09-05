@@ -508,7 +508,8 @@ pub(crate) mod tests {
             .expect("insert should succeed");
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_inbox_round_trip() {
         let wallet = generate_local_wallet();
         let wallet_address = wallet.get_address();
@@ -534,7 +535,8 @@ pub(crate) mod tests {
         assert!(association_state.get(&wallet_address.into()).is_some())
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn add_association() {
         let wallet = generate_local_wallet();
         let wallet_2 = generate_local_wallet();
@@ -561,7 +563,8 @@ pub(crate) mod tests {
         assert!(association_state.get(&wallet_2_address.into()).is_some());
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     #[traced_test]
     async fn cache_association_state() {
         let wallet = generate_local_wallet();
@@ -614,7 +617,8 @@ pub(crate) mod tests {
         assert!(association_state.get(&wallet_2_address.into()).is_some());
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn load_identity_updates_if_needed() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -631,7 +635,8 @@ pub(crate) mod tests {
         assert_eq!(filtered.unwrap(), vec!["inbox_1"]);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn get_installation_diff() {
         let wallet_1 = generate_local_wallet();
         let wallet_2 = generate_local_wallet();
@@ -739,7 +744,8 @@ pub(crate) mod tests {
             .contains(&client_2_installation_key));
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     pub async fn revoke_wallet() {
         let recovery_wallet = generate_local_wallet();
         let second_wallet = generate_local_wallet();
@@ -794,7 +800,8 @@ pub(crate) mod tests {
         assert_eq!(inbox_ids.len(), 0);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     pub async fn revoke_installation() {
         let wallet = generate_local_wallet();
         let client1 = ClientBuilder::new_test_client(&wallet).await;

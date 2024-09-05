@@ -230,7 +230,8 @@ mod tests {
         }
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn it_does_not_error_on_empty_messages() {
         with_connection(|conn| {
             let id = vec![0x0];
@@ -238,7 +239,8 @@ mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn it_gets_messages() {
         with_connection(|conn| {
             let group = generate_group(None);
@@ -253,7 +255,8 @@ mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn it_cannot_insert_message_without_group() {
         use diesel::result::{DatabaseErrorKind::ForeignKeyViolation, Error::DatabaseError};
 
@@ -266,7 +269,8 @@ mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn it_gets_many_messages() {
         use crate::storage::encrypted_store::schema::group_messages::dsl;
 
@@ -300,7 +304,8 @@ mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn it_gets_messages_by_time() {
         with_connection(|conn| {
             let group = generate_group(None);
@@ -331,7 +336,8 @@ mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn it_gets_messages_by_kind() {
         with_connection(|conn| {
             let group = generate_group(None);

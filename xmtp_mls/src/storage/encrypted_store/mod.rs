@@ -493,7 +493,8 @@ mod tests {
         }
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn ephemeral_store() {
         let store = EncryptedMessageStore::new(
             StorageOption::Ephemeral,
@@ -511,7 +512,8 @@ mod tests {
         assert_eq!(fetched_identity.inbox_id, inbox_id);
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn persistent_store() {
         let db_path = tmp_path();
         {
@@ -534,7 +536,8 @@ mod tests {
         fs::remove_file(db_path).unwrap();
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn releases_db_lock() {
         let db_path = tmp_path();
         {
@@ -565,7 +568,8 @@ mod tests {
         fs::remove_file(db_path).unwrap();
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn mismatched_encryption_key() {
         let mut enc_key = [1u8; 32];
 
@@ -592,7 +596,8 @@ mod tests {
         fs::remove_file(db_path).unwrap();
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn encrypted_db_with_multiple_connections() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
@@ -612,7 +617,8 @@ mod tests {
         assert_eq!(fetched_identity.inbox_id, inbox_id);
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn it_returns_ok_when_given_ok_result() {
         let result: Result<(), diesel::result::Error> = Ok(());
         assert!(
@@ -621,7 +627,8 @@ mod tests {
         );
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn it_returns_ok_on_unique_violation_error() {
         let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::DatabaseError(
             diesel::result::DatabaseErrorKind::UniqueViolation,
@@ -633,7 +640,8 @@ mod tests {
         );
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn it_returns_err_on_non_unique_violation_database_errors() {
         let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::DatabaseError(
             diesel::result::DatabaseErrorKind::NotNullViolation,
@@ -645,7 +653,8 @@ mod tests {
         );
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn it_returns_err_on_non_database_errors() {
         let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::NotFound);
         assert!(
@@ -659,7 +668,8 @@ mod tests {
     // try to write with second connection
     // write should fail & rollback
     // first thread succeeds
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_transaction_rollback() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
@@ -722,7 +732,8 @@ mod tests {
         assert_eq!(groups, None);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_async_transaction() {
         let db_path = tmp_path();
 

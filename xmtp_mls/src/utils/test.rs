@@ -7,7 +7,6 @@ use rand::{
 };
 use std::sync::Arc;
 use tokio::{sync::Notify, time::error::Elapsed};
-use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
 use xmtp_id::associations::{generate_inbox_id, RecoverableEcdsaSignature};
 
 use crate::{
@@ -18,7 +17,10 @@ use crate::{
     Client, InboxOwner, XmtpApi, XmtpTestClient,
 };
 
-#[cfg(feature = "http-api")]
+#[cfg(not(target_arch = "wasm32"))]
+use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
+
+#[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 use xmtp_api_http::XmtpHttpApiClient;
 
 #[cfg(not(feature = "http-api"))]

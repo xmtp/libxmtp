@@ -125,7 +125,7 @@ impl Retry {
 /// ```
 /// use xmtp_mls::{retry_async, retry::{RetryableError, Retry}};
 /// use thiserror::Error;
-/// use flume::bounded;
+/// use tokio::sync::mpsc;
 ///
 /// #[derive(Debug, Error)]
 /// enum MyError {
@@ -144,8 +144,8 @@ impl Retry {
 ///     }
 /// }
 ///
-/// async fn fallable_fn(rx: &flume::Receiver<usize>) -> Result<(), MyError> {
-///     if rx.recv_async().await.unwrap() == 2 {
+/// async fn fallable_fn(rx: &mut mpsc::Receiver<usize>) -> Result<(), MyError> {
+///     if rx.recv().await.unwrap() == 2 {
 ///         return Ok(());
 ///     }
 ///     Err(MyError::Retryable)
@@ -153,14 +153,14 @@ impl Retry {
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), MyError> {
-///     
-///     let (tx, rx) = flume::bounded(3);
+///
+///     let (tx, mut rx) = mpsc::channel(3);
 ///
 ///     for i in 0..3 {
-///         tx.send(i).unwrap();
+///         tx.send(i).await.unwrap();
 ///     }
 ///     retry_async!(Retry::default(), (async {
-///         fallable_fn(&rx.clone()).await
+///         fallable_fn(&mut rx).await
 ///     }))
 /// }
 /// ```
@@ -182,7 +182,7 @@ macro_rules! retry_async {
                     if (&e).is_retryable() && attempts < $retry.retries() {
                         log::warn!("retrying function that failed with error={}", e.to_string());
                         attempts += 1;
-                        crate::sleep($retry.duration(attempts)).await;
+                        $crate::sleep($retry.duration(attempts)).await;
                     } else {
                         log::info!("error is not retryable. {:?}", e);
                         break Err(e);
@@ -217,6 +217,7 @@ impl RetryableError for xmtp_proto::api_client::Error {
 mod tests {
     use super::*;
     use thiserror::Error;
+    use tokio::sync::mpsc;
 
     #[derive(Debug, Error)]
     enum SomeError {
@@ -241,7 +242,8 @@ mod tests {
         Err(SomeError::ARetryableError)
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn it_retries_twice_and_succeeds() {
         let mut i = 0;
         let mut test_fn = || -> Result<(), SomeError> {
@@ -256,7 +258,8 @@ mod tests {
         retry_async!(Retry::default(), (async { test_fn() })).unwrap();
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn it_works_with_random_args() {
         let mut i = 0;
         let list = vec!["String".into(), "Foo".into()];
@@ -271,7 +274,8 @@ mod tests {
         retry_async!(Retry::default(), (async { test_fn() })).unwrap();
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn it_fails_on_three_retries() {
         let closure = || -> Result<(), SomeError> {
             retry_error_fn()?;
@@ -282,7 +286,8 @@ mod tests {
         assert!(result.is_err())
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn it_only_runs_non_retryable_once() {
         let mut attempts = 0;
         let mut test_fn = || -> Result<(), SomeError> {
@@ -295,10 +300,11 @@ mod tests {
         assert_eq!(attempts, 1);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn it_works_async() {
-        async fn retryable_async_fn(rx: &flume::Receiver<usize>) -> Result<(), SomeError> {
-            let val = rx.recv_async().await.unwrap();
+        async fn retryable_async_fn(rx: &mut mpsc::Receiver<usize>) -> Result<(), SomeError> {
+            let val = rx.recv().await.unwrap();
             if val == 2 {
                 return Ok(());
             }
@@ -307,20 +313,21 @@ mod tests {
             Err(SomeError::ARetryableError)
         }
 
-        let (tx, rx) = flume::bounded(3);
+        let (tx, mut rx) = mpsc::channel(3);
 
         for i in 0..3 {
-            tx.send(i).unwrap();
+            tx.send(i).await.unwrap();
         }
         retry_async!(
             Retry::default(),
-            (async { retryable_async_fn(&rx.clone()).await })
+            (async { retryable_async_fn(&mut rx).await })
         )
         .unwrap();
         assert!(rx.is_empty());
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn it_works_async_mut() {
         async fn retryable_async_fn(data: &mut usize) -> Result<(), SomeError> {
             if *data == 2 {
@@ -340,7 +347,8 @@ mod tests {
         .unwrap();
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn backoff_retry() {
         let backoff_retry = Retry::default();
 

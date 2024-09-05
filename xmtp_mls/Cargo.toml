@@ -11,14 +11,12 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown", "aarch64-apple-
 [features]
 default = []
 test-utils = []
-bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "tracing-flame", "once_cell", "xmtp_api_grpc"]
+bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "tracing-flame", "once_cell", "xmtp_api_grpc", "criterion"]
 update-schema = ["toml"]
 http-api = ["xmtp_api_http"]
 
 [dependencies]
 bincode = "1.3.3"
-ethers.workspace = true
-ethers-core.workspace = true
 parking_lot = "0.12.3"
 hex.workspace = true
 log.workspace = true
@@ -40,7 +38,6 @@ async-stream.workspace = true
 async-trait.workspace = true
 futures.workspace = true
 reqwest = { version = "0.12.4", features = ["stream"] }
-#  ring = "0.17"
 
 # XMTP/Local
 xmtp_cryptography = { workspace = true }
@@ -59,6 +56,8 @@ indicatif = { version = "0.17", optional = true }
 anyhow = { workspace = true, optional = true }
 tracing-flame = { version = "0.2", optional = true }
 once_cell = { version = "1.19", optional = true }
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"], optional = true }
+
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Native Dependencies
@@ -86,32 +85,30 @@ getrandom = { version = "0.2", features = ["js"] }
 chrono = { workspace = true, features = ["wasmbind"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
 openmls = { workspace = true, features = ["test-utils", "js"] }
-
+gloo-timers = { workspace = true, features = ["futures"] }
 
 
 [dev-dependencies]
 ctor.workspace = true
-flume = "0.11"
+ethers.workspace = true
 mockall = "0.13.0"
 mockito = "1.4.0"
-tempfile = "3.5.0"
-tracing.workspace = true
-tracing-subscriber.workspace = true
 tracing-log = "0.2.0"
 tracing-test = "0.2.4"
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
-async-barrier = "1.1"
 anyhow.workspace = true
-criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
+tracing-subscriber.workspace = true
+tempfile = "3.5.0"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 xmtp_api_http = { path = "../xmtp_api_http" }
 tracing-wasm = { version = "0.2" }
 diesel-wasm-sqlite = { workspace = true, features = ["unsafe-debug-query", "r2d2"] }
 console_error_panic_hook = { version = "0.1"}
+wasm-bindgen-test.workspace = true
 
 [[bin]]
 doc = false

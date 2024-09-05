@@ -14,7 +14,7 @@ use super::{
         UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
         UnsignedRevokeAssociation,
     },
-    Action, IdentityUpdate, MemberIdentifier, MemberKind, Signature, SignatureError,
+    Action, IdentityUpdate, MemberIdentifier, MemberKind, SignatureError,
 };
 
 /// The SignatureField is used to map the signatures from a [SignatureRequest] back to the correct

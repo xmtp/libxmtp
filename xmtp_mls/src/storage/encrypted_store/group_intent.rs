@@ -435,7 +435,8 @@ mod tests {
         .unwrap()
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_store_and_fetch() {
         let group_id = rand_vec();
         let data = rand_vec();
@@ -467,7 +468,8 @@ mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_query() {
         let group_id = rand_vec();
 
@@ -545,7 +547,8 @@ mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn find_by_payload_hash() {
         let group_id = rand_vec();
 
@@ -586,7 +589,8 @@ mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_happy_path_state_transitions() {
         let group_id = rand_vec();
 
@@ -630,7 +634,8 @@ mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_republish_state_transition() {
         let group_id = rand_vec();
 
@@ -673,7 +678,8 @@ mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_invalid_state_transition() {
         let group_id = rand_vec();
 
@@ -707,7 +713,8 @@ mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_increment_publish_attempts() {
         let group_id = rand_vec();
         with_connection(|conn| {

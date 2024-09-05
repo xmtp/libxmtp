@@ -122,7 +122,8 @@ pub(crate) mod tests {
     use super::*;
     use crate::{storage::encrypted_store::tests::with_connection, Store};
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn get_cursor_with_no_existing_state() {
         with_connection(|conn| {
             let id = vec![1, 2, 3];
@@ -135,7 +136,8 @@ pub(crate) mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn get_timestamp_with_existing_state() {
         with_connection(|conn| {
             let id = vec![1, 2, 3];
@@ -150,7 +152,8 @@ pub(crate) mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn update_timestamp_when_bigger() {
         with_connection(|conn| {
             let id = vec![1, 2, 3];
@@ -167,7 +170,8 @@ pub(crate) mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn dont_update_timestamp_when_smaller() {
         with_connection(|conn| {
             let entity_id = vec![1, 2, 3];
@@ -186,7 +190,8 @@ pub(crate) mod tests {
         })
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn allow_installation_and_welcome_same_id() {
         with_connection(|conn| {
             let entity_id = vec![1, 2, 3];

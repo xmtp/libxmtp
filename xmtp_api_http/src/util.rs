@@ -118,10 +118,11 @@ fn create_grpc_stream_inner<
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_error_handler_on_unit_value() {
         handle_error::<_, ()>(b"{}".as_slice()).unwrap();
     }

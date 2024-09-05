@@ -397,7 +397,8 @@ mod tests {
     };
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    #[tokio::test(flavor = "current_thread")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_stream_welcomes() {
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bob = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -432,7 +433,11 @@ mod tests {
         assert_eq!(bob_received_groups.group_id, group_id);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_stream_messages() {
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -475,7 +480,11 @@ mod tests {
         // assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_stream_all_messages_unchanging_group_list() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -543,7 +552,11 @@ mod tests {
         assert_eq!(messages[3].decrypted_message_bytes, b"fourth");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_stream_all_messages_changing_group_list() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -650,7 +663,11 @@ mod tests {
     }
 
     #[ignore]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_stream_all_messages_does_not_lose_messages() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let caro = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -716,7 +733,8 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     async fn test_self_group_creation() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);

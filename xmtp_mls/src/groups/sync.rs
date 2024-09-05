@@ -1311,7 +1311,8 @@ mod tests {
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     async fn publish_intents_worst_case_scenario() {
         let wallet = generate_local_wallet();
         let amal = Arc::new(ClientBuilder::new_test_client(&wallet).await);

@@ -174,7 +174,11 @@ mod tests {
     };
     use futures::StreamExt;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 1)
+    )]
     async fn test_decode_group_message_bytes() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -211,7 +215,11 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_subscribe_messages() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -268,7 +276,11 @@ mod tests {
         assert_eq!(second_val.decrypted_message_bytes, "goodbye".as_bytes());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_subscribe_multiple() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let group = Arc::new(
@@ -306,7 +318,11 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 5)
+    )]
     async fn test_subscribe_membership_changes() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
