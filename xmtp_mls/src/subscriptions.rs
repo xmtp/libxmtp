@@ -130,7 +130,7 @@ where
 
     pub async fn stream_conversations(
         &self,
-    ) -> Result<impl Stream<Item = MlsGroup> + Send + '_, ClientError> {
+    ) -> Result<impl Stream<Item = MlsGroup> + '_, ClientError> {
         let event_queue =
             tokio_stream::wrappers::BroadcastStream::new(self.local_events.subscribe());
 
@@ -174,7 +174,7 @@ where
     pub(crate) async fn stream_messages<'a>(
         &'a self,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
-    ) -> Result<impl Stream<Item = StoredGroupMessage> + Send + '_, ClientError>
+    ) -> Result<impl Stream<Item = StoredGroupMessage> + '_, ClientError>
     where
         ApiClient: 'static,
     {
@@ -279,8 +279,7 @@ where
 
     pub async fn stream_all_messages(
         &self,
-    ) -> Result<impl Stream<Item = Result<StoredGroupMessage, ClientError>> + Send + '_, ClientError>
-    {
+    ) -> Result<impl Stream<Item = Result<StoredGroupMessage, ClientError>> + '_, ClientError> {
         self.sync_welcomes().await?;
 
         let mut group_id_to_info = self

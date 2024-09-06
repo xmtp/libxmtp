@@ -21,34 +21,113 @@ mod xmtp_openmls_provider;
 
 pub use client::{Client, Network};
 use storage::StorageError;
-use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
+use xmtp_proto::api_client::{
+    ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
+};
 
+pub use trait_impls::*;
 /// XMTP Api Super Trait
 /// Implements all Trait Network APIs for convenience.
-#[cfg(not(test))]
-pub trait XmtpApi
-where
-    Self: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata,
-{
-}
-#[cfg(not(test))]
-impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + ?Sized {}
+mod trait_impls {
+    use super::*;
+    pub use inner::*;
 
-#[cfg(test)]
-pub trait XmtpApi
-where
-    Self: XmtpMlsClient + XmtpIdentityClient + XmtpTestClient + ClientWithMetadata,
-{
-}
+    // native, release
+    #[cfg(all(not(test), not(target_arch = "wasm32")))]
+    mod inner {
+        use super::*;
+        pub trait XmtpApi
+        where
+            Self: XmtpMlsClient
+                + XmtpMlsStreams
+                + XmtpIdentityClient
+                + ClientWithMetadata
+                + Send
+                + Sync,
+        {
+        }
+        impl<T> XmtpApi for T where
+            T: XmtpMlsClient
+                + XmtpMlsStreams
+                + XmtpIdentityClient
+                + ClientWithMetadata
+                + Send
+                + Sync
+                + ?Sized
+        {
+        }
+    }
 
-#[cfg(test)]
-impl<T> XmtpApi for T where
-    T: XmtpMlsClient + XmtpIdentityClient + XmtpTestClient + ClientWithMetadata + ?Sized
-{
+    // wasm32, release
+    #[cfg(all(not(test), target_arch = "wasm32"))]
+    mod inner {
+        use super::*;
+
+        pub trait XmtpApi
+        where
+            Self: LocalXmtpMlsClient
+                + LocalXmtpMlsStreams
+                + LocalXmtpIdentityClient
+                + LocalClientWithMetadata,
+        {
+        }
+        impl<T> XmtpApi for T where
+            T: LocalXmtpMlsClient
+                + LocalXmtpMlsStreams
+                + LocalXmtpIdentityClient
+                + LocalClientWithMetadata
+                + ?Sized
+        {
+        }
+    }
+
+    // test, native
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    mod inner {
+        use super::*;
+
+        pub trait XmtpApi
+        where
+            Self: XmtpMlsClient
+                + XmtpMlsStreams
+                + XmtpIdentityClient
+                + XmtpTestClient
+                + ClientWithMetadata
+                + Send
+                + Sync,
+        {
+        }
+        impl<T> XmtpApi for T where
+            T: XmtpMlsClient
+                + XmtpMlsStreams
+                + XmtpIdentityClient
+                + XmtpTestClient
+                + ClientWithMetadata
+                + Send
+                + Sync
+                + ?Sized
+        {
+        }
+    }
+
+    // test, wasm32
+    #[cfg(all(test, target_arch = "wasm32"))]
+    mod inner {
+        pub trait XmtpApi
+        where
+            Self: LocalXmtpMlsClient
+                + LocalXmtpMlsStreams
+                + LocalXmtpIdentityClient
+                + LocalXmtpTestClient
+                + LocalClientWithMetadata,
+        {
+        }
+    }
 }
 
 #[cfg(any(test, feature = "test-utils", feature = "bench"))]
-pub trait XmtpTestClient {
+#[trait_variant::make(XmtpTestClient: Send)]
+pub trait LocalXmtpTestClient {
     async fn create_local() -> Self;
     async fn create_dev() -> Self;
 }

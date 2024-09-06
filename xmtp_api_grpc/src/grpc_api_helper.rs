@@ -9,7 +9,8 @@ use tokio::sync::oneshot;
 use tonic::transport::ClientTlsConfig;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 
-use xmtp_proto::api_client::{ClientWithMetadata, GroupMessageStream, WelcomeMessageStream};
+use xmtp_proto::api_client::{ClientWithMetadata, XmtpMlsStreams};
+use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
     api_client::{
         Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
@@ -400,11 +401,62 @@ impl XmtpMlsClient for Client {
         res.map(|r| r.into_inner())
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
     }
+}
+
+pub struct GroupMessageStream {
+    inner: tonic::codec::Streaming<GroupMessage>,
+}
+
+impl From<tonic::codec::Streaming<GroupMessage>> for GroupMessageStream {
+    fn from(inner: tonic::codec::Streaming<GroupMessage>) -> Self {
+        GroupMessageStream { inner }
+    }
+}
+
+impl Stream for GroupMessageStream {
+    type Item = Result<GroupMessage, Error>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.inner
+            .poll_next_unpin(cx)
+            .map(|data| data.map(|v| v.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))))
+    }
+}
+
+pub struct WelcomeMessageStream {
+    inner: tonic::codec::Streaming<WelcomeMessage>,
+}
+
+impl From<tonic::codec::Streaming<WelcomeMessage>> for WelcomeMessageStream {
+    fn from(inner: tonic::codec::Streaming<WelcomeMessage>) -> Self {
+        WelcomeMessageStream { inner }
+    }
+}
+
+impl Stream for WelcomeMessageStream {
+    type Item = Result<WelcomeMessage, Error>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.inner
+            .poll_next_unpin(cx)
+            .map(|data| data.map(|v| v.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))))
+    }
+}
+
+impl XmtpMlsStreams for Client {
+    type GroupMessageStream<'a> = GroupMessageStream;
+    type WelcomeMessageStream<'a> = WelcomeMessageStream;
 
     async fn subscribe_group_messages(
         &self,
         req: SubscribeGroupMessagesRequest,
-    ) -> Result<GroupMessageStream, Error> {
+    ) -> Result<Self::GroupMessageStream<'_>, Error> {
         let client = &mut self.mls_client.clone();
         let res = client
             .subscribe_group_messages(self.build_request(req))
@@ -412,14 +464,14 @@ impl XmtpMlsClient for Client {
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
         let stream = res.into_inner();
-
+        // let stream = stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e));
         Ok(stream.into())
     }
 
     async fn subscribe_welcome_messages(
         &self,
         req: SubscribeWelcomeMessagesRequest,
-    ) -> Result<WelcomeMessageStream, Error> {
+    ) -> Result<Self::WelcomeMessageStream<'_>, Error> {
         let client = &mut self.mls_client.clone();
         let res = client
             .subscribe_welcome_messages(self.build_request(req))
@@ -427,6 +479,7 @@ impl XmtpMlsClient for Client {
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
         let stream = res.into_inner();
+        // let stream = stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e));
 
         Ok(stream.into())
     }

@@ -322,7 +322,7 @@ mod tests {
         let (start_tx, start_rx) = tokio::sync::oneshot::channel();
         let mut stream = UnboundedReceiverStream::new(rx);
         tokio::spawn(async move {
-            let mut stream = amal_group_ptr.stream(&amal_ptr).await.unwrap();
+            let stream = amal_group_ptr.stream(&amal_ptr).await.unwrap();
             futures::pin_mut!(stream);
             let _ = start_tx.send(());
             while let Some(item) = stream.next().await {

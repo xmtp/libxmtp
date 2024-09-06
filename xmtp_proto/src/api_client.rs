@@ -1,7 +1,7 @@
-use std::pin::Pin;
+use std::future::Future;
 use std::{error::Error as StdError, fmt};
 
-use futures::{Stream, StreamExt};
+use futures::Stream;
 
 pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PagingInfo, PublishRequest, PublishResponse,
@@ -109,14 +109,16 @@ pub trait MutableApiSubscription: Stream<Item = Result<Envelope, Error>> + Send 
     fn close(&self);
 }
 
-pub trait ClientWithMetadata: Send + Sync {
+pub trait ClientWithMetadata {
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Error>;
     fn set_app_version(&mut self, version: String) -> Result<(), Error>;
 }
 
 // Wasm futures don't have `Send` or `Sync` bounds.
 #[allow(async_fn_in_trait)]
-pub trait XmtpApiClient {
+#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
+#[trait_variant::make(XmtpApiClient: Send)]
+pub trait LocalXmtpApiClient {
     type Subscription: XmtpApiSubscription;
     type MutableSubscription: MutableApiSubscription;
 
@@ -138,55 +140,10 @@ pub trait XmtpApiClient {
     async fn batch_query(&self, request: BatchQueryRequest) -> Result<BatchQueryResponse, Error>;
 }
 
-pub struct GroupMessageStream {
-    inner: tonic::codec::Streaming<GroupMessage>,
-}
-
-impl From<tonic::codec::Streaming<GroupMessage>> for GroupMessageStream {
-    fn from(inner: tonic::codec::Streaming<GroupMessage>) -> Self {
-        GroupMessageStream { inner }
-    }
-}
-
-impl Stream for GroupMessageStream {
-    type Item = Result<GroupMessage, Error>;
-
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        self.inner
-            .poll_next_unpin(cx)
-            .map(|data| data.map(|v| v.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))))
-    }
-}
-
-pub struct WelcomeMessageStream {
-    inner: tonic::codec::Streaming<WelcomeMessage>,
-}
-
-impl From<tonic::codec::Streaming<WelcomeMessage>> for WelcomeMessageStream {
-    fn from(inner: tonic::codec::Streaming<WelcomeMessage>) -> Self {
-        WelcomeMessageStream { inner }
-    }
-}
-
-impl Stream for WelcomeMessageStream {
-    type Item = Result<WelcomeMessage, Error>;
-
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        self.inner
-            .poll_next_unpin(cx)
-            .map(|data| data.map(|v| v.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))))
-    }
-}
-
 // Wasm futures don't have `Send` or `Sync` bounds.
 #[allow(async_fn_in_trait)]
 #[trait_variant::make(XmtpMlsClient: Send)]
+#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
 pub trait LocalXmtpMlsClient {
     async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
     async fn fetch_key_packages(
@@ -204,18 +161,57 @@ pub trait LocalXmtpMlsClient {
         &self,
         request: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Error>;
+}
+
+// #[trait_variant::make(XmtpMlsStreams: Send)]
+#[allow(async_fn_in_trait)]
+#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
+pub trait LocalXmtpMlsStreams {
+    type GroupMessageStream<'a>: Stream<Item = Result<GroupMessage, Error>> + 'a
+    where
+        Self: 'a;
+
+    type WelcomeMessageStream<'a>: Stream<Item = Result<WelcomeMessage, Error>> + 'a
+    where
+        Self: 'a;
+
     async fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
-    ) -> Result<GroupMessageStream, Error>;
+    ) -> Result<Self::GroupMessageStream<'_>, Error>;
     async fn subscribe_welcome_messages(
         &self,
         request: SubscribeWelcomeMessagesRequest,
-    ) -> Result<WelcomeMessageStream, Error>;
+    ) -> Result<Self::WelcomeMessageStream<'_>, Error>;
+}
+
+// we manually make a Local+Non-Local trait variant here b/c the
+// macro breaks with GATs
+#[allow(async_fn_in_trait)]
+#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
+pub trait XmtpMlsStreams: Send {
+    type GroupMessageStream<'a>: Stream<Item = Result<GroupMessage, Error>> + Send + 'a
+    where
+        Self: 'a;
+
+    type WelcomeMessageStream<'a>: Stream<Item = Result<WelcomeMessage, Error>> + Send + 'a
+    where
+        Self: 'a;
+
+    fn subscribe_group_messages(
+        &self,
+        request: SubscribeGroupMessagesRequest,
+    ) -> impl Future<Output = Result<Self::GroupMessageStream<'_>, Error>> + Send;
+
+    fn subscribe_welcome_messages(
+        &self,
+        request: SubscribeWelcomeMessagesRequest,
+    ) -> impl Future<Output = Result<Self::WelcomeMessageStream<'_>, Error>> + Send;
 }
 
 #[allow(async_fn_in_trait)]
 #[trait_variant::make(XmtpIdentityClient: Send)]
+#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
 pub trait LocalXmtpIdentityClient {
     async fn publish_identity_update(
         &self,

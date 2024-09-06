@@ -1,9 +1,6 @@
 use mockall::mock;
 use xmtp_proto::{
-    api_client::{
-        ClientWithMetadata, Error, GroupMessageStream, WelcomeMessageStream, XmtpIdentityClient,
-        XmtpMlsClient,
-    },
+    api_client::{ClientWithMetadata, Error, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
     xmtp::{
         identity::api::v1::{
             GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
@@ -60,7 +57,10 @@ mock! {
         async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), Error>;
         async fn query_group_messages(&self, request: QueryGroupMessagesRequest) -> Result<QueryGroupMessagesResponse, Error>;
         async fn query_welcome_messages(&self, request: QueryWelcomeMessagesRequest) -> Result<QueryWelcomeMessagesResponse, Error>;
-        async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<GroupMessageStream, Error>;
+    }
+
+    impl XmtpMlsStreams for ApiClient {
+        async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<impl Stream<Item = Result<GroupMessage, Error>> + Send, Error>;
         async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<WelcomeMessageStream, Error>;
     }
 

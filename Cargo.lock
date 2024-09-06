@@ -6245,8 +6245,6 @@ name = "xmtp_api_http"
 version = "0.0.1"
 dependencies = [
  "async-stream",
- "async-trait",
- "bytes",
  "futures",
  "log",
  "reqwest 0.12.5",
@@ -6346,7 +6344,6 @@ dependencies = [
  "anyhow",
  "async-barrier",
  "async-stream",
- "async-trait",
  "bincode",
  "chrono",
  "criterion",
@@ -6387,6 +6384,7 @@ dependencies = [
  "tracing-log",
  "tracing-subscriber",
  "tracing-test",
+ "trait-variant",
  "xmtp_api_grpc",
  "xmtp_api_http",
  "xmtp_cryptography",
@@ -6401,6 +6399,7 @@ version = "0.0.1"
 dependencies = [
  "futures",
  "futures-core",
+ "mockall",
  "openmls",
  "openmls_basic_credential",
  "pbjson",
