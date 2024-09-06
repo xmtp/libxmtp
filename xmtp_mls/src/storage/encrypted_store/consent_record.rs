@@ -11,7 +11,7 @@ use diesel::{
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
-    sqlite::Sqlite,
+    sqlite::Sqlite, upsert::excluded,
 };
 use serde::{Deserialize, Serialize};
 
@@ -60,18 +60,24 @@ impl DbConnection {
         })?)
     }
 
-    /// Batch insert consent_records, ignoring duplicates.
-    pub fn insert_or_ignore_consent_records(
+    /// Batch insert consent_records, and replace existing entries
+    pub fn insert_or_replace_consent_record(
         &self,
-        updates: &[StoredConsentRecord],
+        record: StoredConsentRecord,
     ) -> Result<(), StorageError> {
-        Ok(self.raw_query(|conn| {
-            diesel::insert_or_ignore_into(dsl::consent_records)
-                .values(updates)
-                .execute(conn)?;
+        self.raw_query(|conn| {
+            let _ = diesel::insert_into(dsl::consent_records)
+                .values(&record)
+                .on_conflict((dsl::entity_type, dsl::entity))
+                .do_update()
+                .set(dsl::state.eq(excluded(dsl::state)))
+                .execute(conn)
+                .map_err(StorageError::from);
 
             Ok(())
-        })?)
+        })?;
+
+        Ok(())
     }
 }
 
