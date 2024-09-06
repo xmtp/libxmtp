@@ -6,7 +6,6 @@ mod util;
 use futures::stream;
 use reqwest::header;
 use util::{create_grpc_stream, handle_error};
-// #[cfg(not(target_arch = "wasm32"))]
 // use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::api_client::{ClientWithMetadata, Error, ErrorKind, XmtpIdentityClient};
 use xmtp_proto::xmtp::identity::api::v1::{
@@ -239,8 +238,15 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
     // breaks the `mockall::` functionality, since `mockall` does not support `impl Trait` in
     // `Trait` yet.
 
+    #[cfg(not(target_arch = "wasm32"))]
     type GroupMessageStream<'a> = stream::BoxStream<'a, Result<GroupMessage, Error>>;
+    #[cfg(not(target_arch = "wasm32"))]
     type WelcomeMessageStream<'a> = stream::BoxStream<'a, Result<WelcomeMessage, Error>>;
+
+    #[cfg(target_arch = "wasm32")]
+    type GroupMessageStream<'a> = stream::LocalBoxStream<'a, Result<GroupMessage, Error>>;
+    #[cfg(target_arch = "wasm32")]
+    type WelcomeMessageStream<'a> = stream::LocalBoxStream<'a, Result<WelcomeMessage, Error>>;
 
     async fn subscribe_group_messages(
         &self,
@@ -266,43 +272,6 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
         ))
     }
 }
-
-/*
-#[cfg(not(target_arch = "wasm32"))]
-impl XmtpMlsStreams for XmtpHttpApiClient {
-    // hard to avoid boxing here:
-    // 1.) use `hyper` instead of `reqwest` and create our own `Stream` type
-    // 2.) ise `impl Stream` in return of `XmtpMlsStreams` but that
-    // breaks the `mockall::` functionality, since `mockall` does not support `impl Trait` in
-    // `Trait` yet.
-    type GroupMessageStream<'a> = stream::BoxStream<'a, Result<GroupMessage, Error>>;
-    type WelcomeMessageStream<'a> = stream::BoxStream<'a, Result<WelcomeMessage, Error>>;
-
-    async fn subscribe_group_messages(
-        &self,
-        request: SubscribeGroupMessagesRequest,
-    ) -> Result<Self::GroupMessageStream<'_>, Error> {
-        log::debug!("subscribe_group_messages");
-        Ok(create_grpc_stream::<_, GroupMessage>(
-            request,
-            self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES),
-            self.http_client.clone(),
-        ))
-    }
-
-    async fn subscribe_welcome_messages(
-        &self,
-        request: SubscribeWelcomeMessagesRequest,
-    ) -> Result<Self::WelcomeMessageStream<'_>, Error> {
-        log::debug!("subscribe_welcome_messages");
-        Ok(create_grpc_stream::<_, WelcomeMessage>(
-            request,
-            self.endpoint(ApiEndpoints::SUBSCRIBE_WELCOME_MESSAGES),
-            self.http_client.clone(),
-        ))
-    }
-}
-*/
 
 impl XmtpIdentityClient for XmtpHttpApiClient {
     async fn publish_identity_update(

@@ -464,7 +464,6 @@ impl XmtpMlsStreams for Client {
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
         let stream = res.into_inner();
-        // let stream = stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e));
         Ok(stream.into())
     }
 
@@ -479,7 +478,6 @@ impl XmtpMlsStreams for Client {
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
         let stream = res.into_inner();
-        // let stream = stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e));
 
         Ok(stream.into())
     }

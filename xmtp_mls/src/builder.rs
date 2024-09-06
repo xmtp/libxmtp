@@ -146,7 +146,6 @@ mod tests {
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_traits::types::SignatureScheme;
     use prost::Message;
-    use xmtp_cryptography::signature::h160addr_to_string;
     use xmtp_cryptography::utils::{generate_local_wallet, rng};
     use xmtp_id::associations::ValidatedLegacySignedPublicKey;
     use xmtp_id::associations::{

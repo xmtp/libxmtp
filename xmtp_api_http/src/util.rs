@@ -51,7 +51,7 @@ pub fn create_grpc_stream<
     request: T,
     endpoint: String,
     http_client: reqwest::Client,
-) -> LocalBoxStream<'static, Result<R, Error>> {
+) -> stream::LocalBoxStream<'static, Result<R, Error>> {
     create_grpc_stream_inner(request, endpoint, http_client).boxed_local()
 }
 
