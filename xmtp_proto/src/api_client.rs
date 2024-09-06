@@ -1,6 +1,5 @@
 use std::{error::Error as StdError, fmt};
 
-use async_trait::async_trait;
 use futures::{stream, Stream};
 
 pub use super::xmtp::message_api::v1::{
@@ -103,8 +102,7 @@ pub trait XmtpApiSubscription {
     fn close_stream(&mut self);
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[allow(async_fn_in_trait)]
 pub trait MutableApiSubscription: Stream<Item = Result<Envelope, Error>> + Send {
     async fn update(&mut self, req: SubscribeRequest) -> Result<(), Error>;
     fn close(&self);
@@ -116,9 +114,8 @@ pub trait ClientWithMetadata: Send + Sync {
 }
 
 // Wasm futures don't have `Send` or `Sync` bounds.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait XmtpApiClient: Send + Sync {
+#[allow(async_fn_in_trait)]
+pub trait XmtpApiClient {
     type Subscription: XmtpApiSubscription;
     type MutableSubscription: MutableApiSubscription;
 
@@ -151,9 +148,9 @@ pub type WelcomeMessageStream = stream::BoxStream<'static, Result<WelcomeMessage
 pub type WelcomeMessageStream = stream::LocalBoxStream<'static, Result<WelcomeMessage, Error>>;
 
 // Wasm futures don't have `Send` or `Sync` bounds.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait XmtpMlsClient: Send + Sync + 'static {
+#[allow(async_fn_in_trait)]
+#[trait_variant::make(XmtpMlsClient: Send)]
+pub trait LocalXmtpMlsClient {
     async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
     async fn fetch_key_packages(
         &self,
@@ -173,17 +170,16 @@ pub trait XmtpMlsClient: Send + Sync + 'static {
     async fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
-    ) -> Result<GroupMessageStream, Error>;
+    ) -> Result<impl Stream<Item = Result<GroupMessage, Error>> + Send, Error>;
     async fn subscribe_welcome_messages(
         &self,
         request: SubscribeWelcomeMessagesRequest,
-    ) -> Result<WelcomeMessageStream, Error>;
+    ) -> Result<impl Stream<Item = Result<WelcomeMessage, Error>> + Send, Error>;
 }
 
-// Wasm futures don't have `Send` or `Sync` bounds.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait XmtpIdentityClient: Send + Sync + 'static {
+#[allow(async_fn_in_trait)]
+#[trait_variant::make(XmtpIdentityClient: Send)]
+pub trait LocalXmtpIdentityClient {
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,

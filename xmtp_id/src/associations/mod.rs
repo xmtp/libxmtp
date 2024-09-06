@@ -16,6 +16,8 @@ pub use self::serialization::{map_vec, try_map_vec, DeserializationError};
 pub use self::signature::*;
 pub use self::state::{AssociationState, AssociationStateDiff};
 
+use crate::associations::association_log::IdentityAction;
+
 // Apply a single IdentityUpdate to an existing AssociationState
 pub async fn apply_update(
     initial_state: AssociationState,

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, pin::Pin, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use futures::{FutureExt, Stream, StreamExt};
 use prost::Message;
@@ -67,7 +67,7 @@ impl From<StoredGroup> for (Vec<u8>, MessagesStreamInfo) {
 
 impl<ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpApi,
+    ApiClient: XmtpApi + 'static,
 {
     async fn process_streamed_welcome(
         &self,
@@ -130,7 +130,7 @@ where
 
     pub async fn stream_conversations(
         &self,
-    ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup> + Send + '_>>, ClientError> {
+    ) -> Result<impl Stream<Item = MlsGroup> + Send + '_, ClientError> {
         let event_queue =
             tokio_stream::wrappers::BroadcastStream::new(self.local_events.subscribe());
 
@@ -167,48 +167,50 @@ where
                 }
             });
 
-        Ok(Box::pin(futures::stream::select(stream, event_queue)))
+        Ok(futures::stream::select(stream, event_queue))
     }
 
-    #[tracing::instrument(skip(self, group_id_to_info))]
-    pub(crate) async fn stream_messages(
-        self: Arc<Self>,
+    // #[tracing::instrument(skip(self, group_id_to_info))]
+    pub(crate) async fn stream_messages<'a>(
+        &'a self,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
-    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + Send>>, ClientError> {
+    ) -> Result<impl Stream<Item = StoredGroupMessage> + Send + '_, ClientError>
+    where
+        ApiClient: 'static,
+    {
         let filters: Vec<GroupFilter> = group_id_to_info
             .iter()
             .map(|(group_id, info)| GroupFilter::new(group_id.clone(), Some(info.cursor)))
             .collect();
+
         let messages_subscription = self.api_client.subscribe_group_messages(filters).await?;
 
         let stream = messages_subscription
             .map(move |res| {
-                let context = self.context.clone();
-                let client = self.clone();
-
-                let group_id_to_info = group_id_to_info.clone();
+                let group_info = group_id_to_info.clone();
                 async move {
                     match res {
                         Ok(envelope) => {
                             log::info!("Received message streaming payload");
                             let group_id = extract_group_id(&envelope)?;
                             log::info!("Extracted group id {}", hex::encode(&group_id));
-                            let stream_info = group_id_to_info.get(&group_id).ok_or(
+                            let stream_info = group_info.get(&group_id).ok_or(
                                 ClientError::StreamInconsistency(
                                     "Received message for a non-subscribed group".to_string(),
                                 ),
                             )?;
-                            let mls_group =
-                                MlsGroup::new(context, group_id, stream_info.convo_created_at_ns);
-                            mls_group
-                                .process_stream_entry(envelope.clone(), client.clone())
-                                .await
+                            let mls_group = MlsGroup::new(
+                                self.context.clone(),
+                                group_id,
+                                stream_info.convo_created_at_ns,
+                            );
+                            mls_group.process_stream_entry(envelope, self).await
                         }
                         Err(err) => Err(GroupError::Api(err)),
                     }
                 }
             })
-            .filter_map(move |res| async {
+            .filter_map(|res| async {
                 match res.await {
                     Ok(Some(message)) => Some(message),
                     Ok(None) => {
@@ -221,14 +223,13 @@ where
                     }
                 }
             });
-
-        Ok(Box::pin(stream))
+        Ok(stream)
     }
 }
 
 impl<ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpApi,
+    ApiClient: XmtpApi + 'static,
 {
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient>>,
@@ -237,7 +238,8 @@ where
         let (tx, rx) = oneshot::channel();
 
         let handle = tokio::spawn(async move {
-            let mut stream = client.stream_conversations().await?;
+            let stream = client.stream_conversations().await?;
+            futures::pin_mut!(stream);
             let _ = tx.send(());
             while let Some(convo) = stream.next().await {
                 convo_callback(convo)
@@ -258,9 +260,11 @@ where
     ) -> StreamHandle<Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
+        let client = client.clone();
         let handle = tokio::spawn(async move {
-            let mut stream = Self::stream_messages(client, group_id_to_info).await?;
+            let stream = Self::stream_messages(&client, group_id_to_info).await?;
             let _ = tx.send(());
+            futures::pin_mut!(stream);
             while let Some(message) = stream.next().await {
                 callback(message)
             }
@@ -274,11 +278,12 @@ where
     }
 
     pub async fn stream_all_messages(
-        client: Arc<Client<ApiClient>>,
-    ) -> Result<impl Stream<Item = Result<StoredGroupMessage, ClientError>>, ClientError> {
-        client.sync_welcomes().await?;
+        &self,
+    ) -> Result<impl Stream<Item = Result<StoredGroupMessage, ClientError>> + Send + '_, ClientError>
+    {
+        self.sync_welcomes().await?;
 
-        let mut group_id_to_info = client
+        let mut group_id_to_info = self
             .store()
             .conn()?
             .find_groups(None, None, None, None)?
@@ -287,12 +292,14 @@ where
             .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
 
         let stream = async_stream::stream! {
-            let client = client.clone();
-            let mut messages_stream = client
-                .clone()
+            let messages_stream = self
                 .stream_messages(group_id_to_info.clone())
                 .await?;
-            let mut convo_stream = Self::stream_conversations(&client).await?;
+            futures::pin_mut!(messages_stream);
+
+            let convo_stream = self.stream_conversations().await?;
+            futures::pin_mut!(convo_stream);
+
             let mut extra_messages = Vec::new();
 
             loop {
@@ -316,19 +323,19 @@ where
                         if group_id_to_info.contains_key(&new_group.group_id) {
                             continue;
                         }
-
-                        for info in group_id_to_info.values_mut() {
+                        let mut new_group_id_to_info = group_id_to_info.clone();
+                        for info in new_group_id_to_info.values_mut() {
                             info.cursor = 0;
                         }
-                        group_id_to_info.insert(
+                        new_group_id_to_info.insert(
                             new_group.group_id,
                             MessagesStreamInfo {
                                 convo_created_at_ns: new_group.created_at_ns,
                                 cursor: 1, // For the new group, stream all messages since the group was created
                             },
                         );
-
-                        let new_messages_stream = match client.clone().stream_messages(group_id_to_info.clone()).await {
+                        std::mem::swap(&mut group_id_to_info, &mut new_group_id_to_info);
+                        let new_messages_stream = match self.stream_messages(group_id_to_info.clone()).await {
                             Ok(stream) => stream,
                             Err(e) => {
                                 log::error!("{}", e);
@@ -341,13 +348,13 @@ where
                         while let Some(Some(message)) = messages_stream.next().now_or_never() {
                             extra_messages.push(message);
                         }
-                        let _ = std::mem::replace(&mut messages_stream, new_messages_stream);
+                        messages_stream.set(new_messages_stream);
                     },
                 }
             }
         };
 
-        Ok(Box::pin(stream))
+        Ok(stream)
     }
 
     pub fn stream_all_messages_with_callback(
@@ -357,8 +364,9 @@ where
         let (tx, rx) = oneshot::channel();
 
         let handle = tokio::spawn(async move {
-            let mut stream = Self::stream_all_messages(client).await?;
+            let stream = Self::stream_all_messages(&client).await?;
             let _ = tx.send(());
+            futures::pin_mut!(stream);
             while let Some(message) = stream.next().await {
                 match message {
                     Ok(m) => callback(m),

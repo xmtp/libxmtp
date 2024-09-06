@@ -43,7 +43,6 @@ path = "src/bin.rs"
 
 [dev-dependencies]
 ethers = "2.0.13"
-ethers-core = "2.0.13"
 tempfile = "3.5.0"
 tokio = { version = "1.28.1", features = ["full"] }
 tokio-test = "0.4"

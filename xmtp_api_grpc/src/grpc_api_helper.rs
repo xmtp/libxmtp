@@ -10,10 +10,10 @@ use tonic::transport::ClientTlsConfig;
 use tonic::{async_trait, metadata::MetadataValue, transport::Channel, Request, Streaming};
 
 use xmtp_proto::api_client::ClientWithMetadata;
+use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
     api_client::{
-        Error, ErrorKind, GroupMessageStream, MutableApiSubscription, WelcomeMessageStream,
-        XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
+        Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
     },
     xmtp::identity::api::v1::identity_api_client::IdentityApiClient as ProtoIdentityApiClient,
     xmtp::message_api::v1::{
@@ -131,7 +131,6 @@ impl ClientWithMetadata for Client {
     }
 }
 
-#[async_trait]
 impl XmtpApiClient for Client {
     type Subscription = Subscription;
     type MutableSubscription = GrpcMutableSubscription;
@@ -335,7 +334,6 @@ impl MutableApiSubscription for GrpcMutableSubscription {
     }
 }
 
-#[async_trait]
 impl XmtpMlsClient for Client {
     #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Error> {
@@ -409,7 +407,7 @@ impl XmtpMlsClient for Client {
     async fn subscribe_group_messages(
         &self,
         req: SubscribeGroupMessagesRequest,
-    ) -> Result<GroupMessageStream, Error> {
+    ) -> Result<impl Stream<Item = Result<GroupMessage, Error>> + Send, Error> {
         let client = &mut self.mls_client.clone();
         let res = client
             .subscribe_group_messages(self.build_request(req))
@@ -420,13 +418,13 @@ impl XmtpMlsClient for Client {
 
         let new_stream = stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e));
 
-        Ok(Box::pin(new_stream))
+        Ok(new_stream)
     }
 
     async fn subscribe_welcome_messages(
         &self,
         req: SubscribeWelcomeMessagesRequest,
-    ) -> Result<WelcomeMessageStream, Error> {
+    ) -> Result<impl Stream<Item = Result<WelcomeMessage, Error>> + Send, Error> {
         let client = &mut self.mls_client.clone();
         let res = client
             .subscribe_welcome_messages(self.build_request(req))
@@ -437,6 +435,6 @@ impl XmtpMlsClient for Client {
 
         let new_stream = stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e));
 
-        Ok(Box::pin(new_stream))
+        Ok(new_stream)
     }
 }

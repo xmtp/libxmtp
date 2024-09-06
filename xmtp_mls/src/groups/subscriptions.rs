@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::Stream;
@@ -18,7 +17,7 @@ impl MlsGroup {
     pub(crate) async fn process_stream_entry<ApiClient>(
         &self,
         envelope: GroupMessage,
-        client: Arc<Client<ApiClient>>,
+        client: &Client<ApiClient>,
     ) -> Result<Option<StoredGroupMessage>, GroupError>
     where
         ApiClient: XmtpApi,
@@ -34,11 +33,9 @@ impl MlsGroup {
         let created_ns = msgv1.created_ns;
 
         if !self.has_already_synced(msg_id).await? {
-            let client_pointer = client.clone();
             let process_result = retry_async!(
                 Retry::default(),
                 (async {
-                    let client_pointer = client_pointer.clone();
                     let client_id = client_id.clone();
                     let msgv1 = msgv1.clone();
                     self.context
@@ -55,7 +52,7 @@ impl MlsGroup {
                             );
 
                             self.process_message(
-                                client_pointer.as_ref(),
+                                client,
                                 &mut openmls_group,
                                 &provider,
                                 &msgv1,
@@ -109,7 +106,7 @@ impl MlsGroup {
     pub async fn process_streamed_group_message<ApiClient>(
         &self,
         envelope_bytes: Vec<u8>,
-        client: Arc<Client<ApiClient>>,
+        client: &Client<ApiClient>,
     ) -> Result<StoredGroupMessage, GroupError>
     where
         ApiClient: XmtpApi,
@@ -121,12 +118,12 @@ impl MlsGroup {
         message.ok_or(GroupError::MissingMessage)
     }
 
-    pub async fn stream<ApiClient>(
-        &self,
-        client: Arc<Client<ApiClient>>,
-    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + Send + '_>>, GroupError>
+    pub async fn stream<'a, ApiClient>(
+        &'a self,
+        client: &'a Client<ApiClient>,
+    ) -> Result<impl Stream<Item = StoredGroupMessage> + '_, GroupError>
     where
-        ApiClient: crate::XmtpApi,
+        ApiClient: crate::XmtpApi + 'static,
     {
         Ok(client
             .stream_messages(HashMap::from([(
@@ -146,7 +143,7 @@ impl MlsGroup {
         callback: impl FnMut(StoredGroupMessage) + Send + 'static,
     ) -> StreamHandle<Result<(), crate::groups::ClientError>>
     where
-        ApiClient: crate::XmtpApi,
+        ApiClient: crate::XmtpApi + 'static,
     {
         Client::<ApiClient>::stream_messages_with_callback(
             client,

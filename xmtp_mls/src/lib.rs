@@ -11,7 +11,6 @@ mod hpke;
 pub mod identity;
 mod identity_updates;
 mod mutex_registry;
-pub mod owner;
 pub mod retry;
 pub mod storage;
 pub mod subscriptions;
@@ -56,12 +55,7 @@ pub trait XmtpTestClient {
     async fn create_dev() -> Self;
 }
 
-pub trait InboxOwner {
-    /// Get address of the wallet.
-    fn get_address(&self) -> String;
-    /// Sign text with the wallet.
-    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError>;
-}
+pub use xmtp_id::InboxOwner;
 
 /// Inserts a model to the underlying data store, erroring if it already exists
 pub trait Store<StorageConnection> {

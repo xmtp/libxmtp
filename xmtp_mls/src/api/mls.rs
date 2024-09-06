@@ -264,7 +264,7 @@ where
     pub async fn subscribe_group_messages(
         &self,
         filters: Vec<GroupFilter>,
-    ) -> Result<GroupMessageStream, ApiError> {
+    ) -> Result<impl futures::Stream<Item = Result<GroupMessage, ApiError>> + '_, ApiError> {
         self.api_client
             .subscribe_group_messages(SubscribeGroupMessagesRequest {
                 filters: filters.into_iter().map(|f| f.into()).collect(),
@@ -276,7 +276,7 @@ where
         &self,
         installation_key: Vec<u8>,
         id_cursor: Option<u64>,
-    ) -> Result<WelcomeMessageStream, ApiError> {
+    ) -> Result<impl futures::Stream<Item = Result<WelcomeMessage, ApiError>> + '_, ApiError> {
         self.api_client
             .subscribe_welcome_messages(SubscribeWelcomeMessagesRequest {
                 filters: vec![WelcomeFilterProto {

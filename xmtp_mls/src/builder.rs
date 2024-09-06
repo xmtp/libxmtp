@@ -142,8 +142,6 @@ mod tests {
         api::test_utils::*, identity::Identity, storage::identity::StoredIdentity,
         utils::test::rand_vec, Store,
     };
-    use ethers::signers::Signer;
-    use ethers_core::k256;
     use openmls::credentials::{Credential, CredentialType};
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_traits::types::SignatureScheme;

@@ -4,7 +4,6 @@
 #![allow(clippy::unwrap_used)]
 
 use crate::{builder::ClientBuilder, Client};
-use ethers::signers::{LocalWallet, Signer};
 use indicatif::{ProgressBar, ProgressStyle};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
