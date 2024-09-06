@@ -445,7 +445,6 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use ethers::signers::LocalWallet;
     use tracing_test::traced_test;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{
@@ -465,7 +464,7 @@ pub(crate) mod tests {
     use super::load_identity_updates;
 
     pub(crate) async fn sign_with_wallet(
-        wallet: &LocalWallet,
+        wallet: &impl InboxOwner,
         signature_request: &mut SignatureRequest,
     ) {
         let wallet_signature: Vec<u8> = wallet
