@@ -36,8 +36,6 @@ pub fn build_group_messages(num_messages: usize, group_id: Vec<u8>) -> Vec<Group
     out
 }
 
-use futures::Stream;
-
 // Create a mock XmtpClient for testing the client wrapper
 mock! {
     pub ApiClient {}
@@ -60,8 +58,19 @@ mock! {
     }
 
     impl XmtpMlsStreams for ApiClient {
-        async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<impl Stream<Item = Result<GroupMessage, Error>> + Send, Error>;
-        async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<WelcomeMessageStream, Error>;
+        #[cfg(not(feature = "http-api"))]
+        type GroupMessageStream<'a> = xmtp_api_grpc::GroupMessageStream;
+        #[cfg(not(feature = "http-api"))]
+        type WelcomeMessageStream<'a> = xmtp_api_grpc::WelcomeMessageStream;
+
+        #[cfg(feature = "http-api")]
+        type GroupMessageStream<'a> = futures::stream::BoxStream<'static, Result<GroupMessage, Error>>;
+        #[cfg(feature = "http-api")]
+        type WelcomeMessageStream<'a> = futures::stream::BoxStream<'static, Result<WelcomeMessage, Error>>;
+
+
+        async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<<Self as XmtpMlsStreams>::GroupMessageStream<'static>, Error>;
+        async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<<Self as XmtpMlsStreams>::WelcomeMessageStream<'static>, Error>;
     }
 
     impl XmtpIdentityClient for ApiClient {
