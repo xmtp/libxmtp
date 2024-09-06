@@ -1,7 +1,6 @@
 use std::{error::Error as StdError, fmt};
 
-use async_trait::async_trait;
-use futures::{stream, Stream};
+use futures::Stream;
 
 pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PagingInfo, PublishRequest, PublishResponse,
@@ -103,22 +102,29 @@ pub trait XmtpApiSubscription {
     fn close_stream(&mut self);
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[allow(async_fn_in_trait)]
 pub trait MutableApiSubscription: Stream<Item = Result<Envelope, Error>> + Send {
     async fn update(&mut self, req: SubscribeRequest) -> Result<(), Error>;
     fn close(&self);
 }
 
-pub trait ClientWithMetadata: Send + Sync {
+pub trait ClientWithMetadata {
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Error>;
     fn set_app_version(&mut self, version: String) -> Result<(), Error>;
 }
 
+/// Global Marker trait for WebAssembly
+#[cfg(target_arch = "wasm32")]
+pub trait Wasm {}
+#[cfg(target_arch = "wasm32")]
+impl<T> Wasm for T {}
+
 // Wasm futures don't have `Send` or `Sync` bounds.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait XmtpApiClient: Send + Sync {
+#[allow(async_fn_in_trait)]
+#[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpApiClient: Send))]
+#[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpApiClient: Wasm))]
+#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
+pub trait LocalXmtpApiClient {
     type Subscription: XmtpApiSubscription;
     type MutableSubscription: MutableApiSubscription;
 
@@ -140,20 +146,12 @@ pub trait XmtpApiClient: Send + Sync {
     async fn batch_query(&self, request: BatchQueryRequest) -> Result<BatchQueryResponse, Error>;
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-pub type GroupMessageStream = stream::BoxStream<'static, Result<GroupMessage, Error>>;
-#[cfg(target_arch = "wasm32")]
-pub type GroupMessageStream = stream::LocalBoxStream<'static, Result<GroupMessage, Error>>;
-
-#[cfg(not(target_arch = "wasm32"))]
-pub type WelcomeMessageStream = stream::BoxStream<'static, Result<WelcomeMessage, Error>>;
-#[cfg(target_arch = "wasm32")]
-pub type WelcomeMessageStream = stream::LocalBoxStream<'static, Result<WelcomeMessage, Error>>;
-
 // Wasm futures don't have `Send` or `Sync` bounds.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait XmtpMlsClient: Send + Sync + 'static {
+#[allow(async_fn_in_trait)]
+#[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpMlsClient: Send))]
+#[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpMlsClient: Wasm))]
+#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
+pub trait LocalXmtpMlsClient {
     async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
     async fn fetch_key_packages(
         &self,
@@ -170,20 +168,60 @@ pub trait XmtpMlsClient: Send + Sync + 'static {
         &self,
         request: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Error>;
+}
+
+#[allow(async_fn_in_trait)]
+#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
+#[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpMlsStreams: Wasm))]
+pub trait LocalXmtpMlsStreams {
+    type GroupMessageStream<'a>: Stream<Item = Result<GroupMessage, Error>> + 'a
+    where
+        Self: 'a;
+
+    type WelcomeMessageStream<'a>: Stream<Item = Result<WelcomeMessage, Error>> + 'a
+    where
+        Self: 'a;
+
     async fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
-    ) -> Result<GroupMessageStream, Error>;
+    ) -> Result<Self::GroupMessageStream<'_>, Error>;
     async fn subscribe_welcome_messages(
         &self,
         request: SubscribeWelcomeMessagesRequest,
-    ) -> Result<WelcomeMessageStream, Error>;
+    ) -> Result<Self::WelcomeMessageStream<'_>, Error>;
 }
 
-// Wasm futures don't have `Send` or `Sync` bounds.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait XmtpIdentityClient: Send + Sync + 'static {
+// we manually make a Local+Non-Local trait variant here b/c the
+// macro breaks with GATs
+#[allow(async_fn_in_trait)]
+#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
+#[cfg(not(target_arch = "wasm32"))]
+pub trait XmtpMlsStreams: Send {
+    type GroupMessageStream<'a>: Stream<Item = Result<GroupMessage, Error>> + Send + 'a
+    where
+        Self: 'a;
+
+    type WelcomeMessageStream<'a>: Stream<Item = Result<WelcomeMessage, Error>> + Send + 'a
+    where
+        Self: 'a;
+
+    fn subscribe_group_messages(
+        &self,
+        request: SubscribeGroupMessagesRequest,
+    ) -> impl futures::Future<Output = Result<Self::GroupMessageStream<'_>, Error>> + Send;
+
+    fn subscribe_welcome_messages(
+        &self,
+        request: SubscribeWelcomeMessagesRequest,
+    ) -> impl futures::Future<Output = Result<Self::WelcomeMessageStream<'_>, Error>> + Send;
+}
+
+#[allow(async_fn_in_trait)]
+#[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpIdentityClient: Send))]
+#[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpIdentityClient: Wasm))]
+#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
+pub trait LocalXmtpIdentityClient {
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,

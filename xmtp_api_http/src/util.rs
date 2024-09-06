@@ -1,4 +1,7 @@
-use futures::{stream, Stream, StreamExt};
+use futures::{
+    stream::{self, StreamExt},
+    Stream,
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Deserializer;
 use std::io::Read;
@@ -49,9 +52,7 @@ pub fn create_grpc_stream<
     endpoint: String,
     http_client: reqwest::Client,
 ) -> stream::LocalBoxStream<'static, Result<R, Error>> {
-    log::info!("About to spawn stream");
-    let stream = create_grpc_stream_inner(request, endpoint, http_client);
-    stream.boxed_local()
+    create_grpc_stream_inner(request, endpoint, http_client).boxed_local()
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -63,12 +64,10 @@ pub fn create_grpc_stream<
     endpoint: String,
     http_client: reqwest::Client,
 ) -> stream::BoxStream<'static, Result<R, Error>> {
-    log::info!("About to spawn stream");
-    let stream = create_grpc_stream_inner(request, endpoint, http_client);
-    stream.boxed()
+    create_grpc_stream_inner(request, endpoint, http_client).boxed()
 }
 
-fn create_grpc_stream_inner<
+pub fn create_grpc_stream_inner<
     T: Serialize + Send + 'static,
     R: DeserializeOwned + Send + std::fmt::Debug + 'static,
 >(

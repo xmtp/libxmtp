@@ -57,8 +57,7 @@ pub fn rand_time() -> i64 {
     rng.gen_range(0..1_000_000_000)
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+
 #[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 impl XmtpTestClient for XmtpHttpApiClient {
     async fn create_local() -> Self {
@@ -71,7 +70,6 @@ impl XmtpTestClient for XmtpHttpApiClient {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl XmtpTestClient for GrpcClient {
     async fn create_local() -> Self {
         GrpcClient::create("http://localhost:5556".into(), false)

@@ -5,7 +5,7 @@ mod identity;
 pub const LOCALHOST_ADDRESS: &str = "http://localhost:5556";
 pub const DEV_ADDRESS: &str = "https://grpc.dev.xmtp.network:443";
 
-pub use grpc_api_helper::Client;
+pub use grpc_api_helper::{Client, GroupMessageStream, WelcomeMessageStream};
 
 #[cfg(test)]
 pub mod tests {

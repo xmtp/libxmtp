@@ -5135,6 +5135,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "trait-variant"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70977707304198400eb4835a78f6a9f928bf41bba420deb8fdb175cd965d77a7"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.48",
+]
+
+[[package]]
 name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5881,7 +5892,6 @@ dependencies = [
  "curve25519-dalek",
  "ecdsa 0.16.9",
  "ethers",
- "ethers-core",
  "getrandom",
  "hex",
  "k256 0.13.3",
@@ -5962,6 +5972,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
+ "trait-variant",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_proto",
@@ -5972,7 +5983,6 @@ dependencies = [
 name = "xmtp_proto"
 version = "0.0.1"
 dependencies = [
- "async-trait",
  "futures",
  "futures-core",
  "openmls",
@@ -5983,6 +5993,7 @@ dependencies = [
  "prost-types",
  "serde",
  "tonic",
+ "trait-variant",
 ]
 
 [[package]]
@@ -6019,7 +6030,6 @@ version = "0.0.1"
 dependencies = [
  "env_logger",
  "ethers",
- "ethers-core",
  "futures",
  "log",
  "parking_lot 0.12.3",

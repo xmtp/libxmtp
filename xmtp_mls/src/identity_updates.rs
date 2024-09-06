@@ -445,10 +445,6 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
 
 #[cfg(test)]
 pub(crate) mod tests {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
-    use ethers::signers::LocalWallet;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{
         associations::{builder::SignatureRequest, AssociationState, RecoverableEcdsaSignature},
@@ -467,7 +463,7 @@ pub(crate) mod tests {
     use super::load_identity_updates;
 
     pub(crate) async fn sign_with_wallet(
-        wallet: &LocalWallet,
+        wallet: &impl InboxOwner,
         signature_request: &mut SignatureRequest,
     ) {
         let wallet_signature: Vec<u8> = wallet

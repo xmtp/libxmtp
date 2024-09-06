@@ -3,7 +3,6 @@
 //! using `RUST_LOG=trace` will additionally output a `tracing.folded` file, which
 //! may be used to generate a flamegraph of execution from tracing logs.
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
-use ethers::signers::LocalWallet;
 use std::{collections::HashMap, sync::Arc};
 use tokio::runtime::{Builder, Handle, Runtime};
 use tracing::{trace_span, Instrument};
@@ -33,7 +32,7 @@ fn setup() -> (Arc<BenchClient>, Vec<Identity>, Runtime) {
         .unwrap();
 
     let (client, identities) = runtime.block_on(async {
-        let wallet = LocalWallet::new(&mut rng());
+        let wallet = xmtp_cryptography::generate_local_wallet();
 
         // use dev network if `DEV_GRPC` is set
         let dev = std::env::var("DEV_GRPC");
