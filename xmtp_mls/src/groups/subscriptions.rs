@@ -68,7 +68,7 @@ impl MlsGroup {
             if let Some(GroupError::ReceiveError(_)) = process_result.as_ref().err() {
                 // Swallow errors here, since another process may have successfully saved the message
                 // to the DB
-                match self.sync_with_conn(&client.mls_provider()?, &client).await {
+                match self.sync_with_conn(&client.mls_provider()?, client).await {
                     Ok(_) => {
                         log::debug!("Sync triggered by streamed message successful")
                     }

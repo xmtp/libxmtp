@@ -123,7 +123,6 @@ impl<T> Wasm for T {}
 #[allow(async_fn_in_trait)]
 #[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpApiClient: Send))]
 #[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpApiClient: Wasm))]
-#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
 pub trait LocalXmtpApiClient {
     type Subscription: XmtpApiSubscription;
     type MutableSubscription: MutableApiSubscription;
@@ -150,7 +149,6 @@ pub trait LocalXmtpApiClient {
 #[allow(async_fn_in_trait)]
 #[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpMlsClient: Send))]
 #[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpMlsClient: Wasm))]
-#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
 pub trait LocalXmtpMlsClient {
     async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
     async fn fetch_key_packages(
@@ -171,7 +169,6 @@ pub trait LocalXmtpMlsClient {
 }
 
 #[allow(async_fn_in_trait)]
-#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
 #[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpMlsStreams: Wasm))]
 pub trait LocalXmtpMlsStreams {
     type GroupMessageStream<'a>: Stream<Item = Result<GroupMessage, Error>> + 'a
@@ -195,7 +192,6 @@ pub trait LocalXmtpMlsStreams {
 // we manually make a Local+Non-Local trait variant here b/c the
 // macro breaks with GATs
 #[allow(async_fn_in_trait)]
-#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
 #[cfg(not(target_arch = "wasm32"))]
 pub trait XmtpMlsStreams: Send {
     type GroupMessageStream<'a>: Stream<Item = Result<GroupMessage, Error>> + Send + 'a
@@ -220,7 +216,6 @@ pub trait XmtpMlsStreams: Send {
 #[allow(async_fn_in_trait)]
 #[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpIdentityClient: Send))]
 #[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpIdentityClient: Wasm))]
-#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
 pub trait LocalXmtpIdentityClient {
     async fn publish_identity_update(
         &self,

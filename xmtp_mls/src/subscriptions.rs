@@ -171,8 +171,8 @@ where
     }
 
     // #[tracing::instrument(skip(self, group_id_to_info))]
-    pub(crate) async fn stream_messages<'a>(
-        &'a self,
+    pub(crate) async fn stream_messages(
+        &self,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
     ) -> Result<impl Stream<Item = StoredGroupMessage> + '_, ClientError>
     where
