@@ -9,8 +9,8 @@ diesel::table! {
 }
 
 diesel::table! {
-    consent_records (entityType, entity) {
-        entityType -> Integer,
+    consent_records (entity_type, entity) {
+        entity_type -> Integer,
         state -> Integer,
         entity -> Text,
     }
