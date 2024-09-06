@@ -323,18 +323,16 @@ where
                         if group_id_to_info.contains_key(&new_group.group_id) {
                             continue;
                         }
-                        let mut new_group_id_to_info = group_id_to_info.clone();
-                        for info in new_group_id_to_info.values_mut() {
+                        for info in group_id_to_info.values_mut() {
                             info.cursor = 0;
                         }
-                        new_group_id_to_info.insert(
+                        group_id_to_info.insert(
                             new_group.group_id,
                             MessagesStreamInfo {
                                 convo_created_at_ns: new_group.created_at_ns,
                                 cursor: 1, // For the new group, stream all messages since the group was created
                             },
                         );
-                        std::mem::swap(&mut group_id_to_info, &mut new_group_id_to_info);
                         let new_messages_stream = match self.stream_messages(group_id_to_info.clone()).await {
                             Ok(stream) => stream,
                             Err(e) => {
