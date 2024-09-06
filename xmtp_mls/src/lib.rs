@@ -21,7 +21,6 @@ mod xmtp_openmls_provider;
 
 pub use client::{Client, Network};
 use storage::StorageError;
-use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
 
 /// XMTP Api Super Trait
@@ -49,7 +48,6 @@ impl<T> XmtpApi for T where
 }
 
 #[cfg(any(test, feature = "test-utils", feature = "bench"))]
-#[async_trait::async_trait]
 pub trait XmtpTestClient {
     async fn create_local() -> Self;
     async fn create_dev() -> Self;

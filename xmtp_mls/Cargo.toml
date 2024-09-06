@@ -91,6 +91,7 @@ tracing-test = "0.2.4"
 tracing.workspace = true
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
+ethers.workspace = true
 
 [[bench]]
 harness = false

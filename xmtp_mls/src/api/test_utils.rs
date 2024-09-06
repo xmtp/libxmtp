@@ -1,21 +1,23 @@
-use async_trait::async_trait;
 use mockall::mock;
 use xmtp_proto::{
     api_client::{
         ClientWithMetadata, Error, GroupMessageStream, WelcomeMessageStream, XmtpIdentityClient,
         XmtpMlsClient,
     },
-    xmtp::identity::api::v1::{
-        GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
-        GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
-        GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
-    },
-    xmtp::mls::api::v1::{
-        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        FetchKeyPackagesRequest, FetchKeyPackagesResponse, GroupMessage, QueryGroupMessagesRequest,
-        QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
-        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
-        SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
+    xmtp::{
+        identity::api::v1::{
+            GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
+            GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
+            GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
+        },
+        mls::api::v1::{
+            group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
+            FetchKeyPackagesRequest, FetchKeyPackagesResponse, GroupMessage,
+            QueryGroupMessagesRequest, QueryGroupMessagesResponse, QueryWelcomeMessagesRequest,
+            QueryWelcomeMessagesResponse, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
+            SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
+            UploadKeyPackageRequest, WelcomeMessage,
+        },
     },
 };
 
@@ -37,6 +39,8 @@ pub fn build_group_messages(num_messages: usize, group_id: Vec<u8>) -> Vec<Group
     out
 }
 
+use futures::Stream;
+
 // Create a mock XmtpClient for testing the client wrapper
 mock! {
     pub ApiClient {}
@@ -46,7 +50,6 @@ mock! {
         fn set_app_version(&mut self, version: String) -> Result<(), Error>;
     }
 
-    #[async_trait]
     impl XmtpMlsClient for ApiClient {
         async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
         async fn fetch_key_packages(
@@ -61,14 +64,12 @@ mock! {
         async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<WelcomeMessageStream, Error>;
     }
 
-    #[async_trait]
     impl XmtpIdentityClient for ApiClient {
         async fn publish_identity_update(&self, request: PublishIdentityUpdateRequest) -> Result<PublishIdentityUpdateResponse, Error>;
         async fn get_identity_updates_v2(&self, request: GetIdentityUpdatesV2Request) -> Result<GetIdentityUpdatesV2Response, Error>;
         async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, Error>;
     }
 
-    #[async_trait]
     impl XmtpTestClient for ApiClient {
         async fn create_local() -> Self { ApiClient }
         async fn create_dev() -> Self { ApiClient }

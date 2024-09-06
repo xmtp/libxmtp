@@ -6354,6 +6354,7 @@ dependencies = [
  "diesel",
  "diesel_migrations",
  "ed25519-dalek",
+ "ethers",
  "flume",
  "futures",
  "hex",

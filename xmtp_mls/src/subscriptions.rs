@@ -414,7 +414,8 @@ mod tests {
         let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
         let bob_ptr = bob.clone();
         tokio::spawn(async move {
-            let mut bob_stream = bob_ptr.stream_conversations().await.unwrap();
+            let bob_stream = bob_ptr.stream_conversations().await.unwrap();
+            futures::pin_mut!(bob_stream);
             while let Some(item) = bob_stream.next().await {
                 let _ = tx.send(item);
             }
@@ -451,7 +452,8 @@ mod tests {
         let notify_ptr = notify.clone();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         tokio::spawn(async move {
-            let mut stream = alice_group.stream(alice).await.unwrap();
+            let stream = alice_group.stream(&alice).await.unwrap();
+            futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
                 let _ = tx.send(item);
                 notify_ptr.notify_one();

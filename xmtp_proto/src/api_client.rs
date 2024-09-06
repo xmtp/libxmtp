@@ -1,6 +1,7 @@
+use std::pin::Pin;
 use std::{error::Error as StdError, fmt};
 
-use futures::{stream, Stream};
+use futures::{Stream, StreamExt};
 
 pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PagingInfo, PublishRequest, PublishResponse,
@@ -137,15 +138,51 @@ pub trait XmtpApiClient {
     async fn batch_query(&self, request: BatchQueryRequest) -> Result<BatchQueryResponse, Error>;
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-pub type GroupMessageStream = stream::BoxStream<'static, Result<GroupMessage, Error>>;
-#[cfg(target_arch = "wasm32")]
-pub type GroupMessageStream = stream::LocalBoxStream<'static, Result<GroupMessage, Error>>;
+pub struct GroupMessageStream {
+    inner: tonic::codec::Streaming<GroupMessage>,
+}
 
-#[cfg(not(target_arch = "wasm32"))]
-pub type WelcomeMessageStream = stream::BoxStream<'static, Result<WelcomeMessage, Error>>;
-#[cfg(target_arch = "wasm32")]
-pub type WelcomeMessageStream = stream::LocalBoxStream<'static, Result<WelcomeMessage, Error>>;
+impl From<tonic::codec::Streaming<GroupMessage>> for GroupMessageStream {
+    fn from(inner: tonic::codec::Streaming<GroupMessage>) -> Self {
+        GroupMessageStream { inner }
+    }
+}
+
+impl Stream for GroupMessageStream {
+    type Item = Result<GroupMessage, Error>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.inner
+            .poll_next_unpin(cx)
+            .map(|data| data.map(|v| v.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))))
+    }
+}
+
+pub struct WelcomeMessageStream {
+    inner: tonic::codec::Streaming<WelcomeMessage>,
+}
+
+impl From<tonic::codec::Streaming<WelcomeMessage>> for WelcomeMessageStream {
+    fn from(inner: tonic::codec::Streaming<WelcomeMessage>) -> Self {
+        WelcomeMessageStream { inner }
+    }
+}
+
+impl Stream for WelcomeMessageStream {
+    type Item = Result<WelcomeMessage, Error>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.inner
+            .poll_next_unpin(cx)
+            .map(|data| data.map(|v| v.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))))
+    }
+}
 
 // Wasm futures don't have `Send` or `Sync` bounds.
 #[allow(async_fn_in_trait)]
@@ -170,11 +207,11 @@ pub trait LocalXmtpMlsClient {
     async fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
-    ) -> Result<impl Stream<Item = Result<GroupMessage, Error>> + Send, Error>;
+    ) -> Result<GroupMessageStream, Error>;
     async fn subscribe_welcome_messages(
         &self,
         request: SubscribeWelcomeMessagesRequest,
-    ) -> Result<impl Stream<Item = Result<WelcomeMessage, Error>> + Send, Error>;
+    ) -> Result<WelcomeMessageStream, Error>;
 }
 
 #[allow(async_fn_in_trait)]

@@ -2,9 +2,7 @@ use std::collections::HashMap;
 
 use super::ApiClientWrapper;
 use crate::{retry_async, XmtpApi};
-use xmtp_proto::api_client::{
-    Error as ApiError, ErrorKind, GroupMessageStream, WelcomeMessageStream,
-};
+use xmtp_proto::api_client::{Error as ApiError, ErrorKind};
 use xmtp_proto::xmtp::mls::api::v1::{
     group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
     subscribe_group_messages_request::Filter as GroupFilterProto,

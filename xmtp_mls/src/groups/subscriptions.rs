@@ -199,7 +199,7 @@ mod tests {
         let mut message_bytes: Vec<u8> = Vec::new();
         message.encode(&mut message_bytes).unwrap();
         let message_again = amal_group
-            .process_streamed_group_message(message_bytes, Arc::new(amal))
+            .process_streamed_group_message(message_bytes, &amal)
             .await;
 
         if let Ok(message) = message_again {
@@ -234,7 +234,8 @@ mod tests {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let mut stream = UnboundedReceiverStream::new(rx);
         tokio::spawn(async move {
-            let mut stream = bola_group_ptr.stream(bola_ptr).await.unwrap();
+            let stream = bola_group_ptr.stream(&bola_ptr).await.unwrap();
+            futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
                 let _ = tx.send(item);
                 notify_ptr.notify_one();
@@ -278,7 +279,8 @@ mod tests {
         let amal_ptr = amal.clone();
         let group_ptr = group.clone();
         tokio::spawn(async move {
-            let mut stream = group_ptr.stream(amal_ptr).await.unwrap();
+            let stream = group_ptr.stream(&amal_ptr).await.unwrap();
+            futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
                 let _ = tx.send(item);
             }
@@ -320,7 +322,8 @@ mod tests {
         let (start_tx, start_rx) = tokio::sync::oneshot::channel();
         let mut stream = UnboundedReceiverStream::new(rx);
         tokio::spawn(async move {
-            let mut stream = amal_group_ptr.stream(amal_ptr).await.unwrap();
+            let mut stream = amal_group_ptr.stream(&amal_ptr).await.unwrap();
+            futures::pin_mut!(stream);
             let _ = start_tx.send(());
             while let Some(item) = stream.next().await {
                 let _ = tx.send(item);
