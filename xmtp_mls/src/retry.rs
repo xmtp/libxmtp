@@ -154,13 +154,13 @@ impl Retry {
 /// #[tokio::main]
 /// async fn main() -> Result<(), MyError> {
 ///
-///     let (tx, rx) = mpsc::channel(3);
+///     let (tx, mut rx) = mpsc::channel(3);
 ///
 ///     for i in 0..3 {
-///         tx.send(i).unwrap();
+///         tx.send(i).await.unwrap();
 ///     }
 ///     retry_async!(Retry::default(), (async {
-///         fallable_fn(&rx.clone()).await
+///         fallable_fn(&mut rx).await
 ///     }))
 /// }
 /// ```
