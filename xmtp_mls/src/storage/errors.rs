@@ -63,11 +63,12 @@ impl RetryableError for diesel::result::Error {
 impl RetryableError for StorageError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::DieselConnect(connection) => {
-                matches!(connection, diesel::ConnectionError::BadConnection(_))
-            }
+            Self::DieselConnect(_) => true,
             Self::DieselResult(result) => retryable!(result),
             Self::Pool(_) => true,
+            Self::Lock(_) => true,
+            Self::SqlCipherNotLoaded => true,
+            Self::PoolNeedsConnection => true,
             _ => false,
         }
     }
@@ -89,7 +90,16 @@ impl RetryableError for openmls::group::CreateCommitError<sql_key_store::SqlKeyS
     fn is_retryable(&self) -> bool {
         match self {
             Self::KeyStoreError(storage) => retryable!(storage),
-            Self::KeyPackageGenerationError(generation) => retryable!(generation),
+            Self::LeafNodeUpdateError(leaf_node_update) => retryable!(leaf_node_update),
+            _ => false,
+        }
+    }
+}
+
+impl RetryableError for openmls::treesync::LeafNodeUpdateError<sql_key_store::SqlKeyStoreError> {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::Storage(storage) => retryable!(storage),
             _ => false,
         }
     }
@@ -134,12 +144,9 @@ impl RetryableError
     }
 }
 
-impl RetryableError for openmls::prelude::MlsGroupStateError<sql_key_store::SqlKeyStoreError> {
+impl RetryableError for openmls::prelude::MlsGroupStateError {
     fn is_retryable(&self) -> bool {
-        match self {
-            Self::StorageError(storage) => retryable!(storage),
-            _ => false,
-        }
+        false
     }
 }
 
@@ -149,7 +156,6 @@ impl RetryableError
     fn is_retryable(&self) -> bool {
         match self {
             Self::CreateCommitError(create_commit) => retryable!(create_commit),
-            Self::MlsGroupStateError(group_state) => retryable!(group_state),
             Self::StorageError(storage) => retryable!(storage),
             _ => false,
         }
@@ -206,7 +212,7 @@ impl RetryableError for openmls::group::MergePendingCommitError<sql_key_store::S
     }
 }
 
-impl RetryableError for openmls::prelude::ProcessMessageError<sql_key_store::SqlKeyStoreError> {
+impl RetryableError for openmls::prelude::ProcessMessageError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::GroupStateError(err) => retryable!(err),

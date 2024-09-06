@@ -25,7 +25,7 @@ struct StorageData {
     value_bytes: Vec<u8>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct SqlKeyStore {
     // Directly wrap the DbConnection which is a SqliteConnection in this case
     conn: DbConnection,
@@ -36,10 +36,6 @@ impl SqlKeyStore {
         Self { conn }
     }
 
-    pub fn conn(&self) -> DbConnection {
-        self.conn.clone()
-    }
-
     pub fn conn_ref(&self) -> &DbConnection {
         &self.conn
     }
@@ -48,7 +44,7 @@ impl SqlKeyStore {
         &self,
         storage_key: &Vec<u8>,
     ) -> Result<Vec<StorageData>, diesel::result::Error> {
-        self.conn().raw_query(|conn| {
+        self.conn_ref().raw_query(|conn| {
             sql_query(SELECT_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -61,7 +57,7 @@ impl SqlKeyStore {
         storage_key: &Vec<u8>,
         value: &[u8],
     ) -> Result<usize, diesel::result::Error> {
-        self.conn().raw_query(|conn| {
+        self.conn_ref().raw_query(|conn| {
             sql_query(REPLACE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -75,7 +71,7 @@ impl SqlKeyStore {
         storage_key: &Vec<u8>,
         modified_data: &Vec<u8>,
     ) -> Result<usize, diesel::result::Error> {
-        self.conn().raw_query(|conn| {
+        self.conn_ref().raw_query(|conn| {
             sql_query(UPDATE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&modified_data)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
@@ -223,7 +219,7 @@ impl SqlKeyStore {
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
 
-        let _ = self.conn().raw_query(|conn| {
+        let _ = self.conn_ref().raw_query(|conn| {
             sql_query(DELETE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -273,12 +269,10 @@ const CONFIRMATION_TAG_LABEL: &[u8] = b"ConfirmationTag";
 const OWN_LEAF_NODE_INDEX_LABEL: &[u8] = b"OwnLeafNodeIndex";
 const EPOCH_SECRETS_LABEL: &[u8] = b"EpochSecrets";
 const MESSAGE_SECRETS_LABEL: &[u8] = b"MessageSecrets";
-const USE_RATCHET_TREE_LABEL: &[u8] = b"UseRatchetTree";
 
 // related to MlsGroup
 const JOIN_CONFIG_LABEL: &[u8] = b"MlsGroupJoinConfig";
 const OWN_LEAF_NODES_LABEL: &[u8] = b"OwnLeafNodes";
-const AAD_LABEL: &[u8] = b"AAD";
 const GROUP_STATE_LABEL: &[u8] = b"GroupState";
 const QUEUED_PROPOSAL_LABEL: &[u8] = b"QueuedProposal";
 const PROPOSAL_QUEUE_REFS_LABEL: &[u8] = b"ProposalQueueRefs";
@@ -416,7 +410,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
             .collect::<Result<Vec<_>, _>>()
     }
 
-    fn treesync<
+    fn tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         TreeSync: traits::TreeSync<CURRENT_VERSION>,
     >(
@@ -733,31 +727,6 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         self.delete::<CURRENT_VERSION>(OWN_LEAF_NODE_INDEX_LABEL, &key)
     }
 
-    fn use_ratchet_tree_extension<GroupId: traits::GroupId<CURRENT_VERSION>>(
-        &self,
-        group_id: &GroupId,
-    ) -> Result<Option<bool>, Self::Error> {
-        let key = build_key::<CURRENT_VERSION, &GroupId>(USE_RATCHET_TREE_LABEL, group_id)?;
-        self.read(USE_RATCHET_TREE_LABEL, &key)
-    }
-
-    fn set_use_ratchet_tree_extension<GroupId: traits::GroupId<CURRENT_VERSION>>(
-        &self,
-        group_id: &GroupId,
-        value: bool,
-    ) -> Result<(), Self::Error> {
-        let key = build_key::<CURRENT_VERSION, &GroupId>(USE_RATCHET_TREE_LABEL, group_id)?;
-        self.write::<CURRENT_VERSION>(USE_RATCHET_TREE_LABEL, &key, &bincode::serialize(&value)?)
-    }
-
-    fn delete_use_ratchet_tree_extension<GroupId: traits::GroupId<CURRENT_VERSION>>(
-        &self,
-        group_id: &GroupId,
-    ) -> Result<(), Self::Error> {
-        let key = build_key::<CURRENT_VERSION, &GroupId>(USE_RATCHET_TREE_LABEL, group_id)?;
-        self.delete::<CURRENT_VERSION>(USE_RATCHET_TREE_LABEL, &key)
-    }
-
     fn group_epoch_secrets<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         GroupEpochSecrets: traits::GroupEpochSecrets<CURRENT_VERSION>,
@@ -831,7 +800,7 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
 
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
-        let data: Vec<StorageData> = self.conn().raw_query(|conn| {
+        let data: Vec<StorageData> = self.conn_ref().raw_query(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
@@ -936,37 +905,6 @@ impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
         let value = bincode::serialize(leaf_node)?;
 
         self.append::<CURRENT_VERSION>(OWN_LEAF_NODES_LABEL, &key, &value)
-    }
-
-    fn aad<GroupId: traits::GroupId<CURRENT_VERSION>>(
-        &self,
-        group_id: &GroupId,
-    ) -> Result<Vec<u8>, Self::Error> {
-        let key = build_key::<CURRENT_VERSION, &GroupId>(AAD_LABEL, group_id)?;
-        match self.read::<CURRENT_VERSION, Vec<u8>>(AAD_LABEL, &key) {
-            Ok(Some(value)) => Ok(value),
-            Ok(None) => Ok(Vec::new()),
-            Err(e) => Err(e),
-        }
-    }
-
-    fn write_aad<GroupId: traits::GroupId<CURRENT_VERSION>>(
-        &self,
-        group_id: &GroupId,
-        aad: &[u8],
-    ) -> Result<(), Self::Error> {
-        let key = build_key::<CURRENT_VERSION, &GroupId>(AAD_LABEL, group_id)?;
-        let value = bincode::serialize(&aad)?;
-
-        self.write::<CURRENT_VERSION>(AAD_LABEL, &key, &value)
-    }
-
-    fn delete_aad<GroupId: traits::GroupId<CURRENT_VERSION>>(
-        &self,
-        group_id: &GroupId,
-    ) -> Result<(), Self::Error> {
-        let key = build_key::<CURRENT_VERSION, &GroupId>(AAD_LABEL, group_id)?;
-        self.delete::<CURRENT_VERSION>(AAD_LABEL, &key)
     }
 
     fn delete_own_leaf_nodes<GroupId: traits::GroupId<CURRENT_VERSION>>(
@@ -1079,7 +1017,10 @@ mod tests {
     use openmls::group::GroupId;
     use openmls_basic_credential::{SignatureKeyPair, StorageId};
     use openmls_traits::{
-        storage::{traits, Entity, Key, StorageProvider, CURRENT_VERSION},
+        storage::{
+            traits::{self},
+            Entity, Key, StorageProvider, CURRENT_VERSION,
+        },
         OpenMlsProvider,
     };
     use serde::{Deserialize, Serialize};
@@ -1101,8 +1042,8 @@ mod tests {
         )
         .unwrap();
 
-        let conn = &store.conn().unwrap();
-        let key_store = SqlKeyStore::new(conn.clone());
+        let conn = store.conn().unwrap();
+        let key_store = SqlKeyStore::new(conn);
 
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
         let public_key = StorageId::from(signature_keys.to_public_vec());
@@ -1130,32 +1071,6 @@ mod tests {
             .is_none());
     }
 
-    #[test]
-    fn list_write_remove() {
-        let db_path = tmp_path();
-        let store = EncryptedMessageStore::new(
-            StorageOption::Persistent(db_path),
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .unwrap();
-        let conn = store.conn().unwrap();
-        let key_store = SqlKeyStore::new(conn.clone());
-        let provider = XmtpOpenMlsProvider::new(conn);
-        let group_id = GroupId::random(provider.rand());
-
-        assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
-
-        key_store
-            .write_aad::<GroupId>(&group_id, "test".as_bytes())
-            .unwrap();
-
-        assert!(!key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
-
-        key_store.delete_aad::<GroupId>(&group_id).unwrap();
-
-        assert!(key_store.aad::<GroupId>(&group_id).unwrap().is_empty());
-    }
-
     #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
     struct Proposal(Vec<u8>);
     impl traits::QueuedProposal<CURRENT_VERSION> for Proposal {}
@@ -1176,7 +1091,6 @@ mod tests {
         )
         .unwrap();
         let conn = store.conn().unwrap();
-        let key_store = SqlKeyStore::new(conn.clone());
         let provider = XmtpOpenMlsProvider::new(conn);
         let group_id = GroupId::random(provider.rand());
         let proposals = (0..10)
@@ -1185,7 +1099,8 @@ mod tests {
 
         // Store proposals
         for (i, proposal) in proposals.iter().enumerate() {
-            key_store
+            provider
+                .storage()
                 .queue_proposal::<GroupId, ProposalRef, Proposal>(
                     &group_id,
                     &ProposalRef(i),
@@ -1196,7 +1111,8 @@ mod tests {
 
         log::debug!("Finished with queued proposals");
         // Read proposal refs
-        let proposal_refs_read: Vec<ProposalRef> = key_store
+        let proposal_refs_read: Vec<ProposalRef> = provider
+            .storage()
             .queued_proposal_refs(&group_id)
             .expect("Failed to read proposal refs");
         assert_eq!(
@@ -1206,7 +1122,7 @@ mod tests {
 
         // Read proposals
         let proposals_read: Vec<(ProposalRef, Proposal)> =
-            key_store.queued_proposals(&group_id).unwrap();
+            provider.storage().queued_proposals(&group_id).unwrap();
         let proposals_expected: Vec<(ProposalRef, Proposal)> = (0..10)
             .map(ProposalRef)
             .zip(proposals.clone().into_iter())
@@ -1214,18 +1130,19 @@ mod tests {
         assert_eq!(proposals_expected, proposals_read);
 
         // Remove proposal 5
-        key_store
+        provider
+            .storage()
             .remove_proposal(&group_id, &ProposalRef(5))
             .unwrap();
 
         let proposal_refs_read: Vec<ProposalRef> =
-            key_store.queued_proposal_refs(&group_id).unwrap();
+            provider.storage().queued_proposal_refs(&group_id).unwrap();
         let mut expected = (0..10).map(ProposalRef).collect::<Vec<_>>();
         expected.remove(5);
         assert_eq!(expected, proposal_refs_read);
 
         let proposals_read: Vec<(ProposalRef, Proposal)> =
-            key_store.queued_proposals(&group_id).unwrap();
+            provider.storage().queued_proposals(&group_id).unwrap();
         let mut proposals_expected: Vec<(ProposalRef, Proposal)> = (0..10)
             .map(ProposalRef)
             .zip(proposals.clone().into_iter())
@@ -1234,15 +1151,16 @@ mod tests {
         assert_eq!(proposals_expected, proposals_read);
 
         // Clear all proposals
-        key_store
+        provider
+            .storage()
             .clear_proposal_queue::<GroupId, ProposalRef>(&group_id)
             .unwrap();
         let proposal_refs_read: Result<Vec<ProposalRef>, SqlKeyStoreError> =
-            key_store.queued_proposal_refs(&group_id);
+            provider.storage().queued_proposal_refs(&group_id);
         assert!(proposal_refs_read.unwrap().is_empty());
 
         let proposals_read: Result<Vec<(ProposalRef, Proposal)>, SqlKeyStoreError> =
-            key_store.queued_proposals(&group_id);
+            provider.storage().queued_proposals(&group_id);
         assert!(proposals_read.unwrap().is_empty());
     }
 
@@ -1255,7 +1173,6 @@ mod tests {
         )
         .unwrap();
         let conn = store.conn().unwrap();
-        let key_store = SqlKeyStore::new(conn.clone());
         let provider = XmtpOpenMlsProvider::new(conn);
 
         #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
@@ -1266,12 +1183,13 @@ mod tests {
         let group_id = GroupId::random(provider.rand());
 
         // Group state
-        key_store
+        provider
+            .storage()
             .write_group_state(&group_id, &GroupState(77))
             .unwrap();
 
         // Read group state
-        let group_state: Option<GroupState> = key_store.group_state(&group_id).unwrap();
+        let group_state: Option<GroupState> = provider.storage().group_state(&group_id).unwrap();
         assert_eq!(GroupState(77), group_state.unwrap());
     }
 }

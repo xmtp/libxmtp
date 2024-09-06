@@ -40,6 +40,8 @@ pub enum ClientBuilderError {
     WrappedApiError(#[from] crate::api::WrappedApiError),
     #[error(transparent)]
     GroupError(#[from] crate::groups::GroupError),
+    #[error(transparent)]
+    ApiError(#[from] xmtp_proto::api_client::Error),
 }
 
 pub struct ClientBuilder<ApiClient> {
@@ -48,6 +50,7 @@ pub struct ClientBuilder<ApiClient> {
     store: Option<EncryptedMessageStore>,
     identity_strategy: IdentityStrategy,
     history_sync_url: Option<String>,
+    app_version: Option<String>,
 }
 
 impl<ApiClient> ClientBuilder<ApiClient>
@@ -61,6 +64,7 @@ where
             store: None,
             identity_strategy: strategy,
             history_sync_url: None,
+            app_version: None,
         }
     }
 
@@ -84,14 +88,24 @@ where
         self
     }
 
+    pub fn app_version(mut self, version: String) -> Self {
+        self.app_version = Some(version);
+        self
+    }
+
     pub async fn build(mut self) -> Result<Client<ApiClient>, ClientBuilderError> {
         debug!("Building client");
-        let api_client = self
-            .api_client
-            .take()
-            .ok_or(ClientBuilderError::MissingParameter {
-                parameter: "api_client",
-            })?;
+        let mut api_client =
+            self.api_client
+                .take()
+                .ok_or(ClientBuilderError::MissingParameter {
+                    parameter: "api_client",
+                })?;
+        api_client.set_libxmtp_version(env!("CARGO_PKG_VERSION").to_string())?;
+        if let Some(app_version) = self.app_version {
+            api_client.set_app_version(app_version)?;
+        }
+
         let api_client_wrapper = ApiClientWrapper::new(api_client, Retry::default());
         let store = self
             .store
@@ -123,6 +137,7 @@ mod tests {
     use crate::builder::ClientBuilderError;
     use crate::identity::IdentityError;
     use crate::retry::Retry;
+    use crate::XmtpApi;
     use crate::{
         api::test_utils::*, identity::Identity, storage::identity::StoredIdentity,
         utils::test::rand_vec, Store,
@@ -133,7 +148,6 @@ mod tests {
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_traits::types::SignatureScheme;
     use prost::Message;
-    use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::signature::h160addr_to_string;
     use xmtp_cryptography::utils::{generate_local_wallet, rng};
     use xmtp_id::associations::ValidatedLegacySignedPublicKey;
@@ -157,7 +171,7 @@ mod tests {
         Client, InboxOwner,
     };
 
-    async fn register_client(client: &Client<GrpcClient>, owner: &impl InboxOwner) {
+    async fn register_client<T: XmtpApi>(client: &Client<T>, owner: &impl InboxOwner) {
         let mut signature_request = client.context.signature_request().unwrap();
         let signature_text = signature_request.signature_text();
         signature_request
@@ -311,7 +325,7 @@ mod tests {
         for test_case in identity_strategies_test_cases {
             let result = ClientBuilder::new(test_case.strategy)
                 .temp_store()
-                .local_grpc()
+                .local_client()
                 .await
                 .build()
                 .await;
@@ -344,18 +358,18 @@ mod tests {
         let store =
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmp_path())).unwrap();
 
-        let client1: Client<GrpcClient> = ClientBuilder::new(identity_strategy.clone())
+        let client1 = ClientBuilder::new(identity_strategy.clone())
             .store(store.clone())
-            .local_grpc()
+            .local_client()
             .await
             .build()
             .await
             .unwrap();
         assert!(client1.context.signature_request().is_none());
 
-        let client2: Client<GrpcClient> = ClientBuilder::new(IdentityStrategy::CachedOnly)
+        let client2 = ClientBuilder::new(IdentityStrategy::CachedOnly)
             .store(store.clone())
-            .local_grpc()
+            .local_client()
             .await
             .build()
             .await
@@ -364,14 +378,14 @@ mod tests {
         assert!(client1.inbox_id() == client2.inbox_id());
         assert!(client1.installation_public_key() == client2.installation_public_key());
 
-        let client3: Client<GrpcClient> = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
+        let client3 = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
             generate_inbox_id(&legacy_account_address, &0),
             legacy_account_address.to_string(),
             0,
             None,
         ))
         .store(store.clone())
-        .local_grpc()
+        .local_client()
         .await
         .build()
         .await
@@ -380,14 +394,14 @@ mod tests {
         assert!(client1.inbox_id() == client3.inbox_id());
         assert!(client1.installation_public_key() == client3.installation_public_key());
 
-        let client4: Client<GrpcClient> = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
+        let client4 = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
             generate_inbox_id(&legacy_account_address, &0),
             legacy_account_address.to_string(),
             0,
             Some(legacy_key),
         ))
         .temp_store()
-        .local_grpc()
+        .local_client()
         .await
         .build()
         .await
@@ -480,7 +494,8 @@ mod tests {
             credential: Credential::new(CredentialType::Basic, rand_vec()),
             signature_request: None,
         })
-            .into();
+            .try_into()
+            .unwrap();
 
         stored.store(&store.conn().unwrap()).unwrap();
         let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
@@ -506,7 +521,8 @@ mod tests {
             credential: Credential::new(CredentialType::Basic, rand_vec()),
             signature_request: None,
         })
-            .into();
+            .try_into()
+            .unwrap();
 
         stored.store(&store.conn().unwrap()).unwrap();
 
@@ -543,7 +559,7 @@ mod tests {
             nonce,
             None,
         ))
-        .local_grpc()
+        .local_client()
         .await
         .store(store_a)
         .build()
@@ -566,7 +582,7 @@ mod tests {
             nonce,
             None,
         ))
-        .local_grpc()
+        .local_client()
         .await
         .store(store_b)
         .build()
@@ -588,7 +604,7 @@ mod tests {
         //     generate_local_wallet().get_address(),
         //     None,
         // ))
-        // .local_grpc()
+        // .local_client()
         // .await
         // .store(store_c)
         // .build()
@@ -600,7 +616,7 @@ mod tests {
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
                 .unwrap();
         let client_d = ClientBuilder::new(IdentityStrategy::CachedOnly)
-            .local_grpc()
+            .local_client()
             .await
             .store(store_d)
             .build()

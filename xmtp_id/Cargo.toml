@@ -1,13 +1,14 @@
 [package]
 edition = "2021"
 name = "xmtp_id"
-version = "0.1.0"
+version.workspace = true
 
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true
 ed25519-dalek = { workspace = true, features = ["digest"] }
 ed25519.workspace = true
+ethers-core.workspace = true
 ethers.workspace = true
 futures.workspace = true
 hex.workspace = true
@@ -23,7 +24,7 @@ rustc-hex.workspace = true
 serde.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["macros"] }
 tracing.workspace = true
 url.workspace = true
 xmtp_cryptography.workspace = true
@@ -32,10 +33,9 @@ xmtp_proto = { workspace = true, features = ["proto_full"] }
 [dev-dependencies]
 ctor = "0.2.5"
 ed25519-dalek = { workspace = true, features = ["digest"] }
-ethers.workspace = true
 futures = "0.3"
 regex = "1.10"
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["macros", "time"] }
 xmtp_v2 = { path = "../xmtp_v2" }
 
 [features]

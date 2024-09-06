@@ -12,17 +12,21 @@ pub const MAX_GROUP_SYNC_RETRIES: usize = 3;
 
 pub const MAX_INTENT_PUBLISH_ATTEMPTS: usize = 3;
 
-const NANOSECONDS_IN_HOUR: i64 = 3_600_000_000_000;
+const NS_IN_SEC: i64 = 1_000_000_000;
 
-pub const UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NANOSECONDS_IN_HOUR / 2; // 30 min
+const NS_IN_HOUR: i64 = NS_IN_SEC * 60 * 60;
+
+pub const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_HOUR / 2; // 30 min
+
+pub const SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = 5 * NS_IN_SEC;
 
 pub const MAX_GROUP_SIZE: u16 = 400;
+
+pub const MAX_PAST_EPOCHS: usize = 3;
 
 /// the max amount of data that can be sent in one gRPC call
 /// we leave 5 * 1024 * 1024 as extra buffer room
 pub const GRPC_DATA_LIMIT: usize = 45 * 1024 * 1024;
-
-pub const DELIMITER: char = '\x01';
 
 /// MLS Extension Types
 ///

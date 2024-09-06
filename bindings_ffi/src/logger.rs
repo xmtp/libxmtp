@@ -6,7 +6,7 @@ pub trait FfiLogger: Send + Sync {
 }
 
 struct RustLogger {
-    logger: std::sync::Mutex<Box<dyn FfiLogger>>,
+    logger: parking_lot::Mutex<Box<dyn FfiLogger>>,
 }
 
 impl log::Log for RustLogger {
@@ -17,7 +17,7 @@ impl log::Log for RustLogger {
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
             // TODO handle errors
-            self.logger.lock().expect("Logger mutex is poisoned!").log(
+            self.logger.lock().log(
                 record.level() as u32,
                 record.level().to_string(),
                 format!("[libxmtp][t:{}] {}", thread_id::get(), record.args()),
@@ -33,7 +33,7 @@ pub fn init_logger(logger: Box<dyn FfiLogger>) {
     // TODO handle errors
     LOGGER_INIT.call_once(|| {
         let logger = RustLogger {
-            logger: std::sync::Mutex::new(logger),
+            logger: parking_lot::Mutex::new(logger),
         };
         log::set_boxed_logger(Box::new(logger))
             .map(|()| log::set_max_level(LevelFilter::Info))

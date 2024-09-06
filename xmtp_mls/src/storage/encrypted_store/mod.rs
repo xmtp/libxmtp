@@ -121,7 +121,7 @@ impl EncryptedMessageStore {
                     .max_size(1)
                     .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
                 StorageOption::Persistent(ref path) => Pool::builder()
-                    .max_size(10)
+                    .max_size(25)
                     .build(ConnectionManager::<SqliteConnection>::new(path))?,
             };
 
@@ -277,19 +277,28 @@ impl EncryptedMessageStore {
         log::debug!("Transaction async beginning");
         let mut connection = self.raw_conn()?;
         AnsiTransactionManager::begin_transaction(&mut *connection)?;
-
-        let db_connection = DbConnection::new(connection);
+        let connection = Arc::new(parking_lot::Mutex::new(connection));
+        let local_connection = Arc::clone(&connection);
+        let db_connection = DbConnection::from_arc_mutex(connection);
         let provider = XmtpOpenMlsProvider::new(db_connection);
-        let local_provider = provider.clone();
 
+        // the other connection is dropped in the closure
+        // ensuring we have only one strong reference
         let result = fun(provider).await;
+        if Arc::strong_count(&local_connection) > 1 {
+            log::warn!("More than 1 strong connection references still exist during transaction");
+        }
+
+        if Arc::weak_count(&local_connection) > 1 {
+            log::warn!("More than 1 weak connection references still exist during transaction");
+        }
 
         // after the closure finishes, `local_provider` should have the only reference ('strong')
         // to `XmtpOpenMlsProvider` inner `DbConnection`..
-        let conn_ref = local_provider.conn_ref();
+        let local_connection = DbConnection::from_arc_mutex(local_connection);
         match result {
             Ok(value) => {
-                conn_ref.raw_query(|conn| {
+                local_connection.raw_query(|conn| {
                     PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
                 })?;
                 log::debug!("Transaction async being committed");
@@ -297,7 +306,7 @@ impl EncryptedMessageStore {
             }
             Err(err) => {
                 log::debug!("Transaction async being rolled back");
-                match conn_ref.raw_query(|conn| {
+                match local_connection.raw_query(|conn| {
                     PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(
                         &mut *conn,
                     )
@@ -330,7 +339,7 @@ impl EncryptedMessageStore {
                     .max_size(1)
                     .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
                 StorageOption::Persistent(ref path) => Pool::builder()
-                    .max_size(10)
+                    .max_size(25)
                     .build(ConnectionManager::<SqliteConnection>::new(path))?,
             };
 
@@ -657,9 +666,9 @@ mod tests {
         let barrier_pointer = barrier.clone();
         let handle = std::thread::spawn(move || {
             store_pointer.transaction(|provider| {
-                let conn1 = provider.conn();
+                let conn1 = provider.conn_ref();
                 StoredIdentity::new("correct".to_string(), rand_vec(), rand_vec())
-                    .store(&conn1)
+                    .store(conn1)
                     .unwrap();
                 // wait for second transaction to start
                 barrier_pointer.wait();
@@ -673,14 +682,14 @@ mod tests {
         let handle2 = std::thread::spawn(move || {
             barrier.wait();
             let result = store_pointer.transaction(|provider| -> Result<(), anyhow::Error> {
-                let connection = provider.conn();
+                let connection = provider.conn_ref();
                 let group = StoredGroup::new(
                     b"should not exist".to_vec(),
                     0,
                     GroupMembershipState::Allowed,
                     "goodbye".to_string(),
                 );
-                group.store(&connection)?;
+                group.store(connection)?;
                 Ok(())
             });
             barrier.wait();
@@ -720,9 +729,9 @@ mod tests {
         let handle = tokio::spawn(async move {
             store_pointer
                 .transaction_async(|provider| async move {
-                    let conn1 = provider.conn();
+                    let conn1 = provider.conn_ref();
                     StoredIdentity::new("crab".to_string(), rand_vec(), rand_vec())
-                        .store(&conn1)
+                        .store(conn1)
                         .unwrap();
 
                     let group = StoredGroup::new(
@@ -731,7 +740,7 @@ mod tests {
                         GroupMembershipState::Allowed,
                         "goodbye".to_string(),
                     );
-                    group.store(&conn1).unwrap();
+                    group.store(conn1).unwrap();
 
                     anyhow::bail!("force a rollback")
                 })
