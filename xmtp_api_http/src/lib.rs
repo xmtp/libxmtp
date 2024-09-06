@@ -6,7 +6,6 @@ mod util;
 use futures::stream;
 use reqwest::header;
 use util::{create_grpc_stream, handle_error};
-// use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::api_client::{ClientWithMetadata, Error, ErrorKind, XmtpIdentityClient};
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,

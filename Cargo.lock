@@ -6211,7 +6211,6 @@ version = "0.0.1"
 dependencies = [
  "async-stream",
  "futures",
- "hyper 1.4.1",
  "log",
  "reqwest 0.12.5",
  "serde",
@@ -6363,7 +6362,6 @@ version = "0.0.1"
 dependencies = [
  "futures",
  "futures-core",
- "mockall",
  "openmls",
  "openmls_basic_credential",
  "pbjson",

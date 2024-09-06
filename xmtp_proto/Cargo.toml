@@ -16,18 +16,12 @@ openmls_basic_credential = { workspace = true, optional = true }
 openmls = { workspace = true, optional = true }
 trait-variant = "0.1.2"
 
-mockall = { version = "0.13", optional = true }
-
-[dev-dependencies]
-mockall = { version = "0.13" }
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tonic = { workspace = true }
 
 
 [features]
 convert = ["openmls_basic_credential", "openmls", "proto_full"]
-test-utils = ["dep:mockall"]
 default = []
 
 # @@protoc_deletion_point(features)
