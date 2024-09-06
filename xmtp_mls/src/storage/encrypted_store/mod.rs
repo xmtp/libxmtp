@@ -12,6 +12,7 @@
 
 pub mod association_state;
 pub mod db_connection;
+pub mod consent_record;
 pub mod group;
 pub mod group_intent;
 pub mod group_message;

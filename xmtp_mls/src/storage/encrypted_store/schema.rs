@@ -9,6 +9,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    consent_records (entityType, entity) {
+        entityType -> Integer,
+        state -> Integer,
+        entity -> Text,
+    }
+}
+
+diesel::table! {
     group_intents (id) {
         id -> Integer,
         kind -> Integer,
@@ -94,6 +102,7 @@ diesel::joinable!(group_messages -> groups (group_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     association_state,
+    consent_records,
     group_intents,
     group_messages,
     groups,
