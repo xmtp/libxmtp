@@ -201,7 +201,7 @@ impl NapiGroup {
     );
     let envelope_bytes: Vec<u8> = envelope_bytes.deref().to_vec();
     let message = group
-      .process_streamed_group_message(envelope_bytes, self.inner_client.clone())
+      .process_streamed_group_message(envelope_bytes, &self.inner_client)
       .await
       .map_err(ErrorWrapper::from)?;
 

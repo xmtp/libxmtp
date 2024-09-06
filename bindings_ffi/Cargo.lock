@@ -4360,17 +4360,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6ecd384b10a64542d77071bd64bd7b231f4ed5940fba55e98c3de13824cf3d7"
 
 [[package]]
-name = "smart-default"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0eb01866308440fc64d6c44d9e86c5cc17adfe33c4d6eed55da9145044d0ffc1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.48",
-]
-
-[[package]]
 name = "smawk"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5832,7 +5821,6 @@ version = "0.0.1"
 dependencies = [
  "aes-gcm",
  "async-stream",
- "async-trait",
  "bincode",
  "chrono",
  "diesel",
@@ -5853,13 +5841,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "smart-default",
  "thiserror",
  "tls_codec",
  "tokio",
  "tokio-stream",
  "toml 0.8.8",
  "tracing",
+ "trait-variant",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_proto",

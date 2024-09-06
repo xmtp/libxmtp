@@ -961,7 +961,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
         let message = group
-            .process_streamed_group_message(envelope_bytes, self.inner_client.clone())
+            .process_streamed_group_message(envelope_bytes, &self.inner_client)
             .await?;
         let ffi_message = message.into();
 
