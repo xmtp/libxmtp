@@ -30,7 +30,7 @@ mod trait_impls {
     pub use inner::*;
 
     // native, release
-    #[cfg(all(not(test), not(target_arch = "wasm32")))]
+    #[cfg(not(test))]
     mod inner {
         use xmtp_proto::api_client::{
             ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
@@ -53,38 +53,13 @@ mod trait_impls {
                 + ClientWithMetadata
                 + Send
                 + Sync
-                + ?Sized
-        {
-        }
-    }
-
-    // wasm32, release
-    #[cfg(all(not(test), target_arch = "wasm32"))]
-    mod inner {
-        use xmtp_proto::api_client::{
-            ClientWithMetadata, LocalXmtpIdentityClient, LocalXmtpMlsClient, LocalXmtpMlsStreams,
-        };
-        pub trait XmtpApi
-        where
-            Self: LocalXmtpMlsClient
-                + LocalXmtpMlsStreams
-                + LocalXmtpIdentityClient
-                + ClientWithMetadata,
-        {
-        }
-
-        impl<T> XmtpApi for T where
-            T: LocalXmtpMlsClient
-                + LocalXmtpMlsStreams
-                + LocalXmtpIdentityClient
-                + ClientWithMetadata
                 + ?Sized
         {
         }
     }
 
     // test, native
-    #[cfg(all(test, not(target_arch = "wasm32")))]
+    #[cfg(test)]
     mod inner {
         use xmtp_proto::api_client::{
             ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
@@ -106,36 +81,6 @@ mod trait_impls {
                 + XmtpMlsStreams
                 + XmtpIdentityClient
                 + crate::XmtpTestClient
-                + ClientWithMetadata
-                + Send
-                + Sync
-                + ?Sized
-        {
-        }
-    }
-
-    // test, wasm32
-    #[cfg(all(test, target_arch = "wasm32"))]
-    mod inner {
-        use xmtp_proto::api_client::{
-            ClientWithMetadata, LocalXmtpIdentityClient, LocalXmtpMlsClient, LocalXmtpMlsStreams,
-        };
-
-        pub trait XmtpApi
-        where
-            Self: LocalXmtpMlsClient
-                + LocalXmtpMlsStreams
-                + LocalXmtpIdentityClient
-                + crate::LocalXmtpTestClient
-                + ClientWithMetadata,
-        {
-        }
-
-        impl<T> XmtpApi for T where
-            T: LocalXmtpMlsClient
-                + LocalXmtpMlsStreams
-                + LocalXmtpIdentityClient
-                + crate::LocalXmtpTestClient
                 + ClientWithMetadata
                 + Send
                 + Sync

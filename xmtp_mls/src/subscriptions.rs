@@ -170,7 +170,7 @@ where
         Ok(futures::stream::select(stream, event_queue))
     }
 
-    // #[tracing::instrument(skip(self, group_id_to_info))]
+    #[tracing::instrument(skip(self, group_id_to_info))]
     pub(crate) async fn stream_messages(
         &self,
         group_id_to_info: Arc<HashMap<Vec<u8>, MessagesStreamInfo>>,
