@@ -1,4 +1,4 @@
-name: Update Dependencies
+name: Nightly Automation
 on:
   schedule:
     - cron:  '0 10 * * 1'
@@ -21,6 +21,8 @@ jobs:
            .
       - name: Generate Protos
         run: dev/gen_protos.sh
+      - name: Report
+        run: git diff
 #      - name: Create Pull Request
 #        uses: peter-evans/create-pull-request@v7
 #        with:
