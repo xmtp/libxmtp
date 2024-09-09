@@ -25,7 +25,7 @@ jobs:
         uses: peter-evans/create-pull-request@v7
         with:
           commit-message: Nightly Protos
-          title: Update dependencies
+          title: Update Protos
           body: |
             - Nightly Proto Update
 
