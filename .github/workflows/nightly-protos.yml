@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: bufbuild/buf-setup-action@v1.40.1
       - name: Update rust toolchains
         run: rustup update
       - name: Cache
