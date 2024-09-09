@@ -15,7 +15,6 @@ use crate::{
 };
 use crate::{retryable, Fetch, Store};
 use ed25519_dalek::SigningKey;
-use ethers::signers::WalletError;
 use log::debug;
 use log::info;
 use openmls::prelude::tls_codec::Serialize;
@@ -140,8 +139,6 @@ pub enum IdentityError {
     Crypto(#[from] CryptoError),
     #[error("legacy key does not match address")]
     LegacyKeyMismatch,
-    #[error(transparent)]
-    WalletError(#[from] WalletError),
     #[error(transparent)]
     OpenMls(#[from] openmls::prelude::Error),
     #[error(transparent)]

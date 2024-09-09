@@ -40,7 +40,6 @@ pub async fn is_smart_contract(
     Ok(!code.is_empty())
 }
 
-// TODO: Remove this trait
 pub trait InboxOwner {
     /// Get address of the wallet.
     fn get_address(&self) -> String;
@@ -54,7 +53,7 @@ impl InboxOwner for LocalWallet {
     }
 
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
-        let message_hash = ethers_core::utils::hash_message(text);
+        let message_hash = ethers::core::utils::hash_message(text);
         Ok(self.sign_hash(message_hash)?.to_vec().into())
     }
 }

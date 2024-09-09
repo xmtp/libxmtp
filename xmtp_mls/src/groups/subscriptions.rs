@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::Stream;
@@ -18,7 +17,7 @@ impl MlsGroup {
     pub(crate) async fn process_stream_entry<ApiClient>(
         &self,
         envelope: GroupMessage,
-        client: Arc<Client<ApiClient>>,
+        client: &Client<ApiClient>,
     ) -> Result<Option<StoredGroupMessage>, GroupError>
     where
         ApiClient: XmtpApi,
@@ -34,11 +33,9 @@ impl MlsGroup {
         let created_ns = msgv1.created_ns;
 
         if !self.has_already_synced(msg_id).await? {
-            let client_pointer = client.clone();
             let process_result = retry_async!(
                 Retry::default(),
                 (async {
-                    let client_pointer = client_pointer.clone();
                     let client_id = client_id.clone();
                     let msgv1 = msgv1.clone();
                     self.context
@@ -55,7 +52,7 @@ impl MlsGroup {
                             );
 
                             self.process_message(
-                                client_pointer.as_ref(),
+                                client,
                                 &mut openmls_group,
                                 &provider,
                                 &msgv1,
@@ -71,7 +68,7 @@ impl MlsGroup {
             if let Some(GroupError::ReceiveError(_)) = process_result.as_ref().err() {
                 // Swallow errors here, since another process may have successfully saved the message
                 // to the DB
-                match self.sync_with_conn(&client.mls_provider()?, &client).await {
+                match self.sync_with_conn(&client.mls_provider()?, client).await {
                     Ok(_) => {
                         log::debug!("Sync triggered by streamed message successful")
                     }
@@ -109,7 +106,7 @@ impl MlsGroup {
     pub async fn process_streamed_group_message<ApiClient>(
         &self,
         envelope_bytes: Vec<u8>,
-        client: Arc<Client<ApiClient>>,
+        client: &Client<ApiClient>,
     ) -> Result<StoredGroupMessage, GroupError>
     where
         ApiClient: XmtpApi,
@@ -121,21 +118,21 @@ impl MlsGroup {
         message.ok_or(GroupError::MissingMessage)
     }
 
-    pub async fn stream<ApiClient>(
-        &self,
-        client: Arc<Client<ApiClient>>,
-    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + Send + '_>>, GroupError>
+    pub async fn stream<'a, ApiClient>(
+        &'a self,
+        client: &'a Client<ApiClient>,
+    ) -> Result<impl Stream<Item = StoredGroupMessage> + '_, GroupError>
     where
-        ApiClient: crate::XmtpApi,
+        ApiClient: crate::XmtpApi + 'static,
     {
         Ok(client
-            .stream_messages(HashMap::from([(
+            .stream_messages(Arc::new(HashMap::from([(
                 self.group_id.clone(),
                 MessagesStreamInfo {
                     convo_created_at_ns: self.created_at_ns,
                     cursor: 0,
                 },
-            )]))
+            )])))
             .await?)
     }
 
@@ -146,7 +143,7 @@ impl MlsGroup {
         callback: impl FnMut(StoredGroupMessage) + Send + 'static,
     ) -> StreamHandle<Result<(), crate::groups::ClientError>>
     where
-        ApiClient: crate::XmtpApi,
+        ApiClient: crate::XmtpApi + 'static,
     {
         Client::<ApiClient>::stream_messages_with_callback(
             client,
@@ -202,7 +199,7 @@ mod tests {
         let mut message_bytes: Vec<u8> = Vec::new();
         message.encode(&mut message_bytes).unwrap();
         let message_again = amal_group
-            .process_streamed_group_message(message_bytes, Arc::new(amal))
+            .process_streamed_group_message(message_bytes, &amal)
             .await;
 
         if let Ok(message) = message_again {
@@ -237,7 +234,8 @@ mod tests {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let mut stream = UnboundedReceiverStream::new(rx);
         tokio::spawn(async move {
-            let mut stream = bola_group_ptr.stream(bola_ptr).await.unwrap();
+            let stream = bola_group_ptr.stream(&bola_ptr).await.unwrap();
+            futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
                 let _ = tx.send(item);
                 notify_ptr.notify_one();
@@ -281,7 +279,8 @@ mod tests {
         let amal_ptr = amal.clone();
         let group_ptr = group.clone();
         tokio::spawn(async move {
-            let mut stream = group_ptr.stream(amal_ptr).await.unwrap();
+            let stream = group_ptr.stream(&amal_ptr).await.unwrap();
+            futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
                 let _ = tx.send(item);
             }
@@ -323,7 +322,8 @@ mod tests {
         let (start_tx, start_rx) = tokio::sync::oneshot::channel();
         let mut stream = UnboundedReceiverStream::new(rx);
         tokio::spawn(async move {
-            let mut stream = amal_group_ptr.stream(amal_ptr).await.unwrap();
+            let stream = amal_group_ptr.stream(&amal_ptr).await.unwrap();
+            futures::pin_mut!(stream);
             let _ = start_tx.send(());
             while let Some(item) = stream.next().await {
                 let _ = tx.send(item);

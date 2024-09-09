@@ -591,7 +591,7 @@ mod tests {
         let msg = "TestVector1";
         let sig_hash = "19d6bec562518e365d07ba3cce26d08a5fffa2cbb1e7fe03c1f2d6a722fd3a5e544097b91f8f8cd11d43b032659f30529139ab1a9ecb6c81ed4a762179e87db81c";
 
-        let sig_bytes = ethers_core::utils::hex::decode(sig_hash).unwrap();
+        let sig_bytes = ethers::core::utils::hex::decode(sig_hash).unwrap();
         let recovered_addr = crate::v2::recover_address(sig_bytes, msg.to_string()).unwrap();
         assert_eq!(recovered_addr, addr.to_lowercase());
     }

@@ -49,7 +49,6 @@ pub fn rand_time() -> i64 {
     rng.gen_range(0..1_000_000_000)
 }
 
-#[async_trait::async_trait]
 #[cfg(feature = "http-api")]
 impl XmtpTestClient for XmtpHttpApiClient {
     async fn create_local() -> Self {
@@ -61,7 +60,6 @@ impl XmtpTestClient for XmtpHttpApiClient {
     }
 }
 
-#[async_trait::async_trait]
 impl XmtpTestClient for GrpcClient {
     async fn create_local() -> Self {
         GrpcClient::create("http://localhost:5556".into(), false)

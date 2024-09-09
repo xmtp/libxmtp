@@ -961,7 +961,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
         let message = group
-            .process_streamed_group_message(envelope_bytes, self.inner_client.clone())
+            .process_streamed_group_message(envelope_bytes, &self.inner_client)
             .await?;
         let ffi_message = message.into();
 
@@ -1576,11 +1576,11 @@ mod tests {
     };
 
     use super::{create_client, FfiMessage, FfiMessageCallback, FfiXmtpClient};
-    use ethers::utils::hex;
-    use ethers_core::rand::{
+    use ethers::core::rand::{
         self,
         distributions::{Alphanumeric, DistString},
     };
+    use ethers::utils::hex;
     use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::generate_inbox_id;

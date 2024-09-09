@@ -182,8 +182,6 @@ pub struct SmartContractWalletSignature {
     chain_rpc_url: String,
 }
 
-unsafe impl Send for SmartContractWalletSignature {}
-
 impl SmartContractWalletSignature {
     pub fn new(
         signature_text: String,
