@@ -8,7 +8,6 @@ async-trait.workspace = true
 chrono.workspace = true
 ed25519-dalek = { workspace = true, features = ["digest"] }
 ed25519.workspace = true
-ethers-core.workspace = true
 ethers.workspace = true
 futures.workspace = true
 hex.workspace = true

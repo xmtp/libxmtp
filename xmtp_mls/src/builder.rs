@@ -142,13 +142,10 @@ mod tests {
         api::test_utils::*, identity::Identity, storage::identity::StoredIdentity,
         utils::test::rand_vec, Store,
     };
-    use ethers::signers::Signer;
-    use ethers_core::k256;
     use openmls::credentials::{Credential, CredentialType};
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_traits::types::SignatureScheme;
     use prost::Message;
-    use xmtp_cryptography::signature::h160addr_to_string;
     use xmtp_cryptography::utils::{generate_local_wallet, rng};
     use xmtp_id::associations::ValidatedLegacySignedPublicKey;
     use xmtp_id::associations::{
@@ -188,10 +185,10 @@ mod tests {
     /// Generate a random legacy key proto bytes and corresponding account address.
     async fn generate_random_legacy_key() -> (Vec<u8>, String) {
         let wallet = generate_local_wallet();
-        let address = h160addr_to_string(wallet.address());
+        let address = wallet.get_address();
         let created_ns = rand_u64();
-        let secret_key = k256::ecdsa::SigningKey::random(&mut rng());
-        let public_key = k256::ecdsa::VerifyingKey::from(&secret_key);
+        let secret_key = ethers::core::k256::ecdsa::SigningKey::random(&mut rng());
+        let public_key = ethers::core::k256::ecdsa::VerifyingKey::from(&secret_key);
         let public_key_bytes = public_key.to_sec1_bytes().to_vec();
         let mut public_key_buf = vec![];
         UnsignedPublicKey {
@@ -205,7 +202,7 @@ mod tests {
         .encode(&mut public_key_buf)
         .unwrap();
         let message = ValidatedLegacySignedPublicKey::text(&public_key_buf);
-        let signed_public_key = wallet.sign_message(message).await.unwrap().to_vec();
+        let signed_public_key: Vec<u8> = wallet.sign(&message).unwrap().into();
         let (bytes, recovery_id) = signed_public_key.as_slice().split_at(64);
         let recovery_id = recovery_id[0];
         let signed_private_key: SignedPrivateKey = SignedPrivateKey {

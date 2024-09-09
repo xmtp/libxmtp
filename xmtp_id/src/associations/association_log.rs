@@ -3,7 +3,6 @@ use super::member::{Member, MemberIdentifier, MemberKind};
 use super::serialization::{from_identity_update_proto, DeserializationError};
 use super::signature::{Signature, SignatureError, SignatureKind};
 use super::state::AssociationState;
-use async_trait::async_trait;
 use prost::Message;
 use thiserror::Error;
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate as IdentityUpdateProto;
@@ -38,8 +37,7 @@ pub enum AssociationError {
     MissingIdentityUpdate,
 }
 
-#[async_trait]
-pub trait IdentityAction: Send + 'static {
+pub(crate) trait IdentityAction: Send + 'static {
     async fn update_state(
         &self,
         existing_state: Option<AssociationState>,
@@ -65,7 +63,6 @@ pub struct CreateInbox {
     pub initial_address_signature: Box<dyn Signature>,
 }
 
-#[async_trait]
 impl IdentityAction for CreateInbox {
     async fn update_state(
         &self,
@@ -110,7 +107,6 @@ pub struct AddAssociation {
     pub existing_member_signature: Box<dyn Signature>,
 }
 
-#[async_trait::async_trait]
 impl IdentityAction for AddAssociation {
     async fn update_state(
         &self,
@@ -205,7 +201,6 @@ pub struct RevokeAssociation {
     pub revoked_member: MemberIdentifier,
 }
 
-#[async_trait]
 impl IdentityAction for RevokeAssociation {
     async fn update_state(
         &self,
@@ -261,7 +256,6 @@ pub struct ChangeRecoveryAddress {
     pub new_recovery_address: String,
 }
 
-#[async_trait]
 impl IdentityAction for ChangeRecoveryAddress {
     async fn update_state(
         &self,
@@ -299,7 +293,6 @@ pub enum Action {
     ChangeRecoveryAddress(ChangeRecoveryAddress),
 }
 
-#[async_trait]
 impl IdentityAction for Action {
     async fn update_state(
         &self,
@@ -366,7 +359,6 @@ impl TryFrom<Vec<u8>> for IdentityUpdate {
     }
 }
 
-#[async_trait]
 impl IdentityAction for IdentityUpdate {
     async fn update_state(
         &self,

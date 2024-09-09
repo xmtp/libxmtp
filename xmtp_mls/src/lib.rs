@@ -11,7 +11,6 @@ mod hpke;
 pub mod identity;
 mod identity_updates;
 mod mutex_registry;
-pub mod owner;
 pub mod retry;
 pub mod storage;
 pub mod subscriptions;
@@ -22,46 +21,83 @@ mod xmtp_openmls_provider;
 
 pub use client::{Client, Network};
 use storage::StorageError;
-use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
-use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
+
+pub use trait_impls::*;
 
 /// XMTP Api Super Trait
 /// Implements all Trait Network APIs for convenience.
-#[cfg(not(test))]
-pub trait XmtpApi
-where
-    Self: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata,
-{
-}
-#[cfg(not(test))]
-impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + ?Sized {}
+mod trait_impls {
+    pub use inner::*;
 
-#[cfg(test)]
-pub trait XmtpApi
-where
-    Self: XmtpMlsClient + XmtpIdentityClient + XmtpTestClient + ClientWithMetadata,
-{
-}
+    // native, release
+    #[cfg(not(test))]
+    mod inner {
+        use xmtp_proto::api_client::{
+            ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
+        };
 
-#[cfg(test)]
-impl<T> XmtpApi for T where
-    T: XmtpMlsClient + XmtpIdentityClient + XmtpTestClient + ClientWithMetadata + ?Sized
-{
+        pub trait XmtpApi
+        where
+            Self: XmtpMlsClient
+                + XmtpMlsStreams
+                + XmtpIdentityClient
+                + ClientWithMetadata
+                + Send
+                + Sync,
+        {
+        }
+        impl<T> XmtpApi for T where
+            T: XmtpMlsClient
+                + XmtpMlsStreams
+                + XmtpIdentityClient
+                + ClientWithMetadata
+                + Send
+                + Sync
+                + ?Sized
+        {
+        }
+    }
+
+    // test, native
+    #[cfg(test)]
+    mod inner {
+        use xmtp_proto::api_client::{
+            ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
+        };
+
+        pub trait XmtpApi
+        where
+            Self: XmtpMlsClient
+                + XmtpMlsStreams
+                + XmtpIdentityClient
+                + crate::XmtpTestClient
+                + ClientWithMetadata
+                + Send
+                + Sync,
+        {
+        }
+        impl<T> XmtpApi for T where
+            T: XmtpMlsClient
+                + XmtpMlsStreams
+                + XmtpIdentityClient
+                + crate::XmtpTestClient
+                + ClientWithMetadata
+                + Send
+                + Sync
+                + ?Sized
+        {
+        }
+    }
 }
 
 #[cfg(any(test, feature = "test-utils", feature = "bench"))]
-#[async_trait::async_trait]
-pub trait XmtpTestClient {
+#[trait_variant::make(XmtpTestClient: Send)]
+pub trait LocalXmtpTestClient {
     async fn create_local() -> Self;
     async fn create_dev() -> Self;
 }
 
-pub trait InboxOwner {
-    /// Get address of the wallet.
-    fn get_address(&self) -> String;
-    /// Sign text with the wallet.
-    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError>;
-}
+pub use xmtp_id::InboxOwner;
 
 /// Inserts a model to the underlying data store, erroring if it already exists
 pub trait Store<StorageConnection> {
