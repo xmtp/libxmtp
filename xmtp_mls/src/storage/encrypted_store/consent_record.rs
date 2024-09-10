@@ -159,9 +159,9 @@ mod tests {
         entity: String,
     ) -> StoredConsentRecord {
         StoredConsentRecord {
-            entity_type: entity_type,
-            state: state,
-            entity: entity,
+            entity_type,
+            state,
+            entity,
         }
     }
 
