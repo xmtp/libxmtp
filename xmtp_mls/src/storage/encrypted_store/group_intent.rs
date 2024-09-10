@@ -404,6 +404,7 @@ mod tests {
             100,
             GroupMembershipState::Allowed,
             "placeholder_address".to_string(),
+            None,
         );
         group.store(conn).unwrap();
     }

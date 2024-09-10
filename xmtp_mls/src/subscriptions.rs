@@ -281,7 +281,7 @@ where
         let mut group_id_to_info = client
             .store()
             .conn()?
-            .find_groups(None, None, None, None)?
+            .find_groups(None, None, None, None, false)?
             .into_iter()
             .map(Into::into)
             .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();

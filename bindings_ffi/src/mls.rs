@@ -15,6 +15,7 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::client::FindGroupParams;
 use xmtp_mls::groups::group_mutable_metadata::MetadataField;
 use xmtp_mls::groups::group_permissions::BasePolicies;
 use xmtp_mls::groups::group_permissions::GroupMutablePermissionsError;
@@ -732,16 +733,10 @@ impl FfiConversations {
         Ok(out)
     }
 
-    pub async fn create_dm(
-        &self,
-        target_inbox_id: String,
-    ) -> Result<Arc<FfiGroup>, GenericError> {
-        log::info!(
-            "creating dm with target inbox id: {}",
-            target_inbox_id
-        );
+    pub async fn create_dm(&self, account_address: String) -> Result<Arc<FfiGroup>, GenericError> {
+        log::info!("creating dm with target address: {}", account_address);
 
-        let convo = self.inner_client.create_dm(target_inbox_id)?;
+        let convo = self.inner_client.create_dm(account_address).await?;
 
         let out = Arc::new(FfiGroup {
             inner_client: self.inner_client.clone(),
@@ -776,7 +771,16 @@ impl FfiConversations {
 
     pub async fn sync_all_groups(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
-        let groups = inner.find_groups(None, None, None, None)?;
+        let groups = inner.find_groups(FindGroupParams {
+            include_dm_groups: true,
+            ..FindGroupParams::default()
+        })?;
+
+        println!(
+            "groups for client inbox id {:?}: {:?}",
+            self.inner_client.inbox_id(),
+            groups.len()
+        );
 
         let num_groups_synced: usize = inner.sync_all_groups(groups).await?;
         // Uniffi does not work with usize, so we need to convert to u32
@@ -796,12 +800,12 @@ impl FfiConversations {
     ) -> Result<Vec<Arc<FfiGroup>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiGroup>> = inner
-            .find_groups(
-                None,
-                opts.created_after_ns,
-                opts.created_before_ns,
-                opts.limit,
-            )?
+            .find_groups(FindGroupParams {
+                created_after_ns: opts.created_after_ns,
+                created_before_ns: opts.created_before_ns,
+                limit: opts.limit,
+                ..FindGroupParams::default()
+            })?
             .into_iter()
             .map(|group| {
                 Arc::new(FfiGroup {
@@ -3592,5 +3596,37 @@ mod tests {
                 .clone(),
             client_1.installation_id()
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[ignore]
+    async fn test_dms_sync_but_do_not_list() {
+        let alix = new_test_client().await;
+        let bola = new_test_client().await;
+
+        let alix_conversations = alix.conversations();
+        let bola_conversations = bola.conversations();
+
+        let alix_group = alix_conversations
+            .create_dm(bola.account_address.clone())
+            .await
+            .unwrap();
+        let alix_num_sync = alix_conversations.sync_all_groups().await.unwrap();
+        bola_conversations.sync().await.unwrap();
+        let bola_num_sync = bola_conversations.sync_all_groups().await.unwrap();
+        assert_eq!(alix_num_sync, 1);
+        assert_eq!(bola_num_sync, 1);
+
+        let alix_groups = alix_conversations
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(alix_groups.len(), 0);
+
+        let bola_groups = bola_conversations
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(bola_groups.len(), 0);
     }
 }

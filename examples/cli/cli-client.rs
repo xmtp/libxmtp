@@ -18,6 +18,7 @@ use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder};
 use kv_log_macro::{error, info};
 use prost::Message;
 use xmtp_id::associations::RecoverableEcdsaSignature;
+use xmtp_mls::client::FindGroupParams;
 use xmtp_mls::groups::message_history::MessageHistoryContent;
 use xmtp_mls::storage::group_message::GroupMessageKind;
 
@@ -208,7 +209,7 @@ async fn main() {
 
             // recv(&client).await.unwrap();
             let group_list = client
-                .find_groups(None, None, None, None)
+                .find_groups(FindGroupParams::default())
                 .expect("failed to list groups");
             for group in group_list.iter() {
                 group.sync(&client).await.expect("error syncing group");

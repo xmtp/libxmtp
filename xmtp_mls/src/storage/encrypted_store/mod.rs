@@ -688,6 +688,7 @@ mod tests {
                     0,
                     GroupMembershipState::Allowed,
                     "goodbye".to_string(),
+                    None,
                 );
                 group.store(connection)?;
                 Ok(())
@@ -739,6 +740,7 @@ mod tests {
                         0,
                         GroupMembershipState::Allowed,
                         "goodbye".to_string(),
+                        None,
                     );
                     group.store(conn1).unwrap();
 

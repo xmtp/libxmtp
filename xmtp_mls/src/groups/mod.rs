@@ -319,6 +319,7 @@ impl MlsGroup {
             now_ns(),
             membership_state,
             context.inbox_id(),
+            None,
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -340,7 +341,7 @@ impl MlsGroup {
         let protected_metadata =
             build_dm_protected_metadata_extension(&context.identity, dm_target_inbox_id.clone())?;
         let mutable_metadata =
-            build_dm_mutable_metadata_extension_default(context.inbox_id(), dm_target_inbox_id)?;
+            build_dm_mutable_metadata_extension_default(context.inbox_id(), &dm_target_inbox_id)?;
         let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
         let mutable_permissions = PolicySet::new_dm();
         let mutable_permission_extension =
@@ -368,6 +369,7 @@ impl MlsGroup {
             now_ns(),
             membership_state,
             context.inbox_id(),
+            Some(dm_target_inbox_id),
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -393,6 +395,16 @@ impl MlsGroup {
         let mls_group = mls_welcome.into_group(provider)?;
         let group_id = mls_group.group_id().to_vec();
         let metadata = extract_group_metadata(&mls_group)?;
+        let dm_members = metadata.dm_members;
+        let dm_inbox_id = if let Some(dm_members) = &dm_members {
+            if dm_members.member_one_inbox_id == client.inbox_id() {
+                Some(dm_members.member_two_inbox_id.clone())
+            } else {
+                Some(dm_members.member_one_inbox_id.clone())
+            }
+        } else {
+            None
+        };
         let group_type = metadata.conversation_type;
 
         let to_store = match group_type {
@@ -403,6 +415,7 @@ impl MlsGroup {
                 added_by_inbox,
                 welcome_id,
                 Purpose::Conversation,
+                dm_inbox_id,
             ),
             ConversationType::Sync => StoredGroup::new_from_welcome(
                 group_id.clone(),
@@ -411,6 +424,7 @@ impl MlsGroup {
                 added_by_inbox,
                 welcome_id,
                 Purpose::Sync,
+                dm_inbox_id,
             ),
         };
 
@@ -1111,7 +1125,7 @@ pub fn build_mutable_metadata_extension_default(
 
 pub fn build_dm_mutable_metadata_extension_default(
     creator_inbox_id: String,
-    dm_target_inbox_id: String,
+    dm_target_inbox_id: &str,
 ) -> Result<Extension, GroupError> {
     let mutable_metadata: Vec<u8> =
         GroupMutableMetadata::new_dm_default(creator_inbox_id, dm_target_inbox_id).try_into()?;
@@ -1371,7 +1385,7 @@ mod tests {
     use crate::{
         assert_err, assert_logged,
         builder::ClientBuilder,
-        client::MessageProcessingError,
+        client::{FindGroupParams, MessageProcessingError},
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
             build_group_membership_extension,
@@ -1400,7 +1414,7 @@ mod tests {
         ApiClient: XmtpApi,
     {
         client.sync_welcomes().await.unwrap();
-        let mut groups = client.find_groups(None, None, None, None).unwrap();
+        let mut groups = client.find_groups(FindGroupParams::default()).unwrap();
 
         groups.remove(0)
     }
@@ -1712,7 +1726,7 @@ mod tests {
 
         // Bo should not be able to actually read this group
         bo.sync_welcomes().await.unwrap();
-        let groups = bo.find_groups(None, None, None, None).unwrap();
+        let groups = bo.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(groups.len(), 0);
         assert_logged!("failed to create group from welcome", 1);
     }
@@ -1840,7 +1854,7 @@ mod tests {
             .expect("send message");
 
         bola_client.sync_welcomes().await.unwrap();
-        let bola_groups = bola_client.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola_client.find_groups(FindGroupParams::default()).unwrap();
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola_client).await.unwrap();
         let bola_messages = bola_group
@@ -2191,7 +2205,7 @@ mod tests {
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
@@ -2359,7 +2373,7 @@ mod tests {
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
@@ -2438,7 +2452,7 @@ mod tests {
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
@@ -2454,7 +2468,7 @@ mod tests {
 
         // Verify that bola can not add caro because they are not an admin
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group: &MlsGroup = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
@@ -2518,7 +2532,7 @@ mod tests {
 
         // Verify that bola can not add charlie because they are not an admin
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group: &MlsGroup = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
@@ -2546,7 +2560,7 @@ mod tests {
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
@@ -2562,7 +2576,7 @@ mod tests {
 
         // Verify that bola can not add caro as an admin because they are not a super admin
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group: &MlsGroup = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
@@ -2809,7 +2823,7 @@ mod tests {
 
         // Step 3: Verify that Bola can update the group name, and amal sees the update
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         let bola_group: &MlsGroup = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
         bola_group
@@ -2874,7 +2888,7 @@ mod tests {
         // Step 3: Bola attemps to add Caro, but fails because group is admin only
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         let bola_group: &MlsGroup = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
         let result = bola_group
@@ -3018,7 +3032,7 @@ mod tests {
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Amal creates a dm group targetting bola
-        let amal_dm: MlsGroup = amal.create_dm(bola.inbox_id()).unwrap();
+        let amal_dm: MlsGroup = amal.create_dm_by_inbox_id(bola.inbox_id()).await.unwrap();
 
         // Amal can not add caro to the dm group
         let result = amal_dm
@@ -3029,22 +3043,20 @@ mod tests {
             .add_members_by_inbox_id(&amal, vec![caro.inbox_id()])
             .await;
         assert!(result.is_err());
-        amal_dm.sync(&amal).await.unwrap();
-        let members = amal_dm.members().unwrap();
-        assert_eq!(members.len(), 1);
 
-        // Amal can add bola
-        amal_dm
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
-            .await
-            .unwrap();
+        // Bola is already a member
         amal_dm.sync(&amal).await.unwrap();
         let members = amal_dm.members().unwrap();
         assert_eq!(members.len(), 2);
 
         // Bola can message amal
         let _ = bola.sync_welcomes().await;
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola
+            .find_groups(FindGroupParams {
+                include_dm_groups: true,
+                ..FindGroupParams::default()
+            })
+            .unwrap();
         let bola_dm: &MlsGroup = bola_groups.first().unwrap();
         bola_dm.send_message(b"test one", &bola).await.unwrap();
 

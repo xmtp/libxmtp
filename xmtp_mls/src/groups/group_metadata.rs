@@ -17,6 +17,8 @@ pub enum GroupMetadataError {
     InvalidConversationType,
     #[error("missing extension")]
     MissingExtension,
+    #[error("invalid dm members")]
+    InvalidDmMembers,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -72,11 +74,12 @@ impl TryFrom<GroupMetadataProto> for GroupMetadata {
     type Error = GroupMetadataError;
 
     fn try_from(value: GroupMetadataProto) -> Result<Self, Self::Error> {
-        let dm_members = if value.dm_members.is_some() {
-            Some(DmMembers::try_from(value.dm_members.unwrap())?)
+        let dm_members = if let Some(dm_members) = value.dm_members {
+            Some(DmMembers::try_from(dm_members)?)
         } else {
             None
         };
+
         Ok(Self::new(
             value.conversation_type.try_into()?,
             value.creator_inbox_id.clone(),
@@ -150,8 +153,14 @@ impl TryFrom<DmMembersProto> for DmMembers {
 
     fn try_from(value: DmMembersProto) -> Result<Self, Self::Error> {
         Ok(Self {
-            member_one_inbox_id: value.dm_member_one.unwrap().inbox_id.clone(),
-            member_two_inbox_id: value.dm_member_two.unwrap().inbox_id.clone(),
+            member_one_inbox_id: value
+                .dm_member_one
+                .ok_or(GroupMetadataError::InvalidDmMembers)?
+                .inbox_id,
+            member_two_inbox_id: value
+                .dm_member_two
+                .ok_or(GroupMetadataError::InvalidDmMembers)?
+                .inbox_id,
         })
     }
 }

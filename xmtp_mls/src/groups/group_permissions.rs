@@ -863,15 +863,14 @@ impl PolicySet {
         );
 
         // We can always add DM member's inboxId to a DM
-        if commit.dm_members.is_some()
-            && commit.added_inboxes.len() == 1
-            && (commit.added_inboxes[0].inbox_id
-                == commit.dm_members.as_ref().unwrap().member_one_inbox_id
-                || commit.added_inboxes[0].inbox_id
-                    == commit.dm_members.as_ref().unwrap().member_two_inbox_id)
-            && commit.added_inboxes[0].inbox_id != commit.actor_inbox_id()
-        {
-            added_inboxes_valid = true;
+        if let Some(dm_members) = &commit.dm_members {
+            if commit.added_inboxes.len() == 1
+                && (commit.added_inboxes[0].inbox_id == dm_members.member_one_inbox_id
+                    || commit.added_inboxes[0].inbox_id == dm_members.member_two_inbox_id)
+                && commit.added_inboxes[0].inbox_id != commit.actor_inbox_id()
+            {
+                added_inboxes_valid = true;
+            }
         }
 
         // Verify remove member policy was not violated
