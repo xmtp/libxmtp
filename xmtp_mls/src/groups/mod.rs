@@ -3068,16 +3068,16 @@ mod tests {
         amal_dm.sync(&amal).await.unwrap();
         bola_dm.sync(&bola).await.unwrap();
         let is_amal_admin = amal_dm
-            .is_admin(amal.inbox_id(), &amal.mls_provider().unwrap())
+            .is_admin(amal.inbox_id(), amal.mls_provider().unwrap())
             .unwrap();
         let is_bola_admin = amal_dm
-            .is_admin(bola.inbox_id(), &bola.mls_provider().unwrap())
+            .is_admin(bola.inbox_id(), bola.mls_provider().unwrap())
             .unwrap();
         let is_amal_super_admin = amal_dm
-            .is_super_admin(amal.inbox_id(), &amal.mls_provider().unwrap())
+            .is_super_admin(amal.inbox_id(), amal.mls_provider().unwrap())
             .unwrap();
         let is_bola_super_admin = amal_dm
-            .is_super_admin(bola.inbox_id(), &bola.mls_provider().unwrap())
+            .is_super_admin(bola.inbox_id(), bola.mls_provider().unwrap())
             .unwrap();
         assert!(!is_amal_admin);
         assert!(!is_bola_admin);
