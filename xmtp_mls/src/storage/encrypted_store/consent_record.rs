@@ -11,7 +11,8 @@ use diesel::{
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
-    sqlite::Sqlite, upsert::excluded,
+    sqlite::Sqlite,
+    upsert::excluded,
 };
 use serde::{Deserialize, Serialize};
 
@@ -29,11 +30,7 @@ pub struct StoredConsentRecord {
 }
 
 impl StoredConsentRecord {
-    pub fn new(
-        entity_type: ConsentType,
-        state: ConsentState,
-        entity: String,
-    ) -> Self {
+    pub fn new(entity_type: ConsentType, state: ConsentState, entity: String) -> Self {
         Self {
             entity_type,
             state,
@@ -60,20 +57,18 @@ impl DbConnection {
         })?)
     }
 
-    /// Batch insert consent_records, and replace existing entries
+    /// Insert consent_record, and replace existing entries
     pub fn insert_or_replace_consent_record(
         &self,
         record: StoredConsentRecord,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
-            let _ = diesel::insert_into(dsl::consent_records)
+            diesel::insert_into(dsl::consent_records)
                 .values(&record)
                 .on_conflict((dsl::entity_type, dsl::entity))
                 .do_update()
                 .set(dsl::state.eq(excluded(dsl::state)))
-                .execute(conn)
-                .map_err(StorageError::from);
-
+                .execute(conn)?;
             Ok(())
         })?;
 
@@ -126,7 +121,7 @@ pub enum ConsentState {
     /// Consent is allowed
     Allowed = 1,
     /// Consent is denied
-    Denied = 2
+    Denied = 2,
 }
 
 impl ToSql<Integer, Sqlite> for ConsentState
@@ -154,64 +149,41 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        storage::encrypted_store::tests::with_connection,
-        utils::test::{rand_time, rand_vec},
-        Store,
-    };
+    use crate::storage::encrypted_store::tests::with_connection;
 
     use super::*;
 
-    // fn build_update(inbox_id: &str, sequence_id: i64) -> StoredConsentRecord {
-    //     StoredConsentRecord::new(inbox_id.to_string(), sequence_id, rand_time(), rand_vec())
-    // }
+    fn generate_consent_record(
+        entity_type: Option<ConsentType>,
+        state: Option<ConsentState>,
+        entity: Option<String>,
+    ) -> StoredConsentRecord {
+        StoredConsentRecord {
+            entity_type: entity_type.unwrap_or(ConsentType::GroupId),
+            state: state.unwrap_or(ConsentState::Allowed),
+            entity: entity.unwrap_or_default(),
+        }
+    }
 
-    // #[test]
-    // fn insert_and_read() {
-    //     with_connection(|conn| {
-    //         let inbox_id = "inbox_1";
-    //         let update_1 = build_update(inbox_id, 1);
-    //         let update_1_payload = update_1.payload.clone();
-    //         let update_2 = build_update(inbox_id, 2);
-    //         let update_2_payload = update_2.payload.clone();
+    #[test]
+    fn insert_and_read() {
+        with_connection(|conn| {
+            let inbox_id = "inbox_1";
+            let consent_record = generate_consent_record(
+                Some(ConsentType::InboxId),
+                Some(ConsentState::Denied),
+                inbox_id,
+            );
+            let consent_record_entity = consent_record.entity.clone();
 
-    //         update_1.store(&conn).expect("should store without error");
-    //         update_2.store(&conn).expect("should store without error");
+            conn.insert_or_replace_consent_record(consent_record)
+                .expect("should store without error");
 
-    //         let all_updates = conn
-    //             .get_identity_updates(inbox_id, None)
-    //             .expect("query should work");
+            let consent_record = conn
+                .get_consent_record(inbox_id.to_owned(), ConsentType::InboxId)
+                .expect("query should work");
 
-    //         assert_eq!(all_updates.len(), 2);
-    //         let first_update = all_updates.first().unwrap();
-    //         assert_eq!(first_update.payload, update_1_payload);
-    //         let second_update = all_updates.last().unwrap();
-    //         assert_eq!(second_update.payload, update_2_payload);
-    //     });
-    // }
-
-    // #[test]
-    // fn test_filter() {
-    //     with_connection(|conn| {
-    //         let inbox_id = "inbox_1";
-    //         let update_1 = build_update(inbox_id, 1);
-    //         let update_2 = build_update(inbox_id, 2);
-    //         let update_3 = build_update(inbox_id, 3);
-
-    //         conn.insert_or_ignore_identity_updates(&[update_1, update_2, update_3])
-    //             .expect("insert should succeed");
-
-    //         let update_1_and_2 = conn
-    //             .get_identity_updates(inbox_id, Some(2))
-    //             .expect("query should work");
-
-    //         assert_eq!(update_1_and_2.len(), 2);
-
-    //         let all_updates = conn
-    //             .get_identity_updates(inbox_id, None)
-    //             .expect("query should work");
-
-    //         assert_eq!(all_updates.len(), 3);
-    //     })
-    // }
+            assert_eq!(consent_record.unwrap().entity, consent_record_entity);
+        });
+    }
 }

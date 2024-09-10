@@ -11,8 +11,8 @@
 //! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.
 
 pub mod association_state;
-pub mod db_connection;
 pub mod consent_record;
+pub mod db_connection;
 pub mod group;
 pub mod group_intent;
 pub mod group_message;
