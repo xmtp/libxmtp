@@ -154,14 +154,14 @@ mod tests {
     use super::*;
 
     fn generate_consent_record(
-        entity_type: Option<ConsentType>,
-        state: Option<ConsentState>,
-        entity: Option<String>,
+        entity_type: ConsentType,
+        state: ConsentState,
+        entity: String,
     ) -> StoredConsentRecord {
         StoredConsentRecord {
-            entity_type: entity_type.unwrap_or(ConsentType::GroupId),
-            state: state.unwrap_or(ConsentState::Allowed),
-            entity: entity.unwrap_or_default(),
+            entity_type: entity_type,
+            state: state,
+            entity: entity,
         }
     }
 
@@ -170,9 +170,9 @@ mod tests {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
             let consent_record = generate_consent_record(
-                Some(ConsentType::InboxId),
-                Some(ConsentState::Denied),
-                inbox_id,
+                ConsentType::InboxId,
+                ConsentState::Denied,
+                inbox_id.to_string(),
             );
             let consent_record_entity = consent_record.entity.clone();
 
