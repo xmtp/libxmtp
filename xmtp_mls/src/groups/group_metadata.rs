@@ -75,7 +75,7 @@ impl TryFrom<GroupMetadataProto> for GroupMetadata {
 
     fn try_from(value: GroupMetadataProto) -> Result<Self, Self::Error> {
         let dm_members = value.dm_members
-            .map(|dm| DmMembers::try_from(dm))
+            .map(DmMembers::try_from)
             .transpose()?;
         Ok(Self::new(
             value.conversation_type.try_into()?,
