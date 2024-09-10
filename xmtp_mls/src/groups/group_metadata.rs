@@ -74,9 +74,7 @@ impl TryFrom<GroupMetadataProto> for GroupMetadata {
     type Error = GroupMetadataError;
 
     fn try_from(value: GroupMetadataProto) -> Result<Self, Self::Error> {
-        let dm_members = value.dm_members
-            .map(DmMembers::try_from)
-            .transpose()?;
+        let dm_members = value.dm_members.map(DmMembers::try_from).transpose()?;
         Ok(Self::new(
             value.conversation_type.try_into()?,
             value.creator_inbox_id,
@@ -150,10 +148,12 @@ impl TryFrom<DmMembersProto> for DmMembers {
 
     fn try_from(value: DmMembersProto) -> Result<Self, Self::Error> {
         Ok(Self {
-            member_one_inbox_id: value.dm_member_one
+            member_one_inbox_id: value
+                .dm_member_one
                 .ok_or(GroupMetadataError::MissingDmMember)?
                 .inbox_id,
-            member_two_inbox_id: value.dm_member_two
+            member_two_inbox_id: value
+                .dm_member_two
                 .ok_or(GroupMetadataError::MissingDmMember)?
                 .inbox_id,
         })
