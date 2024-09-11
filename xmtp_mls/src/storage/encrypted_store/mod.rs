@@ -20,8 +20,9 @@ pub mod identity_update;
 pub mod key_store_entry;
 pub mod refresh_state;
 pub mod schema;
+mod sqlcipher_connection;
 
-use std::{borrow::Cow, sync::Arc};
+use std::sync::Arc;
 
 use diesel::{
     connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
@@ -31,48 +32,26 @@ use diesel::{
     sql_query,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use log::{log_enabled, warn};
 use parking_lot::RwLock;
 use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
 
-use self::db_connection::DbConnection;
+use self::{
+    db_connection::DbConnection,
+    sqlcipher_connection::{EncryptedConnection, EncryptionKey},
+};
 
 use super::StorageError;
 use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Store};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
-
 pub type RawDbConnection = PooledConnection<ConnectionManager<SqliteConnection>>;
-
-pub type EncryptionKey = [u8; 32];
-
-// For PRAGMA query log statements
-#[derive(QueryableByName, Debug)]
-struct CipherVersion {
-    #[diesel(sql_type = diesel::sql_types::Text)]
-    cipher_version: String,
-}
-
-// For PRAGMA query log statements
-#[derive(QueryableByName, Debug)]
-struct CipherProviderVersion {
-    #[diesel(sql_type = diesel::sql_types::Text)]
-    cipher_provider_version: String,
-}
 
 // For PRAGMA query log statements
 #[derive(QueryableByName, Debug)]
 struct SqliteVersion {
     #[diesel(sql_type = diesel::sql_types::Text)]
     version: String,
-}
-
-#[derive(Default, Clone, Debug)]
-pub enum StorageOption {
-    #[default]
-    Ephemeral,
-    Persistent(String),
 }
 
 pub fn ignore_unique_violation<T>(
@@ -85,19 +64,20 @@ pub fn ignore_unique_violation<T>(
     }
 }
 
+#[derive(Default, Clone, Debug)]
+pub enum StorageOption {
+    #[default]
+    Ephemeral,
+    Persistent(String),
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 /// Manages a Sqlite db for persisting messages and other objects.
 pub struct EncryptedMessageStore {
     connect_opt: StorageOption,
     pool: Arc<RwLock<Option<Pool<ConnectionManager<SqliteConnection>>>>>,
-    enc_key: Option<EncryptionKey>,
-}
-
-impl<'a> From<&'a EncryptedMessageStore> for Cow<'a, EncryptedMessageStore> {
-    fn from(store: &'a EncryptedMessageStore) -> Cow<'a, EncryptedMessageStore> {
-        Cow::Borrowed(store)
-    }
+    enc_opts: Option<EncryptedConnection>,
 }
 
 impl EncryptedMessageStore {
@@ -115,26 +95,33 @@ impl EncryptedMessageStore {
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
         log::info!("Setting up DB connection pool");
-        let pool =
-            match opts {
-                StorageOption::Ephemeral => Pool::builder()
-                    .max_size(1)
-                    .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
-                StorageOption::Persistent(ref path) => Pool::builder()
-                    .max_size(25)
-                    .build(ConnectionManager::<SqliteConnection>::new(path))?,
-            };
+        let mut builder = Pool::builder();
 
-        // TODO: Validate that sqlite is correctly configured. Bad EncKey is not detected until the
-        // migrations run which returns an unhelpful error.
-        let mut obj = Self {
-            connect_opt: opts,
-            pool: Arc::new(Some(pool).into()),
-            enc_key,
+        let enc_opts = if let Some(key) = enc_key {
+            let enc_opts = EncryptedConnection::new(key, &opts)?;
+            builder = builder.connection_customizer(Box::new(enc_opts.clone()));
+            Some(enc_opts)
+        } else {
+            None
         };
 
-        obj.init_db()?;
-        Ok(obj)
+        let pool = match opts {
+            StorageOption::Ephemeral => builder
+                .max_size(1)
+                .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
+            StorageOption::Persistent(ref path) => builder
+                .max_size(25)
+                .build(ConnectionManager::<SqliteConnection>::new(path))?,
+        };
+
+        let mut this = Self {
+            connect_opt: opts,
+            pool: Arc::new(Some(pool).into()),
+            enc_opts,
+        };
+
+        this.init_db()?;
+        Ok(this)
     }
 
     fn init_db(&mut self) -> Result<(), StorageError> {
@@ -150,25 +137,8 @@ impl EncryptedMessageStore {
             sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
         log::info!("sqlite_version={}", sqlite_version[0].version);
 
-        if self.enc_key.is_some() {
-            let cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
-            if cipher_version.is_empty() {
-                return Err(StorageError::SqlCipherNotLoaded);
-            }
-            let cipher_provider_version =
-                sql_query("PRAGMA cipher_provider_version").load::<CipherProviderVersion>(conn)?;
-            log::info!(
-                "Sqlite cipher_version={:?}, cipher_provider_version={:?}",
-                cipher_version.first().as_ref().map(|v| &v.cipher_version),
-                cipher_provider_version
-                    .first()
-                    .as_ref()
-                    .map(|v| &v.cipher_provider_version)
-            );
-            if log_enabled!(log::Level::Info) {
-                conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")
-                    .ok();
-            }
+        if let Some(ref encrypted_conn) = self.enc_opts {
+            encrypted_conn.validate(conn)?;
         }
 
         log::info!("Migrations successful");
@@ -190,14 +160,7 @@ impl EncryptedMessageStore {
             pool.state().connections
         );
 
-        let mut conn = pool.get()?;
-        if let Some(ref key) = self.enc_key {
-            conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
-        }
-
-        conn.batch_execute("PRAGMA busy_timeout = 5000;")?;
-
-        Ok(conn)
+        Ok(pool.get()?)
     }
 
     pub fn conn(&self) -> Result<DbConnection, StorageError> {
@@ -320,7 +283,6 @@ impl EncryptedMessageStore {
     }
 
     pub fn generate_enc_key() -> EncryptionKey {
-        // TODO: Handle Key Better/ Zeroize
         let mut key = [0u8; 32];
         crypto_utils::rng().fill_bytes(&mut key[..]);
         key
@@ -333,15 +295,20 @@ impl EncryptedMessageStore {
     }
 
     pub fn reconnect(&self) -> Result<(), StorageError> {
-        let pool =
-            match self.connect_opt {
-                StorageOption::Ephemeral => Pool::builder()
-                    .max_size(1)
-                    .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
-                StorageOption::Persistent(ref path) => Pool::builder()
-                    .max_size(25)
-                    .build(ConnectionManager::<SqliteConnection>::new(path))?,
-            };
+        let mut builder = Pool::builder();
+
+        if let Some(ref opts) = self.enc_opts {
+            builder = builder.connection_customizer(Box::new(opts.clone()));
+        }
+
+        let pool = match self.connect_opt {
+            StorageOption::Ephemeral => builder
+                .max_size(1)
+                .build(ConnectionManager::<SqliteConnection>::new(":memory:"))?,
+            StorageOption::Persistent(ref path) => builder
+                .max_size(25)
+                .build(ConnectionManager::<SqliteConnection>::new(path))?,
+        };
 
         let mut pool_write = self.pool.write();
         *pool_write = Some(pool);
@@ -353,7 +320,7 @@ impl EncryptedMessageStore {
 #[allow(dead_code)]
 fn warn_length<T>(list: &[T], str_id: &str, max_length: usize) {
     if list.len() > max_length {
-        warn!(
+        log::warn!(
             "EncryptedStore expected at most {} {} however found {}. Using the Oldest.",
             max_length,
             str_id,
@@ -447,14 +414,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        db_connection::DbConnection, identity::StoredIdentity, EncryptedMessageStore, StorageError,
-        StorageOption,
-    };
+    use super::*;
     use std::sync::Barrier;
 
     use crate::{
         storage::group::{GroupMembershipState, StoredGroup},
+        storage::identity::StoredIdentity,
         utils::test::{rand_vec, tmp_path},
         Fetch, Store,
     };
@@ -755,5 +720,23 @@ mod tests {
         // this group should not exist because of the rollback
         let groups = conn.find_group(b"should not exist".to_vec()).unwrap();
         assert_eq!(groups, None);
+    }
+
+    #[test]
+    fn test_encryption_key_formatting() {
+        let conn = EncryptedConnection {
+            key: [0; 32],
+            salt: [1; 16],
+        };
+
+        assert_eq!(
+            &format!("{:x}", conn),
+            "\
+                0000000000000000000000000000000000000000000000000000000000000000\
+                01010101010101010101010101010101\
+            "
+        );
+        let bytes = hex::decode(format!("{:x}", conn)).unwrap();
+        assert_eq!(bytes.len(), 32 + 16);
     }
 }

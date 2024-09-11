@@ -37,6 +37,8 @@ pub enum StorageError {
     Intent(#[from] IntentError),
     #[error("The SQLCipher Sqlite extension is not present, but an encryption key is given")]
     SqlCipherNotLoaded,
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
 }
 
 impl<T> From<PoisonError<T>> for StorageError {
