@@ -132,9 +132,10 @@ impl EncryptedConnection {
 
         conn.batch_execute(&format!(
             r#"
-            PRAGMA cipher_plaintext_header_size={PLAINTEXT_HEADER_SIZE};
+            {}
             PRAGMA user_version = 1; -- force header write
-        "#
+        "#,
+            pragma_plaintext_header()
         ))?;
 
         Ok(())
@@ -189,6 +190,8 @@ impl EncryptedConnection {
     pub(super) fn validate(&self, opts: &StorageOption) -> Result<(), StorageError> {
         let conn = &mut opts.conn()?;
 
+        // test the key according to
+        // https://www.zetetic.net/sqlcipher/sqlcipher-api/#testing-the-key
         conn.batch_execute(&format!(
             "{}\
             SELECT count(*) FROM sqlite_master;",
@@ -304,6 +307,11 @@ mod tests {
 
     #[test]
     fn test_db_migrates() {
+        todo!()
+    }
+
+    #[test]
+    fn test_db_can_reconnect() {
         todo!()
     }
 }
