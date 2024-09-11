@@ -3,7 +3,7 @@ use std::env;
 
 use rand::{
     distributions::{Alphanumeric, DistString},
-    Rng,
+    Rng, RngCore,
 };
 use std::sync::Arc;
 use tokio::{sync::Notify, time::error::Elapsed};
@@ -13,7 +13,7 @@ use xmtp_id::associations::{generate_inbox_id, RecoverableEcdsaSignature};
 use crate::{
     builder::ClientBuilder,
     identity::IdentityStrategy,
-    storage::{EncryptedMessageStore, StorageOption},
+    storage::{EncryptedMessageStore, EncryptionKey, StorageOption},
     types::Address,
     Client, InboxOwner, XmtpApi, XmtpTestClient,
 };
@@ -74,11 +74,23 @@ impl XmtpTestClient for GrpcClient {
     }
 }
 
+impl EncryptedMessageStore {
+    pub fn generate_enc_key() -> EncryptionKey {
+        let mut key = [0u8; 32];
+        xmtp_cryptography::utils::rng().fill_bytes(&mut key[..]);
+        key
+    }
+}
+
 impl ClientBuilder<TestClient> {
     pub fn temp_store(self) -> Self {
         let tmpdb = tmp_path();
         self.store(
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap(),
+            EncryptedMessageStore::new(
+                StorageOption::Persistent(tmpdb),
+                EncryptedMessageStore::generate_enc_key(),
+            )
+            .unwrap(),
         )
     }
 

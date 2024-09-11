@@ -25,7 +25,7 @@ mod sqlcipher_connection;
 use std::sync::Arc;
 
 use diesel::{
-    connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
+    connection::{AnsiTransactionManager, TransactionManager},
     prelude::*,
     r2d2::{ConnectionManager, Pool, PoolTransactionManager, PooledConnection},
     result::{DatabaseErrorKind, Error},
@@ -34,10 +34,9 @@ use diesel::{
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use parking_lot::RwLock;
 
-use self::{
-    db_connection::DbConnection,
-    sqlcipher_connection::{EncryptedConnection, EncryptionKey},
-};
+use self::{db_connection::DbConnection, sqlcipher_connection::EncryptedConnection};
+
+pub use self::sqlcipher_connection::EncryptionKey;
 
 use super::StorageError;
 use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Store};
@@ -67,6 +66,17 @@ pub enum StorageOption {
     #[default]
     Ephemeral,
     Persistent(String),
+}
+
+impl StorageOption {
+    // create a completely new standalone connection
+    fn conn(&self) -> Result<SqliteConnection, diesel::ConnectionError> {
+        use StorageOption::*;
+        match self {
+            Persistent(path) => SqliteConnection::establish(path),
+            Ephemeral => SqliteConnection::establish(":memory:"),
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -123,21 +133,18 @@ impl EncryptedMessageStore {
     }
 
     fn init_db(&mut self) -> Result<(), StorageError> {
-        let conn = &mut self.raw_conn()?;
-        conn.batch_execute("PRAGMA journal_mode = WAL;")
-            .map_err(|e| StorageError::DbInit(e.to_string()))?;
+        if let Some(ref encrypted_conn) = self.enc_opts {
+            encrypted_conn.validate(&self.connect_opt)?;
+        }
 
+        let conn = &mut self.raw_conn()?;
         log::info!("Running DB migrations");
         conn.run_pending_migrations(MIGRATIONS)
-            .map_err(|e| StorageError::DbInit(e.to_string()))?;
+            .map_err(|e| StorageError::DbInit(format!("Failed to run migrations: {}", e)))?;
 
         let sqlite_version =
             sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
         log::info!("sqlite_version={}", sqlite_version[0].version);
-
-        if let Some(ref encrypted_conn) = self.enc_opts {
-            encrypted_conn.validate(conn)?;
-        }
 
         log::info!("Migrations successful");
         Ok(())
@@ -432,12 +439,6 @@ mod tests {
     }
 
     impl EncryptedMessageStore {
-        pub fn generate_enc_key() -> EncryptionKey {
-            let mut key = [0u8; 32];
-            crypto_utils::rng().fill_bytes(&mut key[..]);
-            key
-        }
-
         pub fn new_test() -> Self {
             let tmp_path = tmp_path();
             EncryptedMessageStore::new(
@@ -541,8 +542,8 @@ mod tests {
 
         // Ensure it fails
         assert!(
-            matches!(res.err(), Some(StorageError::DbInit(_))),
-            "Expected DbInitError"
+            matches!(res.err(), Some(StorageError::SqlCipherKeyIncorrect)),
+            "Expected SqlCipherKeyIncorrect error"
         );
         fs::remove_file(db_path).unwrap();
     }
@@ -563,6 +564,7 @@ mod tests {
             .unwrap();
 
         let conn2 = &store.conn().unwrap();
+        log::info!("Getting conn 2");
         let fetched_identity: StoredIdentity = conn2.fetch(&()).unwrap().unwrap();
         assert_eq!(fetched_identity.inbox_id, inbox_id);
     }
@@ -718,23 +720,5 @@ mod tests {
         // this group should not exist because of the rollback
         let groups = conn.find_group(b"should not exist".to_vec()).unwrap();
         assert_eq!(groups, None);
-    }
-
-    #[test]
-    fn test_encryption_key_formatting() {
-        let conn = EncryptedConnection {
-            key: [0; 32],
-            salt: [1; 16],
-        };
-
-        assert_eq!(
-            &format!("{:x}", conn),
-            "\
-                0000000000000000000000000000000000000000000000000000000000000000\
-                01010101010101010101010101010101\
-            "
-        );
-        let bytes = hex::decode(format!("{:x}", conn)).unwrap();
-        assert_eq!(bytes.len(), 32 + 16);
     }
 }

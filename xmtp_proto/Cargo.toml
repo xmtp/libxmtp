@@ -5,14 +5,12 @@ version.workspace = true
 
 [dependencies]
 futures = { workspace = true }
-futures-core = { workspace = true }
 pbjson-types.workspace = true
 pbjson.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
 # Only necessary if using Protobuf well-known types:
 prost-types = { workspace = true }
 serde = { workspace = true }
-openmls_basic_credential = { workspace = true, optional = true }
 openmls = { workspace = true, optional = true }
 trait-variant = "0.1.2"
 
@@ -21,7 +19,7 @@ tonic = { workspace = true }
 
 
 [features]
-convert = ["openmls_basic_credential", "openmls", "proto_full"]
+convert = ["openmls", "proto_full"]
 default = []
 
 # @@protoc_deletion_point(features)
