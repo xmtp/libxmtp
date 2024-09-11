@@ -33,8 +33,6 @@ use diesel::{
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use parking_lot::RwLock;
-use rand::RngCore;
-use xmtp_cryptography::utils as crypto_utils;
 
 use self::{
     db_connection::DbConnection,
@@ -282,12 +280,6 @@ impl EncryptedMessageStore {
         }
     }
 
-    pub fn generate_enc_key() -> EncryptionKey {
-        let mut key = [0u8; 32];
-        crypto_utils::rng().fill_bytes(&mut key[..]);
-        key
-    }
-
     pub fn release_connection(&self) -> Result<(), StorageError> {
         let mut pool_guard = self.pool.write();
         pool_guard.take();
@@ -440,6 +432,12 @@ mod tests {
     }
 
     impl EncryptedMessageStore {
+        pub fn generate_enc_key() -> EncryptionKey {
+            let mut key = [0u8; 32];
+            crypto_utils::rng().fill_bytes(&mut key[..]);
+            key
+        }
+
         pub fn new_test() -> Self {
             let tmp_path = tmp_path();
             EncryptedMessageStore::new(
