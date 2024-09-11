@@ -422,7 +422,7 @@ mod tests {
         utils::test::{rand_vec, tmp_path},
         Fetch, Store,
     };
-    use std::{fs, sync::Arc};
+    use std::sync::Arc;
 
     /// Test harness that loads an Ephemeral store.
     pub fn with_connection<F, R>(fun: F) -> R

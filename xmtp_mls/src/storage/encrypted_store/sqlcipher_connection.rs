@@ -18,6 +18,7 @@ use crate::storage::StorageError;
 use super::StorageOption;
 
 pub type EncryptionKey = [u8; 32];
+pub type Salt = [u8; 16];
 const PLAINTEXT_HEADER_SIZE: usize = 32;
 const SALT_FILE_NAME: &str = "sqlcipher_salt";
 
@@ -44,9 +45,9 @@ struct SqliteJournalMode {
 /// Specialized Connection for r2d2 connection pool.
 #[derive(Clone, Debug)]
 pub struct EncryptedConnection {
-    key: [u8; 32],
+    key: EncryptionKey,
     /// We don't store the salt for Ephemeral Dbs
-    salt: Option<[u8; 16]>,
+    salt: Option<Salt>,
 }
 
 impl EncryptedConnection {
@@ -64,7 +65,7 @@ impl EncryptedConnection {
                     // db and salt exist
                     (true, true) => {
                         let file = File::open(salt_path)?;
-                        salt = <[u8; 16] as hex::FromHex>::from_hex(
+                        salt = <Salt as hex::FromHex>::from_hex(
                             file.bytes().take(32).collect::<Result<Vec<u8>, _>>()?,
                         )?;
                     }
