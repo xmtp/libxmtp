@@ -518,6 +518,7 @@ impl TryFrom<String> for AccountId {
         if !chain_id_regex.is_match(&chain_id) || !account_address_regex.is_match(account_address) {
             return Err(DeserializationError::InvalidAccountId);
         }
+
         Ok(AccountId {
             chain_id: chain_id.to_string(),
             account_address: account_address.to_string(),
@@ -683,5 +684,14 @@ mod tests {
             result,
             Err(DeserializationError::InvalidAccountId)
         ));
+    }
+
+    #[test]
+    fn test_account_id_create() {
+        let address = "0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb".to_string();
+        let chain_id = 12;
+        let account_id = AccountId::new_evm(chain_id, address.clone());
+        assert_eq!(account_id.account_address, address);
+        assert_eq!(account_id.chain_id, "eip155:12");
     }
 }

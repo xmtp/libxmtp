@@ -170,7 +170,7 @@ impl WasmClient {
   pub fn add_scw_signature(
     &mut self,
     signature_bytes: Uint8Array,
-    chain_id: String,
+    chain_id: u64,
     account_address: String,
     chain_rpc_url: String,
     block_number: u64,
@@ -186,7 +186,7 @@ impl WasmClient {
       None => return Err(JsError::new("No signature text found")),
     };
 
-    let account_id = AccountId::new(chain_id, account_address.clone());
+    let account_id = AccountId::new_evm(chain_id, account_address.clone());
 
     let signature = Box::new(SmartContractWalletSignature::new(
       signature_text,

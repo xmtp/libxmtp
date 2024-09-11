@@ -1,5 +1,6 @@
 use super::MemberIdentifier;
 use crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
+use crate::scw_verifier::SmartContractSignatureVerifier;
 use async_trait::async_trait;
 use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey};
 use ethers::{
@@ -164,9 +165,15 @@ impl AccountId {
             account_address,
         }
     }
+
+    pub fn new_evm(chain_id: u64, account_address: String) -> Self {
+        Self::new(format!("eip155:{}", chain_id), account_address)
+    }
+
     pub fn is_evm_chain(&self) -> bool {
         self.chain_id.starts_with("eip155")
     }
+
     pub fn get_account_address(&self) -> &str {
         &self.account_address
     }
@@ -210,7 +217,7 @@ impl SmartContractWalletSignature {
         let provider = Provider::<Http>::try_from(&chain_rpc_url)?;
         let block_number = provider.get_block_number().await?;
         let chain_id = provider.get_chainid().await?;
-        let account_id = AccountId::new(chain_id.to_string(), account_address);
+        let account_id = AccountId::new_evm(chain_id.as_u64(), account_address);
         Ok(SmartContractWalletSignature::new(
             signature_text,
             signature_bytes,
@@ -225,10 +232,10 @@ impl SmartContractWalletSignature {
 impl Signature for SmartContractWalletSignature {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         let verifier =
-            crate::scw_verifier::SmartContractWalletVerifier::new(self.chain_rpc_url.clone());
+            crate::scw_verifier::RpcSmartContractWalletVerifier::new(self.chain_rpc_url.clone());
         let is_valid = verifier
             .is_valid_signature(
-                self.account_id.get_account_address().parse()?,
+                self.account_id.clone(),
                 hash_message(self.signature_text.clone()).into(), // the hash function should match the one used by the user wallet
                 &self.bytes().into(),
                 Some(BlockNumber::Number(U64::from(self.block_number))),

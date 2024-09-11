@@ -174,7 +174,7 @@ impl NapiClient {
   pub fn add_scw_signature(
     &mut self,
     signature_bytes: Uint8Array,
-    chain_id: String,
+    chain_id: BigInt,
     account_address: String,
     chain_rpc_url: String,
     block_number: BigInt,
@@ -190,7 +190,9 @@ impl NapiClient {
       None => return Err(Error::from_reason("No signature text found")),
     };
 
-    let account_id = AccountId::new(chain_id, account_address.clone());
+    let (_, chain_id_u64, _) = chain_id.get_u64();
+
+    let account_id = AccountId::new_evm(chain_id_u64, account_address.clone());
 
     let signature = Box::new(SmartContractWalletSignature::new(
       signature_text,
