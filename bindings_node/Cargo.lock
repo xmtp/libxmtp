@@ -2225,15 +2225,6 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
@@ -3275,7 +3266,7 @@ checksum = "5bb182580f71dd070f88d01ce3de9f4da5021db7115d2e1c3605a754153b77c1"
 dependencies = [
  "bytes",
  "heck 0.5.0",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "log",
  "multimap",
  "once_cell",
@@ -3295,7 +3286,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "18bec9b0adc4eba778b33684b7ba3e7137789434769ee3ce3930463ef904cfca"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.64",
@@ -4075,17 +4066,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 
 [[package]]
-name = "smart-default"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0eb01866308440fc64d6c44d9e86c5cc17adfe33c4d6eed55da9145044d0ffc1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.64",
-]
-
-[[package]]
 name = "socket2"
 version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4645,6 +4625,17 @@ checksum = "97d095ae15e245a057c8e8451bab9b3ee1e1f68e9ba2b4fbc18d0ac5237835f2"
 dependencies = [
  "pin-project",
  "tracing",
+]
+
+[[package]]
+name = "trait-variant"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70977707304198400eb4835a78f6a9f928bf41bba420deb8fdb175cd965d77a7"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.64",
 ]
 
 [[package]]
@@ -5229,7 +5220,6 @@ dependencies = [
  "curve25519-dalek",
  "ecdsa 0.16.9",
  "ethers",
- "ethers-core",
  "getrandom",
  "hex",
  "k256 0.13.3",
@@ -5252,7 +5242,6 @@ dependencies = [
  "ed25519",
  "ed25519-dalek",
  "ethers",
- "ethers-core",
  "futures",
  "hex",
  "log",
@@ -5280,14 +5269,11 @@ version = "0.0.1"
 dependencies = [
  "aes-gcm",
  "async-stream",
- "async-trait",
  "bincode",
  "chrono",
  "diesel",
  "diesel_migrations",
  "ed25519-dalek",
- "ethers",
- "ethers-core",
  "futures",
  "hex",
  "libsqlite3-sys",
@@ -5303,13 +5289,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "smart-default",
  "thiserror",
  "tls_codec",
  "tokio",
  "tokio-stream",
  "toml",
  "tracing",
+ "trait-variant",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_proto",
@@ -5320,7 +5306,6 @@ dependencies = [
 name = "xmtp_proto"
 version = "0.0.1"
 dependencies = [
- "async-trait",
  "futures",
  "futures-core",
  "openmls",
@@ -5331,6 +5316,7 @@ dependencies = [
  "prost-types",
  "serde",
  "tonic",
+ "trait-variant",
 ]
 
 [[package]]

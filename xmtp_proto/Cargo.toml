@@ -4,7 +4,6 @@ name = "xmtp_proto"
 version.workspace = true
 
 [dependencies]
-async-trait = { workspace = true }
 futures = { workspace = true }
 futures-core = { workspace = true }
 pbjson-types.workspace = true
@@ -15,6 +14,7 @@ prost-types = { workspace = true }
 serde = { workspace = true }
 openmls_basic_credential = { workspace = true, optional = true }
 openmls = { workspace = true, optional = true }
+trait-variant = "0.1.2"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tonic = { workspace = true }

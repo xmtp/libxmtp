@@ -3502,7 +3502,7 @@ checksum = "5bb182580f71dd070f88d01ce3de9f4da5021db7115d2e1c3605a754153b77c1"
 dependencies = [
  "bytes",
  "heck 0.5.0",
- "itertools 0.11.0",
+ "itertools 0.13.0",
  "log",
  "multimap",
  "once_cell",
@@ -3522,7 +3522,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "18bec9b0adc4eba778b33684b7ba3e7137789434769ee3ce3930463ef904cfca"
 dependencies = [
  "anyhow",
- "itertools 0.11.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.48",
@@ -4360,17 +4360,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6ecd384b10a64542d77071bd64bd7b231f4ed5940fba55e98c3de13824cf3d7"
 
 [[package]]
-name = "smart-default"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0eb01866308440fc64d6c44d9e86c5cc17adfe33c4d6eed55da9145044d0ffc1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.48",
-]
-
-[[package]]
 name = "smawk"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5038,6 +5027,17 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "trait-variant"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70977707304198400eb4835a78f6a9f928bf41bba420deb8fdb175cd965d77a7"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.48",
 ]
 
 [[package]]
@@ -5772,7 +5772,6 @@ dependencies = [
  "curve25519-dalek",
  "ecdsa 0.16.9",
  "ethers",
- "ethers-core",
  "getrandom",
  "hex",
  "k256 0.13.3",
@@ -5795,7 +5794,6 @@ dependencies = [
  "ed25519",
  "ed25519-dalek",
  "ethers",
- "ethers-core",
  "futures",
  "hex",
  "log",
@@ -5823,14 +5821,11 @@ version = "0.0.1"
 dependencies = [
  "aes-gcm",
  "async-stream",
- "async-trait",
  "bincode",
  "chrono",
  "diesel",
  "diesel_migrations",
  "ed25519-dalek",
- "ethers",
- "ethers-core",
  "futures",
  "hex",
  "libsqlite3-sys",
@@ -5846,13 +5841,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "smart-default",
  "thiserror",
  "tls_codec",
  "tokio",
  "tokio-stream",
  "toml 0.8.8",
  "tracing",
+ "trait-variant",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_proto",
@@ -5863,7 +5858,6 @@ dependencies = [
 name = "xmtp_proto"
 version = "0.0.1"
 dependencies = [
- "async-trait",
  "futures",
  "futures-core",
  "openmls",
@@ -5874,6 +5868,7 @@ dependencies = [
  "prost-types",
  "serde",
  "tonic",
+ "trait-variant",
 ]
 
 [[package]]
@@ -5910,10 +5905,10 @@ version = "0.0.1"
 dependencies = [
  "env_logger",
  "ethers",
- "ethers-core",
  "futures",
  "log",
  "parking_lot",
+ "rand",
  "tempfile",
  "thiserror",
  "thread-id",

@@ -4,7 +4,6 @@
 #![allow(clippy::unwrap_used)]
 
 use crate::{builder::ClientBuilder, Client};
-use ethers::signers::{LocalWallet, Signer};
 use indicatif::{ProgressBar, ProgressStyle};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
@@ -18,7 +17,8 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
     EnvFilter,
 };
-use xmtp_cryptography::utils::rng;
+use xmtp_cryptography::utils::generate_local_wallet;
+use xmtp_id::InboxOwner;
 
 use super::test::TestClient;
 
@@ -126,13 +126,13 @@ impl Identity {
 }
 
 async fn create_identity(is_dev_network: bool) -> Identity {
-    let wallet = LocalWallet::new(&mut rng());
+    let wallet = generate_local_wallet();
     let client = if is_dev_network {
         ClientBuilder::new_dev_client(&wallet).await
     } else {
         ClientBuilder::new_test_client(&wallet).await
     };
-    Identity::new(client.inbox_id(), format!("0x{:x}", wallet.address()))
+    Identity::new(client.inbox_id(), wallet.get_address())
 }
 
 async fn create_identities(n: usize, is_dev_network: bool) -> Vec<Identity> {

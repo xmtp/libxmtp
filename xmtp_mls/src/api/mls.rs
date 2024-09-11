@@ -2,9 +2,7 @@ use std::collections::HashMap;
 
 use super::ApiClientWrapper;
 use crate::{retry_async, XmtpApi};
-use xmtp_proto::api_client::{
-    Error as ApiError, ErrorKind, GroupMessageStream, WelcomeMessageStream,
-};
+use xmtp_proto::api_client::{Error as ApiError, ErrorKind};
 use xmtp_proto::xmtp::mls::api::v1::{
     group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
     subscribe_group_messages_request::Filter as GroupFilterProto,
@@ -264,7 +262,7 @@ where
     pub async fn subscribe_group_messages(
         &self,
         filters: Vec<GroupFilter>,
-    ) -> Result<GroupMessageStream, ApiError> {
+    ) -> Result<impl futures::Stream<Item = Result<GroupMessage, ApiError>> + '_, ApiError> {
         self.api_client
             .subscribe_group_messages(SubscribeGroupMessagesRequest {
                 filters: filters.into_iter().map(|f| f.into()).collect(),
@@ -276,7 +274,7 @@ where
         &self,
         installation_key: Vec<u8>,
         id_cursor: Option<u64>,
-    ) -> Result<WelcomeMessageStream, ApiError> {
+    ) -> Result<impl futures::Stream<Item = Result<WelcomeMessage, ApiError>> + '_, ApiError> {
         self.api_client
             .subscribe_welcome_messages(SubscribeWelcomeMessagesRequest {
                 filters: vec![WelcomeFilterProto {

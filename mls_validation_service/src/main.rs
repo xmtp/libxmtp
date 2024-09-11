@@ -10,6 +10,7 @@ use health_check::health_check_server;
 use tokio::signal::unix::{signal, SignalKind};
 use tonic::transport::Server;
 
+use xmtp_id::scw_verifier::RpcSmartContractWalletVerifier;
 use xmtp_proto::xmtp::mls_validation::v1::validation_api_server::ValidationApiServer;
 
 #[macro_use]
@@ -27,8 +28,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let health_server = health_check_server(args.health_check_port as u16);
 
+    // TODO:nm replace with real verifier
+    let scw_verifier = RpcSmartContractWalletVerifier::new("http://fixme.com".to_string());
+
     let grpc_server = Server::builder()
-        .add_service(ValidationApiServer::new(ValidationService::default()))
+        .add_service(ValidationApiServer::new(ValidationService::new(
+            scw_verifier,
+        )))
         .serve_with_shutdown(addr, async {
             wait_for_quit().await;
             info!("Shutdown signal received");

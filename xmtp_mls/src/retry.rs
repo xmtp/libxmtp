@@ -19,7 +19,6 @@
 use std::time::Duration;
 
 use rand::Rng;
-use smart_default::SmartDefault;
 
 /// Specifies which errors are retryable.
 /// All Errors are not retryable by-default.
@@ -28,17 +27,24 @@ pub trait RetryableError: std::error::Error {
 }
 
 /// Options to specify how to retry a function
-#[derive(SmartDefault, Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct Retry {
-    #[default = 5]
     retries: usize,
-    #[default(_code = "std::time::Duration::from_millis(50)")]
     duration: std::time::Duration,
-    #[default = 3]
     // The amount to multiply the duration on each subsequent attempt
     multiplier: u32,
-    #[default = 25]
     max_jitter_ms: usize,
+}
+
+impl Default for Retry {
+    fn default() -> Self {
+        Self {
+            retries: 5,
+            duration: std::time::Duration::from_millis(50),
+            multiplier: 3,
+            max_jitter_ms: 25,
+        }
+    }
 }
 
 impl Retry {
@@ -119,7 +125,7 @@ impl Retry {
 /// ```
 /// use xmtp_mls::{retry_async, retry::{RetryableError, Retry}};
 /// use thiserror::Error;
-/// use flume::bounded;
+/// use tokio::sync::mpsc;
 ///
 /// #[derive(Debug, Error)]
 /// enum MyError {
@@ -138,8 +144,8 @@ impl Retry {
 ///     }
 /// }
 ///
-/// async fn fallable_fn(rx: &flume::Receiver<usize>) -> Result<(), MyError> {
-///     if rx.recv_async().await.unwrap() == 2 {
+/// async fn fallable_fn(rx: &mut mpsc::Receiver<usize>) -> Result<(), MyError> {
+///     if rx.recv().await.unwrap() == 2 {
 ///         return Ok(());
 ///     }
 ///     Err(MyError::Retryable)
@@ -147,14 +153,14 @@ impl Retry {
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), MyError> {
-///     
-///     let (tx, rx) = flume::bounded(3);
+///
+///     let (tx, mut rx) = mpsc::channel(3);
 ///
 ///     for i in 0..3 {
-///         tx.send(i).unwrap();
+///         tx.send(i).await.unwrap();
 ///     }
 ///     retry_async!(Retry::default(), (async {
-///         fallable_fn(&rx.clone()).await
+///         fallable_fn(&mut rx).await
 ///     }))
 /// }
 /// ```
@@ -211,6 +217,7 @@ impl RetryableError for xmtp_proto::api_client::Error {
 mod tests {
     use super::*;
     use thiserror::Error;
+    use tokio::sync::mpsc;
 
     #[derive(Debug, Error)]
     enum SomeError {
@@ -291,8 +298,8 @@ mod tests {
 
     #[tokio::test]
     async fn it_works_async() {
-        async fn retryable_async_fn(rx: &flume::Receiver<usize>) -> Result<(), SomeError> {
-            let val = rx.recv_async().await.unwrap();
+        async fn retryable_async_fn(rx: &mut mpsc::Receiver<usize>) -> Result<(), SomeError> {
+            let val = rx.recv().await.unwrap();
             if val == 2 {
                 return Ok(());
             }
@@ -301,14 +308,14 @@ mod tests {
             Err(SomeError::ARetryableError)
         }
 
-        let (tx, rx) = flume::bounded(3);
+        let (tx, mut rx) = mpsc::channel(3);
 
         for i in 0..3 {
-            tx.send(i).unwrap();
+            tx.send(i).await.unwrap();
         }
         retry_async!(
             Retry::default(),
-            (async { retryable_async_fn(&rx.clone()).await })
+            (async { retryable_async_fn(&mut rx).await })
         )
         .unwrap();
         assert!(rx.is_empty());

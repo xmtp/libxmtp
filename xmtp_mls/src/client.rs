@@ -27,8 +27,9 @@ use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationErro
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestError},
-        AssociationError, AssociationState,
+        AssociationError, AssociationState, SignatureError,
     },
+    scw_verifier::{RpcSmartContractWalletVerifier, SmartContractSignatureVerifier},
     InboxId,
 };
 
@@ -96,6 +97,8 @@ pub enum ClientError {
     StreamInconsistency(String),
     #[error("Association error: {0}")]
     Association(#[from] AssociationError),
+    #[error("signature validation error: {0}")]
+    SignatureValidation(#[from] SignatureError),
     #[error(transparent)]
     IdentityUpdate(#[from] IdentityUpdateError),
     #[error(transparent)]
@@ -357,6 +360,12 @@ where
 
     pub fn context(&self) -> &Arc<XmtpMlsLocalContext> {
         &self.context
+    }
+
+    // TODO:nm Replace with real implementation
+    pub fn smart_contract_signature_verifier(&self) -> Box<dyn SmartContractSignatureVerifier> {
+        let scw_verifier = RpcSmartContractWalletVerifier::new("http://www.fake.com".to_string());
+        Box::new(scw_verifier)
     }
 
     /// Create a new group with the default settings
@@ -1018,7 +1027,7 @@ mod tests {
         let mut bola_messages = bola_group
             .find_messages(None, None, None, None, None)
             .unwrap();
-        // TODO:nm figure out why the transcript message is no longer decryptable
+
         assert_eq!(bola_messages.len(), 1);
 
         // Add Bola back to the group
