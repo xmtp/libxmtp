@@ -1,10 +1,7 @@
 use super::{
     builder::SignatureRequest,
     unsigned_actions::UnsignedCreateInbox,
-    unverified::{
-        UnverifiedAction, UnverifiedCreateInbox, UnverifiedInstallationKeySignature,
-        UnverifiedRecoverableEcdsaSignature, UnverifiedSignature,
-    },
+    unverified::{UnverifiedAction, UnverifiedCreateInbox, UnverifiedSignature},
     AccountId,
 };
 use crate::{
@@ -66,9 +63,9 @@ impl SmartContractSignatureVerifier for MockSmartContractSignatureVerifier {
 pub async fn add_wallet_signature(signature_request: &mut SignatureRequest, wallet: &LocalWallet) {
     let signature_text = signature_request.signature_text();
     let sig = wallet.sign_message(signature_text).await.unwrap().to_vec();
-    let unverified_sig =
-        UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(sig));
+    let unverified_sig = UnverifiedSignature::new_recoverable_ecdsa(sig);
     let scw_verifier = MockSmartContractSignatureVerifier::new(false);
+
     signature_request
         .add_signature(unverified_sig, &scw_verifier)
         .await
@@ -87,11 +84,10 @@ pub async fn add_installation_key_signature(
     let sig = installation_key
         .sign_prehashed(prehashed, Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))
         .unwrap();
-    let unverified_sig =
-        UnverifiedSignature::InstallationKey(UnverifiedInstallationKeySignature::new(
-            sig.to_bytes().to_vec(),
-            verifying_key.as_bytes().to_vec(),
-        ));
+    let unverified_sig = UnverifiedSignature::new_installation_key(
+        sig.to_bytes().to_vec(),
+        verifying_key.as_bytes().to_vec(),
+    );
 
     signature_request
         .add_signature(
@@ -102,12 +98,6 @@ pub async fn add_installation_key_signature(
         .expect("should succeed");
 }
 
-impl UnverifiedSignature {
-    pub fn new_test_recoverable_ecdsa(signature: Vec<u8>) -> Self {
-        Self::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(signature))
-    }
-}
-
 impl UnverifiedAction {
     pub fn new_test_create_inbox(account_address: &str, nonce: &u64) -> Self {
         Self::CreateInbox(UnverifiedCreateInbox::new(
@@ -115,7 +105,7 @@ impl UnverifiedAction {
                 account_address: account_address.to_owned(),
                 nonce: *nonce,
             },
-            UnverifiedSignature::new_test_recoverable_ecdsa(vec![1, 2, 3]),
+            UnverifiedSignature::new_recoverable_ecdsa(vec![1, 2, 3]),
         ))
     }
 }

@@ -10,9 +10,9 @@ use super::{
     },
     unverified::{
         UnverifiedAction, UnverifiedAddAssociation, UnverifiedChangeRecoveryAddress,
-        UnverifiedCreateInbox, UnverifiedErc6492Signature, UnverifiedIdentityUpdate,
-        UnverifiedInstallationKeySignature, UnverifiedLegacyDelegatedSignature,
-        UnverifiedRecoverableEcdsaSignature, UnverifiedRevokeAssociation, UnverifiedSignature,
+        UnverifiedCreateInbox, UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature,
+        UnverifiedLegacyDelegatedSignature, UnverifiedRecoverableEcdsaSignature,
+        UnverifiedRevokeAssociation, UnverifiedSignature, UnverifiedSmartContractWalletSignature,
     },
     verified_signature::VerifiedSignature,
     MemberIdentifier, SignatureError,
@@ -168,13 +168,13 @@ impl TryFrom<SignatureWrapperProto> for UnverifiedSignature {
             SignatureKindProto::InstallationKey(sig) => UnverifiedSignature::InstallationKey(
                 UnverifiedInstallationKeySignature::new(sig.bytes, sig.public_key),
             ),
-            SignatureKindProto::Erc6492(sig) => {
-                UnverifiedSignature::Erc6492(UnverifiedErc6492Signature::new(
+            SignatureKindProto::Erc6492(sig) => UnverifiedSignature::SmartContractWallet(
+                UnverifiedSmartContractWalletSignature::new(
                     sig.signature,
                     sig.account_id.try_into()?,
                     sig.block_number,
-                ))
-            }
+                ),
+            ),
         };
 
         Ok(unverified_sig)
@@ -252,7 +252,7 @@ impl From<UnverifiedAction> for IdentityActionProto {
 impl From<UnverifiedSignature> for SignatureWrapperProto {
     fn from(value: UnverifiedSignature) -> Self {
         let signature = match value {
-            UnverifiedSignature::Erc6492(sig) => {
+            UnverifiedSignature::SmartContractWallet(sig) => {
                 SignatureKindProto::Erc6492(SmartContractWalletSignatureProto {
                     account_id: sig.account_id.into(),
                     block_number: sig.block_number,
@@ -565,15 +565,42 @@ mod tests {
         let identity_update = UnverifiedIdentityUpdate::new(
             inbox_id,
             client_timestamp_ns,
-            vec![UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
-                initial_address_signature: UnverifiedSignature::RecoverableEcdsa(
-                    UnverifiedRecoverableEcdsaSignature::new(signature_bytes),
-                ),
-                unsigned_action: UnsignedCreateInbox {
-                    nonce,
-                    account_address,
-                },
-            })],
+            vec![
+                UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
+                    initial_address_signature: UnverifiedSignature::RecoverableEcdsa(
+                        UnverifiedRecoverableEcdsaSignature::new(signature_bytes),
+                    ),
+                    unsigned_action: UnsignedCreateInbox {
+                        nonce,
+                        account_address,
+                    },
+                }),
+                UnverifiedAction::AddAssociation(UnverifiedAddAssociation {
+                    new_member_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![1, 2, 3]),
+                    existing_member_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![
+                        4, 5, 6,
+                    ]),
+                    unsigned_action: UnsignedAddAssociation {
+                        new_member_identifier: rand_string().into(),
+                    },
+                }),
+                UnverifiedAction::ChangeRecoveryAddress(UnverifiedChangeRecoveryAddress {
+                    recovery_address_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![
+                        7, 8, 9,
+                    ]),
+                    unsigned_action: UnsignedChangeRecoveryAddress {
+                        new_recovery_address: rand_string(),
+                    },
+                }),
+                UnverifiedAction::RevokeAssociation(UnverifiedRevokeAssociation {
+                    recovery_address_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![
+                        10, 11, 12,
+                    ]),
+                    unsigned_action: UnsignedRevokeAssociation {
+                        revoked_member: rand_string().into(),
+                    },
+                }),
+            ],
         );
 
         let serialized_update = IdentityUpdateProto::from(identity_update.clone());
@@ -582,12 +609,14 @@ mod tests {
             serialized_update.client_timestamp_ns,
             identity_update.client_timestamp_ns
         );
-        assert_eq!(serialized_update.actions.len(), 1);
+        assert_eq!(serialized_update.actions.len(), 4);
 
         let deserialized_update: UnverifiedIdentityUpdate = serialized_update
             .clone()
             .try_into()
             .expect("deserialization error");
+
+        assert_eq!(deserialized_update, identity_update);
 
         let reserialized = IdentityUpdateProto::from(deserialized_update);
 

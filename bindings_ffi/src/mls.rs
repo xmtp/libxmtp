@@ -7,8 +7,6 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use tokio::{sync::Mutex, task::AbortHandle};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_id::associations::unverified::UnverifiedErc6492Signature;
-use xmtp_id::associations::unverified::UnverifiedRecoverableEcdsaSignature;
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::AccountId;
 use xmtp_id::associations::AssociationState;
@@ -194,9 +192,7 @@ impl FfiSignatureRequest {
         let mut inner = self.inner.lock().await;
         inner
             .add_signature(
-                UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(
-                    signature_bytes,
-                )),
+                UnverifiedSignature::new_recoverable_ecdsa(signature_bytes),
                 &signature_verifier(),
             )
             .await?;
@@ -215,11 +211,11 @@ impl FfiSignatureRequest {
         let mut inner = self.inner.lock().await;
         let account_id = AccountId::new_evm(chain_id, address);
 
-        let signature = UnverifiedSignature::Erc6492(UnverifiedErc6492Signature::new(
+        let signature = UnverifiedSignature::new_smart_contract_wallet(
             signature_bytes,
             account_id,
             block_number,
-        ));
+        );
         inner
             .add_signature(signature, &signature_verifier())
             .await?;

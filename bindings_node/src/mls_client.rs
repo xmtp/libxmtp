@@ -7,9 +7,7 @@ use std::sync::Arc;
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
-use xmtp_id::associations::unverified::{
-  UnverifiedErc6492Signature, UnverifiedRecoverableEcdsaSignature, UnverifiedSignature,
-};
+use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AccountId, MemberIdentifier};
 use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::builder::ClientBuilder;
@@ -153,9 +151,7 @@ impl NapiClient {
       ));
     }
 
-    let signature = UnverifiedSignature::RecoverableEcdsa(
-      UnverifiedRecoverableEcdsaSignature::new(signature_bytes.deref().to_vec()),
-    );
+    let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.deref().to_vec());
 
     self.signatures.insert(
       MemberIdentifier::Address(self.account_address.clone().to_lowercase()),
@@ -185,11 +181,11 @@ impl NapiClient {
 
     let account_id = AccountId::new_evm(chain_id_u64, account_address.clone());
 
-    let signature = UnverifiedSignature::Erc6492(UnverifiedErc6492Signature::new(
+    let signature = UnverifiedSignature::new_smart_contract_wallet(
       signature_bytes.deref().to_vec(),
       account_id,
       block_number.get_u64().1,
-    ));
+    );
 
     self.signatures.insert(
       MemberIdentifier::Address(account_address.clone().to_lowercase()),

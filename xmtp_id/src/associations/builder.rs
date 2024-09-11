@@ -239,7 +239,7 @@ impl SignatureRequest {
             return Err(SignatureRequestError::UnknownSigner);
         }
 
-        self.signatures.insert(signer_identity.clone(), signature);
+        self.signatures.insert(verified_sig.signer, signature);
 
         Ok(())
     }

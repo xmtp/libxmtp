@@ -14,7 +14,7 @@ use super::{
 use futures::future::try_join_all;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedIdentityUpdate {
     pub inbox_id: String,
     pub client_timestamp_ns: u64,
@@ -73,7 +73,7 @@ impl UnverifiedIdentityUpdate {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum UnverifiedAction {
     CreateInbox(UnverifiedCreateInbox),
     AddAssociation(UnverifiedAddAssociation),
@@ -164,7 +164,7 @@ impl UnverifiedAction {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedCreateInbox {
     pub(crate) unsigned_action: UnsignedCreateInbox,
     pub(crate) initial_address_signature: UnverifiedSignature,
@@ -182,7 +182,7 @@ impl UnverifiedCreateInbox {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedAddAssociation {
     pub(crate) unsigned_action: UnsignedAddAssociation,
     pub(crate) new_member_signature: UnverifiedSignature,
@@ -202,7 +202,7 @@ impl UnverifiedAddAssociation {
         }
     }
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedRevokeAssociation {
     pub(crate) recovery_address_signature: UnverifiedSignature,
     pub(crate) unsigned_action: UnsignedRevokeAssociation,
@@ -220,7 +220,7 @@ impl UnverifiedRevokeAssociation {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedChangeRecoveryAddress {
     pub(crate) recovery_address_signature: UnverifiedSignature,
     pub(crate) unsigned_action: UnsignedChangeRecoveryAddress,
@@ -238,11 +238,11 @@ impl UnverifiedChangeRecoveryAddress {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum UnverifiedSignature {
     InstallationKey(UnverifiedInstallationKeySignature),
     RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature),
-    Erc6492(UnverifiedErc6492Signature),
+    SmartContractWallet(UnverifiedSmartContractWalletSignature),
     LegacyDelegated(UnverifiedLegacyDelegatedSignature),
 }
 
@@ -261,7 +261,7 @@ impl UnverifiedSignature {
             UnverifiedSignature::RecoverableEcdsa(sig) => {
                 VerifiedSignature::from_recoverable_ecdsa(signature_text, &sig.signature_bytes)
             }
-            UnverifiedSignature::Erc6492(sig) => {
+            UnverifiedSignature::SmartContractWallet(sig) => {
                 VerifiedSignature::from_smart_contract_wallet(
                     signature_text,
                     scw_verifier,
@@ -278,9 +278,42 @@ impl UnverifiedSignature {
             ),
         }
     }
+
+    pub fn new_recoverable_ecdsa(signature: Vec<u8>) -> Self {
+        Self::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(signature))
+    }
+
+    pub fn new_installation_key(signature: Vec<u8>, verifying_key: Vec<u8>) -> Self {
+        Self::InstallationKey(UnverifiedInstallationKeySignature::new(
+            signature,
+            verifying_key,
+        ))
+    }
+
+    pub fn new_smart_contract_wallet(
+        signature: Vec<u8>,
+        account_id: AccountId,
+        block_number: u64,
+    ) -> Self {
+        Self::SmartContractWallet(UnverifiedSmartContractWalletSignature::new(
+            signature,
+            account_id,
+            block_number,
+        ))
+    }
+
+    pub fn new_legacy_delegated(
+        signature: Vec<u8>,
+        signed_public_key_proto: LegacySignedPublicKeyProto,
+    ) -> Self {
+        Self::LegacyDelegated(UnverifiedLegacyDelegatedSignature::new(
+            UnverifiedRecoverableEcdsaSignature::new(signature),
+            signed_public_key_proto,
+        ))
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedInstallationKeySignature {
     pub(crate) signature_bytes: Vec<u8>,
     pub(crate) verifying_key: Vec<u8>,
@@ -295,7 +328,7 @@ impl UnverifiedInstallationKeySignature {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedRecoverableEcdsaSignature {
     pub(crate) signature_bytes: Vec<u8>,
 }
@@ -306,14 +339,14 @@ impl UnverifiedRecoverableEcdsaSignature {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct UnverifiedErc6492Signature {
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnverifiedSmartContractWalletSignature {
     pub(crate) signature_bytes: Vec<u8>,
     pub(crate) account_id: AccountId,
     pub(crate) block_number: u64,
 }
 
-impl UnverifiedErc6492Signature {
+impl UnverifiedSmartContractWalletSignature {
     pub fn new(signature_bytes: Vec<u8>, account_id: AccountId, block_number: u64) -> Self {
         Self {
             signature_bytes,
@@ -323,7 +356,7 @@ impl UnverifiedErc6492Signature {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedLegacyDelegatedSignature {
     pub(crate) legacy_key_signature: UnverifiedRecoverableEcdsaSignature,
     pub(crate) signed_public_key_proto: LegacySignedPublicKeyProto,
