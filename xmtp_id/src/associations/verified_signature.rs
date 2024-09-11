@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+
 use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey as Ed25519VerifyingKey};
 use ethers::types::{BlockNumber, Signature as EthersSignature, U64};
 use ethers::utils::hash_message;
@@ -48,6 +49,25 @@ impl VerifiedSignature {
         ))
     }
 
+    pub fn from_recoverable_ecdsa_with_expected_address<Text: AsRef<str>>(
+        signature_text: Text,
+        signature_bytes: &[u8],
+        expected_address: Text,
+    ) -> Result<Self, SignatureError> {
+        let partially_verified = Self::from_recoverable_ecdsa(signature_text, signature_bytes)?;
+        if partially_verified
+            .signer
+            .address()
+            .ok_or(SignatureError::Invalid)?
+            .to_lowercase()
+            != expected_address.as_ref().to_lowercase()
+        {
+            return Err(SignatureError::Invalid);
+        }
+
+        Ok(partially_verified)
+    }
+
     /**
      * Verifies an installation key signature against the provided signature text and verifying key bytes.
      * Returns a VerifiedSignature if the signature is valid, otherwise returns an error.
@@ -94,7 +114,9 @@ impl VerifiedSignature {
         Ok(Self::new(
             MemberIdentifier::Address(signed_public_key.account_address.to_lowercase()),
             SignatureKind::LegacyDelegated,
-            signature_bytes.to_vec(),
+            // Must use the wallet signature bytes, since those are the ones we care about making unique.
+            // This protects against using the legacy key more than once in the Identity Update Log
+            signed_public_key.wallet_signature.raw_bytes,
         ))
     }
 
@@ -132,7 +154,7 @@ mod tests {
     use crate::{
         associations::{
             sign_with_legacy_key, verified_signature::VerifiedSignature, MemberIdentifier,
-            Signature, SignatureKind,
+            SignatureKind,
         },
         constants::INSTALLATION_KEY_SIGNATURE_CONTEXT,
         InboxOwner,
@@ -141,7 +163,8 @@ mod tests {
     use ethers::signers::{LocalWallet, Signer};
     use prost::Message;
     use xmtp_proto::xmtp::message_contents::{
-        signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto,
+        signature::Union as SignatureUnion, signed_private_key,
+        SignedPrivateKey as LegacySignedPrivateKeyProto,
     };
     use xmtp_v2::k256_helper::sign_sha256;
 
@@ -271,16 +294,29 @@ mod tests {
         let expected = MemberIdentifier::Address(account_address.clone());
         let verified_sig = VerifiedSignature::from_legacy_delegated(
             signature_text,
-            &legacy_signature.legacy_key_signature.bytes(),
-            legacy_signature.signed_public_key_proto,
+            &legacy_signature.legacy_key_signature.signature_bytes,
+            legacy_signature.signed_public_key_proto.clone(),
         )
         .expect("should succeed");
+
+        let legacy_signature_bytes = match legacy_signature
+            .signed_public_key_proto
+            .signature
+            .unwrap()
+            .union
+            .unwrap()
+        {
+            SignatureUnion::WalletEcdsaCompact(legacy_wallet_ecdsa) => [
+                legacy_wallet_ecdsa.bytes,
+                vec![legacy_wallet_ecdsa.recovery as u8],
+            ]
+            .concat(),
+            _ => panic!("Invalid signature type"),
+        };
+
         assert_eq!(verified_sig.signer, expected);
         assert_eq!(verified_sig.kind, SignatureKind::LegacyDelegated);
-        assert_eq!(
-            verified_sig.raw_bytes,
-            legacy_signature.legacy_key_signature.bytes()
-        );
+        assert_eq!(verified_sig.raw_bytes, legacy_signature_bytes,);
 
         // fail path
         let legacy_signed_private_key_proto =

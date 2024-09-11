@@ -8,15 +8,17 @@ use super::{
         UnsignedRevokeAssociation,
     },
     verified_signature::VerifiedSignature,
-    AccountId, SignatureError,
+    AccountId, Action, AddAssociation, CreateInbox, IdentityUpdate, RevokeAssociation,
+    SignatureError,
 };
+use futures::future::try_join_all;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
 #[derive(Debug, Clone)]
 pub struct UnverifiedIdentityUpdate {
-    pub(crate) inbox_id: String,
-    pub(crate) client_timestamp_ns: u64,
-    pub(crate) actions: Vec<UnverifiedAction>,
+    pub inbox_id: String,
+    pub client_timestamp_ns: u64,
+    pub actions: Vec<UnverifiedAction>,
 }
 
 impl UnverifiedIdentityUpdate {
@@ -48,6 +50,26 @@ impl UnverifiedIdentityUpdate {
             .iter()
             .flat_map(|action| action.signatures())
             .collect()
+    }
+
+    pub async fn to_verified(
+        &self,
+        scw_verifier: &dyn SmartContractSignatureVerifier,
+    ) -> Result<IdentityUpdate, SignatureError> {
+        let signature_text = self.signature_text();
+
+        let actions: Vec<Action> = try_join_all(
+            self.actions
+                .iter()
+                .map(|action| async { action.to_verified(&signature_text, scw_verifier).await }),
+        )
+        .await?;
+
+        Ok(IdentityUpdate::new(
+            actions,
+            self.inbox_id.clone(),
+            self.client_timestamp_ns,
+        ))
     }
 }
 
@@ -92,12 +114,72 @@ impl UnverifiedAction {
             }
         }
     }
+
+    pub async fn to_verified<Text: AsRef<str>>(
+        &self,
+        signature_text: Text,
+        scw_verifier: &dyn SmartContractSignatureVerifier,
+    ) -> Result<Action, SignatureError> {
+        let action = match self {
+            UnverifiedAction::CreateInbox(action) => Action::CreateInbox(CreateInbox {
+                nonce: action.unsigned_action.nonce,
+                account_address: action.unsigned_action.account_address.clone(),
+                initial_address_signature: action
+                    .initial_address_signature
+                    .to_verified(signature_text.as_ref(), scw_verifier)
+                    .await?,
+            }),
+            UnverifiedAction::AddAssociation(action) => Action::AddAssociation(AddAssociation {
+                new_member_signature: action
+                    .new_member_signature
+                    .to_verified(signature_text.as_ref(), scw_verifier)
+                    .await?,
+                new_member_identifier: action.unsigned_action.new_member_identifier.clone(),
+                existing_member_signature: action
+                    .existing_member_signature
+                    .to_verified(signature_text.as_ref(), scw_verifier)
+                    .await?,
+            }),
+            UnverifiedAction::RevokeAssociation(action) => {
+                Action::RevokeAssociation(RevokeAssociation {
+                    recovery_address_signature: action
+                        .recovery_address_signature
+                        .to_verified(signature_text.as_ref(), scw_verifier)
+                        .await?,
+                    revoked_member: action.unsigned_action.revoked_member.clone(),
+                })
+            }
+            UnverifiedAction::ChangeRecoveryAddress(action) => {
+                Action::ChangeRecoveryAddress(super::ChangeRecoveryAddress {
+                    recovery_address_signature: action
+                        .recovery_address_signature
+                        .to_verified(signature_text.as_ref(), scw_verifier)
+                        .await?,
+                    new_recovery_address: action.unsigned_action.new_recovery_address.clone(),
+                })
+            }
+        };
+
+        Ok(action)
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct UnverifiedCreateInbox {
     pub(crate) unsigned_action: UnsignedCreateInbox,
     pub(crate) initial_address_signature: UnverifiedSignature,
+}
+
+impl UnverifiedCreateInbox {
+    pub fn new(
+        unsigned_action: UnsignedCreateInbox,
+        initial_address_signature: UnverifiedSignature,
+    ) -> Self {
+        Self {
+            unsigned_action,
+            initial_address_signature,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -107,16 +189,53 @@ pub struct UnverifiedAddAssociation {
     pub(crate) existing_member_signature: UnverifiedSignature,
 }
 
+impl UnverifiedAddAssociation {
+    pub fn new(
+        unsigned_action: UnsignedAddAssociation,
+        new_member_signature: UnverifiedSignature,
+        existing_member_signature: UnverifiedSignature,
+    ) -> Self {
+        Self {
+            unsigned_action,
+            new_member_signature,
+            existing_member_signature,
+        }
+    }
+}
 #[derive(Debug, Clone)]
 pub struct UnverifiedRevokeAssociation {
     pub(crate) recovery_address_signature: UnverifiedSignature,
     pub(crate) unsigned_action: UnsignedRevokeAssociation,
 }
 
+impl UnverifiedRevokeAssociation {
+    pub fn new(
+        unsigned_action: UnsignedRevokeAssociation,
+        recovery_address_signature: UnverifiedSignature,
+    ) -> Self {
+        Self {
+            unsigned_action,
+            recovery_address_signature,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct UnverifiedChangeRecoveryAddress {
     pub(crate) recovery_address_signature: UnverifiedSignature,
     pub(crate) unsigned_action: UnsignedChangeRecoveryAddress,
+}
+
+impl UnverifiedChangeRecoveryAddress {
+    pub fn new(
+        unsigned_action: UnsignedChangeRecoveryAddress,
+        recovery_address_signature: UnverifiedSignature,
+    ) -> Self {
+        Self {
+            unsigned_action,
+            recovery_address_signature,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -128,9 +247,9 @@ pub enum UnverifiedSignature {
 }
 
 impl UnverifiedSignature {
-    async fn to_verified(
+    pub async fn to_verified<Text: AsRef<str>>(
         &self,
-        signature_text: String,
+        signature_text: Text,
         scw_verifier: &dyn SmartContractSignatureVerifier,
     ) -> Result<VerifiedSignature, SignatureError> {
         match self {

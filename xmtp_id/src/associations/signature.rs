@@ -1,33 +1,14 @@
-use super::MemberIdentifier;
-use crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
-use crate::scw_verifier::SmartContractSignatureVerifier;
-use async_trait::async_trait;
-use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey};
-use ethers::{
-    core::k256,
-    providers::{Http, Middleware, Provider},
-    signers::{LocalWallet, Signer},
-    types::{BlockNumber, U64},
-    utils::{hash_message, public_key_to_address},
-};
+use ethers::signers::{LocalWallet, Signer};
 use prost::Message;
-use sha2::{Digest, Sha512};
 use std::array::TryFromSliceError;
 use thiserror::Error;
-use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature};
-use xmtp_proto::xmtp::{
-    identity::associations::{
-        signature::Signature as SignatureKindProto,
-        LegacyDelegatedSignature as LegacyDelegatedSignatureProto,
-        RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
-        RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
-        Signature as SignatureProto,
-        SmartContractWalletSignature as SmartContractWalletSignatureProto,
-    },
-    message_contents::{
-        signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto,
-        SignedPublicKey as LegacySignedPublicKeyProto,
-    },
+use xmtp_proto::xmtp::message_contents::{
+    signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto,
+};
+
+use super::{
+    unverified::{UnverifiedLegacyDelegatedSignature, UnverifiedRecoverableEcdsaSignature},
+    verified_signature::VerifiedSignature,
 };
 
 #[derive(Debug, Error)]
@@ -80,76 +61,6 @@ impl std::fmt::Display for SignatureKind {
         }
     }
 }
-
-#[async_trait]
-pub trait Signature: SignatureClone + std::fmt::Debug + Send + Sync + 'static {
-    async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError>;
-    fn signature_kind(&self) -> SignatureKind;
-    fn bytes(&self) -> Vec<u8>;
-    fn to_proto(&self) -> SignatureProto;
-}
-
-pub trait SignatureClone {
-    fn clone_box(&self) -> Box<dyn Signature>;
-}
-
-impl<T> SignatureClone for T
-where
-    T: 'static + Signature + Clone,
-{
-    fn clone_box(&self) -> Box<dyn Signature> {
-        Box::new(self.clone())
-    }
-}
-
-impl Clone for Box<dyn Signature> {
-    fn clone(&self) -> Box<dyn Signature> {
-        self.clone_box()
-    }
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-pub struct RecoverableEcdsaSignature {
-    signature_text: String,
-    signature_bytes: Vec<u8>,
-}
-
-impl RecoverableEcdsaSignature {
-    pub fn new(signature_text: String, signature_bytes: Vec<u8>) -> Self {
-        RecoverableEcdsaSignature {
-            signature_text,
-            signature_bytes,
-        }
-    }
-}
-
-#[async_trait]
-impl Signature for RecoverableEcdsaSignature {
-    async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
-        let signature = ethers::types::Signature::try_from(self.bytes().as_slice())?;
-        Ok(MemberIdentifier::Address(h160addr_to_string(
-            signature.recover(self.signature_text.clone())?,
-        )))
-    }
-
-    fn signature_kind(&self) -> SignatureKind {
-        SignatureKind::Erc191
-    }
-
-    fn bytes(&self) -> Vec<u8> {
-        self.signature_bytes.clone()
-    }
-
-    fn to_proto(&self) -> SignatureProto {
-        SignatureProto {
-            signature: Some(SignatureKindProto::Erc191(RecoverableEcdsaSignatureProto {
-                bytes: self.bytes(),
-            })),
-        }
-    }
-}
-
 // CAIP-10[https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-10.md]
 #[derive(Debug, Clone)]
 pub struct AccountId {
@@ -178,222 +89,11 @@ impl AccountId {
     }
 }
 
-/// A ERC-6492 signature.
-#[derive(Debug, Clone)]
-pub struct SmartContractWalletSignature {
-    signature_text: String,
-    signature_bytes: Vec<u8>,
-    account_id: AccountId,
-    block_number: u64,
-    chain_rpc_url: String,
-}
-
-impl SmartContractWalletSignature {
-    pub fn new(
-        signature_text: String,
-        signature_bytes: Vec<u8>,
-        account_id: AccountId,
-        chain_rpc_url: String,
-        block_number: u64,
-    ) -> Self {
-        SmartContractWalletSignature {
-            signature_text,
-            signature_bytes,
-            account_id,
-            chain_rpc_url,
-            block_number,
-        }
-    }
-
-    /// Fetch Chain ID & block number from the RPC URL and create the new ERC1271 Signature
-    /// This could be used by platform SDK who only needs to provide the RPC URL and account address.
-    pub async fn new_with_rpc(
-        signature_text: String,
-        signature_bytes: Vec<u8>,
-        account_address: String,
-        chain_rpc_url: String,
-    ) -> Result<Self, SignatureError> {
-        let provider = Provider::<Http>::try_from(&chain_rpc_url)?;
-        let block_number = provider.get_block_number().await?;
-        let chain_id = provider.get_chainid().await?;
-        let account_id = AccountId::new_evm(chain_id.as_u64(), account_address);
-        Ok(SmartContractWalletSignature::new(
-            signature_text,
-            signature_bytes,
-            account_id,
-            chain_rpc_url,
-            block_number.as_u64(),
-        ))
-    }
-}
-
-#[async_trait]
-impl Signature for SmartContractWalletSignature {
-    async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
-        let verifier =
-            crate::scw_verifier::RpcSmartContractWalletVerifier::new(self.chain_rpc_url.clone());
-        let is_valid = verifier
-            .is_valid_signature(
-                self.account_id.clone(),
-                hash_message(self.signature_text.clone()).into(), // the hash function should match the one used by the user wallet
-                &self.bytes().into(),
-                Some(BlockNumber::Number(U64::from(self.block_number))),
-            )
-            .await?;
-        if is_valid {
-            Ok(MemberIdentifier::Address(
-                self.account_id
-                    .get_account_address()
-                    .to_string()
-                    .to_lowercase(),
-            ))
-        } else {
-            Err(SignatureError::Invalid)
-        }
-    }
-
-    fn signature_kind(&self) -> SignatureKind {
-        SignatureKind::Erc1271
-    }
-
-    fn bytes(&self) -> Vec<u8> {
-        self.signature_bytes.clone()
-    }
-
-    fn to_proto(&self) -> SignatureProto {
-        SignatureProto {
-            signature: Some(SignatureKindProto::Erc6492(
-                SmartContractWalletSignatureProto {
-                    account_id: self.account_id.clone().into(),
-                    block_number: self.block_number,
-                    signature: self.bytes(),
-                    chain_rpc_url: self.chain_rpc_url.clone(),
-                },
-            )),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct InstallationKeySignature {
-    signature_text: String,
-    signature_bytes: Vec<u8>,
-    verifying_key: Vec<u8>,
-}
-
-impl InstallationKeySignature {
-    pub fn new(signature_text: String, signature_bytes: Vec<u8>, verifying_key: Vec<u8>) -> Self {
-        InstallationKeySignature {
-            signature_text,
-            signature_bytes,
-            verifying_key,
-        }
-    }
-}
-
-#[async_trait]
-impl Signature for InstallationKeySignature {
-    async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
-        let signature: Ed25519Signature =
-            Ed25519Signature::from_bytes(self.bytes().as_slice().try_into()?);
-        let verifying_key: VerifyingKey =
-            VerifyingKey::from_bytes(&self.verifying_key.as_slice().try_into()?)?;
-        let mut prehashed: Sha512 = Sha512::new();
-        prehashed.update(self.signature_text.clone());
-        verifying_key.verify_prehashed(
-            prehashed,
-            Some(INSTALLATION_KEY_SIGNATURE_CONTEXT),
-            &signature,
-        )?;
-        Ok(MemberIdentifier::Installation(self.verifying_key.clone()))
-    }
-
-    fn signature_kind(&self) -> SignatureKind {
-        SignatureKind::InstallationKey
-    }
-
-    fn bytes(&self) -> Vec<u8> {
-        self.signature_bytes.clone()
-    }
-
-    fn to_proto(&self) -> SignatureProto {
-        SignatureProto {
-            signature: Some(SignatureKindProto::InstallationKey(
-                RecoverableEd25519SignatureProto {
-                    bytes: self.bytes(),
-                    public_key: self.verifying_key.clone(),
-                },
-            )),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct LegacyDelegatedSignature {
-    pub(crate) legacy_key_signature: RecoverableEcdsaSignature, // signature from the legacy key(delegatee)
-    pub(crate) signed_public_key_proto: LegacySignedPublicKeyProto, // signature from the wallet(delegator)
-}
-
-impl LegacyDelegatedSignature {
-    pub fn new(
-        legacy_key_signature: RecoverableEcdsaSignature,
-        signed_public_key_proto: LegacySignedPublicKeyProto,
-    ) -> Self {
-        LegacyDelegatedSignature {
-            legacy_key_signature,
-            signed_public_key_proto,
-        }
-    }
-}
-
-#[async_trait]
-impl Signature for LegacyDelegatedSignature {
-    async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
-        // Recover the RecoverableEcdsaSignature of the legacy signer(address of the legacy key)
-        let legacy_signer = self.legacy_key_signature.recover_signer().await?;
-        // Derive the address from legacy public key and compare it with legacy_signer.
-        // Note that it's not recovering the address from the __signed__ public key.
-        let signed_public_key: ValidatedLegacySignedPublicKey =
-            self.signed_public_key_proto.clone().try_into()?;
-        let public_key: k256::ecdsa::VerifyingKey =
-            k256::ecdsa::VerifyingKey::from_sec1_bytes(&signed_public_key.public_key_bytes)?;
-        let address = h160addr_to_string(public_key_to_address(&public_key));
-        if MemberIdentifier::Address(address) != legacy_signer {
-            return Err(SignatureError::Invalid);
-        }
-
-        Ok(MemberIdentifier::Address(
-            signed_public_key.account_address().to_lowercase(),
-        ))
-    }
-
-    fn signature_kind(&self) -> SignatureKind {
-        SignatureKind::LegacyDelegated
-    }
-
-    fn bytes(&self) -> Vec<u8> {
-        self.legacy_key_signature.bytes()
-    }
-
-    fn to_proto(&self) -> SignatureProto {
-        SignatureProto {
-            signature: Some(SignatureKindProto::DelegatedErc191(
-                LegacyDelegatedSignatureProto {
-                    delegated_key: Some(self.signed_public_key_proto.clone()),
-                    signature: Some(RecoverableEcdsaSignatureProto {
-                        bytes: self.bytes(),
-                    }),
-                },
-            )),
-        }
-    }
-}
-
 /// Decode the `legacy_signed_private_key` to legacy private / public key pairs & sign the `signature_text` with the private key.
 pub async fn sign_with_legacy_key(
     signature_text: String,
     legacy_signed_private_key: Vec<u8>,
-) -> Result<LegacyDelegatedSignature, SignatureError> {
+) -> Result<UnverifiedLegacyDelegatedSignature, SignatureError> {
     let legacy_signed_private_key_proto =
         LegacySignedPrivateKeyProto::decode(legacy_signed_private_key.as_slice())?;
     let signed_private_key::Union::Secp256k1(secp256k1) = legacy_signed_private_key_proto
@@ -412,10 +112,8 @@ pub async fn sign_with_legacy_key(
                 "Missing public_key field".to_string(),
             ))?;
 
-    let recoverable_sig = RecoverableEcdsaSignature::new(signature_text, signature.to_vec());
-
-    Ok(LegacyDelegatedSignature::new(
-        recoverable_sig,
+    Ok(UnverifiedLegacyDelegatedSignature::new(
+        UnverifiedRecoverableEcdsaSignature::new(signature.to_vec()),
         legacy_signed_public_key_proto,
     ))
 }
@@ -424,7 +122,7 @@ pub async fn sign_with_legacy_key(
 pub struct ValidatedLegacySignedPublicKey {
     pub(crate) account_address: String,
     pub(crate) serialized_key_data: Vec<u8>,
-    pub(crate) wallet_signature: RecoverableSignature,
+    pub(crate) wallet_signature: VerifiedSignature,
     pub(crate) public_key_bytes: Vec<u8>,
     pub(crate) created_ns: u64,
 }
@@ -463,126 +161,5 @@ impl ValidatedLegacySignedPublicKey {
 
     pub fn created_ns(&self) -> u64 {
         self.created_ns
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        associations::{
-            signature::Signature,
-            test_utils::{rand_u64, MockSignature},
-            unsigned_actions::{SignatureTextCreator, UnsignedAddAssociation, UnsignedCreateInbox},
-        },
-        InboxOwner,
-    };
-    use ed25519_dalek::SigningKey;
-    use ethers::prelude::*;
-
-    use prost::Message;
-    use sha2::{Digest, Sha512};
-    use xmtp_v2::k256_helper::sign_sha256;
-
-    // TODO:nm delete once fully deprecated
-    #[tokio::test]
-    async fn recover_signer_ecdsa() {
-        let wallet: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
-        let unsigned_action = UnsignedCreateInbox {
-            nonce: rand_u64(),
-            account_address: wallet.get_address(),
-        };
-        let signature_text = unsigned_action.signature_text();
-        let signature_bytes: Vec<u8> = wallet
-            .sign_message(signature_text.clone())
-            .await
-            .unwrap()
-            .to_vec();
-        let signature = RecoverableEcdsaSignature::new(signature_text.clone(), signature_bytes);
-        let expected = MemberIdentifier::Address(wallet.get_address());
-        let actual = signature.recover_signer().await.unwrap();
-
-        assert_eq!(expected, actual);
-    }
-
-    #[tokio::test]
-    async fn recover_signer_erc1271() {
-        let wallet: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
-
-        let mock_erc1271 = MockSignature::new_boxed(
-            true,
-            MemberIdentifier::Address(wallet.get_address()),
-            SignatureKind::Erc1271,
-            None,
-        );
-
-        let expected = MemberIdentifier::Address(wallet.get_address());
-        let actual = mock_erc1271.recover_signer().await.unwrap();
-        assert_eq!(expected, actual);
-    }
-
-    // TODO:nm delete once fully deprecated
-    #[tokio::test]
-    async fn recover_signer_installation() {
-        let signing_key: SigningKey = SigningKey::generate(&mut rand::thread_rng());
-        let verifying_key = signing_key.verifying_key();
-
-        let unsigned_action = UnsignedAddAssociation {
-            new_member_identifier: MemberIdentifier::Address("0x123456789abcdef".to_string()),
-        };
-        let signature_text = unsigned_action.signature_text();
-        let mut prehashed: Sha512 = Sha512::new();
-        prehashed.update(signature_text.clone());
-        let sig = signing_key
-            .sign_prehashed(prehashed, Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))
-            .unwrap();
-        let installation_key_sig = InstallationKeySignature::new(
-            signature_text.clone(),
-            sig.to_vec(),
-            verifying_key.as_bytes().to_vec(),
-        );
-        let expected = MemberIdentifier::Installation(verifying_key.as_bytes().to_vec());
-        let actual = installation_key_sig.recover_signer().await.unwrap();
-        assert_eq!(expected, actual);
-    }
-
-    // TODO:nm delete once fully deprecated
-    // Test the happy path with LocalWallet & fail path with a secp256k1 signer.
-    #[tokio::test]
-    async fn recover_signer_legacy() {
-        let signature_text = "test_legacy_signature".to_string();
-        let account_address = "0x0bd00b21af9a2d538103c3aaf95cb507f8af1b28".to_string();
-        let legacy_signed_private_key = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
-
-        // happy path
-        let legacy_signature =
-            sign_with_legacy_key(signature_text.clone(), legacy_signed_private_key.clone())
-                .await
-                .unwrap();
-        let expected = MemberIdentifier::Address(account_address.clone());
-        let actual = legacy_signature.recover_signer().await.unwrap();
-        assert_eq!(expected, actual);
-
-        // fail path
-        let legacy_signed_private_key_proto =
-            LegacySignedPrivateKeyProto::decode(legacy_signed_private_key.as_slice()).unwrap();
-        let signed_private_key::Union::Secp256k1(secp256k1) =
-            legacy_signed_private_key_proto.union.unwrap();
-        let legacy_private_key = secp256k1.bytes;
-        let (mut legacy_signature, recovery_id) = sign_sha256(
-            &legacy_private_key,       // secret_key
-            signature_text.as_bytes(), // message
-        )
-        .unwrap();
-        legacy_signature.push(recovery_id);
-        let legacy_signature = RecoverableEcdsaSignature::new(signature_text, legacy_signature);
-        let legacy_signed_public_key_proto = legacy_signed_private_key_proto.public_key.unwrap();
-        let legacy_signature: LegacyDelegatedSignature =
-            LegacyDelegatedSignature::new(legacy_signature, legacy_signed_public_key_proto);
-
-        assert!(matches!(
-            legacy_signature.recover_signer().await,
-            Err(super::SignatureError::Invalid)
-        ));
     }
 }

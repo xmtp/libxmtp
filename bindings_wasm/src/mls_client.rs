@@ -6,9 +6,11 @@ use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
-use xmtp_id::associations::{
-  AccountId, MemberIdentifier, RecoverableEcdsaSignature, Signature, SmartContractWalletSignature,
+use xmtp_id::associations::unverified::{
+  UnverifiedErc6492Signature, UnverifiedRecoverableEcdsaSignature, UnverifiedSignature,
 };
+use xmtp_id::associations::{AccountId, MemberIdentifier};
+use xmtp_id::scw_verifier::{RpcSmartContractWalletVerifier, SmartContractSignatureVerifier};
 use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::identity::IdentityStrategy;
@@ -22,7 +24,7 @@ pub type RustXmtpClient = MlsClient<XmtpHttpApiClient>;
 pub struct WasmClient {
   account_address: String,
   inner_client: Arc<RustXmtpClient>,
-  signatures: HashMap<MemberIdentifier, Box<dyn Signature>>,
+  signatures: HashMap<MemberIdentifier, UnverifiedSignature>,
 }
 
 #[wasm_bindgen]
@@ -153,10 +155,9 @@ impl WasmClient {
       None => return Err(JsError::new("No signature text found")),
     };
 
-    let signature = Box::new(RecoverableEcdsaSignature::new(
-      signature_text.into(),
-      signature_bytes.to_vec(),
-    ));
+    let signature = UnverifiedSignature::RecoverableEcdsa(
+      UnverifiedRecoverableEcdsaSignature::new(signature_bytes.to_vec()),
+    );
 
     self.signatures.insert(
       MemberIdentifier::Address(self.account_address.clone().to_lowercase()),
@@ -172,7 +173,8 @@ impl WasmClient {
     signature_bytes: Uint8Array,
     chain_id: u64,
     account_address: String,
-    chain_rpc_url: String,
+    // TODO:nm Remove this
+    _chain_rpc_url: String,
     block_number: u64,
   ) -> Result<(), JsError> {
     if self.is_registered() {
@@ -188,11 +190,9 @@ impl WasmClient {
 
     let account_id = AccountId::new_evm(chain_id, account_address.clone());
 
-    let signature = Box::new(SmartContractWalletSignature::new(
-      signature_text,
+    let signature = UnverifiedSignature::Erc6492(UnverifiedErc6492Signature::new(
       signature_bytes.to_vec(),
       account_id,
-      chain_rpc_url,
       block_number,
     ));
 
@@ -227,7 +227,13 @@ impl WasmClient {
     // apply added signatures to the signature request
     for signature in self.signatures.values() {
       signature_request
-        .add_signature(signature.clone())
+        .add_signature(
+          signature.clone(),
+          self
+            .inner_client
+            .smart_contract_signature_verifier()
+            .as_ref(),
+        )
         .await
         .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     }

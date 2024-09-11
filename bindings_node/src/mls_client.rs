@@ -7,9 +7,10 @@ use std::sync::Arc;
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
-use xmtp_id::associations::{
-  AccountId, MemberIdentifier, RecoverableEcdsaSignature, Signature, SmartContractWalletSignature,
+use xmtp_id::associations::unverified::{
+  UnverifiedErc6492Signature, UnverifiedRecoverableEcdsaSignature, UnverifiedSignature,
 };
+use xmtp_id::associations::{AccountId, MemberIdentifier};
 use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::identity::IdentityStrategy;
@@ -22,7 +23,7 @@ pub type RustXmtpClient = MlsClient<TonicApiClient>;
 #[napi]
 pub struct NapiClient {
   inner_client: Arc<RustXmtpClient>,
-  signatures: HashMap<MemberIdentifier, Box<dyn Signature>>,
+  signatures: HashMap<MemberIdentifier, UnverifiedSignature>,
   pub account_address: String,
 }
 
@@ -152,15 +153,9 @@ impl NapiClient {
       ));
     }
 
-    let signature_text = match self.signature_text() {
-      Some(text) => text,
-      None => return Err(Error::from_reason("No signature text found")),
-    };
-
-    let signature = Box::new(RecoverableEcdsaSignature::new(
-      signature_text,
-      signature_bytes.deref().to_vec(),
-    ));
+    let signature = UnverifiedSignature::RecoverableEcdsa(
+      UnverifiedRecoverableEcdsaSignature::new(signature_bytes.deref().to_vec()),
+    );
 
     self.signatures.insert(
       MemberIdentifier::Address(self.account_address.clone().to_lowercase()),
@@ -176,7 +171,8 @@ impl NapiClient {
     signature_bytes: Uint8Array,
     chain_id: BigInt,
     account_address: String,
-    chain_rpc_url: String,
+    // TODO:nm remove this
+    _chain_rpc_url: String,
     block_number: BigInt,
   ) -> Result<()> {
     if self.is_registered() {
@@ -185,20 +181,13 @@ impl NapiClient {
       ));
     }
 
-    let signature_text = match self.signature_text() {
-      Some(text) => text,
-      None => return Err(Error::from_reason("No signature text found")),
-    };
-
     let (_, chain_id_u64, _) = chain_id.get_u64();
 
     let account_id = AccountId::new_evm(chain_id_u64, account_address.clone());
 
-    let signature = Box::new(SmartContractWalletSignature::new(
-      signature_text,
+    let signature = UnverifiedSignature::Erc6492(UnverifiedErc6492Signature::new(
       signature_bytes.deref().to_vec(),
       account_id,
-      chain_rpc_url,
       block_number.get_u64().1,
     ));
 
@@ -233,7 +222,13 @@ impl NapiClient {
     // apply added signatures to the signature request
     for signature in self.signatures.values() {
       signature_request
-        .add_signature(signature.clone())
+        .add_signature(
+          signature.clone(),
+          self
+            .inner_client
+            .smart_contract_signature_verifier()
+            .as_ref(),
+        )
         .await
         .map_err(|e| Error::from_reason(format!("{}", e)))?;
     }

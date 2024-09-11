@@ -4,17 +4,21 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::utils::now_ns;
+use crate::{scw_verifier::SmartContractSignatureVerifier, utils::now_ns};
 use thiserror::Error;
 
 use super::{
-    association_log::{AddAssociation, ChangeRecoveryAddress, CreateInbox, RevokeAssociation},
     unsigned_actions::{
         SignatureTextCreator, UnsignedAction, UnsignedAddAssociation,
         UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
         UnsignedRevokeAssociation,
     },
-    Action, IdentityUpdate, MemberIdentifier, MemberKind, Signature, SignatureError,
+    unverified::{
+        UnverifiedAction, UnverifiedAddAssociation, UnverifiedChangeRecoveryAddress,
+        UnverifiedCreateInbox, UnverifiedIdentityUpdate, UnverifiedRevokeAssociation,
+        UnverifiedSignature,
+    },
+    MemberIdentifier, MemberKind, SignatureError,
 };
 
 /// The SignatureField is used to map the signatures from a [SignatureRequest] back to the correct
@@ -169,7 +173,7 @@ pub enum SignatureRequestError {
 pub struct SignatureRequest {
     pending_actions: Vec<PendingIdentityAction>,
     signature_text: String,
-    signatures: HashMap<MemberIdentifier, Box<dyn Signature>>,
+    signatures: HashMap<MemberIdentifier, UnverifiedSignature>,
     client_timestamp_ns: u64,
     inbox_id: String,
 }
@@ -218,19 +222,24 @@ impl SignatureRequest {
 
     pub async fn add_signature(
         &mut self,
-        signature: Box<dyn Signature>,
+        signature: UnverifiedSignature,
+        scw_verifier: &dyn SmartContractSignatureVerifier,
     ) -> Result<(), SignatureRequestError> {
-        let signer_identity = signature.recover_signer().await?;
+        let verified_sig = signature
+            .to_verified(self.signature_text.clone(), scw_verifier)
+            .await?;
+        let signer_identity = &verified_sig.signer;
+
         let missing_signatures = self.missing_signatures();
         log::info!("Provided Signer: {}", signer_identity);
         log::info!("Missing Signatures: {:?}", missing_signatures);
 
         // Make sure the signer is someone actually in the request
-        if !missing_signatures.contains(&signer_identity) {
+        if !missing_signatures.contains(signer_identity) {
             return Err(SignatureRequestError::UnknownSigner);
         }
 
-        self.signatures.insert(signer_identity, signature);
+        self.signatures.insert(signer_identity.clone(), signature);
 
         Ok(())
     }
@@ -243,7 +252,7 @@ impl SignatureRequest {
         self.signature_text.clone()
     }
 
-    pub fn build_identity_update(self) -> Result<IdentityUpdate, SignatureRequestError> {
+    pub fn build_identity_update(self) -> Result<UnverifiedIdentityUpdate, SignatureRequestError> {
         if !self.is_ready() {
             return Err(SignatureRequestError::MissingSigner);
         }
@@ -253,12 +262,12 @@ impl SignatureRequest {
             .clone()
             .into_iter()
             .map(|pending_action| build_action(pending_action, &self.signatures))
-            .collect::<Result<Vec<Action>, SignatureRequestError>>()?;
+            .collect::<Result<Vec<UnverifiedAction>, SignatureRequestError>>()?;
 
-        Ok(IdentityUpdate::new(
-            actions,
+        Ok(UnverifiedIdentityUpdate::new(
             self.inbox_id,
             self.client_timestamp_ns,
+            actions,
         ))
     }
 
@@ -269,8 +278,8 @@ impl SignatureRequest {
 
 fn build_action(
     pending_action: PendingIdentityAction,
-    signatures: &HashMap<MemberIdentifier, Box<dyn Signature>>,
-) -> Result<Action, SignatureRequestError> {
+    signatures: &HashMap<MemberIdentifier, UnverifiedSignature>,
+) -> Result<UnverifiedAction, SignatureRequestError> {
     match pending_action.unsigned_action {
         UnsignedAction::CreateInbox(unsigned_action) => {
             let signer_identity = pending_action
@@ -282,9 +291,8 @@ fn build_action(
                 .cloned()
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
-            Ok(Action::CreateInbox(CreateInbox {
-                nonce: unsigned_action.nonce,
-                account_address: unsigned_action.account_address,
+            Ok(UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
+                unsigned_action,
                 initial_address_signature,
             }))
         }
@@ -308,8 +316,8 @@ fn build_action(
                 .cloned()
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
-            Ok(Action::AddAssociation(AddAssociation {
-                new_member_identifier: unsigned_action.new_member_identifier,
+            Ok(UnverifiedAction::AddAssociation(UnverifiedAddAssociation {
+                unsigned_action,
                 existing_member_signature,
                 new_member_signature,
             }))
@@ -324,10 +332,12 @@ fn build_action(
                 .cloned()
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
-            Ok(Action::RevokeAssociation(RevokeAssociation {
-                recovery_address_signature,
-                revoked_member: unsigned_action.revoked_member,
-            }))
+            Ok(UnverifiedAction::RevokeAssociation(
+                UnverifiedRevokeAssociation {
+                    recovery_address_signature,
+                    unsigned_action,
+                },
+            ))
         }
         UnsignedAction::ChangeRecoveryAddress(unsigned_action) => {
             let signer_identity = pending_action
@@ -340,10 +350,12 @@ fn build_action(
                 .cloned()
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
-            Ok(Action::ChangeRecoveryAddress(ChangeRecoveryAddress {
-                recovery_address_signature,
-                new_recovery_address: unsigned_action.new_recovery_address,
-            }))
+            Ok(UnverifiedAction::ChangeRecoveryAddress(
+                UnverifiedChangeRecoveryAddress {
+                    recovery_address_signature,
+                    unsigned_action,
+                },
+            ))
         }
     }
 }
@@ -364,84 +376,85 @@ fn get_signature_text(
 
 #[cfg(test)]
 mod tests {
-    use crate::associations::{
-        get_state,
-        hashes::generate_inbox_id,
-        test_utils::{rand_string, rand_vec, MockSignature},
-        MemberKind, SignatureKind,
+    use ethers::signers::{LocalWallet, Signer};
+
+    use crate::{
+        associations::{
+            get_state,
+            hashes::generate_inbox_id,
+            test_utils::{
+                add_installation_key_signature, add_wallet_signature,
+                MockSmartContractSignatureVerifier,
+            },
+            unverified::UnverifiedRecoverableEcdsaSignature,
+            IdentityUpdate,
+        },
+        InboxOwner,
     };
+    use ed25519_dalek::SigningKey as Ed25519SigningKey;
 
     use super::*;
 
-    // Helper function to add all the missing signatures, since we don't have real signers available
-    async fn add_missing_signatures_to_request(signature_request: &mut SignatureRequest) {
-        let missing_signatures = signature_request.missing_signatures();
-        for member_identifier in missing_signatures {
-            let signature_kind = match member_identifier.kind() {
-                MemberKind::Address => SignatureKind::Erc191,
-                MemberKind::Installation => SignatureKind::InstallationKey,
-            };
-
-            signature_request
-                .add_signature(MockSignature::new_boxed(
-                    true,
-                    member_identifier.clone(),
-                    signature_kind,
-                    Some(signature_request.signature_text()),
-                ))
-                .await
-                .expect("should succeed");
-        }
+    async fn convert_to_verified(identity_update: &UnverifiedIdentityUpdate) -> IdentityUpdate {
+        let scw_verifier = MockSmartContractSignatureVerifier::new(false);
+        identity_update
+            .to_verified(&scw_verifier)
+            .await
+            .expect("should be valid")
     }
 
     #[tokio::test]
     async fn create_inbox() {
-        let account_address = "account_address".to_string();
+        let wallet = LocalWallet::new(&mut rand::thread_rng());
+        let account_address = wallet.get_address();
         let nonce = 0;
         let inbox_id = generate_inbox_id(&account_address, &nonce);
+
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
             .create_inbox(account_address.into(), nonce)
             .build();
 
-        add_missing_signatures_to_request(&mut signature_request).await;
+        add_wallet_signature(&mut signature_request, &wallet).await;
 
         let identity_update = signature_request
             .build_identity_update()
             .expect("should be valid");
 
-        get_state(vec![identity_update])
-            .await
-            .expect("should be valid");
+        get_state(vec![convert_to_verified(&identity_update).await]).expect("should be valid");
     }
 
     #[tokio::test]
     async fn create_and_add_identity() {
-        let account_address = "account_address".to_string();
+        let wallet = LocalWallet::new(&mut rand::thread_rng());
+        let installation_key = Ed25519SigningKey::generate(&mut rand::thread_rng());
+        let account_address = wallet.get_address();
+        let installation_key_id = installation_key.verifying_key().as_bytes().to_vec();
         let nonce = 0;
         let inbox_id = generate_inbox_id(&account_address, &nonce);
         let existing_member_identifier: MemberIdentifier = account_address.into();
-        let new_member_identifier: MemberIdentifier = rand_vec().into();
+        let new_member_identifier: MemberIdentifier = installation_key_id.into();
 
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
             .create_inbox(existing_member_identifier.clone(), nonce)
             .add_association(new_member_identifier, existing_member_identifier)
             .build();
 
-        add_missing_signatures_to_request(&mut signature_request).await;
+        add_wallet_signature(&mut signature_request, &wallet).await;
+        add_installation_key_signature(&mut signature_request, &installation_key).await;
 
         let identity_update = signature_request
             .build_identity_update()
             .expect("should be valid");
 
-        let state = get_state(vec![identity_update])
-            .await
-            .expect("should be valid");
+        let state =
+            get_state(vec![convert_to_verified(&identity_update).await]).expect("should be valid");
         assert_eq!(state.members().len(), 2);
     }
 
     #[tokio::test]
     async fn create_and_revoke() {
-        let account_address = "account_address".to_string();
+        let wallet = LocalWallet::new(&mut rand::thread_rng());
+        let account_address = wallet.get_address();
         let nonce = 0;
         let inbox_id = generate_inbox_id(&account_address, &nonce);
         let existing_member_identifier: MemberIdentifier = account_address.clone().into();
@@ -451,15 +464,14 @@ mod tests {
             .revoke_association(existing_member_identifier.clone(), account_address.into())
             .build();
 
-        add_missing_signatures_to_request(&mut signature_request).await;
+        add_wallet_signature(&mut signature_request, &wallet).await;
 
         let identity_update = signature_request
             .build_identity_update()
             .expect("should be valid");
 
-        let state = get_state(vec![identity_update])
-            .await
-            .expect("should be valid");
+        let state =
+            get_state(vec![convert_to_verified(&identity_update).await]).expect("should be valid");
 
         assert_eq!(state.members().len(), 0);
     }
@@ -473,13 +485,20 @@ mod tests {
             .create_inbox(account_address.into(), nonce)
             .build();
 
+        let rand_wallet = LocalWallet::new(&mut rand::thread_rng());
+
+        let signature_text = signature_request.signature_text();
+        let sig = rand_wallet
+            .sign_message(signature_text)
+            .await
+            .unwrap()
+            .to_vec();
+        let unverified_sig =
+            UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(sig));
+        let scw_verifier = MockSmartContractSignatureVerifier::new(false);
+
         let attempt_to_add_random_member = signature_request
-            .add_signature(MockSignature::new_boxed(
-                true,
-                rand_string().into(),
-                SignatureKind::Erc191,
-                None,
-            ))
+            .add_signature(unverified_sig, &scw_verifier)
             .await;
 
         assert!(matches!(

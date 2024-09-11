@@ -1,19 +1,23 @@
-use rand::{distributions::Alphanumeric, Rng};
-use xmtp_proto::xmtp::{
-    identity::associations::{
-        signature::Signature as SignatureKindProto,
-        LegacyDelegatedSignature as LegacyDelegatedSignatureProto,
-        RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
-        RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
-        Signature as SignatureProto,
-        SmartContractWalletSignature as SmartContractWalletSignatureProto,
+use super::{
+    builder::SignatureRequest,
+    unsigned_actions::UnsignedCreateInbox,
+    unverified::{
+        UnverifiedAction, UnverifiedCreateInbox, UnverifiedInstallationKeySignature,
+        UnverifiedRecoverableEcdsaSignature, UnverifiedSignature,
     },
-    message_contents::{
-        Signature as LegacySignatureProto, SignedPublicKey as LegacySignedPublicKeyProto,
-    },
+    AccountId,
 };
-
-use super::{MemberIdentifier, Signature, SignatureError, SignatureKind};
+use crate::{
+    constants::INSTALLATION_KEY_SIGNATURE_CONTEXT,
+    scw_verifier::{SmartContractSignatureVerifier, VerifierError},
+};
+use ed25519_dalek::SigningKey as Ed25519SigningKey;
+use ethers::{
+    signers::{LocalWallet, Signer},
+    types::{BlockNumber, Bytes},
+};
+use rand::{distributions::Alphanumeric, Rng};
+use sha2::{Digest, Sha512};
 
 pub fn rand_string() -> String {
     let v: String = rand::thread_rng()
@@ -36,86 +40,82 @@ pub fn rand_vec() -> Vec<u8> {
 }
 
 #[derive(Debug, Clone)]
-pub struct MockSignature {
-    is_valid: bool,
-    signer_identity: MemberIdentifier,
-    signature_kind: SignatureKind,
-    signature_nonce: String,
+pub struct MockSmartContractSignatureVerifier {
+    is_valid_signature: bool,
 }
 
-impl MockSignature {
-    pub fn new_boxed(
-        is_valid: bool,
-        signer_identity: MemberIdentifier,
-        signature_kind: SignatureKind,
-        // Signature nonce is used to control what the signature bytes are
-        // Defaults to random
-        signature_nonce: Option<String>,
-    ) -> Box<Self> {
-        let nonce = signature_nonce.unwrap_or(rand_string());
-        Box::new(Self {
-            is_valid,
-            signer_identity,
-            signature_kind,
-            signature_nonce: nonce,
-        })
+impl MockSmartContractSignatureVerifier {
+    pub fn new(is_valid_signature: bool) -> Self {
+        Self { is_valid_signature }
     }
 }
 
 #[async_trait::async_trait]
-impl Signature for MockSignature {
-    fn signature_kind(&self) -> SignatureKind {
-        self.signature_kind.clone()
+impl SmartContractSignatureVerifier for MockSmartContractSignatureVerifier {
+    async fn is_valid_signature(
+        &self,
+        _account_id: AccountId,
+        _hash: [u8; 32],
+        _signature: &Bytes,
+        _block_number: Option<BlockNumber>,
+    ) -> Result<bool, VerifierError> {
+        Ok(self.is_valid_signature)
     }
+}
 
-    async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
-        match self.is_valid {
-            true => Ok(self.signer_identity.clone()),
-            false => Err(SignatureError::Invalid),
-        }
+pub async fn add_wallet_signature(signature_request: &mut SignatureRequest, wallet: &LocalWallet) {
+    let signature_text = signature_request.signature_text();
+    let sig = wallet.sign_message(signature_text).await.unwrap().to_vec();
+    let unverified_sig =
+        UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(sig));
+    let scw_verifier = MockSmartContractSignatureVerifier::new(false);
+    signature_request
+        .add_signature(unverified_sig, &scw_verifier)
+        .await
+        .expect("should succeed");
+}
+
+pub async fn add_installation_key_signature(
+    signature_request: &mut SignatureRequest,
+    installation_key: &Ed25519SigningKey,
+) {
+    let signature_text = signature_request.signature_text();
+    let verifying_key = installation_key.verifying_key();
+    let mut prehashed: Sha512 = Sha512::new();
+    prehashed.update(signature_text);
+
+    let sig = installation_key
+        .sign_prehashed(prehashed, Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))
+        .unwrap();
+    let unverified_sig =
+        UnverifiedSignature::InstallationKey(UnverifiedInstallationKeySignature::new(
+            sig.to_bytes().to_vec(),
+            verifying_key.as_bytes().to_vec(),
+        ));
+
+    signature_request
+        .add_signature(
+            unverified_sig,
+            &MockSmartContractSignatureVerifier::new(false),
+        )
+        .await
+        .expect("should succeed");
+}
+
+impl UnverifiedSignature {
+    pub fn new_test_recoverable_ecdsa(signature: Vec<u8>) -> Self {
+        Self::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(signature))
     }
+}
 
-    fn bytes(&self) -> Vec<u8> {
-        let sig = format!("{}{}", self.signer_identity, self.signature_nonce);
-        sig.as_bytes().to_vec()
-    }
-
-    fn to_proto(&self) -> SignatureProto {
-        match self.signature_kind {
-            SignatureKind::Erc191 => SignatureProto {
-                signature: Some(SignatureKindProto::Erc191(RecoverableEcdsaSignatureProto {
-                    bytes: vec![0],
-                })),
+impl UnverifiedAction {
+    pub fn new_test_create_inbox(account_address: &str, nonce: &u64) -> Self {
+        Self::CreateInbox(UnverifiedCreateInbox::new(
+            UnsignedCreateInbox {
+                account_address: account_address.to_owned(),
+                nonce: *nonce,
             },
-            SignatureKind::Erc1271 => SignatureProto {
-                signature: Some(SignatureKindProto::Erc6492(
-                    SmartContractWalletSignatureProto {
-                        account_id: "eip155:1:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb".into(),
-                        block_number: 0,
-                        signature: vec![0],
-                        chain_rpc_url: "https://example.com".to_string(),
-                    },
-                )),
-            },
-            SignatureKind::InstallationKey => SignatureProto {
-                signature: Some(SignatureKindProto::InstallationKey(
-                    RecoverableEd25519SignatureProto {
-                        bytes: vec![0],
-                        public_key: vec![0],
-                    },
-                )),
-            },
-            SignatureKind::LegacyDelegated => SignatureProto {
-                signature: Some(SignatureKindProto::DelegatedErc191(
-                    LegacyDelegatedSignatureProto {
-                        delegated_key: Some(LegacySignedPublicKeyProto {
-                            key_bytes: vec![0],
-                            signature: Some(LegacySignatureProto { union: None }),
-                        }),
-                        signature: Some(RecoverableEcdsaSignatureProto { bytes: vec![0] }),
-                    },
-                )),
-            },
-        }
+            UnverifiedSignature::new_test_recoverable_ecdsa(vec![1, 2, 3]),
+        ))
     }
 }
