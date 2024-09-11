@@ -7,7 +7,8 @@ use super::{
         UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
         UnsignedRevokeAssociation,
     },
-    AccountId, SignatureError, VerifiedSignature,
+    verified_signature::VerifiedSignature,
+    AccountId, SignatureError,
 };
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
@@ -129,10 +130,34 @@ pub enum UnverifiedSignature {
 impl UnverifiedSignature {
     async fn to_verified(
         &self,
-        _signature_text: String,
-        _scw_verifier: &dyn SmartContractSignatureVerifier,
+        signature_text: String,
+        scw_verifier: &dyn SmartContractSignatureVerifier,
     ) -> Result<VerifiedSignature, SignatureError> {
-        todo!("not implemented")
+        match self {
+            UnverifiedSignature::InstallationKey(sig) => VerifiedSignature::from_installation_key(
+                signature_text,
+                &sig.signature_bytes,
+                &sig.verifying_key,
+            ),
+            UnverifiedSignature::RecoverableEcdsa(sig) => {
+                VerifiedSignature::from_recoverable_ecdsa(signature_text, &sig.signature_bytes)
+            }
+            UnverifiedSignature::Erc6492(sig) => {
+                VerifiedSignature::from_smart_contract_wallet(
+                    signature_text,
+                    scw_verifier,
+                    &sig.signature_bytes,
+                    sig.account_id.clone(),
+                    sig.block_number,
+                )
+                .await
+            }
+            UnverifiedSignature::LegacyDelegated(sig) => VerifiedSignature::from_legacy_delegated(
+                signature_text,
+                &sig.legacy_key_signature.signature_bytes,
+                sig.signed_public_key_proto.clone(),
+            ),
+        }
     }
 }
 

@@ -9,6 +9,7 @@ mod state;
 pub mod test_utils;
 pub mod unsigned_actions;
 mod unverified;
+mod verified_signature;
 
 pub use self::association_log::*;
 pub use self::hashes::generate_inbox_id;

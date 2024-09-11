@@ -81,23 +81,6 @@ impl std::fmt::Display for SignatureKind {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct VerifiedSignature {
-    pub signer: MemberIdentifier,
-    pub kind: SignatureKind,
-    pub raw_bytes: Vec<u8>,
-}
-
-impl VerifiedSignature {
-    pub fn new(signer: MemberIdentifier, kind: SignatureKind, raw_bytes: Vec<u8>) -> Self {
-        Self {
-            signer,
-            kind,
-            raw_bytes,
-        }
-    }
-}
-
 #[async_trait]
 pub trait Signature: SignatureClone + std::fmt::Debug + Send + Sync + 'static {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError>;
@@ -347,8 +330,8 @@ impl Signature for InstallationKeySignature {
 
 #[derive(Debug, Clone)]
 pub struct LegacyDelegatedSignature {
-    legacy_key_signature: RecoverableEcdsaSignature, // signature from the legacy key(delegatee)
-    signed_public_key_proto: LegacySignedPublicKeyProto, // signature from the wallet(delegator)
+    pub(crate) legacy_key_signature: RecoverableEcdsaSignature, // signature from the legacy key(delegatee)
+    pub(crate) signed_public_key_proto: LegacySignedPublicKeyProto, // signature from the wallet(delegator)
 }
 
 impl LegacyDelegatedSignature {
@@ -499,52 +482,9 @@ mod tests {
 
     use prost::Message;
     use sha2::{Digest, Sha512};
-    use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
     use xmtp_v2::k256_helper::sign_sha256;
 
-    #[test]
-    fn validate_good_key_round_trip() {
-        let proto_bytes = vec![
-            10, 79, 8, 192, 195, 165, 174, 203, 153, 231, 213, 23, 26, 67, 10, 65, 4, 216, 84, 174,
-            252, 198, 225, 219, 168, 239, 166, 62, 233, 206, 108, 53, 155, 87, 132, 8, 43, 91, 36,
-            91, 81, 93, 213, 67, 241, 69, 5, 31, 249, 186, 129, 119, 144, 4, 44, 54, 76, 185, 95,
-            61, 23, 231, 72, 7, 169, 18, 70, 113, 79, 173, 82, 13, 37, 146, 201, 43, 174, 180, 33,
-            125, 43, 18, 70, 18, 68, 10, 64, 7, 136, 100, 172, 155, 247, 230, 255, 253, 247, 78,
-            50, 212, 226, 41, 78, 239, 183, 136, 247, 122, 88, 155, 245, 219, 183, 215, 202, 42,
-            89, 162, 128, 96, 96, 120, 131, 17, 70, 38, 231, 2, 27, 91, 29, 66, 110, 128, 140, 1,
-            42, 217, 185, 2, 181, 208, 100, 143, 143, 219, 159, 174, 1, 233, 191, 16, 1,
-        ];
-        let account_address = "0x220ca99fb7fafa18cb623d924794dde47b4bc2e9";
-
-        let proto = LegacySignedPublicKeyProto::decode(proto_bytes.as_slice()).unwrap();
-        let validated_key = ValidatedLegacySignedPublicKey::try_from(proto)
-            .expect("Key should validate successfully");
-        let proto: LegacySignedPublicKeyProto = validated_key.into();
-        let validated_key = ValidatedLegacySignedPublicKey::try_from(proto)
-            .expect("Key should still validate successfully");
-        assert_eq!(validated_key.account_address(), account_address);
-    }
-
-    #[test]
-    fn validate_malformed_key() {
-        let proto_bytes = vec![
-            10, 79, 8, 192, 195, 165, 174, 203, 153, 231, 213, 23, 26, 67, 10, 65, 4, 216, 84, 174,
-            252, 198, 225, 219, 168, 239, 166, 62, 233, 206, 108, 53, 155, 87, 132, 8, 43, 91, 36,
-            91, 81, 93, 213, 67, 241, 69, 5, 31, 249, 186, 129, 119, 144, 4, 44, 54, 76, 185, 95,
-            61, 23, 231, 72, 7, 169, 18, 70, 113, 79, 173, 82, 13, 37, 146, 201, 43, 174, 180, 33,
-            125, 43, 18, 70, 18, 68, 10, 64, 7, 136, 100, 172, 155, 247, 230, 255, 253, 247, 78,
-            50, 212, 226, 41, 78, 239, 183, 136, 247, 122, 88, 155, 245, 219, 183, 215, 202, 42,
-            89, 162, 128, 96, 96, 120, 131, 17, 70, 38, 231, 2, 27, 91, 29, 66, 110, 128, 140, 1,
-            42, 217, 185, 2, 181, 208, 100, 143, 143, 219, 159, 174, 1, 233, 191, 16, 1,
-        ];
-        let mut proto = LegacySignedPublicKeyProto::decode(proto_bytes.as_slice()).unwrap();
-        proto.key_bytes[0] += 1; // Corrupt the serialized key data
-        assert!(matches!(
-            ValidatedLegacySignedPublicKey::try_from(proto),
-            Err(super::SignatureError::Invalid)
-        ));
-    }
-
+    // TODO:nm delete once fully deprecated
     #[tokio::test]
     async fn recover_signer_ecdsa() {
         let wallet: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
@@ -581,6 +521,7 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
+    // TODO:nm delete once fully deprecated
     #[tokio::test]
     async fn recover_signer_installation() {
         let signing_key: SigningKey = SigningKey::generate(&mut rand::thread_rng());
@@ -605,6 +546,7 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
+    // TODO:nm delete once fully deprecated
     // Test the happy path with LocalWallet & fail path with a secp256k1 signer.
     #[tokio::test]
     async fn recover_signer_legacy() {
