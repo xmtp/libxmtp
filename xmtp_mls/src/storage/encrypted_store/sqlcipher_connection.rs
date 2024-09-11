@@ -174,7 +174,7 @@ impl EncryptedConnection {
     /// Salt file is stored next to the sqlite3 db3 file as `{db_file_name}.SALT_FILE_NAME`.
     /// If the db file is named `sqlite3_xmtp_db.db3`, the salt file would
     /// be stored next to this file as `sqlite3_xmtp_db.db3.sqlcipher_salt`
-    fn salt_file<P: AsRef<Path>>(db_path: P) -> std::io::Result<PathBuf> {
+    pub(crate) fn salt_file<P: AsRef<Path>>(db_path: P) -> std::io::Result<PathBuf> {
         let db_path: &Path = db_path.as_ref();
         let name = db_path.file_name().ok_or(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -288,71 +288,72 @@ mod tests {
     #[test]
     fn test_db_creates_with_plaintext_header() {
         let db_path = tmp_path();
-        let _ = EncryptedMessageStore::new(
-            Persistent(db_path.clone()),
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .unwrap();
+        {
+            let _ = EncryptedMessageStore::new(
+                Persistent(db_path.clone()),
+                EncryptedMessageStore::generate_enc_key(),
+            )
+            .unwrap();
 
-        assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
-        let bytes = std::fs::read(EncryptedConnection::salt_file(&db_path).unwrap()).unwrap();
-        let salt = hex::decode(bytes).unwrap();
-        assert_eq!(salt.len(), 16);
+            assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
+            let bytes = std::fs::read(EncryptedConnection::salt_file(&db_path).unwrap()).unwrap();
+            let salt = hex::decode(bytes).unwrap();
+            assert_eq!(salt.len(), 16);
 
-        let mut plaintext_header = [0; 16];
-        let mut file = File::open(&db_path).unwrap();
-        file.read_exact(&mut plaintext_header).unwrap();
+            let mut plaintext_header = [0; 16];
+            let mut file = File::open(&db_path).unwrap();
+            file.read_exact(&mut plaintext_header).unwrap();
 
-        assert_eq!(
-            SQLITE3_PLAINTEXT_HEADER,
-            String::from_utf8(plaintext_header.into()).unwrap()
-        );
+            assert_eq!(
+                SQLITE3_PLAINTEXT_HEADER,
+                String::from_utf8(plaintext_header.into()).unwrap()
+            );
+        }
+        EncryptedMessageStore::remove_db_files(db_path)
     }
 
     #[test]
     fn test_db_migrates() {
         let db_path = tmp_path();
-        let key = EncryptedMessageStore::generate_enc_key();
         {
-            let conn = &mut SqliteConnection::establish(&db_path).unwrap();
-            conn.batch_execute(&format!(
-                r#"
+            let key = EncryptedMessageStore::generate_enc_key();
+            {
+                let conn = &mut SqliteConnection::establish(&db_path).unwrap();
+                conn.batch_execute(&format!(
+                    r#"
             {}
             PRAGMA busy_timeout = 5000;
             PRAGMA journal_mode = WAL;
             "#,
-                pragma_key(hex::encode(key))
-            ))
-            .unwrap();
-            conn.run_pending_migrations(crate::storage::MIGRATIONS)
+                    pragma_key(hex::encode(key))
+                ))
                 .unwrap();
+                conn.run_pending_migrations(crate::storage::MIGRATIONS)
+                    .unwrap();
+            }
+
+            // no plaintext header before migration
+            let mut plaintext_header = [0; 16];
+            let mut file = File::open(&db_path).unwrap();
+            file.read_exact(&mut plaintext_header).unwrap();
+            assert!(String::from_utf8_lossy(&plaintext_header) != SQLITE3_PLAINTEXT_HEADER);
+
+            let _ = EncryptedMessageStore::new(Persistent(db_path.clone()), key).unwrap();
+
+            assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
+            let bytes = std::fs::read(EncryptedConnection::salt_file(&db_path).unwrap()).unwrap();
+            let salt = hex::decode(bytes).unwrap();
+            assert_eq!(salt.len(), 16);
+
+            let mut plaintext_header = [0; 16];
+            let mut file = File::open(&db_path).unwrap();
+            file.read_exact(&mut plaintext_header).unwrap();
+
+            assert_eq!(
+                SQLITE3_PLAINTEXT_HEADER,
+                String::from_utf8(plaintext_header.into()).unwrap()
+            );
         }
-
-        // no plaintext header before migration
-        let mut plaintext_header = [0; 16];
-        let mut file = File::open(&db_path).unwrap();
-        file.read_exact(&mut plaintext_header).unwrap();
-        assert!(String::from_utf8_lossy(&plaintext_header) != SQLITE3_PLAINTEXT_HEADER);
-
-        let _ = EncryptedMessageStore::new(Persistent(db_path.clone()), key).unwrap();
-
-        assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
-        let bytes = std::fs::read(EncryptedConnection::salt_file(&db_path).unwrap()).unwrap();
-        let salt = hex::decode(bytes).unwrap();
-        assert_eq!(salt.len(), 16);
-
-        let mut plaintext_header = [0; 16];
-        let mut file = File::open(&db_path).unwrap();
-        file.read_exact(&mut plaintext_header).unwrap();
-
-        assert_eq!(
-            SQLITE3_PLAINTEXT_HEADER,
-            String::from_utf8(plaintext_header.into()).unwrap()
-        );
-    }
-
-    #[test]
-    fn test_db_can_reconnect() {
-        todo!()
+        EncryptedMessageStore::remove_db_files(db_path)
     }
 }

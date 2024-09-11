@@ -13,7 +13,7 @@ use xmtp_id::associations::{generate_inbox_id, RecoverableEcdsaSignature};
 use crate::{
     builder::ClientBuilder,
     identity::IdentityStrategy,
-    storage::{EncryptedMessageStore, EncryptionKey, StorageOption},
+    storage::{EncryptedConnection, EncryptedMessageStore, EncryptionKey, StorageOption},
     types::Address,
     Client, InboxOwner, XmtpApi, XmtpTestClient,
 };
@@ -79,6 +79,12 @@ impl EncryptedMessageStore {
         let mut key = [0u8; 32];
         xmtp_cryptography::utils::rng().fill_bytes(&mut key[..]);
         key
+    }
+
+    pub fn remove_db_files<P: AsRef<str>>(path: P) {
+        let path = path.as_ref();
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(EncryptedConnection::salt_file(path).unwrap()).unwrap();
     }
 }
 

@@ -34,9 +34,9 @@ use diesel::{
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use parking_lot::RwLock;
 
-use self::{db_connection::DbConnection, sqlcipher_connection::EncryptedConnection};
+use self::db_connection::DbConnection;
 
-pub use self::sqlcipher_connection::EncryptionKey;
+pub use self::sqlcipher_connection::{EncryptedConnection, EncryptionKey};
 
 use super::StorageError;
 use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Store};
@@ -486,8 +486,7 @@ mod tests {
             let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
             assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
-
-        fs::remove_file(db_path).unwrap();
+        EncryptedMessageStore::remove_db_files(db_path)
     }
 
     #[test]
@@ -518,7 +517,7 @@ mod tests {
             assert_eq!(fetched_identity2.inbox_id, inbox_id);
         }
 
-        fs::remove_file(db_path).unwrap();
+        EncryptedMessageStore::remove_db_files(db_path)
     }
 
     #[test]
@@ -545,28 +544,31 @@ mod tests {
             matches!(res.err(), Some(StorageError::SqlCipherKeyIncorrect)),
             "Expected SqlCipherKeyIncorrect error"
         );
-        fs::remove_file(db_path).unwrap();
+        EncryptedMessageStore::remove_db_files(db_path)
     }
 
     #[tokio::test]
     async fn encrypted_db_with_multiple_connections() {
         let db_path = tmp_path();
-        let store = EncryptedMessageStore::new(
-            StorageOption::Persistent(db_path.clone()),
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .unwrap();
-
-        let conn1 = &store.conn().unwrap();
-        let inbox_id = "inbox_id";
-        StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
-            .store(conn1)
+        {
+            let store = EncryptedMessageStore::new(
+                StorageOption::Persistent(db_path.clone()),
+                EncryptedMessageStore::generate_enc_key(),
+            )
             .unwrap();
 
-        let conn2 = &store.conn().unwrap();
-        log::info!("Getting conn 2");
-        let fetched_identity: StoredIdentity = conn2.fetch(&()).unwrap().unwrap();
-        assert_eq!(fetched_identity.inbox_id, inbox_id);
+            let conn1 = &store.conn().unwrap();
+            let inbox_id = "inbox_id";
+            StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
+                .store(conn1)
+                .unwrap();
+
+            let conn2 = &store.conn().unwrap();
+            log::info!("Getting conn 2");
+            let fetched_identity: StoredIdentity = conn2.fetch(&()).unwrap().unwrap();
+            assert_eq!(fetched_identity.inbox_id, inbox_id);
+        }
+        EncryptedMessageStore::remove_db_files(db_path)
     }
 
     #[test]
