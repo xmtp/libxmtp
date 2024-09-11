@@ -13,12 +13,20 @@ use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKey
 
 #[derive(Debug, Clone)]
 pub struct UnverifiedIdentityUpdate {
-    inbox_id: String,
-    client_timestamp_ns: u64,
-    actions: Vec<UnverifiedAction>,
+    pub(crate) inbox_id: String,
+    pub(crate) client_timestamp_ns: u64,
+    pub(crate) actions: Vec<UnverifiedAction>,
 }
 
 impl UnverifiedIdentityUpdate {
+    pub fn new(inbox_id: String, client_timestamp_ns: u64, actions: Vec<UnverifiedAction>) -> Self {
+        Self {
+            inbox_id,
+            client_timestamp_ns,
+            actions,
+        }
+    }
+
     fn signature_text(&self) -> String {
         let unsigned_actions = self
             .actions
@@ -87,27 +95,27 @@ impl UnverifiedAction {
 
 #[derive(Debug, Clone)]
 pub struct UnverifiedCreateInbox {
-    unsigned_action: UnsignedCreateInbox,
-    initial_address_signature: UnverifiedSignature,
+    pub(crate) unsigned_action: UnsignedCreateInbox,
+    pub(crate) initial_address_signature: UnverifiedSignature,
 }
 
 #[derive(Debug, Clone)]
 pub struct UnverifiedAddAssociation {
-    unsigned_action: UnsignedAddAssociation,
-    new_member_signature: UnverifiedSignature,
-    existing_member_signature: UnverifiedSignature,
+    pub(crate) unsigned_action: UnsignedAddAssociation,
+    pub(crate) new_member_signature: UnverifiedSignature,
+    pub(crate) existing_member_signature: UnverifiedSignature,
 }
 
 #[derive(Debug, Clone)]
 pub struct UnverifiedRevokeAssociation {
-    recovery_address_signature: UnverifiedSignature,
-    unsigned_action: UnsignedRevokeAssociation,
+    pub(crate) recovery_address_signature: UnverifiedSignature,
+    pub(crate) unsigned_action: UnsignedRevokeAssociation,
 }
 
 #[derive(Debug, Clone)]
 pub struct UnverifiedChangeRecoveryAddress {
-    recovery_address_signature: UnverifiedSignature,
-    unsigned_action: UnsignedChangeRecoveryAddress,
+    pub(crate) recovery_address_signature: UnverifiedSignature,
+    pub(crate) unsigned_action: UnsignedChangeRecoveryAddress,
 }
 
 #[derive(Debug, Clone)]
@@ -130,26 +138,63 @@ impl UnverifiedSignature {
 
 #[derive(Debug, Clone)]
 pub struct UnverifiedInstallationKeySignature {
-    signature_bytes: Vec<u8>,
-    verifying_key: Vec<u8>,
+    pub(crate) signature_bytes: Vec<u8>,
+    pub(crate) verifying_key: Vec<u8>,
+}
+
+impl UnverifiedInstallationKeySignature {
+    pub fn new(signature_bytes: Vec<u8>, verifying_key: Vec<u8>) -> Self {
+        Self {
+            signature_bytes,
+            verifying_key,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct UnverifiedRecoverableEcdsaSignature {
-    signature_bytes: Vec<u8>,
+    pub(crate) signature_bytes: Vec<u8>,
+}
+
+impl UnverifiedRecoverableEcdsaSignature {
+    pub fn new(signature_bytes: Vec<u8>) -> Self {
+        Self { signature_bytes }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct UnverifiedErc6492Signature {
-    signature_bytes: Vec<u8>,
-    account_id: AccountId,
-    block_number: u64,
+    pub(crate) signature_bytes: Vec<u8>,
+    pub(crate) account_id: AccountId,
+    pub(crate) block_number: u64,
+}
+
+impl UnverifiedErc6492Signature {
+    pub fn new(signature_bytes: Vec<u8>, account_id: AccountId, block_number: u64) -> Self {
+        Self {
+            signature_bytes,
+            account_id,
+            block_number,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct UnverifiedLegacyDelegatedSignature {
-    legacy_key_signature: UnverifiedRecoverableEcdsaSignature,
-    signed_public_key_proto: LegacySignedPublicKeyProto,
+    pub(crate) legacy_key_signature: UnverifiedRecoverableEcdsaSignature,
+    pub(crate) signed_public_key_proto: LegacySignedPublicKeyProto,
+}
+
+impl UnverifiedLegacyDelegatedSignature {
+    pub fn new(
+        legacy_key_signature: UnverifiedRecoverableEcdsaSignature,
+        signed_public_key_proto: LegacySignedPublicKeyProto,
+    ) -> Self {
+        Self {
+            legacy_key_signature,
+            signed_public_key_proto,
+        }
+    }
 }
 
 #[cfg(test)]
