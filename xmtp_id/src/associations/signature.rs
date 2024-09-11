@@ -39,7 +39,6 @@ pub enum SignatureError {
     WalletError(#[from] ethers::signers::WalletError),
     #[error(transparent)]
     ECDSAError(#[from] ethers::types::SignatureError),
-
     #[error("Malformed legacy key: {0}")]
     MalformedLegacyKey(String),
     #[error(transparent)]
@@ -78,6 +77,23 @@ impl std::fmt::Display for SignatureKind {
             SignatureKind::Erc1271 => write!(f, "erc-1271"),
             SignatureKind::InstallationKey => write!(f, "installation-key"),
             SignatureKind::LegacyDelegated => write!(f, "legacy-delegated"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct VerifiedSignature {
+    pub signer: MemberIdentifier,
+    pub kind: SignatureKind,
+    pub raw_bytes: Vec<u8>,
+}
+
+impl VerifiedSignature {
+    pub fn new(signer: MemberIdentifier, kind: SignatureKind, raw_bytes: Vec<u8>) -> Self {
+        Self {
+            signer,
+            kind,
+            raw_bytes,
         }
     }
 }

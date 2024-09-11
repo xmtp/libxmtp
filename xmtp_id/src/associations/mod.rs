@@ -8,6 +8,7 @@ mod state;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 pub mod unsigned_actions;
+mod unverified;
 
 pub use self::association_log::*;
 pub use self::hashes::generate_inbox_id;
