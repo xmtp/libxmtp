@@ -190,6 +190,11 @@ impl EncryptedConnection {
     pub(super) fn validate(&self, opts: &StorageOption) -> Result<(), StorageError> {
         let conn = &mut opts.conn()?;
 
+        let cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
+        if cipher_version.is_empty() {
+            return Err(StorageError::SqlCipherNotLoaded);
+        }
+
         // test the key according to
         // https://www.zetetic.net/sqlcipher/sqlcipher-api/#testing-the-key
         conn.batch_execute(&format!(
@@ -205,16 +210,14 @@ impl EncryptedConnection {
             return Err(StorageError::SqlCipherNoWalMode);
         }
 
-        let cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
-        if cipher_version.is_empty() {
-            return Err(StorageError::SqlCipherNotLoaded);
-        }
-        let cipher_provider_version = sql_query("PRAGMA cipher_provider_version")
+        let CipherProviderVersion {
+            cipher_provider_version,
+        } = sql_query("PRAGMA cipher_provider_version")
             .get_result::<CipherProviderVersion>(conn)?;
         log::info!(
             "Sqlite cipher_version={:?}, cipher_provider_version={:?}",
             cipher_version.first().as_ref().map(|v| &v.cipher_version),
-            cipher_provider_version.cipher_provider_version
+            cipher_provider_version
         );
 
         if log_enabled!(log::Level::Info) {
@@ -275,6 +278,7 @@ fn pragma_plaintext_header() -> impl Display {
 #[cfg(test)]
 mod tests {
     use crate::{storage::EncryptedMessageStore, utils::test::tmp_path};
+    use diesel_migrations::MigrationHarness;
     use std::fs::File;
 
     use super::*;
@@ -307,7 +311,48 @@ mod tests {
 
     #[test]
     fn test_db_migrates() {
-        todo!()
+        let db_path = tmp_path();
+        {
+            let conn = &mut SqliteConnection::establish(&db_path).unwrap();
+            let key = EncryptedMessageStore::generate_enc_key();
+            conn.batch_execute(&format!(
+                r#"
+            {}
+            PRAGMA busy_timeout = 5000;
+            PRAGMA journal_mode = WAL;
+            "#,
+                pragma_key(hex::encode(key))
+            ))
+            .unwrap();
+            conn.run_pending_migrations(crate::storage::MIGRATIONS)
+                .unwrap();
+        }
+
+        // no plaintext header before migration
+        let mut plaintext_header = [0; 16];
+        let mut file = File::open(&db_path).unwrap();
+        file.read_exact(&mut plaintext_header).unwrap();
+        assert!(String::from_utf8_lossy(&plaintext_header) != SQLITE3_PLAINTEXT_HEADER);
+
+        let _ = EncryptedMessageStore::new(
+            Persistent(db_path.clone()),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+
+        assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
+        let bytes = std::fs::read(EncryptedConnection::salt_file(&db_path).unwrap()).unwrap();
+        let salt = hex::decode(bytes).unwrap();
+        assert_eq!(salt.len(), 16);
+
+        let mut plaintext_header = [0; 16];
+        let mut file = File::open(&db_path).unwrap();
+        file.read_exact(&mut plaintext_header).unwrap();
+
+        assert_eq!(
+            SQLITE3_PLAINTEXT_HEADER,
+            String::from_utf8(plaintext_header.into()).unwrap()
+        );
     }
 
     #[test]
