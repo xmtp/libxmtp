@@ -1,5 +1,10 @@
 # @xmtp/mls-client-bindings-node
 
+## 0.0.11
+
+- Added `inbox_state` to client
+- Skip duplicate message processing when streaming
+
 ## 0.0.10
 
 - Fixed several group syncing issues
