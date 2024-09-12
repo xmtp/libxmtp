@@ -791,9 +791,12 @@ mod tests {
                 log::info!("Got message {:?}", msg);
             });
 
-        stream1.wait_for_ready().await;
-        stream2.wait_for_ready().await;
-        stream3.wait_for_ready().await;
+        futures::future::join_all(vec![
+            stream1.wait_for_ready(),
+            stream2.wait_for_ready(),
+            stream3.wait_for_ready(),
+        ])
+        .await;
 
         let bo_group = bo
             .create_group_with_members(vec![alix_addr.get_address()], None, Default::default())
