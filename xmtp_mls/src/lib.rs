@@ -197,13 +197,13 @@ where
 
 #[cfg(target_arch = "wasm32")]
 #[doc(hidden)]
-pub async fn sleep(duration: std::time::Duration) {
+pub async fn sleep(duration: chrono::Duration) {
     gloo_timers::future::TimeoutFuture::new(duration.as_millis() as u32).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[doc(hidden)]
-pub async fn sleep(duration: std::time::Duration) {
+pub async fn sleep(duration: chrono::Duration) {
     tokio::time::sleep(duration).await
 }
 

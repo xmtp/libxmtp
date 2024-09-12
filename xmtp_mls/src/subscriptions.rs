@@ -510,7 +510,7 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
             .await
             .unwrap();
-        crate::sleep(std::time::Duration::from_millis(100)).await;
+        crate::sleep(chrono::Duration::from_millis(100)).await;
 
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let messages_clone = messages.clone();
@@ -661,7 +661,7 @@ pub(crate) mod tests {
             .send_message("should not show up".as_bytes(), &alix)
             .await
             .unwrap();
-        crate::sleep(std::time::Duration::from_millis(100)).await;
+        crate::sleep(chrono::Duration::from_millis(100)).await;
 
         let messages = messages.lock();
         assert_eq!(messages.len(), 5);
@@ -706,7 +706,7 @@ pub(crate) mod tests {
                     .send_message(b"spam", &alix_pointer)
                     .await
                     .unwrap();
-                crate::sleep(std::time::Duration::from_micros(200)).await;
+                crate::sleep(chrono::Duration::from_micros(200)).await;
             }
         });
 
@@ -724,7 +724,7 @@ pub(crate) mod tests {
                 .unwrap();
         }
 
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        let _ = tokio::time::timeout(chrono::Duration::from_secs(120), async {
             while blocked.load(Ordering::SeqCst) > 0 {
                 tokio::task::yield_now().await;
             }

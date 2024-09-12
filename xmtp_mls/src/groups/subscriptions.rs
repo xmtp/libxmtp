@@ -165,7 +165,7 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
-    use std::time::Duration;
+    use chrono::Duration;
     use tokio_stream::wrappers::UnboundedReceiverStream;
     use xmtp_cryptography::utils::generate_local_wallet;
 
