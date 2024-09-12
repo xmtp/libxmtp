@@ -387,7 +387,6 @@ mod tests {
         builder::ClientBuilder, groups::GroupMetadataOptions,
         storage::group_message::StoredGroupMessage, Client,
     };
-    use ethers::signers::Signer;
     use futures::StreamExt;
     use parking_lot::Mutex;
     use std::sync::{
