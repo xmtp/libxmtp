@@ -387,6 +387,7 @@ mod tests {
         builder::ClientBuilder, groups::GroupMetadataOptions,
         storage::group_message::StoredGroupMessage, Client,
     };
+    use ethers::signers::Signer;
     use futures::StreamExt;
     use parking_lot::Mutex;
     use std::sync::{
@@ -394,6 +395,7 @@ mod tests {
         Arc,
     };
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_id::InboxOwner;
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_stream_welcomes() {
@@ -759,5 +761,66 @@ mod tests {
         }
 
         closer.handle.abort();
+    }
+    /*
+        const [alixClient, boClient] = await createClients(2, env)
+
+        // Start streaming groups
+        const groups: Group<any>[] = []
+        await alixClient.conversations.streamGroups(async (group: Group<any>) => {
+          groups.push(group)
+        })
+        // Also stream messages
+        await alixClient.conversations.streamAllMessages(
+          async (message) => {},
+          true
+        )
+
+        // bo creates a group with alix so a stream callback is fired
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        await boClient.conversations.newGroup([alixClient.address])
+        await delayToPropogate()
+        if ((groups.length as number) !== 1) {
+          throw Error(
+            `Test fails in env ${env}: Unexpected num groups (should be 1): ${groups.length}`
+          )
+        }
+      }
+
+      return true
+    })
+    */
+    #[tokio::test]
+    async fn test_stream_messages_and_welcomes() {
+        let alix_addr = generate_local_wallet();
+        let alix = Arc::new(ClientBuilder::new_dev_client(&alix_addr).await);
+        let bo = ClientBuilder::new_dev_client(&generate_local_wallet()).await;
+
+        let notify = Arc::new(tokio::sync::Notify::new());
+        let notify_ptr = notify.clone();
+        let groups = Arc::new(Mutex::new(Vec::new()));
+        let groups_ptr = groups.clone();
+        let mut stream1 = Client::<TestClient>::stream_conversations_with_callback(
+            alix.clone(),
+            move |conversation| {
+                groups_ptr.lock().push(conversation);
+                notify_ptr.notify_one();
+            },
+        );
+
+        let mut stream2 =
+            Client::<TestClient>::stream_all_messages_with_callback(alix.clone(), |msg| {
+                println!("Got message {:?}", msg);
+            });
+
+        stream1.wait_for_ready().await;
+        stream2.wait_for_ready().await;
+
+        let bo_group = bo
+            .create_group_with_members(vec![alix_addr.get_address()], None, Default::default())
+            .await
+            .unwrap();
+        notify.notified().await;
+        assert_eq!(groups.lock().len(), 1);
     }
 }

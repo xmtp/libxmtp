@@ -60,7 +60,7 @@ impl XmtpTestClient for XmtpHttpApiClient {
     }
 
     async fn create_dev() -> Self {
-        XmtpHttpApiClient::new("https://grpc.dev.xmtp.network:443".into()).unwrap()
+        XmtpHttpApiClient::new("http://grpc.dev.xmtp.network:443".into()).unwrap()
     }
 }
 
