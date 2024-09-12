@@ -221,10 +221,6 @@ impl EncryptedConnection {
             cipher_provider_version
         );
 
-        if log_enabled!(log::Level::Info) {
-            conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")
-                .ok();
-        }
         log::debug!("SQLCipher Database validated.");
         Ok(())
     }
@@ -260,6 +256,15 @@ impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error>
             self.pragmas()
         ))
         .map_err(diesel::r2d2::Error::QueryError)?;
+
+        if log_enabled!(log::Level::Info) {
+            conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")
+                .ok();
+        } else {
+            conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = WARN;")
+                .ok();
+        }
+
         Ok(())
     }
 }

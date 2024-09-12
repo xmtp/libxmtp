@@ -2965,7 +2965,6 @@ mod tests {
         conn_2.batch_execute("BEGIN EXCLUSIVE").unwrap();
         let process_result = bo_group.process_messages(bo_messages, &conn_1, &bo).await;
         if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
-            log::info!("ERRORS: {:?}", errors);
             assert_eq!(errors.len(), 1);
             assert!(errors
                 .first()

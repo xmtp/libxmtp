@@ -700,7 +700,7 @@ mod tests {
                 .unwrap();
         }
 
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(120), async {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(60), async {
             while blocked.load(Ordering::SeqCst) > 0 {
                 tokio::task::yield_now().await;
             }
