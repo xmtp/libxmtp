@@ -954,7 +954,7 @@ impl MlsGroup {
             .map_err(GroupError::from)
             .and_then(|fetch_result| {
                 fetch_result
-                    .map(|group| group.consent_state.clone())
+                    .map(|group| group.consent_state)
                     .ok_or_else(|| GroupError::GroupNotFound)
             })
     }
