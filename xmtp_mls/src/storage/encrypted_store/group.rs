@@ -66,7 +66,7 @@ impl StoredGroup {
             purpose,
             added_by_inbox_id,
             welcome_id: Some(welcome_id),
-            consent_state: consent_state,
+            consent_state,
         }
     }
 
@@ -86,7 +86,7 @@ impl StoredGroup {
             purpose: Purpose::Conversation,
             added_by_inbox_id,
             welcome_id: None,
-            consent_state: consent_state,
+            consent_state,
         }
     }
 
