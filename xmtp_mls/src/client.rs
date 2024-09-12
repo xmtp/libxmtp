@@ -50,6 +50,7 @@ use crate::{
     retry::Retry,
     retry_async, retryable,
     storage::{
+        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
         group_message::StoredGroupMessage,
@@ -337,6 +338,22 @@ where
         }
         let state = self.get_association_state(&conn, inbox_id, None).await?;
         Ok(state)
+    }
+
+    pub async fn set_consent_state(
+        &self,
+        state: ConsentState,
+        entity_type: ConsentType,
+        entity: String,
+    ) -> Result<(), ClientError> {
+        let conn = self.store().conn()?;
+        conn.insert_or_replace_consent_record(StoredConsentRecord::new(
+            entity_type,
+            state,
+            entity,
+        ))?;
+
+        Ok(())
     }
 
     pub fn store(&self) -> &EncryptedMessageStore {

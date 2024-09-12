@@ -959,10 +959,7 @@ impl MlsGroup {
             })
     }
 
-    pub async fn update_consent_state(
-        &self,
-        state: ConsentState
-    ) -> Result<(), GroupError> {
+    pub async fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         let conn = self.context.store.conn()?;
         Ok(conn.update_consent_state(self.group_id.clone(), state)?)
     }

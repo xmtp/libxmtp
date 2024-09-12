@@ -29,6 +29,7 @@ use xmtp_mls::groups::intents::PermissionPolicyOption;
 use xmtp_mls::groups::intents::PermissionUpdateType;
 use xmtp_mls::groups::GroupMetadataOptions;
 use xmtp_mls::storage::consent_record::ConsentState;
+use xmtp_mls::storage::consent_record::ConsentType;
 use xmtp_mls::{
     api::ApiClientWrapper,
     builder::ClientBuilder,
@@ -328,6 +329,29 @@ impl FfiXmtpClient {
             .get_latest_association_state(&self.inner_client.store().conn()?, &inbox_id)
             .await?;
         Ok(state.into())
+    }
+
+    pub async fn set_consent_state(
+        &self,
+        state: FfiConsentState,
+        entity_type: FfiConsentEntityType,
+        entity: String,
+    ) -> Result<(), GenericError> {
+        let inner = self.inner_client.as_ref();
+        let consent_state = match state {
+            FfiConsentState::Unknown => ConsentState::Unknown,
+            FfiConsentState::Allowed => ConsentState::Allowed,
+            FfiConsentState::Denied => ConsentState::Denied,
+        };
+        let consent_type = match entity_type {
+            FfiConsentEntityType::GroupId => ConsentType::GroupId,
+            FfiConsentEntityType::InboxId => ConsentType::InboxId,
+            FfiConsentEntityType::Address => ConsentType::Address,
+        };
+        let result = inner
+            .set_consent_state(consent_state, consent_type, entity)
+            .await?;
+        Ok(result)
     }
 }
 
@@ -859,6 +883,13 @@ pub enum FfiConsentState {
     Unknown,
     Allowed,
     Denied,
+}
+
+#[derive(uniffi::Enum)]
+pub enum FfiConsentEntityType {
+    GroupId,
+    InboxId,
+    Address,
 }
 
 #[derive(uniffi::Record, Clone, Default)]
