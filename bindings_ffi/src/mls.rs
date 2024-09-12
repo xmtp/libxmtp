@@ -338,18 +338,8 @@ impl FfiXmtpClient {
         entity: String,
     ) -> Result<(), GenericError> {
         let inner = self.inner_client.as_ref();
-        let consent_state = match state {
-            FfiConsentState::Unknown => ConsentState::Unknown,
-            FfiConsentState::Allowed => ConsentState::Allowed,
-            FfiConsentState::Denied => ConsentState::Denied,
-        };
-        let consent_type = match entity_type {
-            FfiConsentEntityType::GroupId => ConsentType::GroupId,
-            FfiConsentEntityType::InboxId => ConsentType::InboxId,
-            FfiConsentEntityType::Address => ConsentType::Address,
-        };
         inner
-            .set_consent_state(consent_state, consent_type, entity)
+            .set_consent_state(state.into(), entity_type.into(), entity)
             .await?;
         Ok(())
     }
@@ -360,19 +350,9 @@ impl FfiXmtpClient {
         entity: String,
     ) -> Result<FfiConsentState, GenericError> {
         let inner = self.inner_client.as_ref();
-        let consent_type = match entity_type {
-            FfiConsentEntityType::GroupId => ConsentType::GroupId,
-            FfiConsentEntityType::InboxId => ConsentType::InboxId,
-            FfiConsentEntityType::Address => ConsentType::Address,
-        };
-        let result = inner.get_consent_state(consent_type, entity).await?;
+        let result = inner.get_consent_state(entity_type.into(), entity).await?;
 
-        let consent_state = match result {
-            ConsentState::Unknown => FfiConsentState::Unknown,
-            ConsentState::Allowed => FfiConsentState::Allowed,
-            ConsentState::Denied => FfiConsentState::Denied,
-        };
-        Ok(consent_state)
+        Ok(result.into())
     }
 }
 
@@ -906,11 +886,41 @@ pub enum FfiConsentState {
     Denied,
 }
 
+impl From<ConsentState> for FfiConsentState {
+    fn from(state: ConsentState) -> Self {
+        match state {
+            ConsentState::Unknown => FfiConsentState::Unknown,
+            ConsentState::Allowed => FfiConsentState::Allowed,
+            ConsentState::Denied => FfiConsentState::Denied,
+        }
+    }
+}
+
+impl From<FfiConsentState> for ConsentState {
+    fn from(state: FfiConsentState) -> Self {
+        match state {
+            FfiConsentState::Unknown => ConsentState::Unknown,
+            FfiConsentState::Allowed => ConsentState::Allowed,
+            FfiConsentState::Denied => ConsentState::Denied,
+        }
+    }
+}
+
 #[derive(uniffi::Enum)]
 pub enum FfiConsentEntityType {
     GroupId,
     InboxId,
     Address,
+}
+
+impl From<FfiConsentEntityType> for ConsentType {
+    fn from(entity_type: FfiConsentEntityType) -> Self {
+        match entity_type {
+            FfiConsentEntityType::GroupId => ConsentType::GroupId,
+            FfiConsentEntityType::InboxId => ConsentType::InboxId,
+            FfiConsentEntityType::Address => ConsentType::Address,
+        }
+    }
 }
 
 #[derive(uniffi::Record, Clone, Default)]
@@ -1056,11 +1066,7 @@ impl FfiGroup {
                     PermissionLevel::Admin => FfiPermissionLevel::Admin,
                     PermissionLevel::SuperAdmin => FfiPermissionLevel::SuperAdmin,
                 },
-                consent_state: match member.consent_state {
-                    ConsentState::Unknown => FfiConsentState::Unknown,
-                    ConsentState::Allowed => FfiConsentState::Allowed,
-                    ConsentState::Denied => FfiConsentState::Denied,
-                },
+                consent_state: member.consent_state.into(),
             })
             .collect();
 
@@ -1406,13 +1412,9 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let state = match group.consent_state()? {
-            ConsentState::Unknown => FfiConsentState::Unknown,
-            ConsentState::Allowed => FfiConsentState::Allowed,
-            ConsentState::Denied => FfiConsentState::Denied,
-        };
+        let state = group.consent_state()?;
 
-        Ok(state)
+        Ok(state.into())
     }
 
     pub async fn update_consent_state(&self, state: FfiConsentState) -> Result<(), GenericError> {
@@ -1422,13 +1424,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        let consent_state = match state {
-            FfiConsentState::Unknown => ConsentState::Unknown,
-            FfiConsentState::Allowed => ConsentState::Allowed,
-            FfiConsentState::Denied => ConsentState::Denied,
-        };
-
-        group.update_consent_state(consent_state).await?;
+        group.update_consent_state(state.into()).await?;
 
         Ok(())
     }
