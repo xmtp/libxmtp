@@ -28,6 +28,7 @@ use xmtp_mls::groups::group_permissions::PolicySet;
 use xmtp_mls::groups::intents::PermissionPolicyOption;
 use xmtp_mls::groups::intents::PermissionUpdateType;
 use xmtp_mls::groups::GroupMetadataOptions;
+use xmtp_mls::storage::consent_record::ConsentState;
 use xmtp_mls::{
     api::ApiClientWrapper,
     builder::ClientBuilder,
@@ -843,6 +844,7 @@ pub struct FfiGroupMember {
     pub account_addresses: Vec<String>,
     pub installation_ids: Vec<Vec<u8>>,
     pub permission_level: FfiPermissionLevel,
+    pub consent_state: FfiConsentState,
 }
 
 #[derive(uniffi::Enum)]
@@ -850,6 +852,13 @@ pub enum FfiPermissionLevel {
     Member,
     Admin,
     SuperAdmin,
+}
+
+#[derive(uniffi::Enum)]
+pub enum FfiConsentState {
+    Unknown,
+    Allowed,
+    Denied,
 }
 
 #[derive(uniffi::Record, Clone, Default)]
@@ -994,6 +1003,11 @@ impl FfiGroup {
                     PermissionLevel::Member => FfiPermissionLevel::Member,
                     PermissionLevel::Admin => FfiPermissionLevel::Admin,
                     PermissionLevel::SuperAdmin => FfiPermissionLevel::SuperAdmin,
+                },
+                consent_state: match member.consent_state {
+                    ConsentState::Unknown => FfiConsentState::Unknown,
+                    ConsentState::Allowed => FfiConsentState::Allowed,
+                    ConsentState::Denied => FfiConsentState::Denied,
                 },
             })
             .collect();
