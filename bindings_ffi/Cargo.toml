@@ -46,6 +46,7 @@ tokio-test = "0.4"
 tracing-subscriber = "0.3"
 uniffi = { version = "0.28.0", features = ["bindgen-tests"] }
 uuid = { version = "1.9", features = ["v4", "fast-rng"] }
+xmtp_mls = { path = "../xmtp_mls", features = ["native", "test-utils"] }
 
 # NOTE: The release profile reduces bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093

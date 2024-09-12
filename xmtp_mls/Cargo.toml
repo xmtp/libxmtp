@@ -20,7 +20,7 @@ bench = [
 ]
 default = ["native"]
 http-api = ["xmtp_api_http"]
-native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
+native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl", "xmtp_api_grpc"]
 test-utils = []
 
 [dependencies]

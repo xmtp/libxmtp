@@ -5696,9 +5696,6 @@ dependencies = [
  "base64 0.22.1",
  "futures",
  "hex",
- "log",
- "pbjson",
- "pbjson-types",
  "prost",
  "serde",
  "tokio",
@@ -5785,6 +5782,7 @@ dependencies = [
  "toml 0.8.8",
  "tracing",
  "trait-variant",
+ "xmtp_api_grpc",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_proto",
@@ -5795,9 +5793,7 @@ name = "xmtp_proto"
 version = "0.0.1"
 dependencies = [
  "futures",
- "futures-core",
  "openmls",
- "openmls_basic_credential",
  "pbjson",
  "pbjson-types",
  "prost",
@@ -5811,8 +5807,7 @@ dependencies = [
 name = "xmtp_user_preferences"
 version = "0.0.1"
 dependencies = [
- "base64 0.21.7",
- "once_cell",
+ "base64 0.22.1",
  "prost",
  "xmtp_proto",
  "xmtp_v2",
