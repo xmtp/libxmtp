@@ -16,8 +16,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = "1.0"
 tokio = { workspace = true, features = ["sync", "rt", "macros"] }
-tokio-stream = { version = "0.1", default-features = false }
-tracing.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

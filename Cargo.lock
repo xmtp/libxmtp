@@ -1234,6 +1234,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
+name = "dyn-clone"
+version = "1.0.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d6ef0072f8a535281e4876be788938b528e9a1d43900b82c2569af7da799125"
+
+[[package]]
 name = "ecdsa"
 version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6332,9 +6338,6 @@ dependencies = [
  "base64 0.22.1",
  "futures",
  "hex",
- "log",
- "pbjson",
- "pbjson-types",
  "prost",
  "serde",
  "tokio",
@@ -6358,8 +6361,6 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
- "tokio-stream",
- "tracing",
  "wasm-bindgen-test",
  "xmtp_proto",
 ]
@@ -6371,7 +6372,6 @@ dependencies = [
  "clap",
  "ethers",
  "femme",
- "futures",
  "hex",
  "kv-log-macro",
  "log",
@@ -6381,8 +6381,6 @@ dependencies = [
  "thiserror",
  "timeago",
  "tokio",
- "tokio-stream",
- "url",
  "xmtp_api_grpc",
  "xmtp_cryptography",
  "xmtp_id",
@@ -6462,6 +6460,7 @@ dependencies = [
  "diesel",
  "diesel-wasm-sqlite",
  "diesel_migrations",
+ "dyn-clone",
  "ed25519-dalek",
  "ethers",
  "futures",
@@ -6512,10 +6511,7 @@ name = "xmtp_proto"
 version = "0.0.1"
 dependencies = [
  "futures",
- "futures-core",
- "mockall",
  "openmls",
- "openmls_basic_credential",
  "pbjson",
  "pbjson-types",
  "prost",
@@ -6529,9 +6525,8 @@ dependencies = [
 name = "xmtp_user_preferences"
 version = "0.0.1"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "libsecp256k1",
- "once_cell",
  "prost",
  "rand",
  "xmtp_proto",

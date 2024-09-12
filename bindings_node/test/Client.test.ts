@@ -31,4 +31,16 @@ describe('Client', () => {
     const inboxId = await client.findInboxIdByAddress(user.account.address)
     expect(inboxId).toBe(client.inboxId())
   })
+
+  it('should return the correct inbox state', async () => {
+    const user = createUser()
+    const client = await createRegisteredClient(user)
+    const inboxState = await client.inboxState(false)
+    expect(inboxState.inboxId).toBe(client.inboxId())
+    expect(inboxState.installationIds).toEqual([client.installationId()])
+    expect(inboxState.accountAddresses).toEqual([
+      user.account.address.toLowerCase(),
+    ])
+    expect(inboxState.recoveryAddress).toBe(user.account.address.toLowerCase())
+  })
 })

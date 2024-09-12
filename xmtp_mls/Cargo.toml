@@ -10,8 +10,8 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown", "aarch64-apple-
 
 [features]
 default = []
-test-utils = []
-bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "tracing-flame", "once_cell", "xmtp_api_grpc", "criterion"]
+test-utils = ["dep:xmtp_api_grpc", "xmtp_id/test-utils"]
+bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "tracing-flame", "once_cell", "dep:xmtp_api_grpc", "criterion"]
 update-schema = ["toml"]
 http-api = ["xmtp_api_http"]
 
@@ -39,6 +39,7 @@ tokio-stream = { version = "0.1", features = ["sync"]  }
 async-trait.workspace = true
 futures.workspace = true
 reqwest = { version = "0.12.4", features = ["stream"] }
+dyn-clone = "1"
 
 # XMTP/Local
 xmtp_cryptography = { workspace = true }

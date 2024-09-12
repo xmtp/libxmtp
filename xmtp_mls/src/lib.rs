@@ -23,8 +23,8 @@ pub use client::{Client, Network};
 use std::future::Future;
 use storage::StorageError;
 use tokio::task::JoinHandle;
-
 pub use trait_impls::*;
+
 /// XMTP Api Super Trait
 /// Implements all Trait Network APIs for convenience.
 mod trait_impls {

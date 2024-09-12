@@ -173,7 +173,7 @@ where
     // #[tracing::instrument(skip(self, group_id_to_info))]
     pub(crate) async fn stream_messages(
         &self,
-        group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
+        group_id_to_info: Arc<HashMap<Vec<u8>, MessagesStreamInfo>>,
     ) -> Result<impl Stream<Item = StoredGroupMessage> + '_, ClientError>
     where
         ApiClient: 'static,
@@ -244,6 +244,7 @@ where
             while let Some(convo) = stream.next().await {
                 convo_callback(convo)
             }
+            log::debug!("`stream_conversations` stream ended, dropping stream");
             Ok(())
         });
 
@@ -261,13 +262,15 @@ where
         let (tx, rx) = oneshot::channel();
 
         let client = client.clone();
+
         let handle = crate::spawn(async move {
-            let stream = Self::stream_messages(&client, group_id_to_info).await?;
+            let stream = Self::stream_messages(&client, Arc::new(group_id_to_info)).await?;
             futures::pin_mut!(stream);
             let _ = tx.send(());
             while let Some(message) = stream.next().await {
                 callback(message)
             }
+            log::debug!("`stream_messages` stream ended, dropping stream");
             Ok(())
         });
 
@@ -292,7 +295,7 @@ where
 
         let stream = async_stream::stream! {
             let messages_stream = self
-                .stream_messages(group_id_to_info.clone())
+                .stream_messages(Arc::new(group_id_to_info.clone()))
                 .await?;
             futures::pin_mut!(messages_stream);
 
@@ -332,7 +335,7 @@ where
                                 cursor: 1, // For the new group, stream all messages since the group was created
                             },
                         );
-                        let new_messages_stream = match self.stream_messages(group_id_to_info.clone()).await {
+                        let new_messages_stream = match self.stream_messages(Arc::new(group_id_to_info.clone())).await {
                             Ok(stream) => stream,
                             Err(e) => {
                                 log::error!("{}", e);
@@ -370,6 +373,7 @@ where
                     Err(m) => log::error!("error during stream all messages {}", m),
                 }
             }
+            log::debug!("`stream_all_messages` stream ended, dropping stream");
             Ok(())
         });
 
@@ -720,7 +724,7 @@ pub(crate) mod tests {
                 .unwrap();
         }
 
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(120), async {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(60), async {
             while blocked.load(Ordering::SeqCst) > 0 {
                 tokio::task::yield_now().await;
             }

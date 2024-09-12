@@ -1,13 +1,11 @@
-use crate::GenericSignature;
 
 use super::hashes::generate_inbox_id;
 use super::member::{Member, MemberIdentifier, MemberKind};
-use super::serialization::{from_identity_update_proto, DeserializationError};
+use super::serialization::DeserializationError;
 use super::signature::{SignatureError, SignatureKind};
 use super::state::AssociationState;
-use prost::Message;
+use super::verified_signature::VerifiedSignature;
 use thiserror::Error;
-use xmtp_proto::xmtp::identity::associations::IdentityUpdate as IdentityUpdateProto;
 
 #[derive(Debug, Error)]
 pub enum AssociationError {
@@ -39,8 +37,9 @@ pub enum AssociationError {
     MissingIdentityUpdate,
 }
 
-pub(crate) trait IdentityAction {
-    async fn update_state(
+
+pub trait IdentityAction: Send + 'static {
+    fn update_state(
         &self,
         existing_state: Option<AssociationState>,
     ) -> Result<AssociationState, AssociationError>;
@@ -62,11 +61,11 @@ pub(crate) trait IdentityAction {
 pub struct CreateInbox {
     pub nonce: u64,
     pub account_address: String,
-    pub initial_address_signature: GenericSignature,
+    pub initial_address_signature: VerifiedSignature,
 }
 
 impl IdentityAction for CreateInbox {
-    async fn update_state(
+    fn update_state(
         &self,
         existing_state: Option<AssociationState>,
     ) -> Result<AssociationState, AssociationError> {
@@ -75,20 +74,16 @@ impl IdentityAction for CreateInbox {
         }
 
         let account_address = self.account_address.clone();
-        let recovered_signer = self.initial_address_signature.recover_signer().await?;
+        let recovered_signer = self.initial_address_signature.signer.clone();
         if recovered_signer.ne(&MemberIdentifier::Address(
             account_address.clone().to_lowercase(),
         )) {
             return Err(AssociationError::MissingExistingMember);
         }
 
-        allowed_signature_for_kind(
-            &MemberKind::Address,
-            &self.initial_address_signature.signature_kind(),
-        )?;
+        allowed_signature_for_kind(&MemberKind::Address, &self.initial_address_signature.kind)?;
 
-        if self.initial_address_signature.signature_kind() == SignatureKind::LegacyDelegated
-            && self.nonce != 0
+        if self.initial_address_signature.kind == SignatureKind::LegacyDelegated && self.nonce != 0
         {
             return Err(AssociationError::LegacySignatureReuse);
         }
@@ -97,20 +92,20 @@ impl IdentityAction for CreateInbox {
     }
 
     fn signatures(&self) -> Vec<Vec<u8>> {
-        vec![self.initial_address_signature.bytes()]
+        vec![self.initial_address_signature.raw_bytes.clone()]
     }
 }
 
 /// AddAssociation Action
 #[derive(Debug, Clone)]
 pub struct AddAssociation {
-    pub new_member_signature: GenericSignature,
+    pub new_member_signature: VerifiedSignature,
     pub new_member_identifier: MemberIdentifier,
-    pub existing_member_signature: GenericSignature,
+    pub existing_member_signature: VerifiedSignature,
 }
 
 impl IdentityAction for AddAssociation {
-    async fn update_state(
+    fn update_state(
         &self,
         maybe_existing_state: Option<AssociationState>,
     ) -> Result<AssociationState, AssociationError> {
@@ -118,9 +113,9 @@ impl IdentityAction for AddAssociation {
         self.replay_check(&existing_state)?;
 
         // Validate the new member signature and get the recovered signer
-        let new_member_address = self.new_member_signature.recover_signer().await?;
+        let new_member_address = &self.new_member_signature.signer;
         // Validate the existing member signature and get the recovedred signer
-        let existing_member_identifier = self.existing_member_signature.recover_signer().await?;
+        let existing_member_identifier = &self.existing_member_signature.signer;
 
         if new_member_address.ne(&self.new_member_identifier) {
             return Err(AssociationError::NewMemberIdSignatureMismatch);
@@ -136,7 +131,7 @@ impl IdentityAction for AddAssociation {
         if (is_legacy_signature(&self.new_member_signature)
             || is_legacy_signature(&self.existing_member_signature))
             && existing_state.inbox_id().ne(&generate_inbox_id(
-                &existing_member_identifier.to_string(),
+                existing_member_identifier.to_string().as_str(),
                 &0,
             ))
         {
@@ -145,10 +140,10 @@ impl IdentityAction for AddAssociation {
 
         allowed_signature_for_kind(
             &self.new_member_identifier.kind(),
-            &self.new_member_signature.signature_kind(),
+            &self.new_member_signature.kind,
         )?;
 
-        let existing_member = existing_state.get(&existing_member_identifier);
+        let existing_member = existing_state.get(existing_member_identifier);
 
         let existing_entity_id = match existing_member {
             // If there is an existing member of the XID, use that member's ID
@@ -174,7 +169,7 @@ impl IdentityAction for AddAssociation {
         // Ensure that the existing member signature is correct for the existing member type
         allowed_signature_for_kind(
             &existing_entity_id.kind(),
-            &self.existing_member_signature.signature_kind(),
+            &self.existing_member_signature.kind,
         )?;
 
         // Ensure that the new member signature is correct for the new member type
@@ -183,15 +178,15 @@ impl IdentityAction for AddAssociation {
             self.new_member_identifier.kind(),
         )?;
 
-        let new_member = Member::new(new_member_address, Some(existing_entity_id));
+        let new_member = Member::new(new_member_address.clone(), Some(existing_entity_id));
 
         Ok(existing_state.add(new_member))
     }
 
     fn signatures(&self) -> Vec<Vec<u8>> {
         vec![
-            self.existing_member_signature.bytes(),
-            self.new_member_signature.bytes(),
+            self.existing_member_signature.raw_bytes.clone(),
+            self.new_member_signature.raw_bytes.clone(),
         ]
     }
 }
@@ -199,12 +194,12 @@ impl IdentityAction for AddAssociation {
 /// RevokeAssociation Action
 #[derive(Debug, Clone)]
 pub struct RevokeAssociation {
-    pub recovery_address_signature: GenericSignature,
+    pub recovery_address_signature: VerifiedSignature,
     pub revoked_member: MemberIdentifier,
 }
 
 impl IdentityAction for RevokeAssociation {
-    async fn update_state(
+    fn update_state(
         &self,
         maybe_existing_state: Option<AssociationState>,
     ) -> Result<AssociationState, AssociationError> {
@@ -218,7 +213,7 @@ impl IdentityAction for RevokeAssociation {
             ));
         }
         // Don't need to check for replay here since revocation is idempotent
-        let recovery_signer = self.recovery_address_signature.recover_signer().await?;
+        let recovery_signer = &self.recovery_address_signature.signer;
         // Make sure there is a recovery address set on the state
         let state_recovery_address = existing_state.recovery_address();
 
@@ -247,19 +242,19 @@ impl IdentityAction for RevokeAssociation {
     }
 
     fn signatures(&self) -> Vec<Vec<u8>> {
-        vec![self.recovery_address_signature.bytes()]
+        vec![self.recovery_address_signature.raw_bytes.clone()]
     }
 }
 
 /// ChangeRecoveryAddress Action
 #[derive(Debug, Clone)]
 pub struct ChangeRecoveryAddress {
-    pub recovery_address_signature: GenericSignature,
+    pub recovery_address_signature: VerifiedSignature,
     pub new_recovery_address: String,
 }
 
 impl IdentityAction for ChangeRecoveryAddress {
-    async fn update_state(
+    fn update_state(
         &self,
         existing_state: Option<AssociationState>,
     ) -> Result<AssociationState, AssociationError> {
@@ -273,7 +268,7 @@ impl IdentityAction for ChangeRecoveryAddress {
             ));
         }
 
-        let recovery_signer = self.recovery_address_signature.recover_signer().await?;
+        let recovery_signer = &self.recovery_address_signature.signer;
         if recovery_signer.ne(&existing_state.recovery_address().clone().into()) {
             return Err(AssociationError::MissingExistingMember);
         }
@@ -282,7 +277,7 @@ impl IdentityAction for ChangeRecoveryAddress {
     }
 
     fn signatures(&self) -> Vec<Vec<u8>> {
-        vec![self.recovery_address_signature.bytes()]
+        vec![self.recovery_address_signature.raw_bytes.clone()]
     }
 }
 
@@ -296,15 +291,15 @@ pub enum Action {
 }
 
 impl IdentityAction for Action {
-    async fn update_state(
+    fn update_state(
         &self,
         existing_state: Option<AssociationState>,
     ) -> Result<AssociationState, AssociationError> {
         match self {
-            Action::CreateInbox(event) => event.update_state(existing_state).await,
-            Action::AddAssociation(event) => event.update_state(existing_state).await,
-            Action::RevokeAssociation(event) => event.update_state(existing_state).await,
-            Action::ChangeRecoveryAddress(event) => event.update_state(existing_state).await,
+            Action::CreateInbox(event) => event.update_state(existing_state),
+            Action::AddAssociation(event) => event.update_state(existing_state),
+            Action::RevokeAssociation(event) => event.update_state(existing_state),
+            Action::ChangeRecoveryAddress(event) => event.update_state(existing_state),
         }
     }
 
@@ -334,41 +329,16 @@ impl IdentityUpdate {
             client_timestamp_ns,
         }
     }
-
-    pub fn to_proto(self) -> IdentityUpdateProto {
-        IdentityUpdateProto::from(self)
-    }
-
-    pub fn from_proto(proto: IdentityUpdateProto) -> Result<Self, DeserializationError> {
-        from_identity_update_proto(proto)
-    }
-}
-
-impl TryFrom<IdentityUpdateProto> for IdentityUpdate {
-    type Error = DeserializationError;
-
-    fn try_from(proto: IdentityUpdateProto) -> Result<IdentityUpdate, Self::Error> {
-        IdentityUpdate::from_proto(proto)
-    }
-}
-
-impl TryFrom<Vec<u8>> for IdentityUpdate {
-    type Error = DeserializationError;
-
-    fn try_from(bytes: Vec<u8>) -> Result<IdentityUpdate, Self::Error> {
-        let proto = IdentityUpdateProto::decode(bytes.as_slice())?;
-        IdentityUpdate::from_proto(proto)
-    }
 }
 
 impl IdentityAction for IdentityUpdate {
-    async fn update_state(
+    fn update_state(
         &self,
         existing_state: Option<AssociationState>,
     ) -> Result<AssociationState, AssociationError> {
         let mut state = existing_state.clone();
         for action in &self.actions {
-            state = Some(action.update_state(state).await?);
+            state = Some(action.update_state(state)?);
         }
 
         let new_state = state.ok_or(AssociationError::NotCreated)?;
@@ -395,8 +365,8 @@ impl IdentityAction for IdentityUpdate {
 }
 
 #[allow(clippy::borrowed_box)]
-fn is_legacy_signature(signature: &GenericSignature) -> bool {
-    signature.signature_kind() == SignatureKind::LegacyDelegated
+fn is_legacy_signature(signature: &VerifiedSignature) -> bool {
+    signature.kind == SignatureKind::LegacyDelegated
 }
 
 fn allowed_association(

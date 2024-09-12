@@ -1,9 +1,15 @@
-use futures::future::join_all;
+use futures::future::{join_all, try_join_all};
 use openmls::prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage};
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
-use xmtp_id::associations::{self, try_map_vec, AssociationError, DeserializationError};
+use xmtp_id::{
+    associations::{
+        self, try_map_vec, unverified::UnverifiedIdentityUpdate, AssociationError,
+        DeserializationError, SignatureError,
+    },
+    scw_verifier::SmartContractSignatureVerifier,
+};
 use xmtp_mls::{
     utils::id::serialize_group_id,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
@@ -25,6 +31,8 @@ pub enum GrpcServerError {
     Deserialization(#[from] DeserializationError),
     #[error(transparent)]
     Association(#[from] AssociationError),
+    #[error(transparent)]
+    Signature(#[from] SignatureError),
 }
 
 impl From<GrpcServerError> for Status {
@@ -33,8 +41,18 @@ impl From<GrpcServerError> for Status {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct ValidationService {}
+#[derive(Debug)]
+pub struct ValidationService {
+    pub(crate) scw_verifier: Box<dyn SmartContractSignatureVerifier>,
+}
+
+impl ValidationService {
+    pub fn new(scw_verifier: impl SmartContractSignatureVerifier) -> Self {
+        Self {
+            scw_verifier: Box::new(scw_verifier),
+        }
+    }
+}
 
 #[tonic::async_trait]
 impl ValidationApi for ValidationService {
@@ -76,7 +94,7 @@ impl ValidationApi for ValidationService {
             new_updates,
         } = request.into_inner();
 
-        get_association_state(old_updates, new_updates)
+        get_association_state(old_updates, new_updates, self.scw_verifier.as_ref())
             .await
             .map(Response::new)
             .map_err(Into::into)
@@ -144,21 +162,35 @@ async fn validate_inbox_id_key_package(
 async fn get_association_state(
     old_updates: Vec<IdentityUpdateProto>,
     new_updates: Vec<IdentityUpdateProto>,
+    scw_verifier: &dyn SmartContractSignatureVerifier,
 ) -> Result<GetAssociationStateResponse, GrpcServerError> {
-    let (old_updates, new_updates) = (try_map_vec(old_updates)?, try_map_vec(new_updates)?);
+    let old_unverified_updates: Vec<UnverifiedIdentityUpdate> = try_map_vec(old_updates)?;
+    let new_unverified_updates: Vec<UnverifiedIdentityUpdate> = try_map_vec(new_updates)?;
 
+    let old_updates = try_join_all(
+        old_unverified_updates
+            .iter()
+            .map(|u| async { u.to_verified(scw_verifier).await }),
+    )
+    .await?;
+    let new_updates = try_join_all(
+        new_unverified_updates
+            .iter()
+            .map(|u| async { u.to_verified(scw_verifier).await }),
+    )
+    .await?;
     if old_updates.is_empty() {
-        let new_state = associations::get_state(&new_updates).await?;
+        let new_state = associations::get_state(&new_updates)?;
         return Ok(GetAssociationStateResponse {
             association_state: Some(new_state.clone().into()),
             state_diff: Some(new_state.as_diff().into()),
         });
     }
 
-    let old_state = associations::get_state(&old_updates).await?;
+    let old_state = associations::get_state(&old_updates)?;
     let mut new_state = old_state.clone();
     for update in new_updates {
-        new_state = associations::apply_update(new_state, update).await?;
+        new_state = associations::apply_update(new_state, update)?;
     }
 
     let state_diff = old_state.diff(&new_state);
@@ -192,20 +224,17 @@ mod tests {
     use ethers::signers::{LocalWallet, Signer as _};
     use openmls::{
         extensions::{ApplicationIdExtension, Extension, Extensions},
-        prelude::{
-            tls_codec::Serialize, Ciphersuite, Credential as OpenMlsCredential, CredentialWithKey,
-        },
+        prelude::{tls_codec::Serialize, Credential as OpenMlsCredential, CredentialWithKey},
         prelude_test::KeyPackage,
     };
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_rust_crypto::OpenMlsRustCrypto;
     use xmtp_id::associations::{
         generate_inbox_id,
-        unsigned_actions::{
-            SignatureTextCreator as _, UnsignedAction, UnsignedCreateInbox, UnsignedIdentityUpdate,
-        },
-        Action, CreateInbox, IdentityUpdate, RecoverableEcdsaSignature,
+        test_utils::{rand_string, rand_u64, MockSmartContractSignatureVerifier},
+        unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
     };
+    use xmtp_mls::configuration::CIPHERSUITE;
     use xmtp_proto::xmtp::identity::{
         associations::IdentityUpdate as IdentityUpdateProto, MlsCredential as InboxIdMlsCredential,
     };
@@ -213,10 +242,13 @@ mod tests {
 
     use super::*;
 
-    const CIPHERSUITE: Ciphersuite =
-        Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519;
+    impl Default for ValidationService {
+        fn default() -> Self {
+            Self::new(MockSmartContractSignatureVerifier::new(true))
+        }
+    }
 
-    async fn generate_inbox_id_credential() -> (String, LocalWallet, SigningKey, CreateInbox) {
+    async fn generate_inbox_id_credential() -> (String, SigningKey) {
         let signing_key = SigningKey::generate(&mut rand::thread_rng());
 
         let wallet = LocalWallet::new(&mut rand::thread_rng());
@@ -224,32 +256,7 @@ mod tests {
 
         let inbox_id = generate_inbox_id(&address, &0);
 
-        let unsigned_action = UnsignedAction::CreateInbox(UnsignedCreateInbox {
-            nonce: 0,
-            account_address: address.clone(),
-        });
-
-        let update = UnsignedIdentityUpdate {
-            client_timestamp_ns: 1_000_000u64,
-            inbox_id: inbox_id.clone(),
-            actions: vec![unsigned_action],
-        };
-
-        let signature = wallet
-            .sign_message(update.signature_text())
-            .await
-            .unwrap()
-            .to_vec();
-
-        let ecdsa_signature =
-            RecoverableEcdsaSignature::new(update.signature_text(), signature.clone());
-        let create = CreateInbox {
-            nonce: 0,
-            account_address: address,
-            initial_address_signature: Box::new(ecdsa_signature),
-        };
-
-        (inbox_id, wallet, signing_key, create)
+        (inbox_id, signing_key)
     }
 
     fn build_key_package_bytes(
@@ -296,13 +303,18 @@ mod tests {
     #[tokio::test]
     #[should_panic]
     async fn test_get_association_state() {
-        let create_request = CreateInbox::default();
-        let inbox_id = generate_inbox_id(&create_request.account_address, &create_request.nonce);
-
-        let updates = vec![IdentityUpdate::new_test(
-            vec![Action::CreateInbox(create_request)],
+        let account_address = rand_string();
+        let nonce = rand_u64();
+        let inbox_id = generate_inbox_id(&account_address, &nonce);
+        let update = UnverifiedIdentityUpdate::new_test(
+            vec![UnverifiedAction::new_test_create_inbox(
+                &account_address,
+                &nonce,
+            )],
             inbox_id.clone(),
-        )];
+        );
+
+        let updates = vec![update];
 
         ValidationService::default()
             .get_association_state(Request::new(GetAssociationStateRequest {
@@ -318,7 +330,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_inbox_id_key_package_happy_path() {
-        let (inbox_id, _, keypair, _) = generate_inbox_id_credential().await;
+        let (inbox_id, keypair) = generate_inbox_id_credential().await;
         let keypair = to_signature_keypair(keypair);
 
         let credential: OpenMlsCredential = InboxIdMlsCredential {
@@ -356,8 +368,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_inbox_id_key_package_failure() {
-        let (inbox_id, _, keypair, _) = generate_inbox_id_credential().await;
-        let (_, _, other_keypair, _) = generate_inbox_id_credential().await;
+        let (inbox_id, keypair) = generate_inbox_id_credential().await;
+        let (_, other_keypair) = generate_inbox_id_credential().await;
 
         let keypair = to_signature_keypair(keypair);
         let other_keypair = to_signature_keypair(other_keypair);

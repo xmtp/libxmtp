@@ -6,13 +6,9 @@ use std::ops::Deref;
 use std::sync::Arc;
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
-use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
-use xmtp_id::{
-  associations::{
-    AccountId, MemberIdentifier, RecoverableEcdsaSignature, SmartContractWalletSignature,
-  },
-  GenericSignature,
-};
+use xmtp_id::associations::unverified::UnverifiedSignature;
+use xmtp_id::associations::{generate_inbox_id as xmtp_id_generate_inbox_id, AssociationState};
+use xmtp_id::associations::{AccountId, MemberIdentifier};
 use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::identity::IdentityStrategy;
@@ -22,10 +18,33 @@ use xmtp_mls::Client as MlsClient;
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
+#[napi(object)]
+pub struct NapiInboxState {
+  pub inbox_id: String,
+  pub recovery_address: String,
+  pub installation_ids: Vec<String>,
+  pub account_addresses: Vec<String>,
+}
+
+impl From<AssociationState> for NapiInboxState {
+  fn from(state: AssociationState) -> Self {
+    Self {
+      inbox_id: state.inbox_id().to_string(),
+      recovery_address: state.recovery_address().to_string(),
+      installation_ids: state
+        .installation_ids()
+        .into_iter()
+        .map(|id| ed25519_public_key_to_address(id.as_slice()))
+        .collect(),
+      account_addresses: state.account_addresses(),
+    }
+  }
+}
+
 #[napi]
 pub struct NapiClient {
   inner_client: Arc<RustXmtpClient>,
-  signatures: HashMap<MemberIdentifier, GenericSignature>,
+  signatures: HashMap<MemberIdentifier, UnverifiedSignature>,
   pub account_address: String,
 }
 
@@ -155,15 +174,7 @@ impl NapiClient {
       ));
     }
 
-    let signature_text = match self.signature_text() {
-      Some(text) => text,
-      None => return Err(Error::from_reason("No signature text found")),
-    };
-
-    let signature = Box::new(RecoverableEcdsaSignature::new(
-      signature_text,
-      signature_bytes.deref().to_vec(),
-    ));
+    let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.deref().to_vec());
 
     self.signatures.insert(
       MemberIdentifier::Address(self.account_address.clone().to_lowercase()),
@@ -177,9 +188,10 @@ impl NapiClient {
   pub fn add_scw_signature(
     &mut self,
     signature_bytes: Uint8Array,
-    chain_id: String,
+    chain_id: BigInt,
     account_address: String,
-    chain_rpc_url: String,
+    // TODO:nm remove this
+    _chain_rpc_url: String,
     block_number: BigInt,
   ) -> Result<()> {
     if self.is_registered() {
@@ -188,20 +200,15 @@ impl NapiClient {
       ));
     }
 
-    let signature_text = match self.signature_text() {
-      Some(text) => text,
-      None => return Err(Error::from_reason("No signature text found")),
-    };
+    let (_, chain_id_u64, _) = chain_id.get_u64();
 
-    let account_id = AccountId::new(chain_id, account_address.clone());
+    let account_id = AccountId::new_evm(chain_id_u64, account_address.clone());
 
-    let signature = Box::new(SmartContractWalletSignature::new(
-      signature_text,
+    let signature = UnverifiedSignature::new_smart_contract_wallet(
       signature_bytes.deref().to_vec(),
       account_id,
-      chain_rpc_url,
       block_number.get_u64().1,
-    ));
+    );
 
     self.signatures.insert(
       MemberIdentifier::Address(account_address.clone().to_lowercase()),
@@ -234,7 +241,13 @@ impl NapiClient {
     // apply added signatures to the signature request
     for signature in self.signatures.values() {
       signature_request
-        .add_signature(signature.clone())
+        .add_signature(
+          signature.clone(),
+          self
+            .inner_client
+            .smart_contract_signature_verifier()
+            .as_ref(),
+        )
         .await
         .map_err(|e| Error::from_reason(format!("{}", e)))?;
     }
@@ -282,5 +295,21 @@ impl NapiClient {
       .map_err(|e| Error::from_reason(format!("{}", e)))?;
 
     Ok(inbox_id)
+  }
+
+  /**
+   * Get the client's inbox state.
+   *
+   * If `refresh_from_network` is true, the client will go to the network first to refresh the state.
+   * Otherwise, the state will be read from the local database.
+   */
+  #[napi]
+  pub async fn inbox_state(&self, refresh_from_network: bool) -> Result<NapiInboxState> {
+    let state = self
+      .inner_client
+      .inbox_state(refresh_from_network)
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    Ok(state.into())
   }
 }

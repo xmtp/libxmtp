@@ -985,6 +985,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56ce8c6da7551ec6c462cbaf3bfbc75131ebbfa1c944aeaa9dab51ca1c5f0c3b"
 
 [[package]]
+name = "dyn-clone"
+version = "1.0.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d6ef0072f8a535281e4876be788938b528e9a1d43900b82c2569af7da799125"
+
+[[package]]
 name = "ecdsa"
 version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4733,6 +4739,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "trait-variant"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70977707304198400eb4835a78f6a9f928bf41bba420deb8fdb175cd965d77a7"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.64",
+]
+
+[[package]]
 name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5310,9 +5327,6 @@ dependencies = [
  "base64 0.22.1",
  "futures",
  "hex",
- "log",
- "pbjson",
- "pbjson-types",
  "prost",
  "serde",
  "tokio",
@@ -5329,7 +5343,6 @@ dependencies = [
  "curve25519-dalek",
  "ecdsa 0.16.9",
  "ethers",
- "ethers-core",
  "getrandom",
  "hex",
  "k256 0.13.3",
@@ -5387,6 +5400,7 @@ dependencies = [
  "diesel",
  "diesel-wasm-sqlite",
  "diesel_migrations",
+ "dyn-clone",
  "ed25519-dalek",
  "futures",
  "getrandom",
@@ -5410,6 +5424,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
+ "trait-variant",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_proto",
@@ -5420,17 +5435,15 @@ dependencies = [
 name = "xmtp_proto"
 version = "0.0.1"
 dependencies = [
- "async-trait",
  "futures",
- "futures-core",
  "openmls",
- "openmls_basic_credential",
  "pbjson",
  "pbjson-types",
  "prost",
  "prost-types",
  "serde",
  "tonic",
+ "trait-variant",
 ]
 
 [[package]]

@@ -2,6 +2,7 @@ use log::debug;
 use thiserror::Error;
 
 use xmtp_cryptography::signature::AddressValidationError;
+use xmtp_id::scw_verifier::{RpcSmartContractWalletVerifier, SmartContractSignatureVerifier};
 
 use crate::{
     api::ApiClientWrapper,
@@ -51,6 +52,7 @@ pub struct ClientBuilder<ApiClient> {
     identity_strategy: IdentityStrategy,
     history_sync_url: Option<String>,
     app_version: Option<String>,
+    scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
 }
 
 impl<ApiClient> ClientBuilder<ApiClient>
@@ -65,6 +67,7 @@ where
             identity_strategy: strategy,
             history_sync_url: None,
             app_version: None,
+            scw_verifier: None,
         }
     }
 
@@ -93,6 +96,11 @@ where
         self
     }
 
+    pub fn scw_signatuer_verifier(mut self, verifier: impl SmartContractSignatureVerifier) -> Self {
+        self.scw_verifier = Some(Box::new(verifier));
+        self
+    }
+
     pub async fn build(mut self) -> Result<Client<ApiClient>, ClientBuilderError> {
         debug!("Building client");
         let mut api_client =
@@ -106,6 +114,13 @@ where
             api_client.set_app_version(app_version)?;
         }
 
+        let scw_verifier = self.scw_verifier.take().unwrap_or_else(|| {
+            // TODO:nm Enforce that everyone provides this
+            Box::new(RpcSmartContractWalletVerifier::new(
+                "https://fixme.com".to_string(),
+            ))
+        });
+
         let api_client_wrapper = ApiClientWrapper::new(api_client, Retry::default());
         let store = self
             .store
@@ -114,7 +129,7 @@ where
         debug!("Initializing identity");
         let identity = self
             .identity_strategy
-            .initialize_identity(&api_client_wrapper, &store)
+            .initialize_identity(&api_client_wrapper, &store, scw_verifier.as_ref())
             .await?;
 
         // get sequence_id from identity updates and loaded into the DB
@@ -150,10 +165,12 @@ pub(crate) mod tests {
     use openmls_traits::types::SignatureScheme;
     use prost::Message;
     use xmtp_cryptography::utils::{generate_local_wallet, rng};
-    use xmtp_id::associations::ValidatedLegacySignedPublicKey;
-    use xmtp_id::associations::{
-        generate_inbox_id, test_utils::rand_u64, RecoverableEcdsaSignature,
+    use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
+    use xmtp_id::associations::unverified::{
+        UnverifiedRecoverableEcdsaSignature, UnverifiedSignature,
     };
+    use xmtp_id::associations::ValidatedLegacySignedPublicKey;
+    use xmtp_id::associations::{generate_inbox_id, test_utils::rand_u64};
     use xmtp_proto::xmtp::identity::api::v1::{
         get_inbox_ids_response::Response as GetInboxIdsResponseItem, GetInboxIdsResponse,
     };
@@ -174,11 +191,14 @@ pub(crate) mod tests {
     async fn register_client<T: XmtpApi>(client: &Client<T>, owner: &impl InboxOwner) {
         let mut signature_request = client.context.signature_request().unwrap();
         let signature_text = signature_request.signature_text();
+        let scw_verifier = MockSmartContractSignatureVerifier::new(true);
         signature_request
-            .add_signature(Box::new(RecoverableEcdsaSignature::new(
-                signature_text.clone(),
-                owner.sign(&signature_text).unwrap().into(),
-            )))
+            .add_signature(
+                UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(
+                    owner.sign(&signature_text).unwrap().into(),
+                )),
+                &scw_verifier,
+            )
             .await
             .unwrap();
 
@@ -358,8 +378,11 @@ pub(crate) mod tests {
             0,
             Some(legacy_key.clone()),
         );
-        let store =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmp_path())).unwrap();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(tmp_path()),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
 
         let client1 = ClientBuilder::new(identity_strategy.clone())
             .store(store.clone())
@@ -420,9 +443,13 @@ pub(crate) mod tests {
     async fn api_identity_mismatch() {
         let mut mock_api = MockApiClient::new();
         let tmpdb = tmp_path();
+        let scw_verifier = MockSmartContractSignatureVerifier::new(true);
 
-        let store =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(tmpdb),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
         let nonce = 0;
         let address = generate_local_wallet().get_address();
         let inbox_id = generate_inbox_id(&address, &nonce);
@@ -444,7 +471,7 @@ pub(crate) mod tests {
             IdentityStrategy::CreateIfNotFound("other_inbox_id".to_string(), address, nonce, None);
         assert!(matches!(
             identity
-                .initialize_identity(&wrapper, &store)
+                .initialize_identity(&wrapper, &store, &scw_verifier)
                 .await
                 .unwrap_err(),
             IdentityError::NewIdentity(msg) if msg == "Inbox ID mismatch"
@@ -457,9 +484,13 @@ pub(crate) mod tests {
     async fn api_identity_happy_path() {
         let mut mock_api = MockApiClient::new();
         let tmpdb = tmp_path();
+        let scw_verifier = MockSmartContractSignatureVerifier::new(true);
 
-        let store =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(tmpdb),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
         let nonce = 0;
         let address = generate_local_wallet().get_address();
         let inbox_id = generate_inbox_id(&address, &nonce);
@@ -478,7 +509,12 @@ pub(crate) mod tests {
         let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
 
         let identity = IdentityStrategy::CreateIfNotFound(inbox_id.clone(), address, nonce, None);
-        assert!(dbg!(identity.initialize_identity(&wrapper, &store).await).is_ok());
+        assert!(dbg!(
+            identity
+                .initialize_identity(&wrapper, &store, &scw_verifier)
+                .await
+        )
+        .is_ok());
     }
 
     // Use a stored identity as long as the inbox_id matches the one provided.
@@ -487,9 +523,13 @@ pub(crate) mod tests {
     async fn stored_identity_happy_path() {
         let mock_api = MockApiClient::new();
         let tmpdb = tmp_path();
+        let scw_verifier = MockSmartContractSignatureVerifier::new(true);
 
-        let store =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(tmpdb),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
         let nonce = 0;
         let address = generate_local_wallet().get_address();
         let inbox_id = generate_inbox_id(&address, &nonce);
@@ -506,21 +546,28 @@ pub(crate) mod tests {
         stored.store(&store.conn().unwrap()).unwrap();
         let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
         let identity = IdentityStrategy::CreateIfNotFound(inbox_id.clone(), address, nonce, None);
-        assert!(identity.initialize_identity(&wrapper, &store).await.is_ok());
+        assert!(identity
+            .initialize_identity(&wrapper, &store, &scw_verifier)
+            .await
+            .is_ok());
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn stored_identity_mismatch() {
         let mock_api = MockApiClient::new();
+        let scw_verifier = MockSmartContractSignatureVerifier::new(true);
 
         let nonce = 0;
         let address = generate_local_wallet().get_address();
         let stored_inbox_id = generate_inbox_id(&address, &nonce);
 
         let tmpdb = tmp_path();
-        let store =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(tmpdb),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
 
         let stored: StoredIdentity = (&Identity {
             inbox_id: stored_inbox_id.clone(),
@@ -539,7 +586,7 @@ pub(crate) mod tests {
         let identity =
             IdentityStrategy::CreateIfNotFound(inbox_id.clone(), address.clone(), nonce, None);
         let err = identity
-            .initialize_identity(&wrapper, &store)
+            .initialize_identity(&wrapper, &store, &scw_verifier)
             .await
             .unwrap_err();
 
@@ -553,11 +600,11 @@ pub(crate) mod tests {
     async fn identity_persistence_test() {
         let tmpdb = tmp_path();
         let wallet = &generate_local_wallet();
+        let db_key = EncryptedMessageStore::generate_enc_key();
 
         // Generate a new Wallet + Store
         let store_a =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
-                .unwrap();
+            EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key).unwrap();
 
         let nonce = 1;
         let inbox_id = generate_inbox_id(&wallet.get_address(), &nonce);
@@ -581,8 +628,7 @@ pub(crate) mod tests {
 
         // Reload the existing store and wallet
         let store_b =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
-                .unwrap();
+            EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key).unwrap();
 
         let client_b = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
             inbox_id,
@@ -621,8 +667,7 @@ pub(crate) mod tests {
 
         // Use cached only strategy
         let store_d =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
-                .unwrap();
+            EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key).unwrap();
         let client_d = ClientBuilder::new(IdentityStrategy::CachedOnly)
             .local_client()
             .await

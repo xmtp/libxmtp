@@ -11,6 +11,7 @@
 //! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.
 
 pub mod association_state;
+pub mod consent_record;
 pub mod db_connection;
 pub mod group;
 pub mod group_intent;
@@ -20,28 +21,36 @@ pub mod identity_update;
 pub mod key_store_entry;
 pub mod refresh_state;
 pub mod schema;
+#[cfg(not(target_arch = "wasm32"))]
+mod sqlcipher_connection;
 
-use std::{borrow::Cow, sync::Arc};
+use std::sync::Arc;
 
 use diesel::{
     connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
     prelude::*,
-    r2d2::{self, PoolTransactionManager},
+    r2d2::{self, PoolTransactionManager, CustomizeConnection, Error as R2Error},
     result::{DatabaseErrorKind, Error},
     sql_query,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use log::{log_enabled, warn};
 use parking_lot::RwLock;
-use rand::RngCore;
-use xmtp_cryptography::utils as crypto_utils;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use diesel::sqlite::Sqlite;
 #[cfg(target_arch = "wasm32")]
 pub use diesel_wasm_sqlite::WasmSqlite as Sqlite;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use diesel::sqlite::SqliteConnection;
+#[cfg(target_arch = "wasm32")]
+pub use diesel_wasm_sqlite::connection::WasmSqliteConnection as SqliteConnection;
+
+
 use self::db_connection::DbConnection;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use self::sqlcipher_connection::EncryptedConnection;
 
 use super::StorageError;
 use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Store};
@@ -57,34 +66,11 @@ pub type ConnectionManager =
 pub type RawDbConnection = r2d2::PooledConnection<ConnectionManager>;
 pub type Pool = r2d2::Pool<ConnectionManager>;
 
-pub type EncryptionKey = [u8; 32];
-
-// For PRAGMA query log statements
-#[derive(QueryableByName, Debug)]
-struct CipherVersion {
-    #[diesel(sql_type = diesel::sql_types::Text)]
-    cipher_version: String,
-}
-
-// For PRAGMA query log statements
-#[derive(QueryableByName, Debug)]
-struct CipherProviderVersion {
-    #[diesel(sql_type = diesel::sql_types::Text)]
-    cipher_provider_version: String,
-}
-
 // For PRAGMA query log statements
 #[derive(QueryableByName, Debug)]
 struct SqliteVersion {
     #[diesel(sql_type = diesel::sql_types::Text)]
     version: String,
-}
-
-#[derive(Default, Clone, Debug)]
-pub enum StorageOption {
-    #[default]
-    Ephemeral,
-    Persistent(String),
 }
 
 pub fn ignore_unique_violation<T>(
@@ -97,6 +83,67 @@ pub fn ignore_unique_violation<T>(
     }
 }
 
+#[derive(Default, Clone, Debug)]
+pub enum StorageOption {
+    #[default]
+    Ephemeral,
+    Persistent(String),
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl StorageOption {
+    // create a completely new standalone connection
+    fn conn(&self) -> Result<SqliteConnection, diesel::ConnectionError> {
+        use StorageOption::*;
+        match self {
+            Persistent(path) => SqliteConnection::establish(path),
+            Ephemeral => SqliteConnection::establish(":memory:"),
+        }
+    }
+}
+
+/// An Unencrypted Connection
+/// Creates a Sqlite3 Database/Connection in WAL mode.
+/// Sets `busy_timeout` on each connection.
+/// _*NOTE:*_Unencrypted Connections are not validated and mostly meant for testing.
+/// It is not recommended to use an unencrypted connection in production.
+#[derive(Clone, Debug)]
+pub struct UnencryptedConnection;
+impl ValidatedConnection for UnencryptedConnection {}
+
+impl CustomizeConnection<SqliteConnection, R2Error>
+    for UnencryptedConnection
+{
+    fn on_acquire(&self, conn: &mut SqliteConnection) -> Result<(), R2Error> {
+        conn.batch_execute("PRAGMA busy_timeout = 5000;")
+            .map_err(R2Error::QueryError)?;
+        Ok(())
+    }
+}
+
+
+pub type EncryptionKey = [u8; 32];
+
+trait XmtpConnection: ValidatedConnection + CustomizeConnection<SqliteConnection, R2Error> + dyn_clone::DynClone + IntoSuper<dyn CustomizeConnection<SqliteConnection, R2Error>> {}
+impl<T> XmtpConnection for T where T: ValidatedConnection + CustomizeConnection<SqliteConnection, R2Error> + dyn_clone::DynClone + IntoSuper<dyn CustomizeConnection<SqliteConnection, R2Error>> {}
+dyn_clone::clone_trait_object!(XmtpConnection);
+
+// we can remove this once https://github.com/rust-lang/rust/issues/65991
+// is merged, which should be happening soon (next ~2 releases)
+trait IntoSuper<Super: ?Sized> {
+    fn into_super(self: Box<Self>) -> Box<Super>;
+}
+
+impl<T: CustomizeConnection<SqliteConnection, R2Error>> IntoSuper<dyn CustomizeConnection<SqliteConnection, R2Error>> for T {
+    fn into_super(self: Box<Self>) -> Box<dyn CustomizeConnection<SqliteConnection, R2Error>> { self }
+}
+
+trait ValidatedConnection {
+    fn validate(&self, _opts: &StorageOption) -> Result<(), StorageError> {
+        Ok(())
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 /// Manages a Sqlite db for persisting messages and other objects.
@@ -104,12 +151,7 @@ pub struct EncryptedMessageStore {
     connect_opt: StorageOption,
     pool: Arc<RwLock<Option<Pool>>>,
     enc_key: Option<EncryptionKey>,
-}
-
-impl<'a> From<&'a EncryptedMessageStore> for Cow<'a, EncryptedMessageStore> {
-    fn from(store: &'a EncryptedMessageStore) -> Cow<'a, EncryptedMessageStore> {
-        Cow::Borrowed(store)
-    }
+    customizer: Option<Box<dyn XmtpConnection>>
 }
 
 impl EncryptedMessageStore {
@@ -122,65 +164,87 @@ impl EncryptedMessageStore {
     }
 
     /// This function is private so that an unencrypted database cannot be created by accident
+    #[cfg(not(target_arch = "wasm32"))]
     fn new_database(
         opts: StorageOption,
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
         log::info!("Setting up DB connection pool");
+        let mut builder = Pool::builder();
+
+        let customizer = if let Some(key) = enc_key {
+            let enc_opts = EncryptedConnection::new(key, &opts)?;
+            builder = builder.connection_customizer(Box::new(enc_opts.clone()));
+            Some(Box::new(enc_opts) as Box<dyn XmtpConnection>)
+        } else if matches!(opts, StorageOption::Persistent(_)) {
+            builder = builder.connection_customizer(Box::new(UnencryptedConnection));
+            Some(Box::new(UnencryptedConnection) as Box<dyn XmtpConnection>)
+        } else {
+            None
+        };
+
         let pool = match opts {
-            StorageOption::Ephemeral => Pool::builder()
+            StorageOption::Ephemeral => builder
                 .max_size(1)
                 .build(ConnectionManager::new(":memory:"))?,
-            StorageOption::Persistent(ref path) => Pool::builder()
+            StorageOption::Persistent(ref path) => builder
                 .max_size(25)
                 .build(ConnectionManager::new(path))?,
         };
 
-        // TODO: Validate that sqlite is correctly configured. Bad EncKey is not detected until the
-        // migrations run which returns an unhelpful error.
-        let mut obj = Self {
+        let mut this = Self {
             connect_opt: opts,
             pool: Arc::new(Some(pool).into()),
             enc_key,
+            customizer,
         };
 
-        obj.init_db()?;
-        Ok(obj)
+        this.init_db()?;
+        Ok(this)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn new_database(
+        opts: StorageOption,
+        enc_key: Option<EncryptionKey>,
+    ) -> Result<Self, StorageError> {
+        log::info!("Setting up DB connection pool");
+        let builder = Pool::builder();
+
+        let pool = match opts {
+            StorageOption::Ephemeral => builder
+                .max_size(1)
+                .build(ConnectionManager::new(":memory:"))?,
+            StorageOption::Persistent(ref path) => builder
+                .max_size(1)
+                .build(ConnectionManager::new(path))?,
+        };
+
+        let mut this = Self {
+            connect_opt: opts,
+            pool: Arc::new(Some(pool).into()),
+            customizer: None,
+            enc_key
+        };
+
+        this.init_db()?;
+        Ok(this)
     }
 
     fn init_db(&mut self) -> Result<(), StorageError> {
-        let conn = &mut self.raw_conn()?;
-        conn.batch_execute("PRAGMA journal_mode = WAL;")
-            .map_err(|e| StorageError::DbInit(e.to_string()))?;
+        if let Some(ref encrypted_conn) = self.customizer {
+            encrypted_conn.validate(&self.connect_opt)?;
+        }
 
+        let conn = &mut self.raw_conn()?;
+        conn.batch_execute("PRAGMA journal_mode = WAL;")?;
         log::info!("Running DB migrations");
         conn.run_pending_migrations(MIGRATIONS)
-            .map_err(|e| StorageError::DbInit(e.to_string()))?;
+            .map_err(|e| StorageError::DbInit(format!("Failed to run migrations: {}", e)))?;
 
         let sqlite_version =
             sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
         log::info!("sqlite_version={}", sqlite_version[0].version);
-
-        if self.enc_key.is_some() {
-            let cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
-            if cipher_version.is_empty() {
-                return Err(StorageError::SqlCipherNotLoaded);
-            }
-            let cipher_provider_version =
-                sql_query("PRAGMA cipher_provider_version").load::<CipherProviderVersion>(conn)?;
-            log::info!(
-                "Sqlite cipher_version={:?}, cipher_provider_version={:?}",
-                cipher_version.first().as_ref().map(|v| &v.cipher_version),
-                cipher_provider_version
-                    .first()
-                    .as_ref()
-                    .map(|v| &v.cipher_provider_version)
-            );
-            if log_enabled!(log::Level::Info) {
-                conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")
-                    .ok();
-            }
-        }
 
         log::info!("Migrations successful");
         Ok(())
@@ -199,14 +263,7 @@ impl EncryptedMessageStore {
             pool.state().connections
         );
 
-        let mut conn = pool.get()?;
-        if let Some(ref key) = self.enc_key {
-            conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
-        }
-
-        conn.batch_execute("PRAGMA busy_timeout = 5000;")?;
-
-        Ok(conn)
+        Ok(pool.get()?)
     }
 
     pub fn conn(&self) -> Result<DbConnection, StorageError> {
@@ -328,13 +385,6 @@ impl EncryptedMessageStore {
         }
     }
 
-    pub fn generate_enc_key() -> EncryptionKey {
-        // TODO: Handle Key Better/ Zeroize
-        let mut key = [0u8; 32];
-        crypto_utils::rng().fill_bytes(&mut key[..]);
-        key
-    }
-
     pub fn release_connection(&self) -> Result<(), StorageError> {
         let mut pool_guard = self.pool.write();
         pool_guard.take();
@@ -342,11 +392,17 @@ impl EncryptedMessageStore {
     }
 
     pub fn reconnect(&self) -> Result<(), StorageError> {
+        let mut builder = Pool::builder();
+
+        if let Some(ref opts) = self.customizer {
+            builder = builder.connection_customizer(opts.clone().into_super());
+        }
+
         let pool = match self.connect_opt {
-            StorageOption::Ephemeral => Pool::builder()
+            StorageOption::Ephemeral => builder
                 .max_size(1)
                 .build(ConnectionManager::new(":memory:"))?,
-            StorageOption::Persistent(ref path) => Pool::builder()
+            StorageOption::Persistent(ref path) => builder
                 .max_size(25)
                 .build(ConnectionManager::new(path))?,
         };
@@ -361,7 +417,7 @@ impl EncryptedMessageStore {
 #[allow(dead_code)]
 fn warn_length<T>(list: &[T], str_id: &str, max_length: usize) {
     if list.len() > max_length {
-        warn!(
+        log::warn!(
             "EncryptedStore expected at most {} {} however found {}. Using the Oldest.",
             max_length,
             str_id,
@@ -458,18 +514,15 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use super::{
-        db_connection::DbConnection, identity::StoredIdentity, EncryptedMessageStore, StorageError,
-        StorageOption,
-    };
+    use super::*;
     use std::sync::Barrier;
-
     use crate::{
         storage::group::{GroupMembershipState, StoredGroup},
+        storage::identity::StoredIdentity,
         utils::test::{rand_vec, tmp_path},
         Fetch, Store,
     };
-    use std::{fs, sync::Arc};
+    use std::sync::Arc;
 
     /// Test harness that loads an Ephemeral store.
     pub fn with_connection<F, R>(fun: F) -> R
@@ -535,8 +588,7 @@ pub(crate) mod tests {
             let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
             assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
-
-        fs::remove_file(db_path).unwrap();
+        EncryptedMessageStore::remove_db_files(db_path)
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -568,7 +620,7 @@ pub(crate) mod tests {
             assert_eq!(fetched_identity2.inbox_id, inbox_id);
         }
 
-        fs::remove_file(db_path).unwrap();
+        EncryptedMessageStore::remove_db_files(db_path)
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -593,31 +645,35 @@ pub(crate) mod tests {
 
         // Ensure it fails
         assert!(
-            matches!(res.err(), Some(StorageError::DbInit(_))),
-            "Expected DbInitError"
+            matches!(res.err(), Some(StorageError::SqlCipherKeyIncorrect)),
+            "Expected SqlCipherKeyIncorrect error"
         );
-        fs::remove_file(db_path).unwrap();
+        EncryptedMessageStore::remove_db_files(db_path)
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn encrypted_db_with_multiple_connections() {
         let db_path = tmp_path();
-        let store = EncryptedMessageStore::new(
-            StorageOption::Persistent(db_path.clone()),
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .unwrap();
-
-        let conn1 = &store.conn().unwrap();
-        let inbox_id = "inbox_id";
-        StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
-            .store(conn1)
+        {
+            let store = EncryptedMessageStore::new(
+                StorageOption::Persistent(db_path.clone()),
+                EncryptedMessageStore::generate_enc_key(),
+            )
             .unwrap();
 
-        let conn2 = &store.conn().unwrap();
-        let fetched_identity: StoredIdentity = conn2.fetch(&()).unwrap().unwrap();
-        assert_eq!(fetched_identity.inbox_id, inbox_id);
+            let conn1 = &store.conn().unwrap();
+            let inbox_id = "inbox_id";
+            StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
+                .store(conn1)
+                .unwrap();
+
+            let conn2 = &store.conn().unwrap();
+            log::info!("Getting conn 2");
+            let fetched_identity: StoredIdentity = conn2.fetch(&()).unwrap().unwrap();
+            assert_eq!(fetched_identity.inbox_id, inbox_id);
+        }
+        EncryptedMessageStore::remove_db_files(db_path)
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

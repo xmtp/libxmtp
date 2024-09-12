@@ -33,10 +33,12 @@ use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use sha2::{Digest, Sha512};
 use thiserror::Error;
+use xmtp_id::associations::unverified::{UnverifiedInstallationKeySignature, UnverifiedSignature};
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
-        generate_inbox_id, sign_with_legacy_key, InstallationKeySignature, MemberIdentifier,
+        generate_inbox_id, sign_with_legacy_key, MemberIdentifier,
     },
     constants::INSTALLATION_KEY_SIGNATURE_CONTEXT,
     InboxId,
@@ -59,6 +61,7 @@ impl IdentityStrategy {
         self,
         api_client: &ApiClientWrapper<ApiClient>,
         store: &EncryptedMessageStore,
+        scw_signature_verifier: &dyn SmartContractSignatureVerifier,
     ) -> Result<Identity, IdentityError> {
         info!("Initializing identity");
         let conn = store.conn()?;
@@ -97,6 +100,7 @@ impl IdentityStrategy {
                         legacy_signed_private_key,
                         api_client,
                         &provider,
+                        scw_signature_verifier,
                     )
                     .await
                 }
@@ -194,6 +198,7 @@ impl Identity {
         legacy_signed_private_key: Option<Vec<u8>>,
         api_client: &ApiClientWrapper<ApiClient>,
         provider: &XmtpOpenMlsProvider,
+        scw_signature_verifier: &dyn SmartContractSignatureVerifier,
     ) -> Result<Self, IdentityError> {
         // check if address is already associated with an inbox_id
         let address = address.to_lowercase();
@@ -215,13 +220,16 @@ impl Identity {
                 .build();
 
             signature_request
-                .add_signature(Box::new(
-                    sign_with_installation_key(
-                        signature_request.signature_text(),
-                        sized_installation_key(signature_keys.private())?,
-                    )
-                    .await?,
-                ))
+                .add_signature(
+                    UnverifiedSignature::InstallationKey(
+                        sign_with_installation_key(
+                            signature_request.signature_text(),
+                            sized_installation_key(signature_keys.private())?,
+                        )
+                        .await?,
+                    ),
+                    scw_signature_verifier,
+                )
                 .await?;
 
             let identity = Self {
@@ -250,22 +258,28 @@ impl Identity {
                 .build();
 
             signature_request
-                .add_signature(Box::new(
-                    sign_with_installation_key(
-                        signature_request.signature_text(),
-                        sized_installation_key(signature_keys.private())?,
-                    )
-                    .await?,
-                ))
+                .add_signature(
+                    UnverifiedSignature::InstallationKey(
+                        sign_with_installation_key(
+                            signature_request.signature_text(),
+                            sized_installation_key(signature_keys.private())?,
+                        )
+                        .await?,
+                    ),
+                    scw_signature_verifier,
+                )
                 .await?;
             signature_request
-                .add_signature(Box::new(
-                    sign_with_legacy_key(
-                        signature_request.signature_text(),
-                        legacy_signed_private_key,
-                    )
-                    .await?,
-                ))
+                .add_signature(
+                    UnverifiedSignature::LegacyDelegated(
+                        sign_with_legacy_key(
+                            signature_request.signature_text(),
+                            legacy_signed_private_key,
+                        )
+                        .await?,
+                    ),
+                    scw_signature_verifier,
+                )
                 .await?;
 
             // Make sure to register the identity before applying the signature request
@@ -298,13 +312,16 @@ impl Identity {
 
             // We can pre-sign the request with an installation key signature, since we have access to the key
             signature_request
-                .add_signature(Box::new(
-                    sign_with_installation_key(
-                        signature_request.signature_text(),
-                        sized_installation_key(signature_keys.private())?,
-                    )
-                    .await?,
-                ))
+                .add_signature(
+                    UnverifiedSignature::InstallationKey(
+                        sign_with_installation_key(
+                            signature_request.signature_text(),
+                            sized_installation_key(signature_keys.private())?,
+                        )
+                        .await?,
+                    ),
+                    scw_signature_verifier,
+                )
                 .await?;
 
             let identity = Self {
@@ -432,20 +449,16 @@ impl Identity {
 async fn sign_with_installation_key(
     signature_text: String,
     installation_private_key: &[u8; 32],
-) -> Result<InstallationKeySignature, IdentityError> {
+) -> Result<UnverifiedInstallationKeySignature, IdentityError> {
     let signing_key: SigningKey = SigningKey::from_bytes(installation_private_key);
     let verifying_key = signing_key.verifying_key();
     let mut prehashed: Sha512 = Sha512::new();
     prehashed.update(signature_text.clone());
     let sig = signing_key.sign_prehashed(prehashed, Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))?;
+    let unverified_sig =
+        UnverifiedInstallationKeySignature::new(sig.to_vec(), verifying_key.as_bytes().to_vec());
 
-    let installation_key_sig = InstallationKeySignature::new(
-        signature_text.clone(),
-        sig.to_vec(),
-        verifying_key.as_bytes().to_vec(),
-    );
-
-    Ok(installation_key_sig)
+    Ok(unverified_sig)
 }
 
 fn sized_installation_key(installation_key: &[u8]) -> Result<&[u8; 32], IdentityError> {

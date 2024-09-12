@@ -1,26 +1,16 @@
 //! Interaction with [ERC-1271](https://eips.ethereum.org/EIPS/eip-1271) smart contracts.
+use crate::scw_verifier::SmartContractSignatureVerifier;
 use ethers::abi::{Constructor, Param, ParamType, Token};
 use ethers::contract::abigen;
 use ethers::providers::{Http, Middleware, Provider};
 use ethers::types::transaction::eip2718::TypedTransaction;
 use ethers::types::{Address, BlockId, BlockNumber, Bytes, TransactionRequest};
-use hex::FromHex;
+use hex::{FromHex, FromHexError};
 use std::sync::Arc;
-use thiserror::Error;
 
-#[derive(Debug, Error)]
-pub enum VerifierError {
-    #[error("calling smart contract {0}")]
-    Contract(#[from] ethers::contract::ContractError<Provider<Http>>),
-    #[error("unexpected result from ERC-6492 {0}")]
-    UnexpectedERC6492Result(String),
-    #[error(transparent)]
-    FromHex(#[from] hex::FromHexError),
-    #[error(transparent)]
-    Abi(#[from] ethers::abi::Error),
-    #[error(transparent)]
-    Provider(#[from] ethers::providers::ProviderError),
-}
+use crate::associations::AccountId;
+
+use super::VerifierError;
 
 // https://github.com/AmbireTech/signature-validator/blob/7706bda/index.ts#L13
 // Contract from AmbireTech that is also used by Viem.
@@ -37,16 +27,20 @@ abigen!(
 );
 
 #[derive(Debug)]
-pub struct SmartContractWalletVerifier {
+pub struct RpcSmartContractWalletVerifier {
     pub provider: Arc<Provider<Http>>,
 }
 
-impl SmartContractWalletVerifier {
+impl RpcSmartContractWalletVerifier {
     pub fn new(url: String) -> Self {
         let provider = Arc::new(Provider::<Http>::try_from(url).unwrap());
         Self { provider }
     }
+}
 
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
     /// Verifies an ERC-6492<https://eips.ethereum.org/EIPS/eip-6492> signature.
     ///
     /// # Arguments
@@ -55,14 +49,18 @@ impl SmartContractWalletVerifier {
     /// * `signer` - can be the smart wallet address or EOA address.
     /// * `hash` - Message digest for the signature.
     /// * `signature` - Could be encoded smart wallet signature or raw ECDSA signature.
-    pub async fn is_valid_signature(
+    async fn is_valid_signature(
         &self,
-        signer: Address,
+        signer: AccountId,
         hash: [u8; 32],
         signature: &Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
         let code = hex::decode(VALIDATE_SIG_OFFCHAIN_BYTECODE).unwrap();
+        let account_address: Address = signer
+            .account_address
+            .parse()
+            .map_err(|_| FromHexError::InvalidStringLength)?;
         // ABI of the ValidateSigOffchain constructor
         // constructor (address _signer, bytes32 _hash, bytes memory _signature)
         let inputs: Vec<Param> = vec![
@@ -84,7 +82,7 @@ impl SmartContractWalletVerifier {
         ];
         let constructor = Constructor { inputs };
         let tokens = &[
-            Token::Address(signer),
+            Token::Address(account_address),
             Token::FixedBytes(hash.to_vec()),
             Token::Bytes(signature.to_vec()),
         ];
@@ -205,6 +203,7 @@ pub(crate) mod tests {
                     .get_address(owners_addresses.clone(), nonce)
                     .await
                     .unwrap();
+
                 let contract_call = factory.create_account(owners_addresses.clone(), nonce);
                 let pending_tx = contract_call.send().await.unwrap();
                 pending_tx.await.unwrap();
@@ -216,13 +215,15 @@ pub(crate) mod tests {
                 );
                 let hash: [u8; 32] = H256::random().into();
                 let replay_safe_hash = smart_wallet.replay_safe_hash(hash).call().await.unwrap();
-                let verifier = SmartContractWalletVerifier::new(anvil.endpoint());
+                let verifier = RpcSmartContractWalletVerifier::new(anvil.endpoint());
 
                 // verify owner0 is a valid owner
                 let sig0 = owner0.sign_hash(replay_safe_hash.into()).unwrap();
+                let account_id =
+                    AccountId::new_evm(anvil.chain_id(), format!("{:?}", smart_wallet_address));
                 let res = verifier
                     .is_valid_signature(
-                        smart_wallet_address,
+                        account_id.clone(),
                         hash,
                         &abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(0)),
@@ -238,7 +239,7 @@ pub(crate) mod tests {
                 let sig1 = owner1.sign_hash(replay_safe_hash.into()).unwrap();
                 let res = verifier
                     .is_valid_signature(
-                        smart_wallet_address,
+                        account_id.clone(),
                         hash,
                         &abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(1)),
@@ -253,7 +254,7 @@ pub(crate) mod tests {
                 // owner0 siganture must not be used to verify owner1
                 let res = verifier
                     .is_valid_signature(
-                        smart_wallet_address,
+                        account_id.clone(),
                         hash,
                         &abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(1)),
@@ -277,7 +278,7 @@ pub(crate) mod tests {
 
                 let res = verifier
                     .is_valid_signature(
-                        smart_wallet_address,
+                        account_id.clone(),
                         hash,
                         &abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(1)),
@@ -292,7 +293,7 @@ pub(crate) mod tests {
                 // time travel to the pre-removel block number and verify owner1 WAS a valid owner
                 let res = verifier
                     .is_valid_signature(
-                        smart_wallet_address,
+                        account_id.clone(),
                         hash,
                         &abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(1)),
@@ -346,34 +347,39 @@ pub(crate) mod tests {
             ])])
             .into();
 
-            let verifier = SmartContractWalletVerifier::new(anvil.endpoint());
+            let verifier = RpcSmartContractWalletVerifier::new(anvil.endpoint());
+
+            let account_id =
+                AccountId::new_evm(anvil.chain_id(), format!("{:?}", smart_wallet_address));
 
             // Testing ERC-6492 signatures with deployed ERC-1271.
             assert!(verifier
-                .is_valid_signature(smart_wallet_address, hash, &signature, None,)
+                .is_valid_signature(account_id.clone(), hash, &signature, None,)
                 .await
                 .unwrap());
 
             assert!(!verifier
-                .is_valid_signature(
-                    smart_wallet_address,
-                    H256::random().into(),
-                    &signature,
-                    None,
-                )
+                .is_valid_signature(account_id.clone(), H256::random().into(), &signature, None,)
                 .await
                 .unwrap());
 
             // Testing if EOA wallet signature is valid on ERC-6492
             let signature = owner.sign_hash(hash.into()).unwrap();
+            let owner_account_id =
+                AccountId::new_evm(anvil.chain_id(), format!("{:?}", owner.address()));
             assert!(verifier
-                .is_valid_signature(owner.address(), hash, &signature.to_vec().into(), None,)
+                .is_valid_signature(
+                    owner_account_id.clone(),
+                    hash,
+                    &signature.to_vec().into(),
+                    None,
+                )
                 .await
                 .unwrap());
 
             assert!(!verifier
                 .is_valid_signature(
-                    owner.address(),
+                    owner_account_id,
                     H256::random().into(),
                     &signature.to_vec().into(),
                     None,
@@ -389,16 +395,15 @@ pub(crate) mod tests {
     #[ignore] // This test is temporarily being ignored as it relies on an external service
     #[tokio::test]
     async fn test_erc6492_ambire_wallet() {
-        let signer: Address = "0x4836a472ab1dd406ecb8d0f933a985541ee3921f"
-            .parse()
-            .unwrap();
+        let signer = "0x4836a472ab1dd406ecb8d0f933a985541ee3921f".to_string();
+
         let hash = hex::decode("787177").unwrap();
         let hash = hash_message(hash);
         let signature = Bytes::from_hex("0x000000000000000000000000bf07a0df119ca234634588fbdb5625594e2a5bca00000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000420000000000000000000000000000000000000000000000000000000000000038449c81579000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000010000000000000000000000004836a472ab1dd406ecb8d0f933a985541ee3921f0000000000000000000000000000000000000000000000000000000000000120000000000000000000000000000000000000000000000000000000000000007a7f00000000000000000000000000000000000000000000000000000000000000017f7f0f292b79d9ce101861526459da50f62368077ae24affe97b792bf4bdd2e171553d602d80604d3d3981f3363d3d373d3d3d363d732a2b85eb1054d6f0c6c2e37da05ed3e5fea684ef5af43d82803e903d91602b57fd5bf300000000000000000000000000000000000000000000000000000000000000000000000002246171d1c9000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000001a00000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000004836a472ab1dd406ecb8d0f933a985541ee3921f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000942f9ce5d9a33a82f88d233aeb3292e6802303480000000000000000000000000000000000000000000000000014c3c6ef1cdc01000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000042f2eaaebf45fc0340eb55f11c52a30e2ca7f48539d0a1f1cdc240482210326494545def903e8ed4441bd5438109abe950f1f79baf032f184728ba2d4161dea32e1b0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000042c0f8db6019888d87a0afc1299e81ef45d3abce64f63072c8d7a6ef00f5f82c1522958ff110afa98b8c0d23b558376db1d2fbab4944e708f8bf6dc7b977ee07201b000000000000000000000000000000000000000000000000000000000000006492649264926492649264926492649264926492649264926492649264926492").unwrap();
 
-        let verifier = SmartContractWalletVerifier::new("https://polygon-rpc.com".to_string());
+        let verifier = RpcSmartContractWalletVerifier::new("https://polygon-rpc.com".to_string());
         assert!(verifier
-            .is_valid_signature(signer, hash.into(), &signature, None)
+            .is_valid_signature(AccountId::new_evm(1, signer), hash.into(), &signature, None)
             .await
             .unwrap());
     }

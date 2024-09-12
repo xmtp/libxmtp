@@ -701,7 +701,7 @@ impl MlsGroup {
         );
         let sender_installation_id = validated_commit.actor_installation_id();
         let sender_inbox_id = validated_commit.actor_inbox_id();
-        // TODO:nm replace with new membership change codec
+
         let payload: GroupUpdated = validated_commit.into();
         let encoded_payload = GroupUpdatedCodec::encode(payload)?;
         let mut encoded_payload_bytes = Vec::new();

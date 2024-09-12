@@ -13,10 +13,13 @@ use xmtp_proto::{
             QueryGroupMessagesRequest, QueryGroupMessagesResponse, QueryWelcomeMessagesRequest,
             QueryWelcomeMessagesResponse, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
             SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-            UploadKeyPackageRequest, WelcomeMessage,
+            UploadKeyPackageRequest,
         },
     },
 };
+
+#[cfg(feature = "http-api")]
+use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
 use crate::XmtpTestClient;
 
@@ -59,7 +62,7 @@ mock! {
     }
 
     impl XmtpMlsStreams for ApiClient {
-         #[cfg(all(not(feature = "http-api"), not(target_arch = "wasm32")))]
+        #[cfg(all(not(feature = "http-api"), not(target_arch = "wasm32")))]
         type GroupMessageStream<'a> = xmtp_api_grpc::GroupMessageStream;
         #[cfg(all(not(feature = "http-api"), not(target_arch = "wasm32")))]
         type WelcomeMessageStream<'a> = xmtp_api_grpc::WelcomeMessageStream;
