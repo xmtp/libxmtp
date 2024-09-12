@@ -1720,7 +1720,7 @@ mod tests {
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(tmp_path()),
-            None,
+            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
             ffi_inbox_owner.get_address(),
             nonce,

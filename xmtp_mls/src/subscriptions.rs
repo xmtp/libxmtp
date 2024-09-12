@@ -244,6 +244,7 @@ where
             while let Some(convo) = stream.next().await {
                 convo_callback(convo)
             }
+            log::debug!("`stream_conversations` stream ended, dropping stream");
             Ok(())
         });
 
@@ -268,6 +269,7 @@ where
             while let Some(message) = stream.next().await {
                 callback(message)
             }
+            log::debug!("`stream_messages` stream ended, dropping stream");
             Ok(())
         });
 
@@ -370,6 +372,7 @@ where
                     Err(m) => log::error!("error during stream all messages {}", m),
                 }
             }
+            log::debug!("`stream_all_messages` stream ended, dropping stream");
             Ok(())
         });
 
@@ -700,7 +703,7 @@ mod tests {
                 .unwrap();
         }
 
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(120), async {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(60), async {
             while blocked.load(Ordering::SeqCst) > 0 {
                 tokio::task::yield_now().await;
             }
