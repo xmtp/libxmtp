@@ -959,6 +959,14 @@ impl MlsGroup {
             })
     }
 
+    pub async fn update_consent_state(
+        &self,
+        state: ConsentState
+    ) -> Result<(), GroupError> {
+        let conn = self.context.store.conn()?;
+        Ok(conn.update_consent_state(self.group_id.clone(), state)?)
+    }
+
     // Update this installation's leaf key in the group by creating a key update commit
     pub async fn key_update<ApiClient>(&self, client: &Client<ApiClient>) -> Result<(), GroupError>
     where

@@ -1363,6 +1363,24 @@ impl FfiGroup {
         Ok(state)
     }
 
+    pub async fn update_consent_state(&self, state: FfiConsentState) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let consent_state = match state {
+            FfiConsentState::Unknown => ConsentState::Unknown,
+            FfiConsentState::Allowed => ConsentState::Allowed,
+            FfiConsentState::Denied => ConsentState::Denied,
+        };
+
+        group.update_consent_state(consent_state).await?;
+
+        Ok(())
+    }
+
     pub fn added_by_inbox_id(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
