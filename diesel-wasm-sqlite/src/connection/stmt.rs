@@ -14,6 +14,7 @@ use diesel::{
     query_builder::{QueryFragment, QueryId},
     result::{Error, QueryResult},
 };
+use std::ffi::CString;
 use std::{cell::OnceCell, ptr::NonNull};
 
 use wasm_bindgen::JsValue;
@@ -38,7 +39,7 @@ impl Statement {
     ) -> QueryResult<Self> {
         let sqlite3 = crate::get_sqlite_unchecked();
 
-        let flags = if matches!(is_cached, PrepareForCache::Yes { counter: _}) {
+        let flags = if matches!(is_cached, PrepareForCache::Yes { counter: _ }) {
             Some(*ffi::SQLITE_PREPARE_PERSISTENT)
         } else {
             None
@@ -47,12 +48,21 @@ impl Statement {
         let wasm = sqlite3.inner().wasm();
         let stack = wasm.pstack().pointer();
 
+        // convert the query to a cstring
+        let sql = CString::new(sql)?;
+        let sql_bytes_with_nul = sql.as_bytes_with_nul();
+        // we want to move the query over to sqlite-wasm
+        // allocate space for the query in sqlite-wasm space
+        let sql_ptr = wasm.alloc(sql_bytes_with_nul.len() as u32);
+        // copy cstring query to sqlite-wasm
+        ffi::raw_copy_to_sqlite(sql_bytes_with_nul, sql_ptr);
+
         // allocate one 64bit pointer value
         let pp_stmt = wasm.pstack().alloc(8);
         let prepare_result = sqlite3.prepare_v3(
             &raw_connection.internal_connection,
-            sql,
-            -1,
+            sql_ptr,
+            sql_bytes_with_nul.len() as i32,
             flags.unwrap_or(0),
             &pp_stmt,
             &JsValue::NULL,
@@ -66,7 +76,9 @@ impl Statement {
         // sqlite3_prepare_v3 returns a null pointer for empty statements. This includes
         // empty or only whitespace strings or any other non-op query string like a comment
         if p_stmt.is_null() {
-            return Err(diesel::result::Error::QueryBuilderError(Box::new(diesel::result::EmptyQuery)))
+            return Err(diesel::result::Error::QueryBuilderError(Box::new(
+                diesel::result::EmptyQuery,
+            )));
         }
 
         Ok(Self {
