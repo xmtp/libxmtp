@@ -92,9 +92,9 @@ impl ClientBuilder<TestClient> {
     pub fn temp_store(self) -> Self {
         let tmpdb = tmp_path();
         self.store(
-            EncryptedMessageStore::new(
+            EncryptedMessageStore::new_unencrypted(
                 StorageOption::Persistent(tmpdb),
-                EncryptedMessageStore::generate_enc_key(),
+                // EncryptedMessageStore::generate_enc_key(),
             )
             .unwrap(),
         )

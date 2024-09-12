@@ -25,7 +25,7 @@ mod sqlcipher_connection;
 use std::sync::Arc;
 
 use diesel::{
-    connection::{AnsiTransactionManager, TransactionManager},
+    connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
     prelude::*,
     r2d2::{ConnectionManager, Pool, PoolTransactionManager, PooledConnection},
     result::{DatabaseErrorKind, Error},
@@ -79,6 +79,32 @@ impl StorageOption {
     }
 }
 
+/// An Unencrypted Connection
+/// Creates a Sqlite3 Database/Connection in WAL mode.
+/// Sets `busy_timeout` on each connection.
+/// _*NOTE:*_Unencrypted Connections are not validated and mostly meant for testing.
+/// It is not recommended to use an unencrypted connection in production.
+#[derive(Clone, Debug)]
+pub struct UnencryptedConnection;
+
+impl UnencryptedConnection {
+    pub fn new(opts: &StorageOption) -> Result<Self, StorageError> {
+        let conn = &mut opts.conn()?;
+        conn.batch_execute("PRAGMA journal_mode = WAL;")?;
+        Ok(UnencryptedConnection)
+    }
+}
+
+impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error>
+    for UnencryptedConnection
+{
+    fn on_acquire(&self, conn: &mut SqliteConnection) -> Result<(), diesel::r2d2::Error> {
+        conn.batch_execute("PRAGMA busy_timeout = 5000;")
+            .map_err(diesel::r2d2::Error::QueryError)?;
+        Ok(())
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 /// Manages a Sqlite db for persisting messages and other objects.
@@ -109,6 +135,10 @@ impl EncryptedMessageStore {
             let enc_opts = EncryptedConnection::new(key, &opts)?;
             builder = builder.connection_customizer(Box::new(enc_opts.clone()));
             Some(enc_opts)
+        } else if matches!(opts, StorageOption::Persistent(_)) {
+            let conn = UnencryptedConnection::new(&opts)?;
+            builder = builder.connection_customizer(Box::new(conn));
+            None
         } else {
             None
         };
