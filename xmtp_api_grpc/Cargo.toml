@@ -8,8 +8,6 @@ async-stream.workspace = true
 base64 = "0.22"
 futures.workspace = true
 hex.workspace = true
-# pbjson-types.workspace = true
-# pbjson.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
