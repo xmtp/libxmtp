@@ -951,7 +951,7 @@ impl MlsGroup {
     pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
         let conn = self.context.store.conn()?;
         conn.find_group(self.group_id.clone())
-            .map_err(GroupError::from)
+            .map_err(GroupError::from)?
             .and_then(|fetch_result| {
                 fetch_result
                     .map(|group| group.consent_state)
