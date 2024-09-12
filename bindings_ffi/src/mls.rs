@@ -7,12 +7,13 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use tokio::{sync::Mutex, task::AbortHandle};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_id::associations::unverified::UnverifiedSignature;
+use xmtp_id::associations::AccountId;
 use xmtp_id::associations::AssociationState;
+use xmtp_id::scw_verifier::RpcSmartContractWalletVerifier;
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
-    associations::{
-        builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id,
-        RecoverableEcdsaSignature, SmartContractWalletSignature,
-    },
+    associations::{builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id},
     InboxId,
 };
 use xmtp_mls::groups::group_mutable_metadata::MetadataField;
@@ -179,17 +180,21 @@ pub struct FfiSignatureRequest {
     inner: Arc<Mutex<SignatureRequest>>,
 }
 
+// TODO:nm store the verifier on the request from the client
+fn signature_verifier() -> impl SmartContractSignatureVerifier {
+    RpcSmartContractWalletVerifier::new("http://www.fake.com".to_string())
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiSignatureRequest {
     // Signature that's signed by EOA wallet
     pub async fn add_ecdsa_signature(&self, signature_bytes: Vec<u8>) -> Result<(), GenericError> {
         let mut inner = self.inner.lock().await;
-        let signature_text = inner.signature_text();
         inner
-            .add_signature(Box::new(RecoverableEcdsaSignature::new(
-                signature_text,
-                signature_bytes,
-            )))
+            .add_signature(
+                UnverifiedSignature::new_recoverable_ecdsa(signature_bytes),
+                &signature_verifier(),
+            )
             .await?;
 
         Ok(())
@@ -200,17 +205,20 @@ impl FfiSignatureRequest {
         &self,
         signature_bytes: Vec<u8>,
         address: String,
-        chain_rpc_url: String,
+        chain_id: u64,
+        block_number: u64,
     ) -> Result<(), GenericError> {
         let mut inner = self.inner.lock().await;
-        let signature = SmartContractWalletSignature::new_with_rpc(
-            inner.signature_text(),
+        let account_id = AccountId::new_evm(chain_id, address);
+
+        let signature = UnverifiedSignature::new_smart_contract_wallet(
             signature_bytes,
-            address,
-            chain_rpc_url,
-        )
-        .await?;
-        inner.add_signature(Box::new(signature)).await?;
+            account_id,
+            block_number,
+        );
+        inner
+            .add_signature(signature, &signature_verifier())
+            .await?;
         Ok(())
     }
 
@@ -1560,6 +1568,7 @@ impl FfiGroupPermissions {
 
 #[cfg(test)]
 mod tests {
+    use super::{create_client, signature_verifier, FfiMessage, FfiMessageCallback, FfiXmtpClient};
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
         FfiConversationCallback, FfiCreateGroupOptions, FfiGroup, FfiGroupMessageKind,
@@ -1567,6 +1576,8 @@ mod tests {
         FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy, FfiPermissionPolicySet,
         FfiPermissionUpdateType,
     };
+    use ethers::utils::hex;
+    use rand::distributions::{Alphanumeric, DistString};
     use std::{
         env,
         sync::{
@@ -1574,16 +1585,12 @@ mod tests {
             Arc, Mutex,
         },
     };
-
-    use super::{create_client, FfiMessage, FfiMessageCallback, FfiXmtpClient};
-    use ethers::core::rand::{
-        self,
-        distributions::{Alphanumeric, DistString},
-    };
-    use ethers::utils::hex;
     use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
-    use xmtp_id::associations::generate_inbox_id;
+    use xmtp_id::associations::{
+        generate_inbox_id,
+        unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
+    };
     use xmtp_mls::{
         groups::{GroupError, MlsGroup},
         storage::EncryptionKey,
@@ -1908,12 +1915,12 @@ mod tests {
             .inner
             .lock()
             .await
-            .add_signature(Box::new(
-                xmtp_id::associations::RecoverableEcdsaSignature::new(
-                    signature_text,
+            .add_signature(
+                UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(
                     wallet_signature,
-                ),
-            ))
+                )),
+                &signature_verifier(),
+            )
             .await
             .unwrap();
     }

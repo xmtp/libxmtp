@@ -8,7 +8,11 @@ use rand::{
 use std::sync::Arc;
 use tokio::{sync::Notify, time::error::Elapsed};
 use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
-use xmtp_id::associations::{generate_inbox_id, RecoverableEcdsaSignature};
+use xmtp_id::associations::{
+    generate_inbox_id,
+    test_utils::MockSmartContractSignatureVerifier,
+    unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
+};
 
 use crate::{
     builder::ClientBuilder,
@@ -116,6 +120,7 @@ impl ClientBuilder<TestClient> {
             nonce,
             None,
         ))
+        .scw_signatuer_verifier(MockSmartContractSignatureVerifier::new(true))
         .temp_store()
         .local_client()
         .await
@@ -190,11 +195,14 @@ impl Client<TestClient> {
 pub async fn register_client<T: XmtpApi>(client: &Client<T>, owner: &impl InboxOwner) {
     let mut signature_request = client.context.signature_request().unwrap();
     let signature_text = signature_request.signature_text();
+    let unverified_signature = UnverifiedSignature::RecoverableEcdsa(
+        UnverifiedRecoverableEcdsaSignature::new(owner.sign(&signature_text).unwrap().into()),
+    );
     signature_request
-        .add_signature(Box::new(RecoverableEcdsaSignature::new(
-            signature_text.clone(),
-            owner.sign(&signature_text).unwrap().into(),
-        )))
+        .add_signature(
+            unverified_signature,
+            client.smart_contract_signature_verifier().as_ref(),
+        )
         .await
         .unwrap();
 
