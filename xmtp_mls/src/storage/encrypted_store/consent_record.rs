@@ -62,7 +62,6 @@ impl DbConnection {
         &self,
         record: StoredConsentRecord,
     ) -> Result<(), StorageError> {
-        //TODO: we should probably set the consent record for the associated inbox id if passing an address
         self.raw_query(|conn| {
             diesel::insert_into(dsl::consent_records)
                 .values(&record)

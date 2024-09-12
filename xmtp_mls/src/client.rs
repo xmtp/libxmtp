@@ -340,6 +340,8 @@ where
         Ok(state)
     }
 
+    // set the consent record in the database
+    // if the consent record is an address also set the inboxId
     pub async fn set_consent_state(
         &self,
         state: ConsentState,
@@ -350,19 +352,39 @@ where
         conn.insert_or_replace_consent_record(StoredConsentRecord::new(
             entity_type,
             state,
-            entity,
+            entity.clone(),
         ))?;
+
+        if (entity_type == ConsentType::Address) {
+            if let Some(inbox_id) = self.find_inbox_id_from_address(entity.clone()).await? {
+                conn.insert_or_replace_consent_record(StoredConsentRecord::new(
+                    ConsentType::InboxId,
+                    state,
+                    inbox_id,
+                ))?;
+            }
+        };
 
         Ok(())
     }
 
+    // get the consent record from the database
+    // if the consent record is an address also get the inboxId instead
     pub async fn get_consent_state(
         &self,
         entity_type: ConsentType,
         entity: String,
     ) -> Result<ConsentState, ClientError> {
         let conn = self.store().conn()?;
-        let record = conn.get_consent_record(entity, entity_type)?;
+        let record = if entity_type == ConsentType::Address {
+            if let Some(inbox_id) = self.find_inbox_id_from_address(entity.clone()).await? {
+                conn.get_consent_record(inbox_id, ConsentType::InboxId)?
+            } else {
+                conn.get_consent_record(entity, entity_type)?
+            }
+        } else {
+            conn.get_consent_record(entity, entity_type)?
+        };
 
         match record {
             Some(rec) => Ok(rec.state),
