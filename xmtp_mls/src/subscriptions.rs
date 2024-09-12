@@ -810,11 +810,17 @@ mod tests {
 
         let mut stream2 =
             Client::<TestClient>::stream_all_messages_with_callback(alix.clone(), |msg| {
-                println!("Got message {:?}", msg);
+                log::info!("Got message {:?}", msg);
+            });
+
+        let mut stream3 =
+            Client::<TestClient>::stream_all_messages_with_callback(alix.clone(), |msg| {
+                log::info!("Got message {:?}", msg);
             });
 
         stream1.wait_for_ready().await;
         stream2.wait_for_ready().await;
+        stream3.wait_for_ready().await;
 
         let bo_group = bo
             .create_group_with_members(vec![alix_addr.get_address()], None, Default::default())
