@@ -879,7 +879,7 @@ pub enum FfiPermissionLevel {
     SuperAdmin,
 }
 
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Enum, PartialEq, Debug)]
 pub enum FfiConsentState {
     Unknown,
     Allowed,
@@ -1667,10 +1667,10 @@ mod tests {
     use super::{create_client, signature_verifier, FfiMessage, FfiMessageCallback, FfiXmtpClient};
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
-        FfiConversationCallback, FfiCreateGroupOptions, FfiGroup, FfiGroupMessageKind,
-        FfiGroupPermissionsOptions, FfiInboxOwner, FfiListConversationsOptions,
-        FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy, FfiPermissionPolicySet,
-        FfiPermissionUpdateType,
+        FfiConsentEntityType, FfiConsentState, FfiConversationCallback, FfiCreateGroupOptions,
+        FfiGroup, FfiGroupMessageKind, FfiGroupPermissionsOptions, FfiInboxOwner,
+        FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy,
+        FfiPermissionPolicySet, FfiPermissionUpdateType,
     };
     use ethers::utils::hex;
     use rand::distributions::{Alphanumeric, DistString};
@@ -3675,5 +3675,46 @@ mod tests {
                 .clone(),
             client_1.installation_id()
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_set_and_get_group_consent() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        let alix_initial_consent = alix_group.consent_state().unwrap();
+        assert_eq!(alix_initial_consent, FfiConsentState::Allowed);
+
+        bo.conversations().sync().await.unwrap();
+        let bo_group = bo.group(alix_group.group_id.clone()).unwrap();
+
+        let bo_initial_consent = bo_group.consent_state().unwrap();
+        assert_eq!(bo_initial_consent, FfiConsentState::Unknown);
+
+        alix_group
+            .update_consent_state(FfiConsentState::Denied)
+            .await
+            .unwrap();
+        let alix_updated_consent = alix_group.consent_state().unwrap();
+        assert_eq!(alix_updated_consent, FfiConsentState::Denied);
+
+        bo.set_consent_state(
+            FfiConsentState::Allowed,
+            FfiConsentEntityType::GroupId,
+            hex::encode(bo_group.id()),
+        )
+        .await
+        .unwrap();
+        let bo_updated_consent = bo_group.consent_state().unwrap();
+        assert_eq!(bo_updated_consent, FfiConsentState::Allowed);
     }
 }
