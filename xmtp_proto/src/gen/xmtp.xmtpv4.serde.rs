@@ -417,7 +417,7 @@ impl serde::Serialize for BlockchainProof {
         if self.block_number != 0 {
             len += 1;
         }
-        if self.publisher_node_id != 0 {
+        if self.publisher_id != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.BlockchainProof", len)?;
@@ -426,8 +426,8 @@ impl serde::Serialize for BlockchainProof {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("blockNumber", ToString::to_string(&self.block_number).as_str())?;
         }
-        if self.publisher_node_id != 0 {
-            struct_ser.serialize_field("publisherNodeId", &self.publisher_node_id)?;
+        if self.publisher_id != 0 {
+            struct_ser.serialize_field("publisherId", &self.publisher_id)?;
         }
         struct_ser.end()
     }
@@ -441,14 +441,14 @@ impl<'de> serde::Deserialize<'de> for BlockchainProof {
         const FIELDS: &[&str] = &[
             "block_number",
             "blockNumber",
-            "publisher_node_id",
-            "publisherNodeId",
+            "publisher_id",
+            "publisherId",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             BlockNumber,
-            PublisherNodeId,
+            PublisherId,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -471,7 +471,7 @@ impl<'de> serde::Deserialize<'de> for BlockchainProof {
                     {
                         match value {
                             "blockNumber" | "block_number" => Ok(GeneratedField::BlockNumber),
-                            "publisherNodeId" | "publisher_node_id" => Ok(GeneratedField::PublisherNodeId),
+                            "publisherId" | "publisher_id" => Ok(GeneratedField::PublisherId),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -492,7 +492,7 @@ impl<'de> serde::Deserialize<'de> for BlockchainProof {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut block_number__ = None;
-                let mut publisher_node_id__ = None;
+                let mut publisher_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::BlockNumber => {
@@ -503,11 +503,11 @@ impl<'de> serde::Deserialize<'de> for BlockchainProof {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::PublisherNodeId => {
-                            if publisher_node_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("publisherNodeId"));
+                        GeneratedField::PublisherId => {
+                            if publisher_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("publisherId"));
                             }
-                            publisher_node_id__ = 
+                            publisher_id__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -515,7 +515,7 @@ impl<'de> serde::Deserialize<'de> for BlockchainProof {
                 }
                 Ok(BlockchainProof {
                     block_number: block_number__.unwrap_or_default(),
-                    publisher_node_id: publisher_node_id__.unwrap_or_default(),
+                    publisher_id: publisher_id__.unwrap_or_default(),
                 })
             }
         }
@@ -1636,10 +1636,7 @@ impl serde::Serialize for UnsignedOriginatorEnvelope {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.originator_node_id != 0 {
-            len += 1;
-        }
-        if self.originator_sequence_id != 0 {
+        if self.originator_sid != 0 {
             len += 1;
         }
         if self.originator_ns != 0 {
@@ -1649,13 +1646,10 @@ impl serde::Serialize for UnsignedOriginatorEnvelope {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.UnsignedOriginatorEnvelope", len)?;
-        if self.originator_node_id != 0 {
-            struct_ser.serialize_field("originatorNodeId", &self.originator_node_id)?;
-        }
-        if self.originator_sequence_id != 0 {
+        if self.originator_sid != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("originatorSequenceId", ToString::to_string(&self.originator_sequence_id).as_str())?;
+            struct_ser.serialize_field("originatorSid", ToString::to_string(&self.originator_sid).as_str())?;
         }
         if self.originator_ns != 0 {
             #[allow(clippy::needless_borrow)]
@@ -1675,10 +1669,8 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "originator_node_id",
-            "originatorNodeId",
-            "originator_sequence_id",
-            "originatorSequenceId",
+            "originator_sid",
+            "originatorSid",
             "originator_ns",
             "originatorNs",
             "payer_envelope",
@@ -1687,8 +1679,7 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            OriginatorNodeId,
-            OriginatorSequenceId,
+            OriginatorSid,
             OriginatorNs,
             PayerEnvelope,
         }
@@ -1712,8 +1703,7 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
                         E: serde::de::Error,
                     {
                         match value {
-                            "originatorNodeId" | "originator_node_id" => Ok(GeneratedField::OriginatorNodeId),
-                            "originatorSequenceId" | "originator_sequence_id" => Ok(GeneratedField::OriginatorSequenceId),
+                            "originatorSid" | "originator_sid" => Ok(GeneratedField::OriginatorSid),
                             "originatorNs" | "originator_ns" => Ok(GeneratedField::OriginatorNs),
                             "payerEnvelope" | "payer_envelope" => Ok(GeneratedField::PayerEnvelope),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
@@ -1735,25 +1725,16 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut originator_node_id__ = None;
-                let mut originator_sequence_id__ = None;
+                let mut originator_sid__ = None;
                 let mut originator_ns__ = None;
                 let mut payer_envelope__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::OriginatorNodeId => {
-                            if originator_node_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("originatorNodeId"));
+                        GeneratedField::OriginatorSid => {
+                            if originator_sid__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("originatorSid"));
                             }
-                            originator_node_id__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::OriginatorSequenceId => {
-                            if originator_sequence_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("originatorSequenceId"));
-                            }
-                            originator_sequence_id__ = 
+                            originator_sid__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -1774,8 +1755,7 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
                     }
                 }
                 Ok(UnsignedOriginatorEnvelope {
-                    originator_node_id: originator_node_id__.unwrap_or_default(),
-                    originator_sequence_id: originator_sequence_id__.unwrap_or_default(),
+                    originator_sid: originator_sid__.unwrap_or_default(),
                     originator_ns: originator_ns__.unwrap_or_default(),
                     payer_envelope: payer_envelope__,
                 })
@@ -1792,14 +1772,12 @@ impl serde::Serialize for VectorClock {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.node_id_to_sequence_id.is_empty() {
+        if !self.originator_sids.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.VectorClock", len)?;
-        if !self.node_id_to_sequence_id.is_empty() {
-            let v: std::collections::HashMap<_, _> = self.node_id_to_sequence_id.iter()
-                .map(|(k, v)| (k, v.to_string())).collect();
-            struct_ser.serialize_field("nodeIdToSequenceId", &v)?;
+        if !self.originator_sids.is_empty() {
+            struct_ser.serialize_field("originatorSids", &self.originator_sids.iter().map(ToString::to_string).collect::<Vec<_>>())?;
         }
         struct_ser.end()
     }
@@ -1811,13 +1789,13 @@ impl<'de> serde::Deserialize<'de> for VectorClock {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "node_id_to_sequence_id",
-            "nodeIdToSequenceId",
+            "originator_sids",
+            "originatorSids",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            NodeIdToSequenceId,
+            OriginatorSids,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1839,7 +1817,7 @@ impl<'de> serde::Deserialize<'de> for VectorClock {
                         E: serde::de::Error,
                     {
                         match value {
-                            "nodeIdToSequenceId" | "node_id_to_sequence_id" => Ok(GeneratedField::NodeIdToSequenceId),
+                            "originatorSids" | "originator_sids" => Ok(GeneratedField::OriginatorSids),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1859,22 +1837,22 @@ impl<'de> serde::Deserialize<'de> for VectorClock {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut node_id_to_sequence_id__ = None;
+                let mut originator_sids__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::NodeIdToSequenceId => {
-                            if node_id_to_sequence_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("nodeIdToSequenceId"));
+                        GeneratedField::OriginatorSids => {
+                            if originator_sids__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("originatorSids"));
                             }
-                            node_id_to_sequence_id__ = Some(
-                                map_.next_value::<std::collections::HashMap<::pbjson::private::NumberDeserialize<u32>, ::pbjson::private::NumberDeserialize<u64>>>()?
-                                    .into_iter().map(|(k,v)| (k.0, v.0)).collect()
-                            );
+                            originator_sids__ = 
+                                Some(map_.next_value::<Vec<::pbjson::private::NumberDeserialize<_>>>()?
+                                    .into_iter().map(|x| x.0).collect())
+                            ;
                         }
                     }
                 }
                 Ok(VectorClock {
-                    node_id_to_sequence_id: node_id_to_sequence_id__.unwrap_or_default(),
+                    originator_sids: originator_sids__.unwrap_or_default(),
                 })
             }
         }
