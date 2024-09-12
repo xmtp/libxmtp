@@ -348,10 +348,31 @@ impl FfiXmtpClient {
             FfiConsentEntityType::InboxId => ConsentType::InboxId,
             FfiConsentEntityType::Address => ConsentType::Address,
         };
-        let result = inner
+        inner
             .set_consent_state(consent_state, consent_type, entity)
             .await?;
-        Ok(result)
+        Ok(())
+    }
+
+    pub async fn get_consent_state(
+        &self,
+        entity_type: FfiConsentEntityType,
+        entity: String,
+    ) -> Result<FfiConsentState, GenericError> {
+        let inner = self.inner_client.as_ref();
+        let consent_type = match entity_type {
+            FfiConsentEntityType::GroupId => ConsentType::GroupId,
+            FfiConsentEntityType::InboxId => ConsentType::InboxId,
+            FfiConsentEntityType::Address => ConsentType::Address,
+        };
+        let result = inner.get_consent_state(consent_type, entity).await?;
+
+        let consent_state = match result {
+            ConsentState::Unknown => FfiConsentState::Unknown,
+            ConsentState::Allowed => FfiConsentState::Allowed,
+            ConsentState::Denied => FfiConsentState::Denied,
+        };
+        Ok(consent_state)
     }
 }
 

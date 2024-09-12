@@ -356,6 +356,20 @@ where
         Ok(())
     }
 
+    pub async fn get_consent_state(
+        &self,
+        entity_type: ConsentType,
+        entity: String,
+    ) -> Result<ConsentState, ClientError> {
+        let conn = self.store().conn()?;
+        let record = conn.get_consent_record(entity, entity_type)?;
+
+        match record {
+            Some(rec) => Ok(rec.state),
+            None => Ok(ConsentState::Unknown),
+        }
+    }
+
     pub fn store(&self) -> &EncryptedMessageStore {
         &self.context.store
     }
