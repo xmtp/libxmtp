@@ -791,7 +791,7 @@ mod tests {
     })
     */
     #[tokio::test]
-    async fn test_stream_messages_and_welcomes() {
+    async fn test_stream_messages_and_welcomes_on_dev() {
         let alix_addr = generate_local_wallet();
         let alix = Arc::new(ClientBuilder::new_dev_client(&alix_addr).await);
         let bo = ClientBuilder::new_dev_client(&generate_local_wallet()).await;
