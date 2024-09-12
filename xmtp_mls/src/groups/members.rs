@@ -3,7 +3,7 @@ use xmtp_id::InboxId;
 use super::{validated_commit::extract_group_membership, GroupError, MlsGroup};
 
 use crate::{
-    storage::association_state::StoredAssociationState, xmtp_openmls_provider::XmtpOpenMlsProvider,
+    storage::{association_state::StoredAssociationState, consent_record::ConsentState}, xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
 
 #[derive(Debug, Clone)]
@@ -12,6 +12,7 @@ pub struct GroupMember {
     pub account_addresses: Vec<String>,
     pub installation_ids: Vec<Vec<u8>>,
     pub permission_level: PermissionLevel,
+    pub consent_state: ConsentState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

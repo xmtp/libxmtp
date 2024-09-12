@@ -1,8 +1,7 @@
 use crate::{impl_store, storage::StorageError};
 
 use super::{
-    db_connection::DbConnection,
-    schema::consent_records::{self, dsl},
+    db_connection::DbConnection, group::StoredGroup, schema::{consent_records::{self, dsl}, groups::{dsl as other_dsl}}
 };
 use diesel::{
     backend::Backend,
@@ -10,7 +9,7 @@ use diesel::{
     expression::AsExpression,
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
-    sql_types::Integer,
+    sql_types::{Integer, Text},
     sqlite::Sqlite,
     upsert::excluded,
 };
@@ -74,6 +73,18 @@ impl DbConnection {
 
         Ok(())
     }
+
+    // fn join_consent_with_group_intents(&self) -> Result<Vec<(StoredConsentRecord, StoredGroup)>, StorageError> {
+    //     Ok(self.raw_query(|conn| {
+    //         use diesel::dsl::sql;
+    //         use diesel::sql_types::Bool;
+
+    //         dsl::consent_records
+    //             .inner_join(other_dsl::groups.on(sql::<Bool>("consent_records.entity = LOWER(HEX(groups.id))"))) // Expecting a Bool result from the condition
+    //             .filter(dsl::entity_type.eq(ConsentType::GroupId))
+    //             .load::<(StoredConsentRecord, StoredGroup)>(conn)
+    //     })?)
+    // }
 }
 
 #[repr(i32)]
@@ -118,6 +129,8 @@ where
 #[diesel(sql_type = Integer)]
 /// The state of the consent
 pub enum ConsentState {
+    /// Consent is unknown
+    Unknown = 0,
     /// Consent is allowed
     Allowed = 1,
     /// Consent is denied
