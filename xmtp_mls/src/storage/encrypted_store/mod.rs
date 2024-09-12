@@ -455,7 +455,7 @@ mod tests {
     use std::sync::Barrier;
 
     use crate::{
-        storage::group::{GroupMembershipState, StoredGroup},
+        storage::{consent_record::ConsentState, group::{GroupMembershipState, StoredGroup}},
         utils::test::{rand_vec, tmp_path},
         Fetch, Store,
     };
@@ -689,7 +689,7 @@ mod tests {
                     0,
                     GroupMembershipState::Allowed,
                     "goodbye".to_string(),
-                    None,
+                    ConsentState::Unknown,
                 );
                 group.store(connection)?;
                 Ok(())
@@ -741,7 +741,7 @@ mod tests {
                         0,
                         GroupMembershipState::Allowed,
                         "goodbye".to_string(),
-                        None,
+                        ConsentState::Unknown,
                     );
                     group.store(conn1).unwrap();
 

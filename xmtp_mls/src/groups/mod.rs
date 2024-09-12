@@ -319,7 +319,7 @@ impl MlsGroup {
             now_ns(),
             membership_state,
             context.inbox_id(),
-            Some(ConsentState::Allowed),
+            ConsentState::Allowed,
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -355,7 +355,7 @@ impl MlsGroup {
                 added_by_inbox,
                 welcome_id,
                 Purpose::Conversation,
-                Some(ConsentState::Unknown),
+                ConsentState::Unknown,
             ),
             ConversationType::Sync => StoredGroup::new_from_welcome(
                 group_id.clone(),
@@ -364,7 +364,7 @@ impl MlsGroup {
                 added_by_inbox,
                 welcome_id,
                 Purpose::Sync,
-                None,
+                ConsentState::Unknown,
             ),
         };
 

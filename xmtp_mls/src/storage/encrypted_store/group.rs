@@ -56,7 +56,7 @@ impl StoredGroup {
         added_by_inbox_id: String,
         welcome_id: i64,
         purpose: Purpose,
-        consent_state: Option<ConsentState>,
+        consent_state: ConsentState,
     ) -> Self {
         Self {
             id,
@@ -66,7 +66,7 @@ impl StoredGroup {
             purpose,
             added_by_inbox_id,
             welcome_id: Some(welcome_id),
-            consent_state: consent_state.unwrap_or(ConsentState::Unknown),
+            consent_state: consent_state,
         }
     }
 
@@ -76,7 +76,7 @@ impl StoredGroup {
         created_at_ns: i64,
         membership_state: GroupMembershipState,
         added_by_inbox_id: String,
-        consent_state: Option<ConsentState>,
+        consent_state: ConsentState,
     ) -> Self {
         Self {
             id,
@@ -86,7 +86,7 @@ impl StoredGroup {
             purpose: Purpose::Conversation,
             added_by_inbox_id,
             welcome_id: None,
-            consent_state: consent_state.unwrap_or(ConsentState::Allowed),
+            consent_state: consent_state,
         }
     }
 
@@ -354,7 +354,7 @@ pub(crate) mod tests {
             created_at_ns,
             membership_state,
             "placeholder_address".to_string(),
-            None,
+            ConsentState::Unknown,
         )
     }
 

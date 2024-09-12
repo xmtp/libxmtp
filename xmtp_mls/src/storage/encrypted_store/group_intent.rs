@@ -390,10 +390,10 @@ where
 mod tests {
     use super::*;
     use crate::{
-        storage::encrypted_store::{
+        storage::{consent_record::ConsentState, encrypted_store::{
             group::{GroupMembershipState, StoredGroup},
             tests::with_connection,
-        },
+        }},
         utils::test::rand_vec,
         Fetch, Store,
     };
@@ -404,7 +404,7 @@ mod tests {
             100,
             GroupMembershipState::Allowed,
             "placeholder_address".to_string(),
-            None,
+            ConsentState::Unknown,
         );
         group.store(conn).unwrap();
     }
