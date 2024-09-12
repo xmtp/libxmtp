@@ -6,11 +6,12 @@ use super::{
 };
 use diesel::{
     backend::Backend,
-    deserialize::{self, FromSql},
+    deserialize::{self, FromSql, FromSqlRow},
+    expression::AsExpression,
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
-    sqlite::Sqlite,
+    sqlite::Sqlite, 
     upsert::excluded,
 };
 use serde::{Deserialize, Serialize};

@@ -12,8 +12,9 @@ use diesel::{
 use serde::{Deserialize, Serialize};
 
 use super::{
+    consent_record::ConsentState,
     db_connection::DbConnection,
-    schema::{groups, groups::dsl},
+    schema::groups::{self, dsl},
 };
 use crate::{impl_fetch, impl_store, StorageError};
 
@@ -39,6 +40,8 @@ pub struct StoredGroup {
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message
     pub welcome_id: Option<i64>,
+    /// Enum, [`ConsentState`] representing the consent state of the group
+    pub consent_state: ConsentState,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -62,6 +65,7 @@ impl StoredGroup {
             purpose,
             added_by_inbox_id,
             welcome_id: Some(welcome_id),
+            consent_state: ConsentState::Unknown,
         }
     }
 
@@ -80,6 +84,7 @@ impl StoredGroup {
             purpose: Purpose::Conversation,
             added_by_inbox_id,
             welcome_id: None,
+            consent_state: ConsentState::Allowed,
         }
     }
 
@@ -98,6 +103,7 @@ impl StoredGroup {
             purpose: Purpose::Sync,
             added_by_inbox_id: "".into(),
             welcome_id: None,
+            consent_state: ConsentState::Allowed,
         }
     }
 }
