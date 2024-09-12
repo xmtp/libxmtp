@@ -81,11 +81,7 @@ use crate::{
     identity_updates::{load_identity_updates, InstallationDiffError},
     retry::RetryableError,
     storage::{
-        db_connection::DbConnection,
-        group::{GroupMembershipState, Purpose, StoredGroup},
-        group_intent::{IntentKind, NewGroupIntent},
-        group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-        sql_key_store,
+        consent_record::ConsentState, db_connection::DbConnection, group::{GroupMembershipState, Purpose, StoredGroup}, group_intent::{IntentKind, NewGroupIntent}, group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage}, sql_key_store
     },
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -312,11 +308,13 @@ impl MlsGroup {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
+        // Consent state defaults to allowed when the user creates the group
         let stored_group = StoredGroup::new(
             group_id.clone(),
             now_ns(),
             membership_state,
             context.inbox_id(),
+            Some(ConsentState::Allowed)
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -352,6 +350,7 @@ impl MlsGroup {
                 added_by_inbox,
                 welcome_id,
                 Purpose::Conversation,
+                Some(ConsentState::Unknown)
             ),
             ConversationType::Sync => StoredGroup::new_from_welcome(
                 group_id.clone(),
@@ -360,6 +359,7 @@ impl MlsGroup {
                 added_by_inbox,
                 welcome_id,
                 Purpose::Sync,
+                None
             ),
         };
 
