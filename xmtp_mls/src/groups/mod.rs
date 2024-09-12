@@ -950,13 +950,16 @@ impl MlsGroup {
     /// Find the `consent_state` of the group
     pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
         let conn = self.context.store.conn()?;
-        conn.find_group(self.group_id.clone())
-            .map_err(GroupError::from)?
-            .and_then(|fetch_result| {
-                fetch_result
-                    .map(|group| group.consent_state)
-                    .ok_or_else(|| GroupError::GroupNotFound)
-            })
+        let group = conn
+            .find_group(self.group_id.clone())
+            .map_err(GroupError::from)?;
+
+        let consent_state = match group {
+            Some(group) => group.consent_state,
+            None => ConsentState::Unknown,
+        };
+
+        Ok(consent_state)
     }
 
     pub async fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
