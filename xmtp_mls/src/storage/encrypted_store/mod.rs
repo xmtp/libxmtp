@@ -455,7 +455,10 @@ mod tests {
     use std::sync::Barrier;
 
     use crate::{
-        storage::{consent_record::ConsentState, group::{GroupMembershipState, StoredGroup}},
+        storage::{
+            consent_record::ConsentState,
+            group::{GroupMembershipState, StoredGroup},
+        },
         utils::test::{rand_vec, tmp_path},
         Fetch, Store,
     };
