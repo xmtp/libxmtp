@@ -36,12 +36,6 @@ struct CipherProviderVersion {
     cipher_provider_version: String,
 }
 
-#[derive(QueryableByName, Debug)]
-struct SqliteJournalMode {
-    #[diesel(sql_type = diesel::sql_types::Text)]
-    journal_mode: String,
-}
-
 /// Specialized Connection for r2d2 connection pool.
 #[derive(Clone, Debug)]
 pub struct EncryptedConnection {
@@ -199,17 +193,11 @@ impl EncryptedConnection {
         // test the key according to
         // https://www.zetetic.net/sqlcipher/sqlcipher-api/#testing-the-key
         conn.batch_execute(&format!(
-            "{}\
+            "{}
             SELECT count(*) FROM sqlite_master;",
             self.pragmas()
         ))
         .map_err(|_| StorageError::SqlCipherKeyIncorrect)?;
-
-        let SqliteJournalMode { journal_mode } =
-            sql_query("PRAGMA journal_mode;").get_result::<SqliteJournalMode>(conn)?;
-        if journal_mode != "wal" && matches!(opts, StorageOption::Persistent(_)) {
-            return Err(StorageError::SqlCipherNoWalMode);
-        }
 
         let CipherProviderVersion {
             cipher_provider_version,

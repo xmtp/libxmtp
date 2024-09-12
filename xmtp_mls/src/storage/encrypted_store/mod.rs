@@ -88,14 +88,6 @@ impl StorageOption {
 #[derive(Clone, Debug)]
 pub struct UnencryptedConnection;
 
-impl UnencryptedConnection {
-    pub fn new(opts: &StorageOption) -> Result<Self, StorageError> {
-        let conn = &mut opts.conn()?;
-        conn.batch_execute("PRAGMA journal_mode = WAL;")?;
-        Ok(UnencryptedConnection)
-    }
-}
-
 impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error>
     for UnencryptedConnection
 {
@@ -137,8 +129,7 @@ impl EncryptedMessageStore {
             builder = builder.connection_customizer(Box::new(enc_opts.clone()));
             Some(enc_opts)
         } else if matches!(opts, StorageOption::Persistent(_)) {
-            let conn = UnencryptedConnection::new(&opts)?;
-            builder = builder.connection_customizer(Box::new(conn));
+            builder = builder.connection_customizer(Box::new(UnencryptedConnection));
             None
         } else {
             None
@@ -169,6 +160,7 @@ impl EncryptedMessageStore {
         }
 
         let conn = &mut self.raw_conn()?;
+        conn.batch_execute("PRAGMA journal_mode = WAL;")?;
         log::info!("Running DB migrations");
         conn.run_pending_migrations(MIGRATIONS)
             .map_err(|e| StorageError::DbInit(format!("Failed to run migrations: {}", e)))?;

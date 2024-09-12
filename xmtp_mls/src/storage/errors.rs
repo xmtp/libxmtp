@@ -39,8 +39,6 @@ pub enum StorageError {
     SqlCipherNotLoaded,
     #[error("PRAGMA key or salt has incorrect value")]
     SqlCipherKeyIncorrect,
-    #[error("Persistent Encrypted Database requires WAL mode")]
-    SqlCipherNoWalMode,
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
@@ -77,6 +75,7 @@ impl RetryableError for StorageError {
             Self::Lock(_) => true,
             Self::SqlCipherNotLoaded => true,
             Self::PoolNeedsConnection => true,
+            Self::SqlCipherKeyIncorrect => false,
             _ => false,
         }
     }
