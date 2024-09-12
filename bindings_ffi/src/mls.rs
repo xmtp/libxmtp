@@ -1347,6 +1347,22 @@ impl FfiGroup {
         Ok(group.is_active(group.mls_provider()?)?)
     }
 
+    pub fn consent_state(&self) -> Result<FfiConsentState, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let state = match group.consent_state()? {
+            ConsentState::Unknown => FfiConsentState::Unknown,
+            ConsentState::Allowed => FfiConsentState::Allowed,
+            ConsentState::Denied => FfiConsentState::Denied,
+        };
+
+        Ok(state)
+    }
+
     pub fn added_by_inbox_id(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),

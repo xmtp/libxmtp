@@ -220,7 +220,11 @@ impl DbConnection {
     }
 
     /// Updates the 'consent_state'
-    pub fn update_consent_state(&self, group_id: Vec<u8>, consent_state: ConsentState) -> Result<(), StorageError> {
+    pub fn update_consent_state(
+        &self,
+        group_id: Vec<u8>,
+        consent_state: ConsentState,
+    ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::consent_state.eq(consent_state))
@@ -350,7 +354,7 @@ pub(crate) mod tests {
             created_at_ns,
             membership_state,
             "placeholder_address".to_string(),
-            None
+            None,
         )
     }
 
