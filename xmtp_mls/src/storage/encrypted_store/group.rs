@@ -219,6 +219,17 @@ impl DbConnection {
         Ok(())
     }
 
+    /// Updates the 'consent_state'
+    pub fn update_consent_state(&self, group_id: Vec<u8>, consent_state: ConsentState) -> Result<(), StorageError> {
+        self.raw_query(|conn| {
+            diesel::update(dsl::groups.find(&group_id))
+                .set(dsl::consent_state.eq(consent_state))
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
     pub fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
         let stored_group = self.raw_query(|conn| {
             let maybe_inserted_group: Option<StoredGroup> = diesel::insert_into(dsl::groups)
