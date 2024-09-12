@@ -21,7 +21,7 @@ bench = [
 default = ["native"]
 http-api = ["xmtp_api_http"]
 native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl", "xmtp_api_grpc"]
-test-utils = []
+test-utils = ["xmtp_id/test-utils"]
 
 [dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
