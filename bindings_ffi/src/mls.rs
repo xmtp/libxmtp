@@ -3717,4 +3717,34 @@ mod tests {
         let bo_updated_consent = bo_group.consent_state().unwrap();
         assert_eq!(bo_updated_consent, FfiConsentState::Allowed);
     }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_set_and_get_member_consent() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+        alix.set_consent_state(
+            FfiConsentState::Allowed,
+            FfiConsentEntityType::Address,
+            bo.account_address.clone(),
+        )
+        .await
+        .unwrap();
+        let bo_consent = alix
+            .get_consent_state(FfiConsentEntityType::Address, bo.account_address.clone())
+            .await
+            .unwrap();
+        assert_eq!(bo_consent, FfiConsentState::Allowed);
+
+        let member = &alix_group.list_members().unwrap()[1];
+        assert_eq!(member.consent_state, FfiConsentState::Allowed);
+    }
 }
