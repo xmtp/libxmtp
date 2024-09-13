@@ -81,7 +81,7 @@ use crate::{
     identity_updates::{load_identity_updates, InstallationDiffError},
     retry::RetryableError,
     storage::{
-        consent_record::ConsentState,
+        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
         group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
@@ -319,8 +319,9 @@ impl MlsGroup {
             now_ns(),
             membership_state,
             context.inbox_id(),
-            ConsentState::Allowed,
         );
+
+        //TODO set consent
 
         stored_group.store(provider.conn_ref())?;
         Ok(Self::new(
@@ -348,15 +349,17 @@ impl MlsGroup {
         let group_type = metadata.conversation_type;
 
         let to_store = match group_type {
-            ConversationType::Group | ConversationType::Dm => StoredGroup::new_from_welcome(
-                group_id.clone(),
-                now_ns(),
-                GroupMembershipState::Pending,
-                added_by_inbox,
-                welcome_id,
-                Purpose::Conversation,
-                ConsentState::Unknown,
-            ),
+            ConversationType::Group | ConversationType::Dm => {
+                //TODO set consent
+                StoredGroup::new_from_welcome(
+                    group_id.clone(),
+                    now_ns(),
+                    GroupMembershipState::Pending,
+                    added_by_inbox,
+                    welcome_id,
+                    Purpose::Conversation,
+                )
+            }
             ConversationType::Sync => StoredGroup::new_from_welcome(
                 group_id.clone(),
                 now_ns(),
@@ -364,7 +367,6 @@ impl MlsGroup {
                 added_by_inbox,
                 welcome_id,
                 Purpose::Sync,
-                ConsentState::Unknown,
             ),
         };
 
@@ -950,21 +952,24 @@ impl MlsGroup {
     /// Find the `consent_state` of the group
     pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
         let conn = self.context.store.conn()?;
-        let group = conn
-            .find_group(self.group_id.clone())
-            .map_err(GroupError::from)?;
+        let record =
+            conn.get_consent_record(hex::encode(self.group_id.clone()), ConsentType::GroupId)?;
 
-        let consent_state = match group {
-            Some(group) => group.consent_state,
-            None => ConsentState::Unknown,
-        };
-
-        Ok(consent_state)
+        match record {
+            Some(rec) => Ok(rec.state),
+            None => Ok(ConsentState::Unknown),
+        }
     }
 
     pub async fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         let conn = self.context.store.conn()?;
-        Ok(conn.update_consent_state(self.group_id.clone(), state)?)
+        conn.insert_or_replace_consent_record(StoredConsentRecord::new(
+            ConsentType::GroupId,
+            state,
+            hex::encode(self.group_id.clone()),
+        ))?;
+
+        Ok(())
     }
 
     // Update this installation's leaf key in the group by creating a key update commit

@@ -12,7 +12,6 @@ use diesel::{
 use serde::{Deserialize, Serialize};
 
 use super::{
-    consent_record::ConsentState,
     db_connection::DbConnection,
     schema::groups::{self, dsl},
 };
@@ -40,8 +39,6 @@ pub struct StoredGroup {
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message
     pub welcome_id: Option<i64>,
-    /// Enum, [`ConsentState`] representing the consent state of the group
-    pub consent_state: ConsentState,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -56,7 +53,6 @@ impl StoredGroup {
         added_by_inbox_id: String,
         welcome_id: i64,
         purpose: Purpose,
-        consent_state: ConsentState,
     ) -> Self {
         Self {
             id,
@@ -66,7 +62,6 @@ impl StoredGroup {
             purpose,
             added_by_inbox_id,
             welcome_id: Some(welcome_id),
-            consent_state,
         }
     }
 
@@ -76,7 +71,6 @@ impl StoredGroup {
         created_at_ns: i64,
         membership_state: GroupMembershipState,
         added_by_inbox_id: String,
-        consent_state: ConsentState,
     ) -> Self {
         Self {
             id,
@@ -86,7 +80,6 @@ impl StoredGroup {
             purpose: Purpose::Conversation,
             added_by_inbox_id,
             welcome_id: None,
-            consent_state,
         }
     }
 
@@ -105,7 +98,6 @@ impl StoredGroup {
             purpose: Purpose::Sync,
             added_by_inbox_id: "".into(),
             welcome_id: None,
-            consent_state: ConsentState::Allowed,
         }
     }
 }
@@ -213,21 +205,6 @@ impl DbConnection {
             let now = crate::utils::time::now_ns();
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::installations_last_checked.eq(now))
-                .execute(conn)
-        })?;
-
-        Ok(())
-    }
-
-    /// Updates the 'consent_state'
-    pub fn update_consent_state(
-        &self,
-        group_id: Vec<u8>,
-        consent_state: ConsentState,
-    ) -> Result<(), StorageError> {
-        self.raw_query(|conn| {
-            diesel::update(dsl::groups.find(&group_id))
-                .set(dsl::consent_state.eq(consent_state))
                 .execute(conn)
         })?;
 
@@ -354,7 +331,6 @@ pub(crate) mod tests {
             created_at_ns,
             membership_state,
             "placeholder_address".to_string(),
-            ConsentState::Unknown,
         )
     }
 
