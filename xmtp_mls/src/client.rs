@@ -50,6 +50,7 @@ use crate::{
     retry::Retry,
     retry_async, retryable,
     storage::{
+        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
         group_message::StoredGroupMessage,
@@ -337,6 +338,58 @@ where
         }
         let state = self.get_association_state(&conn, inbox_id, None).await?;
         Ok(state)
+    }
+
+    // set the consent record in the database
+    // if the consent record is an address also set the inboxId
+    pub async fn set_consent_state(
+        &self,
+        state: ConsentState,
+        entity_type: ConsentType,
+        entity: String,
+    ) -> Result<(), ClientError> {
+        let conn = self.store().conn()?;
+        conn.insert_or_replace_consent_record(StoredConsentRecord::new(
+            entity_type,
+            state,
+            entity.clone(),
+        ))?;
+
+        if entity_type == ConsentType::Address {
+            if let Some(inbox_id) = self.find_inbox_id_from_address(entity.clone()).await? {
+                conn.insert_or_replace_consent_record(StoredConsentRecord::new(
+                    ConsentType::InboxId,
+                    state,
+                    inbox_id,
+                ))?;
+            }
+        };
+
+        Ok(())
+    }
+
+    // get the consent record from the database
+    // if the consent record is an address also get the inboxId instead
+    pub async fn get_consent_state(
+        &self,
+        entity_type: ConsentType,
+        entity: String,
+    ) -> Result<ConsentState, ClientError> {
+        let conn = self.store().conn()?;
+        let record = if entity_type == ConsentType::Address {
+            if let Some(inbox_id) = self.find_inbox_id_from_address(entity.clone()).await? {
+                conn.get_consent_record(inbox_id, ConsentType::InboxId)?
+            } else {
+                conn.get_consent_record(entity, entity_type)?
+            }
+        } else {
+            conn.get_consent_record(entity, entity_type)?
+        };
+
+        match record {
+            Some(rec) => Ok(rec.state),
+            None => Ok(ConsentState::Unknown),
+        }
     }
 
     pub fn store(&self) -> &EncryptedMessageStore {
@@ -763,6 +816,7 @@ mod tests {
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
         hpke::{decrypt_welcome, encrypt_welcome},
+        storage::consent_record::{ConsentState, ConsentType},
     };
 
     #[tokio::test]
@@ -1039,5 +1093,31 @@ mod tests {
             bola_messages.get(1).unwrap().decrypted_message_bytes,
             vec![1, 2, 3]
         )
+    }
+
+    #[tokio::test]
+    async fn test_get_and_set_consent() {
+        let bo_wallet = generate_local_wallet();
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
+
+        alix.set_consent_state(
+            ConsentState::Denied,
+            ConsentType::Address,
+            bo_wallet.get_address(),
+        )
+        .await
+        .unwrap();
+        let inbox_consent = alix
+            .get_consent_state(ConsentType::InboxId, bo.inbox_id())
+            .await
+            .unwrap();
+        let address_consent = alix
+            .get_consent_state(ConsentType::Address, bo_wallet.get_address())
+            .await
+            .unwrap();
+
+        assert_eq!(inbox_consent, ConsentState::Denied);
+        assert_eq!(address_consent, ConsentState::Denied);
     }
 }
