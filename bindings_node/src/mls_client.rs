@@ -329,21 +329,22 @@ impl NapiClient {
   ) -> Result<()> {
     let mut signature_requests = self.signature_requests.lock().await;
 
-    let signature_request = signature_requests
-      .get_mut(&signature_type)
-      .ok_or(Error::from_reason("Signature request not found"))?;
-    let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.deref().to_vec());
+    if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
+      let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.deref().to_vec());
 
-    signature_request
-      .add_signature(
-        signature,
-        self
-          .inner_client
-          .smart_contract_signature_verifier()
-          .as_ref(),
-      )
-      .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      signature_request
+        .add_signature(
+          signature,
+          self
+            .inner_client
+            .smart_contract_signature_verifier()
+            .as_ref(),
+        )
+        .await
+        .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    } else {
+      return Err(Error::from_reason("Signature request not found"));
+    }
 
     Ok(())
   }
