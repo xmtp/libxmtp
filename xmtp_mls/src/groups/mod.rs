@@ -1322,8 +1322,7 @@ mod tests {
             DeliveryStatus, GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
         },
         storage::{
-            group_intent::{IntentKind, IntentState, NewGroupIntent},
-            group_message::{GroupMessageKind, StoredGroupMessage},
+            consent_record::ConsentState, group_intent::{IntentKind, IntentState, NewGroupIntent}, group_message::{GroupMessageKind, StoredGroupMessage}
         },
         xmtp_openmls_provider::XmtpOpenMlsProvider,
         Client, InboxOwner, XmtpApi,
@@ -3241,5 +3240,18 @@ mod tests {
             process_result,
             MessageProcessingError::EpochIncrementNotAllowed
         );
+    }
+
+    #[tokio::test]
+    async fn test_get_and_set_consent() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        group.update_consent_state(ConsentState::Denied).unwrap();
+        let consent = group.consent_state().unwrap();
+
+        assert_eq!(consent, ConsentState::Denied);
     }
 }
