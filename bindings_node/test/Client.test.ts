@@ -8,7 +8,7 @@ describe('Client', () => {
     expect(client.isRegistered()).toBe(false)
   })
 
-  it('should be registered aafter registration', async () => {
+  it('should be registered after registration', async () => {
     const user = createUser()
     // must create 2 clients to get the expected value
     // this is currently a limitation in the rust implementation as the
