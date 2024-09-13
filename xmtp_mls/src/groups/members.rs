@@ -3,7 +3,11 @@ use xmtp_id::InboxId;
 use super::{validated_commit::extract_group_membership, GroupError, MlsGroup};
 
 use crate::{
-    storage::association_state::StoredAssociationState, xmtp_openmls_provider::XmtpOpenMlsProvider,
+    storage::{
+        association_state::StoredAssociationState,
+        consent_record::{ConsentState, ConsentType},
+    },
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
 
 #[derive(Debug, Clone)]
@@ -12,6 +16,7 @@ pub struct GroupMember {
     pub account_addresses: Vec<String>,
     pub installation_ids: Vec<Vec<u8>>,
     pub permission_level: PermissionLevel,
+    pub consent_state: ConsentState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,11 +76,15 @@ impl MlsGroup {
                     PermissionLevel::Member
                 };
 
+                let consent =
+                    conn.get_consent_record(inbox_id_str.clone(), ConsentType::InboxId)?;
+
                 Ok(GroupMember {
-                    inbox_id: inbox_id_str,
+                    inbox_id: inbox_id_str.clone(),
                     account_addresses: association_state.account_addresses(),
                     installation_ids: association_state.installation_ids(),
                     permission_level,
+                    consent_state: consent.map_or(ConsentState::Unknown, |c| c.state),
                 })
             })
             .collect::<Result<Vec<GroupMember>, GroupError>>()?;
