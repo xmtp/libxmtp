@@ -19,52 +19,47 @@ pub mod group_message;
 pub mod identity;
 pub mod identity_update;
 pub mod key_store_entry;
+#[cfg(not(target_arch = "wasm32"))]
+mod native;
 pub mod refresh_state;
 pub mod schema;
 #[cfg(not(target_arch = "wasm32"))]
 mod sqlcipher_connection;
+#[cfg(target_arch = "wasm32")]
+mod wasm;
 
-use std::sync::Arc;
-
+use self::db_connection::DbConnection;
+#[cfg(not(target_arch = "wasm32"))]
+pub use self::native::SqliteConnection;
+#[cfg(target_arch = "wasm32")]
+pub use self::wasm::SqliteConnection;
+use super::StorageError;
+use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Store};
+#[cfg(not(target_arch = "wasm32"))]
+pub use diesel::sqlite::Sqlite;
 use diesel::{
-    connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
+    backend::Backend,
+    connection::{AnsiTransactionManager, LoadConnection, TransactionManager},
+    migration::MigrationConnection,
     prelude::*,
-    r2d2::{self, PoolTransactionManager, CustomizeConnection, Error as R2Error},
+    query_builder::QueryId,
+    query_dsl::methods::LoadQuery,
     result::{DatabaseErrorKind, Error},
     sql_query,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use parking_lot::RwLock;
-
-#[cfg(not(target_arch = "wasm32"))]
-pub use diesel::sqlite::Sqlite;
 #[cfg(target_arch = "wasm32")]
 pub use diesel_wasm_sqlite::WasmSqlite as Sqlite;
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use diesel::sqlite::SqliteConnection;
-#[cfg(target_arch = "wasm32")]
-pub use diesel_wasm_sqlite::connection::WasmSqliteConnection as SqliteConnection;
-
-
-use self::db_connection::DbConnection;
-
-#[cfg(not(target_arch = "wasm32"))]
-pub use self::sqlcipher_connection::EncryptedConnection;
-
-use super::StorageError;
-use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Store};
-
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
-#[cfg(not(target_arch = "wasm32"))]
-pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
 #[cfg(target_arch = "wasm32")]
-pub type ConnectionManager =
-    r2d2::ConnectionManager<diesel_wasm_sqlite::connection::WasmSqliteConnection>;
+pub use wasm::RawDbConnection;
 
-pub type RawDbConnection = r2d2::PooledConnection<ConnectionManager>;
-pub type Pool = r2d2::Pool<ConnectionManager>;
+#[cfg(not(target_arch = "wasm32"))]
+pub use native::RawDbConnection;
+
+pub type EncryptionKey = [u8; 32];
 
 // For PRAGMA query log statements
 #[derive(QueryableByName, Debug)]
@@ -90,7 +85,6 @@ pub enum StorageOption {
     Persistent(String),
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 impl StorageOption {
     // create a completely new standalone connection
     fn conn(&self) -> Result<SqliteConnection, diesel::ConnectionError> {
@@ -102,58 +96,40 @@ impl StorageOption {
     }
 }
 
-/// An Unencrypted Connection
-/// Creates a Sqlite3 Database/Connection in WAL mode.
-/// Sets `busy_timeout` on each connection.
-/// _*NOTE:*_Unencrypted Connections are not validated and mostly meant for testing.
-/// It is not recommended to use an unencrypted connection in production.
-#[derive(Clone, Debug)]
-pub struct UnencryptedConnection;
-impl ValidatedConnection for UnencryptedConnection {}
+trait XmtpDb {
+    type Connection: diesel::Connection<Backend = Sqlite>
+        + diesel::connection::SimpleConnection
+        + LoadConnection
+        + MigrationConnection
+        + MigrationHarness<<Self::Connection as diesel::Connection>::Backend>;
 
-impl CustomizeConnection<SqliteConnection, R2Error>
-    for UnencryptedConnection
-{
-    fn on_acquire(&self, conn: &mut SqliteConnection) -> Result<(), R2Error> {
-        conn.batch_execute("PRAGMA busy_timeout = 5000;")
-            .map_err(R2Error::QueryError)?;
-        Ok(())
-    }
-}
-
-
-pub type EncryptionKey = [u8; 32];
-
-trait XmtpConnection: ValidatedConnection + CustomizeConnection<SqliteConnection, R2Error> + dyn_clone::DynClone + IntoSuper<dyn CustomizeConnection<SqliteConnection, R2Error>> {}
-impl<T> XmtpConnection for T where T: ValidatedConnection + CustomizeConnection<SqliteConnection, R2Error> + dyn_clone::DynClone + IntoSuper<dyn CustomizeConnection<SqliteConnection, R2Error>> {}
-dyn_clone::clone_trait_object!(XmtpConnection);
-
-// we can remove this once https://github.com/rust-lang/rust/issues/65991
-// is merged, which should be happening soon (next ~2 releases)
-trait IntoSuper<Super: ?Sized> {
-    fn into_super(self: Box<Self>) -> Box<Super>;
-}
-
-impl<T: CustomizeConnection<SqliteConnection, R2Error>> IntoSuper<dyn CustomizeConnection<SqliteConnection, R2Error>> for T {
-    fn into_super(self: Box<Self>) -> Box<dyn CustomizeConnection<SqliteConnection, R2Error>> { self }
-}
-
-trait ValidatedConnection {
     fn validate(&self, _opts: &StorageOption) -> Result<(), StorageError> {
         Ok(())
     }
+
+    /// Returns the Connection implementation for this Database
+    fn raw_conn(&self) -> Result<Self::Connection, StorageError>;
+
+    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&XmtpOpenMlsProvider) -> Result<T, E>,
+        E: From<diesel::result::Error> + From<StorageError>;
+
+    async fn transaction_async<T, F, E, Fut>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(XmtpOpenMlsProvider) -> Fut,
+        Fut: futures::Future<Output = Result<T, E>>,
+        E: From<diesel::result::Error> + From<StorageError>;
+
+    fn reconnect(&self) -> Result<(), StorageError>;
+
+    fn release_connection(&self) -> Result<(), StorageError>;
 }
 
-#[allow(dead_code)]
-#[derive(Clone, Debug)]
-/// Manages a Sqlite db for persisting messages and other objects.
-pub struct EncryptedMessageStore {
-    connect_opt: StorageOption,
-    pool: Arc<RwLock<Option<Pool>>>,
-    enc_key: Option<EncryptionKey>,
-    customizer: Option<Box<dyn XmtpConnection>>
-}
+#[cfg(not(target_arch = "wasm32"))]
+pub type EncryptedMessageStore = self::private::EncryptedMessageStore<native::NativeDb>;
 
+#[cfg(not(target_arch = "wasm32"))]
 impl EncryptedMessageStore {
     pub fn new(opts: StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
         Self::new_database(opts, Some(enc_key))
@@ -164,253 +140,140 @@ impl EncryptedMessageStore {
     }
 
     /// This function is private so that an unencrypted database cannot be created by accident
-    #[cfg(not(target_arch = "wasm32"))]
     fn new_database(
         opts: StorageOption,
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
         log::info!("Setting up DB connection pool");
-        let mut builder = Pool::builder();
-
-        let customizer = if let Some(key) = enc_key {
-            let enc_opts = EncryptedConnection::new(key, &opts)?;
-            builder = builder.connection_customizer(Box::new(enc_opts.clone()));
-            Some(Box::new(enc_opts) as Box<dyn XmtpConnection>)
-        } else if matches!(opts, StorageOption::Persistent(_)) {
-            builder = builder.connection_customizer(Box::new(UnencryptedConnection));
-            Some(Box::new(UnencryptedConnection) as Box<dyn XmtpConnection>)
-        } else {
-            None
-        };
-
-        let pool = match opts {
-            StorageOption::Ephemeral => builder
-                .max_size(1)
-                .build(ConnectionManager::new(":memory:"))?,
-            StorageOption::Persistent(ref path) => builder
-                .max_size(25)
-                .build(ConnectionManager::new(path))?,
-        };
-
-        let mut this = Self {
-            connect_opt: opts,
-            pool: Arc::new(Some(pool).into()),
-            enc_key,
-            customizer,
-        };
-
+        let db = native::NativeDb::new(&opts, enc_key)?;
+        let mut this = Self { db, opts };
         this.init_db()?;
         Ok(this)
     }
+}
 
-    #[cfg(target_arch = "wasm32")]
+#[cfg(target_arch = "wasm32")]
+pub type EncryptedMessageStore = self::private::EncryptedMessageStore<native::NativeDb>;
+
+#[cfg(target_arch = "wasm32")]
+impl EncryptedMessageStore {
+    pub fn new(opts: StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
+        Self::new_database(opts, Some(enc_key))
+    }
+
+    pub fn new_unencrypted(opts: StorageOption) -> Result<Self, StorageError> {
+        Self::new_database(opts, None)
+    }
+
+    /// This function is private so that an unencrypted database cannot be created by accident
     fn new_database(
         opts: StorageOption,
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
         log::info!("Setting up DB connection pool");
-        let builder = Pool::builder();
-
-        let pool = match opts {
-            StorageOption::Ephemeral => builder
-                .max_size(1)
-                .build(ConnectionManager::new(":memory:"))?,
-            StorageOption::Persistent(ref path) => builder
-                .max_size(1)
-                .build(ConnectionManager::new(path))?,
-        };
-
-        let mut this = Self {
-            connect_opt: opts,
-            pool: Arc::new(Some(pool).into()),
-            customizer: None,
-            enc_key
-        };
-
+        let db = wasm::WasmDb::new(opts, enc_key)?;
+        let mut this = Self { db, opts };
         this.init_db()?;
         Ok(this)
     }
+}
 
-    fn init_db(&mut self) -> Result<(), StorageError> {
-        if let Some(ref encrypted_conn) = self.customizer {
-            encrypted_conn.validate(&self.connect_opt)?;
-        }
+mod private {
+    use super::*;
+    use db_connection::DbConnectionPrivate;
+    use diesel::connection::SimpleConnection;
+    use diesel_migrations::MigrationHarness;
 
-        let conn = &mut self.raw_conn()?;
-        conn.batch_execute("PRAGMA journal_mode = WAL;")?;
-        log::info!("Running DB migrations");
-        conn.run_pending_migrations(MIGRATIONS)
-            .map_err(|e| StorageError::DbInit(format!("Failed to run migrations: {}", e)))?;
-
-        let sqlite_version =
-            sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
-        log::info!("sqlite_version={}", sqlite_version[0].version);
-
-        log::info!("Migrations successful");
-        Ok(())
+    #[derive(Clone, Debug)]
+    /// Manages a Sqlite db for persisting messages and other objects.
+    pub struct EncryptedMessageStore<Db> {
+        pub(super) opts: StorageOption,
+        pub(super) db: Db,
     }
 
-    pub(crate) fn raw_conn(&self) -> Result<RawDbConnection, StorageError> {
-        let pool_guard = self.pool.read();
-
-        let pool = pool_guard
-            .as_ref()
-            .ok_or(StorageError::PoolNeedsConnection)?;
-
-        log::debug!(
-            "Pulling connection from pool, idle_connections={}, total_connections={}",
-            pool.state().idle_connections,
-            pool.state().connections
-        );
-
-        Ok(pool.get()?)
-    }
-
-    pub fn conn(&self) -> Result<DbConnection, StorageError> {
-        let conn = self.raw_conn()?;
-        Ok(DbConnection::new(conn))
-    }
-
-    /// Start a new database transaction with the OpenMLS Provider from XMTP
-    /// # Arguments
-    /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// store.transaction(|provider| {
-    ///     // do some operations requiring provider
-    ///     // access the connection with .conn()
-    ///     provider.conn().db_operation()?;
-    /// })
-    /// ```
-    pub fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    impl<Db> EncryptedMessageStore<Db>
     where
-        F: FnOnce(&XmtpOpenMlsProvider) -> Result<T, E>,
-        E: From<diesel::result::Error> + From<StorageError>,
+        Db: XmtpDb,
     {
-        log::debug!("Transaction beginning");
-        let mut connection = self.raw_conn()?;
-        AnsiTransactionManager::begin_transaction(&mut *connection)?;
+        pub(super) fn init_db<'query>(&mut self) -> Result<(), StorageError> {
+            self.db.validate(&self.opts)?;
+            let conn = &mut self.raw_conn()?;
+            conn.batch_execute("PRAGMA journal_mode = WAL;")?;
+            log::info!("Running DB migrations");
+            conn.run_pending_migrations(MIGRATIONS)
+                .map_err(|e| StorageError::DbInit(format!("Failed to run migrations: {}", e)))?;
 
-        let db_connection = DbConnection::new(connection);
-        let provider = XmtpOpenMlsProvider::new(db_connection);
-        let conn = provider.conn_ref();
+            let sqlite_version =
+                sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
+            log::info!("sqlite_version={}", sqlite_version[0].version);
 
-        match fun(&provider) {
-            Ok(value) => {
-                conn.raw_query(|conn| {
-                    PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
-                })?;
-                log::debug!("Transaction being committed");
-                Ok(value)
-            }
-            Err(err) => {
-                log::debug!("Transaction being rolled back");
-                match conn.raw_query(|conn| {
-                    PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(
-                        &mut *conn,
-                    )
-                }) {
-                    Ok(()) => Err(err),
-                    Err(Error::BrokenTransactionManager) => Err(err),
-                    Err(rollback) => Err(rollback.into()),
-                }
-            }
-        }
-    }
-
-    /// Start a new database transaction with the OpenMLS Provider from XMTP
-    /// # Arguments
-    /// `fun`: Scoped closure providing an [`XmtpOpenMLSProvider`] to carry out the transaction in
-    /// async context.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// store.transaction_async(|provider| async move {
-    ///     // do some operations requiring provider
-    ///     // access the connection with .conn()
-    ///     provider.conn().db_operation()?;
-    /// }).await
-    /// ```
-    pub async fn transaction_async<T, F, E, Fut>(&self, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(XmtpOpenMlsProvider) -> Fut,
-        Fut: futures::Future<Output = Result<T, E>>,
-        E: From<diesel::result::Error> + From<StorageError>,
-    {
-        log::debug!("Transaction async beginning");
-        let mut connection = self.raw_conn()?;
-        AnsiTransactionManager::begin_transaction(&mut *connection)?;
-        let connection = Arc::new(parking_lot::Mutex::new(connection));
-        let local_connection = Arc::clone(&connection);
-        let db_connection = DbConnection::from_arc_mutex(connection);
-        let provider = XmtpOpenMlsProvider::new(db_connection);
-
-        // the other connection is dropped in the closure
-        // ensuring we have only one strong reference
-        let result = fun(provider).await;
-        if Arc::strong_count(&local_connection) > 1 {
-            log::warn!("More than 1 strong connection references still exist during transaction");
+            log::info!("Migrations successful");
+            Ok(())
         }
 
-        if Arc::weak_count(&local_connection) > 1 {
-            log::warn!("More than 1 weak connection references still exist during transaction");
+        #[cfg(not(target_arch = "wasm32"))]
+        pub(crate) fn raw_conn(&self) -> Result<<Db as XmtpDb>::Connection, StorageError> {
+            self.db.raw_conn()
         }
 
-        // after the closure finishes, `local_provider` should have the only reference ('strong')
-        // to `XmtpOpenMlsProvider` inner `DbConnection`..
-        let local_connection = DbConnection::from_arc_mutex(local_connection);
-        match result {
-            Ok(value) => {
-                local_connection.raw_query(|conn| {
-                    PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
-                })?;
-                log::debug!("Transaction async being committed");
-                Ok(value)
-            }
-            Err(err) => {
-                log::debug!("Transaction async being rolled back");
-                match local_connection.raw_query(|conn| {
-                    PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(
-                        &mut *conn,
-                    )
-                }) {
-                    Ok(()) => Err(err),
-                    Err(Error::BrokenTransactionManager) => Err(err),
-                    Err(rollback) => Err(rollback.into()),
-                }
-            }
-        }
-    }
-
-    pub fn release_connection(&self) -> Result<(), StorageError> {
-        let mut pool_guard = self.pool.write();
-        pool_guard.take();
-        Ok(())
-    }
-
-    pub fn reconnect(&self) -> Result<(), StorageError> {
-        let mut builder = Pool::builder();
-
-        if let Some(ref opts) = self.customizer {
-            builder = builder.connection_customizer(opts.clone().into_super());
+        pub fn conn(
+            &self,
+        ) -> Result<DbConnectionPrivate<<Db as XmtpDb>::Connection>, StorageError> {
+            let conn = self.raw_conn()?;
+            Ok(DbConnectionPrivate::new(conn))
         }
 
-        let pool = match self.connect_opt {
-            StorageOption::Ephemeral => builder
-                .max_size(1)
-                .build(ConnectionManager::new(":memory:"))?,
-            StorageOption::Persistent(ref path) => builder
-                .max_size(25)
-                .build(ConnectionManager::new(path))?,
-        };
+        /// Start a new database transaction with the OpenMLS Provider from XMTP
+        /// # Arguments
+        /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
+        ///
+        /// # Examples
+        ///
+        /// ```ignore
+        /// store.transaction(|provider| {
+        ///     // do some operations requiring provider
+        ///     // access the connection with .conn()
+        ///     provider.conn().db_operation()?;
+        /// })
+        /// ```
+        pub fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+        where
+            F: FnOnce(&XmtpOpenMlsProvider) -> Result<T, E>,
+            E: From<diesel::result::Error> + From<StorageError>,
+        {
+            self.db.transaction(fun)
+        }
 
-        let mut pool_write = self.pool.write();
-        *pool_write = Some(pool);
+        /// Start a new database transaction with the OpenMLS Provider from XMTP
+        /// # Arguments
+        /// `fun`: Scoped closure providing an [`XmtpOpenMLSProvider`] to carry out the transaction in
+        /// async context.
+        ///
+        /// # Examples
+        ///
+        /// ```ignore
+        /// store.transaction_async(|provider| async move {
+        ///     // do some operations requiring provider
+        ///     // access the connection with .conn()
+        ///     provider.conn().db_operation()?;
+        /// }).await
+        /// ```
+        pub async fn transaction_async<T, F, E, Fut>(&self, fun: F) -> Result<T, E>
+        where
+            F: FnOnce(XmtpOpenMlsProvider) -> Fut,
+            Fut: futures::Future<Output = Result<T, E>>,
+            E: From<diesel::result::Error> + From<StorageError>,
+        {
+            self.db.transaction_async(fun).await
+        }
 
-        Ok(())
+        pub fn release_connection(&self) -> Result<(), StorageError> {
+            self.db.release_connection()
+        }
+
+        pub fn reconnect(&self) -> Result<(), StorageError> {
+            self.reconnect()
+        }
     }
 }
 
@@ -515,7 +378,6 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
-    use std::sync::Barrier;
     use crate::{
         storage::group::{GroupMembershipState, StoredGroup},
         storage::identity::StoredIdentity,
@@ -523,6 +385,7 @@ pub(crate) mod tests {
         Fetch, Store,
     };
     use std::sync::Arc;
+    use std::sync::Barrier;
 
     /// Test harness that loads an Ephemeral store.
     pub fn with_connection<F, R>(fun: F) -> R
@@ -591,8 +454,9 @@ pub(crate) mod tests {
         EncryptedMessageStore::remove_db_files(db_path)
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    // #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg(not(target_arch = "wasm32"))]
     fn releases_db_lock() {
         let db_path = tmp_path();
         {

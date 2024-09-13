@@ -174,12 +174,12 @@ impl ClientBuilder<TestClient> {
 #[derive(Clone, Default)]
 pub struct Delivery {
     notify: Arc<Notify>,
-    timeout: chrono::Duration,
+    timeout: core::time::Duration,
 }
 
 impl Delivery {
-    pub fn new(timeout: Option<chrono::Duration>) -> Self {
-        let timeout = timeout.unwrap_or(chrono::Duration::from_secs(60));
+    pub fn new(timeout: Option<core::time::Duration>) -> Self {
+        let timeout = timeout.unwrap_or(core::time::Duration::from_secs(60));
         Self {
             notify: Arc::new(Notify::new()),
             timeout,

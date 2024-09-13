@@ -5920,6 +5920,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "trait-variant",
+ "wasm-timer",
  "xmtp_api_grpc",
  "xmtp_cryptography",
  "xmtp_id",

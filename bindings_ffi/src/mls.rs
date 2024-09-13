@@ -1577,12 +1577,10 @@ mod tests {
         FfiPermissionUpdateType,
     };
     use ethers::utils::hex;
-    use std::
-        sync::{
-            atomic::{AtomicU32, Ordering},
-            Arc, Mutex,
-        }
-    ;
+    use std::sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc, Mutex,
+    };
     use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::{
@@ -1649,7 +1647,7 @@ mod tests {
         }
 
         pub async fn wait_for_delivery(&self) -> Result<(), Elapsed> {
-            tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            tokio::time::timeout(core::time::Duration::from_secs(60), async {
                 self.notify.notified().await
             })
             .await?;
@@ -1679,7 +1677,7 @@ mod tests {
             self.notify.notify_one();
         }
     }
-    
+
     fn static_enc_key() -> EncryptionKey {
         [2u8; 32]
     }

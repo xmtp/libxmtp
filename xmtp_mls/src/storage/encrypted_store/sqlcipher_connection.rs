@@ -15,7 +15,7 @@ use std::{
 
 use crate::storage::StorageError;
 
-use super::{StorageOption, EncryptionKey};
+use super::{EncryptionKey, StorageOption};
 
 pub type Salt = [u8; 16];
 const PLAINTEXT_HEADER_SIZE: usize = 32;
@@ -202,7 +202,7 @@ impl EncryptedConnection {
     }
 }
 
-impl super::ValidatedConnection for EncryptedConnection {
+impl super::native::ValidatedConnection for EncryptedConnection {
     fn validate(&self, opts: &StorageOption) -> Result<(), StorageError> {
         let conn = &mut opts.conn()?;
 

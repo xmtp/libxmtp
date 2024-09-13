@@ -40,6 +40,7 @@ async-trait.workspace = true
 futures.workspace = true
 reqwest = { version = "0.12.4", features = ["stream"] }
 dyn-clone = "1"
+wasm-timer.workspace = true
 
 # XMTP/Local
 xmtp_cryptography = { workspace = true }

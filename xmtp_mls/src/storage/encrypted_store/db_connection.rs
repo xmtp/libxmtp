@@ -5,6 +5,12 @@ use std::sync::Arc;
 use crate::storage::RawDbConnection;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub type DbConnection = DbConnectionPrivate<RawDbConnection>;
+
+#[cfg(target_arch = "wasm32")]
+pub type DbConnection = DbConnectionPrivate<SqliteConnection>;
+
 /// A wrapper for RawDbConnection that houses all XMTP DB operations.
 /// Uses a [`Mutex]` internally for interior mutability, so that the connection
 /// and transaction state can be shared between the OpenMLS Provider and
@@ -12,28 +18,34 @@ use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 // ~~~~ _NOTE_ ~~~~~
 // Do not derive clone here.
 // callers should be able to accomplish everything with one conn/reference.
-pub struct DbConnection {
-    wrapped_conn: Arc<Mutex<RawDbConnection>>,
+#[doc(hidden)]
+pub struct DbConnectionPrivate<C> {
+    wrapped_conn: Arc<Mutex<C>>,
 }
 
 /// Owned DBConnection Methods
 /// Lifetime is 'static' because we are using [`RefOrValue::Value`] variant.
-impl DbConnection {
-    pub(super) fn new(conn: RawDbConnection) -> Self {
+impl<C> DbConnectionPrivate<C> {
+    pub(super) fn new(conn: C) -> Self {
         Self {
             wrapped_conn: Arc::new(Mutex::new(conn)),
         }
     }
 
-    pub(super) fn from_arc_mutex(conn: Arc<Mutex<RawDbConnection>>) -> Self {
+    pub(super) fn from_arc_mutex(conn: Arc<Mutex<C>>) -> Self {
         Self { wrapped_conn: conn }
     }
+}
 
+impl<C> DbConnectionPrivate<C>
+where
+    C: diesel::Connection,
+{
     // Note: F is a synchronous fn. If it ever becomes async, we need to use
     // tokio::sync::mutex instead of std::sync::Mutex
     pub(crate) fn raw_query<T, F>(&self, fun: F) -> Result<T, diesel::result::Error>
     where
-        F: FnOnce(&mut RawDbConnection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut C) -> Result<T, diesel::result::Error>,
     {
         let mut lock = self.wrapped_conn.lock();
         fun(&mut lock)
@@ -51,7 +63,7 @@ impl From<DbConnection> for XmtpOpenMlsProvider {
     }
 }
 
-impl fmt::Debug for DbConnection {
+impl<C> fmt::Debug for DbConnectionPrivate<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DbConnection")
             .field("wrapped_conn", &"DbConnection")

@@ -6498,6 +6498,7 @@ dependencies = [
  "tracing-wasm",
  "trait-variant",
  "wasm-bindgen-test",
+ "wasm-timer",
  "xmtp_api_grpc",
  "xmtp_api_http",
  "xmtp_cryptography",
