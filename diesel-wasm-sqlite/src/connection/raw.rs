@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 // functions are needed, but missing functionality means they aren't used yet.
 
-use std::ptr;
-
 use crate::{ffi, WasmSqlite, WasmSqliteError};
-use diesel::{result::*, sql_types::HasSqlType, IntoSql};
+use diesel::{result::*, sql_types::HasSqlType};
+use js_sys::Uint8Array;
+use serde::Serialize;
 use wasm_bindgen::{closure::Closure, JsValue};
 
 use super::serialized_database::SerializedDatabase;
@@ -91,30 +91,29 @@ impl RawConnection {
     }
 
     /// Serializes the database from sqlite to be stored by the user/client.
-    pub(super) fn serialize(&self, schema: &str, flags: u32) -> SerializedDatabase {
+    pub(super) fn serialize(&self) -> SerializedDatabase {
         let sqlite3 = crate::get_sqlite_unchecked();
         let wasm = sqlite3.inner().wasm();
 
-        const I64_LEN: usize = std::mem::size_of::<i64>();
-        let p_size = wasm.alloc(I64_LEN as u32);
-
-        let data_ptr = sqlite3.sqlite3_serialize(&self.internal_connection, schema, p_size, flags);
+        let p_size = wasm.pstack().alloc(std::mem::size_of::<i64>() as u32);
+        let data_ptr = sqlite3.sqlite3_serialize(&self.internal_connection, "main", &p_size, 0);
         if data_ptr.is_null() {
             panic!("Serialization failed");
         }
 
-        let size = unsafe {
-            let mut buf = [0; I64_LEN];
-            ffi::raw_copy_from_sqlite(p_size, I64_LEN as u32, &mut buf);
-            i64::from_le_bytes(buf)
-        };
+        let len = p_size.as_f64().unwrap() as usize;
+        let mut data = vec![0; len as usize];
 
-        unsafe { SerializedDatabase::new(data_ptr, size) }
+        unsafe {
+            ffi::raw_copy_from_sqlite(data_ptr, len as u32, data.as_mut_slice());
+        }
+
+        SerializedDatabase { data }
     }
 
     /// Deserializes the database from the data slice given to be loaded
     /// by sqlite in the wasm space.
-    pub(super) fn deserialize(&self, data: &[u8], schema: &str) -> i32 {
+    pub(super) fn deserialize(&self, data: &[u8]) -> i32 {
         let sqlite3 = crate::get_sqlite_unchecked();
         let wasm = sqlite3.inner().wasm();
 
@@ -125,7 +124,7 @@ impl RawConnection {
 
         let result = sqlite3.sqlite3_deserialize(
             &self.internal_connection,
-            schema,
+            "main",
             p_data,
             data.len() as i64,
             data.len() as i64,

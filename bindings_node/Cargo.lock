@@ -5329,7 +5329,6 @@ dependencies = [
  "curve25519-dalek",
  "ecdsa 0.16.9",
  "ethers",
- "ethers-core",
  "getrandom",
  "hex",
  "k256 0.13.3",

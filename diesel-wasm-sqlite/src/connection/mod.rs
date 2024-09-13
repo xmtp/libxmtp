@@ -36,8 +36,9 @@ use diesel::{
     query_builder::{QueryFragment, QueryId},
     QueryResult,
 };
+use serialized_database::SerializedDatabase;
 
-use crate::{get_sqlite_unchecked, WasmSqlite, WasmSqliteError};
+use crate::{ffi, get_sqlite_unchecked, WasmSqlite, WasmSqliteError};
 
 // This relies on the invariant that RawConnection or Statement are never
 // leaked. If a reference to one of those was held on a different thread, this
@@ -324,6 +325,14 @@ impl WasmSqliteConnection {
             instrumentation: Box::new(Nothing) as Box<dyn Instrumentation>,
             metadata_lookup: (),
         })
+    }
+
+    pub fn serialize(&self) -> SerializedDatabase {
+        self.raw_connection.serialize()
+    }
+
+    pub fn deserialize(&self, data: &[u8]) -> i32 {
+        self.raw_connection.deserialize(data)
     }
 }
 
