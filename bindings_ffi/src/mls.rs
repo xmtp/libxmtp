@@ -1417,14 +1417,14 @@ impl FfiGroup {
         Ok(state.into())
     }
 
-    pub async fn update_consent_state(&self, state: FfiConsentState) -> Result<(), GenericError> {
+    pub fn update_consent_state(&self, state: FfiConsentState) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group.update_consent_state(state.into()).await?;
+        group.update_consent_state(state.into())?;
 
         Ok(())
     }
@@ -3702,7 +3702,6 @@ mod tests {
 
         alix_group
             .update_consent_state(FfiConsentState::Denied)
-            .await
             .unwrap();
         let alix_updated_consent = alix_group.consent_state().unwrap();
         assert_eq!(alix_updated_consent, FfiConsentState::Denied);
