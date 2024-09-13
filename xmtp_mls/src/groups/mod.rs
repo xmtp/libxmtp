@@ -313,7 +313,6 @@ impl MlsGroup {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
-        // Consent state defaults to allowed when the user creates the group
         let stored_group = StoredGroup::new(
             group_id.clone(),
             now_ns(),
@@ -321,14 +320,12 @@ impl MlsGroup {
             context.inbox_id(),
         );
 
-        //TODO set consent
-
         stored_group.store(provider.conn_ref())?;
-        Ok(Self::new(
-            context.clone(),
-            group_id,
-            stored_group.created_at_ns,
-        ))
+        let new_group = Self::new(context.clone(), group_id, stored_group.created_at_ns);
+
+        // Consent state defaults to allowed when the user creates the group
+        new_group.update_consent_state(ConsentState::Allowed)?;
+        Ok(new_group)
     }
 
     // Create a group from a decrypted and decoded welcome message
@@ -349,17 +346,14 @@ impl MlsGroup {
         let group_type = metadata.conversation_type;
 
         let to_store = match group_type {
-            ConversationType::Group | ConversationType::Dm => {
-                //TODO set consent
-                StoredGroup::new_from_welcome(
-                    group_id.clone(),
-                    now_ns(),
-                    GroupMembershipState::Pending,
-                    added_by_inbox,
-                    welcome_id,
-                    Purpose::Conversation,
-                )
-            }
+            ConversationType::Group | ConversationType::Dm => StoredGroup::new_from_welcome(
+                group_id.clone(),
+                now_ns(),
+                GroupMembershipState::Pending,
+                added_by_inbox,
+                welcome_id,
+                Purpose::Conversation,
+            ),
             ConversationType::Sync => StoredGroup::new_from_welcome(
                 group_id.clone(),
                 now_ns(),
@@ -961,7 +955,7 @@ impl MlsGroup {
         }
     }
 
-    pub async fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
+    pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         let conn = self.context.store.conn()?;
         conn.insert_or_replace_consent_record(StoredConsentRecord::new(
             ConsentType::GroupId,
