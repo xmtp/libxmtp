@@ -76,10 +76,8 @@ impl MlsGroup {
                     PermissionLevel::Member
                 };
 
-                let consent = conn.get_consent_record(
-                    inbox_id_str.clone(),
-                    ConsentType::InboxId,
-                )?;
+                let consent =
+                    conn.get_consent_record(inbox_id_str.clone(), ConsentType::InboxId)?;
 
                 Ok(GroupMember {
                     inbox_id: inbox_id_str.clone(),
