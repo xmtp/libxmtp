@@ -815,7 +815,7 @@ mod tests {
     use crate::{
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
-        hpke::{decrypt_welcome, encrypt_welcome},
+        hpke::{decrypt_welcome, encrypt_welcome}, storage::consent_record::{ConsentState, ConsentType},
     };
 
     #[tokio::test]
@@ -1092,5 +1092,19 @@ mod tests {
             bola_messages.get(1).unwrap().decrypted_message_bytes,
             vec![1, 2, 3]
         )
+    }
+    
+    #[tokio::test]
+    async fn test_get_and_set_consent() {
+        let bo_wallet = generate_local_wallet();
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
+
+        alix.set_consent_state(ConsentState::Denied, ConsentType::Address, bo_wallet.get_address()).await.unwrap();
+        let inbox_consent = alix.get_consent_state(ConsentType::InboxId, bo.inbox_id()).await.unwrap();
+        let address_consent = alix.get_consent_state(ConsentType::Address, bo_wallet.get_address()).await.unwrap();
+
+        assert_eq!(inbox_consent, ConsentState::Denied);
+        assert_eq!(address_consent, ConsentState::Denied);
     }
 }
