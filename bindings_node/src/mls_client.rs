@@ -267,7 +267,10 @@ impl NapiClient {
   ) -> Result<String> {
     let signature_request = self
       .inner_client
-      .associate_wallet(existing_wallet_address.into(), new_wallet_address.into())
+      .associate_wallet(
+        existing_wallet_address.to_lowercase(),
+        new_wallet_address.to_lowercase(),
+      )
       .map_err(|e| Error::from_reason(format!("{}", e)))?;
     let signature_text = signature_request.signature_text();
     let mut signature_requests = self.signature_requests.lock().await;
@@ -281,7 +284,7 @@ impl NapiClient {
   pub async fn revoke_wallet_signature_text(&self, wallet_address: String) -> Result<String> {
     let signature_request = self
       .inner_client
-      .revoke_wallets(vec![wallet_address.into()])
+      .revoke_wallets(vec![wallet_address.to_lowercase()])
       .await
       .map_err(|e| Error::from_reason(format!("{}", e)))?;
     let signature_text = signature_request.signature_text();
