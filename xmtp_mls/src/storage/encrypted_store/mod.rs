@@ -441,7 +441,6 @@ mod tests {
 
     use crate::{
         storage::{
-            consent_record::ConsentState,
             group::{GroupMembershipState, StoredGroup},
             identity::StoredIdentity,
         },

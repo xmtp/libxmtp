@@ -390,12 +390,9 @@ where
 mod tests {
     use super::*;
     use crate::{
-        storage::{
-            consent_record::ConsentState,
-            encrypted_store::{
-                group::{GroupMembershipState, StoredGroup},
-                tests::with_connection,
-            },
+        storage::encrypted_store::{
+            group::{GroupMembershipState, StoredGroup},
+            tests::with_connection,
         },
         utils::test::rand_vec,
         Fetch, Store,
