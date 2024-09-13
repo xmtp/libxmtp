@@ -9,7 +9,7 @@ use tokio::sync::oneshot;
 use tonic::transport::ClientTlsConfig;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 
-use xmtp_proto::api_client::{ClientWithMetadata, XmtpMlsStreams};
+use xmtp_proto::api_client::{ClientWithMetadata, XmtpMlsStreams, XmtpReplicationClient};
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
     api_client::{
@@ -28,6 +28,8 @@ use xmtp_proto::{
         UploadKeyPackageRequest,
     },
 };
+use xmtp_proto::xmtp::xmtpv4::{BatchSubscribeEnvelopesRequest, BatchSubscribeEnvelopesResponse, PublishEnvelopeRequest, PublishEnvelopeResponse, QueryEnvelopesRequest, QueryEnvelopesResponse};
+use xmtp_proto::xmtp::xmtpv4::replication_api_client::ReplicationApiClient;
 
 async fn create_tls_channel(address: String) -> Result<Channel, Error> {
     let channel = Channel::from_shared(address)
@@ -72,6 +74,7 @@ pub struct Client {
     pub(crate) identity_client: ProtoIdentityApiClient<Channel>,
     pub(crate) app_version: MetadataValue<tonic::metadata::Ascii>,
     pub(crate) libxmtp_version: MetadataValue<tonic::metadata::Ascii>,
+    pub(crate) replication_client: ReplicationApiClient<Channel>,
 }
 
 impl Client {
@@ -93,7 +96,8 @@ impl Client {
 
         let client = MessageApiClient::new(channel.clone());
         let mls_client = ProtoMlsApiClient::new(channel.clone());
-        let identity_client = ProtoIdentityApiClient::new(channel);
+        let identity_client = ProtoIdentityApiClient::new(channel.clone());
+        let replication_client = ReplicationApiClient::new(channel);
 
         Ok(Self {
             client,
@@ -101,6 +105,7 @@ impl Client {
             app_version,
             libxmtp_version,
             identity_client,
+            replication_client
         })
     }
 
@@ -476,6 +481,66 @@ impl XmtpMlsStreams for Client {
             .subscribe_welcome_messages(self.build_request(req))
             .await
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+
+        let stream = res.into_inner();
+
+        Ok(stream.into())
+    }
+}
+
+
+pub struct BatchSubscribeStream {
+    inner: tonic::codec::Streaming<BatchSubscribeEnvelopesResponse>,
+}
+
+impl From<tonic::codec::Streaming<BatchSubscribeEnvelopesResponse>> for BatchSubscribeStream {
+    fn from(inner: tonic::codec::Streaming<BatchSubscribeEnvelopesResponse>) -> Self {
+        BatchSubscribeStream { inner }
+    }
+}
+
+impl Stream for BatchSubscribeStream {
+    type Item = Result<BatchSubscribeEnvelopesResponse, Error>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.inner
+            .poll_next_unpin(cx)
+            .map(|data| data.map(|v| v.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))))
+    }
+}
+
+impl XmtpReplicationClient for Client {
+    type BatchSubscribeStream<'a> = BatchSubscribeStream;
+
+    async fn publish_envelope(&self, request: PublishEnvelopeRequest) -> Result<PublishEnvelopeResponse, Error> {
+        let client = &mut self.replication_client.clone();
+
+        client
+            .publish_envelope(request)
+            .await
+            .map(|r| r.into_inner())
+            .map_err(|e| Error::new(ErrorKind::PublishError).with(e))
+    }
+
+    async fn query_envelopes(&self, request: QueryEnvelopesRequest) -> Result<QueryEnvelopesResponse, Error> {
+        let client = &mut self.replication_client.clone();
+
+        client
+            .query_envelopes(request)
+            .await
+            .map(|r| r.into_inner())
+            .map_err(|e| Error::new(ErrorKind::QueryError).with(e))
+    }
+
+    async fn batch_subscribe_envelopes(&self, request: BatchSubscribeEnvelopesRequest) -> Result<Self::BatchSubscribeStream<'_>, Error>  {
+        let client = &mut self.replication_client.clone();
+        let res = client
+            .batch_subscribe_envelopes(request)
+            .await
+            .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?;
 
         let stream = res.into_inner();
 

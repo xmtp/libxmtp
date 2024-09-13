@@ -17,6 +17,7 @@ use crate::xmtp::mls::api::v1::{
     SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
     SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage,
 };
+use crate::xmtp::xmtpv4::{BatchSubscribeEnvelopesRequest, BatchSubscribeEnvelopesResponse, PublishEnvelopeRequest, PublishEnvelopeResponse, QueryEnvelopesRequest, QueryEnvelopesResponse};
 
 #[derive(Debug)]
 pub enum ErrorKind {
@@ -231,4 +232,28 @@ pub trait LocalXmtpIdentityClient {
         &self,
         request: GetInboxIdsRequest,
     ) -> Result<GetInboxIdsResponse, Error>;
+}
+
+#[allow(async_fn_in_trait)]
+#[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpReplicationClient: Send))]
+#[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpReplicationClient: Wasm))]
+pub trait LocalXmtpReplicationClient {
+    type BatchSubscribeStream<'a>: Stream<Item = Result<BatchSubscribeEnvelopesResponse, Error>> + Send + 'a
+    where
+        Self: 'a;
+
+    async fn publish_envelope(
+        &self,
+        request: PublishEnvelopeRequest,
+    ) -> Result<PublishEnvelopeResponse, Error>;
+
+    async fn query_envelopes(
+        &self,
+        request: QueryEnvelopesRequest,
+    )  -> Result<QueryEnvelopesResponse, Error>;
+
+    fn batch_subscribe_envelopes(
+        &self,
+        request: BatchSubscribeEnvelopesRequest,
+    ) ->  impl futures::Future<Output = Result<Self::BatchSubscribeStream<'_>, Error>> + Send;
 }
