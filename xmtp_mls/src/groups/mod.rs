@@ -1322,7 +1322,9 @@ mod tests {
             DeliveryStatus, GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
         },
         storage::{
-            consent_record::ConsentState, group_intent::{IntentKind, IntentState, NewGroupIntent}, group_message::{GroupMessageKind, StoredGroupMessage}
+            consent_record::ConsentState,
+            group_intent::{IntentKind, IntentState, NewGroupIntent},
+            group_message::{GroupMessageKind, StoredGroupMessage},
         },
         xmtp_openmls_provider::XmtpOpenMlsProvider,
         Client, InboxOwner, XmtpApi,
