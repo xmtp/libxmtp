@@ -3743,7 +3743,7 @@ mod tests {
             .unwrap();
         assert_eq!(bo_consent, FfiConsentState::Allowed);
 
-        let member = &alix_group.list_members().unwrap()[1];
+        let member = &alix_group.list_members().unwrap()[0];
         assert_eq!(member.consent_state, FfiConsentState::Allowed);
     }
 }
