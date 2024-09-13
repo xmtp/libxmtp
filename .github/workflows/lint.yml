@@ -21,7 +21,7 @@ jobs:
           java-version: '17'
       - name: Gradle Run ktlint
         run: ./gradlew ktlintCheck --continue
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         name: Upload ktlint report
         if: ${{ failure() }}
         with:
@@ -30,7 +30,7 @@ jobs:
 
       - name: Gradle Android lint library
         run: ./gradlew :library:lintDebug
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         name: Upload library lint report
         if: ${{ failure() }}
         with:
@@ -39,7 +39,7 @@ jobs:
 
       - name: Gradle Android lint example
         run: ./gradlew :example:lintDebug
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         name: Upload example lint report
         if: ${{ failure() }}
         with:

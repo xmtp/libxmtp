@@ -928,6 +928,10 @@ internal interface UniffiLib : Library {
         `ptr`: Pointer, uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
 
+    fun uniffi_xmtpv3_fn_method_ffigroup_consent_state(
+        `ptr`: Pointer, uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
     fun uniffi_xmtpv3_fn_method_ffigroup_created_at_ns(
         `ptr`: Pointer, uniffi_out_err: UniffiRustCallStatus,
     ): Long
@@ -1024,6 +1028,10 @@ internal interface UniffiLib : Library {
         `ptr`: Pointer,
     ): Long
 
+    fun uniffi_xmtpv3_fn_method_ffigroup_update_consent_state(
+        `ptr`: Pointer, `state`: RustBuffer.ByValue, uniffi_out_err: UniffiRustCallStatus,
+    ): Unit
+
     fun uniffi_xmtpv3_fn_method_ffigroup_update_group_description(
         `ptr`: Pointer, `groupDescription`: RustBuffer.ByValue,
     ): Long
@@ -1095,7 +1103,8 @@ internal interface UniffiLib : Library {
         `ptr`: Pointer,
         `signatureBytes`: RustBuffer.ByValue,
         `address`: RustBuffer.ByValue,
-        `chainRpcUrl`: RustBuffer.ByValue,
+        `chainId`: Long,
+        `blockNumber`: Long,
     ): Long
 
     fun uniffi_xmtpv3_fn_method_ffisignaturerequest_is_ready(
@@ -1212,6 +1221,10 @@ internal interface UniffiLib : Library {
         `ptr`: Pointer, `address`: RustBuffer.ByValue,
     ): Long
 
+    fun uniffi_xmtpv3_fn_method_ffixmtpclient_get_consent_state(
+        `ptr`: Pointer, `entityType`: RustBuffer.ByValue, `entity`: RustBuffer.ByValue,
+    ): Long
+
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_get_latest_inbox_state(
         `ptr`: Pointer, `inboxId`: RustBuffer.ByValue,
     ): Long
@@ -1254,6 +1267,13 @@ internal interface UniffiLib : Library {
 
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_revoke_wallet(
         `ptr`: Pointer, `walletAddress`: RustBuffer.ByValue,
+    ): Long
+
+    fun uniffi_xmtpv3_fn_method_ffixmtpclient_set_consent_state(
+        `ptr`: Pointer,
+        `state`: RustBuffer.ByValue,
+        `entityType`: RustBuffer.ByValue,
+        `entity`: RustBuffer.ByValue,
     ): Long
 
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_signature_request(
@@ -1685,6 +1705,9 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_checksum_method_ffigroup_admin_list(
     ): Short
 
+    fun uniffi_xmtpv3_checksum_method_ffigroup_consent_state(
+    ): Short
+
     fun uniffi_xmtpv3_checksum_method_ffigroup_created_at_ns(
     ): Short
 
@@ -1755,6 +1778,9 @@ internal interface UniffiLib : Library {
     ): Short
 
     fun uniffi_xmtpv3_checksum_method_ffigroup_sync(
+    ): Short
+
+    fun uniffi_xmtpv3_checksum_method_ffigroup_update_consent_state(
     ): Short
 
     fun uniffi_xmtpv3_checksum_method_ffigroup_update_group_description(
@@ -1850,6 +1876,9 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_find_inbox_id(
     ): Short
 
+    fun uniffi_xmtpv3_checksum_method_ffixmtpclient_get_consent_state(
+    ): Short
+
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_get_latest_inbox_state(
     ): Short
 
@@ -1881,6 +1910,9 @@ internal interface UniffiLib : Library {
     ): Short
 
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_wallet(
+    ): Short
+
+    fun uniffi_xmtpv3_checksum_method_ffixmtpclient_set_consent_state(
     ): Short
 
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_signature_request(
@@ -2008,6 +2040,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_admin_list() != 51010.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_method_ffigroup_consent_state() != 11630.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_created_at_ns() != 4894.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2080,6 +2115,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_sync() != 24219.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_method_ffigroup_update_consent_state() != 48124.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_update_group_description() != 34006.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2110,7 +2148,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_ecdsa_signature() != 8706.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_scw_signature() != 59425.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_scw_signature() != 23994.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_is_ready() != 65051.toShort()) {
@@ -2173,6 +2211,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_find_inbox_id() != 59020.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_get_consent_state() != 58208.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_get_latest_inbox_state() != 3165.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2204,6 +2245,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_wallet() != 12211.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_set_consent_state() != 36178.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_signature_request() != 18270.toShort()) {
@@ -3112,6 +3156,8 @@ public interface FfiGroupInterface {
 
     fun `adminList`(): List<kotlin.String>
 
+    fun `consentState`(): FfiConsentState
+
     fun `createdAtNs`(): kotlin.Long
 
     fun `findMessages`(`opts`: FfiListMessagesOptions): List<FfiMessage>
@@ -3165,6 +3211,8 @@ public interface FfiGroupInterface {
     fun `superAdminList`(): List<kotlin.String>
 
     suspend fun `sync`()
+
+    fun `updateConsentState`(`state`: FfiConsentState)
 
     suspend fun `updateGroupDescription`(`groupDescription`: kotlin.String)
 
@@ -3417,6 +3465,20 @@ open class FfiGroup : Disposable, AutoCloseable, FfiGroupInterface {
             callWithPointer {
                 uniffiRustCallWithError(GenericException) { _status ->
                     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffigroup_admin_list(
+                        it, _status
+                    )
+                }
+            }
+        )
+    }
+
+
+    @Throws(GenericException::class)
+    override fun `consentState`(): FfiConsentState {
+        return FfiConverterTypeFfiConsentState.lift(
+            callWithPointer {
+                uniffiRustCallWithError(GenericException) { _status ->
+                    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffigroup_consent_state(
                         it, _status
                     )
                 }
@@ -3930,6 +3992,17 @@ open class FfiGroup : Disposable, AutoCloseable, FfiGroupInterface {
             GenericException.ErrorHandler,
         )
     }
+
+
+    @Throws(GenericException::class)
+    override fun `updateConsentState`(`state`: FfiConsentState) =
+        callWithPointer {
+            uniffiRustCallWithError(GenericException) { _status ->
+                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffigroup_update_consent_state(
+                    it, FfiConverterTypeFfiConsentState.lower(`state`), _status
+                )
+            }
+        }
 
 
     @Throws(GenericException::class)
@@ -4729,7 +4802,8 @@ public interface FfiSignatureRequestInterface {
     suspend fun `addScwSignature`(
         `signatureBytes`: kotlin.ByteArray,
         `address`: kotlin.String,
-        `chainRpcUrl`: kotlin.String,
+        `chainId`: kotlin.ULong,
+        `blockNumber`: kotlin.ULong,
     )
 
     suspend fun `isReady`(): kotlin.Boolean
@@ -4864,7 +4938,8 @@ open class FfiSignatureRequest : Disposable, AutoCloseable, FfiSignatureRequestI
     override suspend fun `addScwSignature`(
         `signatureBytes`: kotlin.ByteArray,
         `address`: kotlin.String,
-        `chainRpcUrl`: kotlin.String,
+        `chainId`: kotlin.ULong,
+        `blockNumber`: kotlin.ULong,
     ) {
         return uniffiRustCallAsync(
             callWithPointer { thisPtr ->
@@ -4872,7 +4947,8 @@ open class FfiSignatureRequest : Disposable, AutoCloseable, FfiSignatureRequestI
                     thisPtr,
                     FfiConverterByteArray.lower(`signatureBytes`),
                     FfiConverterString.lower(`address`),
-                    FfiConverterString.lower(`chainRpcUrl`),
+                    FfiConverterULong.lower(`chainId`),
+                    FfiConverterULong.lower(`blockNumber`),
                 )
             },
             { future, callback, continuation ->
@@ -6133,6 +6209,11 @@ public interface FfiXmtpClientInterface {
 
     suspend fun `findInboxId`(`address`: kotlin.String): kotlin.String?
 
+    suspend fun `getConsentState`(
+        `entityType`: FfiConsentEntityType,
+        `entity`: kotlin.String,
+    ): FfiConsentState
+
     suspend fun `getLatestInboxState`(`inboxId`: kotlin.String): FfiInboxState
 
     fun `group`(`groupId`: kotlin.ByteArray): FfiGroup
@@ -6166,6 +6247,12 @@ public interface FfiXmtpClientInterface {
      * Revokes or removes an identity - really a wallet address - from the existing client
      */
     suspend fun `revokeWallet`(`walletAddress`: kotlin.String): FfiSignatureRequest
+
+    suspend fun `setConsentState`(
+        `state`: FfiConsentState,
+        `entityType`: FfiConsentEntityType,
+        `entity`: kotlin.String,
+    )
 
     fun `signatureRequest`(): FfiSignatureRequest?
 
@@ -6429,6 +6516,42 @@ open class FfiXmtpClient : Disposable, AutoCloseable, FfiXmtpClientInterface {
             { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_rust_buffer(future) },
             // lift function
             { FfiConverterOptionalString.lift(it) },
+            // Error FFI converter
+            GenericException.ErrorHandler,
+        )
+    }
+
+
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `getConsentState`(
+        `entityType`: FfiConsentEntityType,
+        `entity`: kotlin.String,
+    ): FfiConsentState {
+        return uniffiRustCallAsync(
+            callWithPointer { thisPtr ->
+                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_get_consent_state(
+                    thisPtr,
+                    FfiConverterTypeFfiConsentEntityType.lower(`entityType`),
+                    FfiConverterString.lower(`entity`),
+                )
+            },
+            { future, callback, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_rust_buffer(
+                    future,
+                    callback,
+                    continuation
+                )
+            },
+            { future, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_rust_buffer(
+                    future,
+                    continuation
+                )
+            },
+            { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_rust_buffer(future) },
+            // lift function
+            { FfiConverterTypeFfiConsentState.lift(it) },
             // Error FFI converter
             GenericException.ErrorHandler,
         )
@@ -6704,6 +6827,45 @@ open class FfiXmtpClient : Disposable, AutoCloseable, FfiXmtpClientInterface {
         )
     }
 
+
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `setConsentState`(
+        `state`: FfiConsentState,
+        `entityType`: FfiConsentEntityType,
+        `entity`: kotlin.String,
+    ) {
+        return uniffiRustCallAsync(
+            callWithPointer { thisPtr ->
+                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_set_consent_state(
+                    thisPtr,
+                    FfiConverterTypeFfiConsentState.lower(`state`),
+                    FfiConverterTypeFfiConsentEntityType.lower(`entityType`),
+                    FfiConverterString.lower(`entity`),
+                )
+            },
+            { future, callback, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(
+                    future,
+                    callback,
+                    continuation
+                )
+            },
+            { future, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_void(
+                    future,
+                    continuation
+                )
+            },
+            { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_void(future) },
+            // lift function
+            { Unit },
+
+            // Error FFI converter
+            GenericException.ErrorHandler,
+        )
+    }
+
     override fun `signatureRequest`(): FfiSignatureRequest? {
         return FfiConverterOptionalTypeFfiSignatureRequest.lift(
             callWithPointer {
@@ -6857,6 +7019,7 @@ data class FfiGroupMember(
     var `accountAddresses`: List<kotlin.String>,
     var `installationIds`: List<kotlin.ByteArray>,
     var `permissionLevel`: FfiPermissionLevel,
+    var `consentState`: FfiConsentState,
 ) {
 
     companion object
@@ -6869,6 +7032,7 @@ public object FfiConverterTypeFfiGroupMember : FfiConverterRustBuffer<FfiGroupMe
             FfiConverterSequenceString.read(buf),
             FfiConverterSequenceByteArray.read(buf),
             FfiConverterTypeFfiPermissionLevel.read(buf),
+            FfiConverterTypeFfiConsentState.read(buf),
         )
     }
 
@@ -6876,7 +7040,8 @@ public object FfiConverterTypeFfiGroupMember : FfiConverterRustBuffer<FfiGroupMe
             FfiConverterString.allocationSize(value.`inboxId`) +
                     FfiConverterSequenceString.allocationSize(value.`accountAddresses`) +
                     FfiConverterSequenceByteArray.allocationSize(value.`installationIds`) +
-                    FfiConverterTypeFfiPermissionLevel.allocationSize(value.`permissionLevel`)
+                    FfiConverterTypeFfiPermissionLevel.allocationSize(value.`permissionLevel`) +
+                    FfiConverterTypeFfiConsentState.allocationSize(value.`consentState`)
             )
 
     override fun write(value: FfiGroupMember, buf: ByteBuffer) {
@@ -6884,6 +7049,7 @@ public object FfiConverterTypeFfiGroupMember : FfiConverterRustBuffer<FfiGroupMe
         FfiConverterSequenceString.write(value.`accountAddresses`, buf)
         FfiConverterSequenceByteArray.write(value.`installationIds`, buf)
         FfiConverterTypeFfiPermissionLevel.write(value.`permissionLevel`, buf)
+        FfiConverterTypeFfiConsentState.write(value.`consentState`, buf)
     }
 }
 
@@ -7286,6 +7452,56 @@ public object FfiConverterTypeFfiV2SubscribeRequest :
 
     override fun write(value: FfiV2SubscribeRequest, buf: ByteBuffer) {
         FfiConverterSequenceString.write(value.`contentTopics`, buf)
+    }
+}
+
+
+enum class FfiConsentEntityType {
+
+    GROUP_ID,
+    INBOX_ID,
+    ADDRESS;
+
+    companion object
+}
+
+
+public object FfiConverterTypeFfiConsentEntityType : FfiConverterRustBuffer<FfiConsentEntityType> {
+    override fun read(buf: ByteBuffer) = try {
+        FfiConsentEntityType.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: FfiConsentEntityType) = 4UL
+
+    override fun write(value: FfiConsentEntityType, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+enum class FfiConsentState {
+
+    UNKNOWN,
+    ALLOWED,
+    DENIED;
+
+    companion object
+}
+
+
+public object FfiConverterTypeFfiConsentState : FfiConverterRustBuffer<FfiConsentState> {
+    override fun read(buf: ByteBuffer) = try {
+        FfiConsentState.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: FfiConsentState) = 4UL
+
+    override fun write(value: FfiConsentState, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
     }
 }
 
