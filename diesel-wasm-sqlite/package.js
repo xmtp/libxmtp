@@ -308,7 +308,7 @@ export class SQLite {
   }
 
   value_free(value) {
-    return this.sqlite3.capi.sqlite3_value_free(value);
+    return this.sqlite3.capi.value_free(value);
   }
 
   sqlite3_serialize(database, z_schema, p_size, m_flags) {
@@ -348,7 +348,7 @@ export class SQLite {
     }
   }
 
-  sqlite3_free(database, arg1) {
+  sqlite3_free(_database, arg1) {
     try {
       this.sqlite3.capi.sqlite3_free(arg1);
     } catch (error) {

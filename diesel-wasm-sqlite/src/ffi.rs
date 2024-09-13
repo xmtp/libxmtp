@@ -252,6 +252,9 @@ extern "C" {
     pub fn value_double(this: &SQLite, pValue: *mut u8) -> f64;
 
     #[wasm_bindgen(method)]
+    pub fn value_free(this: &SQLite, pValue: *mut u8);
+
+    #[wasm_bindgen(method)]
     pub fn value_int(this: &SQLite, pValue: *mut u8) -> i32;
 
     #[wasm_bindgen(method)]
@@ -328,9 +331,6 @@ extern "C" {
     pub fn register_diesel_sql_functions(this: &SQLite, database: &JsValue) -> Result<(), JsValue>;
 
     #[wasm_bindgen(method)]
-    pub fn value_free(this: &SQLite, value: *mut u8);
-
-    #[wasm_bindgen(method)]
     pub fn sqlite3_serialize(
         this: &SQLite,
         database: &JsValue,
@@ -349,9 +349,4 @@ extern "C" {
         sz_buffer: i64,
         m_flags: u32,
     ) -> i32;
-}
-
-#[wasm_bindgen]
-extern "C" {
-    pub fn sqlite3_free(arg1: *mut u8);
 }

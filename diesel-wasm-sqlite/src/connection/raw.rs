@@ -101,14 +101,8 @@ impl RawConnection {
             panic!("Serialization failed");
         }
 
-        let len = p_size.as_f64().unwrap() as usize;
-        let mut data = vec![0; len as usize];
-
-        unsafe {
-            ffi::raw_copy_from_sqlite(data_ptr, len as u32, data.as_mut_slice());
-        }
-
-        SerializedDatabase { data }
+        let len = p_size.as_f64().unwrap() as u32;
+        unsafe { SerializedDatabase::new(data_ptr, len) }
     }
 
     /// Deserializes the database from the data slice given to be loaded
