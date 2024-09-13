@@ -262,5 +262,12 @@ async fn serializing() {
     let loaded_books = schema::books::dsl::books
         .select(StoredBook::as_select())
         .load(&mut conn);
-    assert_eq!(loaded_books.unwrap().len(), 1);
+    assert_eq!(
+        loaded_books.unwrap(),
+        vec![StoredBook {
+            id: 1,
+            title: "Game of Thrones".into(),
+            author: Some("George R.R".into()),
+        },]
+    );
 }

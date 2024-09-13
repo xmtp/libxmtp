@@ -14404,11 +14404,27 @@ class SQLite {
     return this.sqlite3.capi.sqlite3_value_free(value);
   }
 
-  /*
-  serialize(database, zSchema, size, flags) {
-    return this.module._sqlite3_serialize(database, zSchema, size, flags);
+  sqlite3_serialize(database, zSchema, size, flags) {
+    return this.sqlite3.capi.sqlite3_serialize(database, zSchema, size, flags);
   }
-  */
+
+  sqlite3_deserialize(
+    database,
+    z_schema,
+    p_data,
+    sz_database,
+    sz_buffer,
+    m_flags
+  ) {
+    return this.sqlite3.capi.sqlite3_deserialize(
+      database,
+      z_schema,
+      p_data,
+      sz_database,
+      sz_buffer,
+      m_flags
+    );
+  }
 }
 
 export { SQLite, SQLiteError };
