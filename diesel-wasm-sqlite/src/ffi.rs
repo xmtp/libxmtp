@@ -333,8 +333,8 @@ extern "C" {
         this: &SQLite,
         database: &JsValue,
         z_schema: &str,
-        p_size: Option<&mut i64>,
-        m_flags: u32
+        p_size: *mut u8,
+        m_flags: u32,
     ) -> *mut u8;
 
     #[wasm_bindgen(method)]
@@ -342,9 +342,14 @@ extern "C" {
         this: &SQLite,
         database: &JsValue,
         z_schema: &str,
-        p_data: &mut u8,
+        p_data: *mut u8,
         sz_database: i64,
         sz_buffer: i64,
-        m_flags: u32
+        m_flags: u32,
     ) -> i32;
+}
+
+#[wasm_bindgen]
+extern "C" {
+    pub fn sqlite3_free(arg1: *mut u8);
 }

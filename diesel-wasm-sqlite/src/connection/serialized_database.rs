@@ -1,11 +1,13 @@
 use std::ops::Deref;
 
+use crate::ffi;
+
 /// `SerializedDatabase` is a wrapper for a serialized database that is dynamically allocated by calling `sqlite3_serialize`.
 /// This RAII wrapper is necessary to deallocate the memory when it goes out of scope with `sqlite3_free`.
 #[derive(Debug)]
 pub struct SerializedDatabase {
-    data: JsValue,
-    len: usize,
+    pub(super) data: *mut u8,
+    pub(super) len: i64,
 }
 
 impl SerializedDatabase {
@@ -13,14 +15,14 @@ impl SerializedDatabase {
     ///
     /// SAFETY: The data pointer needs to be returned by sqlite
     ///         and the length must match the underlying buffer pointer
-    pub(crate) unsafe fn new(data: *mut u8, len: usize) -> Self {
+    pub(crate) unsafe fn new(data: *mut u8, len: i64) -> Self {
         Self { data, len }
     }
 
     /// Returns a slice of the serialized database.
     pub fn as_slice(&self) -> &[u8] {
         // The pointer is never null because we don't pass the NO_COPY flag
-        unsafe { std::slice::from_raw_parts(self.data, self.len) }
+        unsafe { std::slice::from_raw_parts(self.data, self.len as usize) }
     }
 }
 
@@ -35,8 +37,6 @@ impl Deref for SerializedDatabase {
 impl Drop for SerializedDatabase {
     /// Deallocates the memory of the serialized database when it goes out of scope.
     fn drop(&mut self) {
-        unsafe {
-            ffi::sqlite3_free(self.data as _);
-        }
+        ffi::sqlite3_free(self.data as _);
     }
 }

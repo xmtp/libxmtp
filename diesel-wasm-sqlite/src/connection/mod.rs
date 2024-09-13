@@ -3,6 +3,7 @@ mod err;
 mod owned_row;
 mod raw;
 mod row;
+mod serialized_database;
 mod sqlite_value;
 mod statement_iterator;
 mod stmt;

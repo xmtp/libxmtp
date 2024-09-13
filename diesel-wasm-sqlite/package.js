@@ -16,7 +16,7 @@ export class SQLite {
   constructor(sqlite3) {
     if (typeof sqlite3 === "undefined") {
       throw new Error(
-        "`sqliteObject` must be defined before calling constructor",
+        "`sqliteObject` must be defined before calling constructor"
       );
     }
     this.sqlite3 = sqlite3;
@@ -202,7 +202,7 @@ export class SQLite {
       nByte,
       prepFlags,
       ppStmt,
-      pzTail,
+      pzTail
     );
   }
 
@@ -246,7 +246,7 @@ export class SQLite {
     pApp,
     xFunc,
     xStep,
-    xFinal,
+    xFinal
   ) {
     try {
       this.sqlite3.capi.sqlite3_create_function(
@@ -257,7 +257,7 @@ export class SQLite {
         pApp, // pApp is ignored
         xFunc,
         xStep,
-        xFinal,
+        xFinal
       );
       console.log("create function");
     } catch (error) {
@@ -297,9 +297,9 @@ export class SQLite {
               log(`Created trigger for ${table_name}`);
               log(row);
               log(`------------------------------------`);
-            },
+            }
           );
-        },
+        }
       );
     } catch (error) {
       console.log("error creating diesel trigger");
@@ -313,18 +313,46 @@ export class SQLite {
 
   sqlite3_serialize(database, z_schema, p_size, m_flags) {
     try {
-      return this.sqlite3.capi.sqlite3_serialize(database, z_schema, p_size, m_flags);
+      return this.sqlite3.capi.sqlite3_serialize(
+        database,
+        z_schema,
+        p_size,
+        m_flags
+      );
     } catch (error) {
       console.log("error serializing");
       throw error;
     }
   }
 
-  sqlite3_deserialize(database, z_schema, p_data, sz_database, sz_buffer, m_flags) {
+  sqlite3_deserialize(
+    database,
+    z_schema,
+    p_data,
+    sz_database,
+    sz_buffer,
+    m_flags
+  ) {
     try {
-      return this.sqlite3.capi.sqlite3_deserialize(database, z_schema, p_data, sz_database, sz_buffer, m_flags);
+      return this.sqlite3.capi.sqlite3_deserialize(
+        database,
+        z_schema,
+        p_data,
+        sz_database,
+        sz_buffer,
+        m_flags
+      );
     } catch (error) {
       console.log("error deserializing");
+      throw error;
+    }
+  }
+
+  sqlite3_free(database, arg1) {
+    try {
+      this.sqlite3.capi.sqlite3_free(arg1);
+    } catch (error) {
+      console.log("error freeing value");
       throw error;
     }
   }
