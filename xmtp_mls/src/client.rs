@@ -355,7 +355,7 @@ where
             entity.clone(),
         ))?;
 
-        if (entity_type == ConsentType::Address) {
+        if entity_type == ConsentType::Address {
             if let Some(inbox_id) = self.find_inbox_id_from_address(entity.clone()).await? {
                 conn.insert_or_replace_consent_record(StoredConsentRecord::new(
                     ConsentType::InboxId,

@@ -3695,7 +3695,7 @@ mod tests {
         assert_eq!(alix_initial_consent, FfiConsentState::Allowed);
 
         bo.conversations().sync().await.unwrap();
-        let bo_group = bo.group(alix_group.group_id.clone()).unwrap();
+        let bo_group = bo.group(alix_group.id()).unwrap();
 
         let bo_initial_consent = bo_group.consent_state().unwrap();
         assert_eq!(bo_initial_consent, FfiConsentState::Unknown);
