@@ -7,6 +7,7 @@ import {
   createClient as create,
   generateInboxId,
   getInboxIdForAddress,
+  NapiSignatureRequestType,
 } from '../dist/index'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -39,12 +40,15 @@ export const createClient = async (user: User) => {
 export const createRegisteredClient = async (user: User) => {
   const client = await createClient(user)
   if (!client.isRegistered()) {
-    const signatureText = client.signatureText()
+    const signatureText = await client.createInboxSignatureText()
     if (signatureText) {
       const signature = await user.wallet.signMessage({
         message: signatureText,
       })
-      client.addEcdsaSignature(toBytes(signature))
+      await client.addSignature(
+        NapiSignatureRequestType.CreateInbox,
+        toBytes(signature)
+      )
     }
     await client.registerIdentity()
   }
