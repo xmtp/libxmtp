@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     db_connection::DbConnection,
-    schema::groups::{self, dsl},
+    schema::{groups, groups::dsl},
 };
 use crate::{impl_fetch, impl_store, StorageError};
 

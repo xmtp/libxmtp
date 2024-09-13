@@ -77,12 +77,12 @@ impl MlsGroup {
                 };
 
                 let consent = conn.get_consent_record(
-                    association_state.inbox_id().to_string(),
+                    inbox_id_str.clone(),
                     ConsentType::InboxId,
                 )?;
 
                 Ok(GroupMember {
-                    inbox_id: inbox_id_str,
+                    inbox_id: inbox_id_str.clone(),
                     account_addresses: association_state.account_addresses(),
                     installation_ids: association_state.installation_ids(),
                     permission_level,
