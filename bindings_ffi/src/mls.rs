@@ -3743,7 +3743,15 @@ mod tests {
             .unwrap();
         assert_eq!(bo_consent, FfiConsentState::Allowed);
 
-        let member = &alix_group.list_members().unwrap()[0];
-        assert_eq!(member.consent_state, FfiConsentState::Allowed);
+        if let Some(member) = alix_group
+            .list_members()
+            .unwrap()
+            .iter()
+            .find(|&m| m.inbox_id == bo.inbox_id())
+        {
+            assert_eq!(member.consent_state, FfiConsentState::Allowed);
+        } else {
+            panic!("Error: No member found with the given inbox_id.");
+        }
     }
 }
