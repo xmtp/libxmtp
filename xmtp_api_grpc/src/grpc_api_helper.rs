@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use futures::stream::{AbortHandle, Abortable};
 use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
+use prost::Message;
 use tokio::sync::oneshot;
 use tonic::transport::ClientTlsConfig;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
@@ -28,7 +29,8 @@ use xmtp_proto::{
         UploadKeyPackageRequest,
     },
 };
-use xmtp_proto::xmtp::xmtpv4::{BatchSubscribeEnvelopesRequest, BatchSubscribeEnvelopesResponse, PublishEnvelopeRequest, PublishEnvelopeResponse, QueryEnvelopesRequest, QueryEnvelopesResponse};
+use xmtp_proto::xmtp::xmtpv4::{BatchSubscribeEnvelopesRequest, BatchSubscribeEnvelopesResponse, ClientEnvelope, PayerEnvelope, PublishEnvelopeRequest, PublishEnvelopeResponse, QueryEnvelopesRequest, QueryEnvelopesResponse};
+use xmtp_proto::xmtp::xmtpv4::client_envelope::Payload;
 use xmtp_proto::xmtp::xmtpv4::replication_api_client::ReplicationApiClient;
 
 async fn create_tls_channel(address: String) -> Result<Channel, Error> {
@@ -75,10 +77,11 @@ pub struct Client {
     pub(crate) app_version: MetadataValue<tonic::metadata::Ascii>,
     pub(crate) libxmtp_version: MetadataValue<tonic::metadata::Ascii>,
     pub(crate) replication_client: ReplicationApiClient<Channel>,
+    use_replication_v4: bool,
 }
 
 impl Client {
-    pub async fn create(host: String, is_secure: bool) -> Result<Self, Error> {
+    pub async fn create(host: String, is_secure: bool, use_replication_v4: bool) -> Result<Self, Error> {
         let host = host.to_string();
         let app_version = MetadataValue::try_from(&String::from("0.0.0"))
             .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
@@ -105,7 +108,8 @@ impl Client {
             app_version,
             libxmtp_version,
             identity_client,
-            replication_client
+            replication_client,
+            use_replication_v4
         })
     }
 
@@ -340,12 +344,22 @@ impl MutableApiSubscription for GrpcMutableSubscription {
 impl XmtpMlsClient for Client {
     #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Error> {
-        let client = &mut self.mls_client.clone();
+        if self.use_replication_v4 {
+            let client = &mut self.replication_client.clone();
+            let payload = wrap_client_envelope(req.to_client_envelope());
+            let res = client.publish_envelope(payload).await;
+            match res {
+                Ok(_) => Ok(()),
+                Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+            }
+        } else {
+            let client = &mut self.mls_client.clone();
 
-        let res = client.upload_key_package(self.build_request(req)).await;
-        match res {
-            Ok(_) => Ok(()),
-            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+            let res = client.upload_key_package(self.build_request(req)).await;
+            match res {
+                Ok(_) => Ok(()),
+                Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+            }
         }
     }
 
@@ -363,23 +377,41 @@ impl XmtpMlsClient for Client {
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client.send_group_messages(self.build_request(req)).await;
-
-        match res {
-            Ok(_) => Ok(()),
-            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+        if self.use_replication_v4 {
+            let client = &mut self.replication_client.clone();
+            let payload = wrap_client_envelope(req.to_client_envelope());
+            let res = client.publish_envelope(payload).await;
+            match res {
+                Ok(_) => Ok(()),
+                Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+            }
+        } else {
+            let client = &mut self.mls_client.clone();
+            let res = client.send_group_messages(self.build_request(req)).await;
+            match res {
+                Ok(_) => Ok(()),
+                Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+            }
         }
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn send_welcome_messages(&self, req: SendWelcomeMessagesRequest) -> Result<(), Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client.send_welcome_messages(self.build_request(req)).await;
-
-        match res {
-            Ok(_) => Ok(()),
-            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+        if self.use_replication_v4 {
+            let client = &mut self.replication_client.clone();
+            let payload = wrap_client_envelope(req.to_client_envelope());
+            let res = client.publish_envelope(payload).await;
+            match res {
+                Ok(_) => Ok(()),
+                Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+            }
+        } else {
+            let client = &mut self.mls_client.clone();
+            let res = client.send_welcome_messages(self.build_request(req)).await;
+            match res {
+                Ok(_) => Ok(()),
+                Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+            }
         }
     }
 
@@ -545,5 +577,49 @@ impl XmtpReplicationClient for Client {
         let stream = res.into_inner();
 
         Ok(stream.into())
+    }
+}
+
+
+trait ClientEnvelopeConversion {
+    fn to_client_envelope(self) -> ClientEnvelope;
+}
+
+impl ClientEnvelopeConversion for SendGroupMessagesRequest {
+    fn to_client_envelope(self) -> ClientEnvelope {
+        ClientEnvelope {
+            aad: None,
+            payload: Some(Payload::GroupMessage(self.messages.first().unwrap().clone()))
+        }
+    }
+}
+
+impl ClientEnvelopeConversion for SendWelcomeMessagesRequest {
+    fn to_client_envelope(self) -> ClientEnvelope {
+        ClientEnvelope {
+            aad: None,
+            payload: Some(Payload::WelcomeMessage(self.messages.first().unwrap().clone()))
+        }
+    }
+}
+
+impl ClientEnvelopeConversion for UploadKeyPackageRequest {
+    fn to_client_envelope(self) -> ClientEnvelope {
+        ClientEnvelope {
+            aad: None,
+            payload: Some(Payload::UploadKeyPackage(self))
+        }
+    }
+}
+
+fn wrap_client_envelope(req: ClientEnvelope) -> PublishEnvelopeRequest {
+    let mut buf = vec![];
+    req.encode(&mut buf).unwrap();
+
+    PublishEnvelopeRequest {
+        payer_envelope: Some(PayerEnvelope {
+            unsigned_client_envelope: buf,
+            payer_signature: None,
+        }),
     }
 }

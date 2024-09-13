@@ -416,7 +416,7 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
         info!("Using local network");
         builder = builder
             .api_client(
-                ApiClient::create("http://localhost:5556".into(), false)
+                ApiClient::create("http://localhost:5556".into(), false, false)
                     .await
                     .unwrap(),
             )
@@ -425,7 +425,7 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
         info!("Using dev network");
         builder = builder
             .api_client(
-                ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true)
+                ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true, false)
                     .await
                     .unwrap(),
             )

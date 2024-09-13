@@ -23,7 +23,7 @@ pub async fn create_v2_client(
     host: String,
     is_secure: bool,
 ) -> Result<Arc<FfiV2ApiClient>, GenericError> {
-    let client = GrpcClient::create(host, is_secure).await?;
+    let client = GrpcClient::create(host, is_secure, false).await?;
 
     let client = FfiV2ApiClient {
         inner_client: Arc::new(client),
