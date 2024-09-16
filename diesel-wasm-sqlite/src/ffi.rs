@@ -250,6 +250,9 @@ extern "C" {
     pub fn value_free(this: &SQLite, pValue: *mut u8);
 
     #[wasm_bindgen(method)]
+    pub fn sqlite3_free(this: &SQLite, pValue: *mut u8);
+
+    #[wasm_bindgen(method)]
     pub fn value_int(this: &SQLite, pValue: *mut u8) -> i32;
 
     #[wasm_bindgen(method)]

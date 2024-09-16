@@ -12,6 +12,8 @@ impl SerializedDatabase {
         let mut data = vec![0; len as usize];
         ffi::raw_copy_from_sqlite(data_ptr, len, data.as_mut_slice());
 
+        crate::get_sqlite_unchecked().sqlite3_free(data_ptr);
+
         Self { data }
     }
 }

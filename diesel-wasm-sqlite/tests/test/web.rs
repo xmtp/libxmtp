@@ -47,7 +47,7 @@ pub struct StoredBook {
     // published_year: NaiveDateTime,
 }
 
-pub async fn establish_connection() -> WasmSqliteConnection {
+async fn establish_connection() -> WasmSqliteConnection {
     diesel_wasm_sqlite::init_sqlite().await;
 
     let rng: u16 = rand::random();
