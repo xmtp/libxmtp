@@ -6,7 +6,6 @@ mod conversions;
 pub const LOCALHOST_ADDRESS: &str = "http://localhost:5556";
 pub const DEV_ADDRESS: &str = "https://grpc.dev.xmtp.network:443";
 
-use prost::Message;
 pub use grpc_api_helper::{Client, GroupMessageStream, WelcomeMessageStream};
 
 #[cfg(test)]

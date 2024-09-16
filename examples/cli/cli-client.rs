@@ -434,6 +434,7 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
         }
     }
     else {
+        #[deny(clippy::collapsible_else_if)]
         if cli.local {
             info!("Using local network");
             builder = builder

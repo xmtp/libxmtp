@@ -1,7 +1,7 @@
 use crate::xmtp::identity::api::v1::PublishIdentityUpdateRequest;
 use crate::xmtp::mls::api::v1::{SendGroupMessagesRequest, SendWelcomeMessagesRequest, UploadKeyPackageRequest};
 use crate::xmtp::xmtpv4::client_envelope::Payload;
-use crate::xmtp::xmtpv4::ClientEnvelope;
+use crate::xmtp::xmtpv4::{AuthenticatedData, ClientEnvelope};
 
 mod inbox_id {
 
@@ -34,7 +34,7 @@ impl From<SendWelcomeMessagesRequest> for ClientEnvelope {
 impl From<SendGroupMessagesRequest> for ClientEnvelope {
     fn from(req: SendGroupMessagesRequest) -> Self {
         ClientEnvelope {
-            aad: None,
+            aad: Some(AuthenticatedData::dummy()),
             payload: Some(Payload::GroupMessage(req.messages.first().unwrap().clone()))
         }
     }
@@ -43,7 +43,7 @@ impl From<SendGroupMessagesRequest> for ClientEnvelope {
 impl From<UploadKeyPackageRequest> for ClientEnvelope {
     fn from(req: UploadKeyPackageRequest) -> Self {
         ClientEnvelope {
-            aad: None,
+            aad: Some(AuthenticatedData::dummy()),
             payload: Some(Payload::UploadKeyPackage(req))
         }
     }
@@ -52,8 +52,18 @@ impl From<UploadKeyPackageRequest> for ClientEnvelope {
 impl From<PublishIdentityUpdateRequest> for ClientEnvelope {
     fn from(req: PublishIdentityUpdateRequest) -> Self {
         ClientEnvelope {
-            aad: None,
+            aad: Some(AuthenticatedData::dummy()),
             payload: Some(Payload::IdentityUpdate(req.identity_update.unwrap()))
+        }
+    }
+}
+
+impl AuthenticatedData {
+    pub fn dummy() -> AuthenticatedData {
+        AuthenticatedData {
+            target_originator: 1,
+            target_topic: vec![0x5],
+            last_seen: None,
         }
     }
 }

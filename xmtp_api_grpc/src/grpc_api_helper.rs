@@ -1,17 +1,20 @@
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex}; // TODO switch to async mutexes
+use std::sync::{Arc, Mutex};
+// TODO switch to async mutexes
 use std::time::Duration;
 
 use futures::stream::{AbortHandle, Abortable};
 use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
-use prost::Message;
 use tokio::sync::oneshot;
 use tonic::transport::ClientTlsConfig;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 
+use crate::conversions::wrap_client_envelope;
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpMlsStreams, XmtpReplicationClient};
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
+use xmtp_proto::xmtp::xmtpv4::replication_api_client::ReplicationApiClient;
+use xmtp_proto::xmtp::xmtpv4::{BatchSubscribeEnvelopesRequest, BatchSubscribeEnvelopesResponse, ClientEnvelope, PublishEnvelopeRequest, PublishEnvelopeResponse, QueryEnvelopesRequest, QueryEnvelopesResponse};
 use xmtp_proto::{
     api_client::{
         Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
@@ -29,10 +32,6 @@ use xmtp_proto::{
         UploadKeyPackageRequest,
     },
 };
-use xmtp_proto::xmtp::xmtpv4::{BatchSubscribeEnvelopesRequest, BatchSubscribeEnvelopesResponse, ClientEnvelope, PayerEnvelope, PublishEnvelopeRequest, PublishEnvelopeResponse, QueryEnvelopesRequest, QueryEnvelopesResponse};
-use xmtp_proto::xmtp::xmtpv4::client_envelope::Payload;
-use xmtp_proto::xmtp::xmtpv4::replication_api_client::ReplicationApiClient;
-use crate::conversions::wrap_client_envelope;
 
 async fn create_tls_channel(address: String) -> Result<Channel, Error> {
     let channel = Channel::from_shared(address)
