@@ -84,11 +84,6 @@ pub unsafe fn raw_copy_from_sqlite(src: *mut u8, len: u32, buf: &mut [u8]) {
     let mem = wasm.heap8u();
     mem.slice(src as u32, src as u32 + len)
         .raw_copy_to_ptr(buf.as_mut_ptr());
-    //let offset = (src as u32) / std::mem::size_of::<u8>() as u32;
-    //// this is safe because we view the slice and immediately copy it into
-    //// our memory.
-    //let view = Uint8Array::new_with_byte_offset_and_length(&mem, offset, len);
-    //view.raw_copy_to_ptr(buf.as_mut_ptr())
 }
 
 pub async fn init_sqlite() {

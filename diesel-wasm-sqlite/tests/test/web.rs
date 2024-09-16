@@ -227,14 +227,11 @@ async fn can_insert_or_ignore() {
 
 #[wasm_bindgen_test]
 async fn serializing() {
-    use schema::test_table::dsl::*;
-
     init().await;
     let mut conn = establish_connection().await;
     let new_books = vec![BookForm {
         title: "Game of Thrones".into(),
         author: Some("George R.R".into()),
-        // published_year: NaiveDate::from_ymd_opt(2015, 5, 3).unwrap(),
     }];
     let rows_changed = insert_books(&mut conn, new_books).unwrap();
     assert_eq!(rows_changed, 1);

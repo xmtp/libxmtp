@@ -3,8 +3,6 @@
 
 use crate::{ffi, WasmSqlite, WasmSqliteError};
 use diesel::{result::*, sql_types::HasSqlType};
-use js_sys::Uint8Array;
-use serde::Serialize;
 use wasm_bindgen::{closure::Closure, JsValue};
 
 use super::serialized_database::SerializedDatabase;
