@@ -160,6 +160,7 @@ mod tests {
     use openmls::credentials::{Credential, CredentialType};
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_traits::types::SignatureScheme;
+    use parking_lot::Mutex;
     use prost::Message;
     use xmtp_cryptography::utils::{generate_local_wallet, rng};
     use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
@@ -529,7 +530,7 @@ mod tests {
             inbox_id: inbox_id.clone(),
             installation_keys: SignatureKeyPair::new(SignatureScheme::ED25519).unwrap(),
             credential: Credential::new(CredentialType::Basic, rand_vec()),
-            signature_request: None,
+            signature_request: Mutex::default(),
         })
             .try_into()
             .unwrap();
@@ -563,7 +564,7 @@ mod tests {
             inbox_id: stored_inbox_id.clone(),
             installation_keys: SignatureKeyPair::new(SignatureScheme::ED25519).unwrap(),
             credential: Credential::new(CredentialType::Basic, rand_vec()),
-            signature_request: None,
+            signature_request: Mutex::default(),
         })
             .try_into()
             .unwrap();
@@ -611,6 +612,7 @@ mod tests {
         .unwrap();
 
         register_client(&client_a, wallet).await;
+        assert!(client_a.identity().signature_request.lock().is_none());
 
         let keybytes_a = client_a.installation_public_key();
         drop(client_a);

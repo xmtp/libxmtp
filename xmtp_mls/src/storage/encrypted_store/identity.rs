@@ -1,5 +1,6 @@
 use crate::storage::{encrypted_store::schema::identity, StorageError};
 use diesel::prelude::*;
+use parking_lot::Mutex;
 use xmtp_id::InboxId;
 
 use crate::{
@@ -54,7 +55,7 @@ impl TryFrom<StoredIdentity> for Identity {
             inbox_id: identity.inbox_id.clone(),
             installation_keys: db_deserialize(&identity.installation_keys)?,
             credential: db_deserialize(&identity.credential_bytes)?,
-            signature_request: None,
+            signature_request: Mutex::default(),
         })
     }
 }
