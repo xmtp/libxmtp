@@ -162,7 +162,8 @@ mod parenthesis_wrapper {
     use crate::WasmSqlite;
     // use diesel::query_builder::combination_clause::SupportsCombinationClause;
     use diesel::query_builder::{
-        All, AstPass, Distinct, Except, Intersect, QueryFragment, SupportsCombinationClause, Union, ParenthesisWrapper
+        All, AstPass, Distinct, Except, Intersect, ParenthesisWrapper, QueryFragment,
+        SupportsCombinationClause, Union,
     };
 
     impl<T: QueryFragment<WasmSqlite>> QueryFragment<WasmSqlite> for ParenthesisWrapper<T> {

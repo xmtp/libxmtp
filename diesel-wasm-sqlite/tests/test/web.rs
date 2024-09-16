@@ -1,5 +1,6 @@
 //! General tests for migrations/diesel ORM/persistant databases
 use crate::common::prelude::*;
+use diesel::dsl::count;
 use diesel_wasm_sqlite::dsl::RunQueryDsl;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./tests/migrations/");
@@ -222,4 +223,48 @@ async fn can_insert_or_ignore() {
         },
     ];
     insert_or_ignore(&updates, &mut conn);
+}
+
+#[wasm_bindgen_test]
+async fn serializing() {
+    init().await;
+    let mut conn = establish_connection().await;
+    let new_books = vec![BookForm {
+        title: "Game of Thrones".into(),
+        author: Some("George R.R".into()),
+    }];
+    let rows_changed = insert_books(&mut conn, new_books).unwrap();
+    assert_eq!(rows_changed, 1);
+
+    let serialized = conn.serialize();
+
+    let loaded_books = schema::books::dsl::books
+        .select(StoredBook::as_select())
+        .load(&mut conn);
+    assert_eq!(loaded_books.unwrap().len(), 1);
+
+    // delete all the books
+    diesel::delete(schema::books::table)
+        .execute(&mut conn)
+        .unwrap();
+
+    let loaded_books = schema::books::dsl::books
+        .select(StoredBook::as_select())
+        .load(&mut conn);
+    assert_eq!(loaded_books.unwrap().len(), 0);
+
+    let result = conn.deserialize(&serialized.data);
+    assert_eq!(result, 0);
+
+    let loaded_books = schema::books::dsl::books
+        .select(StoredBook::as_select())
+        .load(&mut conn);
+    assert_eq!(
+        loaded_books.unwrap(),
+        vec![StoredBook {
+            id: 1,
+            title: "Game of Thrones".into(),
+            author: Some("George R.R".into()),
+        },]
+    );
 }

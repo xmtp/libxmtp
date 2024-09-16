@@ -56,10 +56,9 @@ impl<'row, 'stmt, 'query> SqliteValue<'row, 'stmt, 'query> {
     ) -> Option<SqliteValue<'row, 'stmt, 'query>> {
         let value = match &*row {
             PrivateSqliteRow::Direct(stmt) => stmt.column_value(col_idx),
-            PrivateSqliteRow::Duplicated { values, .. } => values
-                .get(col_idx as usize)
-                .and_then(|v| v.as_ref())?
-                .value
+            PrivateSqliteRow::Duplicated { values, .. } => {
+                values.get(col_idx as usize).and_then(|v| v.as_ref())?.value
+            }
         };
 
         let ret = Self {
@@ -177,8 +176,6 @@ impl OwnedSqliteValue {
     pub(super) fn duplicate(&self) -> OwnedSqliteValue {
         let sqlite3 = crate::get_sqlite_unchecked();
         let value = sqlite3.value_dup(self.value);
-        OwnedSqliteValue {
-            value
-        }
+        OwnedSqliteValue { value }
     }
 }
