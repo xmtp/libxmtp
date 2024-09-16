@@ -63,6 +63,8 @@ struct Cli {
     local: bool,
     #[clap(long, default_value_t = false)]
     json: bool,
+    #[clap(long, default_value_t = false)]
+    testnet: bool,
 }
 
 #[derive(ValueEnum, Debug, Copy, Clone)]
@@ -412,24 +414,45 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
     let msg_store = get_encrypted_store(&cli.db).unwrap();
     let mut builder = ClientBuilder::new(account).store(msg_store);
 
-    if cli.local {
-        info!("Using local network");
-        builder = builder
-            .api_client(
-                ApiClient::create("http://localhost:5556".into(), false, false)
-                    .await
-                    .unwrap(),
-            )
-            .history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS);
-    } else {
-        info!("Using dev network");
-        builder = builder
-            .api_client(
-                ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true, false)
-                    .await
-                    .unwrap(),
-            )
-            .history_sync_url(MessageHistoryUrls::DEV_ADDRESS);
+    if cli.testnet {
+        if cli.local {
+            info!("Using local testnet network");
+            builder = builder
+                .api_client(
+                    ApiClient::create("http://localhost:5050".into(), false, true)
+                        .await
+                        .unwrap(),
+                );
+        } else {
+            info!("Using testnet network");
+            builder = builder
+                .api_client(
+                    ApiClient::create("https://grpc.testnet.xmtp.network:443".into(), true, true)
+                        .await
+                        .unwrap(),
+                );
+        }
+    }
+    else {
+        if cli.local {
+            info!("Using local network");
+            builder = builder
+                .api_client(
+                    ApiClient::create("http://localhost:5556".into(), false, false)
+                        .await
+                        .unwrap(),
+                )
+                .history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS);
+        } else {
+            info!("Using dev network");
+            builder = builder
+                .api_client(
+                    ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true, false)
+                        .await
+                        .unwrap(),
+                )
+                .history_sync_url(MessageHistoryUrls::DEV_ADDRESS);
+        }
     }
 
     let client = builder.build().await.map_err(CliError::ClientBuilder)?;

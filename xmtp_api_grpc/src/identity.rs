@@ -6,8 +6,9 @@ use xmtp_proto::{
         GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
     },
 };
-
+use xmtp_proto::xmtp::xmtpv4::ClientEnvelope;
 use crate::Client;
+use crate::conversions::wrap_client_envelope;
 
 impl XmtpIdentityClient for Client {
     #[tracing::instrument(level = "trace", skip_all)]
@@ -15,14 +16,24 @@ impl XmtpIdentityClient for Client {
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Error> {
-        let client = &mut self.identity_client.clone();
+        if self.use_replication_v4 {
+            let client = &mut self.replication_client.clone();
+            let payload = wrap_client_envelope(ClientEnvelope::from(request));
+            let res = client.publish_envelope(payload).await;
+            match res {
+                Ok(_) => Ok(PublishIdentityUpdateResponse{}),
+                Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+            }
+        } else {
+            let client = &mut self.identity_client.clone();
 
-        let res = client
-            .publish_identity_update(self.build_request(request))
-            .await;
+            let res = client
+                .publish_identity_update(self.build_request(request))
+                .await;
 
-        res.map(|response| response.into_inner())
-            .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))
+            res.map(|response| response.into_inner())
+                .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))
+        }
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
