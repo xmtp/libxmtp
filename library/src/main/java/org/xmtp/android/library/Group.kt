@@ -66,8 +66,8 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
     }
 
     suspend fun send(encodedContent: EncodedContent): String {
-        if (client.contacts.consentList.groupState(groupId = id) == ConsentState.UNKNOWN) {
-            client.contacts.allowGroups(groupIds = listOf(id))
+        if (consentState() == ConsentState.UNKNOWN) {
+            updateConsentState(ConsentState.ALLOWED)
         }
         val messageId = libXMTPGroup.send(contentBytes = encodedContent.toByteArray())
         return messageId.toHex()
@@ -100,8 +100,8 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
     }
 
     suspend fun <T> prepareMessage(content: T, options: SendOptions? = null): String {
-        if (client.contacts.consentList.groupState(groupId = id) == ConsentState.UNKNOWN) {
-            client.contacts.allowGroups(groupIds = listOf(id))
+        if (consentState() == ConsentState.UNKNOWN) {
+            updateConsentState(ConsentState.ALLOWED)
         }
         val encodeContent = encodeContent(content = content, options = options)
         return libXMTPGroup.sendOptimistic(encodeContent.toByteArray()).toHex()
@@ -176,6 +176,23 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
     suspend fun processMessage(envelopeBytes: ByteArray): MessageV3 {
         val message = libXMTPGroup.processStreamedGroupMessage(envelopeBytes)
         return MessageV3(client, message)
+    }
+
+    suspend fun updateConsentState(state: ConsentState) {
+        if (client.hasV2Client) {
+            when (state) {
+                ConsentState.ALLOWED -> client.contacts.allowGroups(groupIds = listOf(id))
+                ConsentState.DENIED -> client.contacts.denyGroups(groupIds = listOf(id))
+                ConsentState.UNKNOWN -> Unit
+            }
+        }
+
+        val consentState = ConsentState.toFfiConsentState(state)
+        libXMTPGroup.updateConsentState(consentState)
+    }
+
+    fun consentState(): ConsentState {
+        return ConsentState.fromFfiConsentState(libXMTPGroup.consentState())
     }
 
     fun isActive(): Boolean {

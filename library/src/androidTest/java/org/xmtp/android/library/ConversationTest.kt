@@ -803,72 +803,73 @@ class ConversationTest {
     @Test
     @Ignore("TODO: Fix Flaky Test")
     fun testCanHaveConsentState() {
-        val bobConversation =
-            runBlocking { bobClient.conversations.newConversation(alice.walletAddress, null) }
-        Thread.sleep(1000)
-        val isAllowed = bobConversation.consentState() == ConsentState.ALLOWED
-        // Conversations you start should start as allowed
-        assertTrue("Bob convo should be allowed", isAllowed)
-        assertTrue(
-            "Bob contacts should be allowed",
-            bobClient.contacts.isAllowed(alice.walletAddress)
-        )
-
         runBlocking {
-            bobClient.contacts.deny(listOf(alice.walletAddress))
-            bobClient.contacts.refreshConsentList()
+            val bobConversation =
+                runBlocking { bobClient.conversations.newConversation(alice.walletAddress, null) }
+            Thread.sleep(1000)
+            val isAllowed = bobConversation.consentState() == ConsentState.ALLOWED
+            // Conversations you start should start as allowed
+            assertTrue("Bob convo should be allowed", isAllowed)
+            assertTrue(
+                "Bob contacts should be allowed",
+                bobClient.contacts.isAllowed(alice.walletAddress)
+            )
+
+            runBlocking {
+                bobClient.contacts.deny(listOf(alice.walletAddress))
+                bobClient.contacts.refreshConsentList()
+            }
+            val isDenied = bobConversation.consentState() == ConsentState.DENIED
+            assertEquals(bobClient.contacts.consentList.entries.size, 1)
+            assertTrue("Bob Conversation should be denied", isDenied)
+
+            val aliceConversation = runBlocking { aliceClient.conversations.list()[0] }
+            val isUnknown = aliceConversation.consentState() == ConsentState.UNKNOWN
+
+            // Conversations started with you should start as unknown
+            assertTrue("Alice conversation should be unknown", isUnknown)
+
+            runBlocking { aliceClient.contacts.allow(listOf(bob.walletAddress)) }
+
+            val isBobAllowed = aliceConversation.consentState() == ConsentState.ALLOWED
+            assertTrue("Bob should be allowed from alice conversation", isBobAllowed)
+
+            val aliceClient2 = runBlocking { Client().create(aliceWallet) }
+            val aliceConversation2 = runBlocking { aliceClient2.conversations.list()[0] }
+
+            runBlocking { aliceClient2.contacts.refreshConsentList() }
+
+            // Allow state should sync across clients
+            val isBobAllowed2 = aliceConversation2.consentState() == ConsentState.ALLOWED
+
+            assertTrue("Bob should be allowed from conversation 2", isBobAllowed2)
         }
-        val isDenied = bobConversation.consentState() == ConsentState.DENIED
-        assertEquals(bobClient.contacts.consentList.entries.size, 1)
-        assertTrue("Bob Conversation should be denied", isDenied)
 
-        val aliceConversation = runBlocking { aliceClient.conversations.list()[0] }
-        val isUnknown = aliceConversation.consentState() == ConsentState.UNKNOWN
+        @Test
+        @Ignore("TODO: Fix Flaky Test")
+        fun testCanHaveImplicitConsentOnMessageSend() {
+            runBlocking {
+                val bobConversation = bobClient.conversations.newConversation(alice.walletAddress, null)
+                Thread.sleep(1000)
+                val isAllowed = bobConversation.consentState() == ConsentState.ALLOWED
 
-        // Conversations started with you should start as unknown
-        assertTrue("Alice conversation should be unknown", isUnknown)
+                // Conversations you start should start as allowed
+                assertTrue("Bob convo should be allowed", isAllowed)
 
-        runBlocking { aliceClient.contacts.allow(listOf(bob.walletAddress)) }
+                val aliceConversation = aliceClient.conversations.list()[0]
+                val isUnknown = aliceConversation.consentState() == ConsentState.UNKNOWN
 
-        val isBobAllowed = aliceConversation.consentState() == ConsentState.ALLOWED
-        assertTrue("Bob should be allowed from alice conversation", isBobAllowed)
+                // Conversations you receive should start as unknown
+                assertTrue("Alice convo should be unknown", isUnknown)
 
-        val aliceClient2 = runBlocking { Client().create(aliceWallet) }
-        val aliceConversation2 = runBlocking { aliceClient2.conversations.list()[0] }
+                aliceConversation.send(content = "hey bob")
+                aliceClient.contacts.refreshConsentList()
+                val isNowAllowed = aliceConversation.consentState() == ConsentState.ALLOWED
 
-        runBlocking { aliceClient2.contacts.refreshConsentList() }
-
-        // Allow state should sync across clients
-        val isBobAllowed2 = aliceConversation2.consentState() == ConsentState.ALLOWED
-
-        assertTrue("Bob should be allowed from conversation 2", isBobAllowed2)
-    }
-
-    @Test
-    @Ignore("TODO: Fix Flaky Test")
-    fun testCanHaveImplicitConsentOnMessageSend() {
-        val bobConversation =
-            runBlocking { bobClient.conversations.newConversation(alice.walletAddress, null) }
-        Thread.sleep(1000)
-        val isAllowed = bobConversation.consentState() == ConsentState.ALLOWED
-
-        // Conversations you start should start as allowed
-        assertTrue("Bob convo should be allowed", isAllowed)
-
-        val aliceConversation = runBlocking { aliceClient.conversations.list()[0] }
-        val isUnknown = aliceConversation.consentState() == ConsentState.UNKNOWN
-
-        // Conversations you receive should start as unknown
-        assertTrue("Alice convo should be unknown", isUnknown)
-
-        runBlocking {
-            aliceConversation.send(content = "hey bob")
-            aliceClient.contacts.refreshConsentList()
+                // Conversations you send a message to get marked as allowed
+                assertTrue("Should now be allowed", isNowAllowed)
+            }
         }
-        val isNowAllowed = aliceConversation.consentState() == ConsentState.ALLOWED
-
-        // Conversations you send a message to get marked as allowed
-        assertTrue("Should now be allowed", isNowAllowed)
     }
 
     @Test

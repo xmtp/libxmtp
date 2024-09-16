@@ -90,9 +90,10 @@ class Client() {
     var logger: XMTPLogger = XMTPLogger()
     val libXMTPVersion: String = getVersionInfo()
     var installationId: String = ""
-    private var v3Client: FfiXmtpClient? = null
+    var v3Client: FfiXmtpClient? = null
     var dbPath: String = ""
     lateinit var inboxId: String
+    var hasV2Client: Boolean = true
 
     companion object {
         private const val TAG = "Client"

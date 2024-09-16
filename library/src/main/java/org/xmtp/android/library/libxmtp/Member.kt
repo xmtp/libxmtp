@@ -1,5 +1,6 @@
 package org.xmtp.android.library.libxmtp
 
+import org.xmtp.android.library.ConsentState
 import uniffi.xmtpv3.FfiGroupMember
 import uniffi.xmtpv3.FfiPermissionLevel
 
@@ -18,4 +19,7 @@ class Member(private val ffiMember: FfiGroupMember) {
             FfiPermissionLevel.ADMIN -> PermissionLevel.ADMIN
             FfiPermissionLevel.SUPER_ADMIN -> PermissionLevel.SUPER_ADMIN
         }
+
+    val consentState: ConsentState
+        get() = ConsentState.fromFfiConsentState(ffiMember.consentState)
 }

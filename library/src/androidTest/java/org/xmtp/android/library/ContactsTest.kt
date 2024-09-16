@@ -32,13 +32,13 @@ class ContactsTest {
         val fixtures = fixtures()
 
         val contacts = fixtures.bobClient.contacts
-        var result = contacts.isAllowed(fixtures.alice.walletAddress)
+        var result = runBlocking { contacts.isAllowed(fixtures.alice.walletAddress) }
 
         assert(!result)
 
         runBlocking { contacts.allow(listOf(fixtures.alice.walletAddress)) }
 
-        result = contacts.isAllowed(fixtures.alice.walletAddress)
+        result = runBlocking { contacts.isAllowed(fixtures.alice.walletAddress) }
         assert(result)
     }
 
@@ -47,13 +47,13 @@ class ContactsTest {
         val fixtures = fixtures()
 
         val contacts = fixtures.bobClient.contacts
-        var result = contacts.isAllowed(fixtures.alice.walletAddress)
+        var result = runBlocking { contacts.isAllowed(fixtures.alice.walletAddress) }
 
         assert(!result)
 
         runBlocking { contacts.deny(listOf(fixtures.alice.walletAddress)) }
 
-        result = contacts.isDenied(fixtures.alice.walletAddress)
+        result = runBlocking { contacts.isDenied(fixtures.alice.walletAddress) }
         assert(result)
     }
 }
