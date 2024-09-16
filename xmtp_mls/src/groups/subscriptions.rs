@@ -126,13 +126,13 @@ impl MlsGroup {
         ApiClient: crate::XmtpApi + 'static,
     {
         Ok(client
-            .stream_messages(HashMap::from([(
+            .stream_messages(Arc::new(HashMap::from([(
                 self.group_id.clone(),
                 MessagesStreamInfo {
                     convo_created_at_ns: self.created_at_ns,
                     cursor: 0,
                 },
-            )]))
+            )])))
             .await?)
     }
 

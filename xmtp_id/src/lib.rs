@@ -12,10 +12,6 @@ use openmls_traits::types::CryptoError;
 use thiserror::Error;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
 
-use crate::associations::Signature;
-
-pub type GenericSignature = Box<dyn Signature + Send + Sync>;
-
 #[derive(Debug, Error)]
 pub enum IdentityError {
     #[error("generating key-pairs: {0}")]
@@ -64,7 +60,6 @@ impl InboxOwner for LocalWallet {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ethers::contract::abigen;
 
     #[cfg(target_arch = "wasm32")]

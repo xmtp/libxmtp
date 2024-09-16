@@ -37,6 +37,12 @@ pub enum StorageError {
     Intent(#[from] IntentError),
     #[error("The SQLCipher Sqlite extension is not present, but an encryption key is given")]
     SqlCipherNotLoaded,
+    #[error("PRAGMA key or salt has incorrect value")]
+    SqlCipherKeyIncorrect,
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    FromHex(#[from] hex::FromHexError),
 }
 
 impl<T> From<PoisonError<T>> for StorageError {
@@ -69,6 +75,7 @@ impl RetryableError for StorageError {
             Self::Lock(_) => true,
             Self::SqlCipherNotLoaded => true,
             Self::PoolNeedsConnection => true,
+            Self::SqlCipherKeyIncorrect => false,
             _ => false,
         }
     }

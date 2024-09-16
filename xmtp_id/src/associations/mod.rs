@@ -8,6 +8,8 @@ pub(super) mod state;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 pub mod unsigned_actions;
+pub mod unverified;
+pub mod verified_signature;
 
 pub use self::association_log::*;
 pub use self::hashes::generate_inbox_id;
@@ -16,23 +18,21 @@ pub use self::serialization::{map_vec, try_map_vec, DeserializationError};
 pub use self::signature::*;
 pub use self::state::{AssociationState, AssociationStateDiff};
 
-use crate::associations::association_log::IdentityAction;
-
 // Apply a single IdentityUpdate to an existing AssociationState
-pub async fn apply_update(
+pub fn apply_update(
     initial_state: AssociationState,
     update: IdentityUpdate,
 ) -> Result<AssociationState, AssociationError> {
-    update.update_state(Some(initial_state)).await
+    update.update_state(Some(initial_state))
 }
 
 // Get the current state from an array of `IdentityUpdate`s. Entire operation fails if any operation fails
-pub async fn get_state<Updates: AsRef<[IdentityUpdate]>>(
+pub fn get_state<Updates: AsRef<[IdentityUpdate]>>(
     updates: Updates,
 ) -> Result<AssociationState, AssociationError> {
     let mut state = None;
     for update in updates.as_ref().iter() {
-        let res = update.update_state(state).await;
+        let res = update.update_state(state);
         state = Some(res?);
     }
 
@@ -41,7 +41,11 @@ pub async fn get_state<Updates: AsRef<[IdentityUpdate]>>(
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_defaults {
-    use self::test_utils::{rand_string, rand_u64, rand_vec, MockSignature};
+    use self::{
+        test_utils::{rand_string, rand_u64, rand_vec},
+        unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
+        verified_signature::VerifiedSignature,
+    };
     use super::*;
 
     impl IdentityUpdate {
@@ -50,22 +54,26 @@ pub mod test_defaults {
         }
     }
 
+    impl UnverifiedIdentityUpdate {
+        pub fn new_test(actions: Vec<UnverifiedAction>, inbox_id: String) -> Self {
+            Self::new(inbox_id, rand_u64(), actions)
+        }
+    }
+
     impl Default for AddAssociation {
         fn default() -> Self {
             let existing_member = rand_string();
             let new_member = rand_vec();
             Self {
-                existing_member_signature: MockSignature::new_boxed(
-                    true,
+                existing_member_signature: VerifiedSignature::new(
                     existing_member.into(),
                     SignatureKind::Erc191,
-                    None,
+                    rand_vec(),
                 ),
-                new_member_signature: MockSignature::new_boxed(
-                    true,
+                new_member_signature: VerifiedSignature::new(
                     new_member.clone().into(),
                     SignatureKind::InstallationKey,
-                    None,
+                    rand_vec(),
                 ),
                 new_member_identifier: new_member.into(),
             }
@@ -79,11 +87,10 @@ pub mod test_defaults {
             Self {
                 nonce: rand_u64(),
                 account_address: signer.clone(),
-                initial_address_signature: MockSignature::new_boxed(
-                    true,
+                initial_address_signature: VerifiedSignature::new(
                     signer.into(),
                     SignatureKind::Erc191,
-                    None,
+                    rand_vec(),
                 ),
             }
         }
@@ -93,11 +100,10 @@ pub mod test_defaults {
         fn default() -> Self {
             let signer = rand_string();
             Self {
-                recovery_address_signature: MockSignature::new_boxed(
-                    true,
+                recovery_address_signature: VerifiedSignature::new(
                     signer.into(),
                     SignatureKind::Erc191,
-                    None,
+                    rand_vec(),
                 ),
                 revoked_member: rand_string().into(),
             }
@@ -110,7 +116,8 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use self::test_utils::{rand_string, rand_vec, MockSignature};
+    use crate::associations::verified_signature::VerifiedSignature;
+    use self::test_utils::{rand_string, rand_vec};
     use super::*;
 
     pub async fn new_test_inbox() -> AssociationState {
@@ -119,7 +126,7 @@ pub(crate) mod tests {
         let identity_update =
             IdentityUpdate::new_test(vec![Action::CreateInbox(create_request)], inbox_id);
 
-        get_state(vec![identity_update]).await.unwrap()
+        get_state(vec![identity_update]).unwrap()
     }
 
     pub async fn new_test_inbox_with_installation() -> AssociationState {
@@ -129,11 +136,10 @@ pub(crate) mod tests {
             initial_state.recovery_address().clone().into();
 
         let update = Action::AddAssociation(AddAssociation {
-            existing_member_signature: MockSignature::new_boxed(
-                true,
+            existing_member_signature: VerifiedSignature::new(
                 initial_wallet_address.clone(),
                 SignatureKind::Erc191,
-                None,
+                rand_vec(),
             ),
             ..Default::default()
         });
@@ -142,7 +148,6 @@ pub(crate) mod tests {
             initial_state,
             IdentityUpdate::new_test(vec![update], inbox_id.clone()),
         )
-        .await
         .unwrap()
     }
 
@@ -154,7 +159,7 @@ pub(crate) mod tests {
         let account_address = create_request.account_address.clone();
         let identity_update =
             IdentityUpdate::new_test(vec![Action::CreateInbox(create_request)], inbox_id.clone());
-        let state = get_state(vec![identity_update]).await.unwrap();
+        let state = get_state(vec![identity_update]).unwrap();
         assert_eq!(state.members().len(), 1);
 
         let existing_entity = state.get(&account_address.clone().into()).unwrap();
@@ -171,17 +176,15 @@ pub(crate) mod tests {
 
         let update = Action::AddAssociation(AddAssociation {
             new_member_identifier: new_installation_identifier.clone(),
-            new_member_signature: MockSignature::new_boxed(
-                true,
+            new_member_signature: VerifiedSignature::new(
                 new_installation_identifier.clone(),
                 SignatureKind::InstallationKey,
-                None,
+                rand_vec(),
             ),
-            existing_member_signature: MockSignature::new_boxed(
-                true,
+            existing_member_signature: VerifiedSignature::new(
                 first_member.clone(),
                 SignatureKind::Erc191,
-                None,
+                rand_vec(),
             ),
         });
 
@@ -189,7 +192,6 @@ pub(crate) mod tests {
             initial_state,
             IdentityUpdate::new_test(vec![update], inbox_id.clone()),
         )
-        .await
         .unwrap();
         assert_eq!(new_state.members().len(), 2);
 
@@ -205,18 +207,16 @@ pub(crate) mod tests {
         let inbox_id = generate_inbox_id(&account_address, &create_action.nonce);
         let new_member_identifier: MemberIdentifier = rand_vec().into();
         let add_action = AddAssociation {
-            existing_member_signature: MockSignature::new_boxed(
-                true,
+            existing_member_signature: VerifiedSignature::new(
                 account_address.clone().into(),
                 SignatureKind::Erc191,
-                None,
+                rand_vec(),
             ),
             // Add an installation ID
-            new_member_signature: MockSignature::new_boxed(
-                true,
+            new_member_signature: VerifiedSignature::new(
                 new_member_identifier.clone(),
                 SignatureKind::InstallationKey,
-                None,
+                rand_vec(),
             ),
             new_member_identifier: new_member_identifier.clone(),
         };
@@ -227,7 +227,7 @@ pub(crate) mod tests {
             ],
             inbox_id.clone(),
         );
-        let state = get_state(vec![identity_update]).await.unwrap();
+        let state = get_state(vec![identity_update]).unwrap();
         assert_eq!(state.members().len(), 2);
         assert_eq!(
             state.get(&new_member_identifier).unwrap().added_by_entity,
@@ -242,11 +242,10 @@ pub(crate) mod tests {
         let create_action = CreateInbox {
             nonce: 0,
             account_address: member_identifier.to_string(),
-            initial_address_signature: MockSignature::new_boxed(
-                true,
+            initial_address_signature: VerifiedSignature::new(
                 member_identifier.clone(),
                 SignatureKind::LegacyDelegated,
-                Some("0".to_string()),
+                "0".as_bytes().to_vec(),
             ),
         };
         let inbox_id = generate_inbox_id(&member_identifier.to_string(), &0);
@@ -254,26 +253,23 @@ pub(crate) mod tests {
             vec![Action::CreateInbox(create_action)],
             inbox_id.clone(),
         )])
-        .await
         .unwrap();
         assert_eq!(state.members().len(), 1);
 
         // The legacy key can only be used once. After this, subsequent updates should fail
         let update = Action::AddAssociation(AddAssociation {
-            existing_member_signature: MockSignature::new_boxed(
-                true,
+            existing_member_signature: VerifiedSignature::new(
                 member_identifier,
                 SignatureKind::LegacyDelegated,
                 // All requests from the same legacy key will have the same signature nonce
-                Some("0".to_string()),
+                "0".as_bytes().to_vec(),
             ),
             ..Default::default()
         });
         let update_result = apply_update(
             state,
             IdentityUpdate::new_test(vec![update], inbox_id.clone()),
-        )
-        .await;
+        );
         assert!(matches!(update_result, Err(AssociationError::Replay)));
     }
 
@@ -292,17 +288,15 @@ pub(crate) mod tests {
         let new_wallet_address: MemberIdentifier = rand_string().into();
         let add_association = Action::AddAssociation(AddAssociation {
             new_member_identifier: new_wallet_address.clone(),
-            new_member_signature: MockSignature::new_boxed(
-                true,
+            new_member_signature: VerifiedSignature::new(
                 new_wallet_address.clone(),
                 SignatureKind::Erc191,
-                None,
+                rand_vec(),
             ),
-            existing_member_signature: MockSignature::new_boxed(
-                true,
+            existing_member_signature: VerifiedSignature::new(
                 installation_id.clone(),
                 SignatureKind::InstallationKey,
-                None,
+                rand_vec(),
             ),
         });
 
@@ -310,7 +304,6 @@ pub(crate) mod tests {
             initial_state,
             IdentityUpdate::new_test(vec![add_association], inbox_id.clone()),
         )
-        .await
         .expect("expected update to succeed");
         assert_eq!(new_state.members().len(), 3);
     }
@@ -318,22 +311,23 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn reject_invalid_signature_on_create() {
+        // Creates a signature with the wrong signer
         let bad_signature =
-            MockSignature::new_boxed(false, rand_string().into(), SignatureKind::Erc191, None);
+            VerifiedSignature::new(rand_string().into(), SignatureKind::Erc191, rand_vec());
         let action = CreateInbox {
-            initial_address_signature: bad_signature.clone(),
+            initial_address_signature: bad_signature,
             ..Default::default()
         };
 
         let state_result = get_state(vec![IdentityUpdate::new_test(
             vec![Action::CreateInbox(action)],
             rand_string(),
-        )])
-        .await;
+        )]);
+
         assert!(state_result.is_err());
         assert!(matches!(
             state_result,
-            Err(AssociationError::Signature(SignatureError::Invalid))
+            Err(AssociationError::MissingExistingMember)
         ));
     }
 
@@ -342,8 +336,9 @@ pub(crate) mod tests {
     async fn reject_invalid_signature_on_update() {
         let initial_state = new_test_inbox().await;
         let inbox_id = initial_state.inbox_id().clone();
+        // Signature is from a random address
         let bad_signature =
-            MockSignature::new_boxed(false, rand_string().into(), SignatureKind::Erc191, None);
+            VerifiedSignature::new(rand_string().into(), SignatureKind::Erc191, rand_vec());
 
         let update_with_bad_existing_member = Action::AddAssociation(AddAssociation {
             existing_member_signature: bad_signature.clone(),
@@ -353,20 +348,19 @@ pub(crate) mod tests {
         let update_result = apply_update(
             initial_state.clone(),
             IdentityUpdate::new_test(vec![update_with_bad_existing_member], inbox_id.clone()),
-        )
-        .await;
+        );
+
         assert!(matches!(
             update_result,
-            Err(AssociationError::Signature(SignatureError::Invalid))
+            Err(AssociationError::MissingExistingMember)
         ));
 
         let update_with_bad_new_member = Action::AddAssociation(AddAssociation {
             new_member_signature: bad_signature.clone(),
-            existing_member_signature: MockSignature::new_boxed(
-                true,
+            existing_member_signature: VerifiedSignature::new(
                 initial_state.recovery_address().clone().into(),
                 SignatureKind::Erc191,
-                None,
+                rand_vec(),
             ),
             ..Default::default()
         });
@@ -374,11 +368,10 @@ pub(crate) mod tests {
         let update_result_2 = apply_update(
             initial_state,
             IdentityUpdate::new_test(vec![update_with_bad_new_member], inbox_id.clone()),
-        )
-        .await;
+        );
         assert!(matches!(
             update_result_2,
-            Err(AssociationError::Signature(SignatureError::Invalid))
+            Err(AssociationError::NewMemberIdSignatureMismatch)
         ));
     }
 
@@ -391,11 +384,10 @@ pub(crate) mod tests {
         // The default here will create an AddAssociation from a random wallet
         let update = Action::AddAssociation(AddAssociation {
             // Existing member signature is coming from a random wallet
-            existing_member_signature: MockSignature::new_boxed(
-                true,
+            existing_member_signature: VerifiedSignature::new(
                 rand_string().into(),
                 SignatureKind::Erc191,
-                None,
+                rand_vec(),
             ),
             ..Default::default()
         });
@@ -403,8 +395,7 @@ pub(crate) mod tests {
         let state_result = get_state(vec![IdentityUpdate::new_test(
             vec![create_request, update],
             inbox_id.clone(),
-        )])
-        .await;
+        )]);
         assert!(matches!(
             state_result,
             Err(AssociationError::MissingExistingMember)
@@ -421,26 +412,23 @@ pub(crate) mod tests {
         let new_installation_id: MemberIdentifier = rand_vec().into();
 
         let update = Action::AddAssociation(AddAssociation {
-            existing_member_signature: MockSignature::new_boxed(
-                true,
+            existing_member_signature: VerifiedSignature::new(
                 existing_installation.identifier.clone(),
                 SignatureKind::InstallationKey,
-                None,
+                rand_vec(),
             ),
             new_member_identifier: new_installation_id.clone(),
-            new_member_signature: MockSignature::new_boxed(
-                true,
+            new_member_signature: VerifiedSignature::new(
                 new_installation_id.clone(),
                 SignatureKind::InstallationKey,
-                None,
+                rand_vec(),
             ),
         });
 
         let update_result = apply_update(
             existing_state,
             IdentityUpdate::new_test(vec![update], inbox_id.clone()),
-        )
-        .await;
+        );
         assert!(matches!(
             update_result,
             Err(AssociationError::MemberNotAllowed(
@@ -462,11 +450,10 @@ pub(crate) mod tests {
             .unwrap()
             .identifier;
         let update = Action::RevokeAssociation(RevokeAssociation {
-            recovery_address_signature: MockSignature::new_boxed(
-                true,
+            recovery_address_signature: VerifiedSignature::new(
                 initial_state.recovery_address().clone().into(),
                 SignatureKind::Erc191,
-                None,
+                rand_vec(),
             ),
             revoked_member: installation_id.clone(),
         });
@@ -475,7 +462,6 @@ pub(crate) mod tests {
             initial_state,
             IdentityUpdate::new_test(vec![update], inbox_id.clone()),
         )
-        .await
         .expect("expected update to succeed");
         assert!(new_state.get(&installation_id).is_none());
     }
@@ -493,11 +479,10 @@ pub(crate) mod tests {
             .identifier;
 
         let add_second_installation = Action::AddAssociation(AddAssociation {
-            existing_member_signature: MockSignature::new_boxed(
-                true,
+            existing_member_signature: VerifiedSignature::new(
                 wallet_address.clone(),
                 SignatureKind::Erc191,
-                None,
+                rand_vec(),
             ),
             ..Default::default()
         });
@@ -506,16 +491,14 @@ pub(crate) mod tests {
             initial_state,
             IdentityUpdate::new_test(vec![add_second_installation], inbox_id.clone()),
         )
-        .await
         .expect("expected update to succeed");
         assert_eq!(new_state.members().len(), 3);
 
         let revocation = Action::RevokeAssociation(RevokeAssociation {
-            recovery_address_signature: MockSignature::new_boxed(
-                true,
+            recovery_address_signature: VerifiedSignature::new(
                 wallet_address.clone(),
                 SignatureKind::Erc191,
-                None,
+                rand_vec(),
             ),
             revoked_member: wallet_address.clone(),
         });
@@ -525,7 +508,6 @@ pub(crate) mod tests {
             new_state,
             IdentityUpdate::new_test(vec![revocation], inbox_id.clone()),
         )
-        .await
         .expect("expected update to succeed");
         assert_eq!(new_state.members().len(), 0);
     }
@@ -546,26 +528,23 @@ pub(crate) mod tests {
         let second_wallet_address: MemberIdentifier = rand_string().into();
         let add_second_wallet = Action::AddAssociation(AddAssociation {
             new_member_identifier: second_wallet_address.clone(),
-            new_member_signature: MockSignature::new_boxed(
-                true,
+            new_member_signature: VerifiedSignature::new(
                 second_wallet_address.clone(),
                 SignatureKind::Erc191,
-                None,
+                rand_vec(),
             ),
-            existing_member_signature: MockSignature::new_boxed(
-                true,
+            existing_member_signature: VerifiedSignature::new(
                 wallet_address.clone(),
                 SignatureKind::Erc191,
-                None,
+                rand_vec(),
             ),
         });
 
         let revoke_second_wallet = Action::RevokeAssociation(RevokeAssociation {
-            recovery_address_signature: MockSignature::new_boxed(
-                true,
+            recovery_address_signature: VerifiedSignature::new(
                 wallet_address.clone(),
                 SignatureKind::Erc191,
-                None,
+                rand_vec(),
             ),
             revoked_member: second_wallet_address.clone(),
         });
@@ -577,23 +556,20 @@ pub(crate) mod tests {
                 inbox_id.clone(),
             ),
         )
-        .await
         .expect("expected update to succeed");
         assert_eq!(state_after_remove.members().len(), 1);
 
         let add_second_wallet_again = Action::AddAssociation(AddAssociation {
             new_member_identifier: second_wallet_address.clone(),
-            new_member_signature: MockSignature::new_boxed(
-                true,
+            new_member_signature: VerifiedSignature::new(
                 second_wallet_address.clone(),
                 SignatureKind::Erc191,
-                None,
+                rand_vec(),
             ),
-            existing_member_signature: MockSignature::new_boxed(
-                true,
+            existing_member_signature: VerifiedSignature::new(
                 wallet_address,
                 SignatureKind::Erc191,
-                None,
+                rand_vec(),
             ),
         });
 
@@ -601,7 +577,6 @@ pub(crate) mod tests {
             state_after_remove,
             IdentityUpdate::new_test(vec![add_second_wallet_again], inbox_id.clone()),
         )
-        .await
         .expect("expected update to succeed");
         assert_eq!(state_after_re_add.members().len(), 2);
     }
@@ -616,11 +591,10 @@ pub(crate) mod tests {
         let new_recovery_address = rand_string();
         let update_recovery = Action::ChangeRecoveryAddress(ChangeRecoveryAddress {
             new_recovery_address: new_recovery_address.clone(),
-            recovery_address_signature: MockSignature::new_boxed(
-                true,
+            recovery_address_signature: VerifiedSignature::new(
                 initial_state.recovery_address().clone().into(),
                 SignatureKind::Erc191,
-                None,
+                rand_vec(),
             ),
         });
 
@@ -628,16 +602,14 @@ pub(crate) mod tests {
             initial_state,
             IdentityUpdate::new_test(vec![update_recovery], inbox_id.clone()),
         )
-        .await
         .expect("expected update to succeed");
         assert_eq!(new_state.recovery_address(), &new_recovery_address);
 
         let attempted_revoke = Action::RevokeAssociation(RevokeAssociation {
-            recovery_address_signature: MockSignature::new_boxed(
-                true,
+            recovery_address_signature: VerifiedSignature::new(
                 initial_recovery_address.clone(),
                 SignatureKind::Erc191,
-                None,
+                rand_vec(),
             ),
             revoked_member: initial_recovery_address.clone(),
         });
@@ -645,8 +617,7 @@ pub(crate) mod tests {
         let revoke_result = apply_update(
             new_state,
             IdentityUpdate::new_test(vec![attempted_revoke], inbox_id.clone()),
-        )
-        .await;
+        );
         assert!(revoke_result.is_err());
         assert!(matches!(
             revoke_result,

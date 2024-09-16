@@ -299,7 +299,7 @@ extern "C" {
     pub fn prepare_v3(
         this: &SQLite,
         database: &JsValue,
-        sql: &str,
+        sql: *mut u8,
         n_byte: i32,
         prep_flags: u32,
         stmt: &JsValue,

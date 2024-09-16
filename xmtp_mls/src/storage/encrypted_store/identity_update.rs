@@ -11,7 +11,7 @@ use diesel::{dsl::max, prelude::*};
 #[cfg(target_arch = "wasm32")]
 use diesel_wasm_sqlite::dsl::RunQueryDsl;
 
-use xmtp_id::associations::{AssociationError, IdentityUpdate};
+use xmtp_id::associations::{unverified::UnverifiedIdentityUpdate, AssociationError};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
@@ -40,11 +40,11 @@ impl StoredIdentityUpdate {
     }
 }
 
-impl TryFrom<StoredIdentityUpdate> for IdentityUpdate {
+impl TryFrom<StoredIdentityUpdate> for UnverifiedIdentityUpdate {
     type Error = AssociationError;
 
     fn try_from(update: StoredIdentityUpdate) -> Result<Self, Self::Error> {
-        Ok(IdentityUpdate::try_from(update.payload)?)
+        Ok(UnverifiedIdentityUpdate::try_from(update.payload)?)
     }
 }
 

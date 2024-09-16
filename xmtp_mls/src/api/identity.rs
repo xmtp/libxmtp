@@ -4,7 +4,7 @@ use super::{ApiClientWrapper, WrappedApiError};
 use crate::XmtpApi;
 use futures::future::try_join_all;
 use xmtp_id::{
-    associations::{DeserializationError, IdentityUpdate},
+    associations::{unverified::UnverifiedIdentityUpdate, DeserializationError},
     InboxId,
 };
 use xmtp_proto::xmtp::identity::api::v1::{
@@ -37,7 +37,7 @@ impl From<&GetIdentityUpdatesV2Filter> for GetIdentityUpdatesV2RequestProto {
 pub struct InboxUpdate {
     pub sequence_id: u64,
     pub server_timestamp_ns: u64,
-    pub update: IdentityUpdate,
+    pub update: UnverifiedIdentityUpdate,
 }
 
 impl TryFrom<IdentityUpdateLog> for InboxUpdate {
@@ -68,7 +68,7 @@ where
 {
     pub async fn publish_identity_update(
         &self,
-        update: IdentityUpdate,
+        update: UnverifiedIdentityUpdate,
     ) -> Result<(), WrappedApiError> {
         self.api_client
             .publish_identity_update(PublishIdentityUpdateRequest {
@@ -158,7 +158,7 @@ pub(crate) mod tests {
     use super::super::test_utils::*;
     use super::GetIdentityUpdatesV2Filter;
     use crate::{api::ApiClientWrapper, retry::Retry};
-    use xmtp_id::associations::{test_utils::rand_string, Action, CreateInbox, IdentityUpdate};
+    use xmtp_id::associations::{test_utils::rand_string, unverified::UnverifiedIdentityUpdate};
     use xmtp_proto::xmtp::identity::api::v1::{
         get_identity_updates_response::{
             IdentityUpdateLog, Response as GetIdentityUpdatesResponseItem,
@@ -167,8 +167,12 @@ pub(crate) mod tests {
         GetIdentityUpdatesResponse, GetInboxIdsResponse, PublishIdentityUpdateResponse,
     };
 
-    fn create_identity_update(inbox_id: String) -> IdentityUpdate {
-        IdentityUpdate::new_test(vec![Action::CreateInbox(CreateInbox::default())], inbox_id)
+    fn create_identity_update(inbox_id: String) -> UnverifiedIdentityUpdate {
+        UnverifiedIdentityUpdate::new_test(
+            // TODO:nm Add default actions
+            vec![],
+            inbox_id,
+        )
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -207,7 +211,7 @@ pub(crate) mod tests {
                         updates: vec![IdentityUpdateLog {
                             sequence_id: 1,
                             server_timestamp_ns: 1,
-                            update: Some(identity_update.to_proto()),
+                            update: Some(identity_update.into()),
                         }],
                     }],
                 })
