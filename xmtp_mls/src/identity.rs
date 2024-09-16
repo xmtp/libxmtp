@@ -1,4 +1,5 @@
 use std::array::TryFromSliceError;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 use crate::retry::RetryableError;
@@ -30,7 +31,6 @@ use openmls::{
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::types::CryptoError;
 use openmls_traits::OpenMlsProvider;
-use parking_lot::Mutex;
 use prost::Message;
 use sha2::{Digest, Sha512};
 use thiserror::Error;
@@ -181,7 +181,8 @@ pub struct Identity {
     pub(crate) inbox_id: InboxId,
     pub(crate) installation_keys: SignatureKeyPair,
     pub(crate) credential: OpenMlsCredential,
-    pub(crate) signature_request: Mutex<Option<SignatureRequest>>,
+    pub(crate) signature_request: Option<SignatureRequest>,
+    pub(crate) is_ready: AtomicBool,
 }
 
 impl Clone for Identity {
@@ -190,7 +191,8 @@ impl Clone for Identity {
             inbox_id: self.inbox_id.clone(),
             installation_keys: self.installation_keys.clone(),
             credential: self.credential.clone(),
-            signature_request: Mutex::new(self.signature_request()),
+            signature_request: self.signature_request(),
+            is_ready: AtomicBool::new(self.is_ready.load(Ordering::SeqCst)),
         }
     }
 }
@@ -248,7 +250,8 @@ impl Identity {
                 inbox_id: associated_inbox_id.clone(),
                 installation_keys: signature_keys,
                 credential: create_credential(associated_inbox_id.clone())?,
-                signature_request: Mutex::new(Some(signature_request)),
+                signature_request: Some(signature_request),
+                is_ready: AtomicBool::new(false),
             };
 
             Ok(identity)
@@ -299,7 +302,8 @@ impl Identity {
                 inbox_id: inbox_id.clone(),
                 installation_keys: signature_keys,
                 credential: create_credential(inbox_id)?,
-                signature_request: Mutex::new(None),
+                signature_request: None,
+                is_ready: AtomicBool::new(true),
             };
 
             identity.register(provider, api_client).await?;
@@ -340,7 +344,8 @@ impl Identity {
                 inbox_id: inbox_id.clone(),
                 installation_keys: signature_keys,
                 credential: create_credential(inbox_id.clone())?,
-                signature_request: Mutex::new(Some(signature_request)),
+                signature_request: Some(signature_request),
+                is_ready: AtomicBool::new(false),
             };
 
             Ok(identity)
@@ -356,12 +361,12 @@ impl Identity {
     }
 
     #[allow(dead_code)]
-    fn is_ready(&self) -> bool {
-        self.signature_request.lock().is_none()
+    pub fn is_ready(&self) -> bool {
+        self.is_ready.load(Ordering::SeqCst)
     }
 
     pub fn signature_request(&self) -> Option<SignatureRequest> {
-        self.signature_request.lock().clone()
+        self.signature_request.clone()
     }
 
     pub fn credential(&self) -> OpenMlsCredential {
@@ -453,7 +458,7 @@ impl Identity {
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
         api_client.upload_key_package(kp_bytes, true).await?;
-        *self.signature_request.lock() = None;
+        self.is_ready.store(true, Ordering::SeqCst);
 
         Ok(StoredIdentity::try_from(self)?.store(provider.conn_ref())?)
     }
