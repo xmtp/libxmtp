@@ -349,21 +349,26 @@ where
         entity: String,
     ) -> Result<(), ClientError> {
         let conn = self.store().conn()?;
-        conn.insert_or_replace_consent_record(StoredConsentRecord::new(
-            entity_type,
-            state,
-            entity.clone(),
-        ))?;
 
+        // Create a list of records to insert
+        let mut records = Vec::new();
+
+        // Add the main consent record
+        records.push(StoredConsentRecord::new(entity_type, state, entity.clone()));
+
+        // If the entity is an address, handle the additional inbox_id record
         if entity_type == ConsentType::Address {
             if let Some(inbox_id) = self.find_inbox_id_from_address(entity.clone()).await? {
-                conn.insert_or_replace_consent_record(StoredConsentRecord::new(
+                records.push(StoredConsentRecord::new(
                     ConsentType::InboxId,
                     state,
                     inbox_id,
-                ))?;
+                ));
             }
-        };
+        }
+
+        // Perform the batch insert or update
+        conn.insert_or_replace_consent_records(records)?;
 
         Ok(())
     }
