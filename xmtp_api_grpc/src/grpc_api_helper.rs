@@ -14,7 +14,10 @@ use crate::conversions::wrap_client_envelope;
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpMlsStreams, XmtpReplicationClient};
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::xmtp::xmtpv4::replication_api_client::ReplicationApiClient;
-use xmtp_proto::xmtp::xmtpv4::{BatchSubscribeEnvelopesRequest, BatchSubscribeEnvelopesResponse, ClientEnvelope, PublishEnvelopeRequest, PublishEnvelopeResponse, QueryEnvelopesRequest, QueryEnvelopesResponse};
+use xmtp_proto::xmtp::xmtpv4::{
+    BatchSubscribeEnvelopesRequest, BatchSubscribeEnvelopesResponse, ClientEnvelope,
+    PublishEnvelopeRequest, PublishEnvelopeResponse, QueryEnvelopesRequest, QueryEnvelopesResponse,
+};
 use xmtp_proto::{
     api_client::{
         Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
@@ -81,7 +84,11 @@ pub struct Client {
 }
 
 impl Client {
-    pub async fn create(host: String, is_secure: bool, use_replication_v4: bool) -> Result<Self, Error> {
+    pub async fn create(
+        host: String,
+        is_secure: bool,
+        use_replication_v4: bool,
+    ) -> Result<Self, Error> {
         let host = host.to_string();
         let app_version = MetadataValue::try_from(&String::from("0.0.0"))
             .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
@@ -109,7 +116,7 @@ impl Client {
             libxmtp_version,
             identity_client,
             replication_client,
-            use_replication_v4
+            use_replication_v4,
         })
     }
 
@@ -520,7 +527,6 @@ impl XmtpMlsStreams for Client {
     }
 }
 
-
 pub struct BatchSubscribeStream {
     inner: tonic::codec::Streaming<BatchSubscribeEnvelopesResponse>,
 }
@@ -547,7 +553,10 @@ impl Stream for BatchSubscribeStream {
 impl XmtpReplicationClient for Client {
     type BatchSubscribeStream<'a> = BatchSubscribeStream;
 
-    async fn publish_envelope(&self, request: PublishEnvelopeRequest) -> Result<PublishEnvelopeResponse, Error> {
+    async fn publish_envelope(
+        &self,
+        request: PublishEnvelopeRequest,
+    ) -> Result<PublishEnvelopeResponse, Error> {
         let client = &mut self.replication_client.clone();
 
         client
@@ -557,7 +566,10 @@ impl XmtpReplicationClient for Client {
             .map_err(|e| Error::new(ErrorKind::PublishError).with(e))
     }
 
-    async fn query_envelopes(&self, request: QueryEnvelopesRequest) -> Result<QueryEnvelopesResponse, Error> {
+    async fn query_envelopes(
+        &self,
+        request: QueryEnvelopesRequest,
+    ) -> Result<QueryEnvelopesResponse, Error> {
         let client = &mut self.replication_client.clone();
 
         client
@@ -567,7 +579,10 @@ impl XmtpReplicationClient for Client {
             .map_err(|e| Error::new(ErrorKind::QueryError).with(e))
     }
 
-    async fn batch_subscribe_envelopes(&self, request: BatchSubscribeEnvelopesRequest) -> Result<Self::BatchSubscribeStream<'_>, Error>  {
+    async fn batch_subscribe_envelopes(
+        &self,
+        request: BatchSubscribeEnvelopesRequest,
+    ) -> Result<Self::BatchSubscribeStream<'_>, Error> {
         let client = &mut self.replication_client.clone();
         let res = client
             .batch_subscribe_envelopes(request)

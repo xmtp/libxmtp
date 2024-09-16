@@ -1,3 +1,6 @@
+use crate::conversions::wrap_client_envelope;
+use crate::Client;
+use xmtp_proto::xmtp::xmtpv4::ClientEnvelope;
 use xmtp_proto::{
     api_client::{Error, ErrorKind, XmtpIdentityClient},
     xmtp::identity::api::v1::{
@@ -6,9 +9,6 @@ use xmtp_proto::{
         GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
     },
 };
-use xmtp_proto::xmtp::xmtpv4::ClientEnvelope;
-use crate::Client;
-use crate::conversions::wrap_client_envelope;
 
 impl XmtpIdentityClient for Client {
     #[tracing::instrument(level = "trace", skip_all)]
@@ -21,7 +21,7 @@ impl XmtpIdentityClient for Client {
             let payload = wrap_client_envelope(ClientEnvelope::from(request));
             let res = client.publish_envelope(payload).await;
             match res {
-                Ok(_) => Ok(PublishIdentityUpdateResponse{}),
+                Ok(_) => Ok(PublishIdentityUpdateResponse {}),
                 Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
             }
         } else {

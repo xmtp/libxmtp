@@ -417,23 +417,20 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
     if cli.testnet {
         if cli.local {
             info!("Using local testnet network");
-            builder = builder
-                .api_client(
-                    ApiClient::create("http://localhost:5050".into(), false, true)
-                        .await
-                        .unwrap(),
-                );
+            builder = builder.api_client(
+                ApiClient::create("http://localhost:5050".into(), false, true)
+                    .await
+                    .unwrap(),
+            );
         } else {
             info!("Using testnet network");
-            builder = builder
-                .api_client(
-                    ApiClient::create("https://grpc.testnet.xmtp.network:443".into(), true, true)
-                        .await
-                        .unwrap(),
-                );
+            builder = builder.api_client(
+                ApiClient::create("https://grpc.testnet.xmtp.network:443".into(), true, true)
+                    .await
+                    .unwrap(),
+            );
         }
-    }
-    else {
+    } else {
         #[deny(clippy::collapsible_else_if)]
         if cli.local {
             info!("Using local network");
