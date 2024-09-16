@@ -455,7 +455,7 @@ impl Identity {
         api_client.upload_key_package(kp_bytes, true).await?;
         *self.signature_request.lock() = None;
 
-        Ok(StoredIdentity::try_from(&*self)?.store(provider.conn_ref())?)
+        Ok(StoredIdentity::try_from(self)?.store(provider.conn_ref())?)
     }
 }
 
