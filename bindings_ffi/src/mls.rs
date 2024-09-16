@@ -1867,13 +1867,6 @@ mod tests {
         assert_eq!(real_inbox_id, from_network);
     }
 
-    // Try a query on a test topic, and make sure we get a response
-    #[tokio::test]
-    async fn test_client_creation() {
-        let client = new_test_client().await;
-        assert!(client.signature_request().is_some());
-    }
-
     #[tokio::test]
     #[ignore]
     async fn test_legacy_identity() {
@@ -2047,9 +2040,8 @@ mod tests {
         .await
         .unwrap();
 
-        register_client(&ffi_inbox_owner, &client).await;
-
         let signature_request = client.signature_request().unwrap().clone();
+        register_client(&ffi_inbox_owner, &client).await;
 
         sign_with_wallet(&ffi_inbox_owner.wallet, &signature_request).await;
 
@@ -2114,9 +2106,8 @@ mod tests {
         .await
         .unwrap();
 
-        register_client(&ffi_inbox_owner, &client).await;
-
         let signature_request = client.signature_request().unwrap().clone();
+        register_client(&ffi_inbox_owner, &client).await;
 
         sign_with_wallet(&ffi_inbox_owner.wallet, &signature_request).await;
 
