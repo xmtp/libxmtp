@@ -148,6 +148,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicBool;
+
     use crate::api::ApiClientWrapper;
     use crate::builder::ClientBuilderError;
     use crate::identity::IdentityError;
@@ -530,6 +532,7 @@ mod tests {
             installation_keys: SignatureKeyPair::new(SignatureScheme::ED25519).unwrap(),
             credential: Credential::new(CredentialType::Basic, rand_vec()),
             signature_request: None,
+            is_ready: AtomicBool::new(true),
         })
             .try_into()
             .unwrap();
@@ -564,6 +567,7 @@ mod tests {
             installation_keys: SignatureKeyPair::new(SignatureScheme::ED25519).unwrap(),
             credential: Credential::new(CredentialType::Basic, rand_vec()),
             signature_request: None,
+            is_ready: AtomicBool::new(true),
         })
             .try_into()
             .unwrap();
@@ -611,6 +615,7 @@ mod tests {
         .unwrap();
 
         register_client(&client_a, wallet).await;
+        assert!(client_a.identity().is_ready());
 
         let keybytes_a = client_a.installation_public_key();
         drop(client_a);

@@ -1,3 +1,5 @@
+use std::sync::atomic::AtomicBool;
+
 use crate::storage::{encrypted_store::schema::identity, StorageError};
 use diesel::prelude::*;
 use xmtp_id::InboxId;
@@ -55,6 +57,7 @@ impl TryFrom<StoredIdentity> for Identity {
             installation_keys: db_deserialize(&identity.installation_keys)?,
             credential: db_deserialize(&identity.credential_bytes)?,
             signature_request: None,
+            is_ready: AtomicBool::new(true),
         })
     }
 }
