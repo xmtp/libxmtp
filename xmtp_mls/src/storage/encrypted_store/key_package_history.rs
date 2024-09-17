@@ -59,6 +59,21 @@ impl DbConnection {
 
         Ok(result)
     }
+
+    pub fn delete_key_package_history_entries_before_id(
+        &self,
+        id: i32,
+    ) -> Result<(), StorageError> {
+        self.raw_query(|conn| {
+            diesel::delete(
+                key_package_history::dsl::key_package_history
+                    .filter(key_package_history::dsl::id.lt(id)),
+            )
+            .execute(conn)
+        })?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
