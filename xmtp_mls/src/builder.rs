@@ -140,7 +140,11 @@ where
         )
         .await?;
 
+        #[cfg(feature = "message-history")]
         let client = Client::new(api_client_wrapper, identity, store, self.history_sync_url);
+
+        #[cfg(not(feature = "message-history"))]
+        let client = Client::new(api_client_wrapper, identity, store);
 
         Ok(client)
     }
