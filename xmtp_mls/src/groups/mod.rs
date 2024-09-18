@@ -5,6 +5,7 @@ pub mod group_permissions;
 pub mod intents;
 pub mod members;
 #[allow(dead_code)]
+#[cfg(feature = "message-history")]
 pub mod message_history;
 mod subscriptions;
 mod sync;
@@ -35,6 +36,8 @@ use tokio::sync::Mutex;
 
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
+#[cfg(feature = "message-history")]
+use self::message_history::MessageHistoryError;
 use self::{
     group_membership::GroupMembership,
     group_metadata::{extract_group_metadata, DmMembers},
@@ -51,7 +54,6 @@ use self::{
 use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
     group_permissions::PolicySet,
-    message_history::MessageHistoryError,
     validated_commit::CommitValidationError,
 };
 use std::{collections::HashSet, sync::Arc};
@@ -81,6 +83,7 @@ use crate::{
     identity_updates::{load_identity_updates, InstallationDiffError},
     retry::RetryableError,
     storage::{
+        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
         group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
@@ -168,6 +171,7 @@ pub enum GroupError {
     CredentialError(#[from] BasicCredentialError),
     #[error("LeafNode error")]
     LeafNodeError(#[from] LibraryError),
+    #[cfg(feature = "message-history")]
     #[error("Message History error: {0}")]
     MessageHistory(#[from] Box<MessageHistoryError>),
     #[error("Installation diff error: {0}")]
@@ -323,11 +327,11 @@ impl MlsGroup {
         );
 
         stored_group.store(provider.conn_ref())?;
-        Ok(Self::new(
-            context.clone(),
-            group_id,
-            stored_group.created_at_ns,
-        ))
+        let new_group = Self::new(context.clone(), group_id, stored_group.created_at_ns);
+
+        // Consent state defaults to allowed when the user creates the group
+        new_group.update_consent_state(ConsentState::Allowed)?;
+        Ok(new_group)
     }
 
     // Create a new DM and save it to the DB
@@ -469,6 +473,7 @@ impl MlsGroup {
         Self::create_from_welcome(client, provider, welcome, inbox_id, welcome_id).await
     }
 
+    #[cfg(feature = "message-history")]
     pub(crate) fn create_and_insert_sync_group(
         context: Arc<XmtpMlsLocalContext>,
     ) -> Result<MlsGroup, GroupError> {
@@ -1007,6 +1012,29 @@ impl MlsGroup {
             })
     }
 
+    /// Find the `consent_state` of the group
+    pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
+        let conn = self.context.store.conn()?;
+        let record =
+            conn.get_consent_record(hex::encode(self.group_id.clone()), ConsentType::GroupId)?;
+
+        match record {
+            Some(rec) => Ok(rec.state),
+            None => Ok(ConsentState::Unknown),
+        }
+    }
+
+    pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
+        let conn = self.context.store.conn()?;
+        conn.insert_or_replace_consent_record(StoredConsentRecord::new(
+            ConsentType::GroupId,
+            state,
+            hex::encode(self.group_id.clone()),
+        ))?;
+
+        Ok(())
+    }
+
     // Update this installation's leaf key in the group by creating a key update commit
     pub async fn key_update<ApiClient>(&self, client: &Client<ApiClient>) -> Result<(), GroupError>
     where
@@ -1397,6 +1425,7 @@ mod tests {
             DeliveryStatus, GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
         },
         storage::{
+            consent_record::ConsentState,
             group_intent::{IntentKind, IntentState, NewGroupIntent},
             group_message::{GroupMessageKind, StoredGroupMessage},
         },
@@ -3080,16 +3109,16 @@ mod tests {
         amal_dm.sync(&amal).await.unwrap();
         bola_dm.sync(&bola).await.unwrap();
         let is_amal_admin = amal_dm
-            .is_admin(amal.inbox_id(), &amal.mls_provider().unwrap())
+            .is_admin(amal.inbox_id(), amal.mls_provider().unwrap())
             .unwrap();
         let is_bola_admin = amal_dm
-            .is_admin(bola.inbox_id(), &bola.mls_provider().unwrap())
+            .is_admin(bola.inbox_id(), bola.mls_provider().unwrap())
             .unwrap();
         let is_amal_super_admin = amal_dm
-            .is_super_admin(amal.inbox_id(), &amal.mls_provider().unwrap())
+            .is_super_admin(amal.inbox_id(), amal.mls_provider().unwrap())
             .unwrap();
         let is_bola_super_admin = amal_dm
-            .is_super_admin(bola.inbox_id(), &bola.mls_provider().unwrap())
+            .is_super_admin(bola.inbox_id(), bola.mls_provider().unwrap())
             .unwrap();
         assert!(!is_amal_admin);
         assert!(!is_bola_admin);
@@ -3388,5 +3417,18 @@ mod tests {
             process_result,
             MessageProcessingError::EpochIncrementNotAllowed
         );
+    }
+
+    #[tokio::test]
+    async fn test_get_and_set_consent() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        group.update_consent_state(ConsentState::Denied).unwrap();
+        let consent = group.consent_state().unwrap();
+
+        assert_eq!(consent, ConsentState::Denied);
     }
 }

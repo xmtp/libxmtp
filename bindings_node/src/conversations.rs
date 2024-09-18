@@ -21,6 +21,7 @@ pub struct NapiListConversationsOptions {
 }
 
 #[napi(object)]
+#[derive(Clone)]
 pub struct NapiCreateGroupOptions {
   pub permissions: Option<NapiGroupPermissionsOptions>,
   pub group_name: Option<String>,
@@ -78,16 +79,21 @@ impl NapiConversations {
       _ => None,
     };
 
-    let convo = self
-      .inner_client
-      .create_group(group_permissions, options.into_group_metadata_options())
-      .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
-    if !account_addresses.is_empty() {
-      convo
-        .add_members(&self.inner_client, account_addresses)
+    let metadata_options = options.clone().into_group_metadata_options();
+
+    let convo = if account_addresses.is_empty() {
+      self
+        .inner_client
+        .create_group(group_permissions, metadata_options)
+        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?
+    } else {
+      self
+        .inner_client
+        .create_group_with_members(account_addresses, group_permissions, metadata_options)
         .await
-        .map_err(|e| Error::from_reason(format!("GroupError: {}", e)))?;
-    }
+        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?
+    };
+
     let out = NapiGroup::new(
       self.inner_client.clone(),
       convo.group_id,

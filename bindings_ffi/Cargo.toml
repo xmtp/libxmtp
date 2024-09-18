@@ -7,7 +7,6 @@ version = "0.0.1"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
-env_logger = "0.11.3"
 futures = "0.3.28"
 log = { version = "0.4", features = ["std"] }
 parking_lot = "0.12.3"
@@ -15,17 +14,15 @@ thiserror = "1.0"
 thread-id = "4.2.1"
 tokio = { version = "1.28.1", features = ["macros"] }
 uniffi = { version = "0.28.0", features = ["tokio", "cli"] }
-uniffi_macros = "0.28.0"
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
-xmtp_mls = { path = "../xmtp_mls", features = ["native"] }
+xmtp_mls = { path = "../xmtp_mls", features = ["native", "message-history"] }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 xmtp_v2 = { path = "../xmtp_v2" }
 
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-# NOTE: A regression in openssl-sys exists where libatomic is dynamically linked 
+# NOTE: A regression in openssl-sys exists where libatomic is dynamically linked
 # for i686-linux-android targets. https://github.com/sfackler/rust-openssl/issues/2163
 #
 # This is fixed in the openssl-sys fork at
@@ -43,13 +40,14 @@ path = "src/bin.rs"
 
 [dev-dependencies]
 ethers = "2.0.13"
-ethers-core = "2.0.13"
+rand = "0.8.5"
 tempfile = "3.5.0"
 tokio = { version = "1.28.1", features = ["full"] }
 tokio-test = "0.4"
 tracing-subscriber = "0.3"
 uniffi = { version = "0.28.0", features = ["bindgen-tests"] }
 uuid = { version = "1.9", features = ["v4", "fast-rng"] }
+xmtp_mls = { path = "../xmtp_mls", features = ["native", "test-utils"] }
 
 # NOTE: The release profile reduces bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093

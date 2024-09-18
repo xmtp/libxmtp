@@ -13,6 +13,8 @@ use super::{
     validated_commit::extract_group_membership,
     GroupError, MlsGroup,
 };
+#[cfg(feature = "message-history")]
+use crate::groups::message_history::MessageHistoryContent;
 use crate::{
     client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
@@ -20,10 +22,7 @@ use crate::{
         GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
         SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
-    groups::{
-        intents::UpdateMetadataIntentData, message_history::MessageHistoryContent,
-        validated_commit::ValidatedCommit,
-    },
+    groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
     identity::parse_credential,
     identity_updates::load_identity_updates,
@@ -69,12 +68,14 @@ use xmtp_proto::xmtp::mls::{
         GroupMessage, WelcomeMessageInput,
     },
     message_contents::{
-        plaintext_envelope::{
-            v2::MessageType::{Reply, Request},
-            Content, V1, V2,
-        },
+        plaintext_envelope::{Content, V1, V2},
         GroupUpdated, PlaintextEnvelope,
     },
+};
+
+#[cfg(feature = "message-history")]
+use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{
+    Reply, Request,
 };
 
 #[derive(Debug)]
@@ -417,6 +418,7 @@ impl MlsGroup {
                         idempotency_key,
                         message_type,
                     })) => match message_type {
+                        #[cfg(feature = "message-history")]
                         Some(Request(history_request)) => {
                             let content: MessageHistoryContent =
                                 MessageHistoryContent::Request(history_request);
@@ -440,6 +442,7 @@ impl MlsGroup {
                             }
                             .store_or_ignore(provider.conn_ref())?;
                         }
+                        #[cfg(feature = "message-history")]
                         Some(Reply(history_reply)) => {
                             let content: MessageHistoryContent =
                                 MessageHistoryContent::Reply(history_reply);
@@ -701,7 +704,7 @@ impl MlsGroup {
         );
         let sender_installation_id = validated_commit.actor_installation_id();
         let sender_inbox_id = validated_commit.actor_inbox_id();
-        // TODO:nm replace with new membership change codec
+
         let payload: GroupUpdated = validated_commit.into();
         let encoded_payload = GroupUpdatedCodec::encode(payload)?;
         let mut encoded_payload_bytes = Vec::new();

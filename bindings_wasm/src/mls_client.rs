@@ -5,9 +5,9 @@ use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
-use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 use xmtp_id::associations::{
-  AccountId, MemberIdentifier, RecoverableEcdsaSignature, Signature, SmartContractWalletSignature,
+  generate_inbox_id as xmtp_id_generate_inbox_id, unverified::UnverifiedSignature, AccountId,
+  MemberIdentifier,
 };
 use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::builder::ClientBuilder;
@@ -22,7 +22,7 @@ pub type RustXmtpClient = MlsClient<XmtpHttpApiClient>;
 pub struct WasmClient {
   account_address: String,
   inner_client: Arc<RustXmtpClient>,
-  signatures: HashMap<MemberIdentifier, Box<dyn Signature>>,
+  signatures: HashMap<MemberIdentifier, UnverifiedSignature>,
 }
 
 #[wasm_bindgen]
@@ -148,15 +148,7 @@ impl WasmClient {
       ));
     }
 
-    let signature_text = match self.signature_text() {
-      Some(text) => text,
-      None => return Err(JsError::new("No signature text found")),
-    };
-
-    let signature = Box::new(RecoverableEcdsaSignature::new(
-      signature_text.into(),
-      signature_bytes.to_vec(),
-    ));
+    let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.to_vec());
 
     self.signatures.insert(
       MemberIdentifier::Address(self.account_address.clone().to_lowercase()),
@@ -170,9 +162,10 @@ impl WasmClient {
   pub fn add_scw_signature(
     &mut self,
     signature_bytes: Uint8Array,
-    chain_id: String,
+    chain_id: u64,
     account_address: String,
-    chain_rpc_url: String,
+    // TODO:nm Remove this
+    _chain_rpc_url: String,
     block_number: u64,
   ) -> Result<(), JsError> {
     if self.is_registered() {
@@ -181,20 +174,13 @@ impl WasmClient {
       ));
     }
 
-    let signature_text = match self.signature_text() {
-      Some(text) => text,
-      None => return Err(JsError::new("No signature text found")),
-    };
+    let account_id = AccountId::new_evm(chain_id, account_address.clone());
 
-    let account_id = AccountId::new(chain_id, account_address.clone());
-
-    let signature = Box::new(SmartContractWalletSignature::new(
-      signature_text,
+    let signature = UnverifiedSignature::new_smart_contract_wallet(
       signature_bytes.to_vec(),
       account_id,
-      chain_rpc_url,
       block_number,
-    ));
+    );
 
     self.signatures.insert(
       MemberIdentifier::Address(account_address.clone().to_lowercase()),
@@ -227,7 +213,13 @@ impl WasmClient {
     // apply added signatures to the signature request
     for signature in self.signatures.values() {
       signature_request
-        .add_signature(signature.clone())
+        .add_signature(
+          signature.clone(),
+          self
+            .inner_client
+            .smart_contract_signature_verifier()
+            .as_ref(),
+        )
         .await
         .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     }

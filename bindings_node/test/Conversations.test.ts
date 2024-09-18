@@ -11,8 +11,8 @@ describe('Conversations', () => {
   it('should not have initial conversations', async () => {
     const user = createUser()
     const client = await createRegisteredClient(user)
-    const conversations = client.conversations().list()
-    expect((await conversations).length).toBe(0)
+    const conversations = await client.conversations().list()
+    expect(conversations.length).toBe(0)
   })
 
   it('should create a new group', async () => {

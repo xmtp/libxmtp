@@ -17,7 +17,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder};
 use kv_log_macro::{error, info};
 use prost::Message;
-use xmtp_id::associations::RecoverableEcdsaSignature;
+use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature};
 use xmtp_mls::client::FindGroupParams;
 use xmtp_mls::groups::message_history::MessageHistoryContent;
 use xmtp_mls::storage::group_message::GroupMessageKind;
@@ -458,14 +458,17 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
     )
     .await?;
     let mut signature_request = client.identity().signature_request().unwrap();
-    let signature = RecoverableEcdsaSignature::new(
-        signature_request.signature_text(),
-        w.sign(signature_request.signature_text().as_str())
-            .unwrap()
-            .into(),
-    );
+    let sig_bytes: Vec<u8> = w
+        .sign(signature_request.signature_text().as_str())
+        .unwrap()
+        .into();
+    let signature =
+        UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(sig_bytes));
     signature_request
-        .add_signature(Box::new(signature))
+        .add_signature(
+            signature,
+            client.smart_contract_signature_verifier().as_ref(),
+        )
         .await
         .unwrap();
 
@@ -510,7 +513,7 @@ fn format_messages(
         if text.is_none() {
             continue;
         }
-        // TODO:nm use inbox ID
+
         let sender = if msg.sender_inbox_id == my_account_address {
             "Me".to_string()
         } else {

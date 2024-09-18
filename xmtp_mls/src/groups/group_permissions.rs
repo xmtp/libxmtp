@@ -864,12 +864,14 @@ impl PolicySet {
 
         // We can always add DM member's inboxId to a DM
         if let Some(dm_members) = &commit.dm_members {
-            if commit.added_inboxes.len() == 1
-                && (commit.added_inboxes[0].inbox_id == dm_members.member_one_inbox_id
-                    || commit.added_inboxes[0].inbox_id == dm_members.member_two_inbox_id)
-                && commit.added_inboxes[0].inbox_id != commit.actor_inbox_id()
-            {
-                added_inboxes_valid = true;
+            if commit.added_inboxes.len() == 1 {
+                let added_inbox_id = &commit.added_inboxes[0].inbox_id;
+                if (added_inbox_id == &dm_members.member_one_inbox_id
+                    || added_inbox_id == &dm_members.member_two_inbox_id)
+                    && added_inbox_id != &commit.actor_inbox_id()
+                {
+                    added_inboxes_valid = true;
+                }
             }
         }
 

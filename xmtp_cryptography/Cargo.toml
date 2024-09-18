@@ -8,7 +8,6 @@ version.workspace = true
 curve25519-dalek = "4"
 ecdsa = "0.16.9"
 ethers = { workspace = true }
-ethers-core = { workspace = true }
 hex = { workspace = true }
 k256 = { version = "0.13.3", features = ["ecdh"] }
 log = { workspace = true }
