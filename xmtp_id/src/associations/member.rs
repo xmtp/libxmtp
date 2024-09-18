@@ -77,13 +77,19 @@ impl From<Vec<u8>> for MemberIdentifier {
 pub struct Member {
     pub identifier: MemberIdentifier,
     pub added_by_entity: Option<MemberIdentifier>,
+    pub created_at_ns: Option<u64>,
 }
 
 impl Member {
-    pub fn new(identifier: MemberIdentifier, added_by_entity: Option<MemberIdentifier>) -> Self {
+    pub fn new(
+        identifier: MemberIdentifier,
+        added_by_entity: Option<MemberIdentifier>,
+        created_at_ns: Option<u64>,
+    ) -> Self {
         Self {
             identifier,
             added_by_entity,
+            created_at_ns,
         }
     }
 
@@ -118,6 +124,7 @@ mod tests {
             Self {
                 identifier: MemberIdentifier::default(),
                 added_by_entity: None,
+                created_at_ns: None,
             }
         }
     }

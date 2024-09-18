@@ -40,6 +40,7 @@ pub trait IdentityAction: Send + 'static {
     fn update_state(
         &self,
         existing_state: Option<AssociationState>,
+        server_timestamp_ns: u64,
     ) -> Result<AssociationState, AssociationError>;
     fn signatures(&self) -> Vec<Vec<u8>>;
     fn replay_check(&self, state: &AssociationState) -> Result<(), AssociationError> {
@@ -66,6 +67,7 @@ impl IdentityAction for CreateInbox {
     fn update_state(
         &self,
         existing_state: Option<AssociationState>,
+        _server_timestamp_ns: u64,
     ) -> Result<AssociationState, AssociationError> {
         if existing_state.is_some() {
             return Err(AssociationError::MultipleCreate);
@@ -106,6 +108,7 @@ impl IdentityAction for AddAssociation {
     fn update_state(
         &self,
         maybe_existing_state: Option<AssociationState>,
+        server_timestamp_ns: u64,
     ) -> Result<AssociationState, AssociationError> {
         let existing_state = maybe_existing_state.ok_or(AssociationError::NotCreated)?;
         self.replay_check(&existing_state)?;
@@ -176,7 +179,11 @@ impl IdentityAction for AddAssociation {
             self.new_member_identifier.kind(),
         )?;
 
-        let new_member = Member::new(new_member_address.clone(), Some(existing_entity_id));
+        let new_member = Member::new(
+            new_member_address.clone(),
+            Some(existing_entity_id),
+            Some(server_timestamp_ns),
+        );
 
         Ok(existing_state.add(new_member))
     }
@@ -200,6 +207,7 @@ impl IdentityAction for RevokeAssociation {
     fn update_state(
         &self,
         maybe_existing_state: Option<AssociationState>,
+        _server_timestamp_ns: u64,
     ) -> Result<AssociationState, AssociationError> {
         let existing_state = maybe_existing_state.ok_or(AssociationError::NotCreated)?;
         self.replay_check(&existing_state)?;
@@ -255,6 +263,7 @@ impl IdentityAction for ChangeRecoveryAddress {
     fn update_state(
         &self,
         existing_state: Option<AssociationState>,
+        _server_timestamp_ns: u64,
     ) -> Result<AssociationState, AssociationError> {
         let existing_state = existing_state.ok_or(AssociationError::NotCreated)?;
         self.replay_check(&existing_state)?;
@@ -292,12 +301,19 @@ impl IdentityAction for Action {
     fn update_state(
         &self,
         existing_state: Option<AssociationState>,
+        server_timestamp_ns: u64,
     ) -> Result<AssociationState, AssociationError> {
         match self {
-            Action::CreateInbox(event) => event.update_state(existing_state),
-            Action::AddAssociation(event) => event.update_state(existing_state),
-            Action::RevokeAssociation(event) => event.update_state(existing_state),
-            Action::ChangeRecoveryAddress(event) => event.update_state(existing_state),
+            Action::CreateInbox(event) => event.update_state(existing_state, server_timestamp_ns),
+            Action::AddAssociation(event) => {
+                event.update_state(existing_state, server_timestamp_ns)
+            }
+            Action::RevokeAssociation(event) => {
+                event.update_state(existing_state, server_timestamp_ns)
+            }
+            Action::ChangeRecoveryAddress(event) => {
+                event.update_state(existing_state, server_timestamp_ns)
+            }
         }
     }
 
@@ -315,16 +331,16 @@ impl IdentityAction for Action {
 #[derive(Debug, Clone)]
 pub struct IdentityUpdate {
     pub inbox_id: String,
-    pub client_timestamp_ns: u64,
+    pub server_timestamp_ns: u64,
     pub actions: Vec<Action>,
 }
 
 impl IdentityUpdate {
-    pub fn new(actions: Vec<Action>, inbox_id: String, client_timestamp_ns: u64) -> Self {
+    pub fn new(actions: Vec<Action>, inbox_id: String, server_timestamp_ns: u64) -> Self {
         Self {
             inbox_id,
             actions,
-            client_timestamp_ns,
+            server_timestamp_ns,
         }
     }
 }
@@ -333,10 +349,11 @@ impl IdentityAction for IdentityUpdate {
     fn update_state(
         &self,
         existing_state: Option<AssociationState>,
+        server_timestamp_ns: u64,
     ) -> Result<AssociationState, AssociationError> {
         let mut state = existing_state.clone();
         for action in &self.actions {
-            state = Some(action.update_state(state)?);
+            state = Some(action.update_state(state, server_timestamp_ns)?);
         }
 
         let new_state = state.ok_or(AssociationError::NotCreated)?;
