@@ -5201,9 +5201,6 @@ dependencies = [
  "base64 0.22.1",
  "futures",
  "hex",
- "log",
- "pbjson",
- "pbjson-types",
  "prost",
  "serde",
  "tokio",
@@ -5239,15 +5236,11 @@ version = "0.0.1"
 dependencies = [
  "async-trait",
  "chrono",
- "ed25519",
  "ed25519-dalek",
  "ethers",
  "futures",
  "hex",
  "log",
- "openmls",
- "openmls_basic_credential",
- "openmls_rust_crypto",
  "openmls_traits",
  "prost",
  "rand",
@@ -5257,7 +5250,6 @@ dependencies = [
  "sha2",
  "thiserror",
  "tokio",
- "tracing",
  "url",
  "xmtp_cryptography",
  "xmtp_proto",
@@ -5270,7 +5262,6 @@ dependencies = [
  "aes-gcm",
  "async-stream",
  "bincode",
- "chrono",
  "diesel",
  "diesel_migrations",
  "ed25519-dalek",
@@ -5296,10 +5287,10 @@ dependencies = [
  "toml",
  "tracing",
  "trait-variant",
+ "xmtp_api_grpc",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_proto",
- "xmtp_v2",
 ]
 
 [[package]]
@@ -5307,9 +5298,7 @@ name = "xmtp_proto"
 version = "0.0.1"
 dependencies = [
  "futures",
- "futures-core",
  "openmls",
- "openmls_basic_credential",
  "pbjson",
  "pbjson-types",
  "prost",

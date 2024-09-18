@@ -140,7 +140,11 @@ where
         )
         .await?;
 
+        #[cfg(feature = "message-history")]
         let client = Client::new(api_client_wrapper, identity, store, self.history_sync_url);
+
+        #[cfg(not(feature = "message-history"))]
+        let client = Client::new(api_client_wrapper, identity, store);
 
         Ok(client)
     }
@@ -148,6 +152,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicBool;
+
     use crate::api::ApiClientWrapper;
     use crate::builder::ClientBuilderError;
     use crate::identity::IdentityError;
@@ -372,8 +378,11 @@ mod tests {
             0,
             Some(legacy_key.clone()),
         );
-        let store =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmp_path())).unwrap();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(tmp_path()),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
 
         let client1 = ClientBuilder::new(identity_strategy.clone())
             .store(store.clone())
@@ -435,8 +444,11 @@ mod tests {
         let tmpdb = tmp_path();
         let scw_verifier = MockSmartContractSignatureVerifier::new(true);
 
-        let store =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(tmpdb),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
         let nonce = 0;
         let address = generate_local_wallet().get_address();
         let inbox_id = generate_inbox_id(&address, &nonce);
@@ -472,8 +484,11 @@ mod tests {
         let tmpdb = tmp_path();
         let scw_verifier = MockSmartContractSignatureVerifier::new(true);
 
-        let store =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(tmpdb),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
         let nonce = 0;
         let address = generate_local_wallet().get_address();
         let inbox_id = generate_inbox_id(&address, &nonce);
@@ -507,8 +522,11 @@ mod tests {
         let tmpdb = tmp_path();
         let scw_verifier = MockSmartContractSignatureVerifier::new(true);
 
-        let store =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(tmpdb),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
         let nonce = 0;
         let address = generate_local_wallet().get_address();
         let inbox_id = generate_inbox_id(&address, &nonce);
@@ -518,6 +536,7 @@ mod tests {
             installation_keys: SignatureKeyPair::new(SignatureScheme::ED25519).unwrap(),
             credential: Credential::new(CredentialType::Basic, rand_vec()),
             signature_request: None,
+            is_ready: AtomicBool::new(true),
         })
             .try_into()
             .unwrap();
@@ -541,14 +560,18 @@ mod tests {
         let stored_inbox_id = generate_inbox_id(&address, &nonce);
 
         let tmpdb = tmp_path();
-        let store =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(tmpdb),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
 
         let stored: StoredIdentity = (&Identity {
             inbox_id: stored_inbox_id.clone(),
             installation_keys: SignatureKeyPair::new(SignatureScheme::ED25519).unwrap(),
             credential: Credential::new(CredentialType::Basic, rand_vec()),
             signature_request: None,
+            is_ready: AtomicBool::new(true),
         })
             .try_into()
             .unwrap();
@@ -574,11 +597,11 @@ mod tests {
     async fn identity_persistence_test() {
         let tmpdb = tmp_path();
         let wallet = &generate_local_wallet();
+        let db_key = EncryptedMessageStore::generate_enc_key();
 
         // Generate a new Wallet + Store
         let store_a =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
-                .unwrap();
+            EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key).unwrap();
 
         let nonce = 1;
         let inbox_id = generate_inbox_id(&wallet.get_address(), &nonce);
@@ -596,14 +619,14 @@ mod tests {
         .unwrap();
 
         register_client(&client_a, wallet).await;
+        assert!(client_a.identity().is_ready());
 
         let keybytes_a = client_a.installation_public_key();
         drop(client_a);
 
         // Reload the existing store and wallet
         let store_b =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
-                .unwrap();
+            EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key).unwrap();
 
         let client_b = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
             inbox_id,
@@ -642,8 +665,7 @@ mod tests {
 
         // Use cached only strategy
         let store_d =
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
-                .unwrap();
+            EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key).unwrap();
         let client_d = ClientBuilder::new(IdentityStrategy::CachedOnly)
             .local_client()
             .await

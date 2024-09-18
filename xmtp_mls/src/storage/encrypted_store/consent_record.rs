@@ -118,6 +118,8 @@ where
 #[diesel(sql_type = Integer)]
 /// The state of the consent
 pub enum ConsentState {
+    /// Consent is unknown
+    Unknown = 0,
     /// Consent is allowed
     Allowed = 1,
     /// Consent is denied
@@ -140,6 +142,7 @@ where
 {
     fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
         match i32::from_sql(bytes)? {
+            0 => Ok(ConsentState::Unknown),
             1 => Ok(ConsentState::Allowed),
             2 => Ok(ConsentState::Denied),
             x => Err(format!("Unrecognized variant {}", x).into()),

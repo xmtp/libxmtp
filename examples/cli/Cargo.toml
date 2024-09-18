@@ -16,7 +16,6 @@ path = "cli-client.rs"
 clap = { version = "4.4.6", features = ["derive"] }
 ethers = "2.0.4"
 femme = "2.2.1"
-futures = "0.3.28"
 hex = "0.4.3"
 kv-log-macro = "1.0.7"
 log = { workspace = true, features = [
@@ -30,10 +29,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 timeago = "0.4.1"
 tokio = "1.28.1"
-tokio-stream = "0.1.15"
-url = "2.3.1"
 xmtp_api_grpc = { path = "../../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../../xmtp_cryptography" }
 xmtp_id = { path = "../../xmtp_id" }
-xmtp_mls = { path = "../../xmtp_mls", features = ["native"] }
+xmtp_mls = { path = "../../xmtp_mls", features = ["native", "message-history"] }
 xmtp_proto = { path = "../../xmtp_proto", features = ["proto_full"] }

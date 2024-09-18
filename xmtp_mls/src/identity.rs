@@ -1,4 +1,5 @@
 use std::array::TryFromSliceError;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 use crate::retry::RetryableError;
@@ -175,12 +176,25 @@ impl RetryableError for IdentityError {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Identity {
     pub(crate) inbox_id: InboxId,
     pub(crate) installation_keys: SignatureKeyPair,
     pub(crate) credential: OpenMlsCredential,
     pub(crate) signature_request: Option<SignatureRequest>,
+    pub(crate) is_ready: AtomicBool,
+}
+
+impl Clone for Identity {
+    fn clone(&self) -> Self {
+        Self {
+            inbox_id: self.inbox_id.clone(),
+            installation_keys: self.installation_keys.clone(),
+            credential: self.credential.clone(),
+            signature_request: self.signature_request(),
+            is_ready: AtomicBool::new(self.is_ready.load(Ordering::SeqCst)),
+        }
+    }
 }
 
 impl Identity {
@@ -211,7 +225,7 @@ impl Identity {
         if let Some(associated_inbox_id) = associated_inbox_id {
             // If an inbox is associated with address, we'd use it to create Identity and ignore the nonce.
             // We would need a signature from user's wallet.
-            if associated_inbox_id != &inbox_id {
+            if *associated_inbox_id != inbox_id {
                 return Err(IdentityError::NewIdentity("Inbox ID mismatch".to_string()));
             }
             let builder = SignatureRequestBuilder::new(associated_inbox_id.clone());
@@ -237,6 +251,7 @@ impl Identity {
                 installation_keys: signature_keys,
                 credential: create_credential(associated_inbox_id.clone())?,
                 signature_request: Some(signature_request),
+                is_ready: AtomicBool::new(false),
             };
 
             Ok(identity)
@@ -288,6 +303,7 @@ impl Identity {
                 installation_keys: signature_keys,
                 credential: create_credential(inbox_id)?,
                 signature_request: None,
+                is_ready: AtomicBool::new(true),
             };
 
             identity.register(provider, api_client).await?;
@@ -329,6 +345,7 @@ impl Identity {
                 installation_keys: signature_keys,
                 credential: create_credential(inbox_id.clone())?,
                 signature_request: Some(signature_request),
+                is_ready: AtomicBool::new(false),
             };
 
             Ok(identity)
@@ -344,8 +361,8 @@ impl Identity {
     }
 
     #[allow(dead_code)]
-    fn is_ready(&self) -> bool {
-        self.signature_request.is_none()
+    pub fn is_ready(&self) -> bool {
+        self.is_ready.load(Ordering::SeqCst)
     }
 
     pub fn signature_request(&self) -> Option<SignatureRequest> {
@@ -441,6 +458,7 @@ impl Identity {
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
         api_client.upload_key_package(kp_bytes, true).await?;
+        self.is_ready.store(true, Ordering::SeqCst);
 
         Ok(StoredIdentity::try_from(self)?.store(provider.conn_ref())?)
     }
