@@ -63,13 +63,17 @@ impl DbConnection {
         records: Vec<StoredConsentRecord>,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
-            diesel::insert_into(dsl::consent_records)
-                .values(&records) // Use a vector of records instead of a single record
-                .on_conflict((dsl::entity_type, dsl::entity))
-                .do_update()
-                .set(dsl::state.eq(excluded(dsl::state)))
-                .execute(conn)?;
-            Ok(())
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                for record in records.iter() {
+                    diesel::insert_into(dsl::consent_records)
+                        .values(record)
+                        .on_conflict((dsl::entity_type, dsl::entity))
+                        .do_update()
+                        .set(dsl::state.eq(excluded(dsl::state)))
+                        .execute(conn)?; // Execute with the connection
+                }
+                Ok(())
+            })
         })?;
 
         Ok(())
