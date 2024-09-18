@@ -1,9 +1,11 @@
 #![allow(dead_code)]
 // functions are needed, but missing functionality means they aren't used yet.
 
-use crate::{WasmSqlite, WasmSqliteError};
+use crate::{ffi, WasmSqlite, WasmSqliteError};
 use diesel::{result::*, sql_types::HasSqlType};
 use wasm_bindgen::{closure::Closure, JsValue};
+
+use super::serialized_database::SerializedDatabase;
 
 #[allow(missing_copy_implementations)]
 pub(super) struct RawConnection {
@@ -34,7 +36,9 @@ impl RawConnection {
 
     pub(super) fn exec(&self, query: &str) -> QueryResult<()> {
         let sqlite3 = crate::get_sqlite_unchecked();
-        sqlite3.exec(&self.internal_connection, query).map_err(WasmSqliteError::from)?;
+        sqlite3
+            .exec(&self.internal_connection, query)
+            .map_err(WasmSqliteError::from)?;
         Ok(())
     }
 
@@ -84,45 +88,54 @@ impl RawConnection {
         flags as i32
     }
 
-    /* possible to implement this, but would need to fill in the missing wa-sqlite functions
-    pub(super) fn serialize(&mut self) -> SerializedDatabase {
-        unsafe {
-            let mut size: ffi::sqlite3_int64 = 0;
-            let data_ptr = ffi::sqlite3_serialize(
-                self.internal_connection.as_ptr(),
-                std::ptr::null(),
-                &mut size as *mut _,
-                0,
-            );
-            SerializedDatabase::new(data_ptr, size as usize)
+    /// Serializes the database from sqlite to be stored by the user/client.
+    pub(super) fn serialize(&self) -> SerializedDatabase {
+        let sqlite3 = crate::get_sqlite_unchecked();
+        let wasm = sqlite3.inner().wasm();
+
+        let p_size = wasm.pstack().alloc(std::mem::size_of::<i64>() as u32);
+        let data_ptr = sqlite3.sqlite3_serialize(&self.internal_connection, "main", &p_size, 0);
+        if data_ptr.is_null() {
+            panic!("Serialization failed");
         }
+
+        let len = p_size.as_f64().unwrap() as u32;
+        unsafe { SerializedDatabase::new(data_ptr, len) }
     }
 
-    pub(super) fn deserialize(&mut self, data: &[u8]) -> QueryResult<()> {
-        // the cast for `ffi::SQLITE_DESERIALIZE_READONLY` is required for old libsqlite3-sys versions
-        #[allow(clippy::unnecessary_cast)]
-        unsafe {
-            let result = ffi::sqlite3_deserialize(
-                self.internal_connection.as_ptr(),
-                std::ptr::null(),
-                data.as_ptr() as *mut u8,
-                data.len() as i64,
-                data.len() as i64,
-                ffi::SQLITE_DESERIALIZE_READONLY as u32,
-            );
+    /// Deserializes the database from the data slice given to be loaded
+    /// by sqlite in the wasm space.
+    pub(super) fn deserialize(&self, data: &[u8]) -> i32 {
+        let sqlite3 = crate::get_sqlite_unchecked();
+        let wasm = sqlite3.inner().wasm();
 
-            ensure_sqlite_ok(result, self.internal_connection.as_ptr())
+        // allocate the space in wasm, and copy the buffer to the wasm
+        // memory space.
+        let p_data = wasm.alloc(data.len() as u32);
+        ffi::raw_copy_to_sqlite(data, p_data);
+
+        let result = sqlite3.sqlite3_deserialize(
+            &self.internal_connection,
+            "main",
+            p_data,
+            data.len() as i64,
+            data.len() as i64,
+            0,
+        );
+
+        if result != 0 {
+            panic!("Deserialization failed");
         }
+
+        result
     }
-    */
 }
 
 impl Drop for RawConnection {
     fn drop(&mut self) {
         let sqlite3 = crate::get_sqlite_unchecked();
-        
 
-        let result = sqlite3.close(&self.internal_connection); 
+        let result = sqlite3.close(&self.internal_connection);
         if result != *crate::ffi::SQLITE_OK {
             let error_message = super::error_message(result);
             panic!("Error closing SQLite connection: {}", error_message);
