@@ -343,11 +343,38 @@ where
     }
 
     // set the consent record in the database
+    // if the consent record is an address also set the inboxId
     pub async fn set_consent_states(
         &self,
-        records: Vec<StoredConsentRecord>,
+        mut records: Vec<StoredConsentRecord>,
     ) -> Result<(), ClientError> {
         let conn = self.store().conn()?;
+
+        // Collect new records to add after the loop
+        let mut new_records = Vec::new();
+
+        // Iterate over the records and check if the entity is an address
+        for record in &records {
+            if record.entity_type == ConsentType::Address {
+                // Find the inbox ID associated with the address asynchronously
+                if let Some(inbox_id) = self
+                    .find_inbox_id_from_address(record.entity.clone())
+                    .await?
+                {
+                    // Create a new record for the inbox ID and store it in `new_records`
+                    new_records.push(StoredConsentRecord::new(
+                        ConsentType::InboxId,
+                        record.state.clone(),
+                        inbox_id,
+                    ));
+                }
+            }
+        }
+
+        // Append new records to the original records
+        records.extend(new_records);
+
+        // Perform the batch insert or update
         conn.insert_or_replace_consent_records(records)?;
 
         Ok(())
@@ -802,7 +829,7 @@ mod tests {
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
         hpke::{decrypt_welcome, encrypt_welcome},
-        storage::consent_record::{ConsentState, ConsentType},
+        storage::consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     };
 
     #[tokio::test]
@@ -1086,14 +1113,12 @@ mod tests {
         let bo_wallet = generate_local_wallet();
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
-
-        alix.set_consent_state(
-            ConsentState::Denied,
+        let record = StoredConsentRecord::new(
             ConsentType::Address,
+            ConsentState::Denied,
             bo_wallet.get_address(),
-        )
-        .await
-        .unwrap();
+        );
+        alix.set_consent_states(vec![record]).await.unwrap();
         let inbox_consent = alix
             .get_consent_state(ConsentType::InboxId, bo.inbox_id())
             .await
