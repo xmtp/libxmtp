@@ -349,11 +349,11 @@ impl IdentityAction for IdentityUpdate {
     fn update_state(
         &self,
         existing_state: Option<AssociationState>,
-        client_timestamp_ns: u64,
+        _client_timestamp_ns: u64,
     ) -> Result<AssociationState, AssociationError> {
         let mut state = existing_state.clone();
         for action in &self.actions {
-            state = Some(action.update_state(state, client_timestamp_ns)?);
+            state = Some(action.update_state(state, self.client_timestamp_ns)?);
         }
 
         let new_state = state.ok_or(AssociationError::NotCreated)?;
