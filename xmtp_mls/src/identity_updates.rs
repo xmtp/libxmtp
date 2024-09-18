@@ -587,7 +587,7 @@ pub(crate) mod tests {
             association_state.members_by_parent(&MemberIdentifier::Address(wallet_address.clone()));
         // Those members should have timestamps
         for member in members {
-            assert!(member.created_at_ns.is_some());
+            assert!(member.client_timestamp_ns.is_some());
         }
 
         assert_eq!(association_state.members().len(), 3);

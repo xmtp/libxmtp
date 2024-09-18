@@ -5,7 +5,7 @@
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RecoverableEcdsaSignature {
     /// 65-bytes \[ R || S || V \], with recovery id as the last byte
-    #[prost(bytes = "vec", tag = "1")]
+    #[prost(bytes="vec", tag="1")]
     pub bytes: ::prost::alloc::vec::Vec<u8>,
 }
 /// EdDSA signature for 25519
@@ -13,10 +13,10 @@ pub struct RecoverableEcdsaSignature {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RecoverableEd25519Signature {
     /// 64 bytes \[R(32 bytes) || S(32 bytes)\]
-    #[prost(bytes = "vec", tag = "1")]
+    #[prost(bytes="vec", tag="1")]
     pub bytes: ::prost::alloc::vec::Vec<u8>,
     /// 32 bytes
-    #[prost(bytes = "vec", tag = "2")]
+    #[prost(bytes="vec", tag="2")]
     pub public_key: ::prost::alloc::vec::Vec<u8>,
 }
 /// Smart Contract Wallet signature
@@ -25,16 +25,16 @@ pub struct RecoverableEd25519Signature {
 pub struct SmartContractWalletSignature {
     /// CAIP-10 string
     /// <https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-10.md>
-    #[prost(string, tag = "1")]
+    #[prost(string, tag="1")]
     pub account_id: ::prost::alloc::string::String,
     /// Specify the block number to verify the signature against
-    #[prost(uint64, tag = "2")]
+    #[prost(uint64, tag="2")]
     pub block_number: u64,
     /// The actual signature bytes
-    #[prost(bytes = "vec", tag = "3")]
+    #[prost(bytes="vec", tag="3")]
     pub signature: ::prost::alloc::vec::Vec<u8>,
     /// The RPC URL specifies a chain to verify the signature against
-    #[prost(string, tag = "4")]
+    #[prost(string, tag="4")]
     pub chain_rpc_url: ::prost::alloc::string::String,
 }
 /// An existing address on xmtpv2 may have already signed a legacy identity key
@@ -46,9 +46,9 @@ pub struct SmartContractWalletSignature {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LegacyDelegatedSignature {
-    #[prost(message, optional, tag = "1")]
+    #[prost(message, optional, tag="1")]
     pub delegated_key: ::core::option::Option<super::super::message_contents::SignedPublicKey>,
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag="2")]
     pub signature: ::core::option::Option<RecoverableEcdsaSignature>,
 }
 /// A wrapper for all possible signature types
@@ -60,7 +60,7 @@ pub struct Signature {
     ///     recoverable, or specified as a field.
     /// 2. The signer certifies that the signing payload is correct. The payload
     ///     must be inferred from the context in which the signature is provided.
-    #[prost(oneof = "signature::Signature", tags = "1, 2, 3, 4")]
+    #[prost(oneof="signature::Signature", tags="1, 2, 3, 4")]
     pub signature: ::core::option::Option<signature::Signature>,
 }
 /// Nested message and enum types in `Signature`.
@@ -71,15 +71,15 @@ pub mod signature {
     /// 2. The signer certifies that the signing payload is correct. The payload
     ///     must be inferred from the context in which the signature is provided.
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Signature {
-        #[prost(message, tag = "1")]
+        #[prost(message, tag="1")]
         Erc191(super::RecoverableEcdsaSignature),
-        #[prost(message, tag = "2")]
+        #[prost(message, tag="2")]
         Erc6492(super::SmartContractWalletSignature),
-        #[prost(message, tag = "3")]
+        #[prost(message, tag="3")]
         InstallationKey(super::RecoverableEd25519Signature),
-        #[prost(message, tag = "4")]
+        #[prost(message, tag="4")]
         DelegatedErc191(super::LegacyDelegatedSignature),
     }
 }
@@ -87,17 +87,17 @@ pub mod signature {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MemberIdentifier {
-    #[prost(oneof = "member_identifier::Kind", tags = "1, 2")]
+    #[prost(oneof="member_identifier::Kind", tags="1, 2")]
     pub kind: ::core::option::Option<member_identifier::Kind>,
 }
 /// Nested message and enum types in `MemberIdentifier`.
 pub mod member_identifier {
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Kind {
-        #[prost(string, tag = "1")]
+        #[prost(string, tag="1")]
         Address(::prost::alloc::string::String),
-        #[prost(bytes, tag = "2")]
+        #[prost(bytes, tag="2")]
         InstallationPublicKey(::prost::alloc::vec::Vec<u8>),
     }
 }
@@ -105,12 +105,12 @@ pub mod member_identifier {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Member {
-    #[prost(message, optional, tag = "1")]
+    #[prost(message, optional, tag="1")]
     pub identifier: ::core::option::Option<MemberIdentifier>,
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag="2")]
     pub added_by_entity: ::core::option::Option<MemberIdentifier>,
-    #[prost(uint64, optional, tag = "3")]
-    pub server_timestamp_ns: ::core::option::Option<u64>,
+    #[prost(uint64, optional, tag="3")]
+    pub client_timestamp_ns: ::core::option::Option<u64>,
 }
 /// The first entry of any XID log. The XID must be deterministically derivable
 /// from the address and nonce.
@@ -119,12 +119,12 @@ pub struct Member {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateInbox {
-    #[prost(string, tag = "1")]
+    #[prost(string, tag="1")]
     pub initial_address: ::prost::alloc::string::String,
-    #[prost(uint64, tag = "2")]
+    #[prost(uint64, tag="2")]
     pub nonce: u64,
     /// Must be an addressable member
-    #[prost(message, optional, tag = "3")]
+    #[prost(message, optional, tag="3")]
     pub initial_address_signature: ::core::option::Option<Signature>,
 }
 /// Adds a new member for an XID - either an addressable member such as a
@@ -134,20 +134,20 @@ pub struct CreateInbox {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AddAssociation {
-    #[prost(message, optional, tag = "1")]
+    #[prost(message, optional, tag="1")]
     pub new_member_identifier: ::core::option::Option<MemberIdentifier>,
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag="2")]
     pub existing_member_signature: ::core::option::Option<Signature>,
-    #[prost(message, optional, tag = "3")]
+    #[prost(message, optional, tag="3")]
     pub new_member_signature: ::core::option::Option<Signature>,
 }
 /// Revokes a member from an XID. The recovery address must sign the revocation.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RevokeAssociation {
-    #[prost(message, optional, tag = "1")]
+    #[prost(message, optional, tag="1")]
     pub member_to_revoke: ::core::option::Option<MemberIdentifier>,
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag="2")]
     pub recovery_address_signature: ::core::option::Option<Signature>,
 }
 /// Changes the recovery address for an XID. The recovery address is not required
@@ -156,30 +156,30 @@ pub struct RevokeAssociation {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ChangeRecoveryAddress {
-    #[prost(string, tag = "1")]
+    #[prost(string, tag="1")]
     pub new_recovery_address: ::prost::alloc::string::String,
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag="2")]
     pub existing_recovery_address_signature: ::core::option::Option<Signature>,
 }
 /// A single identity operation
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct IdentityAction {
-    #[prost(oneof = "identity_action::Kind", tags = "1, 2, 3, 4")]
+    #[prost(oneof="identity_action::Kind", tags="1, 2, 3, 4")]
     pub kind: ::core::option::Option<identity_action::Kind>,
 }
 /// Nested message and enum types in `IdentityAction`.
 pub mod identity_action {
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Kind {
-        #[prost(message, tag = "1")]
+        #[prost(message, tag="1")]
         CreateInbox(super::CreateInbox),
-        #[prost(message, tag = "2")]
+        #[prost(message, tag="2")]
         Add(super::AddAssociation),
-        #[prost(message, tag = "3")]
+        #[prost(message, tag="3")]
         Revoke(super::RevokeAssociation),
-        #[prost(message, tag = "4")]
+        #[prost(message, tag="4")]
         ChangeRecoveryAddress(super::ChangeRecoveryAddress),
     }
 }
@@ -193,42 +193,42 @@ pub mod identity_action {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct IdentityUpdate {
-    #[prost(message, repeated, tag = "1")]
+    #[prost(message, repeated, tag="1")]
     pub actions: ::prost::alloc::vec::Vec<IdentityAction>,
-    #[prost(uint64, tag = "2")]
+    #[prost(uint64, tag="2")]
     pub client_timestamp_ns: u64,
-    #[prost(string, tag = "3")]
+    #[prost(string, tag="3")]
     pub inbox_id: ::prost::alloc::string::String,
 }
 /// Map of members belonging to an inbox_id
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MemberMap {
-    #[prost(message, optional, tag = "1")]
+    #[prost(message, optional, tag="1")]
     pub key: ::core::option::Option<MemberIdentifier>,
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag="2")]
     pub value: ::core::option::Option<Member>,
 }
 /// A final association state resulting from multiple `IdentityUpdates`
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AssociationState {
-    #[prost(string, tag = "1")]
+    #[prost(string, tag="1")]
     pub inbox_id: ::prost::alloc::string::String,
-    #[prost(message, repeated, tag = "2")]
+    #[prost(message, repeated, tag="2")]
     pub members: ::prost::alloc::vec::Vec<MemberMap>,
-    #[prost(string, tag = "3")]
+    #[prost(string, tag="3")]
     pub recovery_address: ::prost::alloc::string::String,
-    #[prost(bytes = "vec", repeated, tag = "4")]
+    #[prost(bytes="vec", repeated, tag="4")]
     pub seen_signatures: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 /// / state diff between two final AssociationStates
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AssociationStateDiff {
-    #[prost(message, repeated, tag = "1")]
+    #[prost(message, repeated, tag="1")]
     pub new_members: ::prost::alloc::vec::Vec<MemberIdentifier>,
-    #[prost(message, repeated, tag = "2")]
+    #[prost(message, repeated, tag="2")]
     pub removed_members: ::prost::alloc::vec::Vec<MemberIdentifier>,
 }
 /// Encoded file descriptor set for the `xmtp.identity.associations` package
@@ -472,12 +472,12 @@ pub const FILE_DESCRIPTOR_SET: &[u8] = &[
     0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x61, 0x73, 0x73, 0x6f, 0x63, 0x69, 0x61, 0x74, 0x69,
     0x6f, 0x6e, 0x73, 0x2e, 0x4d, 0x65, 0x6d, 0x62, 0x65, 0x72, 0x49, 0x64, 0x65, 0x6e, 0x74, 0x69,
     0x66, 0x69, 0x65, 0x72, 0x48, 0x00, 0x52, 0x0d, 0x61, 0x64, 0x64, 0x65, 0x64, 0x42, 0x79, 0x45,
-    0x6e, 0x74, 0x69, 0x74, 0x79, 0x88, 0x01, 0x01, 0x12, 0x33, 0x0a, 0x13, 0x73, 0x65, 0x72, 0x76,
-    0x65, 0x72, 0x5f, 0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x5f, 0x6e, 0x73, 0x18,
-    0x03, 0x20, 0x01, 0x28, 0x04, 0x48, 0x01, 0x52, 0x11, 0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0x54,
+    0x6e, 0x74, 0x69, 0x74, 0x79, 0x88, 0x01, 0x01, 0x12, 0x33, 0x0a, 0x13, 0x63, 0x6c, 0x69, 0x65,
+    0x6e, 0x74, 0x5f, 0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x5f, 0x6e, 0x73, 0x18,
+    0x03, 0x20, 0x01, 0x28, 0x04, 0x48, 0x01, 0x52, 0x11, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x54,
     0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x4e, 0x73, 0x88, 0x01, 0x01, 0x42, 0x12, 0x0a,
     0x10, 0x5f, 0x61, 0x64, 0x64, 0x65, 0x64, 0x5f, 0x62, 0x79, 0x5f, 0x65, 0x6e, 0x74, 0x69, 0x74,
-    0x79, 0x42, 0x16, 0x0a, 0x14, 0x5f, 0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0x5f, 0x74, 0x69, 0x6d,
+    0x79, 0x42, 0x16, 0x0a, 0x14, 0x5f, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x5f, 0x74, 0x69, 0x6d,
     0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x5f, 0x6e, 0x73, 0x22, 0xaf, 0x01, 0x0a, 0x0b, 0x43, 0x72,
     0x65, 0x61, 0x74, 0x65, 0x49, 0x6e, 0x62, 0x6f, 0x78, 0x12, 0x27, 0x0a, 0x0f, 0x69, 0x6e, 0x69,
     0x74, 0x69, 0x61, 0x6c, 0x5f, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x18, 0x01, 0x20, 0x01,

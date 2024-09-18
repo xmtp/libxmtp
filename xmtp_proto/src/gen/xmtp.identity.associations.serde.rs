@@ -1017,7 +1017,7 @@ impl serde::Serialize for Member {
         if self.added_by_entity.is_some() {
             len += 1;
         }
-        if self.server_timestamp_ns.is_some() {
+        if self.client_timestamp_ns.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.Member", len)?;
@@ -1027,10 +1027,10 @@ impl serde::Serialize for Member {
         if let Some(v) = self.added_by_entity.as_ref() {
             struct_ser.serialize_field("addedByEntity", v)?;
         }
-        if let Some(v) = self.server_timestamp_ns.as_ref() {
+        if let Some(v) = self.client_timestamp_ns.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("serverTimestampNs", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("clientTimestampNs", ToString::to_string(&v).as_str())?;
         }
         struct_ser.end()
     }
@@ -1045,15 +1045,15 @@ impl<'de> serde::Deserialize<'de> for Member {
             "identifier",
             "added_by_entity",
             "addedByEntity",
-            "server_timestamp_ns",
-            "serverTimestampNs",
+            "client_timestamp_ns",
+            "clientTimestampNs",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Identifier,
             AddedByEntity,
-            ServerTimestampNs,
+            ClientTimestampNs,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1077,7 +1077,7 @@ impl<'de> serde::Deserialize<'de> for Member {
                         match value {
                             "identifier" => Ok(GeneratedField::Identifier),
                             "addedByEntity" | "added_by_entity" => Ok(GeneratedField::AddedByEntity),
-                            "serverTimestampNs" | "server_timestamp_ns" => Ok(GeneratedField::ServerTimestampNs),
+                            "clientTimestampNs" | "client_timestamp_ns" => Ok(GeneratedField::ClientTimestampNs),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1099,7 +1099,7 @@ impl<'de> serde::Deserialize<'de> for Member {
             {
                 let mut identifier__ = None;
                 let mut added_by_entity__ = None;
-                let mut server_timestamp_ns__ = None;
+                let mut client_timestamp_ns__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Identifier => {
@@ -1114,11 +1114,11 @@ impl<'de> serde::Deserialize<'de> for Member {
                             }
                             added_by_entity__ = map_.next_value()?;
                         }
-                        GeneratedField::ServerTimestampNs => {
-                            if server_timestamp_ns__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("serverTimestampNs"));
+                        GeneratedField::ClientTimestampNs => {
+                            if client_timestamp_ns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("clientTimestampNs"));
                             }
-                            server_timestamp_ns__ = 
+                            client_timestamp_ns__ = 
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -1127,7 +1127,7 @@ impl<'de> serde::Deserialize<'de> for Member {
                 Ok(Member {
                     identifier: identifier__,
                     added_by_entity: added_by_entity__,
-                    server_timestamp_ns: server_timestamp_ns__,
+                    client_timestamp_ns: client_timestamp_ns__,
                 })
             }
         }
