@@ -79,7 +79,7 @@ where
             (async {
                 let welcome_v1 = welcome_v1.clone();
                 self.context
-                    .store
+                    .store()
                     .transaction_async(|provider| async move {
                         MlsGroup::create_from_encrypted_welcome(
                             self,
@@ -95,7 +95,7 @@ where
         );
 
         if let Some(err) = creation_result.as_ref().err() {
-            let conn = self.context.store.conn()?;
+            let conn = self.context.store().conn()?;
             let result = conn.find_group_by_welcome_id(welcome_v1.id as i64);
             match result {
                 Ok(Some(group)) => {
@@ -229,7 +229,7 @@ where
 
 impl<ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpApi + Send + 'static,
+    ApiClient: XmtpApi + 'static,
 
 {
     pub fn stream_conversations_with_callback(

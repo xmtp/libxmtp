@@ -18,20 +18,14 @@ pub type DbConnection = DbConnectionPrivate<diesel_wasm_sqlite::connection::Wasm
 // callers should be able to accomplish everything with one conn/reference.
 #[doc(hidden)]
 pub struct DbConnectionPrivate<C> {
-    wrapped_conn: Arc<Mutex<C>>,
+    inner: Arc<Mutex<C>>,
 }
 
 /// Owned DBConnection Methods
-/// Lifetime is 'static' because we are using [`RefOrValue::Value`] variant.
 impl<C> DbConnectionPrivate<C> {
-    pub(super) fn new(conn: C) -> Self {
-        Self {
-            wrapped_conn: Arc::new(Mutex::new(conn)),
-        }
-    }
-
+    /// Create a new [`DbConnectionPrivate`] from an existing Arc<Mutex<C>>
     pub(super) fn from_arc_mutex(conn: Arc<Mutex<C>>) -> Self {
-        Self { wrapped_conn: conn }
+        Self { inner: conn }
     }
 }
 
@@ -39,12 +33,26 @@ impl<C> DbConnectionPrivate<C>
 where
     C: diesel::Connection,
 {
+    /// Do a scoped query with a mutable [`diesel::Connection`]
+    /// reference
     pub(crate) fn raw_query<T, E, F>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&mut C) -> Result<T, E>,
     {
-        let mut lock = self.wrapped_conn.lock();
+        let mut lock = self.inner.lock();
         fun(&mut lock)
+    }
+
+    /// Internal-only API to get the underlying `diesel::Connection` reference
+    /// without a scope
+    /// Must be used with care. holding this reference while calling `raw_query`
+    /// will cause a deadlock.
+    pub(super) fn inner_mut_ref<'conn>(&'conn self) -> parking_lot::MutexGuard<'_, C> {
+        self.inner.lock()
+    }
+
+    pub(super) fn inner_ref<'conn>(&self) -> Arc<Mutex<C>> {
+        self.inner.clone()
     }
 }
 

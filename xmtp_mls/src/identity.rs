@@ -367,7 +367,7 @@ impl Identity {
 
     pub(crate) fn new_key_package(
         &self,
-        provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore>,
+        provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore<crate::storage::RawDbConnection>>,
     ) -> Result<KeyPackage, IdentityError> {
         let last_resort = Extension::LastResort(LastResortExtension::default());
         let key_package_extensions = Extensions::single(last_resort);

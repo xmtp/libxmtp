@@ -1,11 +1,10 @@
 use crate::{
-    storage::{db_connection::DbConnection, StorageError},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    storage::StorageError,
 };
 use diesel::{
-    connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
+    connection::{AnsiTransactionManager, SimpleConnection},
     r2d2::{self, CustomizeConnection, PoolTransactionManager, PooledConnection},
-    result::Error,
+    Connection
 };
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -72,10 +71,21 @@ impl CustomizeConnection<SqliteConnection, r2d2::Error> for UnencryptedConnectio
     }
 }
 
+impl StorageOption {
+    // create a completely new standalone connection
+    pub(super) fn conn(&self) -> Result<SqliteConnection, diesel::ConnectionError> {
+        use StorageOption::*;
+        match self {
+            Persistent(path) => SqliteConnection::establish(path),
+            Ephemeral => SqliteConnection::establish(":memory:"),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
-pub(super) struct NativeDb {
+/// Database used in `native` (everywhere but web)
+pub struct NativeDb {
     pool: Arc<RwLock<Option<Pool>>>,
-    enc_key: Option<EncryptionKey>,
     customizer: Option<Box<dyn XmtpConnection>>,
     opts: StorageOption,
 }
@@ -110,7 +120,6 @@ impl NativeDb {
 
         Ok(Self {
             pool: Arc::new(Some(pool).into()),
-            enc_key,
             customizer,
             opts: opts.clone(),
         })
@@ -135,11 +144,12 @@ impl NativeDb {
 
 impl XmtpDb for NativeDb {
     type Connection = RawDbConnection;
+    type TransactionManager = PoolTransactionManager<AnsiTransactionManager>;
 
     /// Returns the Wrapped [`super::db_connection::DbConnection`] Connection implementation for this Database
     fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, StorageError> {
         let conn = self.raw_conn()?;
-        Ok(DbConnectionPrivate::new(conn))
+        Ok(DbConnectionPrivate::from_arc_mutex(Arc::new(parking_lot::Mutex::new(conn))))
     }
 
     fn validate(&self, opts: &StorageOption) -> Result<(), StorageError> {
@@ -147,93 +157,6 @@ impl XmtpDb for NativeDb {
             c.validate(opts)
         } else {
             Ok(())
-        }
-    }
-
-    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(&crate::xmtp_openmls_provider::XmtpOpenMlsProvider) -> Result<T, E>,
-        E: From<diesel::result::Error> + From<StorageError>,
-    {
-        log::debug!("Transaction beginning");
-        let mut connection = self.raw_conn()?;
-        AnsiTransactionManager::begin_transaction(&mut *connection)?;
-
-        let db_connection = DbConnection::new(connection);
-        let provider = XmtpOpenMlsProvider::new(db_connection);
-        let conn = provider.conn_ref();
-
-        match fun(&provider) {
-            Ok(value) => {
-                conn.raw_query(|conn| {
-                    PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
-                })?;
-                log::debug!("Transaction being committed");
-                Ok(value)
-            }
-            Err(err) => {
-                log::debug!("Transaction being rolled back");
-                match conn.raw_query(|conn| {
-                    PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(
-                        &mut *conn,
-                    )
-                }) {
-                    Ok(()) => Err(err),
-                    Err(Error::BrokenTransactionManager) => Err(err),
-                    Err(rollback) => Err(rollback.into()),
-                }
-            }
-        }
-    }
-
-    async fn transaction_async<T, F, E, Fut>(&self, fun: F) -> Result<T, E>
-    where
-        F:FnOnce(crate::xmtp_openmls_provider::XmtpOpenMlsProvider) -> Fut,
-        Fut: futures::Future<Output = Result<T, E>>,
-        E: From<diesel::result::Error> + From<StorageError>,
-    {
-        log::debug!("Transaction async beginning");
-        let mut connection = self.raw_conn()?;
-        AnsiTransactionManager::begin_transaction(&mut *connection)?;
-        let connection = Arc::new(parking_lot::Mutex::new(connection));
-        let local_connection = Arc::clone(&connection);
-        let db_connection = DbConnection::from_arc_mutex(connection);
-        let provider = XmtpOpenMlsProvider::new(db_connection);
-
-        // the other connection is dropped in the closure
-        // ensuring we have only one strong reference
-        let result = fun(provider).await;
-        if Arc::strong_count(&local_connection) > 1 {
-            log::warn!("More than 1 strong connection references still exist during transaction");
-        }
-
-        if Arc::weak_count(&local_connection) > 1 {
-            log::warn!("More than 1 weak connection references still exist during transaction");
-        }
-
-        // after the closure finishes, `local_provider` should have the only reference ('strong')
-        // to `XmtpOpenMlsProvider` inner `DbConnection`..
-        let local_connection = DbConnection::from_arc_mutex(local_connection);
-        match result {
-            Ok(value) => {
-                local_connection.raw_query(|conn| {
-                    PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
-                })?;
-                log::debug!("Transaction async being committed");
-                Ok(value)
-            }
-            Err(err) => {
-                log::debug!("Transaction async being rolled back");
-                match local_connection.raw_query(|conn| {
-                    PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(
-                        &mut *conn,
-                    )
-                }) {
-                    Ok(()) => Err(err),
-                    Err(Error::BrokenTransactionManager) => Err(err),
-                    Err(rollback) => Err(rollback.into()),
-                }
-            }
         }
     }
 

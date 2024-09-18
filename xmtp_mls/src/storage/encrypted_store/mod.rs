@@ -34,12 +34,12 @@ pub use self::native::SqliteConnection;
 #[cfg(target_arch = "wasm32")]
 pub use self::wasm::SqliteConnection;
 use super::StorageError;
-use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Store};
+use crate::{xmtp_openmls_provider::XmtpOpenMlsProviderPrivate, Store};
 use db_connection::DbConnectionPrivate;
 #[cfg(not(target_arch = "wasm32"))]
 pub use diesel::sqlite::Sqlite;
 use diesel::{
-    connection::LoadConnection,
+    connection::{LoadConnection, TransactionManager},
     migration::MigrationConnection,
     prelude::*,
     result::{DatabaseErrorKind, Error},
@@ -48,11 +48,14 @@ use diesel::{
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 #[cfg(target_arch = "wasm32")]
 pub use diesel_wasm_sqlite::WasmSqlite as Sqlite;
+use std::sync::Arc;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::RawDbConnection;
+#[cfg(target_arch = "wasm32")]
+pub use diesel_wasm_sqlite::connection::WasmSqliteConnection as RawDbConnection;
 
 pub type EncryptionKey = [u8; 32];
 
@@ -80,16 +83,6 @@ pub enum StorageOption {
     Persistent(String),
 }
 
-impl StorageOption {
-    // create a completely new standalone connection
-    fn conn(&self) -> Result<SqliteConnection, diesel::ConnectionError> {
-        use StorageOption::*;
-        match self {
-            Persistent(path) => SqliteConnection::establish(path),
-            Ephemeral => SqliteConnection::establish(":memory:"),
-        }
-    }
-}
 
 /// Global Marker trait for WebAssembly
 #[cfg(target_arch = "wasm32")]
@@ -105,8 +98,9 @@ pub trait XmtpDb {
         + diesel::connection::SimpleConnection
         + LoadConnection
         + MigrationConnection
-        + MigrationHarness<<Self::Connection as diesel::Connection>::Backend> 
+        + MigrationHarness<<Self::Connection as diesel::Connection>::Backend>
         + Send;
+    type TransactionManager: diesel::connection::TransactionManager<Self::Connection>;
 
     fn validate(&self, _opts: &StorageOption) -> Result<(), StorageError> {
         Ok(())
@@ -114,17 +108,6 @@ pub trait XmtpDb {
 
     /// Returns the Connection implementation for this Database
     fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, StorageError>;
-
-    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(&XmtpOpenMlsProvider) -> Result<T, E>,
-        E: From<diesel::result::Error> + From<StorageError>;
-
-    async fn transaction_async<T, F, E, Fut>(&self, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(XmtpOpenMlsProvider) -> Fut,
-        Fut: futures::Future<Output = Result<T, E>>,
-        E: From<diesel::result::Error> + From<StorageError>;
 
     fn reconnect(&self) -> Result<(), StorageError>;
 
@@ -238,10 +221,40 @@ pub mod private {
         /// ```
         pub fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
         where
-            F: FnOnce(&XmtpOpenMlsProvider) -> Result<T, E>,
+            F: FnOnce(&XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Result<T, E>,
             E: From<diesel::result::Error> + From<StorageError>,
         {
-            self.db.transaction(fun)
+            log::debug!("Transaction beginning");
+            let connection = self.db.conn()?;
+            {
+                let mut connection = connection.inner_mut_ref();
+                <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *connection)?;
+            }
+
+            let provider = XmtpOpenMlsProviderPrivate::new(connection);
+            let conn = provider.conn_ref();
+
+            match fun(&provider) {
+                Ok(value) => {
+                    conn.raw_query(|conn| {
+                        <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
+                    })?;
+                    log::debug!("Transaction being committed");
+                    Ok(value)
+                }
+                Err(err) => {
+                    log::debug!("Transaction being rolled back");
+                    match conn.raw_query(|conn| {
+                        <Db as XmtpDb>::TransactionManager::rollback_transaction(
+                            &mut *conn,
+                        )
+                    }) {
+                        Ok(()) => Err(err),
+                        Err(Error::BrokenTransactionManager) => Err(err),
+                        Err(rollback) => Err(rollback.into()),
+                    }
+                }
+            }
         }
 
         /// Start a new database transaction with the OpenMLS Provider from XMTP
@@ -260,11 +273,55 @@ pub mod private {
         /// ```
         pub async fn transaction_async<T, F, E, Fut>(&self, fun: F) -> Result<T, E>
         where
-            F: FnOnce(XmtpOpenMlsProvider) -> Fut,
+            F: FnOnce(XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Fut,
             Fut: futures::Future<Output = Result<T, E>>,
             E: From<diesel::result::Error> + From<StorageError>,
         {
-            self.db.transaction_async(fun).await
+            log::debug!("Transaction async beginning");
+            let db_connection = self.db.conn()?;
+            {
+                let mut connection = db_connection.inner_mut_ref();
+                <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *connection)?;
+            }
+            let local_connection = db_connection.inner_ref();
+            let provider = XmtpOpenMlsProviderPrivate::new(db_connection);
+
+            // the other connection is dropped in the closure
+            // ensuring we have only one strong reference
+            let result = fun(provider).await;
+            if Arc::strong_count(&local_connection) > 1 {
+                log::warn!("More than 1 strong connection references still exist during transaction");
+            }
+
+            if Arc::weak_count(&local_connection) > 1 {
+                log::warn!("More than 1 weak connection references still exist during transaction");
+            }
+
+            // after the closure finishes, `local_provider` should have the only reference ('strong')
+            // to `XmtpOpenMlsProvider` inner `DbConnection`..
+            let local_connection = DbConnectionPrivate::from_arc_mutex(local_connection);
+            match result {
+                Ok(value) => {
+                    local_connection.raw_query(|conn| {
+                       <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
+                    })?;
+                    log::debug!("Transaction async being committed");
+                    Ok(value)
+                }
+                Err(err) => {
+                    log::debug!("Transaction async being rolled back");
+                    match local_connection.raw_query(|conn| {
+                         <Db as XmtpDb>::TransactionManager::rollback_transaction(
+                            &mut *conn,
+                        )
+                    }) {
+                        Ok(()) => Err(err),
+                        Err(Error::BrokenTransactionManager) => Err(err),
+                        Err(rollback) => Err(rollback.into()),
+                    }
+                }
+            }
+
         }
 
         pub fn release_connection(&self) -> Result<(), StorageError> {
@@ -384,7 +441,6 @@ pub(crate) mod tests {
         utils::test::{rand_vec, tmp_path},
         Fetch, Store,
     };
-    use std::sync::Arc;
     use std::sync::Barrier;
 
     /// Test harness that loads an Ephemeral store.

@@ -39,7 +39,7 @@ impl MlsGroup {
                     let client_id = client_id.clone();
                     let msgv1 = msgv1.clone();
                     self.context
-                        .store
+                        .store()
                         .transaction_async(|provider| async move {
                             let mut openmls_group = self.load_mls_group(&provider)?;
 
@@ -85,7 +85,7 @@ impl MlsGroup {
         // another thread
         let new_message = self
             .context
-            .store
+            .store()
             .conn()?
             .get_group_message_by_timestamp(&self.group_id, created_ns as i64)?;
 
@@ -95,7 +95,7 @@ impl MlsGroup {
     // Checks if a message has already been processed through a sync
     async fn has_already_synced(&self, id: u64) -> Result<bool, GroupError> {
         let check_for_last_cursor = || -> Result<i64, StorageError> {
-            let conn = self.context.store.conn()?;
+            let conn = self.context.store().conn()?;
             conn.get_last_cursor_for_id(&self.group_id, EntityKind::Group)
         };
 

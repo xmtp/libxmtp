@@ -234,7 +234,7 @@ pub struct XmtpMlsLocalContext {
     /// XMTP Identity
     pub(crate) identity: Identity,
     /// XMTP Local Storage
-    pub(crate) store: EncryptedMessageStore,
+    store: EncryptedMessageStore,
     pub(crate) mutexes: MutexRegistry,
 }
 
@@ -252,6 +252,10 @@ impl XmtpMlsLocalContext {
     /// Get sequence id, may not be consistent with the backend
     pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
         self.identity.sequence_id(conn)
+    }
+
+    pub fn store(&self) -> &EncryptedMessageStore {
+        &self.store
     }
 
     /// Pulls a new database connection and creates a new provider

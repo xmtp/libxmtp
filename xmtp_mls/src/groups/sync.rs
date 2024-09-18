@@ -89,7 +89,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
+        let conn = self.context.store().conn()?;
         let mls_provider = XmtpOpenMlsProvider::from(conn);
 
         log::info!("[{}] syncing group", client.inbox_id());
@@ -1329,7 +1329,7 @@ pub(crate) mod tests {
         amal_group.send_message_optimistic(b"5").unwrap();
         amal_group.send_message_optimistic(b"6").unwrap();
 
-        let conn = amal.context().store.conn().unwrap();
+        let conn = amal.context().store().conn().unwrap();
         let provider: XmtpOpenMlsProvider = conn.into();
 
         let mut futures = vec![];
