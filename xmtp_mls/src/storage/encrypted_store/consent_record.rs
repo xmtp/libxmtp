@@ -70,7 +70,7 @@ impl DbConnection {
                         .on_conflict((dsl::entity_type, dsl::entity))
                         .do_update()
                         .set(dsl::state.eq(excluded(dsl::state)))
-                        .execute(conn)?; // Execute with the connection
+                        .execute(conn)?;
                 }
                 Ok(())
             })

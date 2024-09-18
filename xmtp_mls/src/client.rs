@@ -343,33 +343,11 @@ where
     }
 
     // set the consent record in the database
-    // if the consent record is an address also set the inboxId
-    pub async fn set_consent_state(
+    pub async fn set_consent_states(
         &self,
-        state: ConsentState,
-        entity_type: ConsentType,
-        entity: String,
+        records: Vec<StoredConsentRecord>,
     ) -> Result<(), ClientError> {
         let conn = self.store().conn()?;
-
-        // Create a list of records to insert
-        let mut records = Vec::new();
-
-        // Add the main consent record
-        records.push(StoredConsentRecord::new(entity_type, state, entity.clone()));
-
-        // If the entity is an address, handle the additional inbox_id record
-        if entity_type == ConsentType::Address {
-            if let Some(inbox_id) = self.find_inbox_id_from_address(entity.clone()).await? {
-                records.push(StoredConsentRecord::new(
-                    ConsentType::InboxId,
-                    state,
-                    inbox_id,
-                ));
-            }
-        }
-
-        // Perform the batch insert or update
         conn.insert_or_replace_consent_records(records)?;
 
         Ok(())

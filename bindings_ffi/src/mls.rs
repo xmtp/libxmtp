@@ -30,6 +30,7 @@ use xmtp_mls::groups::intents::PermissionUpdateType;
 use xmtp_mls::groups::GroupMetadataOptions;
 use xmtp_mls::storage::consent_record::ConsentState;
 use xmtp_mls::storage::consent_record::ConsentType;
+use xmtp_mls::storage::consent_record::StoredConsentRecord;
 use xmtp_mls::{
     api::ApiClientWrapper,
     builder::ClientBuilder,
@@ -331,16 +332,12 @@ impl FfiXmtpClient {
         Ok(state.into())
     }
 
-    pub async fn set_consent_state(
-        &self,
-        state: FfiConsentState,
-        entity_type: FfiConsentEntityType,
-        entity: String,
-    ) -> Result<(), GenericError> {
+    pub async fn set_consent_states(&self, records: Vec<FfiConsent>) -> Result<(), GenericError> {
         let inner = self.inner_client.as_ref();
-        inner
-            .set_consent_state(state.into(), entity_type.into(), entity)
-            .await?;
+        let stored_records: Vec<StoredConsentRecord> =
+            records.into_iter().map(StoredConsentRecord::from).collect();
+
+        inner.set_consent_states(stored_records).await?;
         Ok(())
     }
 
@@ -1523,6 +1520,23 @@ impl From<StoredGroupMessage> for FfiMessage {
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
             delivery_status: msg.delivery_status.into(),
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiConsent {
+    pub entity_type: FfiConsentEntityType,
+    pub state: FfiConsentState,
+    pub entity: String,
+}
+
+impl From<FfiConsent> for StoredConsentRecord {
+    fn from(consent: FfiConsent) -> Self {
+        Self {
+            entity_type: consent.entity_type.into(),
+            state: consent.state.into(),
+            entity: consent.entity,
         }
     }
 }
