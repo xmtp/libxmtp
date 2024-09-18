@@ -364,7 +364,7 @@ where
                     // Create a new record for the inbox ID and store it in `new_records`
                     new_records.push(StoredConsentRecord::new(
                         ConsentType::InboxId,
-                        record.state.clone(),
+                        record.state,
                         inbox_id,
                     ));
                 }
