@@ -1,15 +1,13 @@
 use parking_lot::Mutex;
 use std::fmt;
 use std::sync::Arc;
-
-use crate::storage::RawDbConnection;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub type DbConnection = DbConnectionPrivate<RawDbConnection>;
 
 #[cfg(target_arch = "wasm32")]
-pub type DbConnection = DbConnectionPrivate<SqliteConnection>;
+pub type DbConnection = DbConnectionPrivate<diesel_wasm_sqlite::connection::WasmSqliteConnection>;
 
 /// A wrapper for RawDbConnection that houses all XMTP DB operations.
 /// Uses a [`Mutex]` internally for interior mutability, so that the connection
@@ -41,11 +39,9 @@ impl<C> DbConnectionPrivate<C>
 where
     C: diesel::Connection,
 {
-    // Note: F is a synchronous fn. If it ever becomes async, we need to use
-    // tokio::sync::mutex instead of std::sync::Mutex
-    pub(crate) fn raw_query<T, F>(&self, fun: F) -> Result<T, diesel::result::Error>
+    pub(crate) fn raw_query<T, E, F>(&self, fun: F) -> Result<T, E>
     where
-        F: FnOnce(&mut C) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut C) -> Result<T, E>,
     {
         let mut lock = self.wrapped_conn.lock();
         fun(&mut lock)
@@ -70,3 +66,4 @@ impl<C> fmt::Debug for DbConnectionPrivate<C> {
             .finish()
     }
 }
+

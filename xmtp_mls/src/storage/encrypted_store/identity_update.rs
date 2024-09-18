@@ -86,7 +86,7 @@ impl DbConnection {
                 .values(updates)
                 .execute(conn)?;
 
-            Ok(())
+            Ok::<_, diesel::result::Error>(())
         })?)
     }
 

@@ -28,22 +28,20 @@ mod sqlcipher_connection;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 
-use self::db_connection::DbConnection;
+pub use self::db_connection::DbConnection;
 #[cfg(not(target_arch = "wasm32"))]
 pub use self::native::SqliteConnection;
 #[cfg(target_arch = "wasm32")]
 pub use self::wasm::SqliteConnection;
 use super::StorageError;
 use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Store};
+use db_connection::DbConnectionPrivate;
 #[cfg(not(target_arch = "wasm32"))]
 pub use diesel::sqlite::Sqlite;
 use diesel::{
-    backend::Backend,
-    connection::{AnsiTransactionManager, LoadConnection, TransactionManager},
+    connection::LoadConnection,
     migration::MigrationConnection,
     prelude::*,
-    query_builder::QueryId,
-    query_dsl::methods::LoadQuery,
     result::{DatabaseErrorKind, Error},
     sql_query,
 };
@@ -96,7 +94,8 @@ impl StorageOption {
     }
 }
 
-trait XmtpDb {
+#[allow(async_fn_in_trait)]
+pub trait XmtpDb {
     type Connection: diesel::Connection<Backend = Sqlite>
         + diesel::connection::SimpleConnection
         + LoadConnection
@@ -108,7 +107,7 @@ trait XmtpDb {
     }
 
     /// Returns the Connection implementation for this Database
-    fn raw_conn(&self) -> Result<Self::Connection, StorageError>;
+    fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, StorageError>;
 
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
@@ -125,9 +124,6 @@ trait XmtpDb {
 
     fn release_connection(&self) -> Result<(), StorageError>;
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-pub type EncryptedMessageStore = self::private::EncryptedMessageStore<native::NativeDb>;
 
 #[cfg(not(target_arch = "wasm32"))]
 impl EncryptedMessageStore {
@@ -153,7 +149,7 @@ impl EncryptedMessageStore {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub type EncryptedMessageStore = self::private::EncryptedMessageStore<native::NativeDb>;
+pub type EncryptedMessageStore = self::private::EncryptedMessageStore<wasm::WasmDb>;
 
 #[cfg(target_arch = "wasm32")]
 impl EncryptedMessageStore {
@@ -171,16 +167,16 @@ impl EncryptedMessageStore {
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
         log::info!("Setting up DB connection pool");
-        let db = wasm::WasmDb::new(opts, enc_key)?;
+        let db = wasm::WasmDb::new(&opts, enc_key)?;
         let mut this = Self { db, opts };
         this.init_db()?;
         Ok(this)
     }
 }
 
-mod private {
+#[doc(hidden)]
+pub mod private {
     use super::*;
-    use db_connection::DbConnectionPrivate;
     use diesel::connection::SimpleConnection;
     use diesel_migrations::MigrationHarness;
 
@@ -197,30 +193,25 @@ mod private {
     {
         pub(super) fn init_db<'query>(&mut self) -> Result<(), StorageError> {
             self.db.validate(&self.opts)?;
-            let conn = &mut self.raw_conn()?;
-            conn.batch_execute("PRAGMA journal_mode = WAL;")?;
-            log::info!("Running DB migrations");
-            conn.run_pending_migrations(MIGRATIONS)
-                .map_err(|e| StorageError::DbInit(format!("Failed to run migrations: {}", e)))?;
+            self.db.conn()?.raw_query(|conn| {
+                conn.batch_execute("PRAGMA journal_mode = WAL;")?;
+                log::info!("Running DB migrations");
+                conn.run_pending_migrations(MIGRATIONS)?;
 
-            let sqlite_version =
-                sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
-            log::info!("sqlite_version={}", sqlite_version[0].version);
+                let sqlite_version =
+                    sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
+                log::info!("sqlite_version={}", sqlite_version[0].version);
 
-            log::info!("Migrations successful");
-            Ok(())
-        }
-
-        #[cfg(not(target_arch = "wasm32"))]
-        pub(crate) fn raw_conn(&self) -> Result<<Db as XmtpDb>::Connection, StorageError> {
-            self.db.raw_conn()
+                log::info!("Migrations successful");
+                Ok::<_, StorageError>(())
+            })?;
+            Ok::<_, StorageError>(())
         }
 
         pub fn conn(
             &self,
         ) -> Result<DbConnectionPrivate<<Db as XmtpDb>::Connection>, StorageError> {
-            let conn = self.raw_conn()?;
-            Ok(DbConnectionPrivate::new(conn))
+            self.db.conn()
         }
 
         /// Start a new database transaction with the OpenMLS Provider from XMTP
@@ -272,7 +263,7 @@ mod private {
         }
 
         pub fn reconnect(&self) -> Result<(), StorageError> {
-            self.reconnect()
+            self.db.reconnect()
         }
     }
 }

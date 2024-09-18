@@ -5425,6 +5425,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "trait-variant",
+ "wasm-timer",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_proto",

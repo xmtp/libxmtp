@@ -191,7 +191,7 @@ impl DbConnection {
                 .select(dsl::installations_last_checked)
                 .first(conn)
                 .optional()?;
-            Ok(ts)
+            Ok::<_, diesel::result::Error>(ts)
         })?;
 
         last_ts.ok_or(StorageError::NotFound(format!(

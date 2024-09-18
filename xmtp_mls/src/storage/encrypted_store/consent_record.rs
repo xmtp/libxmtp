@@ -48,7 +48,7 @@ impl DbConnection {
         entity: String,
         entity_type: ConsentType,
     ) -> Result<Option<StoredConsentRecord>, StorageError> {
-        Ok(self.raw_query(|conn| {
+        Ok(self.raw_query(|conn| -> diesel::QueryResult<_> {
             dsl::consent_records
                 .filter(dsl::entity.eq(entity))
                 .filter(dsl::entity_type.eq(entity_type))
@@ -62,7 +62,7 @@ impl DbConnection {
         &self,
         record: StoredConsentRecord,
     ) -> Result<(), StorageError> {
-        self.raw_query(|conn| {
+        self.raw_query(|conn| -> diesel::QueryResult<_> {
             diesel::insert_into(dsl::consent_records)
                 .values(&record)
                 .on_conflict((dsl::entity_type, dsl::entity))
