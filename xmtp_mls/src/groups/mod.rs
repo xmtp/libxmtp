@@ -5,6 +5,7 @@ pub mod group_permissions;
 pub mod intents;
 pub mod members;
 #[allow(dead_code)]
+#[cfg(feature = "message-history")]
 pub mod message_history;
 mod subscriptions;
 mod sync;
@@ -35,6 +36,8 @@ use tokio::sync::Mutex;
 
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
+#[cfg(feature = "message-history")]
+use self::message_history::MessageHistoryError;
 use self::{
     group_membership::GroupMembership,
     group_metadata::extract_group_metadata,
@@ -51,7 +54,6 @@ use self::{
 use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
     group_permissions::PolicySet,
-    message_history::MessageHistoryError,
     validated_commit::CommitValidationError,
 };
 use std::{collections::HashSet, sync::Arc};
@@ -169,6 +171,7 @@ pub enum GroupError {
     CredentialError(#[from] BasicCredentialError),
     #[error("LeafNode error")]
     LeafNodeError(#[from] LibraryError),
+    #[cfg(feature = "message-history")]
     #[error("Message History error: {0}")]
     MessageHistory(#[from] Box<MessageHistoryError>),
     #[error("Installation diff error: {0}")]
@@ -405,6 +408,7 @@ impl MlsGroup {
         Self::create_from_welcome(client, provider, welcome, inbox_id, welcome_id).await
     }
 
+    #[cfg(feature = "message-history")]
     pub(crate) fn create_and_insert_sync_group(
         context: Arc<XmtpMlsLocalContext>,
     ) -> Result<MlsGroup, GroupError> {

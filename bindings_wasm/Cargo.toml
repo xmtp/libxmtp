@@ -15,7 +15,7 @@ wasm-bindgen-futures = "0.4.41"
 xmtp_api_http = { path = "../xmtp_api_http" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
-xmtp_mls = { path = "../xmtp_mls", features = [] }
+xmtp_mls = { path = "../xmtp_mls", features = ["message-history"] }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 
 [dev-dependencies]

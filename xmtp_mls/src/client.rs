@@ -223,6 +223,7 @@ impl From<&str> for ClientError {
 pub struct Client<ApiClient> {
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
+    #[cfg(feature = "message-history")]
     pub(crate) history_sync_url: Option<String>,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
 }
@@ -278,7 +279,7 @@ where
         api_client: ApiClientWrapper<ApiClient>,
         identity: Identity,
         store: EncryptedMessageStore,
-        history_sync_url: Option<String>,
+        #[cfg(feature = "message-history")] history_sync_url: Option<String>,
     ) -> Self {
         let context = XmtpMlsLocalContext {
             identity,
@@ -289,6 +290,7 @@ where
         Self {
             api_client,
             context: Arc::new(context),
+            #[cfg(feature = "message-history")]
             history_sync_url,
             local_events: tx,
         }
@@ -470,6 +472,7 @@ where
         Ok(group)
     }
 
+    #[cfg(feature = "message-history")]
     pub(crate) fn create_sync_group(&self) -> Result<MlsGroup, ClientError> {
         log::info!("creating sync group");
         let sync_group = MlsGroup::create_and_insert_sync_group(self.context.clone())?;
