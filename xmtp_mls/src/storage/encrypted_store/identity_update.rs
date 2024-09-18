@@ -147,8 +147,8 @@ pub(crate) mod tests {
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn insert_and_read() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn insert_and_read() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
             let update_1 = build_update(inbox_id, 1);
@@ -168,12 +168,12 @@ pub(crate) mod tests {
             assert_eq!(first_update.payload, update_1_payload);
             let second_update = all_updates.last().unwrap();
             assert_eq!(second_update.payload, update_2_payload);
-        });
+        }).await;
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn test_filter() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_filter() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
             let update_1 = build_update(inbox_id, 1);
@@ -201,12 +201,12 @@ pub(crate) mod tests {
 
             assert_eq!(only_update_2.len(), 1);
             assert_eq!(only_update_2[0].sequence_id, 2);
-        })
+        }).await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn test_get_latest_sequence_id() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_get_latest_sequence_id() {
         with_connection(|conn| {
             let inbox_1 = "inbox_1";
             let inbox_2 = "inbox_2";
@@ -237,12 +237,12 @@ pub(crate) mod tests {
                 latest_sequence_ids_with_missing_member.get("missing_inbox"),
                 None
             );
-        })
+        }).await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn get_single_sequence_id() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn get_single_sequence_id() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
             let update = build_update(inbox_id, 1);
@@ -254,6 +254,6 @@ pub(crate) mod tests {
                 .get_latest_sequence_id_for_inbox(inbox_id)
                 .expect("query should work");
             assert_eq!(sequence_id, 2);
-        })
+        }).await
     }
 }

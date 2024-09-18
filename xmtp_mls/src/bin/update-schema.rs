@@ -32,7 +32,7 @@ fn main() {
     update_schemas_encrypted_message_store().unwrap();
 }
 
-fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> {
+async fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> {
     let tmp_db = format!(
         "update-{}.db3",
         Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
@@ -41,7 +41,7 @@ fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> {
     {
         // Initialize DB to read the latest table definitions
         let _ = EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmp_db.clone()))
-            .unwrap();
+            .await.unwrap();
     }
 
     let diesel_result = exec_diesel(&tmp_db);

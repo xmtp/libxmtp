@@ -25,8 +25,9 @@ impl std::fmt::Debug for WasmDb {
 }
 
 impl WasmDb {
-    pub fn new(opts: &StorageOption, enc_key: Option<EncryptionKey>) -> Result<Self, StorageError> {
+    pub async fn new(opts: &StorageOption, enc_key: Option<EncryptionKey>) -> Result<Self, StorageError> {
         use super::StorageOption::*;
+        diesel_wasm_sqlite::init_sqlite().await;
         let conn = match opts {
             Ephemeral => SqliteConnection::establish(":memory:"),
             Persistent(ref db_path) => SqliteConnection::establish(db_path),

@@ -71,10 +71,12 @@ pub async fn create_client(
         .try_into()
         .map_err(|_| Error::from_reason("Malformed 32 byte encryption key".to_string()))?;
       EncryptedMessageStore::new(storage_option, key)
+        .await
         .map_err(|_| Error::from_reason("Error creating encrypted message store"))?
     }
     None => EncryptedMessageStore::new_unencrypted(storage_option)
-      .map_err(|_| Error::from_reason("Error creating unencrypted message store"))?,
+        .await
+        .map_err(|_| Error::from_reason("Error creating unencrypted message store"))?,
   };
 
   let identity_strategy = IdentityStrategy::CreateIfNotFound(

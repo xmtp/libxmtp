@@ -439,8 +439,8 @@ pub(crate) mod tests {
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn test_store_and_fetch() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_store_and_fetch() {
         let group_id = rand_vec();
         let data = rand_vec();
         let kind = IntentKind::UpdateGroupMembership;
@@ -468,12 +468,12 @@ pub(crate) mod tests {
             let fetched: StoredGroupIntent = conn.fetch(&id).unwrap().unwrap();
 
             assert_eq!(fetched.id, id);
-        })
+        }).await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn test_query() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_query() {
         let group_id = rand_vec();
 
         let test_intents: Vec<NewGroupIntent> = vec![
@@ -547,12 +547,12 @@ pub(crate) mod tests {
             // Can get all intents
             results = conn.find_group_intents(group_id, None, None).unwrap();
             assert_eq!(results.len(), 3);
-        })
+        }).await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn find_by_payload_hash() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn find_by_payload_hash() {
         let group_id = rand_vec();
 
         with_connection(|conn| {
@@ -589,12 +589,12 @@ pub(crate) mod tests {
 
             assert_eq!(find_result.id, intent.id);
             assert_eq!(find_result.published_in_epoch, Some(1));
-        })
+        }).await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn test_happy_path_state_transitions() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_happy_path_state_transitions() {
         let group_id = rand_vec();
 
         with_connection(|conn| {
@@ -634,12 +634,12 @@ pub(crate) mod tests {
             assert_eq!(intent.state, IntentState::Committed);
             // Make sure we haven't lost the payload hash
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
-        })
+        }).await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn test_republish_state_transition() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_republish_state_transition() {
         let group_id = rand_vec();
 
         with_connection(|conn| {
@@ -678,12 +678,12 @@ pub(crate) mod tests {
             assert_eq!(intent.state, IntentState::ToPublish);
             assert!(intent.payload_hash.is_none());
             assert!(intent.post_commit_data.is_none());
-        })
+        }).await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn test_invalid_state_transition() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_invalid_state_transition() {
         let group_id = rand_vec();
 
         with_connection(|conn| {
@@ -713,12 +713,12 @@ pub(crate) mod tests {
                 to_publish_result.err().unwrap(),
                 StorageError::NotFound(_)
             ));
-        })
+        }).await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn test_increment_publish_attempts() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_increment_publish_attempts() {
         let group_id = rand_vec();
         with_connection(|conn| {
             insert_group(conn, group_id.clone());
@@ -740,6 +740,6 @@ pub(crate) mod tests {
                 .unwrap();
             intent = find_first_intent(conn, group_id.clone());
             assert_eq!(intent.publish_attempts, 2);
-        })
+        }).await
     }
 }

@@ -126,8 +126,8 @@ pub(crate) mod tests {
     use crate::{storage::encrypted_store::tests::with_connection, Store};
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn get_cursor_with_no_existing_state() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn get_cursor_with_no_existing_state() {
         with_connection(|conn| {
             let id = vec![1, 2, 3];
             let kind = EntityKind::Group;
@@ -136,12 +136,12 @@ pub(crate) mod tests {
             assert_eq!(conn.get_last_cursor_for_id(&id, kind).unwrap(), 0);
             let entry: Option<RefreshState> = conn.get_refresh_state(&id, kind).unwrap();
             assert!(entry.is_some());
-        })
+        }).await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn get_timestamp_with_existing_state() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn get_timestamp_with_existing_state() {
         with_connection(|conn| {
             let id = vec![1, 2, 3];
             let entity_kind = EntityKind::Welcome;
@@ -152,12 +152,12 @@ pub(crate) mod tests {
             };
             entry.store(conn).unwrap();
             assert_eq!(conn.get_last_cursor_for_id(&id, entity_kind).unwrap(), 123);
-        })
+        }).await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn update_timestamp_when_bigger() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn update_timestamp_when_bigger() {
         with_connection(|conn| {
             let id = vec![1, 2, 3];
             let entity_kind = EntityKind::Group;
@@ -170,12 +170,12 @@ pub(crate) mod tests {
             assert!(conn.update_cursor(&id, entity_kind, 124).unwrap());
             let entry: Option<RefreshState> = conn.get_refresh_state(&id, entity_kind).unwrap();
             assert_eq!(entry.unwrap().cursor, 124);
-        })
+        }).await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn dont_update_timestamp_when_smaller() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn dont_update_timestamp_when_smaller() {
         with_connection(|conn| {
             let entity_id = vec![1, 2, 3];
             let entity_kind = EntityKind::Welcome;
@@ -190,12 +190,12 @@ pub(crate) mod tests {
             let entry: Option<RefreshState> =
                 conn.get_refresh_state(&entity_id, entity_kind).unwrap();
             assert_eq!(entry.unwrap().cursor, 123);
-        })
+        }).await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn allow_installation_and_welcome_same_id() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn allow_installation_and_welcome_same_id() {
         with_connection(|conn| {
             let entity_id = vec![1, 2, 3];
             let welcome_state = RefreshState {
@@ -223,6 +223,6 @@ pub(crate) mod tests {
                 .unwrap()
                 .unwrap();
             assert_eq!(group_state_retrieved.cursor, 456);
-        })
+        }).await
     }
 }

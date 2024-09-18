@@ -128,8 +128,8 @@ pub(crate) mod tests {
     use super::*;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn test_batch_read() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_batch_read() {
         with_connection(|conn| {
             let association_state = AssociationState::new("1234".to_string(), 0);
             let inbox_id = association_state.inbox_id().clone();
@@ -174,6 +174,6 @@ pub(crate) mod tests {
             )
             .unwrap();
             assert_eq!(no_results.len(), 0);
-        })
+        }).await
     }
 }

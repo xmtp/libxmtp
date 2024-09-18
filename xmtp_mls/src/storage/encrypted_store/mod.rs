@@ -121,16 +121,16 @@ pub type EncryptedMessageStore = self::private::EncryptedMessageStore<native::Na
 
 #[cfg(not(target_arch = "wasm32"))]
 impl EncryptedMessageStore {
-    pub fn new(opts: StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
+    pub async fn new(opts: StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
         Self::new_database(opts, Some(enc_key))
     }
 
-    pub fn new_unencrypted(opts: StorageOption) -> Result<Self, StorageError> {
+    pub async fn new_unencrypted(opts: StorageOption) -> Result<Self, StorageError> {
         Self::new_database(opts, None)
     }
 
     /// This function is private so that an unencrypted database cannot be created by accident
-    fn new_database(
+    async fn new_database(
         opts: StorageOption,
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
@@ -147,21 +147,21 @@ pub type EncryptedMessageStore = self::private::EncryptedMessageStore<wasm::Wasm
 
 #[cfg(target_arch = "wasm32")]
 impl EncryptedMessageStore {
-    pub fn new(opts: StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
-        Self::new_database(opts, Some(enc_key))
+    pub async fn new(opts: StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
+        Self::new_database(opts, Some(enc_key)).await
     }
 
-    pub fn new_unencrypted(opts: StorageOption) -> Result<Self, StorageError> {
-        Self::new_database(opts, None)
+    pub async fn new_unencrypted(opts: StorageOption) -> Result<Self, StorageError> {
+        Self::new_database(opts, None).await
     }
 
     /// This function is private so that an unencrypted database cannot be created by accident
-    fn new_database(
+    async fn new_database(
         opts: StorageOption,
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
         log::info!("Setting up DB connection pool");
-        let db = wasm::WasmDb::new(&opts, enc_key)?;
+        let db = wasm::WasmDb::new(&opts, enc_key).await?;
         let mut this = Self { db, opts };
         this.init_db()?;
         Ok(this)
@@ -446,7 +446,7 @@ pub(crate) mod tests {
     use std::sync::Barrier;
 
     /// Test harness that loads an Ephemeral store.
-    pub fn with_connection<F, R>(fun: F) -> R
+    pub async fn with_connection<F, R>(fun: F) -> R
     where
         F: FnOnce(&DbConnection) -> R,
     {
@@ -454,29 +454,32 @@ pub(crate) mod tests {
             StorageOption::Ephemeral,
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let conn = &store.conn().expect("acquiring a Connection failed");
         fun(conn)
     }
 
     impl EncryptedMessageStore {
-        pub fn new_test() -> Self {
+        pub async fn new_test() -> Self {
             let tmp_path = tmp_path();
             EncryptedMessageStore::new(
                 StorageOption::Persistent(tmp_path),
                 EncryptedMessageStore::generate_enc_key(),
             )
+            .await
             .expect("constructing message store failed.")
         }
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn ephemeral_store() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn ephemeral_store() {
         let store = EncryptedMessageStore::new(
             StorageOption::Ephemeral,
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let conn = &store.conn().unwrap();
 
@@ -490,14 +493,15 @@ pub(crate) mod tests {
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn persistent_store() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn persistent_store() {
         let db_path = tmp_path();
         {
             let store = EncryptedMessageStore::new(
                 StorageOption::Persistent(db_path.clone()),
                 EncryptedMessageStore::generate_enc_key(),
             )
+            .await
             .unwrap();
             let conn = &store.conn().unwrap();
 
@@ -513,15 +517,16 @@ pub(crate) mod tests {
     }
 
     // #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     #[cfg(not(target_arch = "wasm32"))]
-    fn releases_db_lock() {
+    async fn releases_db_lock() {
         let db_path = tmp_path();
         {
             let store = EncryptedMessageStore::new(
                 StorageOption::Persistent(db_path.clone()),
                 EncryptedMessageStore::generate_enc_key(),
             )
+            .await
             .unwrap();
             let conn = &store.conn().unwrap();
 
@@ -546,8 +551,8 @@ pub(crate) mod tests {
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn mismatched_encryption_key() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn mismatched_encryption_key() {
         let mut enc_key = [1u8; 32];
 
         let db_path = tmp_path();
@@ -555,7 +560,8 @@ pub(crate) mod tests {
             // Setup a persistent store
             let store =
                 EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key)
-                    .unwrap();
+                .await
+                .unwrap();
 
             StoredIdentity::new("dummy_address".to_string(), rand_vec(), rand_vec())
                 .store(&store.conn().unwrap())
@@ -563,7 +569,7 @@ pub(crate) mod tests {
         } // Drop it
 
         enc_key[3] = 145; // Alter the enc_key
-        let res = EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key);
+        let res = EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key).await;
 
         // Ensure it fails
         assert!(
@@ -582,6 +588,7 @@ pub(crate) mod tests {
                 StorageOption::Persistent(db_path.clone()),
                 EncryptedMessageStore::generate_enc_key(),
             )
+            .await
             .unwrap();
 
             let conn1 = &store.conn().unwrap();
@@ -650,13 +657,14 @@ pub(crate) mod tests {
     // write should fail & rollback
     // first thread succeeds
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn test_transaction_rollback() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_transaction_rollback() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
             StorageOption::Persistent(db_path.clone()),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
 
         let barrier = Arc::new(Barrier::new(2));
@@ -722,6 +730,7 @@ pub(crate) mod tests {
             StorageOption::Persistent(db_path.clone()),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
 
         let store_pointer = store.clone();

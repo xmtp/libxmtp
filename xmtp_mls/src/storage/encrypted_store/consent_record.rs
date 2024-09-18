@@ -165,8 +165,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn insert_and_read() {
+    #[tokio::test]
+    async fn insert_and_read() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
             let consent_record = generate_consent_record(
@@ -184,6 +184,6 @@ mod tests {
                 .expect("query should work");
 
             assert_eq!(consent_record.unwrap().entity, consent_record_entity);
-        });
+        }).await;
     }
 }

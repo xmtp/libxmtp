@@ -1045,13 +1045,14 @@ pub(crate) mod tests {
     };
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn store_read_delete() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn store_read_delete() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
             StorageOption::Persistent(db_path),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
 
         let conn = store.conn().unwrap();
@@ -1102,6 +1103,7 @@ pub(crate) mod tests {
             StorageOption::Persistent(db_path),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let conn = store.conn().unwrap();
         let provider = XmtpOpenMlsProvider::new(conn);
@@ -1185,6 +1187,7 @@ pub(crate) mod tests {
             StorageOption::Persistent(db_path),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let conn = store.conn().unwrap();
         let provider = XmtpOpenMlsProvider::new(conn);
