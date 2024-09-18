@@ -117,18 +117,10 @@ where
             return Err(AssociationError::MissingIdentityUpdate.into());
         }
 
-        match StoredAssociationState::read_from_cache(conn, inbox_id.to_string(), last_sequence_id)
+        if let Some(association_state) =
+            StoredAssociationState::read_from_cache(conn, inbox_id.to_string(), last_sequence_id)?
         {
-            Ok(Some(state)) => {
-                return Ok(state);
-            }
-            // If the cache fails to deserialize, it's because the structure of the cache
-            // has changed, and we need to reload.
-            Err(err) => {
-                log::warn!("{err:?}");
-            }
-            // No cache
-            _ => {}
+            return Ok(association_state);
         }
 
         let unverified_updates = updates
