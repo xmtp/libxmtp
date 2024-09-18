@@ -1680,7 +1680,7 @@ impl FfiGroupPermissions {
 mod tests {
     use super::{create_client, signature_verifier, FfiMessage, FfiMessageCallback, FfiXmtpClient};
     use crate::{
-        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
+        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConsent,
         FfiConsentEntityType, FfiConsentState, FfiConversationCallback, FfiCreateGroupOptions,
         FfiGroup, FfiGroupMessageKind, FfiGroupPermissionsOptions, FfiInboxOwner,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy,
@@ -3710,12 +3710,11 @@ mod tests {
             .unwrap();
         let alix_updated_consent = alix_group.consent_state().unwrap();
         assert_eq!(alix_updated_consent, FfiConsentState::Denied);
-
-        bo.set_consent_state(
-            FfiConsentState::Allowed,
-            FfiConsentEntityType::GroupId,
-            hex::encode(bo_group.id()),
-        )
+        bo.set_consent_states(vec![FfiConsent {
+            state: FfiConsentState::Allowed,
+            entity_type: FfiConsentEntityType::GroupId,
+            entity: hex::encode(bo_group.id()),
+        }])
         .await
         .unwrap();
         let bo_updated_consent = bo_group.consent_state().unwrap();
@@ -3735,11 +3734,11 @@ mod tests {
             )
             .await
             .unwrap();
-        alix.set_consent_state(
-            FfiConsentState::Allowed,
-            FfiConsentEntityType::Address,
-            bo.account_address.clone(),
-        )
+        alix.set_consent_states(vec![FfiConsent {
+            state: FfiConsentState::Allowed,
+            entity_type: FfiConsentEntityType::Address,
+            entity: bo.account_address.clone(),
+        }])
         .await
         .unwrap();
         let bo_consent = alix
