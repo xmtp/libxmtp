@@ -1277,13 +1277,13 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use diesel::connection::SimpleConnection;
     use futures::future::join_all;
     use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
     use prost::Message;
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+    use diesel::connection::SimpleConnection;
 
     use crate::{
         assert_err, assert_logged,
@@ -1298,6 +1298,7 @@ pub(crate) mod tests {
             intents::{PermissionPolicyOption, PermissionUpdateType},
             members::{GroupMember, PermissionLevel},
             DeliveryStatus, GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
+            GroupError
         },
         storage::{
             group_intent::{IntentKind, IntentState, NewGroupIntent},
@@ -1309,7 +1310,7 @@ pub(crate) mod tests {
 
     use super::{
         intents::{Installation, SendWelcomesAction},
-        GroupError, MlsGroup,
+        MlsGroup,
     };
 
     async fn receive_group_invite<ApiClient>(client: &Client<ApiClient>) -> MlsGroup
@@ -2966,6 +2967,7 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
+    // #[cfg(not(target_arch = "wasm32"))]
     async fn process_messages_abort_on_retryable_error() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2998,10 +3000,12 @@ pub(crate) mod tests {
             .unwrap();
 
         let conn_1: XmtpOpenMlsProvider = bo.store().conn().unwrap().into();
-        let mut conn_2 = bo.store().raw_conn().unwrap();
+        let conn_2 = bo.store().conn().unwrap();
+        conn_2.raw_query(|c| {
+            c.batch_execute("BEGIN EXCLUSIVE").unwrap();
+            Ok::<_, diesel::result::Error>(())
+        }).unwrap();
 
-        // Begin an exclusive transaction on a second connection to lock the database
-        conn_2.batch_execute("BEGIN EXCLUSIVE").unwrap();
         let process_result = bo_group.process_messages(bo_messages, &conn_1, &bo).await;
         if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
             assert_eq!(errors.len(), 1);

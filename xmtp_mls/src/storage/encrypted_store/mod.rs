@@ -33,6 +33,8 @@ pub use self::db_connection::DbConnection;
 pub use self::native::SqliteConnection;
 #[cfg(target_arch = "wasm32")]
 pub use self::wasm::SqliteConnection;
+#[cfg(not(target_arch = "wasm32"))]
+pub use sqlcipher_connection::EncryptedConnection;
 use super::StorageError;
 use crate::{xmtp_openmls_provider::XmtpOpenMlsProviderPrivate, Store};
 use db_connection::DbConnectionPrivate;
@@ -533,7 +535,7 @@ pub(crate) mod tests {
             assert_eq!(fetched_identity.inbox_id, inbox_id);
 
             store.release_connection().unwrap();
-            assert!(store.pool.read().is_none());
+            assert!(store.db.pool.read().is_none());
             store.reconnect().unwrap();
             let fetched_identity2: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
 

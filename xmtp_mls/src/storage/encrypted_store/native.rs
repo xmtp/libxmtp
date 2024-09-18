@@ -85,7 +85,7 @@ impl StorageOption {
 #[derive(Clone, Debug)]
 /// Database used in `native` (everywhere but web)
 pub struct NativeDb {
-    pool: Arc<RwLock<Option<Pool>>>,
+    pub(super) pool: Arc<RwLock<Option<Pool>>>,
     customizer: Option<Box<dyn XmtpConnection>>,
     opts: StorageOption,
 }
