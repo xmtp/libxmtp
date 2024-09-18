@@ -130,7 +130,7 @@ impl EncryptedMessageStore {
     }
 
     /// This function is private so that an unencrypted database cannot be created by accident
-    async fn new_database(
+    fn new_database(
         opts: StorageOption,
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {

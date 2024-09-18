@@ -279,8 +279,8 @@ mod tests {
     const SQLITE3_PLAINTEXT_HEADER: &str = "SQLite format 3\0";
     use StorageOption::*;
 
-    #[test]
-    fn test_db_creates_with_plaintext_header() {
+    #[tokio::test]
+    async fn test_db_creates_with_plaintext_header() {
         let db_path = tmp_path();
         {
             let _ = EncryptedMessageStore::new(
@@ -307,8 +307,8 @@ mod tests {
         EncryptedMessageStore::remove_db_files(db_path)
     }
 
-    #[test]
-    fn test_db_migrates() {
+    #[tokio::test]
+    async fn test_db_migrates() {
         let db_path = tmp_path();
         {
             let key = EncryptedMessageStore::generate_enc_key();
