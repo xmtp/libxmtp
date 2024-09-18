@@ -229,7 +229,8 @@ where
 
 impl<ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpApi + 'static,
+    ApiClient: XmtpApi + Send + 'static,
+
 {
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient>>,

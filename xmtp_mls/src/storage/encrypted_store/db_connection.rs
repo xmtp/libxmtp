@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub type DbConnection = DbConnectionPrivate<RawDbConnection>;
+pub type DbConnection = DbConnectionPrivate<super::RawDbConnection>;
 
 #[cfg(target_arch = "wasm32")]
 pub type DbConnection = DbConnectionPrivate<diesel_wasm_sqlite::connection::WasmSqliteConnection>;

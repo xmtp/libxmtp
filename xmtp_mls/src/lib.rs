@@ -190,7 +190,7 @@ where
 fn spawn<F>(future: F) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,
-    F::Output: 'static + Send,
+    F::Output: Send + 'static,
 {
     tokio::task::spawn(future)
 }

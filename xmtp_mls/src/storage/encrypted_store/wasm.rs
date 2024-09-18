@@ -15,8 +15,6 @@ use super::db_connection::DbConnection;
 use super::{EncryptionKey, StorageError, StorageOption, XmtpDb, db_connection::DbConnectionPrivate};
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 
-pub type RawDbConnection = Arc<Mutex<SqliteConnection>>;
-
 #[derive(Clone)]
 pub struct WasmDb {
     conn: Arc<Mutex<SqliteConnection>>,

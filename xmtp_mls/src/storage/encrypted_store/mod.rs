@@ -51,9 +51,6 @@ pub use diesel_wasm_sqlite::WasmSqlite as Sqlite;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
-#[cfg(target_arch = "wasm32")]
-pub use wasm::RawDbConnection;
-
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::RawDbConnection;
 
@@ -94,13 +91,22 @@ impl StorageOption {
     }
 }
 
+/// Global Marker trait for WebAssembly
+#[cfg(target_arch = "wasm32")]
+pub trait Wasm {}
+#[cfg(target_arch = "wasm32")]
+impl<T> Wasm for T {}
+
 #[allow(async_fn_in_trait)]
+// #[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpDb: Send))]
+// #[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpDb: Wasm))]
 pub trait XmtpDb {
     type Connection: diesel::Connection<Backend = Sqlite>
         + diesel::connection::SimpleConnection
         + LoadConnection
         + MigrationConnection
-        + MigrationHarness<<Self::Connection as diesel::Connection>::Backend>;
+        + MigrationHarness<<Self::Connection as diesel::Connection>::Backend> 
+        + Send;
 
     fn validate(&self, _opts: &StorageOption) -> Result<(), StorageError> {
         Ok(())
@@ -124,6 +130,9 @@ pub trait XmtpDb {
 
     fn release_connection(&self) -> Result<(), StorageError>;
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+pub type EncryptedMessageStore = self::private::EncryptedMessageStore<native::NativeDb>;
 
 #[cfg(not(target_arch = "wasm32"))]
 impl EncryptedMessageStore {

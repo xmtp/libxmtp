@@ -9,11 +9,12 @@ use diesel::{
 };
 use parking_lot::RwLock;
 use std::sync::Arc;
+use crate::storage::encrypted_store::DbConnectionPrivate;
+pub use diesel::sqlite::SqliteConnection;
 
 pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
 pub type Pool = r2d2::Pool<ConnectionManager>;
 pub type RawDbConnection = PooledConnection<ConnectionManager>;
-pub use diesel::sqlite::SqliteConnection;
 
 use super::{sqlcipher_connection::EncryptedConnection, EncryptionKey, StorageOption, XmtpDb};
 
@@ -114,12 +115,8 @@ impl NativeDb {
             opts: opts.clone(),
         })
     }
-}
 
-impl XmtpDb for NativeDb {
-    type Connection = RawDbConnection;
-
-    fn raw_conn(&self) -> Result<Self::Connection, StorageError> {
+    fn raw_conn(&self) -> Result<RawDbConnection, StorageError> {
         let pool_guard = self.pool.read();
 
         let pool = pool_guard
@@ -133,6 +130,16 @@ impl XmtpDb for NativeDb {
         );
 
         Ok(pool.get()?)
+    }
+}
+
+impl XmtpDb for NativeDb {
+    type Connection = RawDbConnection;
+
+    /// Returns the Wrapped [`super::db_connection::DbConnection`] Connection implementation for this Database
+    fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, StorageError> {
+        let conn = self.raw_conn()?;
+        Ok(DbConnectionPrivate::new(conn))
     }
 
     fn validate(&self, opts: &StorageOption) -> Result<(), StorageError> {
@@ -181,7 +188,7 @@ impl XmtpDb for NativeDb {
 
     async fn transaction_async<T, F, E, Fut>(&self, fun: F) -> Result<T, E>
     where
-        F: FnOnce(crate::xmtp_openmls_provider::XmtpOpenMlsProvider) -> Fut,
+        F:FnOnce(crate::xmtp_openmls_provider::XmtpOpenMlsProvider) -> Fut,
         Fut: futures::Future<Output = Result<T, E>>,
         E: From<diesel::result::Error> + From<StorageError>,
     {
