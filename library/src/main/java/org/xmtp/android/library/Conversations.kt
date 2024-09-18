@@ -136,7 +136,6 @@ data class Conversations(
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
         groupPinnedFrameUrl: String = "",
-
     ): Group {
         return newGroupInternal(
             accountAddresses,
@@ -156,7 +155,7 @@ data class Conversations(
         groupImageUrlSquare: String,
         groupDescription: String,
         groupPinnedFrameUrl: String,
-        permissionsPolicySet: FfiPermissionPolicySet?
+        permissionsPolicySet: FfiPermissionPolicySet?,
     ): Group {
         if (accountAddresses.size == 1 &&
             accountAddresses.first().lowercase() == client.address.lowercase()
@@ -435,7 +434,8 @@ data class Conversations(
     }
 
     private suspend fun listIntroductionPeers(pagination: Pagination? = null): Map<String, Date> {
-        val envelopes = client.apiClient.queryTopic(
+        val apiClient = client.apiClient ?: throw XMTPException("V2 only function")
+        val envelopes = apiClient.queryTopic(
             topic = Topic.userIntro(client.address),
             pagination = pagination,
         ).envelopesList
@@ -475,8 +475,9 @@ data class Conversations(
      * @return List of [SealedInvitation] that are inside of the range specified by [pagination]
      */
     private suspend fun listInvitations(pagination: Pagination? = null): List<SealedInvitation> {
+        val apiClient = client.apiClient ?: throw XMTPException("V2 only function")
         val envelopes =
-            client.apiClient.envelopes(Topic.userInvite(client.address).description, pagination)
+            apiClient.envelopes(Topic.userInvite(client.address).description, pagination)
         return envelopes.map { envelope ->
             SealedInvitation.parseFrom(envelope.message)
         }

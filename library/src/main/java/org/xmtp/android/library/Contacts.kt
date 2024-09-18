@@ -98,67 +98,67 @@ class ConsentList(
     val entries: MutableMap<String, ConsentListEntry> = mutableMapOf(),
 ) {
     private var lastFetched: Date? = null
-    private val publicKey =
-        client.privateKeyBundleV1.identityKey.publicKey.secp256K1Uncompressed.bytes
-    private val privateKey = client.privateKeyBundleV1.identityKey.secp256K1.bytes
-
-    private val identifier: String =
-        uniffi.xmtpv3.generatePrivatePreferencesTopicIdentifier(
-            privateKey.toByteArray(),
-        )
 
     @OptIn(ExperimentalUnsignedTypes::class)
     suspend fun load(): List<ConsentListEntry> {
-        val newDate = Date()
-        val envelopes =
-            client.apiClient.envelopes(
-                Topic.preferenceList(identifier).description,
-                Pagination(
-                    after = lastFetched,
-                    direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING,
-                    limit = 500
-                ),
-            )
-
-        lastFetched = newDate
-        val preferences: MutableList<PrivatePreferencesAction> = mutableListOf()
-        for (envelope in envelopes) {
-            val payload =
-                uniffi.xmtpv3.userPreferencesDecrypt(
-                    publicKey.toByteArray(),
+        if (client.hasV2Client) {
+            val newDate = Date()
+            val publicKey =
+                client.v1keys.identityKey.publicKey.secp256K1Uncompressed.bytes
+            val privateKey = client.v1keys.identityKey.secp256K1.bytes
+            val identifier: String =
+                uniffi.xmtpv3.generatePrivatePreferencesTopicIdentifier(
                     privateKey.toByteArray(),
-                    envelope.message.toByteArray(),
+                )
+            val envelopes =
+                client.apiClient!!.envelopes(
+                    Topic.preferenceList(identifier).description,
+                    Pagination(
+                        after = lastFetched,
+                        direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING,
+                        limit = 500
+                    ),
                 )
 
-            preferences.add(
-                PrivatePreferencesAction.parseFrom(
-                    payload.toUByteArray().toByteArray(),
+            lastFetched = newDate
+            val preferences: MutableList<PrivatePreferencesAction> = mutableListOf()
+            for (envelope in envelopes) {
+                val payload =
+                    uniffi.xmtpv3.userPreferencesDecrypt(
+                        publicKey.toByteArray(),
+                        privateKey.toByteArray(),
+                        envelope.message.toByteArray(),
+                    )
+
+                preferences.add(
+                    PrivatePreferencesAction.parseFrom(
+                        payload.toUByteArray().toByteArray(),
+                    )
                 )
-            )
+            }
+
+            preferences.iterator().forEach { preference ->
+                preference.allowAddress?.walletAddressesList?.forEach { address ->
+                    allow(address)
+                }
+                preference.denyAddress?.walletAddressesList?.forEach { address ->
+                    deny(address)
+                }
+                preference.allowGroup?.groupIdsList?.forEach { groupId ->
+                    allowGroup(groupId)
+                }
+                preference.denyGroup?.groupIdsList?.forEach { groupId ->
+                    denyGroup(groupId)
+                }
+
+                preference.allowInboxId?.inboxIdsList?.forEach { inboxId ->
+                    allowInboxId(inboxId)
+                }
+                preference.denyInboxId?.inboxIdsList?.forEach { inboxId ->
+                    denyInboxId(inboxId)
+                }
+            }
         }
-
-        preferences.iterator().forEach { preference ->
-            preference.allowAddress?.walletAddressesList?.forEach { address ->
-                allow(address)
-            }
-            preference.denyAddress?.walletAddressesList?.forEach { address ->
-                deny(address)
-            }
-            preference.allowGroup?.groupIdsList?.forEach { groupId ->
-                allowGroup(groupId)
-            }
-            preference.denyGroup?.groupIdsList?.forEach { groupId ->
-                denyGroup(groupId)
-            }
-
-            preference.allowInboxId?.inboxIdsList?.forEach { inboxId ->
-                allowInboxId(inboxId)
-            }
-            preference.denyInboxId?.inboxIdsList?.forEach { inboxId ->
-                denyInboxId(inboxId)
-            }
-        }
-
         return entries.values.toList()
     }
 
@@ -203,6 +203,14 @@ class ConsentList(
                     }
                 }
             }.build()
+
+            val publicKey =
+                client.v1keys.identityKey.publicKey.secp256K1Uncompressed.bytes
+            val privateKey = client.v1keys.identityKey.secp256K1.bytes
+            val identifier: String =
+                uniffi.xmtpv3.generatePrivatePreferencesTopicIdentifier(
+                    privateKey.toByteArray(),
+                )
 
             val message =
                 uniffi.xmtpv3.userPreferencesEncrypt(

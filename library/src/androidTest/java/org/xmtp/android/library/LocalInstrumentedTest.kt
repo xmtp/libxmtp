@@ -352,7 +352,7 @@ class LocalInstrumentedTest {
     private fun publishLegacyContact(client: Client) {
         val contactBundle = Contact.ContactBundle.newBuilder().also {
             it.v1 = it.v1.toBuilder().apply {
-                keyBundle = client.privateKeyBundleV1.toPublicKeyBundle()
+                keyBundle = client.v1keys.toPublicKeyBundle()
             }.build()
         }.build()
         val envelope = Envelope.newBuilder().also {

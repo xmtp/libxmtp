@@ -76,7 +76,8 @@ data class ConversationV1(
     ): List<DecodedMessage> {
         val pagination =
             Pagination(limit = limit, before = before, after = after, direction = direction)
-        val result = client.apiClient.envelopes(topic = topic.description, pagination = pagination)
+        val apiClient = client.apiClient ?: throw XMTPException("V2 only function")
+        val result = apiClient.envelopes(topic = topic.description, pagination = pagination)
 
         return result.mapNotNull { envelope ->
             decodeOrNull(envelope = envelope)
@@ -105,8 +106,9 @@ data class ConversationV1(
         val pagination =
             Pagination(limit = limit, before = before, after = after, direction = direction)
 
+        val apiClient = client.apiClient ?: throw XMTPException("V2 only function")
         val envelopes =
-            client.apiClient.envelopes(
+            apiClient.envelopes(
                 topic = Topic.directMessageV1(client.address, peerAddress).description,
                 pagination = pagination,
             )
@@ -238,7 +240,7 @@ data class ConversationV1(
         }
         val date = Date()
         val message = MessageV1Builder.buildEncode(
-            sender = client.privateKeyBundleV1,
+            sender = client.v1keys,
             recipient = recipient,
             message = encodedContent.toByteArray(),
             timestamp = date,

@@ -83,10 +83,10 @@ data class ClientOptions(
 
 class Client() {
     lateinit var address: String
-    lateinit var privateKeyBundleV1: PrivateKeyBundleV1
-    lateinit var apiClient: ApiClient
     lateinit var contacts: Contacts
     lateinit var conversations: Conversations
+    var privateKeyBundleV1: PrivateKeyBundleV1? = null
+    var apiClient: ApiClient? = null
     var logger: XMTPLogger = XMTPLogger()
     val libXMTPVersion: String = getVersionInfo()
     var installationId: String = ""
@@ -94,6 +94,7 @@ class Client() {
     var dbPath: String = ""
     lateinit var inboxId: String
     var hasV2Client: Boolean = true
+    lateinit var environment: XMTPEnvironment
 
     companion object {
         private const val TAG = "Client"
@@ -197,6 +198,28 @@ class Client() {
         this.dbPath = dbPath
         this.installationId = installationId
         this.inboxId = inboxId
+        this.hasV2Client = true
+        this.environment = apiClient.environment
+    }
+
+    constructor(
+        address: String,
+        libXMTPClient: FfiXmtpClient,
+        dbPath: String,
+        installationId: String,
+        inboxId: String,
+        environment: XMTPEnvironment,
+    ) : this() {
+        this.address = address
+        this.contacts = Contacts(client = this)
+        this.v3Client = libXMTPClient
+        this.conversations =
+            Conversations(client = this, libXMTPConversations = libXMTPClient.conversations())
+        this.dbPath = dbPath
+        this.installationId = installationId
+        this.inboxId = inboxId
+        this.hasV2Client = false
+        this.environment = environment
     }
 
     suspend fun buildFrom(
@@ -266,6 +289,39 @@ class Client() {
         }
     }
 
+    // This is a V3 only feature
+    suspend fun createOrBuild(
+        account: SigningKey,
+        options: ClientOptions,
+    ): Client {
+        this.hasV2Client = false
+        val inboxId = getOrCreateInboxId(options, account.address)
+
+        return try {
+            val (libXMTPClient, dbPath) = ffiXmtpClient(
+                options,
+                account,
+                options.appContext,
+                null,
+                account.address,
+                inboxId
+            )
+
+            libXMTPClient?.let { client ->
+                Client(
+                    account.address,
+                    client,
+                    dbPath,
+                    client.installationId().toHex(),
+                    client.inboxId(),
+                    options.api.env
+                )
+            } ?: throw XMTPException("Error creating V3 client: libXMTPClient is null")
+        } catch (e: Exception) {
+            throw XMTPException("Error creating V3 client: ${e.message}", e)
+        }
+    }
+
     suspend fun buildFromBundle(
         bundle: PrivateKeyBundle,
         options: ClientOptions? = null,
@@ -318,7 +374,7 @@ class Client() {
         options: ClientOptions,
         account: SigningKey?,
         appContext: Context?,
-        privateKeyBundleV1: PrivateKeyBundleV1,
+        privateKeyBundleV1: PrivateKeyBundleV1?,
         address: String,
         inboxId: String,
     ): Pair<FfiXmtpClient?, String> {
@@ -349,7 +405,7 @@ class Client() {
                     accountAddress = accountAddress,
                     inboxId = inboxId,
                     nonce = 0.toULong(),
-                    legacySignedPrivateKeyProto = privateKeyBundleV1.toV2().identityKey.toByteArray(),
+                    legacySignedPrivateKeyProto = privateKeyBundleV1?.toV2()?.identityKey?.toByteArray(),
                     historySyncUrl = options.historySyncUrl
                 )
             } else {
@@ -437,7 +493,7 @@ class Client() {
         if (legacy) {
             val contactBundle = ContactBundle.newBuilder().also {
                 it.v1 = it.v1.toBuilder().also { v1Builder ->
-                    v1Builder.keyBundle = privateKeyBundleV1.toPublicKeyBundle()
+                    v1Builder.keyBundle = v1keys.toPublicKeyBundle()
                 }.build()
             }.build()
 
@@ -477,11 +533,13 @@ class Client() {
     }
 
     suspend fun query(topic: Topic, pagination: Pagination? = null): QueryResponse {
-        return apiClient.queryTopic(topic = topic, pagination = pagination)
+        val client = apiClient ?: throw XMTPException("V2 only function")
+        return client.queryTopic(topic = topic, pagination = pagination)
     }
 
     suspend fun batchQuery(requests: List<QueryRequest>): BatchQueryResponse {
-        return apiClient.batchQuery(requests)
+        val client = apiClient ?: throw XMTPException("V2 only function")
+        return client.batchQuery(requests)
     }
 
     suspend fun subscribe(
@@ -495,7 +553,8 @@ class Client() {
         request: FfiV2SubscribeRequest,
         callback: FfiV2SubscriptionCallback,
     ): FfiV2Subscription {
-        return apiClient.subscribe(request, callback)
+        val client = apiClient ?: throw XMTPException("V2 only function")
+        return client.subscribe(request, callback)
     }
 
     suspend fun fetchConversation(
@@ -509,37 +568,34 @@ class Client() {
     }
 
     fun findGroup(groupId: String): Group? {
-        v3Client?.let {
-            try {
-                return Group(this, it.group(groupId.hexToByteArray()))
-            } catch (e: Exception) {
-                return null
-            }
+        val client = v3Client ?: throw XMTPException("Error no V3 client initialized")
+        try {
+            return Group(this, client.group(groupId.hexToByteArray()))
+        } catch (e: Exception) {
+            return null
         }
-        throw XMTPException("Error no V3 client initialized")
     }
 
     fun findMessage(messageId: String): MessageV3? {
-        v3Client?.let {
-            try {
-                return MessageV3(this, it.message(messageId.hexToByteArray()))
-            } catch (e: Exception) {
-                return null
-            }
+        val client = v3Client ?: throw XMTPException("Error no V3 client initialized")
+        return try {
+            MessageV3(this, client.message(messageId.hexToByteArray()))
+        } catch (e: Exception) {
+            null
         }
-        throw XMTPException("Error no V3 client initialized")
     }
 
     suspend fun publish(envelopes: List<Envelope>) {
+        val client = apiClient ?: throw XMTPException("V2 only function")
         val authorized = AuthorizedIdentity(
             address = address,
-            authorized = privateKeyBundleV1.identityKey.publicKey,
-            identity = privateKeyBundleV1.identityKey,
+            authorized = v1keys.identityKey.publicKey,
+            identity = v1keys.identityKey,
         )
         val authToken = authorized.createAuthToken()
-        apiClient.setAuthToken(authToken)
+        client.setAuthToken(authToken)
 
-        apiClient.publish(envelopes = envelopes)
+        client.publish(envelopes = envelopes)
     }
 
     suspend fun ensureUserContactPublished() {
@@ -618,17 +674,13 @@ class Client() {
     }
 
     suspend fun canMessageV3(addresses: List<String>): Map<String, Boolean> {
-        v3Client?.let {
-            return it.canMessage(addresses)
-        }
-        throw XMTPException("Error no V3 client initialized")
+        return v3Client?.canMessage(addresses)
+            ?: throw XMTPException("Error no V3 client initialized")
     }
 
     suspend fun inboxIdFromAddress(address: String): String? {
-        v3Client?.let {
-            return it.findInboxId(address.lowercase())
-        }
-        throw XMTPException("Error no V3 client initialized")
+        return v3Client?.findInboxId(address.lowercase())
+            ?: throw XMTPException("Error no V3 client initialized")
     }
 
     fun deleteLocalDatabase() {
@@ -652,29 +704,25 @@ class Client() {
     }
 
     suspend fun revokeAllOtherInstallations(signingKey: SigningKey) {
-        if (v3Client == null) throw XMTPException("Error no V3 client initialized")
-        v3Client?.let { client ->
-            val signatureRequest = client.revokeAllOtherInstallations()
-            signingKey.sign(signatureRequest.signatureText())?.let {
-                signatureRequest.addEcdsaSignature(it.rawData)
-                client.applySignatureRequest(signatureRequest)
-            }
+        val client = v3Client ?: throw XMTPException("Error no V3 client initialized")
+        val signatureRequest = client.revokeAllOtherInstallations()
+        signingKey.sign(signatureRequest.signatureText())?.let {
+            signatureRequest.addEcdsaSignature(it.rawData)
+            client.applySignatureRequest(signatureRequest)
         }
     }
 
     suspend fun inboxState(refreshFromNetwork: Boolean): InboxState {
-        v3Client?.let {
-            return InboxState(it.inboxState(refreshFromNetwork))
-        }
-        throw XMTPException("Error no V3 client initialized")
+        val client = v3Client ?: throw XMTPException("Error no V3 client initialized")
+        return InboxState(client.inboxState(refreshFromNetwork))
     }
 
     val privateKeyBundle: PrivateKeyBundle
-        get() = PrivateKeyBundleBuilder.buildFromV1Key(privateKeyBundleV1)
+        get() = PrivateKeyBundleBuilder.buildFromV1Key(v1keys)
 
     val v1keys: PrivateKeyBundleV1
-        get() = privateKeyBundleV1
+        get() = privateKeyBundleV1 ?: throw XMTPException("V2 only function")
 
     val keys: PrivateKeyBundleV2
-        get() = privateKeyBundleV1.toV2()
+        get() = v1keys.toV2()
 }

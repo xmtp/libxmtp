@@ -90,7 +90,7 @@ class ConnectWalletViewModel(application: Application) : AndroidViewModel(applic
                 Client.register(codec = GroupUpdatedCodec())
                 _uiState.value = ConnectUiState.Success(
                     wallet.address,
-                    PrivateKeyBundleV1Builder.encodeData(client.privateKeyBundleV1)
+                    PrivateKeyBundleV1Builder.encodeData(client.v1keys)
                 )
             } catch (e: XMTPException) {
                 _uiState.value = ConnectUiState.Error(e.message.orEmpty())
@@ -115,7 +115,7 @@ class ConnectWalletViewModel(application: Application) : AndroidViewModel(applic
                 Client.register(codec = GroupUpdatedCodec())
                 _uiState.value = ConnectUiState.Success(
                     wallet.address,
-                    PrivateKeyBundleV1Builder.encodeData(client.privateKeyBundleV1)
+                    PrivateKeyBundleV1Builder.encodeData(client.v1keys)
                 )
             } catch (e: Exception) {
                 _uiState.value = ConnectUiState.Error(e.message.orEmpty())

@@ -86,7 +86,7 @@ class MainViewModel : ViewModel() {
                     MainListItem.Footer(
                         id = "footer",
                         ClientManager.client.address,
-                        ClientManager.client.apiClient.environment.name
+                        ClientManager.client.environment.name
                     )
                 )
                 _uiState.value = UiState.Success(listItems)

@@ -85,8 +85,9 @@ data class ConversationV2(
     ): List<DecodedMessage> {
         val pagination =
             Pagination(limit = limit, before = before, after = after, direction = direction)
+        val apiClient = client.apiClient ?: throw XMTPException("V2 only function")
         val result =
-            client.apiClient.envelopes(
+            apiClient.envelopes(
                 topic = topic,
                 pagination = pagination,
             )
@@ -117,7 +118,8 @@ data class ConversationV2(
     ): List<DecryptedMessage> {
         val pagination =
             Pagination(limit = limit, before = before, after = after, direction = direction)
-        val envelopes = client.apiClient.envelopes(topic, pagination)
+        val apiClient = client.apiClient ?: throw XMTPException("V2 only function")
+        val envelopes = apiClient.envelopes(topic, pagination)
 
         return envelopes.map { envelope ->
             decrypt(envelope)

@@ -42,31 +42,30 @@ class FakeWallet : SigningKey {
 }
 
 data class Fixtures(
-    val aliceAccount: PrivateKeyBuilder,
-    val bobAccount: PrivateKeyBuilder,
-    val caroAccount: PrivateKeyBuilder,
     val clientOptions: ClientOptions? = ClientOptions(
         ClientOptions.Api(XMTPEnvironment.LOCAL, isSecure = false)
     ),
 ) {
-    var alice: PrivateKey = aliceAccount.getPrivateKey()
-    var aliceClient: Client = runBlocking { Client().create(account = aliceAccount, options = clientOptions) }
-    var bob: PrivateKey = bobAccount.getPrivateKey()
-    var bobClient: Client = runBlocking { Client().create(account = bobAccount, options = clientOptions) }
-    var caro: PrivateKey = caroAccount.getPrivateKey()
-    var caroClient: Client = runBlocking { Client().create(account = caroAccount, options = clientOptions) }
+    val aliceAccount = PrivateKeyBuilder()
+    val bobAccount = PrivateKeyBuilder()
+    val caroAccount = PrivateKeyBuilder()
 
-    constructor(clientOptions: ClientOptions?) : this(
-        aliceAccount = PrivateKeyBuilder(),
-        bobAccount = PrivateKeyBuilder(),
-        caroAccount = PrivateKeyBuilder(),
-        clientOptions = clientOptions
-    )
+    var alice: PrivateKey = aliceAccount.getPrivateKey()
+    var aliceClient: Client =
+        runBlocking { Client().create(account = aliceAccount, options = clientOptions) }
+
+    var bob: PrivateKey = bobAccount.getPrivateKey()
+    var bobClient: Client =
+        runBlocking { Client().create(account = bobAccount, options = clientOptions) }
+
+    var caro: PrivateKey = caroAccount.getPrivateKey()
+    var caroClient: Client =
+        runBlocking { Client().create(account = caroAccount, options = clientOptions) }
 
     fun publishLegacyContact(client: Client) {
         val contactBundle = ContactBundle.newBuilder().also { builder ->
             builder.v1 = builder.v1.toBuilder().also {
-                it.keyBundle = client.privateKeyBundleV1.toPublicKeyBundle()
+                it.keyBundle = client.v1keys.toPublicKeyBundle()
             }.build()
         }.build()
         val envelope = Envelope.newBuilder().apply {

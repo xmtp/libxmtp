@@ -148,7 +148,7 @@ class MessageV2Builder(val senderHmac: ByteArray? = null, val shouldPush: Boolea
             val digest = Hash.sha256(headerBytes + payload)
             val preKey = client.keys.preKeysList?.get(0)
             val signature = preKey?.sign(digest)
-            val bundle = client.privateKeyBundleV1.toV2().getPublicKeyBundle()
+            val bundle = client.v1keys.toV2().getPublicKeyBundle()
             val signedContent = SignedContentBuilder.builderFromPayload(payload, bundle, signature)
             val signedBytes = signedContent.toByteArray()
             val ciphertext = Crypto.encrypt(keyMaterial, signedBytes, additionalData = headerBytes)
