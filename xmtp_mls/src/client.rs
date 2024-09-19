@@ -812,6 +812,7 @@ pub fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientErr
 
 #[cfg(test)]
 mod tests {
+    use diesel::RunQueryDsl;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
@@ -819,8 +820,37 @@ mod tests {
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
         hpke::{decrypt_welcome, encrypt_welcome},
-        storage::consent_record::{ConsentState, ConsentType},
+        storage::{
+            consent_record::{ConsentState, ConsentType},
+            schema::identity_updates,
+        },
     };
+
+    #[tokio::test]
+    async fn test_group_member_recovery() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_wallet = generate_local_wallet();
+        // Add two separate installations for Bola
+        let bola_a = ClientBuilder::new_test_client(&bola_wallet).await;
+        let bola_b = ClientBuilder::new_test_client(&bola_wallet).await;
+        let group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        // Add both of Bola's installations to the group
+        group
+            .add_members_by_inbox_id(&amal, vec![bola_a.inbox_id(), bola_b.inbox_id()])
+            .await
+            .unwrap();
+
+        let conn = amal.store().conn().unwrap();
+        conn.raw_query(|conn| diesel::delete(identity_updates::table).execute(conn))
+            .unwrap();
+
+        let members = group.members(&amal).await.unwrap();
+        // // The three installations should count as two members
+        assert_eq!(members.len(), 2);
+    }
 
     #[tokio::test]
     async fn test_mls_error() {
