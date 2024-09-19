@@ -64,8 +64,7 @@ impl MlsGroup {
                     // Filter out association states we already have to avoid redundant requests.
                     if association_states
                         .iter()
-                        .find(|state| *state.inbox_id() == id)
-                        .is_some()
+                        .any(|state| *state.inbox_id() == id)
                     {
                         return None;
                     }
