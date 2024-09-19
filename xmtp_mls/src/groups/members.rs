@@ -57,12 +57,24 @@ impl MlsGroup {
             StoredAssociationState::batch_read_from_cache(conn, requests.clone())?;
         let mutable_metadata = self.mutable_metadata(provider)?;
         if association_states.len() != requests.len() {
-            // Attempt to rebuild the cache before erroring out due to a cache miss.
+            // Attempt to rebuild the cache.
             let requests: Vec<_> = requests
                 .into_iter()
-                .map(|(id, sequence)| (id, Some(sequence)))
+                .filter_map(|(id, sequence)| {
+                    // Filter out association states we already have to avoid redundant requests.
+                    if association_states
+                        .iter()
+                        .find(|state| *state.inbox_id() == id)
+                        .is_some()
+                    {
+                        return None;
+                    }
+                    Some((id, Some(sequence)))
+                })
                 .collect();
-            association_states = client.batch_get_association_state(conn, &requests).await?;
+
+            let mut new_states = client.batch_get_association_state(conn, &requests).await?;
+            association_states.append(&mut new_states);
 
             if association_states.len() != requests.len() {
                 // Cache miss - not expected to happen because:
