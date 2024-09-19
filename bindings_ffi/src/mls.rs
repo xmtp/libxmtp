@@ -1047,7 +1047,7 @@ impl FfiGroup {
         Ok(ffi_message)
     }
 
-    pub fn list_members(&self) -> Result<Vec<FfiGroupMember>, GenericError> {
+    pub async fn list_members(&self) -> Result<Vec<FfiGroupMember>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
             self.group_id.clone(),
@@ -1055,7 +1055,8 @@ impl FfiGroup {
         );
 
         let members: Vec<FfiGroupMember> = group
-            .members()?
+            .members(&self.inner_client)
+            .await?
             .into_iter()
             .map(|member| FfiGroupMember {
                 inbox_id: member.inbox_id,
@@ -2275,7 +2276,7 @@ mod tests {
             .await
             .unwrap();
 
-        let members = group.list_members().unwrap();
+        let members = group.list_members().await.unwrap();
         assert_eq!(members.len(), 2);
     }
 
@@ -2300,7 +2301,7 @@ mod tests {
             .await
             .unwrap();
 
-        let members = group.list_members().unwrap();
+        let members = group.list_members().await.unwrap();
         assert_eq!(members.len(), 2);
         assert_eq!(group.group_name().unwrap(), "Group Name");
         assert_eq!(group.group_image_url_square().unwrap(), "url");
@@ -2564,10 +2565,10 @@ mod tests {
         client2_group.sync().await.unwrap();
 
         // Assert both clients see 2 members
-        let client1_members = client1_group.list_members().unwrap();
+        let client1_members = client1_group.list_members().await.unwrap();
         assert_eq!(client1_members.len(), 2);
 
-        let client2_members = client2_group.list_members().unwrap();
+        let client2_members = client2_group.list_members().await.unwrap();
         assert_eq!(client2_members.len(), 2);
 
         // Drop and delete local database for client2
@@ -2585,12 +2586,12 @@ mod tests {
             .unwrap();
 
         // Assert client1 still sees 2 members
-        let client1_members = client1_group.list_members().unwrap();
+        let client1_members = client1_group.list_members().await.unwrap();
         assert_eq!(client1_members.len(), 2);
 
         client2.conversations().sync().await.unwrap();
         let client2_group = client2.group(group.id()).unwrap();
-        let client2_members = client2_group.list_members().unwrap();
+        let client2_members = client2_group.list_members().await.unwrap();
         assert_eq!(client2_members.len(), 2);
     }
 
@@ -2838,11 +2839,11 @@ mod tests {
             .unwrap();
 
         bo_group.sync().await.unwrap();
-        let bo_members = bo_group.list_members().unwrap();
+        let bo_members = bo_group.list_members().await.unwrap();
         assert_eq!(bo_members.len(), 4);
 
         alix_group.sync().await.unwrap();
-        let alix_members = alix_group.list_members().unwrap();
+        let alix_members = alix_group.list_members().await.unwrap();
         assert_eq!(alix_members.len(), 4);
     }
 
@@ -2864,11 +2865,11 @@ mod tests {
         let bo_group = bo.group(alix_group.id()).unwrap();
 
         alix_group.sync().await.unwrap();
-        let alix_members = alix_group.list_members().unwrap();
+        let alix_members = alix_group.list_members().await.unwrap();
         assert_eq!(alix_members.len(), 2);
 
         bo_group.sync().await.unwrap();
-        let bo_members = bo_group.list_members().unwrap();
+        let bo_members = bo_group.list_members().await.unwrap();
         assert_eq!(bo_members.len(), 2);
 
         let bo_messages = bo_group
@@ -2892,11 +2893,11 @@ mod tests {
         assert!(bo_messages.first().unwrap().kind == FfiGroupMessageKind::MembershipChange);
         assert_eq!(bo_messages.len(), 1);
 
-        let bo_members = bo_group.list_members().unwrap();
+        let bo_members = bo_group.list_members().await.unwrap();
         assert_eq!(bo_members.len(), 1);
 
         alix_group.sync().await.unwrap();
-        let alix_members = alix_group.list_members().unwrap();
+        let alix_members = alix_group.list_members().await.unwrap();
         assert_eq!(alix_members.len(), 1);
     }
 
@@ -3736,6 +3737,7 @@ mod tests {
 
         if let Some(member) = alix_group
             .list_members()
+            .await
             .unwrap()
             .iter()
             .find(|&m| m.inbox_id == bo.inbox_id())

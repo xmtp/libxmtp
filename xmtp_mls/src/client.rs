@@ -1045,14 +1045,14 @@ mod tests {
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
             .unwrap();
-        assert_eq!(amal_group.members().unwrap().len(), 2);
+        assert_eq!(amal_group.members(&amal).await.unwrap().len(), 2);
 
         // Now remove bola
         amal_group
             .remove_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
             .unwrap();
-        assert_eq!(amal_group.members().unwrap().len(), 1);
+        assert_eq!(amal_group.members(&amal).await.unwrap().len(), 1);
         log::info!("Syncing bolas welcomes");
         // See if Bola can see that they were added to the group
         bola.sync_welcomes().await.unwrap();

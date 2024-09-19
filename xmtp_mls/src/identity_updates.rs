@@ -90,6 +90,24 @@ where
         Ok(needs_update)
     }
 
+    pub async fn batch_get_association_state<InboxId: AsRef<str>>(
+        &self,
+        conn: &DbConnection,
+        identifiers: &Vec<(InboxId, Option<i64>)>,
+    ) -> Result<Vec<AssociationState>, ClientError> {
+        let association_states = try_join_all(
+            identifiers
+                .iter()
+                .map(|(inbox_id, to_sequence_id)| {
+                    self.get_association_state(conn, inbox_id, *to_sequence_id)
+                })
+                .collect::<Vec<_>>(),
+        )
+        .await?;
+
+        Ok(association_states)
+    }
+
     pub async fn get_latest_association_state<InboxId: AsRef<str>>(
         &self,
         conn: &DbConnection,
@@ -113,8 +131,10 @@ where
             .last()
             .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
             .sequence_id;
-        if to_sequence_id.is_some() && to_sequence_id != Some(last_sequence_id) {
-            return Err(AssociationError::MissingIdentityUpdate.into());
+        if let Some(to_sequence_id) = to_sequence_id {
+            if to_sequence_id != last_sequence_id {
+                return Err(AssociationError::MissingIdentityUpdate.into());
+            }
         }
 
         if let Some(association_state) =
@@ -473,7 +493,7 @@ async fn verify_updates(
     try_join_all(
         updates
             .iter()
-            .map(|update| async { update.to_verified(scw_verifier).await }),
+            .map(|update| update.to_verified(scw_verifier)),
     )
     .await
 }

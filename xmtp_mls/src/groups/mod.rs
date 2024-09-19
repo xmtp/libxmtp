@@ -617,7 +617,7 @@ impl MlsGroup {
             .get_inbox_ids(account_addresses.clone())
             .await?;
         // get current number of users in group
-        let member_count = self.members()?.len();
+        let member_count = self.members(client).await?.len();
         if member_count + inbox_id_map.len() > MAX_GROUP_SIZE as usize {
             return Err(GroupError::UserLimitExceeded);
         }
@@ -1507,8 +1507,8 @@ mod tests {
         assert_eq!(bola_group_name, "");
 
         // Check if both clients can see the members correctly
-        let amal_members: Vec<GroupMember> = amal_group.members().unwrap();
-        let bola_members: Vec<GroupMember> = bola_group.members().unwrap();
+        let amal_members: Vec<GroupMember> = amal_group.members(&amal).await.unwrap();
+        let bola_members: Vec<GroupMember> = bola_group.members(&bola).await.unwrap();
 
         assert_eq!(amal_members.len(), 2);
         assert_eq!(bola_members.len(), 2);
@@ -1835,7 +1835,7 @@ mod tests {
             .await
             .unwrap();
         log::info!("created the group with 2 additional members");
-        assert_eq!(group.members().unwrap().len(), 3);
+        assert_eq!(group.members(&bola).await.unwrap().len(), 3);
         let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].kind, GroupMessageKind::MembershipChange);
@@ -1849,7 +1849,7 @@ mod tests {
             .remove_members(&amal, vec![bola_wallet.get_address()])
             .await
             .unwrap();
-        assert_eq!(group.members().unwrap().len(), 2);
+        assert_eq!(group.members(&bola).await.unwrap().len(), 2);
         log::info!("removed bola");
         let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 2);
@@ -1885,20 +1885,22 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(group.members().unwrap().len(), 3);
+        assert_eq!(group.members(&bola).await.unwrap().len(), 3);
 
         group
             .remove_members(&amal, vec![bola_wallet.get_address()])
             .await
             .unwrap();
-        assert_eq!(group.members().unwrap().len(), 2);
+        assert_eq!(group.members(&bola).await.unwrap().len(), 2);
         assert!(group
-            .members()
+            .members(&bola)
+            .await
             .unwrap()
             .iter()
             .all(|m| m.inbox_id != bola.inbox_id()));
         assert!(group
-            .members()
+            .members(&bola)
+            .await
             .unwrap()
             .iter()
             .any(|m| m.inbox_id == charlie.inbox_id()));
@@ -1944,7 +1946,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(group.members().unwrap().len(), 2);
+        assert_eq!(group.members(&amal).await.unwrap().len(), 2);
 
         let provider: XmtpOpenMlsProvider = amal.context.store.conn().unwrap().into();
         // Finished with setup
@@ -2591,7 +2593,7 @@ mod tests {
         amal_group.sync(&amal).await.unwrap();
 
         // Initial checks for group members
-        let initial_members = amal_group.members().unwrap();
+        let initial_members = amal_group.members(&amal).await.unwrap();
         let mut count_member = 0;
         let mut count_admin = 0;
         let mut count_super_admin = 0;
@@ -2619,7 +2621,7 @@ mod tests {
         amal_group.sync(&amal).await.unwrap();
 
         // Check after adding Bola as an admin
-        let members = amal_group.members().unwrap();
+        let members = amal_group.members(&amal).await.unwrap();
         let mut count_member = 0;
         let mut count_admin = 0;
         let mut count_super_admin = 0;
@@ -2647,7 +2649,7 @@ mod tests {
         amal_group.sync(&amal).await.unwrap();
 
         // Check after adding Caro as a super admin
-        let members = amal_group.members().unwrap();
+        let members = amal_group.members(&amal).await.unwrap();
         let mut count_member = 0;
         let mut count_admin = 0;
         let mut count_super_admin = 0;
@@ -2862,7 +2864,7 @@ mod tests {
             .await
             .unwrap();
         bola_group.sync(&bola).await.unwrap();
-        let members = bola_group.members().unwrap();
+        let members = bola_group.members(&bola).await.unwrap();
         assert_eq!(members.len(), 3);
     }
 
