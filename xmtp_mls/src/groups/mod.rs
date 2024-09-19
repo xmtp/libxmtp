@@ -3571,7 +3571,7 @@ mod tests {
         assert!(validate_dm_group(
             &client,
             &valid_dm_group
-                .load_mls_group(&client.mls_provider().unwrap())
+                .load_mls_group(client.mls_provider().unwrap())
                 .unwrap(),
             added_by_inbox
         )
@@ -3591,7 +3591,7 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(
-            validate_dm_group(&client, &invalid_type_group.load_mls_group(&client.mls_provider().unwrap()).unwrap(), added_by_inbox),
+            validate_dm_group(&client, &invalid_type_group.load_mls_group(client.mls_provider().unwrap()).unwrap(), added_by_inbox),
             Err(GroupError::Generic(msg)) if msg.contains("Invalid conversation type")
         ));
 
@@ -3614,7 +3614,7 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(
-            validate_dm_group(&client, &mismatched_dm_members_group.load_mls_group(&client.mls_provider().unwrap()).unwrap(), added_by_inbox),
+            validate_dm_group(&client, &mismatched_dm_members_group.load_mls_group(client.mls_provider().unwrap()).unwrap(), added_by_inbox),
             Err(GroupError::Generic(msg)) if msg.contains("DM members do not match expected inboxes")
         ));
 
@@ -3634,7 +3634,7 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(
-            validate_dm_group(&client, &non_empty_admin_list_group.load_mls_group(&client.mls_provider().unwrap()).unwrap(), added_by_inbox),
+            validate_dm_group(&client, &non_empty_admin_list_group.load_mls_group(client.mls_provider().unwrap()).unwrap(), added_by_inbox),
             Err(GroupError::Generic(msg)) if msg.contains("DM group must have empty admin and super admin lists")
         ));
 
@@ -3655,7 +3655,7 @@ mod tests {
         assert!(matches!(
                 validate_dm_group(
                     &client,
-                    &invalid_permissions_group.load_mls_group(&client.mls_provider().unwrap()).unwrap(),
+                    &invalid_permissions_group.load_mls_group(client.mls_provider().unwrap()).unwrap(),
                     added_by_inbox
                 ),
             Err(GroupError::Generic(msg)) if msg.contains("Invalid permissions for DM group")
