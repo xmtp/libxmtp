@@ -29,7 +29,9 @@ impl WasmDb {
         use super::StorageOption::*;
         diesel_wasm_sqlite::init_sqlite().await;
         let conn = match opts {
-            Ephemeral => SqliteConnection::establish(":memory:"),
+            Ephemeral => {
+                SqliteConnection::establish(":memory:")
+            },
             Persistent(ref db_path) => SqliteConnection::establish(db_path),
         };
         Ok(Self {

@@ -550,8 +550,8 @@ pub(crate) mod tests {
         EncryptedMessageStore::remove_db_files(db_path)
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[cfg(not(target_arch = "wasm32"))]
     async fn mismatched_encryption_key() {
         let mut enc_key = [1u8; 32];
 
@@ -757,7 +757,7 @@ pub(crate) mod tests {
             Ok::<_, anyhow::Error>(())
         });
 
-        let result: Result<Result<(), anyhow::Error>, crate::StreamHandleError> = handle.await;
+        let result = handle.await.unwrap();
         assert!(result.is_err());
 
         let conn = store.conn().unwrap();

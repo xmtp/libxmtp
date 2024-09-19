@@ -146,15 +146,7 @@ export class SQLite {
 
   open(database_url, iflags) {
     try {
-      let db;
-      if (database_url === ":memory:") {
-        db = new this.sqlite3.oo1.DB("transient_in_memory_db:");
-        console.log(`Created in-memory database`);
-      } else {
-        db = new this.sqlite3.oo1.OpfsDb(database_url);
-        console.log(`Created persistent database at ${db.filename}`);
-      }
-      return db;
+      return new this.sqlite3.oo1.OpfsDb(database_url);
     } catch (error) {
       console.log("OPFS open error", error);
       throw error;

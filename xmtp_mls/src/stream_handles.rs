@@ -8,6 +8,8 @@ pub enum StreamHandleError {
     ChannelClosed,
     #[error("The stream was closed")]
     StreamClosed,
+    #[error(transparent)]
+    JoinHandleError(#[from] tokio::task::JoinError)
 }
 
 /// A handle to a spawned Stream
@@ -24,7 +26,10 @@ pub trait StreamHandle: Future<Output = Result<<Self as StreamHandle>::Output, S
     fn end(&self);
     /// End the stream and asyncronously wait for it to shutdown, getting the result of its
     /// execution.
-    async fn end_and_wait(self) -> Result<<Self as StreamHandle>::Output, StreamHandleError>;
+    async fn end_and_wait(self) -> Result<<Self as StreamHandle>::Output, StreamHandleError> where Self: Sized {
+        self.end();
+        self.await
+    }
     /// Get an Abort Handle to the stream.
     /// This handle may be cloned/sent/etc easily
     /// and many handles may exist at once.
@@ -86,11 +91,6 @@ mod wasm {
 
         fn end(&self) {
             let _ = self.closer.try_send(());
-        }
-
-        async fn end_and_wait(self) -> Result<<Self as StreamHandle>::Output, StreamHandleError> {
-            self.end();
-            self.await
         }
 
         fn abort_handle<'b>(&self) -> impl AbortHandle + 'b {
@@ -156,13 +156,55 @@ mod native {
 
     pub struct TokioStreamHandle<T> {
         inner: JoinHandle<T>,
+        ready: Option<tokio::sync::oneshot::Receiver<()>>,
     }
 
-    pub fn spawn<F>(future: F) -> impl StreamHandle<Output = F::Output>
+    impl<T> Future for TokioStreamHandle<T> {
+        type Output = Result<T, StreamHandleError>;
+
+        fn poll(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Self::Output> {
+            self.inner.poll_unpin(cx).map_err(StreamHandleError::from)
+        }
+    }
+
+    impl<T> StreamHandle for TokioStreamHandle<T> {
+        type Output = T;
+        async fn wait_for_ready(&mut self) {
+            if let Some(s) = self.ready.take() {
+                let _ = s.await;
+            }
+        }
+
+        fn end(&self) {
+            let _ = self.inner.abort();
+        }
+
+        fn abort_handle<'b>(&self) -> impl AbortHandle + 'b {
+            self.inner.abort_handle()
+        }
+    }
+
+    impl AbortHandle for tokio::task::AbortHandle {
+        fn end(&self) {
+            self.abort()
+        }
+
+        fn is_finished(&self) -> bool {
+            self.is_finished()
+        }
+    }
+
+    pub fn spawn<F>(ready: Option<tokio::sync::oneshot::Receiver<()>>, future: F) -> impl StreamHandle<Output = F::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        tokio::task::spawn(future)
+        TokioStreamHandle {
+            inner: tokio::task::spawn(future),
+            ready
+        }
     }
 }

@@ -182,11 +182,10 @@ impl Statement {
         }
     }
 
-    fn reset(&self) -> QueryResult<()> {
+    fn reset(&self) {
         let sqlite3 = crate::get_sqlite_unchecked();
-        let rc = sqlite3.reset(&self.inner_statement);
-        ensure_sqlite_ok(rc, &self.raw_connection())?;
-        Ok(())
+        let _ = sqlite3.reset(&self.inner_statement);
+        // ensure_sqlite_ok(rc, &self.raw_connection())?;
     }
 
     fn clear_bindings(&self) -> QueryResult<()> {
@@ -327,8 +326,8 @@ impl<'stmt, 'query> BoundStatement<'stmt, 'query> {
 // we have to free the wawsm memory here not C memory so this will change significantly
 impl<'stmt, 'query> Drop for BoundStatement<'stmt, 'query> {
     fn drop(&mut self) {
-        self.statement.reset().unwrap();
-        self.statement.clear_bindings().unwrap();
+        self.statement.reset();
+        // self.statement.clear_bindings().unwrap();
         let wasm = ffi::get_sqlite_unchecked().inner().wasm();
         for (idx, buffer) in std::mem::take(&mut self.binds_to_free) {
             // It's always safe to bind null values, as there is no buffer that needs to outlife something
