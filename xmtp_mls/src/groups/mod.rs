@@ -3039,7 +3039,7 @@ pub(crate) mod tests {
                 let client_clone = alix1.clone();
                 // Each of these syncs is going to trigger the client to invite alix2 to the group
                 // because of the race
-                crate::spawn(async move { group_clone.sync(&client_clone).await })
+                crate::spawn(None, async move { group_clone.sync(&client_clone).await })
             })
             .collect();
 

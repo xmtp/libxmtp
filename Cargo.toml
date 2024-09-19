@@ -67,6 +67,7 @@ diesel = { version = "2.2", default-features = false }
 diesel-wasm-sqlite = "0.0.1"
 diesel_migrations = { version = "2.2", default-features = false }
 wasm-bindgen-test = "0.3.42"
+wasm-bindgen-futures = "0.4"
 gloo-timers = "0.3"
 
 # Internal Crate Dependencies

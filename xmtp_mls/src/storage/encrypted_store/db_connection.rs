@@ -47,11 +47,11 @@ where
     /// without a scope
     /// Must be used with care. holding this reference while calling `raw_query`
     /// will cause a deadlock.
-    pub(super) fn inner_mut_ref<'conn>(&'conn self) -> parking_lot::MutexGuard<'_, C> {
+    pub(super) fn inner_mut_ref(&self) -> parking_lot::MutexGuard<'_, C> {
         self.inner.lock()
     }
 
-    pub(super) fn inner_ref<'conn>(&self) -> Arc<Mutex<C>> {
+    pub(super) fn inner_ref(&self) -> Arc<Mutex<C>> {
         self.inner.clone()
     }
 }

@@ -20,7 +20,7 @@ use crate::{
 /// Wrapper around a [`tokio::task::JoinHandle`] but with a oneshot receiver
 /// which allows waiting for a `with_callback` stream fn to be ready for stream items.
 pub struct StreamHandle<T> {
-    pub handle: JoinHandle<T>,
+    handle: JoinHandle<T>,
     start: Option<oneshot::Receiver<()>>,
 }
 
@@ -230,15 +230,14 @@ where
 impl<ApiClient> Client<ApiClient>
 where
     ApiClient: XmtpApi + 'static,
-
 {
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient>>,
         mut convo_callback: impl FnMut(MlsGroup) + Send + 'static,
-    ) -> StreamHandle<Result<(), ClientError>> {
+    ) -> impl crate::StreamHandle {
         let (tx, rx) = oneshot::channel();
 
-        let handle = crate::spawn(async move {
+        crate::spawn(Some(rx), async move {
             let stream = client.stream_conversations().await?;
             futures::pin_mut!(stream);
             let _ = tx.send(());
@@ -246,25 +245,20 @@ where
                 convo_callback(convo)
             }
             log::debug!("`stream_conversations` stream ended, dropping stream");
-            Ok(())
-        });
-
-        StreamHandle {
-            start: Some(rx),
-            handle,
-        }
+            Ok::<_, ClientError>(())
+        })
     }
 
     pub(crate) fn stream_messages_with_callback(
         client: Arc<Client<ApiClient>>,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
-    ) -> StreamHandle<Result<(), ClientError>> {
+    ) -> impl crate::StreamHandle {
         let (tx, rx) = oneshot::channel();
 
         let client = client.clone();
 
-        let handle = crate::spawn(async move {
+        crate::spawn(Some(rx), async move {
             let stream = Self::stream_messages(&client, Arc::new(group_id_to_info)).await?;
             futures::pin_mut!(stream);
             let _ = tx.send(());
@@ -272,13 +266,8 @@ where
                 callback(message)
             }
             log::debug!("`stream_messages` stream ended, dropping stream");
-            Ok(())
-        });
-
-        StreamHandle {
-            start: Some(rx),
-            handle,
-        }
+            Ok::<_, ClientError>(())
+        })
     }
 
     pub async fn stream_all_messages(
@@ -361,10 +350,10 @@ where
     pub fn stream_all_messages_with_callback(
         client: Arc<Client<ApiClient>>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
-    ) -> StreamHandle<Result<(), ClientError>> {
+    ) -> impl crate::StreamHandle {
         let (tx, rx) = oneshot::channel();
 
-        let handle = crate::spawn(async move {
+        crate::spawn(Some(rx), async move {
             let stream = Self::stream_all_messages(&client).await?;
             futures::pin_mut!(stream);
             let _ = tx.send(());
@@ -375,13 +364,8 @@ where
                 }
             }
             log::debug!("`stream_all_messages` stream ended, dropping stream");
-            Ok(())
-        });
-
-        StreamHandle {
-            start: Some(rx),
-            handle,
-        }
+            Ok::<_, ClientError>(())
+        })
     }
 }
 
@@ -390,10 +374,11 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::utils::test::{Delivery, TestClient};
+    use crate::{utils::test::{Delivery, TestClient}, StreamHandle};
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions,
         storage::group_message::StoredGroupMessage, Client,
+        AbortHandle
     };
     use futures::StreamExt;
     use parking_lot::Mutex;
@@ -421,7 +406,7 @@ pub(crate) mod tests {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
         let bob_ptr = bob.clone();
-        crate::spawn(async move {
+        let _ = crate::spawn(None, async move {
             let bob_stream = bob_ptr.stream_conversations().await.unwrap();
             futures::pin_mut!(bob_stream);
             while let Some(item) = bob_stream.next().await {
@@ -452,7 +437,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
-        // let mut bob_stream = bob.stream_conversations().await.unwrap();
+        // let mut bob_stream = bob.stream_conversations().await.unwrap()warning: unused implementer of `futures::Future` that must be used;
         alice_group
             .add_members_by_inbox_id(&alice, vec![bob.inbox_id()])
             .await
@@ -463,7 +448,7 @@ pub(crate) mod tests {
         let notify = Delivery::new(None);
         let notify_ptr = notify.clone();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        crate::spawn(async move {
+        let _ = crate::spawn(None, async move {
             let stream = alice_group.stream(&alice).await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
@@ -653,9 +638,9 @@ pub(crate) mod tests {
             assert_eq!(messages.len(), 5);
         }
 
-        let a = handle.handle.abort_handle();
-        a.abort();
-        let _ = handle.handle.await;
+        let a = handle.abort_handle();
+        a.end();
+        let _ = handle.await;
         assert!(a.is_finished());
 
         alix_group
@@ -701,7 +686,7 @@ pub(crate) mod tests {
 
         let alix_group_pointer = alix_group.clone();
         let alix_pointer = alix.clone();
-        crate::spawn(async move {
+        let _ = crate::spawn(None, async move {
             for _ in 0..50 {
                 alix_group_pointer
                     .send_message(b"spam", &alix_pointer)
@@ -784,6 +769,6 @@ pub(crate) mod tests {
             assert_eq!(grps.len(), 2);
         }
 
-        closer.handle.abort();
+        closer.end();
     }
 }

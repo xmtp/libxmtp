@@ -7,7 +7,7 @@ use super::{extract_message_v1, GroupError, MlsGroup};
 use crate::storage::group_message::StoredGroupMessage;
 use crate::storage::refresh_state::EntityKind;
 use crate::storage::StorageError;
-use crate::subscriptions::{MessagesStreamInfo, StreamHandle};
+use crate::subscriptions::MessagesStreamInfo;
 use crate::XmtpApi;
 use crate::{retry::Retry, retry_async, Client};
 use prost::Message;
@@ -141,7 +141,7 @@ impl MlsGroup {
         group_id: Vec<u8>,
         created_at_ns: i64,
         callback: impl FnMut(StoredGroupMessage) + Send + 'static,
-    ) -> StreamHandle<Result<(), crate::groups::ClientError>>
+    ) -> impl crate::StreamHandle
     where
         ApiClient: crate::XmtpApi + 'static,
     {
@@ -244,7 +244,7 @@ pub(crate) mod tests {
         let notify_ptr = notify.clone();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let mut stream = UnboundedReceiverStream::new(rx);
-        crate::spawn(async move {
+        let _ = crate::spawn(None, async move {
             let stream = bola_group_ptr.stream(&bola_ptr).await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
@@ -293,7 +293,7 @@ pub(crate) mod tests {
         let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
         let amal_ptr = amal.clone();
         let group_ptr = group.clone();
-        crate::spawn(async move {
+        let _ = crate::spawn(None, async move {
             let stream = group_ptr.stream(&amal_ptr).await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
@@ -340,7 +340,7 @@ pub(crate) mod tests {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let (start_tx, start_rx) = tokio::sync::oneshot::channel();
         let mut stream = UnboundedReceiverStream::new(rx);
-        crate::spawn(async move {
+        let _ = crate::spawn(None, async move {
             let stream = amal_group_ptr.stream(&amal_ptr).await.unwrap();
             let _ = start_tx.send(());
             futures::pin_mut!(stream);

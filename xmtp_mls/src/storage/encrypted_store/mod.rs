@@ -185,7 +185,7 @@ pub mod private {
     where
         Db: XmtpDb,
     {
-        pub(super) fn init_db<'query>(&mut self) -> Result<(), StorageError> {
+        pub(super) fn init_db(&mut self) -> Result<(), StorageError> {
             self.db.validate(&self.opts)?;
             self.db.conn()?.raw_query(|conn| {
                 conn.batch_execute("PRAGMA journal_mode = WAL;")?;
@@ -735,7 +735,7 @@ pub(crate) mod tests {
 
         let store_pointer = store.clone();
 
-        let handle = crate::spawn(async move {
+        let handle = crate::spawn(None, async move {
             store_pointer
                 .transaction_async(|provider| async move {
                     let conn1 = provider.conn_ref();
@@ -757,7 +757,7 @@ pub(crate) mod tests {
             Ok::<_, anyhow::Error>(())
         });
 
-        let result = handle.await.unwrap();
+        let result: Result<Result<(), anyhow::Error>, crate::StreamHandleError> = handle.await;
         assert!(result.is_err());
 
         let conn = store.conn().unwrap();

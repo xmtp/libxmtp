@@ -13,6 +13,7 @@ pub mod time {
     pub const NS_IN_SEC: i64 = 1_000_000_000;
 
     pub fn now_ns() -> i64 {
+        log::debug!("GETTING NOW");
         let now = SystemTime::now();
 
         now.duration_since(UNIX_EPOCH)
