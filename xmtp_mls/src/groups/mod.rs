@@ -1528,9 +1528,8 @@ mod tests {
         client::MessageProcessingError,
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
-            build_dm_protected_metadata_extension,
-            build_group_membership_extension, build_mutable_metadata_extension_default,
-            build_protected_metadata_extension,
+            build_dm_protected_metadata_extension, build_group_membership_extension,
+            build_mutable_metadata_extension_default, build_protected_metadata_extension,
             group_membership::GroupMembership,
             group_metadata::{ConversationType, GroupMetadata},
             group_mutable_metadata::MetadataField,
@@ -1550,7 +1549,7 @@ mod tests {
     };
 
     use super::{
-         group_permissions::PolicySet,
+        group_permissions::PolicySet,
         intents::{Installation, SendWelcomesAction},
         GroupError, MlsGroup,
     };
