@@ -61,7 +61,7 @@ impl MlsGroup {
             let requests: Vec<_> = requests
                 .into_iter()
                 .filter_map(|(id, sequence)| {
-                    // Filter out association states we already have to avoid redundant requests.
+                    // Filter out association states we already have to avoid unnecessary requests.
                     if association_states
                         .iter()
                         .any(|state| *state.inbox_id() == id)
