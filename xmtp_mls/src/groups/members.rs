@@ -58,7 +58,7 @@ impl MlsGroup {
         let mutable_metadata = self.mutable_metadata(provider)?;
         if association_states.len() != requests.len() {
             // Attempt to rebuild the cache before erroring out due to a cache miss.
-            let requests = requests
+            let requests: Vec<_> = requests
                 .into_iter()
                 .map(|(id, sequence)| (id, Some(sequence)))
                 .collect();

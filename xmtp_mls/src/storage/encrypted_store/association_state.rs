@@ -1,7 +1,7 @@
 use diesel::prelude::*;
 use prost::Message;
 use xmtp_id::{
-    associations::{AssociationError, AssociationState, DeserializationError},
+    associations::{AssociationState, DeserializationError},
     InboxId,
 };
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
@@ -10,10 +10,7 @@ use super::{
     schema::association_state::{self, dsl},
     DbConnection,
 };
-use crate::{
-    client::ClientError, impl_fetch, impl_store_or_ignore, storage::StorageError, Fetch,
-    StoreOrIgnore,
-};
+use crate::{impl_fetch, impl_store_or_ignore, storage::StorageError, Fetch, StoreOrIgnore};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]

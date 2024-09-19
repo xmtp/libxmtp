@@ -93,7 +93,7 @@ where
     pub async fn batch_get_association_state<InboxId: AsRef<str>>(
         &self,
         conn: &DbConnection,
-        identifiers: &Vec<(InboxId, Option<i64>)>,
+        identifiers: &[(InboxId, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
         let association_states = try_join_all(
             identifiers
