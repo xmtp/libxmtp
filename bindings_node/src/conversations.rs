@@ -172,7 +172,7 @@ impl NapiConversations {
     };
     let convo_list: Vec<NapiGroup> = self
       .inner_client
-      .find_groups( FindGroupParams {
+      .find_groups(FindGroupParams {
         created_after_ns: opts.created_after_ns,
         created_before_ns: opts.created_before_ns,
         limit: opts.limit,
