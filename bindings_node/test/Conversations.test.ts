@@ -43,7 +43,7 @@ describe('Conversations', () => {
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
     expect(group.findMessages().length).toBe(1)
-    const members = group.listMembers()
+    const members = await group.listMembers()
     expect(members.length).toBe(2)
     const memberInboxIds = members.map((member) => member.inboxId)
     expect(memberInboxIds).toContain(client1.inboxId())
