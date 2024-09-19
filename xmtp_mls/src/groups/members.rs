@@ -58,21 +58,23 @@ impl MlsGroup {
         let mutable_metadata = self.mutable_metadata(provider)?;
         if association_states.len() != requests.len() {
             // Attempt to rebuild the cache.
-            let requests: Vec<_> = requests
-                .into_iter()
+            let missing_requests: Vec<_> = requests
+                .iter()
                 .filter_map(|(id, sequence)| {
                     // Filter out association states we already have to avoid unnecessary requests.
                     if association_states
                         .iter()
-                        .any(|state| *state.inbox_id() == id)
+                        .any(|state| state.inbox_id() == id)
                     {
                         return None;
                     }
-                    Some((id, Some(sequence)))
+                    Some((id.clone(), Some(*sequence)))
                 })
                 .collect();
 
-            let mut new_states = client.batch_get_association_state(conn, &requests).await?;
+            let mut new_states = client
+                .batch_get_association_state(conn, &missing_requests)
+                .await?;
             association_states.append(&mut new_states);
 
             if association_states.len() != requests.len() {
