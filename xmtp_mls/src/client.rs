@@ -313,15 +313,31 @@ where
         &self,
         address: String,
     ) -> Result<Option<String>, ClientError> {
-        if let Some(sanitized_address) = sanitize_evm_addresses(vec![address])?.pop() {
-            let mut results = self
-                .api_client
-                .get_inbox_ids(vec![sanitized_address.clone()])
-                .await?;
-            Ok(results.remove(&sanitized_address))
+        let results = self
+            .find_inbox_ids_from_addresses(vec![address.clone()])
+            .await?;
+        if let Some(first_result) = results.into_iter().next() {
+            Ok(first_result)
         } else {
             Ok(None)
         }
+    }
+
+    pub async fn find_inbox_ids_from_addresses(
+        &self,
+        addresses: Vec<String>,
+    ) -> Result<Vec<Option<String>>, ClientError> {
+        let sanitized_addresses = sanitize_evm_addresses(addresses.clone())?;
+        let mut results = self
+            .api_client
+            .get_inbox_ids(sanitized_addresses.clone())
+            .await?;
+        let inbox_ids: Vec<Option<String>> = sanitized_addresses
+            .into_iter()
+            .map(|address| results.remove(&address))
+            .collect();
+
+        Ok(inbox_ids)
     }
 
     /// Get sequence id, may not be consistent with the backend
@@ -350,31 +366,33 @@ where
     ) -> Result<(), ClientError> {
         let conn = self.store().conn()?;
 
-        // Collect new records to add after the loop
         let mut new_records = Vec::new();
+        let mut addresses_to_lookup = Vec::new();
+        let mut record_indices = Vec::new();
 
-        // Iterate over the records and check if the entity is an address
-        for record in &records {
+        for (index, record) in records.iter().enumerate() {
             if record.entity_type == ConsentType::Address {
-                // Find the inbox ID associated with the address asynchronously
-                if let Some(inbox_id) = self
-                    .find_inbox_id_from_address(record.entity.clone())
-                    .await?
-                {
-                    // Create a new record for the inbox ID and store it in `new_records`
-                    new_records.push(StoredConsentRecord::new(
-                        ConsentType::InboxId,
-                        record.state,
-                        inbox_id,
-                    ));
-                }
+                addresses_to_lookup.push(record.entity.clone());
+                record_indices.push(index);
             }
         }
 
-        // Append new records to the original records
-        records.extend(new_records);
+        let inbox_ids = self
+            .find_inbox_ids_from_addresses(addresses_to_lookup)
+            .await?;
 
-        // Perform the batch insert or update
+        for (i, inbox_id_opt) in inbox_ids.into_iter().enumerate() {
+            if let Some(inbox_id) = inbox_id_opt {
+                let record = &records[record_indices[i]];
+                new_records.push(StoredConsentRecord::new(
+                    ConsentType::InboxId,
+                    record.state,
+                    inbox_id,
+                ));
+            }
+        }
+
+        records.extend(new_records);
         conn.insert_or_replace_consent_records(records)?;
 
         Ok(())
