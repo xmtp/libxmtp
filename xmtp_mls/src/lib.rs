@@ -13,6 +13,7 @@ mod identity_updates;
 mod mutex_registry;
 pub mod retry;
 pub mod storage;
+mod stream_handles;
 pub mod subscriptions;
 pub mod types;
 pub mod utils;
@@ -20,9 +21,7 @@ pub mod verified_key_package_v2;
 mod xmtp_openmls_provider;
 
 pub use client::{Client, Network};
-use std::future::Future;
 use storage::StorageError;
-use tokio::task::JoinHandle;
 pub use trait_impls::*;
 
 /// XMTP Api Super Trait
@@ -177,33 +176,19 @@ pub trait Delete<Model> {
     fn delete(&self, key: Self::Key) -> Result<usize, StorageError>;
 }
 
-#[cfg(target_arch = "wasm32")]
-fn spawn<F>(future: F) -> JoinHandle<F::Output>
-where
-    F: Future + 'static,
-    F::Output: 'static,
-{
-    tokio::task::spawn_local(future)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn spawn<F>(future: F) -> JoinHandle<F::Output>
-where
-    F: Future + Send + 'static,
-    F::Output: 'static + Send,
-{
-    tokio::task::spawn(future)
-}
+pub use stream_handles::{
+    spawn, AbortHandle, GenericStreamHandle, StreamHandle, StreamHandleError,
+};
 
 #[cfg(target_arch = "wasm32")]
 #[doc(hidden)]
-pub async fn sleep(duration: std::time::Duration) {
+pub async fn sleep(duration: core::time::Duration) {
     gloo_timers::future::TimeoutFuture::new(duration.as_millis() as u32).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[doc(hidden)]
-pub async fn sleep(duration: std::time::Duration) {
+pub async fn sleep(duration: core::time::Duration) {
     tokio::time::sleep(duration).await
 }
 

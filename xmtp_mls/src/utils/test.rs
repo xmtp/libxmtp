@@ -107,13 +107,14 @@ impl EncryptedMessageStore {
 }
 
 impl ClientBuilder<TestClient> {
-    pub fn temp_store(self) -> Self {
+    pub async fn temp_store(self) -> Self {
         let tmpdb = tmp_path();
         self.store(
             EncryptedMessageStore::new(
                 StorageOption::Persistent(tmpdb),
                 EncryptedMessageStore::generate_enc_key(),
             )
+            .await
             .unwrap(),
         )
     }
@@ -136,6 +137,7 @@ impl ClientBuilder<TestClient> {
         ))
         .scw_signatuer_verifier(MockSmartContractSignatureVerifier::new(true))
         .temp_store()
+        .await
         .local_client()
         .await
         .build()
@@ -159,6 +161,7 @@ impl ClientBuilder<TestClient> {
             None,
         ))
         .temp_store()
+        .await
         .api_client(dev_client)
         .build()
         .await
@@ -174,12 +177,12 @@ impl ClientBuilder<TestClient> {
 #[derive(Clone, Default)]
 pub struct Delivery {
     notify: Arc<Notify>,
-    timeout: std::time::Duration,
+    timeout: core::time::Duration,
 }
 
 impl Delivery {
-    pub fn new(timeout: Option<std::time::Duration>) -> Self {
-        let timeout = timeout.unwrap_or(std::time::Duration::from_secs(60));
+    pub fn new(timeout: Option<core::time::Duration>) -> Self {
+        let timeout = timeout.unwrap_or(core::time::Duration::from_secs(60));
         Self {
             notify: Arc::new(Notify::new()),
             timeout,

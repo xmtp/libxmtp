@@ -164,4 +164,3 @@ impl ValidatedLegacySignedPublicKey {
         self.created_ns
     }
 }
-

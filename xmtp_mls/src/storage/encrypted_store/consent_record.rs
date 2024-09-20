@@ -1,5 +1,6 @@
 use crate::{impl_store, storage::StorageError};
 
+use super::Sqlite;
 use super::{
     db_connection::DbConnection,
     schema::consent_records::{self, dsl},
@@ -14,7 +15,6 @@ use diesel::{
     upsert::excluded,
 };
 use serde::{Deserialize, Serialize};
-use super::Sqlite;
 
 /// StoredConsentRecord holds a serialized ConsentRecord
 #[derive(Insertable, Queryable, Debug, Clone, PartialEq, Eq)]
@@ -48,7 +48,7 @@ impl DbConnection {
         entity: String,
         entity_type: ConsentType,
     ) -> Result<Option<StoredConsentRecord>, StorageError> {
-        Ok(self.raw_query(|conn| {
+        Ok(self.raw_query(|conn| -> diesel::QueryResult<_> {
             dsl::consent_records
                 .filter(dsl::entity.eq(entity))
                 .filter(dsl::entity_type.eq(entity_type))
@@ -62,7 +62,7 @@ impl DbConnection {
         &self,
         record: StoredConsentRecord,
     ) -> Result<(), StorageError> {
-        self.raw_query(|conn| {
+        self.raw_query(|conn| -> diesel::QueryResult<_> {
             diesel::insert_into(dsl::consent_records)
                 .values(&record)
                 .on_conflict((dsl::entity_type, dsl::entity))
@@ -165,8 +165,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn insert_and_read() {
+    #[tokio::test]
+    async fn insert_and_read() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
             let consent_record = generate_consent_record(
@@ -184,6 +184,7 @@ mod tests {
                 .expect("query should work");
 
             assert_eq!(consent_record.unwrap().entity, consent_record_entity);
-        });
+        })
+        .await;
     }
 }

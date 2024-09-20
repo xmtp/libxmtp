@@ -1,6 +1,5 @@
 //! General tests for migrations/diesel ORM/persistant databases
 use crate::common::prelude::*;
-use diesel::dsl::count;
 use diesel_wasm_sqlite::dsl::RunQueryDsl;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./tests/migrations/");
@@ -67,14 +66,6 @@ fn insert_books(conn: &mut WasmSqliteConnection, new_books: Vec<BookForm>) -> Qu
     Ok(rows_changed)
 }
 
-fn insert_book(conn: &mut WasmSqliteConnection, new_book: BookForm) -> QueryResult<usize> {
-    use schema::books::dsl::*;
-    let query = insert_into(books).values(new_book);
-    let sql = debug_query::<WasmSqlite, _>(&query).to_string();
-    tracing::info!("QUERY = {}", sql);
-    let rows_changed = query.execute(conn).unwrap();
-    Ok(rows_changed)
-}
 /*
 #[wasm_bindgen_test]
 fn examine_sql_from_insert_default_values() {

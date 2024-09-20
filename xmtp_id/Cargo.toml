@@ -27,7 +27,7 @@ tokio = { workspace = true, features = ["macros"] }
 tracing.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
-wasm-timer = "0.2"
+wasm-timer.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }

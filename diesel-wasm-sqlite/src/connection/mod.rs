@@ -38,7 +38,7 @@ use diesel::{
 };
 use serialized_database::SerializedDatabase;
 
-use crate::{ffi, get_sqlite_unchecked, WasmSqlite, WasmSqliteError};
+use crate::{get_sqlite_unchecked, WasmSqlite, WasmSqliteError};
 
 // This relies on the invariant that RawConnection or Statement are never
 // leaked. If a reference to one of those was held on a different thread, this

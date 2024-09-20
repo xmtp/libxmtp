@@ -16,7 +16,7 @@ export class SQLite {
   constructor(sqlite3) {
     if (typeof sqlite3 === "undefined") {
       throw new Error(
-        "`sqliteObject` must be defined before calling constructor"
+        "`sqliteObject` must be defined before calling constructor",
       );
     }
     this.sqlite3 = sqlite3;
@@ -146,15 +146,7 @@ export class SQLite {
 
   open(database_url, iflags) {
     try {
-      let db;
-      if (database_url === ":memory:") {
-        db = new this.sqlite3.oo1.DB("transient_in_memory_db:");
-        console.log(`Created in-memory database`);
-      } else {
-        db = new this.sqlite3.oo1.OpfsDb(database_url);
-        console.log(`Created persistent database at ${db.filename}`);
-      }
-      return db;
+      return new this.sqlite3.oo1.OpfsDb(database_url);
     } catch (error) {
       console.log("OPFS open error", error);
       throw error;
@@ -202,7 +194,7 @@ export class SQLite {
       nByte,
       prepFlags,
       ppStmt,
-      pzTail
+      pzTail,
     );
   }
 
@@ -246,7 +238,7 @@ export class SQLite {
     pApp,
     xFunc,
     xStep,
-    xFinal
+    xFinal,
   ) {
     try {
       this.sqlite3.capi.sqlite3_create_function(
@@ -257,7 +249,7 @@ export class SQLite {
         pApp, // pApp is ignored
         xFunc,
         xStep,
-        xFinal
+        xFinal,
       );
       console.log("create function");
     } catch (error) {
@@ -297,9 +289,9 @@ export class SQLite {
               log(`Created trigger for ${table_name}`);
               log(row);
               log(`------------------------------------`);
-            }
+            },
           );
-        }
+        },
       );
     } catch (error) {
       console.log("error creating diesel trigger");
@@ -308,7 +300,7 @@ export class SQLite {
   }
 
   value_free(value) {
-    return this.sqlite3.capi.value_free(value);
+    return this.sqlite3.capi.sqlite3_value_free(value);
   }
 
   sqlite3_serialize(database, z_schema, p_size, m_flags) {
@@ -317,7 +309,7 @@ export class SQLite {
         database,
         z_schema,
         p_size,
-        m_flags
+        m_flags,
       );
     } catch (error) {
       console.log("error serializing");
@@ -331,7 +323,7 @@ export class SQLite {
     p_data,
     sz_database,
     sz_buffer,
-    m_flags
+    m_flags,
   ) {
     try {
       return this.sqlite3.capi.sqlite3_deserialize(
@@ -340,7 +332,7 @@ export class SQLite {
         p_data,
         sz_database,
         sz_buffer,
-        m_flags
+        m_flags,
       );
     } catch (error) {
       console.log("error deserializing");
@@ -349,11 +341,6 @@ export class SQLite {
   }
 
   sqlite3_free(_database, arg1) {
-    try {
-      this.sqlite3.capi.sqlite3_free(arg1);
-    } catch (error) {
-      console.log("error freeing value");
-      throw error;
-    }
+    return this.sqlite3.capi.sqlite3_free(arg1);
   }
 }

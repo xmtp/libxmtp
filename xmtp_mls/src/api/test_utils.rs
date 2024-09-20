@@ -18,7 +18,7 @@ use xmtp_proto::{
     },
 };
 
-#[cfg(feature = "http-api")]
+#[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
 use crate::XmtpTestClient;

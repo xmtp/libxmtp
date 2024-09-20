@@ -1,4 +1,3 @@
-
 use super::hashes::generate_inbox_id;
 use super::member::{Member, MemberIdentifier, MemberKind};
 use super::serialization::DeserializationError;
@@ -36,7 +35,6 @@ pub enum AssociationError {
     #[error("Missing identity update")]
     MissingIdentityUpdate,
 }
-
 
 pub trait IdentityAction: Send + 'static {
     fn update_state(

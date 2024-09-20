@@ -33,6 +33,7 @@ async-stream = "0.3"
 async-trait = "0.1.77"
 trait-variant = "0.1.2"
 chrono = "0.4.38"
+wasm-timer = "0.2"
 ctor = "0.2"
 ed25519 = "2.2.3"
 ed25519-dalek = "2.1.1"
@@ -66,6 +67,7 @@ diesel = { version = "2.2", default-features = false }
 diesel-wasm-sqlite = "0.0.1"
 diesel_migrations = { version = "2.2", default-features = false }
 wasm-bindgen-test = "0.3.42"
+wasm-bindgen-futures = "0.4"
 gloo-timers = "0.3"
 
 # Internal Crate Dependencies

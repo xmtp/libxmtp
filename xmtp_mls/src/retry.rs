@@ -16,8 +16,6 @@
 //! }
 //! ```
 
-use std::time::Duration;
-
 use rand::Rng;
 
 /// Specifies which errors are retryable.
@@ -30,7 +28,7 @@ pub trait RetryableError: std::error::Error {
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct Retry {
     retries: usize,
-    duration: std::time::Duration,
+    duration: core::time::Duration,
     // The amount to multiply the duration on each subsequent attempt
     multiplier: u32,
     max_jitter_ms: usize,
@@ -40,7 +38,7 @@ impl Default for Retry {
     fn default() -> Self {
         Self {
             retries: 5,
-            duration: std::time::Duration::from_millis(50),
+            duration: core::time::Duration::from_millis(50),
             multiplier: 3,
             max_jitter_ms: 25,
         }
@@ -56,14 +54,14 @@ impl Retry {
     /// Get the duration to wait between retries.
     /// Multiples the duration by the multiplier for each subsequent attempt
     /// and adds a random jitter to avoid repeated collisions
-    pub fn duration(&self, attempts: usize) -> Duration {
+    pub fn duration(&self, attempts: usize) -> core::time::Duration {
         let mut duration = self.duration;
         for _ in 0..attempts - 1 {
             duration *= self.multiplier;
         }
 
         let jitter = rand::thread_rng().gen_range(0..=self.max_jitter_ms);
-        duration + Duration::from_millis(jitter as u64)
+        duration + core::time::Duration::from_millis(jitter as u64)
     }
 }
 
@@ -71,7 +69,7 @@ impl Retry {
 #[derive(Default, PartialEq, Eq, Copy, Clone)]
 pub struct RetryBuilder {
     retries: Option<usize>,
-    duration: Option<std::time::Duration>,
+    duration: Option<core::time::Duration>,
 }
 
 /// Builder for [`Retry`].
@@ -82,7 +80,7 @@ pub struct RetryBuilder {
 ///
 /// RetryBuilder::default()
 ///     .retries(5)
-///     .duration(std::time::Duration::from_millis(1000))
+///     .duration(core::time::Duration::from_millis(1000))
 ///     .build();
 /// ```
 impl RetryBuilder {
@@ -93,7 +91,7 @@ impl RetryBuilder {
     }
 
     /// Specify the duration to wait before retrying again
-    pub fn duration(mut self, duration: std::time::Duration) -> Self {
+    pub fn duration(mut self, duration: core::time::Duration) -> Self {
         self.duration = Some(duration);
         self
     }
@@ -312,7 +310,7 @@ pub(crate) mod tests {
                 return Ok(());
             }
             // do some work
-            crate::sleep(std::time::Duration::from_nanos(100)).await;
+            crate::sleep(core::time::Duration::from_nanos(100)).await;
             Err(SomeError::ARetryableError)
         }
 
@@ -338,7 +336,7 @@ pub(crate) mod tests {
             }
             *data += 1;
             // do some work
-            crate::sleep(std::time::Duration::from_nanos(100)).await;
+            crate::sleep(core::time::Duration::from_nanos(100)).await;
             Err(SomeError::ARetryableError)
         }
 

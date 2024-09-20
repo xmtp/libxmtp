@@ -71,12 +71,13 @@ pub(crate) mod tests {
     use crate::{utils::test::rand_vec, Store};
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn can_only_store_one_identity() {
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn can_only_store_one_identity() {
         let store = EncryptedMessageStore::new(
             StorageOption::Ephemeral,
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let conn = &store.conn().unwrap();
 
