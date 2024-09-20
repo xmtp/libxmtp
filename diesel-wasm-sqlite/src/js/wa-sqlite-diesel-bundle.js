@@ -14706,7 +14706,7 @@ class SQLite {
   }
 
   value_free(value) {
-    return this.sqlite3.capi.value_free(value);
+    return this.sqlite3.capi.sqlite3_value_free(value);
   }
 
   sqlite3_serialize(database, z_schema, p_size, m_flags) {
