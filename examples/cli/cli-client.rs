@@ -15,6 +15,7 @@ use std::{fs, path::PathBuf, time::Duration};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder};
+use futures::future::join_all;
 use kv_log_macro::{error, info};
 use prost::Message;
 use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature};
@@ -213,10 +214,12 @@ async fn main() {
             for group in group_list.iter() {
                 group.sync(&client).await.expect("error syncing group");
             }
+
             let serializable_group_list = group_list
                 .iter()
-                .map(Into::into)
-                .collect::<Vec<SerializableGroup>>();
+                .map(|g| SerializableGroup::from(g, &client))
+                .collect::<Vec<_>>();
+            let serializable_group_list = join_all(serializable_group_list).await;
 
             info!(
                 "group members",
@@ -337,7 +340,7 @@ async fn main() {
                 .group(hex::decode(group_id).expect("bad group id"))
                 .expect("group not found");
             group.sync(&client).await.unwrap();
-            let serializable: SerializableGroup = group.into();
+            let serializable = SerializableGroup::from(group, &client).await;
             info!("Group {}", group_id, { command_output: true, group_id: group_id, group_info: make_value(&serializable) })
         }
         Commands::RequestHistorySync {} => {
