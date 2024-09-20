@@ -28,8 +28,9 @@ const DIESEL_TOML: &str = "./diesel.toml";
 /// Notes:
 /// - there is not great handling around tmp database cleanup in error cases.
 /// - https://github.com/diesel-rs/diesel/issues/852 -> BigInts are weird.
-fn main() {
-    update_schemas_encrypted_message_store().unwrap();
+#[tokio::main]
+async fn main() {
+    update_schemas_encrypted_message_store().await.unwrap();
 }
 
 async fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> {
@@ -41,7 +42,8 @@ async fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> 
     {
         // Initialize DB to read the latest table definitions
         let _ = EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmp_db.clone()))
-            .await.unwrap();
+            .await
+            .unwrap();
     }
 
     let diesel_result = exec_diesel(&tmp_db);

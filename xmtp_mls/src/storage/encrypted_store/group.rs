@@ -349,7 +349,8 @@ pub(crate) mod tests {
                     .unwrap(),
                 test_group
             );
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -367,7 +368,8 @@ pub(crate) mod tests {
 
             let fetched_group: Option<StoredGroup> = conn.fetch(&test_group.id).unwrap();
             assert_eq!(fetched_group, Some(test_group));
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -388,7 +390,8 @@ pub(crate) mod tests {
                     ..test_group
                 }
             );
-        }).await
+        })
+        .await
     }
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
@@ -424,7 +427,8 @@ pub(crate) mod tests {
             assert_eq!(synced_groups.len(), 0);
 
             // test that ONLY normal groups show up.
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -446,7 +450,8 @@ pub(crate) mod tests {
             let fetched_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
             assert_ne!(fetched_group.installations_last_checked, 0);
             assert!(fetched_group.created_at_ns < fetched_group.installations_last_checked);
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -466,7 +471,8 @@ pub(crate) mod tests {
             assert_eq!(fetched_group, Some(test_group));
             let purpose = fetched_group.unwrap().purpose;
             assert_eq!(purpose, Purpose::Conversation);
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -486,6 +492,7 @@ pub(crate) mod tests {
             let found = conn.find_sync_groups().unwrap();
             assert_eq!(found.len(), 1);
             assert_eq!(found[0].purpose, Purpose::Sync)
-        }).await
+        })
+        .await
     }
 }

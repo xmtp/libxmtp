@@ -176,7 +176,9 @@ pub trait Delete<Model> {
     fn delete(&self, key: Self::Key) -> Result<usize, StorageError>;
 }
 
-pub use stream_handles::{spawn, StreamHandle, AbortHandle, StreamHandleError, GenericStreamHandle};
+pub use stream_handles::{
+    spawn, AbortHandle, GenericStreamHandle, StreamHandle, StreamHandleError,
+};
 
 #[cfg(target_arch = "wasm32")]
 #[doc(hidden)]

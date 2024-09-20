@@ -1,7 +1,7 @@
+use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use parking_lot::Mutex;
 use std::fmt;
 use std::sync::Arc;
-use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub type DbConnection = DbConnectionPrivate<super::RawDbConnection>;
@@ -74,4 +74,3 @@ impl<C> fmt::Debug for DbConnectionPrivate<C> {
             .finish()
     }
 }
-

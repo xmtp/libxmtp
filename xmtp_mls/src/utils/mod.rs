@@ -20,10 +20,6 @@ pub mod time {
             .expect("Time went backwards")
             .as_nanos() as i64
     }
-
-    pub fn serialize_group_id(group_id: &[u8]) -> String {
-        hex::encode(group_id)
-    }
 }
 
 pub mod id {
@@ -41,5 +37,9 @@ pub mod id {
         id_vec.extend_from_slice(separator);
         id_vec.extend_from_slice(decrypted_message_bytes);
         super::hash::sha256(&id_vec)
+    }
+
+    pub fn serialize_group_id(group_id: &[u8]) -> String {
+        hex::encode(group_id)
     }
 }

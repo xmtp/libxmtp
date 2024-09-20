@@ -350,7 +350,7 @@ where
     pub fn stream_all_messages_with_callback(
         client: Arc<Client<ApiClient>>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
-    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>>  {
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
         crate::spawn(Some(rx), async move {
@@ -374,11 +374,13 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::{utils::test::{Delivery, TestClient}, StreamHandle};
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions,
         storage::group_message::StoredGroupMessage, Client,
-        AbortHandle
+    };
+    use crate::{
+        utils::test::{Delivery, TestClient},
+        StreamHandle,
     };
     use futures::StreamExt;
     use parking_lot::Mutex;
@@ -406,7 +408,7 @@ pub(crate) mod tests {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
         let bob_ptr = bob.clone();
-        let _ = crate::spawn(None, async move {
+        crate::spawn(None, async move {
             let bob_stream = bob_ptr.stream_conversations().await.unwrap();
             futures::pin_mut!(bob_stream);
             while let Some(item) = bob_stream.next().await {
@@ -448,7 +450,7 @@ pub(crate) mod tests {
         let notify = Delivery::new(None);
         let notify_ptr = notify.clone();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        let _ = crate::spawn(None, async move {
+        crate::spawn(None, async move {
             let stream = alice_group.stream(&alice).await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
@@ -640,7 +642,7 @@ pub(crate) mod tests {
 
         let a = handle.abort_handle();
         a.end();
-        let _ = handle.await;
+        let _ = handle.join().await;
         assert!(a.is_finished());
 
         alix_group
@@ -686,7 +688,7 @@ pub(crate) mod tests {
 
         let alix_group_pointer = alix_group.clone();
         let alix_pointer = alix.clone();
-        let _ = crate::spawn(None, async move {
+        crate::spawn(None, async move {
             for _ in 0..50 {
                 alix_group_pointer
                     .send_message(b"spam", &alix_pointer)

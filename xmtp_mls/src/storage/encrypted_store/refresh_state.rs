@@ -136,7 +136,8 @@ pub(crate) mod tests {
             assert_eq!(conn.get_last_cursor_for_id(&id, kind).unwrap(), 0);
             let entry: Option<RefreshState> = conn.get_refresh_state(&id, kind).unwrap();
             assert!(entry.is_some());
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -152,7 +153,8 @@ pub(crate) mod tests {
             };
             entry.store(conn).unwrap();
             assert_eq!(conn.get_last_cursor_for_id(&id, entity_kind).unwrap(), 123);
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -170,7 +172,8 @@ pub(crate) mod tests {
             assert!(conn.update_cursor(&id, entity_kind, 124).unwrap());
             let entry: Option<RefreshState> = conn.get_refresh_state(&id, entity_kind).unwrap();
             assert_eq!(entry.unwrap().cursor, 124);
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -190,7 +193,8 @@ pub(crate) mod tests {
             let entry: Option<RefreshState> =
                 conn.get_refresh_state(&entity_id, entity_kind).unwrap();
             assert_eq!(entry.unwrap().cursor, 123);
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -223,6 +227,7 @@ pub(crate) mod tests {
                 .unwrap()
                 .unwrap();
             assert_eq!(group_state_retrieved.cursor, 456);
-        }).await
+        })
+        .await
     }
 }

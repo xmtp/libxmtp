@@ -244,7 +244,7 @@ pub(crate) mod tests {
         let notify_ptr = notify.clone();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let mut stream = UnboundedReceiverStream::new(rx);
-        let _ = crate::spawn(None, async move {
+        crate::spawn(None, async move {
             let stream = bola_group_ptr.stream(&bola_ptr).await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
@@ -293,7 +293,7 @@ pub(crate) mod tests {
         let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
         let amal_ptr = amal.clone();
         let group_ptr = group.clone();
-        let _ = crate::spawn(None, async move {
+        crate::spawn(None, async move {
             let stream = group_ptr.stream(&amal_ptr).await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
@@ -340,7 +340,7 @@ pub(crate) mod tests {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let (start_tx, start_rx) = tokio::sync::oneshot::channel();
         let mut stream = UnboundedReceiverStream::new(rx);
-        let _ = crate::spawn(None, async move {
+        crate::spawn(None, async move {
             let stream = amal_group_ptr.stream(&amal_ptr).await.unwrap();
             let _ = start_tx.send(());
             futures::pin_mut!(stream);

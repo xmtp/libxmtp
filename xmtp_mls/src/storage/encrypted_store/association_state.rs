@@ -174,6 +174,7 @@ pub(crate) mod tests {
             )
             .unwrap();
             assert_eq!(no_results.len(), 0);
-        }).await
+        })
+        .await
     }
 }

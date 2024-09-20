@@ -33,8 +33,6 @@ pub use self::db_connection::DbConnection;
 pub use self::native::SqliteConnection;
 #[cfg(target_arch = "wasm32")]
 pub use self::wasm::SqliteConnection;
-#[cfg(not(target_arch = "wasm32"))]
-pub use sqlcipher_connection::EncryptedConnection;
 use super::StorageError;
 use crate::{xmtp_openmls_provider::XmtpOpenMlsProviderPrivate, Store};
 use db_connection::DbConnectionPrivate;
@@ -50,14 +48,16 @@ use diesel::{
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 #[cfg(target_arch = "wasm32")]
 pub use diesel_wasm_sqlite::WasmSqlite as Sqlite;
+#[cfg(not(target_arch = "wasm32"))]
+pub use sqlcipher_connection::EncryptedConnection;
 use std::sync::Arc;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use native::RawDbConnection;
 #[cfg(target_arch = "wasm32")]
 pub use diesel_wasm_sqlite::connection::WasmSqliteConnection as RawDbConnection;
+#[cfg(not(target_arch = "wasm32"))]
+pub use native::RawDbConnection;
 
 pub type EncryptionKey = [u8; 32];
 
@@ -84,7 +84,6 @@ pub enum StorageOption {
     Ephemeral,
     Persistent(String),
 }
-
 
 /// Global Marker trait for WebAssembly
 #[cfg(target_arch = "wasm32")]
@@ -247,9 +246,7 @@ pub mod private {
                 Err(err) => {
                     log::debug!("Transaction being rolled back");
                     match conn.raw_query(|conn| {
-                        <Db as XmtpDb>::TransactionManager::rollback_transaction(
-                            &mut *conn,
-                        )
+                        <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
                     }) {
                         Ok(()) => Err(err),
                         Err(Error::BrokenTransactionManager) => Err(err),
@@ -292,7 +289,9 @@ pub mod private {
             // ensuring we have only one strong reference
             let result = fun(provider).await;
             if Arc::strong_count(&local_connection) > 1 {
-                log::warn!("More than 1 strong connection references still exist during transaction");
+                log::warn!(
+                    "More than 1 strong connection references still exist during transaction"
+                );
             }
 
             if Arc::weak_count(&local_connection) > 1 {
@@ -305,7 +304,7 @@ pub mod private {
             match result {
                 Ok(value) => {
                     local_connection.raw_query(|conn| {
-                       <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
+                        <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
                     })?;
                     log::debug!("Transaction async being committed");
                     Ok(value)
@@ -313,9 +312,7 @@ pub mod private {
                 Err(err) => {
                     log::debug!("Transaction async being rolled back");
                     match local_connection.raw_query(|conn| {
-                         <Db as XmtpDb>::TransactionManager::rollback_transaction(
-                            &mut *conn,
-                        )
+                        <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
                     }) {
                         Ok(()) => Err(err),
                         Err(Error::BrokenTransactionManager) => Err(err),
@@ -323,7 +320,6 @@ pub mod private {
                     }
                 }
             }
-
         }
 
         pub fn release_connection(&self) -> Result<(), StorageError> {
@@ -438,10 +434,12 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::{
-        storage::group::{GroupMembershipState, StoredGroup},
-        storage::identity::StoredIdentity,
+        storage::{
+            group::{GroupMembershipState, StoredGroup},
+            identity::StoredIdentity,
+        },
         utils::test::{rand_vec, tmp_path},
-        Fetch, Store,
+        Fetch, Store, StreamHandle as _,
     };
     use std::sync::Barrier;
 
@@ -560,8 +558,8 @@ pub(crate) mod tests {
             // Setup a persistent store
             let store =
                 EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key)
-                .await
-                .unwrap();
+                    .await
+                    .unwrap();
 
             StoredIdentity::new("dummy_address".to_string(), rand_vec(), rand_vec())
                 .store(&store.conn().unwrap())
@@ -569,7 +567,8 @@ pub(crate) mod tests {
         } // Drop it
 
         enc_key[3] = 145; // Alter the enc_key
-        let res = EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key).await;
+        let res =
+            EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key).await;
 
         // Ensure it fails
         assert!(
@@ -757,7 +756,7 @@ pub(crate) mod tests {
             Ok::<_, anyhow::Error>(())
         });
 
-        let result = handle.await.unwrap();
+        let result = handle.join().await.unwrap();
         assert!(result.is_err());
 
         let conn = store.conn().unwrap();

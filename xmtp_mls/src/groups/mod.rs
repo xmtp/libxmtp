@@ -1277,13 +1277,13 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+    use diesel::connection::SimpleConnection;
     use futures::future::join_all;
     use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
     use prost::Message;
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
-    use diesel::connection::SimpleConnection;
 
     use crate::{
         assert_err, assert_logged,
@@ -1297,15 +1297,15 @@ pub(crate) mod tests {
             group_mutable_metadata::MetadataField,
             intents::{PermissionPolicyOption, PermissionUpdateType},
             members::{GroupMember, PermissionLevel},
-            DeliveryStatus, GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
-            GroupError
+            DeliveryStatus, GroupError, GroupMetadataOptions, PreconfiguredPolicies,
+            UpdateAdminListType,
         },
         storage::{
             group_intent::{IntentKind, IntentState, NewGroupIntent},
             group_message::{GroupMessageKind, StoredGroupMessage},
         },
         xmtp_openmls_provider::XmtpOpenMlsProvider,
-        Client, InboxOwner, XmtpApi,
+        Client, InboxOwner, StreamHandle as _, XmtpApi,
     };
 
     use super::{
@@ -3001,10 +3001,12 @@ pub(crate) mod tests {
 
         let conn_1: XmtpOpenMlsProvider = bo.store().conn().unwrap().into();
         let conn_2 = bo.store().conn().unwrap();
-        conn_2.raw_query(|c| {
-            c.batch_execute("BEGIN EXCLUSIVE").unwrap();
-            Ok::<_, diesel::result::Error>(())
-        }).unwrap();
+        conn_2
+            .raw_query(|c| {
+                c.batch_execute("BEGIN EXCLUSIVE").unwrap();
+                Ok::<_, diesel::result::Error>(())
+            })
+            .unwrap();
 
         let process_result = bo_group.process_messages(bo_messages, &conn_1, &bo).await;
         if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
@@ -3039,7 +3041,7 @@ pub(crate) mod tests {
                 let client_clone = alix1.clone();
                 // Each of these syncs is going to trigger the client to invite alix2 to the group
                 // because of the race
-                crate::spawn(None, async move { group_clone.sync(&client_clone).await })
+                crate::spawn(None, async move { group_clone.sync(&client_clone).await }).join()
             })
             .collect();
 

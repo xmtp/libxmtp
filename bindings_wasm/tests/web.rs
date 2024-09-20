@@ -21,7 +21,7 @@ pub async fn test_create_client() {
   let host = ApiUrls::LOCAL_ADDRESS.to_string();
   let inbox_id = get_inbox_id_for_address(host.clone(), account_address.clone())
     .await
-    .unwrap_or_else(|e| panic!("Error getting inbox ID"));
+    .unwrap_or_else(|_| panic!("Error getting inbox ID"));
   let client = create_client(
     host.clone(),
     inbox_id.unwrap(),

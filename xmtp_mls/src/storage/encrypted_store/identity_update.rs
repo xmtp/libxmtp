@@ -168,7 +168,8 @@ pub(crate) mod tests {
             assert_eq!(first_update.payload, update_1_payload);
             let second_update = all_updates.last().unwrap();
             assert_eq!(second_update.payload, update_2_payload);
-        }).await;
+        })
+        .await;
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -201,7 +202,8 @@ pub(crate) mod tests {
 
             assert_eq!(only_update_2.len(), 1);
             assert_eq!(only_update_2[0].sequence_id, 2);
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -237,7 +239,8 @@ pub(crate) mod tests {
                 latest_sequence_ids_with_missing_member.get("missing_inbox"),
                 None
             );
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -254,6 +257,7 @@ pub(crate) mod tests {
                 .get_latest_sequence_id_for_inbox(inbox_id)
                 .expect("query should work");
             assert_eq!(sequence_id, 2);
-        }).await
+        })
+        .await
     }
 }

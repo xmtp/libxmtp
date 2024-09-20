@@ -3,10 +3,10 @@
 use futures::{Future, FutureExt};
 
 #[cfg(target_arch = "wasm32")]
-pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O, Output = Result<O, StreamHandleError>>;
+pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O>;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O, Output = Result<O, StreamHandleError>> + Send + Sync;
+pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O> + Send + Sync;
 
 #[derive(thiserror::Error, Debug)]
 pub enum StreamHandleError {
@@ -27,7 +27,7 @@ pub enum StreamHandleError {
 #[allow(async_fn_in_trait)]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait StreamHandle: Future<Output = Result<Self::StreamOutput, StreamHandleError>> {
+pub trait StreamHandle {
     /// The Output type for the stream
     type StreamOutput;
 
@@ -36,6 +36,16 @@ pub trait StreamHandle: Future<Output = Result<Self::StreamOutput, StreamHandleE
     /// Signal the stream to end
     /// Does not wait for the stream to end, so will not receive the result of stream.
     fn end(&self);
+
+    // Its better to:
+    // `StreamHandle: Future<Output = Result<Self::StreamOutput,StreamHandleError>>`
+    // but then crate::spawn` generates `Unused future must be used` since
+    // `async fn` desugars to `fn() -> impl Future`. There's no way
+    // to get rid of that warning, so we separate the future impl to here.
+    // See this rust-playground for an example:
+    // https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=a2a88b144c9459176e8fae41ee569553
+    /// Join the task back to the current thread, waiting until it ends.
+    async fn join(self) -> Result<Self::StreamOutput, StreamHandleError>;
 
     /// End the stream and asyncronously wait for it to shutdown, getting the result of its
     /// execution.
@@ -81,20 +91,16 @@ mod wasm {
             mut self: std::pin::Pin<&mut Self>,
             cx: &mut std::task::Context<'_>,
         ) -> std::task::Poll<Self::Output> {
-            FutureExt::poll_unpin(&mut self.result, cx)
-                .map(|r| {
-                    match r {
-                        Ok(r) => r,
-                        Err(_) => Err(StreamHandleError::ChannelClosed)
-                    }
-                })
-            }
+            FutureExt::poll_unpin(&mut self.result, cx).map(|r| match r {
+                Ok(r) => r,
+                Err(_) => Err(StreamHandleError::ChannelClosed),
+            })
+        }
     }
 
     #[async_trait::async_trait(?Send)]
     impl<T> StreamHandle for WasmStreamHandle<Result<T, StreamHandleError>> {
         type StreamOutput = T;
-        type Abort = CloseHandle;
 
         async fn wait_for_ready(&mut self) {
             if let Some(s) = self.ready.take() {
@@ -111,8 +117,12 @@ mod wasm {
             let _ = self.closer.try_send(());
         }
 
-        fn abort_handle(&self) -> Self::Abort {
+        fn abort_handle(&self) -> Box<dyn AbortHandle> {
             Box::new(CloseHandle(self.closer.clone()))
+        }
+
+        async fn join(self) -> Result<Self::StreamOutput, StreamHandleError> {
+            self.await
         }
     }
 
@@ -131,14 +141,10 @@ mod wasm {
     /// Spawn a future on the `wasm-bindgen` local current-thread executer
     ///  future does not require `Send`.
     ///  optionally pass in `ready` to signal whne stream will be ready.
-    // its pretty annoying but `unused_must_use` doesn't work here for some reason,
-    // so we still get a bunch of warnings taht `unused implementor of Future must be used`
-    // if we dont write the spawn in the form: `let _ = crate::spawn()`
-    #[allow(unused_must_use)]
     pub fn spawn<F>(
         ready: Option<tokio::sync::oneshot::Receiver<()>>,
         future: F,
-    ) -> impl StreamHandle<StreamOutput = F::Output, Abort = CloseHandle>
+    ) -> impl StreamHandle<StreamOutput = F::Output>
     where
         F: Future + 'static,
         F::Output: 'static,
@@ -158,7 +164,7 @@ mod wasm {
             futures::pin_mut!(future);
             let value = match futures::future::select(recv, future).await {
                 Either::Left((_, _)) => Err(StreamHandleError::StreamClosed),
-                Either::Right((v, _)) => Ok(v)
+                Either::Right((v, _)) => Ok(v),
             };
             let _ = res_tx.send(value);
         });
@@ -199,7 +205,7 @@ mod native {
         }
 
         fn end(&self) {
-            let _ = self.inner.abort();
+            self.inner.abort();
         }
 
         async fn end_and_wait(&mut self) -> Result<Self::StreamOutput, StreamHandleError> {
@@ -217,6 +223,10 @@ mod native {
         fn abort_handle(&self) -> Box<dyn AbortHandle> {
             Box::new(self.inner.abort_handle())
         }
+
+        async fn join(self) -> Result<Self::StreamOutput, StreamHandleError> {
+            self.await
+        }
     }
 
     impl AbortHandle for tokio::task::AbortHandle {
@@ -229,14 +239,17 @@ mod native {
         }
     }
 
-    pub fn spawn<F>(ready: Option<tokio::sync::oneshot::Receiver<()>>, future: F) -> impl StreamHandle<StreamOutput = F::Output>
+    pub fn spawn<F>(
+        ready: Option<tokio::sync::oneshot::Receiver<()>>,
+        future: F,
+    ) -> impl StreamHandle<StreamOutput = F::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
         TokioStreamHandle {
             inner: tokio::task::spawn(future),
-            ready
+            ready,
         }
     }
 }

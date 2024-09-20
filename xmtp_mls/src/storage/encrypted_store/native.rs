@@ -1,15 +1,13 @@
-use crate::{
-    storage::StorageError,
-};
+use crate::storage::encrypted_store::DbConnectionPrivate;
+use crate::storage::StorageError;
+pub use diesel::sqlite::SqliteConnection;
 use diesel::{
     connection::{AnsiTransactionManager, SimpleConnection},
     r2d2::{self, CustomizeConnection, PoolTransactionManager, PooledConnection},
-    Connection
+    Connection,
 };
 use parking_lot::RwLock;
 use std::sync::Arc;
-use crate::storage::encrypted_store::DbConnectionPrivate;
-pub use diesel::sqlite::SqliteConnection;
 
 pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
 pub type Pool = r2d2::Pool<ConnectionManager>;
@@ -99,7 +97,7 @@ impl NativeDb {
         let mut builder = Pool::builder();
 
         let customizer = if let Some(key) = enc_key {
-            let enc_opts = EncryptedConnection::new(key, &opts)?;
+            let enc_opts = EncryptedConnection::new(key, opts)?;
             builder = builder.connection_customizer(Box::new(enc_opts.clone()));
             Some(Box::new(enc_opts) as Box<dyn XmtpConnection>)
         } else if matches!(opts, StorageOption::Persistent(_)) {
@@ -149,7 +147,9 @@ impl XmtpDb for NativeDb {
     /// Returns the Wrapped [`super::db_connection::DbConnection`] Connection implementation for this Database
     fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, StorageError> {
         let conn = self.raw_conn()?;
-        Ok(DbConnectionPrivate::from_arc_mutex(Arc::new(parking_lot::Mutex::new(conn))))
+        Ok(DbConnectionPrivate::from_arc_mutex(Arc::new(
+            parking_lot::Mutex::new(conn),
+        )))
     }
 
     fn validate(&self, opts: &StorageOption) -> Result<(), StorageError> {

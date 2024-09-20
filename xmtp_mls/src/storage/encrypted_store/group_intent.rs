@@ -468,7 +468,8 @@ pub(crate) mod tests {
             let fetched: StoredGroupIntent = conn.fetch(&id).unwrap().unwrap();
 
             assert_eq!(fetched.id, id);
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -547,7 +548,8 @@ pub(crate) mod tests {
             // Can get all intents
             results = conn.find_group_intents(group_id, None, None).unwrap();
             assert_eq!(results.len(), 3);
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -589,7 +591,8 @@ pub(crate) mod tests {
 
             assert_eq!(find_result.id, intent.id);
             assert_eq!(find_result.published_in_epoch, Some(1));
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -634,7 +637,8 @@ pub(crate) mod tests {
             assert_eq!(intent.state, IntentState::Committed);
             // Make sure we haven't lost the payload hash
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -678,7 +682,8 @@ pub(crate) mod tests {
             assert_eq!(intent.state, IntentState::ToPublish);
             assert!(intent.payload_hash.is_none());
             assert!(intent.post_commit_data.is_none());
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -713,7 +718,8 @@ pub(crate) mod tests {
                 to_publish_result.err().unwrap(),
                 StorageError::NotFound(_)
             ));
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -740,6 +746,7 @@ pub(crate) mod tests {
                 .unwrap();
             intent = find_first_intent(conn, group_id.clone());
             assert_eq!(intent.publish_attempts, 2);
-        }).await
+        })
+        .await
     }
 }

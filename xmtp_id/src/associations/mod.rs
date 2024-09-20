@@ -116,9 +116,9 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::associations::verified_signature::VerifiedSignature;
     use self::test_utils::{rand_string, rand_vec};
     use super::*;
+    use crate::associations::verified_signature::VerifiedSignature;
 
     pub async fn new_test_inbox() -> AssociationState {
         let create_request = CreateInbox::default();

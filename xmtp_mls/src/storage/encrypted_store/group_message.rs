@@ -239,7 +239,8 @@ pub(crate) mod tests {
         with_connection(|conn| {
             let id = vec![0x0];
             assert_eq!(conn.get_group_message(id).unwrap(), None);
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -255,7 +256,8 @@ pub(crate) mod tests {
 
             let stored_message = conn.get_group_message(id);
             assert_eq!(stored_message.unwrap(), Some(message));
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -269,7 +271,8 @@ pub(crate) mod tests {
                 message.store(conn),
                 StorageError::DieselResult(DatabaseError(ForeignKeyViolation, _))
             );
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -304,7 +307,8 @@ pub(crate) mod tests {
                 assert!(msg.sent_at_ns >= acc);
                 msg.sent_at_ns
             });
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -336,7 +340,8 @@ pub(crate) mod tests {
                 .get_group_messages(&group.id, Some(10_000), None, None, None, None)
                 .unwrap();
             assert_eq!(messages.len(), 2);
-        }).await
+        })
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -391,6 +396,7 @@ pub(crate) mod tests {
                 )
                 .unwrap();
             assert_eq!(membership_changes.len(), 15);
-        }).await
+        })
+        .await
     }
 }

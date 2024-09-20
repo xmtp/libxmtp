@@ -1,5 +1,6 @@
 use crate::{impl_store, storage::StorageError};
 
+use super::Sqlite;
 use super::{
     db_connection::DbConnection,
     schema::consent_records::{self, dsl},
@@ -14,7 +15,6 @@ use diesel::{
     upsert::excluded,
 };
 use serde::{Deserialize, Serialize};
-use super::Sqlite;
 
 /// StoredConsentRecord holds a serialized ConsentRecord
 #[derive(Insertable, Queryable, Debug, Clone, PartialEq, Eq)]
@@ -184,6 +184,7 @@ mod tests {
                 .expect("query should work");
 
             assert_eq!(consent_record.unwrap().entity, consent_record_entity);
-        }).await;
+        })
+        .await;
     }
 }

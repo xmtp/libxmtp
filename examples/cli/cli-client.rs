@@ -409,7 +409,7 @@ async fn main() {
 }
 
 async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, CliError> {
-    let msg_store = get_encrypted_store(&cli.db).unwrap();
+    let msg_store = get_encrypted_store(&cli.db).await.unwrap();
     let mut builder = ClientBuilder::new(account).store(msg_store);
 
     if cli.local {
@@ -536,7 +536,7 @@ fn static_enc_key() -> EncryptionKey {
     [2u8; 32]
 }
 
-fn get_encrypted_store(db: &Option<PathBuf>) -> Result<EncryptedMessageStore, CliError> {
+async fn get_encrypted_store(db: &Option<PathBuf>) -> Result<EncryptedMessageStore, CliError> {
     let store = match db {
         Some(path) => {
             let s = path.as_path().to_string_lossy().to_string();
