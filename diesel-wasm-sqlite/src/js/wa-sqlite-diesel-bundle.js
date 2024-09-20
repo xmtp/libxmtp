@@ -14422,7 +14422,7 @@ class SQLite {
   constructor(sqlite3) {
     if (typeof sqlite3 === "undefined") {
       throw new Error(
-        "`sqliteObject` must be defined before calling constructor"
+        "`sqliteObject` must be defined before calling constructor",
       );
     }
     this.sqlite3 = sqlite3;
@@ -14600,7 +14600,7 @@ class SQLite {
       nByte,
       prepFlags,
       ppStmt,
-      pzTail
+      pzTail,
     );
   }
 
@@ -14644,7 +14644,7 @@ class SQLite {
     pApp,
     xFunc,
     xStep,
-    xFinal
+    xFinal,
   ) {
     try {
       this.sqlite3.capi.sqlite3_create_function(
@@ -14655,7 +14655,7 @@ class SQLite {
         pApp, // pApp is ignored
         xFunc,
         xStep,
-        xFinal
+        xFinal,
       );
       console.log("create function");
     } catch (error) {
@@ -14695,9 +14695,9 @@ class SQLite {
               log(`Created trigger for ${table_name}`);
               log(row);
               log(`------------------------------------`);
-            }
+            },
           );
-        }
+        },
       );
     } catch (error) {
       console.log("error creating diesel trigger");
@@ -14715,7 +14715,7 @@ class SQLite {
         database,
         z_schema,
         p_size,
-        m_flags
+        m_flags,
       );
     } catch (error) {
       console.log("error serializing");
@@ -14729,7 +14729,7 @@ class SQLite {
     p_data,
     sz_database,
     sz_buffer,
-    m_flags
+    m_flags,
   ) {
     try {
       return this.sqlite3.capi.sqlite3_deserialize(
@@ -14738,7 +14738,7 @@ class SQLite {
         p_data,
         sz_database,
         sz_buffer,
-        m_flags
+        m_flags,
       );
     } catch (error) {
       console.log("error deserializing");
@@ -14747,12 +14747,7 @@ class SQLite {
   }
 
   sqlite3_free(_database, arg1) {
-    try {
-      this.sqlite3.capi.sqlite3_free(arg1);
-    } catch (error) {
-      console.log("error freeing value");
-      throw error;
-    }
+    return this.sqlite3.capi.sqlite3_free(arg1);
   }
 }
 
