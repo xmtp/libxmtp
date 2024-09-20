@@ -1,5 +1,6 @@
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { v4 } from 'uuid'
 import { createWalletClient, http, toBytes } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { sepolia } from 'viem/chains'
@@ -7,6 +8,7 @@ import {
   createClient as create,
   generateInboxId,
   getInboxIdForAddress,
+  NapiSignatureRequestType,
 } from '../dist/index'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -23,13 +25,14 @@ export const createUser = () => {
       chain: sepolia,
       transport: http(),
     }),
+    uuid: v4(),
   }
 }
 
 export type User = ReturnType<typeof createUser>
 
 export const createClient = async (user: User) => {
-  const dbPath = join(__dirname, `${user.account.address}.db3`)
+  const dbPath = join(__dirname, `${user.uuid}.db3`)
   const inboxId =
     (await getInboxIdForAddress(TEST_API_URL, false, user.account.address)) ||
     generateInboxId(user.account.address)
@@ -39,12 +42,15 @@ export const createClient = async (user: User) => {
 export const createRegisteredClient = async (user: User) => {
   const client = await createClient(user)
   if (!client.isRegistered()) {
-    const signatureText = client.signatureText()
+    const signatureText = await client.createInboxSignatureText()
     if (signatureText) {
       const signature = await user.wallet.signMessage({
         message: signatureText,
       })
-      client.addEcdsaSignature(toBytes(signature))
+      await client.addSignature(
+        NapiSignatureRequestType.CreateInbox,
+        toBytes(signature)
+      )
     }
     await client.registerIdentity()
   }

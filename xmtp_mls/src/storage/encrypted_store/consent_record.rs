@@ -57,19 +57,23 @@ impl DbConnection {
         })?)
     }
 
-    /// Insert consent_record, and replace existing entries
-    pub fn insert_or_replace_consent_record(
+    /// Insert consent_records, and replace existing entries
+    pub fn insert_or_replace_consent_records(
         &self,
-        record: StoredConsentRecord,
+        records: Vec<StoredConsentRecord>,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| -> diesel::QueryResult<_> {
-            diesel::insert_into(dsl::consent_records)
-                .values(&record)
-                .on_conflict((dsl::entity_type, dsl::entity))
-                .do_update()
-                .set(dsl::state.eq(excluded(dsl::state)))
-                .execute(conn)?;
-            Ok(())
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                for record in records.iter() {
+                    diesel::insert_into(dsl::consent_records)
+                        .values(record)
+                        .on_conflict((dsl::entity_type, dsl::entity))
+                        .do_update()
+                        .set(dsl::state.eq(excluded(dsl::state)))
+                        .execute(conn)?;
+                }
+                Ok(())
+            })
         })?;
 
         Ok(())
@@ -118,6 +122,8 @@ where
 #[diesel(sql_type = Integer)]
 /// The state of the consent
 pub enum ConsentState {
+    /// Consent is unknown
+    Unknown = 0,
     /// Consent is allowed
     Allowed = 1,
     /// Consent is denied
@@ -140,6 +146,7 @@ where
 {
     fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
         match i32::from_sql(bytes)? {
+            0 => Ok(ConsentState::Unknown),
             1 => Ok(ConsentState::Allowed),
             2 => Ok(ConsentState::Denied),
             x => Err(format!("Unrecognized variant {}", x).into()),
@@ -176,7 +183,7 @@ mod tests {
             );
             let consent_record_entity = consent_record.entity.clone();
 
-            conn.insert_or_replace_consent_record(consent_record)
+            conn.insert_or_replace_consent_records(vec![consent_record])
                 .expect("should store without error");
 
             let consent_record = conn

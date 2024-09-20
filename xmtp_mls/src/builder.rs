@@ -140,7 +140,11 @@ where
         )
         .await?;
 
+        #[cfg(feature = "message-history")]
         let client = Client::new(api_client_wrapper, identity, store, self.history_sync_url);
+
+        #[cfg(not(feature = "message-history"))]
+        let client = Client::new(api_client_wrapper, identity, store);
 
         Ok(client)
     }
@@ -150,6 +154,7 @@ where
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use std::sync::atomic::AtomicBool;
 
     use crate::api::ApiClientWrapper;
     use crate::builder::ClientBuilderError;
@@ -545,6 +550,7 @@ pub(crate) mod tests {
             installation_keys: SignatureKeyPair::new(SignatureScheme::ED25519).unwrap(),
             credential: Credential::new(CredentialType::Basic, rand_vec()),
             signature_request: None,
+            is_ready: AtomicBool::new(true),
         })
             .try_into()
             .unwrap();
@@ -581,6 +587,7 @@ pub(crate) mod tests {
             installation_keys: SignatureKeyPair::new(SignatureScheme::ED25519).unwrap(),
             credential: Credential::new(CredentialType::Basic, rand_vec()),
             signature_request: None,
+            is_ready: AtomicBool::new(true),
         })
             .try_into()
             .unwrap();
@@ -630,6 +637,7 @@ pub(crate) mod tests {
         .unwrap();
 
         register_client(&client_a, wallet).await;
+        assert!(client_a.identity().is_ready());
 
         let keybytes_a = client_a.installation_public_key();
         drop(client_a);

@@ -3,7 +3,12 @@ use xmtp_id::InboxId;
 use super::{validated_commit::extract_group_membership, GroupError, MlsGroup};
 
 use crate::{
-    storage::association_state::StoredAssociationState, xmtp_openmls_provider::XmtpOpenMlsProvider,
+    storage::{
+        association_state::StoredAssociationState,
+        consent_record::{ConsentState, ConsentType},
+    },
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    Client, XmtpApi,
 };
 
 #[derive(Debug, Clone)]
@@ -12,6 +17,7 @@ pub struct GroupMember {
     pub account_addresses: Vec<String>,
     pub installation_ids: Vec<Vec<u8>>,
     pub permission_level: PermissionLevel,
+    pub consent_state: ConsentState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,13 +29,17 @@ pub enum PermissionLevel {
 
 impl MlsGroup {
     // Load the member list for the group from the DB, merging together multiple installations into a single entry
-    pub fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
+    pub async fn members<ApiClient: XmtpApi>(
+        &self,
+        client: &Client<ApiClient>,
+    ) -> Result<Vec<GroupMember>, GroupError> {
         let provider = self.mls_provider()?;
-        self.members_with_provider(&provider)
+        self.members_with_provider(client, &provider).await
     }
 
-    pub fn members_with_provider(
+    pub async fn members_with_provider<ApiClient: XmtpApi>(
         &self,
+        client: &Client<ApiClient>,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<GroupMember>, GroupError> {
         let openmls_group = self.load_mls_group(provider)?;
@@ -43,19 +53,41 @@ impl MlsGroup {
             .collect::<Vec<_>>();
 
         let conn = provider.conn_ref();
-        let association_states =
+        let mut association_states =
             StoredAssociationState::batch_read_from_cache(conn, requests.clone())?;
         let mutable_metadata = self.mutable_metadata(provider)?;
         if association_states.len() != requests.len() {
-            // Cache miss - not expected to happen because:
-            // 1. We don't allow updates to the group metadata unless we have already validated the association state
-            // 2. When validating the association state, we must have written it to the cache
-            log::error!(
-                "Failed to load all members for group - metadata: {:?}, computed members: {:?}",
-                requests,
-                association_states
-            );
-            return Err(GroupError::InvalidGroupMembership);
+            // Attempt to rebuild the cache.
+            let missing_requests: Vec<_> = requests
+                .iter()
+                .filter_map(|(id, sequence)| {
+                    // Filter out association states we already have to avoid unnecessary requests.
+                    if association_states
+                        .iter()
+                        .any(|state| state.inbox_id() == id)
+                    {
+                        return None;
+                    }
+                    Some((id.clone(), Some(*sequence)))
+                })
+                .collect();
+
+            let mut new_states = client
+                .batch_get_association_state(conn, &missing_requests)
+                .await?;
+            association_states.append(&mut new_states);
+
+            if association_states.len() != requests.len() {
+                // Cache miss - not expected to happen because:
+                // 1. We don't allow updates to the group metadata unless we have already validated the association state
+                // 2. When validating the association state, we must have written it to the cache
+                log::error!(
+                    "Failed to load all members for group - metadata: {:?}, computed members: {:?}",
+                    requests,
+                    association_states
+                );
+                return Err(GroupError::InvalidGroupMembership);
+            }
         }
         let members = association_states
             .into_iter()
@@ -71,11 +103,15 @@ impl MlsGroup {
                     PermissionLevel::Member
                 };
 
+                let consent =
+                    conn.get_consent_record(inbox_id_str.clone(), ConsentType::InboxId)?;
+
                 Ok(GroupMember {
-                    inbox_id: inbox_id_str,
+                    inbox_id: inbox_id_str.clone(),
                     account_addresses: association_state.account_addresses(),
                     installation_ids: association_state.installation_ids(),
                     permission_level,
+                    consent_state: consent.map_or(ConsentState::Unknown, |c| c.state),
                 })
             })
             .collect::<Result<Vec<GroupMember>, GroupError>>()?;

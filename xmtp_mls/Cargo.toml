@@ -14,6 +14,7 @@ test-utils = ["dep:xmtp_api_grpc", "xmtp_id/test-utils"]
 bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "tracing-flame", "once_cell", "dep:xmtp_api_grpc", "criterion"]
 update-schema = ["toml"]
 http-api = ["xmtp_api_http"]
+message-history = []
 
 [dependencies]
 parking_lot = "0.12.3"

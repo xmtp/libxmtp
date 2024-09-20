@@ -16,6 +16,7 @@ path = "cli-client.rs"
 clap = { version = "4.4.6", features = ["derive"] }
 ethers = "2.0.4"
 femme = "2.2.1"
+futures.workspace = true
 hex = "0.4.3"
 kv-log-macro = "1.0.7"
 log = { workspace = true, features = [
@@ -32,5 +33,5 @@ tokio = "1.28.1"
 xmtp_api_grpc = { path = "../../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../../xmtp_cryptography" }
 xmtp_id = { path = "../../xmtp_id" }
-xmtp_mls = { path = "../../xmtp_mls" }
+xmtp_mls = { path = "../../xmtp_mls", features = ["message-history"]}
 xmtp_proto = { path = "../../xmtp_proto", features = ["proto_full"] }

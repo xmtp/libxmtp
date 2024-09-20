@@ -23,7 +23,7 @@ pub fn apply_update(
     initial_state: AssociationState,
     update: IdentityUpdate,
 ) -> Result<AssociationState, AssociationError> {
-    update.update_state(Some(initial_state))
+    update.update_state(Some(initial_state), update.client_timestamp_ns)
 }
 
 // Get the current state from an array of `IdentityUpdate`s. Entire operation fails if any operation fails
@@ -32,7 +32,7 @@ pub fn get_state<Updates: AsRef<[IdentityUpdate]>>(
 ) -> Result<AssociationState, AssociationError> {
     let mut state = None;
     for update in updates.as_ref().iter() {
-        let res = update.update_state(state);
+        let res = update.update_state(state, update.client_timestamp_ns);
         state = Some(res?);
     }
 

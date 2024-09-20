@@ -163,13 +163,9 @@ impl AssociationState {
     pub fn new(account_address: String, nonce: u64) -> Self {
         let inbox_id = generate_inbox_id(&account_address, &nonce);
         let identifier = MemberIdentifier::Address(account_address.clone());
-        let new_member = Member::new(identifier.clone(), None);
+        let new_member = Member::new(identifier.clone(), None, None);
         Self {
-            members: {
-                let mut members = HashMap::new();
-                members.insert(identifier, new_member);
-                members
-            },
+            members: HashMap::from_iter([(identifier, new_member)]),
             seen_signatures: HashSet::new(),
             recovery_address: account_address.to_lowercase(),
             inbox_id,

@@ -77,13 +77,19 @@ impl From<Vec<u8>> for MemberIdentifier {
 pub struct Member {
     pub identifier: MemberIdentifier,
     pub added_by_entity: Option<MemberIdentifier>,
+    pub client_timestamp_ns: Option<u64>,
 }
 
 impl Member {
-    pub fn new(identifier: MemberIdentifier, added_by_entity: Option<MemberIdentifier>) -> Self {
+    pub fn new(
+        identifier: MemberIdentifier,
+        added_by_entity: Option<MemberIdentifier>,
+        client_timestamp_ns: Option<u64>,
+    ) -> Self {
         Self {
             identifier,
             added_by_entity,
+            client_timestamp_ns,
         }
     }
 
@@ -121,6 +127,7 @@ pub(crate) mod tests {
             Self {
                 identifier: MemberIdentifier::default(),
                 added_by_entity: None,
+                client_timestamp_ns: None,
             }
         }
     }

@@ -5,6 +5,7 @@ pub mod group_permissions;
 pub mod intents;
 pub mod members;
 #[allow(dead_code)]
+#[cfg(feature = "message-history")]
 pub mod message_history;
 pub(super) mod subscriptions;
 pub(super) mod sync;
@@ -35,6 +36,8 @@ use tokio::sync::Mutex;
 
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
+#[cfg(feature = "message-history")]
+use self::message_history::MessageHistoryError;
 use self::{
     group_membership::GroupMembership,
     group_metadata::extract_group_metadata,
@@ -51,7 +54,6 @@ use self::{
 use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
     group_permissions::PolicySet,
-    message_history::MessageHistoryError,
     validated_commit::CommitValidationError,
 };
 use std::{collections::HashSet, sync::Arc};
@@ -81,6 +83,7 @@ use crate::{
     identity_updates::{load_identity_updates, InstallationDiffError},
     retry::RetryableError,
     storage::{
+        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
         group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
@@ -168,6 +171,7 @@ pub enum GroupError {
     CredentialError(#[from] BasicCredentialError),
     #[error("LeafNode error")]
     LeafNodeError(#[from] LibraryError),
+    #[cfg(feature = "message-history")]
     #[error("Message History error: {0}")]
     MessageHistory(#[from] Box<MessageHistoryError>),
     #[error("Installation diff error: {0}")]
@@ -320,11 +324,11 @@ impl MlsGroup {
         );
 
         stored_group.store(provider.conn_ref())?;
-        Ok(Self::new(
-            context.clone(),
-            group_id,
-            stored_group.created_at_ns,
-        ))
+        let new_group = Self::new(context.clone(), group_id, stored_group.created_at_ns);
+
+        // Consent state defaults to allowed when the user creates the group
+        new_group.update_consent_state(ConsentState::Allowed)?;
+        Ok(new_group)
     }
 
     // Create a group from a decrypted and decoded welcome message
@@ -404,6 +408,7 @@ impl MlsGroup {
         Self::create_from_welcome(client, provider, welcome, inbox_id, welcome_id).await
     }
 
+    #[cfg(feature = "message-history")]
     pub(crate) fn create_and_insert_sync_group(
         context: Arc<XmtpMlsLocalContext>,
     ) -> Result<MlsGroup, GroupError> {
@@ -612,7 +617,7 @@ impl MlsGroup {
             .get_inbox_ids(account_addresses.clone())
             .await?;
         // get current number of users in group
-        let member_count = self.members()?.len();
+        let member_count = self.members(client).await?.len();
         if member_count + inbox_id_map.len() > MAX_GROUP_SIZE as usize {
             return Err(GroupError::UserLimitExceeded);
         }
@@ -940,6 +945,29 @@ impl MlsGroup {
                     .map(|group| group.added_by_inbox_id.clone())
                     .ok_or_else(|| GroupError::GroupNotFound)
             })
+    }
+
+    /// Find the `consent_state` of the group
+    pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
+        let conn = self.context.store().conn()?;
+        let record =
+            conn.get_consent_record(hex::encode(self.group_id.clone()), ConsentType::GroupId)?;
+
+        match record {
+            Some(rec) => Ok(rec.state),
+            None => Ok(ConsentState::Unknown),
+        }
+    }
+
+    pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
+        let conn = self.context.store().conn()?;
+        conn.insert_or_replace_consent_records(vec![StoredConsentRecord::new(
+            ConsentType::GroupId,
+            state,
+            hex::encode(self.group_id.clone()),
+        )])?;
+
+        Ok(())
     }
 
     // Update this installation's leaf key in the group by creating a key update commit
@@ -1301,6 +1329,7 @@ pub(crate) mod tests {
             UpdateAdminListType,
         },
         storage::{
+            consent_record::ConsentState,
             group_intent::{IntentKind, IntentState, NewGroupIntent},
             group_message::{GroupMessageKind, StoredGroupMessage},
         },
@@ -1485,8 +1514,8 @@ pub(crate) mod tests {
         assert_eq!(bola_group_name, "");
 
         // Check if both clients can see the members correctly
-        let amal_members: Vec<GroupMember> = amal_group.members().unwrap();
-        let bola_members: Vec<GroupMember> = bola_group.members().unwrap();
+        let amal_members: Vec<GroupMember> = amal_group.members(&amal).await.unwrap();
+        let bola_members: Vec<GroupMember> = bola_group.members(&bola).await.unwrap();
 
         assert_eq!(amal_members.len(), 2);
         assert_eq!(bola_members.len(), 2);
@@ -1828,7 +1857,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         log::info!("created the group with 2 additional members");
-        assert_eq!(group.members().unwrap().len(), 3);
+        assert_eq!(group.members(&bola).await.unwrap().len(), 3);
         let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].kind, GroupMessageKind::MembershipChange);
@@ -1842,7 +1871,7 @@ pub(crate) mod tests {
             .remove_members(&amal, vec![bola_wallet.get_address()])
             .await
             .unwrap();
-        assert_eq!(group.members().unwrap().len(), 2);
+        assert_eq!(group.members(&bola).await.unwrap().len(), 2);
         log::info!("removed bola");
         let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 2);
@@ -1879,20 +1908,22 @@ pub(crate) mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(group.members().unwrap().len(), 3);
+        assert_eq!(group.members(&bola).await.unwrap().len(), 3);
 
         group
             .remove_members(&amal, vec![bola_wallet.get_address()])
             .await
             .unwrap();
-        assert_eq!(group.members().unwrap().len(), 2);
+        assert_eq!(group.members(&bola).await.unwrap().len(), 2);
         assert!(group
-            .members()
+            .members(&bola)
+            .await
             .unwrap()
             .iter()
             .all(|m| m.inbox_id != bola.inbox_id()));
         assert!(group
-            .members()
+            .members(&bola)
+            .await
             .unwrap()
             .iter()
             .any(|m| m.inbox_id == charlie.inbox_id()));
@@ -1937,7 +1968,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        assert_eq!(group.members().unwrap().len(), 2);
+        assert_eq!(group.members(&amal).await.unwrap().len(), 2);
 
         let provider: XmtpOpenMlsProvider = amal.context.store().conn().unwrap().into();
         // Finished with setup
@@ -2596,7 +2627,7 @@ pub(crate) mod tests {
         amal_group.sync(&amal).await.unwrap();
 
         // Initial checks for group members
-        let initial_members = amal_group.members().unwrap();
+        let initial_members = amal_group.members(&amal).await.unwrap();
         let mut count_member = 0;
         let mut count_admin = 0;
         let mut count_super_admin = 0;
@@ -2624,7 +2655,7 @@ pub(crate) mod tests {
         amal_group.sync(&amal).await.unwrap();
 
         // Check after adding Bola as an admin
-        let members = amal_group.members().unwrap();
+        let members = amal_group.members(&amal).await.unwrap();
         let mut count_member = 0;
         let mut count_admin = 0;
         let mut count_super_admin = 0;
@@ -2652,7 +2683,7 @@ pub(crate) mod tests {
         amal_group.sync(&amal).await.unwrap();
 
         // Check after adding Caro as a super admin
-        let members = amal_group.members().unwrap();
+        let members = amal_group.members(&amal).await.unwrap();
         let mut count_member = 0;
         let mut count_admin = 0;
         let mut count_super_admin = 0;
@@ -2871,7 +2902,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         bola_group.sync(&bola).await.unwrap();
-        let members = bola_group.members().unwrap();
+        let members = bola_group.members(&bola).await.unwrap();
         assert_eq!(members.len(), 3);
     }
 
@@ -3274,5 +3305,19 @@ pub(crate) mod tests {
             process_result,
             MessageProcessingError::EpochIncrementNotAllowed
         );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_get_and_set_consent() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        group.update_consent_state(ConsentState::Denied).unwrap();
+        let consent = group.consent_state().unwrap();
+
+        assert_eq!(consent, ConsentState::Denied);
     }
 }
