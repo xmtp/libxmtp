@@ -9,6 +9,7 @@ import org.xmtp.android.library.messages.Topic
 import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.contents.PrivatePreferences.PrivatePreferencesAction
+import uniffi.xmtpv3.FfiConsent
 import uniffi.xmtpv3.FfiConsentEntityType
 import uniffi.xmtpv3.FfiConsentState
 import java.util.Date
@@ -87,6 +88,14 @@ data class ConsentListEntry(
         ): ConsentListEntry {
             return ConsentListEntry(inboxId, EntryType.INBOX_ID, type)
         }
+    }
+
+    fun toFfiConsent(): FfiConsent {
+        return FfiConsent(
+            EntryType.toFfiConsentEntityType(entryType),
+            ConsentState.toFfiConsentState(consentType),
+            value
+        )
     }
 
     val key: String
@@ -230,13 +239,7 @@ class ConsentList(
     }
 
     suspend fun setV3ConsentState(entries: List<ConsentListEntry>) {
-        entries.iterator().forEach {
-            client.v3Client?.setConsentState(
-                ConsentState.toFfiConsentState(it.consentType),
-                EntryType.toFfiConsentEntityType(it.entryType),
-                it.value
-            )
-        }
+        client.v3Client?.setConsentStates(entries.map { it.toFfiConsent() })
     }
 
     fun allow(address: String): ConsentListEntry {

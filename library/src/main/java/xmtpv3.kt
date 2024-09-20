@@ -1269,11 +1269,8 @@ internal interface UniffiLib : Library {
         `ptr`: Pointer, `walletAddress`: RustBuffer.ByValue,
     ): Long
 
-    fun uniffi_xmtpv3_fn_method_ffixmtpclient_set_consent_state(
-        `ptr`: Pointer,
-        `state`: RustBuffer.ByValue,
-        `entityType`: RustBuffer.ByValue,
-        `entity`: RustBuffer.ByValue,
+    fun uniffi_xmtpv3_fn_method_ffixmtpclient_set_consent_states(
+        `ptr`: Pointer, `records`: RustBuffer.ByValue,
     ): Long
 
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_signature_request(
@@ -1912,7 +1909,7 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_wallet(
     ): Short
 
-    fun uniffi_xmtpv3_checksum_method_ffixmtpclient_set_consent_state(
+    fun uniffi_xmtpv3_checksum_method_ffixmtpclient_set_consent_states(
     ): Short
 
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_signature_request(
@@ -2247,7 +2244,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_wallet() != 12211.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_set_consent_state() != 36178.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_set_consent_states() != 64566.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_signature_request() != 18270.toShort()) {
@@ -6248,11 +6245,7 @@ public interface FfiXmtpClientInterface {
      */
     suspend fun `revokeWallet`(`walletAddress`: kotlin.String): FfiSignatureRequest
 
-    suspend fun `setConsentState`(
-        `state`: FfiConsentState,
-        `entityType`: FfiConsentEntityType,
-        `entity`: kotlin.String,
-    )
+    suspend fun `setConsentStates`(`records`: List<FfiConsent>)
 
     fun `signatureRequest`(): FfiSignatureRequest?
 
@@ -6830,18 +6823,12 @@ open class FfiXmtpClient : Disposable, AutoCloseable, FfiXmtpClientInterface {
 
     @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `setConsentState`(
-        `state`: FfiConsentState,
-        `entityType`: FfiConsentEntityType,
-        `entity`: kotlin.String,
-    ) {
+    override suspend fun `setConsentStates`(`records`: List<FfiConsent>) {
         return uniffiRustCallAsync(
             callWithPointer { thisPtr ->
-                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_set_consent_state(
+                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_set_consent_states(
                     thisPtr,
-                    FfiConverterTypeFfiConsentState.lower(`state`),
-                    FfiConverterTypeFfiConsentEntityType.lower(`entityType`),
-                    FfiConverterString.lower(`entity`),
+                    FfiConverterSequenceTypeFfiConsent.lower(`records`),
                 )
             },
             { future, callback, continuation ->
@@ -6905,6 +6892,38 @@ public object FfiConverterTypeFfiXmtpClient : FfiConverter<FfiXmtpClient, Pointe
         // The Rust code always expects pointers written as 8 bytes,
         // and will fail to compile if they don't fit.
         buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+data class FfiConsent(
+    var `entityType`: FfiConsentEntityType,
+    var `state`: FfiConsentState,
+    var `entity`: kotlin.String,
+) {
+
+    companion object
+}
+
+public object FfiConverterTypeFfiConsent : FfiConverterRustBuffer<FfiConsent> {
+    override fun read(buf: ByteBuffer): FfiConsent {
+        return FfiConsent(
+            FfiConverterTypeFfiConsentEntityType.read(buf),
+            FfiConverterTypeFfiConsentState.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiConsent) = (
+            FfiConverterTypeFfiConsentEntityType.allocationSize(value.`entityType`) +
+                    FfiConverterTypeFfiConsentState.allocationSize(value.`state`) +
+                    FfiConverterString.allocationSize(value.`entity`)
+            )
+
+    override fun write(value: FfiConsent, buf: ByteBuffer) {
+        FfiConverterTypeFfiConsentEntityType.write(value.`entityType`, buf)
+        FfiConverterTypeFfiConsentState.write(value.`state`, buf)
+        FfiConverterString.write(value.`entity`, buf)
     }
 }
 
@@ -8522,6 +8541,29 @@ public object FfiConverterSequenceTypeFfiGroup : FfiConverterRustBuffer<List<Ffi
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeFfiGroup.write(it, buf)
+        }
+    }
+}
+
+
+public object FfiConverterSequenceTypeFfiConsent : FfiConverterRustBuffer<List<FfiConsent>> {
+    override fun read(buf: ByteBuffer): List<FfiConsent> {
+        val len = buf.getInt()
+        return List<FfiConsent>(len) {
+            FfiConverterTypeFfiConsent.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiConsent>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiConsent.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiConsent>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiConsent.write(it, buf)
         }
     }
 }
