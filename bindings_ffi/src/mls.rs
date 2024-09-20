@@ -16,10 +16,30 @@ use xmtp_id::{
     associations::{builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id},
     InboxId,
 };
-use xmtp_mls::{api::ApiClientWrapper, builder::ClientBuilder, client::{Client as MlsClient, ClientError}, groups::{group_metadata::{ConversationType, GroupMetadata}, group_mutable_metadata::MetadataField, group_permissions::{BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError, MembershipPolicies, MetadataBasePolicies, MetadataPolicies, PermissionsBasePolicies, PermissionsPolicies, PolicySet}, intents::{PermissionPolicyOption, PermissionUpdateType}, members::PermissionLevel, GroupMetadataOptions, MlsGroup, PreconfiguredPolicies, UpdateAdminListType}, identity::IdentityStrategy, retry::Retry, storage::{
+use xmtp_mls::{
+    api::ApiClientWrapper,
+    builder::ClientBuilder,
+    client::{Client as MlsClient, ClientError},
+    groups::{
+        group_metadata::{ConversationType, GroupMetadata},
+        group_mutable_metadata::MetadataField,
+        group_permissions::{
+            BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError,
+            MembershipPolicies, MetadataBasePolicies, MetadataPolicies, PermissionsBasePolicies,
+            PermissionsPolicies, PolicySet,
+        },
+        intents::{PermissionPolicyOption, PermissionUpdateType},
+        members::PermissionLevel,
+        GroupMetadataOptions, MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
+    },
+    identity::IdentityStrategy,
+    retry::Retry,
+    storage::{
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         EncryptedMessageStore, EncryptionKey, StorageOption,
-    }, GenericStreamHandle, AbortHandle, StreamHandle};
+    },
+    AbortHandle, GenericStreamHandle, StreamHandle,
+};
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
@@ -1414,7 +1434,9 @@ pub struct FfiStreamCloser {
 }
 
 impl FfiStreamCloser {
-    pub fn new(stream_handle: impl StreamHandle<StreamOutput = Result<(), ClientError>> + Send + Sync + 'static) -> Self {
+    pub fn new(
+        stream_handle: impl StreamHandle<StreamOutput = Result<(), ClientError>> + Send + Sync + 'static,
+    ) -> Self {
         Self {
             abort_handle: Arc::new(stream_handle.abort_handle()),
             stream_handle: Arc::new(Mutex::new(Some(Box::new(stream_handle)))),
@@ -1445,10 +1467,10 @@ impl FfiStreamCloser {
             match h.end_and_wait().await {
                 Err(Cancelled) => Ok(()),
                 Err(Panicked(msg)) => Err(Generic { err: msg }),
-                Err(e) => Err(Generic{
+                Err(e) => Err(Generic {
                     err: format!("error joining task {}", e),
                 }),
-                Ok(t) => t.map_err(|e| Generic{ err: e.to_string()}),
+                Ok(t) => t.map_err(|e| Generic { err: e.to_string() }),
             }
         } else {
             log::warn!("subscription already closed");
@@ -1564,7 +1586,7 @@ mod tests {
         groups::{GroupError, MlsGroup},
         storage::EncryptionKey,
         utils::test::tmp_path,
-        InboxOwner
+        InboxOwner,
     };
 
     #[derive(Clone)]
