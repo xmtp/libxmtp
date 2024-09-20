@@ -857,7 +857,6 @@ mod tests {
         groups::GroupMetadataOptions,
         hpke::{decrypt_welcome, encrypt_welcome},
         identity::serialize_key_package_hash_ref,
-        storage::consent_record::{ConsentState, ConsentType},
         storage::{
             consent_record::{ConsentState, ConsentType, StoredConsentRecord},
             schema::identity_updates,
