@@ -92,8 +92,6 @@ pub trait Wasm {}
 impl<T> Wasm for T {}
 
 #[allow(async_fn_in_trait)]
-// #[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpDb: Send))]
-// #[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpDb: Wasm))]
 pub trait XmtpDb {
     type Connection: diesel::Connection<Backend = Sqlite>
         + diesel::connection::SimpleConnection
