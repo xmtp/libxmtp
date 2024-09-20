@@ -855,10 +855,10 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+    use super::Client;
     use diesel::RunQueryDsl;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
-    use super::Client;
 
     use crate::{
         builder::ClientBuilder,
