@@ -25,7 +25,7 @@ enum ConversationOrGroup: Hashable {
 		case .conversation(let conversation):
 			return conversation.topic
 		case .group(let group):
-			return group.id.toHexString()
+			return group.id.toHexEncodedString()
 		}
 	}
 

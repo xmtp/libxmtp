@@ -14,6 +14,7 @@ public typealias PreEventCallback = () async throws -> Void
 public enum ClientError: Error, CustomStringConvertible, LocalizedError {
 	case creationError(String)
 	case noV3Client(String)
+	case noV2Client(String)
 
 	public var description: String {
 		switch self {
@@ -21,6 +22,8 @@ public enum ClientError: Error, CustomStringConvertible, LocalizedError {
 			return "ClientError.creationError: \(err)"
 		case .noV3Client(let err):
 			return "ClientError.noV3Client: \(err)"
+		case .noV2Client(let err):
+			return "ClientError.noV2Client: \(err)"
 		}
 	}
 
@@ -111,13 +114,15 @@ public struct ClientOptions {
 public final class Client {
 	/// The wallet address of the ``SigningKey`` used to create this Client.
 	public let address: String
-	let privateKeyBundleV1: PrivateKeyBundleV1
-	let apiClient: ApiClient
-	let v3Client: LibXMTP.FfiXmtpClient?
+	var privateKeyBundleV1: PrivateKeyBundleV1? = nil
+	var apiClient: ApiClient? = nil
+	public let v3Client: LibXMTP.FfiXmtpClient?
 	public let libXMTPVersion: String = getVersionInfo()
 	public let dbPath: String
 	public let installationID: String
 	public let inboxID: String
+	public var hasV2Client: Bool = true
+
 
 	/// Access ``Conversations`` for this Client.
 	public lazy var conversations: Conversations = .init(client: self)
@@ -126,9 +131,7 @@ public final class Client {
 	public lazy var contacts: Contacts = .init(client: self)
 
 	/// The XMTP environment which specifies which network this Client is connected to.
-	public var environment: XMTPEnvironment {
-		apiClient.environment
-	}
+	public lazy var environment: XMTPEnvironment = apiClient?.environment ?? .dev
 
 	var codecRegistry = CodecRegistry()
 
@@ -157,11 +160,44 @@ public final class Client {
 			throw ClientError.creationError(detailedErrorMessage)
 		}
 	}
+	
+	// This is a V3 only feature
+	public static func createOrBuild(account: SigningKey, options: ClientOptions) async throws -> Client {
+		let inboxId = try await getOrCreateInboxId(options: options, address: account.address)
+
+		let (libxmtpClient, dbPath) = try await initV3Client(
+			accountAddress: account.address,
+			options: options,
+			privateKeyBundleV1: nil,
+			signingKey: account,
+			inboxId: inboxId
+		)
+		guard let v3Client = libxmtpClient else {
+			throw ClientError.noV3Client("Error no V3 client initialized")
+		}
+
+		let client = try Client(
+			address: account.address,
+			v3Client: v3Client,
+			dbPath: dbPath,
+			installationID: v3Client.installationId().toHex,
+			inboxID: v3Client.inboxId(),
+			environment: options.api.env
+		)
+
+		let conversations = client.conversations
+		let contacts = client.contacts
+
+		for codec in (options.codecs) {
+			client.register(codec: codec)
+		}
+		return client
+	}
 
 	static func initV3Client(
 		accountAddress: String,
 		options: ClientOptions?,
-		privateKeyBundleV1: PrivateKeyBundleV1,
+		privateKeyBundleV1: PrivateKeyBundleV1?,
 		signingKey: SigningKey?,
 		inboxId: String
 	) async throws -> (FfiXmtpClient?, String) {
@@ -202,7 +238,7 @@ public final class Client {
 				inboxId: inboxId,
 				accountAddress: address,
 				nonce: 0,
-				legacySignedPrivateKeyProto: try privateKeyBundleV1.toV2().identityKey.serializedData(),
+				legacySignedPrivateKeyProto: try privateKeyBundleV1?.toV2().identityKey.serializedData(),
 				historySyncUrl: options?.historySyncUrl
 			)
 			
@@ -377,22 +413,45 @@ public final class Client {
 		self.dbPath = dbPath
 		self.installationID = installationID
 		self.inboxID = inboxID
+		self.hasV2Client = true
+		self.environment = apiClient.environment
+	}
+	
+	init(address: String, v3Client: LibXMTP.FfiXmtpClient, dbPath: String, installationID: String, inboxID: String, environment: XMTPEnvironment) throws {
+		self.address = address
+		self.v3Client = v3Client
+		self.dbPath = dbPath
+		self.installationID = installationID
+		self.inboxID = inboxID
+		self.hasV2Client = false
+		self.environment = environment
 	}
 
 	public var privateKeyBundle: PrivateKeyBundle {
-		PrivateKeyBundle(v1: privateKeyBundleV1)
+		get throws {
+			try PrivateKeyBundle(v1: v1keys)
+		}
 	}
 
 	public var publicKeyBundle: SignedPublicKeyBundle {
-		privateKeyBundleV1.toV2().getPublicKeyBundle()
+		get throws {
+			try v1keys.toV2().getPublicKeyBundle()
+		}
 	}
 
 	public var v1keys: PrivateKeyBundleV1 {
-		privateKeyBundleV1
+		get throws {
+			guard let keys = privateKeyBundleV1 else {
+				throw ClientError.noV2Client("Error no V2 client initialized")
+			}
+			return keys
+		}
 	}
 
 	public var keys: PrivateKeyBundleV2 {
-		privateKeyBundleV1.toV2()
+		get throws {
+			try v1keys.toV2()
+		}
 	}
 
 	public func canMessage(_ peerAddress: String) async throws -> Bool {
@@ -472,7 +531,7 @@ public final class Client {
 	func ensureUserContactPublished() async throws {
 		if let contact = try await getUserContact(peerAddress: address),
 		   case .v2 = contact.version,
-		   keys.getPublicKeyBundle().equals(contact.v2.keyBundle)
+		   try keys.getPublicKeyBundle().equals(contact.v2.keyBundle)
 		{
 			return
 		}
@@ -485,7 +544,7 @@ public final class Client {
 
 		if legacy {
 			var contactBundle = ContactBundle()
-			contactBundle.v1.keyBundle = privateKeyBundleV1.toPublicKeyBundle()
+			contactBundle.v1.keyBundle = try v1keys.toPublicKeyBundle()
 
 			var envelope = Envelope()
 			envelope.contentTopic = Topic.contact(address).description
@@ -496,7 +555,7 @@ public final class Client {
 		}
 
 		var contactBundle = ContactBundle()
-		contactBundle.v2.keyBundle = keys.getPublicKeyBundle()
+		contactBundle.v2.keyBundle = try keys.getPublicKeyBundle()
 		contactBundle.v2.keyBundle.identityKey.signature.ensureWalletSignature()
 
 		var envelope = Envelope()
@@ -509,23 +568,32 @@ public final class Client {
 	}
 
 	public func query(topic: Topic, pagination: Pagination? = nil) async throws -> QueryResponse {
-		return try await apiClient.query(
+		guard let client = apiClient else {
+			throw ClientError.noV2Client("Error no V2 client initialized")
+		}
+		return try await client.query(
 			topic: topic,
 			pagination: pagination
 		)
 	}
 
 	public func batchQuery(request: BatchQueryRequest) async throws -> BatchQueryResponse {
-		return try await apiClient.batchQuery(request: request)
+		guard let client = apiClient else {
+			throw ClientError.noV2Client("Error no V2 client initialized")
+		}
+		return try await client.batchQuery(request: request)
 	}
 
 	public func publish(envelopes: [Envelope]) async throws {
-		let authorized = AuthorizedIdentity(address: address, authorized: privateKeyBundleV1.identityKey.publicKey, identity: privateKeyBundleV1.identityKey)
+		guard let client = apiClient else {
+			throw ClientError.noV2Client("Error no V2 client initialized")
+		}
+		let authorized = try AuthorizedIdentity(address: address, authorized: v1keys.identityKey.publicKey, identity: v1keys.identityKey)
 		let authToken = try await authorized.createAuthToken()
 
-		apiClient.setAuthToken(authToken)
+		client.setAuthToken(authToken)
 
-		try await apiClient.publish(envelopes: envelopes)
+		try await client.publish(envelopes: envelopes)
 	}
 
 	public func subscribe(
@@ -539,7 +607,10 @@ public final class Client {
 		request: FfiV2SubscribeRequest,
 		callback: FfiV2SubscriptionCallback
 	) async throws -> FfiV2Subscription {
-		return try await apiClient.subscribe(request: request, callback: callback)
+		guard let client = apiClient else {
+			throw ClientError.noV2Client("Error no V2 client initialized")
+		}
+		return try await client.subscribe(request: request, callback: callback)
 	}
 
 	public func deleteLocalDatabase() throws {

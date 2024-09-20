@@ -296,8 +296,11 @@ public actor Conversations {
 			.map { requests in BatchQueryRequest.with { $0.requests = requests } }
 		var messages: [DecodedMessage] = []
 		// TODO: consider using a task group here for parallel batch calls
+		guard let apiClient = client.apiClient else {
+			throw ClientError.noV2Client("Error no V2 client initialized")
+		}
 		for batch in batches {
-			messages += try await client.apiClient.batchQuery(request: batch)
+			messages += try await apiClient.batchQuery(request: batch)
 				.responses.flatMap { res in
 					res.envelopes.compactMap { envelope in
 						let conversation = conversationsByTopic[envelope.contentTopic]
@@ -327,8 +330,11 @@ public actor Conversations {
 			.map { requests in BatchQueryRequest.with { $0.requests = requests } }
 		var messages: [DecryptedMessage] = []
 		// TODO: consider using a task group here for parallel batch calls
+		guard let apiClient = client.apiClient else {
+			throw ClientError.noV2Client("Error no V2 client initialized")
+		}
 		for batch in batches {
-			messages += try await client.apiClient.batchQuery(request: batch)
+			messages += try await apiClient.batchQuery(request: batch)
 				.responses.flatMap { res in
 					res.envelopes.compactMap { envelope in
 						let conversation = conversationsByTopic[envelope.contentTopic]
@@ -833,7 +839,10 @@ public actor Conversations {
 	}
 
 	private func listIntroductionPeers(pagination: Pagination?) async throws -> [String: Date] {
-		let envelopes = try await client.apiClient.query(
+		guard let apiClient = client.apiClient else {
+			throw ClientError.noV2Client("Error no V2 client initialized")
+		}
+		let envelopes = try await apiClient.query(
 			topic: .userIntro(client.address),
 			pagination: pagination
 		).envelopes
@@ -841,7 +850,7 @@ public actor Conversations {
 			do {
 				let message = try MessageV1.fromBytes(envelope.message)
 				// Attempt to decrypt, just to make sure we can
-				_ = try message.decrypt(with: client.privateKeyBundleV1)
+				_ = try message.decrypt(with: client.v1keys)
 				return message
 			} catch {
 				return nil
@@ -867,7 +876,10 @@ public actor Conversations {
 	}
 
 	private func listInvitations(pagination: Pagination?) async throws -> [SealedInvitation] {
-		var envelopes = try await client.apiClient.envelopes(
+		guard let apiClient = client.apiClient else {
+			throw ClientError.noV2Client("Error no V2 client initialized")
+		}
+		var envelopes = try await apiClient.envelopes(
 			topic: Topic.userInvite(client.address).description,
 			pagination: pagination
 		)

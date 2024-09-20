@@ -52,7 +52,7 @@ public struct ConversationV1 {
 		let date = sentAt
 
 		let message = try MessageV1.encode(
-			sender: client.privateKeyBundleV1,
+			sender: client.v1keys,
 			recipient: recipient,
 			message: try encodedContent.serializedData(),
 			timestamp: date
@@ -217,8 +217,10 @@ public struct ConversationV1 {
 
 	func decryptedMessages(limit: Int? = nil, before: Date? = nil, after: Date? = nil, direction: PagingInfoSortDirection? = .descending) async throws -> [DecryptedMessage] {
 		let pagination = Pagination(limit: limit, before: before, after: after, direction: direction)
-
-		let envelopes = try await client.apiClient.envelopes(
+		guard let apiClient = client.apiClient else {
+			throw ClientError.noV2Client("Error no V2 client initialized")
+		}
+		let envelopes = try await apiClient.envelopes(
 						topic: Topic.directMessageV1(client.address, peerAddress).description,
 			pagination: pagination
 		)
@@ -229,7 +231,10 @@ public struct ConversationV1 {
 	func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil, direction: PagingInfoSortDirection? = .descending) async throws -> [DecodedMessage] {
 		let pagination = Pagination(limit: limit, before: before, after: after, direction: direction)
 
-		let envelopes = try await client.apiClient.envelopes(
+		guard let apiClient = client.apiClient else {
+			throw ClientError.noV2Client("Error no V2 client initialized")
+		}
+		let envelopes = try await apiClient.envelopes(
             topic: Topic.directMessageV1(client.address, peerAddress).description,
 			pagination: pagination
 		)
@@ -246,7 +251,7 @@ public struct ConversationV1 {
 
 	func decrypt(envelope: Envelope) throws -> DecryptedMessage {
 		let message = try Message(serializedData: envelope.message)
-		let decrypted = try message.v1.decrypt(with: client.privateKeyBundleV1)
+		let decrypted = try message.v1.decrypt(with: client.v1keys)
 
 		let encodedMessage = try EncodedContent(serializedData: decrypted)
 		let header = try message.v1.header

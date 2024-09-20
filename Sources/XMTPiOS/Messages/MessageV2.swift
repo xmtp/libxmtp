@@ -88,10 +88,10 @@ extension MessageV2 {
 		let headerBytes = try header.serializedData()
 
 		let digest = SHA256.hash(data: headerBytes + payload)
-		let preKey = client.keys.preKeys[0]
+		let preKey = try client.keys.preKeys[0]
 		let signature = try await preKey.sign(Data(digest))
 
-		let bundle = client.privateKeyBundleV1.toV2().getPublicKeyBundle()
+		let bundle = try client.v1keys.toV2().getPublicKeyBundle()
 
 		let signedContent = SignedContent(payload: payload, sender: bundle, signature: signature)
 		let signedBytes = try signedContent.serializedData()

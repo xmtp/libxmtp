@@ -97,7 +97,7 @@ class ConversationTests: XCTestCase {
 	}
 
 	func testCanStreamConversationsV2() async throws {
-		let options = ClientOptions(api: ClientOptions.Api(env: .dev, isSecure: true))
+		let options = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
 		let wallet = try PrivateKey.generate()
 		let client = try await Client.create(account: wallet, options: options)
 		
@@ -145,7 +145,7 @@ class ConversationTests: XCTestCase {
 
 	func publishLegacyContact(client: Client) async throws {
 		var contactBundle = ContactBundle()
-		contactBundle.v1.keyBundle = client.privateKeyBundleV1.toPublicKeyBundle()
+		contactBundle.v1.keyBundle = try client.v1keys.toPublicKeyBundle()
 
 		var envelope = Envelope()
 		envelope.contentTopic = Topic.contact(client.address).description
@@ -215,10 +215,10 @@ class ConversationTests: XCTestCase {
 		let headerBytes = try header.serializedData()
 
 		let digest = SHA256.hash(data: headerBytes + tamperedPayload)
-		let preKey = aliceClient.keys.preKeys[0]
+		let preKey = try aliceClient.keys.preKeys[0]
 		let signature = try await preKey.sign(Data(digest))
 
-		let bundle = aliceClient.privateKeyBundleV1.toV2().getPublicKeyBundle()
+		let bundle = try aliceClient.v1keys.toV2().getPublicKeyBundle()
 
 		let signedContent = SignedContent(payload: originalPayload, sender: bundle, signature: signature)
 		let signedBytes = try signedContent.serializedData()
@@ -375,7 +375,7 @@ class ConversationTests: XCTestCase {
 		try await bobConversation.send(content: "Hello")
 
 		// Now we send some garbage and expect it to be properly ignored.
-		try await bobClient.apiClient.publish(envelopes: [
+		try await bobClient.apiClient!.publish(envelopes: [
 			Envelope(
 				topic: bobConversation.topic,
 				timestamp: Date(),

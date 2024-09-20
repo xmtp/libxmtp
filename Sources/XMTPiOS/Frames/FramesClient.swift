@@ -62,14 +62,14 @@ public class FramesClient {
     }
     
     private func signDigest(digest: Data) async throws -> Signature {
-        let key = self.xmtpClient.keys.identityKey
+        let key = try self.xmtpClient.keys.identityKey
         let privateKey = try PrivateKey(key)
         let signature = try await privateKey.sign(Data(digest))
         return signature
     }
     
     private func getPublicKeyBundle() async throws -> PublicKeyBundle {
-        let bundleBytes = self.xmtpClient.publicKeyBundle;
+        let bundleBytes = try self.xmtpClient.publicKeyBundle;
         return try PublicKeyBundle(bundleBytes);
       }
     

@@ -21,7 +21,7 @@ class ConversationsTests: XCTestCase {
 		let created = Date()
 
 		let message = try MessageV1.encode(
-			sender: fixtures.bobClient.privateKeyBundleV1,
+			sender: try fixtures.bobClient.v1keys,
 			recipient: fixtures.aliceClient.v1keys.toPublicKeyBundle(),
 			message: try TextCodec().encode(content: "hello", client: client).serializedData(),
 			timestamp: created

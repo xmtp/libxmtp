@@ -88,7 +88,7 @@ public struct Fixtures {
 
 	public func publishLegacyContact(client: Client) async throws {
 		var contactBundle = ContactBundle()
-		contactBundle.v1.keyBundle = client.privateKeyBundleV1.toPublicKeyBundle()
+		contactBundle.v1.keyBundle = try client.v1keys.toPublicKeyBundle()
 
 		var envelope = Envelope()
 		envelope.contentTopic = Topic.contact(client.address).description

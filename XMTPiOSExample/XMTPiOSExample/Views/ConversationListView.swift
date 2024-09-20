@@ -91,7 +91,7 @@ struct ConversationListView: View {
 		}
 		.task {
 			do {
-				for try await conversation in await client.conversations.stream() {
+				for try await conversation in try await client.conversations.stream() {
 					conversations.insert(.conversation(conversation), at: 0)
 
 					await add(conversations: [.conversation(conversation)])

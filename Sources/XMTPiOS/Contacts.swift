@@ -58,63 +58,66 @@ public actor EntriesManager {
 
 public class ConsentList {
 	public let entriesManager = EntriesManager()
-	var publicKey: Data
-	var privateKey: Data
-	var identifier: String?
 	var lastFetched: Date?
 	var client: Client
 
 	init(client: Client) {
 		self.client = client
-		privateKey = client.privateKeyBundleV1.identityKey.secp256K1.bytes
-		publicKey = client.privateKeyBundleV1.identityKey.publicKey.secp256K1Uncompressed.bytes
-		identifier = try? LibXMTP.generatePrivatePreferencesTopicIdentifier(privateKey: privateKey)
 	}
 
 	func load() async throws -> [ConsentListEntry] {
-		guard let identifier = identifier else {
-			throw ContactError.invalidIdentifier
-		}
-		let newDate = Date()
-
-		let pagination = Pagination(
-			limit: 500,
-            after: lastFetched,
-            direction: .ascending
-        )
-		let envelopes = try await client.apiClient.envelopes(topic: Topic.preferenceList(identifier).description, pagination: pagination)
-    lastFetched = newDate
-
-		var preferences: [PrivatePreferencesAction] = []
-
-		for envelope in envelopes {
-			let payload = try LibXMTP.userPreferencesDecrypt(publicKey: publicKey, privateKey: privateKey, message: envelope.message)
-
-			try preferences.append(PrivatePreferencesAction(serializedData: Data(payload)))
-		}
-		for preference in preferences {
-			for address in preference.allowAddress.walletAddresses {
-				_ = await allow(address: address)
-			}
-
-			for address in preference.denyAddress.walletAddresses {
-				_ = await deny(address: address)
-			}
-
-			for groupId in preference.allowGroup.groupIds {
-				_ = await allowGroup(groupId: groupId)
-			}
-
-			for groupId in preference.denyGroup.groupIds {
-				_ = await denyGroup(groupId: groupId)
-			}
+		if (client.hasV2Client) {
+			let privateKey = try client.v1keys.identityKey.secp256K1.bytes
+			let publicKey = try client.v1keys.identityKey.publicKey.secp256K1Uncompressed.bytes
+			let identifier = try? LibXMTP.generatePrivatePreferencesTopicIdentifier(privateKey: privateKey)
 			
-			for inboxId in preference.allowInboxID.inboxIds {
-				_ = await allowInboxId(inboxId: inboxId)
+			guard let identifier = identifier else {
+				throw ContactError.invalidIdentifier
 			}
-
-			for inboxId in preference.denyInboxID.inboxIds {
-				_ = await denyInboxId(inboxId: inboxId)
+			let newDate = Date()
+			
+			let pagination = Pagination(
+				limit: 500,
+				after: lastFetched,
+				direction: .ascending
+			)
+			guard let apiClient = client.apiClient else {
+				throw ClientError.noV2Client("Error no V2 client initialized")
+			}
+			let envelopes = try await apiClient.envelopes(topic: Topic.preferenceList(identifier).description, pagination: pagination)
+			lastFetched = newDate
+			
+			var preferences: [PrivatePreferencesAction] = []
+			
+			for envelope in envelopes {
+				let payload = try LibXMTP.userPreferencesDecrypt(publicKey: publicKey, privateKey: privateKey, message: envelope.message)
+				
+				try preferences.append(PrivatePreferencesAction(serializedData: Data(payload)))
+			}
+			for preference in preferences {
+				for address in preference.allowAddress.walletAddresses {
+					_ = await allow(address: address)
+				}
+				
+				for address in preference.denyAddress.walletAddresses {
+					_ = await deny(address: address)
+				}
+				
+				for groupId in preference.allowGroup.groupIds {
+					_ = await allowGroup(groupId: groupId)
+				}
+				
+				for groupId in preference.denyGroup.groupIds {
+					_ = await denyGroup(groupId: groupId)
+				}
+				
+				for inboxId in preference.allowInboxID.inboxIds {
+					_ = await allowInboxId(inboxId: inboxId)
+				}
+				
+				for inboxId in preference.denyInboxID.inboxIds {
+					_ = await denyInboxId(inboxId: inboxId)
+				}
 			}
 		}
 
@@ -122,56 +125,61 @@ public class ConsentList {
 	}
 
     func publish(entries: [ConsentListEntry]) async throws {
-      guard let identifier = identifier else {
-        throw ContactError.invalidIdentifier
-      }
-      var payload = PrivatePreferencesAction()
-
-      for entry in entries {
-        switch entry.entryType {
-		case .address:
-		  switch entry.consentType {
-		  case .allowed:
-			payload.allowAddress.walletAddresses.append(entry.value)
-		  case .denied:
-			  payload.denyAddress.walletAddresses.append(entry.value)
-		  case .unknown:
-			  payload.messageType = nil
-		  }
-		case .group_id:
-			switch entry.consentType {
-			case .allowed:
-				payload.allowGroup.groupIds.append(entry.value)
-			case .denied:
-				payload.denyGroup.groupIds.append(entry.value)
-			case .unknown:
-				payload.messageType = nil
-    	    }
-		case .inbox_id:
-			switch entry.consentType {
-			case .allowed:
-			  payload.allowInboxID.inboxIds.append(entry.value)
-			case .denied:
-				payload.denyInboxID.inboxIds.append(entry.value)
-			case .unknown:
-				payload.messageType = nil
+		if (client.hasV2Client) {
+			let privateKey = try client.v1keys.identityKey.secp256K1.bytes
+			let publicKey = try client.v1keys.identityKey.publicKey.secp256K1Uncompressed.bytes
+			let identifier = try? LibXMTP.generatePrivatePreferencesTopicIdentifier(privateKey: privateKey)
+			guard let identifier = identifier else {
+				throw ContactError.invalidIdentifier
 			}
+			var payload = PrivatePreferencesAction()
+			
+			for entry in entries {
+				switch entry.entryType {
+				case .address:
+					switch entry.consentType {
+					case .allowed:
+						payload.allowAddress.walletAddresses.append(entry.value)
+					case .denied:
+						payload.denyAddress.walletAddresses.append(entry.value)
+					case .unknown:
+						payload.messageType = nil
+					}
+				case .group_id:
+					switch entry.consentType {
+					case .allowed:
+						payload.allowGroup.groupIds.append(entry.value)
+					case .denied:
+						payload.denyGroup.groupIds.append(entry.value)
+					case .unknown:
+						payload.messageType = nil
+					}
+				case .inbox_id:
+					switch entry.consentType {
+					case .allowed:
+						payload.allowInboxID.inboxIds.append(entry.value)
+					case .denied:
+						payload.denyInboxID.inboxIds.append(entry.value)
+					case .unknown:
+						payload.messageType = nil
+					}
+				}
+			}
+			
+			let message = try LibXMTP.userPreferencesEncrypt(
+				publicKey: publicKey,
+				privateKey: privateKey,
+				message: payload.serializedData()
+			)
+			
+			let envelope = Envelope(
+				topic: Topic.preferenceList(identifier),
+				timestamp: Date(),
+				message: Data(message)
+			)
+			
+			try await client.publish(envelopes: [envelope])
 		}
-    }
-
-    let message = try LibXMTP.userPreferencesEncrypt(
-        publicKey: publicKey,
-        privateKey: privateKey,
-        message: payload.serializedData()
-    )
-
-    let envelope = Envelope(
-        topic: Topic.preferenceList(identifier),
-        timestamp: Date(),
-        message: Data(message)
-    )
-
-    try await client.publish(envelopes: [envelope])
   }
 
 	func allow(address: String) async -> ConsentListEntry {
