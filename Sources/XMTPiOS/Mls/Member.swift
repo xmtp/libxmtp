@@ -37,5 +37,9 @@ public struct Member {
             return PermissionLevel.SuperAdmin
         }
 	}
+	
+	public var consentState: ConsentState {
+		ffiGroupMember.consentState.fromFFI
+	}
 }
 

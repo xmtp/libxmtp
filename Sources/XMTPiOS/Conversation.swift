@@ -37,7 +37,7 @@ public enum Conversation: Sendable {
 		case .v2(let conversationV2):
 			return try await conversationV2.client.contacts.consentList.state(address: peerAddress)
 		case let .group(group):
-			return await group.client.contacts.consentList.groupState(groupId: group.id)
+			return try group.consentState()
 		}
 	}
 

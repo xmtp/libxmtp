@@ -751,7 +751,7 @@ public actor Conversations {
 		}
 		let contacts = client.contacts
 		_ = try await contacts.refreshConsentList()
-		if await (contacts.consentList.state(address: peerAddress) == .unknown) {
+		if try await (contacts.consentList.state(address: peerAddress) == .unknown) {
 			try await contacts.allow(addresses: [peerAddress])
 		}
 	}

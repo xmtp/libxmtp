@@ -37,13 +37,13 @@ class ContactsTests: XCTestCase {
 		let fixtures = await fixtures()
 
 		let contacts = fixtures.bobClient.contacts
-		var result = await contacts.isAllowed(fixtures.alice.address)
+		var result = try await contacts.isAllowed(fixtures.alice.address)
 
 		XCTAssertFalse(result)
 
 		try await contacts.allow(addresses: [fixtures.alice.address])
 
-		result = await contacts.isAllowed(fixtures.alice.address)
+		result = try await contacts.isAllowed(fixtures.alice.address)
 		XCTAssertTrue(result)
 	}
 
@@ -51,13 +51,13 @@ class ContactsTests: XCTestCase {
 		let fixtures = await fixtures()
 
 		let contacts = fixtures.bobClient.contacts
-		var result = await contacts.isAllowed(fixtures.alice.address)
+		var result = try await contacts.isAllowed(fixtures.alice.address)
 
 		XCTAssertFalse(result)
 
 		try await contacts.deny(addresses: [fixtures.alice.address])
 
-		result = await contacts.isDenied(fixtures.alice.address)
+		result = try await contacts.isDenied(fixtures.alice.address)
 		XCTAssertTrue(result)
 	}
     
@@ -67,21 +67,21 @@ class ContactsTests: XCTestCase {
 		let caroClient = try await Client.create(account: caro, options: fixtures.clientOptions)
 
         let contacts = fixtures.bobClient.contacts
-        var result = await contacts.isAllowed(fixtures.alice.address)
+        var result = try await contacts.isAllowed(fixtures.alice.address)
         XCTAssertFalse(result)
-        result = await contacts.isAllowed(caroClient.address)
+        result = try await contacts.isAllowed(caroClient.address)
         XCTAssertFalse(result)
 
         try await contacts.deny(addresses: [fixtures.alice.address, caroClient.address])
 
-        var aliceResult = await contacts.isDenied(fixtures.alice.address)
+        var aliceResult = try await contacts.isDenied(fixtures.alice.address)
         XCTAssertTrue(aliceResult)
-        var caroResult = await contacts.isDenied(fixtures.alice.address)
+        var caroResult = try await contacts.isDenied(fixtures.alice.address)
         XCTAssertTrue(caroResult)
         try await contacts.allow(addresses: [fixtures.alice.address, caroClient.address])
-        aliceResult = await contacts.isAllowed(fixtures.alice.address)
+        aliceResult = try await contacts.isAllowed(fixtures.alice.address)
         XCTAssertTrue(aliceResult)
-        caroResult = await contacts.isAllowed(fixtures.alice.address)
+        caroResult = try await contacts.isAllowed(fixtures.alice.address)
         XCTAssertTrue(caroResult)
     }
 }

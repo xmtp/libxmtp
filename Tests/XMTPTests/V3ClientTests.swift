@@ -1,5 +1,5 @@
 //
-//  File.swift
+//  V3ClientTests.swift
 //  
 //
 //  Created by Naomi Plasterer on 9/19/24.
@@ -95,6 +95,63 @@ class V3ClientTests: XCTestCase {
 		XCTAssertEqual(sameGroupMessages?.first?.body, "gm")
 	}
 	
+	func testGroupConsent() async throws {
+		let fixtures = try await localFixtures()
+		let group = try await fixtures.boV3Client.conversations.newGroup(with: [fixtures.caroV2V3.address])
+		let isAllowed = try await fixtures.boV3Client.contacts.isGroupAllowed(groupId: group.id)
+		XCTAssert(isAllowed)
+		XCTAssertEqual(try group.consentState(), .allowed)
+		
+		try await fixtures.boV3Client.contacts.denyGroups(groupIds: [group.id])
+		let isDenied = try await fixtures.boV3Client.contacts.isGroupDenied(groupId: group.id)
+		XCTAssert(isDenied)
+		XCTAssertEqual(try group.consentState(), .denied)
+		
+		try await group.updateConsentState(state: .allowed)
+		let isAllowed2 = try await fixtures.boV3Client.contacts.isGroupAllowed(groupId: group.id)
+		XCTAssert(isAllowed2)
+		XCTAssertEqual(try group.consentState(), .allowed)
+	}
+	
+	func testCanAllowAndDenyInboxId() async throws {
+		let fixtures = try await localFixtures()
+		let boGroup = try await fixtures.boV3Client.conversations.newGroup(with: [fixtures.caroV2V3.address])
+		var isInboxAllowed = try await fixtures.boV3Client.contacts.isInboxAllowed(inboxId: fixtures.caroV2V3.address)
+		var isInboxDenied = try await fixtures.boV3Client.contacts.isInboxDenied(inboxId: fixtures.caroV2V3.address)
+		XCTAssert(!isInboxAllowed)
+		XCTAssert(!isInboxDenied)
+
+		
+		try await fixtures.boV3Client.contacts.allowInboxes(inboxIds: [fixtures.caroV2V3Client.inboxID])
+		var caroMember = try boGroup.members.first(where: { member in member.inboxId == fixtures.caroV2V3Client.inboxID })
+		XCTAssertEqual(caroMember?.consentState, .allowed)
+
+		isInboxAllowed = try await fixtures.boV3Client.contacts.isInboxAllowed(inboxId: fixtures.caroV2V3Client.inboxID)
+		XCTAssert(isInboxAllowed)
+		isInboxDenied = try await fixtures.boV3Client.contacts.isInboxDenied(inboxId: fixtures.caroV2V3Client.inboxID)
+		XCTAssert(!isInboxDenied)
+		var isAddressAllowed = try await fixtures.boV3Client.contacts.isAllowed(fixtures.caroV2V3Client.address)
+		XCTAssert(isAddressAllowed)
+		var isAddressDenied = try await fixtures.boV3Client.contacts.isDenied(fixtures.caroV2V3Client.address)
+		XCTAssert(!isAddressDenied)
+		
+		try await fixtures.boV3Client.contacts.denyInboxes(inboxIds: [fixtures.caroV2V3Client.inboxID])
+		caroMember = try boGroup.members.first(where: { member in member.inboxId == fixtures.caroV2V3Client.inboxID })
+		XCTAssertEqual(caroMember?.consentState, .denied)
+		
+		isInboxAllowed = try await fixtures.boV3Client.contacts.isInboxAllowed(inboxId: fixtures.caroV2V3Client.inboxID)
+		isInboxDenied = try await fixtures.boV3Client.contacts.isInboxDenied(inboxId: fixtures.caroV2V3Client.inboxID)
+		XCTAssert(!isInboxAllowed)
+		XCTAssert(isInboxDenied)
+		
+		try await fixtures.boV3Client.contacts.allow(addresses: [fixtures.alixV2.address])
+		isAddressAllowed = try await fixtures.boV3Client.contacts.isAllowed(fixtures.alixV2.address)
+		isAddressDenied = try await fixtures.boV3Client.contacts.isDenied(fixtures.alixV2.address)
+		XCTAssert(isAddressAllowed)
+		XCTAssert(!isAddressDenied)
+	}
+
+
 	func testCanStreamAllMessagesFromV2andV3Users() async throws {
 		let fixtures = try await localFixtures()
 

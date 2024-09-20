@@ -136,10 +136,10 @@ class GroupTests: XCTestCase {
 		XCTAssert(!bobGroup.id.isEmpty)
 		XCTAssert(!aliceGroup.id.isEmpty)
 
-		let bobConsentResult = await fixtures.bobClient.contacts.consentList.groupState(groupId: bobGroup.id)
+		let bobConsentResult = try await fixtures.bobClient.contacts.consentList.groupState(groupId: bobGroup.id)
 		XCTAssertEqual(bobConsentResult, ConsentState.allowed)
 
-		let aliceConsentResult = await fixtures.aliceClient.contacts.consentList.groupState(groupId: aliceGroup.id)
+		let aliceConsentResult = try await fixtures.aliceClient.contacts.consentList.groupState(groupId: aliceGroup.id)
 		XCTAssertEqual(aliceConsentResult, ConsentState.unknown)
 
 		try await bobGroup.addMembers(addresses: [fixtures.fred.address])
@@ -420,10 +420,10 @@ class GroupTests: XCTestCase {
 		_ = try await bobGroup.send(content: "gm")
 		try await bobGroup.sync()
 
-		let isGroupAllowedResult = await fixtures.bobClient.contacts.isGroupAllowed(groupId: bobGroup.id)
+		let isGroupAllowedResult = try await fixtures.bobClient.contacts.isGroupAllowed(groupId: bobGroup.id)
 		XCTAssertTrue(isGroupAllowedResult)
 
-		let groupStateResult = await fixtures.bobClient.contacts.consentList.groupState(groupId: bobGroup.id)
+		let groupStateResult = try await fixtures.bobClient.contacts.consentList.groupState(groupId: bobGroup.id)
 		XCTAssertEqual(groupStateResult, ConsentState.allowed)
 	}
 	
@@ -758,27 +758,61 @@ class GroupTests: XCTestCase {
         XCTAssertEqual(groupName, "Test Group Name 1")
     }
 	
+	func testGroupConsent() async throws {
+		let fixtures = try await localFixtures()
+		let group = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		let isAllowed = try await fixtures.bobClient.contacts.isGroupAllowed(groupId: group.id)
+		XCTAssert(isAllowed)
+		XCTAssertEqual(try group.consentState(), .allowed)
+		
+		try await fixtures.bobClient.contacts.denyGroups(groupIds: [group.id])
+		let isDenied = try await fixtures.bobClient.contacts.isGroupDenied(groupId: group.id)
+		XCTAssert(isDenied)
+		XCTAssertEqual(try group.consentState(), .denied)
+		
+		try await group.updateConsentState(state: .allowed)
+		let isAllowed2 = try await fixtures.bobClient.contacts.isGroupAllowed(groupId: group.id)
+		XCTAssert(isAllowed2)
+		XCTAssertEqual(try group.consentState(), .allowed)
+	}
+	
 	func testCanAllowAndDenyInboxId() async throws {
 		let fixtures = try await localFixtures()
+		let boGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		var isInboxAllowed = try await fixtures.bobClient.contacts.isInboxAllowed(inboxId: fixtures.aliceClient.address)
+		var isInboxDenied = try await fixtures.bobClient.contacts.isInboxDenied(inboxId: fixtures.aliceClient.address)
+		XCTAssert(!isInboxAllowed)
+		XCTAssert(!isInboxDenied)
 
-		let isAllowed = await fixtures.bobClient.contacts.isInboxAllowed(inboxId: fixtures.aliceClient.inboxID)
-		let isDenied = await fixtures.bobClient.contacts.isInboxDenied(inboxId: fixtures.aliceClient.inboxID)
-		XCTAssert(!isAllowed)
-		XCTAssert(!isDenied)
-
+		
 		try await fixtures.bobClient.contacts.allowInboxes(inboxIds: [fixtures.aliceClient.inboxID])
+		var alixMember = try boGroup.members.first(where: { member in member.inboxId == fixtures.aliceClient.inboxID })
+		XCTAssertEqual(alixMember?.consentState, .allowed)
 
-		let isAllowed2 = await fixtures.bobClient.contacts.isInboxAllowed(inboxId: fixtures.aliceClient.inboxID)
-		let isDenied2 = await fixtures.bobClient.contacts.isInboxDenied(inboxId: fixtures.aliceClient.inboxID)
-		XCTAssert(isAllowed2)
-		XCTAssert(!isDenied2)
+		isInboxAllowed = try await fixtures.bobClient.contacts.isInboxAllowed(inboxId: fixtures.aliceClient.inboxID)
+		XCTAssert(isInboxAllowed)
+		isInboxDenied = try await fixtures.bobClient.contacts.isInboxDenied(inboxId: fixtures.aliceClient.inboxID)
+		XCTAssert(!isInboxDenied)
 
+		
 		try await fixtures.bobClient.contacts.denyInboxes(inboxIds: [fixtures.aliceClient.inboxID])
-
-		let isAllowed3 = await fixtures.bobClient.contacts.isInboxAllowed(inboxId: fixtures.aliceClient.inboxID)
-		let isDenied3 = await fixtures.bobClient.contacts.isInboxDenied(inboxId: fixtures.aliceClient.inboxID)
-		XCTAssert(!isAllowed3)
-		XCTAssert(isDenied3)
+		alixMember = try boGroup.members.first(where: { member in member.inboxId == fixtures.aliceClient.inboxID })
+		XCTAssertEqual(alixMember?.consentState, .denied)
+		
+		isInboxAllowed = try await fixtures.bobClient.contacts.isInboxAllowed(inboxId: fixtures.aliceClient.inboxID)
+		isInboxDenied = try await fixtures.bobClient.contacts.isInboxDenied(inboxId: fixtures.aliceClient.inboxID)
+		XCTAssert(!isInboxAllowed)
+		XCTAssert(isInboxDenied)
+		
+		try await fixtures.bobClient.contacts.allow(addresses: [fixtures.aliceClient.address])
+		let isAddressAllowed = try await fixtures.bobClient.contacts.isAllowed(fixtures.aliceClient.address)
+		let isAddressDenied = try await fixtures.bobClient.contacts.isDenied(fixtures.aliceClient.address)
+		XCTAssert(isAddressAllowed)
+		XCTAssert(!isAddressDenied)
+		isInboxAllowed = try await fixtures.bobClient.contacts.isInboxAllowed(inboxId: fixtures.aliceClient.inboxID)
+		isInboxDenied = try await fixtures.bobClient.contacts.isInboxDenied(inboxId: fixtures.aliceClient.inboxID)
+		XCTAssert(isInboxAllowed)
+		XCTAssert(!isInboxDenied)
 	}
 	
 	func testCanFetchGroupById() async throws {
@@ -811,10 +845,10 @@ class GroupTests: XCTestCase {
 
 		try await fixtures.aliceClient.conversations.sync()
 		let alixGroup = try fixtures.aliceClient.findGroup(groupId: boGroup.id)!
-		let isGroupAllowed = await fixtures.aliceClient.contacts.isGroupAllowed(groupId: boGroup.id)
+		let isGroupAllowed = try await fixtures.aliceClient.contacts.isGroupAllowed(groupId: boGroup.id)
 		XCTAssert(!isGroupAllowed)
 		let preparedMessageId = try await alixGroup.prepareMessage(content: "Test text")
-		let isGroupAllowed2 = await fixtures.aliceClient.contacts.isGroupAllowed(groupId: boGroup.id)
+		let isGroupAllowed2 = try await fixtures.aliceClient.contacts.isGroupAllowed(groupId: boGroup.id)
 		XCTAssert(isGroupAllowed2)
 		let messageCount = try await alixGroup.messages().count
 		XCTAssertEqual(messageCount, 1)

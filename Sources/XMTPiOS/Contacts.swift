@@ -13,12 +13,11 @@ public typealias PrivatePreferencesAction = Xmtp_MessageContents_PrivatePreferen
 public enum ConsentState: String, Codable {
 	case allowed, denied, unknown
 }
+public enum EntryType: String, Codable {
+	case address, group_id, inbox_id
+}
 
 public struct ConsentListEntry: Codable, Hashable {
-	public enum EntryType: String, Codable {
-		case address, group_id, inbox_id
-	}
-
 	static func address(_ address: String, type: ConsentState = .unknown) -> ConsentListEntry {
 		ConsentListEntry(value: address, entryType: .address, consentType: type)
 	}
@@ -125,6 +124,9 @@ public class ConsentList {
 	}
 
     func publish(entries: [ConsentListEntry]) async throws {
+		if (client.v3Client != nil) {
+			try await setV3ConsentState(entries: entries)
+		}
 		if (client.hasV2Client) {
 			let privateKey = try client.v1keys.identityKey.secp256K1.bytes
 			let publicKey = try client.v1keys.identityKey.publicKey.secp256K1Uncompressed.bytes
@@ -180,7 +182,11 @@ public class ConsentList {
 			
 			try await client.publish(envelopes: [envelope])
 		}
-  }
+	}
+	
+	func setV3ConsentState(entries: [ConsentListEntry]) async throws {
+		try await client.v3Client?.setConsentStates(records: entries.map(\.toFFI))
+	}
 
 	func allow(address: String) async -> ConsentListEntry {
 		let entry = ConsentListEntry.address(address, type: ConsentState.allowed)
@@ -224,7 +230,14 @@ public class ConsentList {
 		return entry
 	}
 
-	func state(address: String) async -> ConsentState {
+	func state(address: String) async throws -> ConsentState {
+		if let client = client.v3Client {
+			return try await client.getConsentState(
+				entityType: .address,
+				entity: address
+			).fromFFI
+		}
+
 		guard let entry = await entriesManager.get(ConsentListEntry.address(address).key) else {
 			return .unknown
 		}
@@ -232,7 +245,14 @@ public class ConsentList {
 		return entry.consentType
 	}
 
-	func groupState(groupId: String) async -> ConsentState {
+	func groupState(groupId: String) async throws -> ConsentState {
+		if let client = client.v3Client {
+			return try await client.getConsentState(
+				entityType: .groupId,
+				entity: groupId
+			).fromFFI
+		}
+
 		guard let entry =  await entriesManager.get(ConsentListEntry.groupId(groupId: groupId).key) else {
 			return .unknown
 		}
@@ -240,7 +260,14 @@ public class ConsentList {
 		return entry.consentType
 	}
 	
-	func inboxIdState(inboxId: String) async -> ConsentState {
+	func inboxIdState(inboxId: String) async throws-> ConsentState {
+		if let client = client.v3Client {
+			return try await client.getConsentState(
+				entityType: .inboxId,
+				entity: inboxId
+			).fromFFI
+		}
+
 		guard let entry = await entriesManager.get(ConsentListEntry.inboxId(inboxId).key) else {
 			return .unknown
 		}
@@ -266,33 +293,34 @@ public actor Contacts {
 		consentList = ConsentList(client: client)
 	}
 
-  public func refreshConsentList() async throws -> ConsentList {
-		_ = try await consentList.load()
+	public func refreshConsentList() async throws -> ConsentList {
+		let entries = try await consentList.load()
+		try await consentList.setV3ConsentState(entries: entries)
 		return consentList
 	}
 
-	public func isAllowed(_ address: String) async -> Bool {
-		return await consentList.state(address: address) == .allowed
+	public func isAllowed(_ address: String) async throws -> Bool {
+		return try await consentList.state(address: address) == .allowed
 	}
 
-	public func isDenied(_ address: String) async -> Bool {
-		return await consentList.state(address: address) == .denied
+	public func isDenied(_ address: String) async throws -> Bool {
+		return try await consentList.state(address: address) == .denied
 	}
 
-	public func isGroupAllowed(groupId: String) async -> Bool {
-		return await consentList.groupState(groupId: groupId) == .allowed
+	public func isGroupAllowed(groupId: String) async throws -> Bool {
+		return try await consentList.groupState(groupId: groupId) == .allowed
 	}
 
-	public func isGroupDenied(groupId: String) async -> Bool {
-		return await consentList.groupState(groupId: groupId) == .denied
+	public func isGroupDenied(groupId: String) async throws -> Bool {
+		return try await consentList.groupState(groupId: groupId) == .denied
 	}
 	
-	public func isInboxAllowed(inboxId: String) async -> Bool {
-		return await consentList.inboxIdState(inboxId: inboxId) == .allowed
+	public func isInboxAllowed(inboxId: String) async throws -> Bool {
+		return try await consentList.inboxIdState(inboxId: inboxId) == .allowed
 	}
 
-	public func isInboxDenied(inboxId: String) async -> Bool {
-		return await consentList.inboxIdState(inboxId: inboxId) == .denied
+	public func isInboxDenied(inboxId: String) async throws -> Bool {
+		return try await consentList.inboxIdState(inboxId: inboxId) == .denied
 	}
 
 	public func allow(addresses: [String]) async throws {

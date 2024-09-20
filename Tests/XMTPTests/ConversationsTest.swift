@@ -206,7 +206,7 @@ class ConversationsTests: XCTestCase {
 		fixtures.aliceClient.conversations.list()
         let alixConversation = alixConversations.first(where: { $0.topic == boConversation.topic })
         XCTAssertNotNil(alixConversation)
-        let consentStatus = await fixtures.aliceClient.contacts.isAllowed(fixtures.bobClient.address)
+        let consentStatus = try await fixtures.aliceClient.contacts.isAllowed(fixtures.bobClient.address)
         XCTAssertTrue(consentStatus)
     }
 
@@ -228,7 +228,7 @@ class ConversationsTests: XCTestCase {
 			fixtures.aliceClient.conversations.list()
         let alixConversation = alixConversations.first(where: { $0.topic == boConversation.topic })
         XCTAssertNotNil(alixConversation)
-        let isDenied = await fixtures.aliceClient.contacts.isDenied(fixtures.bobClient.address)
+        let isDenied = try await fixtures.aliceClient.contacts.isDenied(fixtures.bobClient.address)
         XCTAssertTrue(isDenied)
     }
     
@@ -250,7 +250,7 @@ class ConversationsTests: XCTestCase {
 			fixtures.aliceClient.conversations.list()
         let alixConversation = alixConversations.first(where: { $0.topic == boConversation.topic })
         XCTAssertNotNil(alixConversation)
-        let isAllowed = await fixtures.aliceClient.contacts.isAllowed(fixtures.bobClient.address)
+        let isAllowed = try await fixtures.aliceClient.contacts.isAllowed(fixtures.bobClient.address)
         XCTAssertFalse(isAllowed)
     }
 }
