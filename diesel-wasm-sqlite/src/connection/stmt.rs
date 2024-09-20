@@ -185,14 +185,6 @@ impl Statement {
     fn reset(&self) {
         let sqlite3 = crate::get_sqlite_unchecked();
         let _ = sqlite3.reset(&self.inner_statement);
-        // ensure_sqlite_ok(rc, &self.raw_connection())?;
-    }
-
-    fn clear_bindings(&self) -> QueryResult<()> {
-        let sqlite3 = crate::get_sqlite_unchecked();
-        let rc = sqlite3.clear_bindings(&self.inner_statement);
-        ensure_sqlite_ok(rc, &self.raw_connection())?;
-        Ok(())
     }
 
     fn raw_connection(&self) -> JsValue {
@@ -343,6 +335,10 @@ impl<'stmt, 'query> Drop for BoundStatement<'stmt, 'query> {
             if let Some(buffer) = buffer {
                 wasm.dealloc(buffer);
             }
+        }
+        if let Some(ref mut query) = self.query {
+            let _ = std::mem::drop(query);
+            self.query = None;
         }
     }
 }

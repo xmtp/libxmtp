@@ -1,7 +1,5 @@
 {
   "rust-analyzer.cargo.sysroot": "discover",
-  "rust-analyzer.cargo.target": "wasm32-unknown-unknown",
-  "rust-analyzer.cargo.allTargets": false,
   "rust-analyzer.linkedProjects": [
     "bindings_ffi/Cargo.toml",
     "bindings_node/Cargo.toml",

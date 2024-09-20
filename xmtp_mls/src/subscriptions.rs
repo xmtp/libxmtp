@@ -234,7 +234,7 @@ where
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient>>,
         mut convo_callback: impl FnMut(MlsGroup) + Send + 'static,
-    ) -> impl crate::StreamHandle {
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
         crate::spawn(Some(rx), async move {
@@ -253,7 +253,7 @@ where
         client: Arc<Client<ApiClient>>,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
-    ) -> impl crate::StreamHandle {
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
         let client = client.clone();
@@ -350,7 +350,7 @@ where
     pub fn stream_all_messages_with_callback(
         client: Arc<Client<ApiClient>>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
-    ) -> impl crate::StreamHandle {
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>>  {
         let (tx, rx) = oneshot::channel();
 
         crate::spawn(Some(rx), async move {

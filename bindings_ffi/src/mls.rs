@@ -5,7 +5,7 @@ use crate::GenericError;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::Arc;
-use tokio::{sync::Mutex, task::AbortHandle};
+use tokio::sync::Mutex;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::AccountId;
@@ -16,37 +16,10 @@ use xmtp_id::{
     associations::{builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id},
     InboxId,
 };
-use xmtp_mls::groups::group_mutable_metadata::MetadataField;
-use xmtp_mls::groups::group_permissions::BasePolicies;
-use xmtp_mls::groups::group_permissions::GroupMutablePermissionsError;
-use xmtp_mls::groups::group_permissions::MembershipPolicies;
-use xmtp_mls::groups::group_permissions::MetadataBasePolicies;
-use xmtp_mls::groups::group_permissions::MetadataPolicies;
-use xmtp_mls::groups::group_permissions::PermissionsBasePolicies;
-use xmtp_mls::groups::group_permissions::PermissionsPolicies;
-use xmtp_mls::groups::group_permissions::PolicySet;
-use xmtp_mls::groups::intents::PermissionPolicyOption;
-use xmtp_mls::groups::intents::PermissionUpdateType;
-use xmtp_mls::groups::GroupMetadataOptions;
-use xmtp_mls::{
-    api::ApiClientWrapper,
-    builder::ClientBuilder,
-    client::Client as MlsClient,
-    client::ClientError,
-    groups::{
-        group_metadata::{ConversationType, GroupMetadata},
-        group_permissions::GroupMutablePermissions,
-        members::PermissionLevel,
-        MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
-    },
-    identity::IdentityStrategy,
-    retry::Retry,
-    storage::{
+use xmtp_mls::{api::ApiClientWrapper, builder::ClientBuilder, client::{Client as MlsClient, ClientError}, groups::{group_metadata::{ConversationType, GroupMetadata}, group_mutable_metadata::MetadataField, group_permissions::{BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError, MembershipPolicies, MetadataBasePolicies, MetadataPolicies, PermissionsBasePolicies, PermissionsPolicies, PolicySet}, intents::{PermissionPolicyOption, PermissionUpdateType}, members::PermissionLevel, GroupMetadataOptions, MlsGroup, PreconfiguredPolicies, UpdateAdminListType}, identity::IdentityStrategy, retry::Retry, storage::{
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         EncryptedMessageStore, EncryptionKey, StorageOption,
-    },
-    subscriptions::StreamHandle,
-};
+    }, GenericStreamHandle, AbortHandle, StreamHandle};
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
@@ -1431,27 +1404,20 @@ impl From<StoredGroupMessage> for FfiMessage {
     }
 }
 
-#[derive(uniffi::Object, Clone, Debug)]
+type FfiHandle = Box<GenericStreamHandle<Result<(), ClientError>>>;
+
+#[derive(uniffi::Object, Clone)]
 pub struct FfiStreamCloser {
-    #[allow(clippy::type_complexity)]
-    stream_handle: Arc<Mutex<Option<StreamHandle<Result<(), ClientError>>>>>,
+    stream_handle: Arc<Mutex<Option<FfiHandle>>>,
     // for convenience, does not require locking mutex.
-    abort_handle: Arc<AbortHandle>,
+    abort_handle: Arc<Box<dyn AbortHandle>>,
 }
 
 impl FfiStreamCloser {
-    pub fn new(stream_handle: StreamHandle<Result<(), ClientError>>) -> Self {
+    pub fn new(stream_handle: impl StreamHandle<StreamOutput = Result<(), ClientError>> + Send + Sync + 'static) -> Self {
         Self {
-            abort_handle: Arc::new(stream_handle.handle.abort_handle()),
-            stream_handle: Arc::new(Mutex::new(Some(stream_handle))),
-        }
-    }
-
-    #[cfg(test)]
-    pub async fn wait_for_ready(&self) {
-        let mut handle = self.stream_handle.lock().await;
-        if let Some(ref mut h) = &mut *handle {
-            h.wait_for_ready().await;
+            abort_handle: Arc::new(stream_handle.abort_handle()),
+            stream_handle: Arc::new(Mutex::new(Some(Box::new(stream_handle)))),
         }
     }
 }
@@ -1461,28 +1427,28 @@ impl FfiStreamCloser {
     /// Signal the stream to end
     /// Does not wait for the stream to end.
     pub fn end(&self) {
-        self.abort_handle.abort();
+        self.abort_handle.end();
     }
 
     /// End the stream and asyncronously wait for it to shutdown
     pub async fn end_and_wait(&self) -> Result<(), GenericError> {
+        use xmtp_mls::StreamHandleError::*;
+        use GenericError::Generic;
+
         if self.abort_handle.is_finished() {
             return Ok(());
         }
 
         let mut stream_handle = self.stream_handle.lock().await;
         let stream_handle = stream_handle.take();
-        if let Some(h) = stream_handle {
-            h.handle.abort();
-            match h.handle.await {
-                Err(e) if !e.is_cancelled() => Err(GenericError::Generic {
-                    err: format!("subscription event loop join error {}", e),
-                }),
-                Err(e) if e.is_cancelled() => Ok(()),
-                Ok(t) => t.map_err(|e| GenericError::Generic { err: e.to_string() }),
-                Err(e) => Err(GenericError::Generic {
+        if let Some(mut h) = stream_handle {
+            match h.end_and_wait().await {
+                Err(Cancelled) => Ok(()),
+                Err(Panicked(msg)) => Err(Generic { err: msg }),
+                Err(e) => Err(Generic{
                     err: format!("error joining task {}", e),
                 }),
+                Ok(t) => t.map_err(|e| Generic{ err: e.to_string()}),
             }
         } else {
             log::warn!("subscription already closed");
@@ -1492,6 +1458,13 @@ impl FfiStreamCloser {
 
     pub fn is_closed(&self) -> bool {
         self.abort_handle.is_finished()
+    }
+
+    pub async fn wait_for_ready(&self) {
+        let mut stream_handle = self.stream_handle.lock().await;
+        if let Some(ref mut h) = *stream_handle {
+            h.wait_for_ready().await;
+        }
     }
 }
 
@@ -1591,7 +1564,7 @@ mod tests {
         groups::{GroupError, MlsGroup},
         storage::EncryptionKey,
         utils::test::tmp_path,
-        InboxOwner,
+        InboxOwner
     };
 
     #[derive(Clone)]

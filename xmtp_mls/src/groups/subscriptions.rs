@@ -141,7 +141,7 @@ impl MlsGroup {
         group_id: Vec<u8>,
         created_at_ns: i64,
         callback: impl FnMut(StoredGroupMessage) + Send + 'static,
-    ) -> impl crate::StreamHandle
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), crate::groups::ClientError>>
     where
         ApiClient: crate::XmtpApi + 'static,
     {

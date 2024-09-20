@@ -559,7 +559,7 @@ impl NapiGroup {
       },
     );
 
-    Ok(stream_closer.into())
+    Ok(NapiStreamCloser::new(stream_closer))
   }
 
   #[napi]
