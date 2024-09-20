@@ -810,7 +810,7 @@ impl FfiConversations {
             ..FindGroupParams::default()
         })?;
 
-        println!(
+        log::info!(
             "groups for client inbox id {:?}: {:?}",
             self.inner_client.inbox_id(),
             groups.len()
