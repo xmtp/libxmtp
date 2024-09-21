@@ -325,8 +325,6 @@ impl MetadataPolicy for MetadataPolicies {
     }
 }
 
-/// Represents an "And" condition for metadata policies.
-///
 /// An AndCondition evaluates to true if all the policies it contains evaluate to true.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetadataAndCondition {
@@ -362,8 +360,6 @@ impl MetadataPolicy for MetadataAndCondition {
     }
 }
 
-/// Represents an "Any" condition for metadata policies.
-///
 /// An AnyCondition evaluates to true if any of the contained policies evaluate to true.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetadataAnyCondition {
@@ -543,8 +539,6 @@ impl PermissionsPolicy for PermissionsPolicies {
     }
 }
 
-/// Represents an "And" condition for permissions policies.
-///
 /// An AndCondition evaluates to true if all the policies it contains evaluate to true.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PermissionsAndCondition {
@@ -578,8 +572,7 @@ impl PermissionsPolicy for PermissionsAndCondition {
     }
 }
 
-/// Represents an "Any" condition for permissions policies.
-///
+
 /// An AnyCondition evaluates to true if any of the contained policies evaluate to true.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PermissionsAnyCondition {
@@ -801,8 +794,6 @@ impl MembershipPolicy for MembershipPolicies {
     }
 }
 
-/// Represents an "And" condition for membership policies.
-///
 /// An AndCondition evaluates to true if all the policies it contains evaluate to true.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AndCondition {
@@ -836,8 +827,6 @@ impl MembershipPolicy for AndCondition {
     }
 }
 
-/// Represents an "Any" condition for membership policies.
-///
 /// An AnyCondition evaluates to true if any of the contained policies evaluate to true.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AnyCondition {
