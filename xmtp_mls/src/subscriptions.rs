@@ -392,8 +392,9 @@ mod tests {
     };
     use futures::StreamExt;
     use parking_lot::Mutex;
+    use std::cmp::Ordering;
     use std::sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{self, AtomicU64},
         Arc,
     };
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -673,7 +674,7 @@ mod tests {
         let mut handle =
             Client::<TestClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
                 (*messages_clone.lock()).push(message);
-                blocked_pointer.fetch_sub(1, Ordering::SeqCst);
+                blocked_pointer.fetch_sub(1, atomic::Ordering::SeqCst);
             });
         handle.wait_for_ready().await;
 
@@ -704,13 +705,13 @@ mod tests {
         }
 
         let _ = tokio::time::timeout(std::time::Duration::from_secs(60), async {
-            while blocked.load(Ordering::SeqCst) > 0 {
+            while blocked.load(atomic::Ordering::SeqCst) > 0 {
                 tokio::task::yield_now().await;
             }
         })
         .await;
 
-        let missed_messages = blocked.load(Ordering::SeqCst);
+        let missed_messages = blocked.load(atomic::Ordering::SeqCst);
         if missed_messages > 0 {
             println!("Missed {} Messages", missed_messages);
             panic!("Test failed due to missed messages");
@@ -762,5 +763,80 @@ mod tests {
         }
 
         closer.handle.abort();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_conversation_streaming_with_message_streaming() {
+        let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let caro = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+
+        log::info!("Starting");
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        alix_group
+            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+            .await
+            .unwrap();
+
+        let mut handle = Client::<TestClient>::stream_all_messages_with_callback(
+            caro.clone(),
+            move |_message| {},
+        );
+        handle.wait_for_ready().await;
+
+        let mut handle2 = Client::<TestClient>::stream_all_messages_with_callback(
+            caro.clone(),
+            move |_message| {},
+        );
+
+        let mut handle3 = Client::<TestClient>::stream_all_messages_with_callback(
+            caro.clone(),
+            move |_message| {},
+        );
+        futures::future::join_all(vec![
+            handle.wait_for_ready(),
+            handle2.wait_for_ready(),
+            handle3.wait_for_ready(),
+        ])
+        .await;
+
+        let alix_group_pointer = alix_group.clone();
+        let alix_pointer = alix.clone();
+        tokio::spawn(async move {
+            for _ in 0..100 {
+                let _ = alix_group_pointer
+                    .send_message(b"spam", &alix_pointer)
+                    .await;
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        });
+
+        let conversation_amount = Arc::new(AtomicU64::new(10));
+        let amt = conversation_amount.clone();
+        let _closer =
+            Client::<TestClient>::stream_conversations_with_callback(caro.clone(), move |_g| {
+                amt.fetch_sub(1, atomic::Ordering::SeqCst);
+            });
+
+        for _ in 0..10 {
+            let alix_group = alix
+                .create_group(None, GroupMetadataOptions::default())
+                .unwrap();
+            alix_group
+                .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+                .await
+                .unwrap();
+        }
+
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            while conversation_amount.load(atomic::Ordering::SeqCst) > 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+
+        assert_eq!(conversation_amount.load(atomic::Ordering::SeqCst), 0);
     }
 }
