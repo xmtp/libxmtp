@@ -3191,7 +3191,7 @@ mod tests {
             .await;
         assert!(result.is_err());
         amal_dm.sync(&amal).await.unwrap();
-        let members = amal_dm.members().unwrap();
+        let members = amal_dm.members(&amal).await.unwrap();
         assert_eq!(members.len(), 1);
 
         // Amal can add bola
@@ -3200,7 +3200,7 @@ mod tests {
             .await
             .unwrap();
         amal_dm.sync(&amal).await.unwrap();
-        let members = amal_dm.members().unwrap();
+        let members = amal_dm.members(&amal).await.unwrap();
         assert_eq!(members.len(), 2);
 
         // Bola can message amal
@@ -3222,7 +3222,7 @@ mod tests {
             .await;
         assert!(result.is_err());
         amal_dm.sync(&amal).await.unwrap();
-        let members = amal_dm.members().unwrap();
+        let members = amal_dm.members(&amal).await.unwrap();
         assert_eq!(members.len(), 2);
 
         // Neither Amal nor Bola is an admin or super admin
