@@ -802,14 +802,14 @@ mod tests {
         ])
         .await;
 
-        let conversation_amount = Arc::new(AtomicU64::new(10));
+        let conversation_amount = Arc::new(AtomicU64::new(100));
         let amt = conversation_amount.clone();
         let _closer =
             Client::<TestClient>::stream_conversations_with_callback(caro.clone(), move |_g| {
                 amt.fetch_sub(1, atomic::Ordering::SeqCst);
             });
 
-        for _ in 0..10 {
+        for _ in 0..100 {
             let alix_group = alix
                 .create_group(None, GroupMetadataOptions::default())
                 .unwrap();
