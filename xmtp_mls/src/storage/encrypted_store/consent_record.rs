@@ -57,19 +57,23 @@ impl DbConnection {
         })?)
     }
 
-    /// Insert consent_record, and replace existing entries
-    pub fn insert_or_replace_consent_record(
+    /// Insert consent_records, and replace existing entries
+    pub fn insert_or_replace_consent_records(
         &self,
-        record: StoredConsentRecord,
+        records: Vec<StoredConsentRecord>,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
-            diesel::insert_into(dsl::consent_records)
-                .values(&record)
-                .on_conflict((dsl::entity_type, dsl::entity))
-                .do_update()
-                .set(dsl::state.eq(excluded(dsl::state)))
-                .execute(conn)?;
-            Ok(())
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                for record in records.iter() {
+                    diesel::insert_into(dsl::consent_records)
+                        .values(record)
+                        .on_conflict((dsl::entity_type, dsl::entity))
+                        .do_update()
+                        .set(dsl::state.eq(excluded(dsl::state)))
+                        .execute(conn)?;
+                }
+                Ok(())
+            })
         })?;
 
         Ok(())
@@ -179,7 +183,7 @@ mod tests {
             );
             let consent_record_entity = consent_record.entity.clone();
 
-            conn.insert_or_replace_consent_record(consent_record)
+            conn.insert_or_replace_consent_records(vec![consent_record])
                 .expect("should store without error");
 
             let consent_record = conn

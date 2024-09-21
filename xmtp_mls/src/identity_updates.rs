@@ -90,6 +90,24 @@ where
         Ok(needs_update)
     }
 
+    pub async fn batch_get_association_state<InboxId: AsRef<str>>(
+        &self,
+        conn: &DbConnection,
+        identifiers: &[(InboxId, Option<i64>)],
+    ) -> Result<Vec<AssociationState>, ClientError> {
+        let association_states = try_join_all(
+            identifiers
+                .iter()
+                .map(|(inbox_id, to_sequence_id)| {
+                    self.get_association_state(conn, inbox_id, *to_sequence_id)
+                })
+                .collect::<Vec<_>>(),
+        )
+        .await?;
+
+        Ok(association_states)
+    }
+
     pub async fn get_latest_association_state<InboxId: AsRef<str>>(
         &self,
         conn: &DbConnection,
@@ -113,8 +131,10 @@ where
             .last()
             .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
             .sequence_id;
-        if to_sequence_id.is_some() && to_sequence_id != Some(last_sequence_id) {
-            return Err(AssociationError::MissingIdentityUpdate.into());
+        if let Some(to_sequence_id) = to_sequence_id {
+            if to_sequence_id != last_sequence_id {
+                return Err(AssociationError::MissingIdentityUpdate.into());
+            }
         }
 
         if let Some(association_state) =
@@ -473,7 +493,7 @@ async fn verify_updates(
     try_join_all(
         updates
             .iter()
-            .map(|update| async { update.to_verified(scw_verifier).await }),
+            .map(|update| update.to_verified(scw_verifier)),
     )
     .await
 }
@@ -485,6 +505,7 @@ pub(crate) mod tests {
     use xmtp_id::{
         associations::{
             builder::SignatureRequest, test_utils::add_wallet_signature, AssociationState,
+            MemberIdentifier,
         },
         InboxOwner,
     };
@@ -573,6 +594,13 @@ pub(crate) mod tests {
             .unwrap();
 
         let association_state = get_association_state(&client, client.inbox_id()).await;
+
+        let members =
+            association_state.members_by_parent(&MemberIdentifier::Address(wallet_address.clone()));
+        // Those members should have timestamps
+        for member in members {
+            assert!(member.client_timestamp_ns.is_some());
+        }
 
         assert_eq!(association_state.members().len(), 3);
         assert_eq!(association_state.recovery_address(), &wallet_address);

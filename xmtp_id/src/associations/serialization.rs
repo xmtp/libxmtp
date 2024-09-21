@@ -318,6 +318,7 @@ impl From<Member> for MemberProto {
         MemberProto {
             identifier: Some(member.identifier.into()),
             added_by_entity: member.added_by_entity.map(Into::into),
+            client_timestamp_ns: member.client_timestamp_ns,
         }
     }
 }
@@ -332,6 +333,7 @@ impl TryFrom<MemberProto> for Member {
                 .ok_or(DeserializationError::MissingMemberIdentifier)?
                 .try_into()?,
             added_by_entity: proto.added_by_entity.map(TryInto::try_into).transpose()?,
+            client_timestamp_ns: proto.client_timestamp_ns,
         })
     }
 }
