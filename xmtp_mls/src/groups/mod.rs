@@ -431,6 +431,7 @@ impl MlsGroup {
                     added_by_inbox,
                     welcome_id,
                     Purpose::Conversation,
+                    dm_inbox_id,
                 )
             }
             ConversationType::Sync => StoredGroup::new_from_welcome(
@@ -1110,11 +1111,8 @@ impl MlsGroup {
                 .unwrap()
         });
         let mutable_metadata = custom_mutable_metadata.unwrap_or_else(|| {
-            build_dm_mutable_metadata_extension_default(
-                context.inbox_id(),
-                dm_target_inbox_id.clone(),
-            )
-            .unwrap()
+            build_dm_mutable_metadata_extension_default(context.inbox_id(), &dm_target_inbox_id)
+                .unwrap()
         });
         let group_membership = custom_group_membership
             .unwrap_or_else(|| build_starting_group_membership_extension(context.inbox_id(), 0));
@@ -1145,6 +1143,7 @@ impl MlsGroup {
             now_ns(),
             GroupMembershipState::Allowed, // Use Allowed as default for tests
             context.inbox_id(),
+            Some(dm_target_inbox_id),
         );
 
         stored_group.store(provider.conn_ref())?;
