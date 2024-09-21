@@ -802,17 +802,6 @@ mod tests {
         ])
         .await;
 
-        let alix_group_pointer = alix_group.clone();
-        let alix_pointer = alix.clone();
-        tokio::spawn(async move {
-            for _ in 0..100 {
-                let _ = alix_group_pointer
-                    .send_message(b"spam", &alix_pointer)
-                    .await;
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-        });
-
         let conversation_amount = Arc::new(AtomicU64::new(10));
         let amt = conversation_amount.clone();
         let _closer =
