@@ -832,10 +832,11 @@ impl FfiConversations {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiGroup>> = inner
             .find_groups(FindGroupParams {
+                allowed_states: None,
                 created_after_ns: opts.created_after_ns,
                 created_before_ns: opts.created_before_ns,
                 limit: opts.limit,
-                ..FindGroupParams::default()
+                include_dm_groups: false,
             })?
             .into_iter()
             .map(|group| {
