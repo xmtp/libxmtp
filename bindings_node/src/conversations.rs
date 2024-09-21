@@ -6,6 +6,7 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::JsFunction;
 use napi_derive::napi;
+use xmtp_mls::client::FindGroupParams;
 use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
 
 use crate::messages::NapiMessage;
@@ -171,12 +172,12 @@ impl NapiConversations {
     };
     let convo_list: Vec<NapiGroup> = self
       .inner_client
-      .find_groups(
-        None,
-        opts.created_after_ns,
-        opts.created_before_ns,
-        opts.limit,
-      )
+      .find_groups(FindGroupParams {
+        created_after_ns: opts.created_after_ns,
+        created_before_ns: opts.created_before_ns,
+        limit: opts.limit,
+        ..FindGroupParams::default()
+      })
       .map_err(|e| Error::from_reason(format!("{}", e)))?
       .into_iter()
       .map(|group| {
@@ -196,8 +197,9 @@ impl NapiConversations {
     let tsfn: ThreadsafeFunction<NapiGroup, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let client = self.inner_client.clone();
-    let stream_closer =
-      RustXmtpClient::stream_conversations_with_callback(client.clone(), move |convo| {
+    let stream_closer = RustXmtpClient::stream_conversations_with_callback(
+      client.clone(),
+      move |convo| {
         tsfn.call(
           Ok(NapiGroup::new(
             client.clone(),
@@ -206,7 +208,9 @@ impl NapiConversations {
           )),
           ThreadsafeFunctionCallMode::Blocking,
         );
-      });
+      },
+      false,
+    );
 
     Ok(NapiStreamCloser::new(stream_closer))
   }

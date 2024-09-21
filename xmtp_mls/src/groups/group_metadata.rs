@@ -17,6 +17,8 @@ pub enum GroupMetadataError {
     InvalidConversationType,
     #[error("missing extension")]
     MissingExtension,
+    #[error("invalid dm members")]
+    InvalidDmMembers,
     #[error("missing a dm member")]
     MissingDmMember,
 }

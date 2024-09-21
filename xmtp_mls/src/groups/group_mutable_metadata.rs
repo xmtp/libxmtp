@@ -114,7 +114,7 @@ impl GroupMutableMetadata {
     }
 
     // Admin / super admin is not needed for a DM
-    pub fn new_dm_default(_creator_inbox_id: String, _dm_target_inbox_id: String) -> Self {
+    pub fn new_dm_default(_creator_inbox_id: String, _dm_target_inbox_id: &str) -> Self {
         let mut attributes = HashMap::new();
         // TODO: would it be helpful to incorporate the dm inbox ids in the name or description?
         attributes.insert(
