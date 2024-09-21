@@ -75,6 +75,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    key_package_history (id) {
+        id -> Integer,
+        key_package_hash_ref -> Binary,
+        created_at_ns -> BigInt,
+    }
+}
+
+diesel::table! {
     openmls_key_store (key_bytes) {
         key_bytes -> Binary,
         value_bytes -> Binary,
@@ -108,6 +116,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     groups,
     identity,
     identity_updates,
+    key_package_history,
     openmls_key_store,
     openmls_key_value,
     refresh_state,
