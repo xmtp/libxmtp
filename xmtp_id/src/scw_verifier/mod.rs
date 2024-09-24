@@ -61,6 +61,11 @@ impl ChainSmartContractWalletVerifier {
 
     pub fn new_from_file(path: impl AsRef<Path>) -> Self {
         let path = path.as_ref();
+
+        if !path.exists() {
+            return Self::new(HashMap::default());
+        }
+
         let json = fs::read_to_string(path).unwrap_or_else(|_| panic!("{path:?} is missing"));
         let json: HashMap<u64, String> =
             serde_json::from_str(&json).unwrap_or_else(|_| panic!("{path:?} is malformatted"));
