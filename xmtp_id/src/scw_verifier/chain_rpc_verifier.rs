@@ -45,7 +45,6 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
     ///
     /// # Arguments
     ///
-    /// * `block_number` - Block number to verify the signature at.
     /// * `signer` - can be the smart wallet address or EOA address.
     /// * `hash` - Message digest for the signature.
     /// * `signature` - Could be encoded smart wallet signature or raw ECDSA signature.
@@ -102,7 +101,6 @@ pub mod tests {
         abi::{self, Token},
         core::utils::Anvil,
         middleware::{MiddlewareBuilder, SignerMiddleware},
-        providers::Middleware,
         signers::{LocalWallet, Signer as _},
         types::{H256, U256},
         utils::{hash_message, AnvilInstance},
@@ -184,7 +182,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_coinbase_smart_wallet() {
-        with_smart_contracts(|anvil, provider, client, smart_contracts| {
+        with_smart_contracts(|anvil, _provider, client, smart_contracts| {
             async move {
                 let owner0: LocalWallet = anvil.keys()[0].clone().into();
                 let owner1: LocalWallet = anvil.keys()[1].clone().into();
@@ -225,7 +223,6 @@ pub mod tests {
                             Token::Bytes(sig0.to_vec()),
                         ])])
                         .into(),
-                        None,
                     )
                     .await
                     .unwrap();
@@ -241,7 +238,6 @@ pub mod tests {
                             Token::Bytes(sig1.to_vec()),
                         ])])
                         .into(),
-                        None,
                     )
                     .await
                     .unwrap();
@@ -256,15 +252,10 @@ pub mod tests {
                             Token::Bytes(sig0.to_vec()),
                         ])])
                         .into(),
-                        None,
                     )
                     .await
                     .unwrap();
                 assert!(!res);
-
-                // Testing time travel
-                // get block number before removing the owner.
-                let block_number = provider.get_block_number().await.unwrap();
 
                 // remove owner1 and check owner1 is no longer a valid owner
                 let tx = smart_wallet.remove_owner_at_index(1.into());
@@ -280,7 +271,6 @@ pub mod tests {
                             Token::Bytes(sig1.to_vec()),
                         ])])
                         .into(),
-                        None,
                     )
                     .await;
                 assert!(res.is_err()); // when verify a non-existing owner, it errors
@@ -295,7 +285,6 @@ pub mod tests {
                             Token::Bytes(sig1.to_vec()),
                         ])])
                         .into(),
-                        Some(BlockNumber::Number(block_number)),
                     )
                     .await
                     .unwrap();
@@ -349,12 +338,12 @@ pub mod tests {
 
             // Testing ERC-6492 signatures with deployed ERC-1271.
             assert!(verifier
-                .is_valid_signature(account_id.clone(), hash, &signature, None,)
+                .is_valid_signature(account_id.clone(), hash, &signature)
                 .await
                 .unwrap());
 
             assert!(!verifier
-                .is_valid_signature(account_id.clone(), H256::random().into(), &signature, None,)
+                .is_valid_signature(account_id.clone(), H256::random().into(), &signature)
                 .await
                 .unwrap());
 
@@ -363,12 +352,7 @@ pub mod tests {
             let owner_account_id =
                 AccountId::new_evm(anvil.chain_id(), format!("{:?}", owner.address()));
             assert!(verifier
-                .is_valid_signature(
-                    owner_account_id.clone(),
-                    hash,
-                    &signature.to_vec().into(),
-                    None,
-                )
+                .is_valid_signature(owner_account_id.clone(), hash, &signature.to_vec().into(),)
                 .await
                 .unwrap());
 
@@ -377,7 +361,6 @@ pub mod tests {
                     owner_account_id,
                     H256::random().into(),
                     &signature.to_vec().into(),
-                    None,
                 )
                 .await
                 .unwrap());
@@ -398,7 +381,7 @@ pub mod tests {
 
         let verifier = RpcSmartContractWalletVerifier::new("https://polygon-rpc.com".to_string());
         assert!(verifier
-            .is_valid_signature(AccountId::new_evm(1, signer), hash.into(), &signature, None)
+            .is_valid_signature(AccountId::new_evm(1, signer), hash.into(), &signature)
             .await
             .unwrap());
     }
