@@ -97,12 +97,12 @@ impl SmartContractSignatureVerifier for ChainSmartContractWalletVerifier {
         account_id: AccountId,
         hash: [u8; 32],
         signature: &Bytes,
-        block_number: Option<BlockNumber>,
+        _block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
         let id: u64 = account_id.chain_id.parse().unwrap();
         if let Some(verifier) = self.verifiers.get(&id) {
             return Ok(verifier
-                .is_valid_signature(account_id, hash, signature, block_number)
+                .is_valid_signature(account_id, hash, signature, None)
                 .await
                 .unwrap());
         }

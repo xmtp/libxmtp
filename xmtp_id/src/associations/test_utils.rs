@@ -10,8 +10,9 @@ use crate::{
 };
 use ed25519_dalek::SigningKey as Ed25519SigningKey;
 use ethers::{
+    core::types::BlockNumber,
     signers::{LocalWallet, Signer},
-    types::{BlockNumber, Bytes},
+    types::Bytes,
 };
 use rand::{distributions::Alphanumeric, Rng};
 use sha2::{Digest, Sha512};
