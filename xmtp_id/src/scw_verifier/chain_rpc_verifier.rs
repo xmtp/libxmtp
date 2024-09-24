@@ -53,7 +53,7 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
         signer: AccountId,
         hash: [u8; 32],
         signature: &Bytes,
-        block_number: Option<BlockNumber>,
+        _block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
         let code = hex::decode(VALIDATE_SIG_OFFCHAIN_BYTECODE).unwrap();
         let account_address: Address = signer
@@ -183,7 +183,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_coinbase_smart_wallet() {
-        with_smart_contracts(|anvil, _provider, client, smart_contracts| {
+        with_smart_contracts(|anvil, provider, client, smart_contracts| {
             async move {
                 let owner0: LocalWallet = anvil.keys()[0].clone().into();
                 let owner1: LocalWallet = anvil.keys()[1].clone().into();
