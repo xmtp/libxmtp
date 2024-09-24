@@ -666,19 +666,20 @@ impl MlsGroup {
             .await
     }
 
+    /// Initiate the self-removal process for
+    /// the [`InboxId`] of this [`Client`]
     pub async fn remove_self<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError> {
-        // get list of installations
-        // make membership update intent 
-        todo!()
+        self.remove_members_by_inbox_id(client, vec![client.identity().inbox_id()])
     }
 
+    /// Remove members by Ethereum Account Address
     pub async fn remove_members<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
-        account_addresses_to_remove: Vec<InboxId>,
+        account_addresses_to_remove: Vec<String>,
     ) -> Result<(), GroupError> {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_remove)?;
         let inbox_id_map = client.api_client.get_inbox_ids(account_addresses).await?;
@@ -687,6 +688,7 @@ impl MlsGroup {
             .await
     }
 
+    /// Remove members by [`InboxId`]
     pub async fn remove_members_by_inbox_id<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
