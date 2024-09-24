@@ -3,12 +3,10 @@ mod url_parser;
 
 use std::collections::HashMap;
 
-use std::collections::HashMap;
-
 use async_trait::async_trait;
 use ethers::{
     providers::{Http, Provider},
-    types::{BlockNumber, Bytes},
+    types::Bytes,
 };
 use thiserror::Error;
 
@@ -37,7 +35,6 @@ pub trait SmartContractSignatureVerifier: Send + Sync + 'static {
         account_id: AccountId,
         hash: [u8; 32],
         signature: &Bytes,
-        block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError>;
 }
 
@@ -69,12 +66,11 @@ impl SmartContractSignatureVerifier for ChainSmartContractWalletVerifier {
         account_id: AccountId,
         hash: [u8; 32],
         signature: &Bytes,
-        block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
         let id: u64 = account_id.chain_id.parse().unwrap();
         if let Some(verifier) = self.verifiers.get(&id) {
             return Ok(verifier
-                .is_valid_signature(account_id, hash, signature, block_number)
+                .is_valid_signature(account_id, hash, signature)
                 .await
                 .unwrap());
         }

@@ -1,3 +1,4 @@
+#![warn(clippy::unwrap_used)]
 pub mod associations;
 pub mod constants;
 pub mod scw_verifier;

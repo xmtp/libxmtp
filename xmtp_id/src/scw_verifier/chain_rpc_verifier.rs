@@ -5,7 +5,7 @@ use ethers::abi::{Constructor, Param, ParamType, Token};
 use ethers::contract::abigen;
 use ethers::providers::{Http, Middleware, Provider};
 use ethers::types::transaction::eip2718::TypedTransaction;
-use ethers::types::{Address, BlockId, BlockNumber, Bytes, TransactionRequest};
+use ethers::types::{Address, Bytes, TransactionRequest};
 use hex::{FromHex, FromHexError};
 use std::sync::Arc;
 
@@ -54,7 +54,6 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
         signer: AccountId,
         hash: [u8; 32],
         signature: &Bytes,
-        block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
         let code = hex::decode(VALIDATE_SIG_OFFCHAIN_BYTECODE).unwrap();
         let account_address: Address = signer
@@ -88,11 +87,9 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
         ];
         let data = constructor.encode_input(code, tokens)?;
         let tx: TypedTransaction = TransactionRequest::new().data(data).into();
-        let res = self
-            .provider
-            .call(&tx, block_number.map(BlockId::Number))
-            .await?;
-        Ok(res == Bytes::from_hex("0x01").unwrap())
+        let block_number = self.provider.get_block_number().await?;
+        let res = self.provider.call(&tx, Some(block_number.into())).await?;
+        Ok(res == Bytes::from_hex("0x01").expect("Hardcoded hex will not fail."))
     }
 }
 

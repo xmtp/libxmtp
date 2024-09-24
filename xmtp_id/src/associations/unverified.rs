@@ -267,7 +267,6 @@ impl UnverifiedSignature {
                     scw_verifier,
                     &sig.signature_bytes,
                     sig.account_id.clone(),
-                    sig.block_number,
                 )
                 .await
             }
