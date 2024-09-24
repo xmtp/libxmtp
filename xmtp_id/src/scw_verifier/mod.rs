@@ -1,4 +1,5 @@
 mod chain_rpc_verifier;
+mod url_parser;
 
 use std::collections::HashMap;
 
