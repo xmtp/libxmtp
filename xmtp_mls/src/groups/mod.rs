@@ -666,6 +666,15 @@ impl MlsGroup {
             .await
     }
 
+    pub async fn remove_self<ApiClient: XmtpApi>(
+        &self,
+        client: &Client<ApiClient>,
+    ) -> Result<(), GroupError> {
+        // get list of installations
+        // make membership update intent 
+        todo!()
+    }
+
     pub async fn remove_members<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,

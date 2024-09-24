@@ -1218,13 +1218,13 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
     let mut new_installations: Vec<Installation> = vec![];
     let mut new_key_packages: Vec<KeyPackage> = vec![];
 
-    if !installation_diff.added_installations.is_empty() {
+    if !installation_diff.added_installations().is_empty() {
         let my_installation_id = &client.installation_public_key();
         // Go to the network and load the key packages for any new installation
         let key_packages = client
             .get_key_packages_for_installation_ids(
                 installation_diff
-                    .added_installations
+                    .added_installations()
                     .into_iter()
                     .filter(|installation| my_installation_id.ne(installation))
                     .collect(),
@@ -1238,8 +1238,24 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
         }
     }
 
+    // for everyone else OK
+    // if removed installations includes ourselves need to modify
+    // if !installations_diff.is
+    // make sure not to send a commit to remove me and my wallet ID
+    // if removing myself, cannot do both things (update membership & remove my client b/c fail)
+    // if any leaf nodes have same identity as myself, cannot remove them
+    let own_inbox_id = client.identity().inbox_id();
+
+    let removed_installations = installation_diff
+        .removed_installations
+        .iter()
+        .cloned()
+        .filter(|i| &i.inbox_id != own_inbox_id)
+        .map(|i| i.installation)
+        .collect::<HashSet<Vec<u8>>>();
+
     let leaf_nodes_to_remove: Vec<LeafNodeIndex> =
-        get_removed_leaf_nodes(openmls_group, &installation_diff.removed_installations);
+        get_removed_leaf_nodes(openmls_group, &removed_installations);
 
     if leaf_nodes_to_remove.is_empty()
         && new_key_packages.is_empty()
@@ -1279,6 +1295,8 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
     }))
 }
 
+// Filter out own identity from leaf nodes to return right list
+// for self-removes -- i.e to send the commit to the group
 fn get_removed_leaf_nodes(
     openmls_group: &mut OpenMlsGroup,
     removed_installations: &HashSet<Vec<u8>>,

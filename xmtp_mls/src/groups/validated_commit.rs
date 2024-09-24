@@ -514,7 +514,9 @@ fn expected_diff_matches_commit(
     let unknown_adds = added_installations
         .into_iter()
         .filter(|installation_id| {
-            !expected_diff.added_installations.contains(installation_id)
+            !expected_diff
+                .added_installations()
+                .contains(installation_id)
                 && !existing_installation_ids.contains(installation_id)
         })
         .collect::<Vec<Vec<u8>>>();
@@ -524,10 +526,10 @@ fn expected_diff_matches_commit(
         ));
     }
 
-    if removed_installations.ne(&expected_diff.removed_installations) {
+    if removed_installations.ne(&expected_diff.removed_installations()) {
         return Err(CommitValidationError::UnexpectedInstallationsRemoved(
             removed_installations
-                .difference(&expected_diff.removed_installations)
+                .difference(&expected_diff.removed_installations())
                 .cloned()
                 .collect::<Vec<Vec<u8>>>(),
         ));
