@@ -1,6 +1,13 @@
 use crate::conversions::wrap_client_envelope;
 use crate::Client;
-use xmtp_proto::xmtp::xmtpv4::ClientEnvelope;
+use prost::Message;
+use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::{self, IdentityUpdateLog};
+use xmtp_proto::xmtp::xmtpv4::client_envelope::Payload;
+use xmtp_proto::xmtp::xmtpv4::envelopes_query::Filter;
+use xmtp_proto::xmtp::xmtpv4::{
+    ClientEnvelope, EnvelopesQuery, OriginatorEnvelope, QueryEnvelopesRequest,
+    UnsignedOriginatorEnvelope,
+};
 use xmtp_proto::{
     api_client::{Error, ErrorKind, XmtpIdentityClient},
     xmtp::identity::api::v1::{
@@ -54,13 +61,76 @@ impl XmtpIdentityClient for Client {
         &self,
         request: GetIdentityUpdatesV2Request,
     ) -> Result<GetIdentityUpdatesV2Response, Error> {
-        let client = &mut self.identity_client.clone();
+        let client = &mut self.replication_client.clone();
+        let mut responses = vec![];
 
-        let res = client
-            .get_identity_updates(self.build_request(request))
-            .await;
+        for inner_req in request.requests.iter() {
+            let v4_envelopes = client
+                .query_envelopes(QueryEnvelopesRequest {
+                    query: Some(EnvelopesQuery {
+                        last_seen: None,
+                        filter: Some(Filter::Topic(build_identity_update_topic(
+                            inner_req.inbox_id.clone(),
+                        ))),
+                    }),
+                    limit: 100,
+                })
+                .await
+                .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))?;
 
-        res.map(|response| response.into_inner())
-            .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))
+            let identity_update_responses = v4_envelopes
+                .into_inner()
+                .envelopes
+                .iter()
+                .map(convert_v4_envelope_to_identity_update)
+                .collect::<Result<Vec<IdentityUpdateLog>, Error>>()?;
+
+            responses.push(get_identity_updates_response::Response {
+                inbox_id: inner_req.inbox_id.clone(),
+                updates: identity_update_responses,
+            });
+        }
+
+        Ok(GetIdentityUpdatesV2Response { responses })
     }
+}
+
+fn convert_v4_envelope_to_identity_update(
+    envelope: &OriginatorEnvelope,
+) -> Result<IdentityUpdateLog, Error> {
+    let mut unsigned_originator_envelope = envelope.unsigned_originator_envelope.as_slice();
+    let originator_envelope = UnsignedOriginatorEnvelope::decode(&mut unsigned_originator_envelope)
+        .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
+
+    let payer_envelope = originator_envelope
+        .payer_envelope
+        .ok_or(Error::new(ErrorKind::IdentityError).with("Payer envelope is None"))?;
+
+    // TODO: validate payer signatures
+    let mut unsigned_client_envelope = payer_envelope.unsigned_client_envelope.as_slice();
+
+    let client_envelope = ClientEnvelope::decode(&mut unsigned_client_envelope)
+        .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
+    let payload = client_envelope
+        .payload
+        .ok_or(Error::new(ErrorKind::IdentityError).with("Payload is None"))?;
+
+    let identity_update = match payload {
+        Payload::IdentityUpdate(update) => update,
+        _ => {
+            return Err(
+                Error::new(ErrorKind::IdentityError).with("Payload is not an identity update")
+            )
+        }
+    };
+
+    Ok(IdentityUpdateLog {
+        sequence_id: originator_envelope.originator_sequence_id,
+        server_timestamp_ns: originator_envelope.originator_ns as u64,
+        update: Some(identity_update),
+    })
+}
+
+fn build_identity_update_topic(inbox_id: String) -> Vec<u8> {
+    format!("i/{}", inbox_id).into_bytes()
 }
