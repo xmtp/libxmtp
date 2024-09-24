@@ -70,7 +70,7 @@ impl ChainSmartContractWalletVerifier {
             .map(|(id, url)| {
                 (
                     id,
-                    Url::from_str(&url).expect(&format!("unable to parse url in {path:?}")),
+                    Url::from_str(&url).expect(&format!("unable to parse url in {path:?} ({url})")),
                 )
             })
             .collect();
