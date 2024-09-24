@@ -53,7 +53,7 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
         signer: AccountId,
         hash: [u8; 32],
         signature: &Bytes,
-        _block_number: Option<BlockNumber>,
+        block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
         let code = hex::decode(VALIDATE_SIG_OFFCHAIN_BYTECODE).unwrap();
         let account_address: Address = signer
@@ -87,7 +87,11 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
         ];
         let data = constructor.encode_input(code, tokens)?;
         let tx: TypedTransaction = TransactionRequest::new().data(data).into();
-        let block_number = self.provider.get_block_number().await?;
+        let block_number = if let Some(number) = block_number {
+            number
+        } else {
+            BlockNumber::Number(self.provider.get_block_number().await?)
+        };
         let res = self.provider.call(&tx, Some(block_number.into())).await?;
         Ok(res == Bytes::from_hex("0x01").expect("Hardcoded hex will not fail."))
     }
@@ -294,7 +298,7 @@ pub mod tests {
                             Token::Bytes(sig1.to_vec()),
                         ])])
                         .into(),
-                        Some(block_number),
+                        Some(BlockNumber::Number(block_number)),
                     )
                     .await
                     .unwrap();
