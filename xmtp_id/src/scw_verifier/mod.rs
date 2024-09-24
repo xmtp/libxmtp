@@ -14,6 +14,8 @@ use crate::associations::AccountId;
 
 pub use self::chain_rpc_verifier::*;
 
+static DEFAULT_CHAIN_URLS: &str = include_str!("chain_urls_default.json");
+
 #[derive(Debug, Error)]
 pub enum VerifierError {
     #[error("calling smart contract {0}")]
@@ -66,7 +68,14 @@ impl ChainSmartContractWalletVerifier {
             return Self::new(HashMap::default());
         }
 
-        let json = fs::read_to_string(path).unwrap_or_else(|_| panic!("{path:?} is missing"));
+        let file_str;
+        let json = if path.exists() {
+            file_str = fs::read_to_string(path).unwrap_or_else(|_| panic!("{path:?} is missing"));
+            &file_str
+        } else {
+            DEFAULT_CHAIN_URLS
+        };
+
         let json: HashMap<u64, String> =
             serde_json::from_str(&json).unwrap_or_else(|_| panic!("{path:?} is malformatted"));
 
