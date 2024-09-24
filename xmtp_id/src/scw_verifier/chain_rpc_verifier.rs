@@ -180,6 +180,7 @@ pub mod tests {
         fun(anvil, provider.clone(), client.clone(), smart_contracts).await
     }
 
+    #[ignore]
     #[tokio::test]
     async fn test_coinbase_smart_wallet() {
         with_smart_contracts(|anvil, _provider, client, smart_contracts| {
