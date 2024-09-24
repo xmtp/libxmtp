@@ -6224,6 +6224,7 @@ dependencies = [
  "clap",
  "ethers",
  "femme",
+ "futures",
  "hex",
  "kv-log-macro",
  "log",

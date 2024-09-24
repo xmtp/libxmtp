@@ -209,7 +209,7 @@ impl NapiGroup {
   }
 
   #[napi]
-  pub fn list_members(&self) -> Result<Vec<NapiGroupMember>> {
+  pub async fn list_members(&self) -> Result<Vec<NapiGroupMember>> {
     let group = MlsGroup::new(
       self.inner_client.context().clone(),
       self.group_id.clone(),
@@ -217,7 +217,8 @@ impl NapiGroup {
     );
 
     let members: Vec<NapiGroupMember> = group
-      .members()
+      .members(&self.inner_client)
+      .await
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|member| NapiGroupMember {
