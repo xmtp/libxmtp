@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs, str::FromStr};
 use url::Url;
 
-pub fn parse_chain_urls() -> HashMap<u64, Url> {
+pub fn chain_urls() -> HashMap<u64, Url> {
     let json = fs::read_to_string("chain_urls.json").expect("chain_urls.json is missing");
     let json: HashMap<u64, String> =
         serde_json::from_str(&json).expect("chain_urls.json is malformatted");
