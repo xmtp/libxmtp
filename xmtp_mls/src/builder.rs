@@ -2,10 +2,7 @@ use log::debug;
 use thiserror::Error;
 
 use xmtp_cryptography::signature::AddressValidationError;
-use xmtp_id::scw_verifier::{
-    ChainSmartContractWalletVerifier, RpcSmartContractWalletVerifier,
-    SmartContractSignatureVerifier,
-};
+use xmtp_id::scw_verifier::{ChainSmartContractWalletVerifier, SmartContractSignatureVerifier};
 
 use crate::{
     api::ApiClientWrapper,
