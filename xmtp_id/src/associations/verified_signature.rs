@@ -131,6 +131,7 @@ impl VerifiedSignature {
                 account_id.clone(),
                 hash_message(signature_text.as_ref()).into(),
                 &signature_bytes.to_vec().into(),
+                None,
             )
             .await?;
 

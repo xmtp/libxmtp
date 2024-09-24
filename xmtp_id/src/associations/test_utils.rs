@@ -10,6 +10,7 @@ use crate::{
 };
 use ed25519_dalek::SigningKey as Ed25519SigningKey;
 use ethers::{
+    core::types::BlockNumber,
     signers::{LocalWallet, Signer},
     types::Bytes,
 };
@@ -54,6 +55,7 @@ impl SmartContractSignatureVerifier for MockSmartContractSignatureVerifier {
         _account_id: AccountId,
         _hash: [u8; 32],
         _signature: &Bytes,
+        block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
         Ok(self.is_valid_signature)
     }
