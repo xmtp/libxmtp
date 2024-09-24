@@ -1,5 +1,7 @@
 mod chain_rpc_verifier;
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use ethers::{
     providers::{Http, Provider},
@@ -26,7 +28,7 @@ pub enum VerifierError {
 }
 
 #[async_trait]
-pub trait SmartContractSignatureVerifier: std::fmt::Debug + Send + Sync + 'static {
+pub trait SmartContractSignatureVerifier: Send + Sync + 'static {
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
@@ -34,4 +36,50 @@ pub trait SmartContractSignatureVerifier: std::fmt::Debug + Send + Sync + 'stati
         signature: &Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError>;
+}
+/*
+// box impl
+impl<T> SmartContractSignatureVerifier for T where T: SmartContractSignatureVerifier + ?Sized {}
+*/
+
+pub struct ChainSmartContractWalletVerifier {
+    verifiers: HashMap<u64, Box<dyn SmartContractSignatureVerifier>>,
+}
+
+impl ChainSmartContractWalletVerifier {
+    pub fn new(urls: HashMap<u64, url::Url>) -> Self {
+        let verifiers: HashMap<u64, Box<dyn SmartContractSignatureVerifier>> = urls
+            .into_iter()
+            .map(|(chain_id, url)| {
+                (
+                    chain_id,
+                    Box::new(RpcSmartContractWalletVerifier::new(url.to_string()))
+                        as Box<dyn SmartContractSignatureVerifier>,
+                )
+            })
+            .collect();
+
+        Self { verifiers }
+    }
+}
+
+#[async_trait]
+impl SmartContractSignatureVerifier for ChainSmartContractWalletVerifier {
+    async fn is_valid_signature(
+        &self,
+        account_id: AccountId,
+        hash: [u8; 32],
+        signature: &Bytes,
+        block_number: Option<BlockNumber>,
+    ) -> Result<bool, VerifierError> {
+        let id: u64 = account_id.chain_id.parse().unwrap();
+        if let Some(verifier) = self.verifiers.get(&id) {
+            return Ok(verifier
+                .is_valid_signature(account_id, hash, signature, block_number)
+                .await
+                .unwrap());
+        }
+
+        todo!()
+    }
 }

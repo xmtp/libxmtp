@@ -41,7 +41,6 @@ impl From<GrpcServerError> for Status {
     }
 }
 
-#[derive(Debug)]
 pub struct ValidationService {
     pub(crate) scw_verifier: Box<dyn SmartContractSignatureVerifier>,
 }
