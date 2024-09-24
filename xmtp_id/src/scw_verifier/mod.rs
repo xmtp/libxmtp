@@ -61,16 +61,17 @@ impl ChainSmartContractWalletVerifier {
 
     pub fn new_from_file(path: impl AsRef<Path>) -> Self {
         let path = path.as_ref();
-        let json = fs::read_to_string(path).expect(&format!("{path:?} is missing"));
+        let json = fs::read_to_string(path).unwrap_or_else(|_| panic!("{path:?} is missing"));
         let json: HashMap<u64, String> =
-            serde_json::from_str(&json).expect(&format!("{path:?} is malformatted"));
+            serde_json::from_str(&json).unwrap_or_else(|_| panic!("{path:?} is malformatted"));
 
         let urls = json
             .into_iter()
             .map(|(id, url)| {
                 (
                     id,
-                    Url::from_str(&url).expect(&format!("unable to parse url in {path:?} ({url})")),
+                    Url::from_str(&url)
+                        .unwrap_or_else(|_| panic!("unable to parse url in {path:?} ({url})")),
                 )
             })
             .collect();
