@@ -165,4 +165,3 @@ ecies_bindings_wasm/
 **/tracing.folded
 **/tracing-flamegraph.svg
 
-chain_urls.json
