@@ -64,10 +64,6 @@ impl ChainSmartContractWalletVerifier {
     pub fn new_from_file(path: impl AsRef<Path>) -> Self {
         let path = path.as_ref();
 
-        if !path.exists() {
-            return Self::new(HashMap::default());
-        }
-
         let file_str;
         let json = if path.exists() {
             file_str = fs::read_to_string(path).unwrap_or_else(|_| panic!("{path:?} is missing"));
