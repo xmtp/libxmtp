@@ -78,7 +78,6 @@ impl ClientWithMetadata for XmtpHttpApiClient {
         self.app_version = Some(version);
 
         let mut headers = header::HeaderMap::new();
-
         if let Some(app_version) = &self.app_version {
             headers.insert("x-app-version", app_version.parse().map_err(metadata_err)?);
         }
@@ -88,7 +87,6 @@ impl ClientWithMetadata for XmtpHttpApiClient {
                 libxmtp_version.parse().map_err(metadata_err)?,
             );
         }
-
         self.http_client = reqwest_builder()
             .default_headers(headers)
             .build()
@@ -99,7 +97,6 @@ impl ClientWithMetadata for XmtpHttpApiClient {
         self.libxmtp_version = Some(version);
 
         let mut headers = header::HeaderMap::new();
-
         if let Some(app_version) = &self.app_version {
             headers.insert(
                 "x-app-version",
@@ -116,7 +113,6 @@ impl ClientWithMetadata for XmtpHttpApiClient {
                     .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?,
             );
         }
-
         self.http_client = reqwest_builder()
             .default_headers(headers)
             .build()
