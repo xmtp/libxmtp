@@ -37,10 +37,6 @@ pub trait SmartContractSignatureVerifier: Send + Sync + 'static {
         block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError>;
 }
-/*
-// box impl
-impl<T> SmartContractSignatureVerifier for T where T: SmartContractSignatureVerifier + ?Sized {}
-*/
 
 pub struct ChainSmartContractWalletVerifier {
     verifiers: HashMap<u64, Box<dyn SmartContractSignatureVerifier>>,
