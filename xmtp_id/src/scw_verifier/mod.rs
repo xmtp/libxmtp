@@ -1,7 +1,7 @@
 mod chain_rpc_verifier;
 mod url_parser;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, fs, path::Path, str::FromStr};
 
 use async_trait::async_trait;
 use ethers::{
@@ -9,6 +9,7 @@ use ethers::{
     types::{BlockNumber, Bytes},
 };
 use thiserror::Error;
+use url::Url;
 
 use crate::associations::AccountId;
 
@@ -57,6 +58,24 @@ impl ChainSmartContractWalletVerifier {
             .collect();
 
         Self { verifiers }
+    }
+
+    pub fn new_from_file(path: impl AsRef<Path>) -> Self {
+        let json = fs::read_to_string(path.as_ref()).expect("chain_urls.json is missing");
+        let json: HashMap<u64, String> =
+            serde_json::from_str(&json).expect("chain_urls.json is malformatted");
+
+        let urls = json
+            .into_iter()
+            .map(|(id, url)| {
+                (
+                    id,
+                    Url::from_str(&url).expect("unable to parse url in chain_urls.json"),
+                )
+            })
+            .collect();
+
+        Self::new(urls)
     }
 }
 

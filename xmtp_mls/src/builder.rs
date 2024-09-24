@@ -52,7 +52,7 @@ pub struct ClientBuilder<ApiClient> {
     identity_strategy: IdentityStrategy,
     history_sync_url: Option<String>,
     app_version: Option<String>,
-    scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
+    scw_verifier: Box<dyn SmartContractSignatureVerifier>,
 }
 
 impl<ApiClient> ClientBuilder<ApiClient>
@@ -97,7 +97,7 @@ where
     }
 
     pub fn scw_signatuer_verifier(mut self, verifier: impl SmartContractSignatureVerifier) -> Self {
-        self.scw_verifier = Some(Box::new(verifier));
+        self.scw_verifier = Box::new(verifier);
         self
     }
 
