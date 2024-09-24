@@ -77,7 +77,7 @@ impl ChainSmartContractWalletVerifier {
         };
 
         let json: HashMap<u64, String> =
-            serde_json::from_str(&json).unwrap_or_else(|_| panic!("{path:?} is malformatted"));
+            serde_json::from_str(json).unwrap_or_else(|_| panic!("{path:?} is malformatted"));
 
         let urls = json
             .into_iter()
