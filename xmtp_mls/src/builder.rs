@@ -2,7 +2,7 @@ use log::debug;
 use thiserror::Error;
 
 use xmtp_cryptography::signature::AddressValidationError;
-use xmtp_id::scw_verifier::{RpcSmartContractWalletVerifier, SmartContractSignatureVerifier};
+use xmtp_id::scw_verifier::{ChainSmartContractWalletVerifier, SmartContractSignatureVerifier};
 
 use crate::{
     api::ApiClientWrapper,
@@ -115,9 +115,8 @@ where
         }
 
         let scw_verifier = self.scw_verifier.take().unwrap_or_else(|| {
-            // TODO:nm Enforce that everyone provides this
-            Box::new(RpcSmartContractWalletVerifier::new(
-                "https://fixme.com".to_string(),
+            Box::new(ChainSmartContractWalletVerifier::new_from_file(
+                "chain_urls.json",
             ))
         });
 
