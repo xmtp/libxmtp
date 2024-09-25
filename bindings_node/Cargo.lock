@@ -5298,6 +5298,7 @@ name = "xmtp_proto"
 version = "0.0.1"
 dependencies = [
  "futures",
+ "hex",
  "openmls",
  "pbjson",
  "pbjson-types",

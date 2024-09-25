@@ -15,6 +15,7 @@ use xmtp_proto::{
         GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
         GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
     },
+    xmtp::xmtpv4::GetInboxIdsRequest as GetInboxIdsV4Request,
 };
 
 impl XmtpIdentityClient for Client {
@@ -48,11 +49,34 @@ impl XmtpIdentityClient for Client {
         &self,
         request: GetInboxIdsRequest,
     ) -> Result<GetInboxIdsResponse, Error> {
-        let client = &mut self.identity_client.clone();
+        let client = &mut self.replication_client.clone();
+        let req = GetInboxIdsV4Request {
+            requests: request
+                .requests
+                .into_iter()
+                .map(
+                    |r| xmtp_proto::xmtp::xmtpv4::get_inbox_ids_request::Request {
+                        address: r.address,
+                    },
+                )
+                .collect(),
+        };
 
-        let res = client.get_inbox_ids(self.build_request(request)).await;
+        let res = client.get_inbox_ids(self.build_request(req)).await;
 
         res.map(|response| response.into_inner())
+            .map(|response| GetInboxIdsResponse {
+                responses: response
+                    .responses
+                    .into_iter()
+                    .map(|r| {
+                        xmtp_proto::xmtp::identity::api::v1::get_inbox_ids_response::Response {
+                            address: r.address,
+                            inbox_id: r.inbox_id,
+                        }
+                    })
+                    .collect(),
+            })
             .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))
     }
 
