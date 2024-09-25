@@ -15,8 +15,8 @@ pub struct AssociationStateDiff {
 
 #[derive(Debug)]
 pub struct Installation {
-    pub id: Vec<Vec<u8>>,
-    pub server_timestamp_ns: Option<i64>,
+    pub id: Vec<u8>,
+    pub client_timestamp_ns: Option<u64>,
 }
 
 impl AssociationStateDiff {
@@ -135,11 +135,14 @@ impl AssociationState {
     }
 
     pub fn installations(&self) -> Vec<Installation> {
-        self.members_by_kind(MemberKind::Installation)
+        self.members()
             .into_iter()
             .filter_map(|member| match member.identifier {
                 MemberIdentifier::Address(_) => None,
-                MemberIdentifier::Installation(installation_id) => Some(installation_id),
+                MemberIdentifier::Installation(id) => Some(Installation {
+                    id,
+                    client_timestamp_ns: member.client_timestamp_ns,
+                }),
             })
             .collect()
     }
