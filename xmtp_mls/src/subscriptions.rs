@@ -77,6 +77,7 @@ where
         let creation_result = retry_async!(
             Retry::default(),
             (async {
+                log::info!("Trying to process streamed welcome");
                 let welcome_v1 = welcome_v1.clone();
                 self.context
                     .store

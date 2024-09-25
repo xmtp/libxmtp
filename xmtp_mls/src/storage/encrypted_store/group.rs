@@ -212,6 +212,7 @@ impl DbConnection {
     }
 
     pub fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
+        log::info!("Trying to insert group");
         let stored_group = self.raw_query(|conn| {
             let maybe_inserted_group: Option<StoredGroup> = diesel::insert_into(dsl::groups)
                 .values(&group)
