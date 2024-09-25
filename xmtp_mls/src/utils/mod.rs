@@ -13,7 +13,7 @@ pub mod time {
     pub const NS_IN_SEC: i64 = 1_000_000_000;
 
     pub fn now_ns() -> i64 {
-        log::debug!("GETTING NOW");
+        tracing::debug!("GETTING NOW");
         let now = SystemTime::now();
 
         now.duration_since(UNIX_EPOCH)
@@ -45,11 +45,14 @@ pub mod id {
 }
 
 pub mod wasm {
-    /*
-    use once_cell::sync::OnceCell;
+    use tokio::sync::OnceCell;
     static INIT: OnceCell<()> = OnceCell::const_new();
 
+    #[cfg(all(target_arch = "wasm32", test))]
     pub async fn init() {
+        use web_sys::console;
+        tracing_log::LogTracer::init().unwrap();
+
         INIT.get_or_init(|| async {
             console::log_1(&"INIT".into());
             console_error_panic_hook::set_once();
@@ -58,5 +61,8 @@ pub mod wasm {
         })
         .await;
     }
-    */
+
+    // no-op
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn init() {}
 }

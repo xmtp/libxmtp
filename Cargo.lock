@@ -6501,6 +6501,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "wasm-timer",
+ "web-sys",
  "xmtp_api_grpc",
  "xmtp_api_http",
  "xmtp_cryptography",
