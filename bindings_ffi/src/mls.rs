@@ -10,6 +10,7 @@ use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::AccountId;
 use xmtp_id::associations::AssociationState;
+use xmtp_id::associations::MemberIdentifier;
 use xmtp_id::scw_verifier::RpcSmartContractWalletVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
@@ -27,7 +28,6 @@ use xmtp_mls::groups::group_permissions::PermissionsPolicies;
 use xmtp_mls::groups::group_permissions::PolicySet;
 use xmtp_mls::groups::intents::PermissionPolicyOption;
 use xmtp_mls::groups::intents::PermissionUpdateType;
-use xmtp_mls::groups::members::GroupMember;
 use xmtp_mls::groups::GroupMetadataOptions;
 use xmtp_mls::storage::consent_record::ConsentState;
 use xmtp_mls::storage::consent_record::ConsentType;
@@ -462,14 +462,14 @@ impl FfiXmtpClient {
 pub struct FfiInboxState {
     pub inbox_id: String,
     pub recovery_address: String,
-    pub installation_ids: Vec<FfiInstallation>,
+    pub installations: Vec<FfiInstallation>,
     pub account_addresses: Vec<String>,
 }
 
 #[derive(uniffi::Record)]
 pub struct FfiInstallation {
-    pub installation_id: String,
-    pub server_timestamp_ns: Option<i64>,
+    pub id: Vec<u8>,
+    pub client_timestamp_ns: Option<u64>,
 }
 
 impl From<AssociationState> for FfiInboxState {
@@ -477,17 +477,18 @@ impl From<AssociationState> for FfiInboxState {
         Self {
             inbox_id: state.inbox_id().to_string(),
             recovery_address: state.recovery_address().to_string(),
-            installation_ids: state.members().into(),
+            installations: state
+                .members()
+                .into_iter()
+                .filter_map(|m| match m.identifier {
+                    MemberIdentifier::Address(_) => None,
+                    MemberIdentifier::Installation(inst) => Some(FfiInstallation {
+                        id: inst,
+                        client_timestamp_ns: m.client_timestamp_ns,
+                    }),
+                })
+                .collect(),
             account_addresses: state.account_addresses(),
-        }
-    }
-}
-
-impl From<GroupMember> for FfiInstallation {
-    fn from(member: GroupMember) -> Self {
-        Self {
-            installation_id: member.installation_id,
-            server_timestamp_ns: member.recovery_address().to_string(),
         }
     }
 }
@@ -3667,8 +3668,8 @@ mod tests {
 
         let client_1_state = client_1.inbox_state(true).await.unwrap();
         let client_2_state = client_2.inbox_state(true).await.unwrap();
-        assert_eq!(client_1_state.installation_ids.len(), 2);
-        assert_eq!(client_2_state.installation_ids.len(), 2);
+        assert_eq!(client_1_state.installations.len(), 2);
+        assert_eq!(client_2_state.installations.len(), 2);
 
         let signature_request = client_1.revoke_all_other_installations().await.unwrap();
         sign_with_wallet(&wallet, &signature_request).await;
@@ -3679,22 +3680,22 @@ mod tests {
 
         let client_1_state_after_revoke = client_1.inbox_state(true).await.unwrap();
         let client_2_state_after_revoke = client_2.inbox_state(true).await.unwrap();
-        assert_eq!(client_1_state_after_revoke.installation_ids.len(), 1);
-        assert_eq!(client_2_state_after_revoke.installation_ids.len(), 1);
+        assert_eq!(client_1_state_after_revoke.installations.len(), 1);
+        assert_eq!(client_2_state_after_revoke.installations.len(), 1);
         assert_eq!(
             client_1_state_after_revoke
-                .installation_ids
+                .installations
                 .first()
                 .unwrap()
-                .clone(),
+                .id,
             client_1.installation_id()
         );
         assert_eq!(
             client_2_state_after_revoke
-                .installation_ids
+                .installations
                 .first()
                 .unwrap()
-                .clone(),
+                .id,
             client_1.installation_id()
         );
     }
