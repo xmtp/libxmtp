@@ -222,14 +222,18 @@ impl DbConnection {
             if maybe_inserted_group.is_none() {
                 let existing_group: StoredGroup = dsl::groups.find(group.id).first(conn)?;
                 if existing_group.welcome_id == group.welcome_id {
+                    log::info!("Group welcome id already exists");
                     // Error so OpenMLS db transaction are rolled back on duplicate welcomes
                     return Err(diesel::result::Error::DatabaseError(
                         diesel::result::DatabaseErrorKind::UniqueViolation,
                         Box::new("welcome id already exists".to_string()),
                     ));
                 } else {
+                    log::info!("Group already exists");
                     return Ok(existing_group);
                 }
+            } else {
+                log::info!("Group is inserted");
             }
 
             match maybe_inserted_group {
