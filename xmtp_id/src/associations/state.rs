@@ -13,6 +13,12 @@ pub struct AssociationStateDiff {
     pub removed_members: Vec<MemberIdentifier>,
 }
 
+#[derive(Debug)]
+pub struct Installation {
+    pub id: Vec<Vec<u8>>,
+    pub server_timestamp_ns: Option<i64>,
+}
+
 impl AssociationStateDiff {
     pub fn new_installations(&self) -> Vec<Vec<u8>> {
         self.new_members
@@ -119,6 +125,16 @@ impl AssociationState {
     }
 
     pub fn installation_ids(&self) -> Vec<Vec<u8>> {
+        self.members_by_kind(MemberKind::Installation)
+            .into_iter()
+            .filter_map(|member| match member.identifier {
+                MemberIdentifier::Address(_) => None,
+                MemberIdentifier::Installation(installation_id) => Some(installation_id),
+            })
+            .collect()
+    }
+
+    pub fn installations(&self) -> Vec<Installation> {
         self.members_by_kind(MemberKind::Installation)
             .into_iter()
             .filter_map(|member| match member.identifier {

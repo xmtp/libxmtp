@@ -27,6 +27,7 @@ use xmtp_mls::groups::group_permissions::PermissionsPolicies;
 use xmtp_mls::groups::group_permissions::PolicySet;
 use xmtp_mls::groups::intents::PermissionPolicyOption;
 use xmtp_mls::groups::intents::PermissionUpdateType;
+use xmtp_mls::groups::members::GroupMember;
 use xmtp_mls::groups::GroupMetadataOptions;
 use xmtp_mls::storage::consent_record::ConsentState;
 use xmtp_mls::storage::consent_record::ConsentType;
@@ -461,8 +462,14 @@ impl FfiXmtpClient {
 pub struct FfiInboxState {
     pub inbox_id: String,
     pub recovery_address: String,
-    pub installation_ids: Vec<Vec<u8>>,
+    pub installation_ids: Vec<FfiInstallation>,
     pub account_addresses: Vec<String>,
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiInstallation {
+    pub installation_id: String,
+    pub server_timestamp_ns: Option<i64>,
 }
 
 impl From<AssociationState> for FfiInboxState {
@@ -470,8 +477,17 @@ impl From<AssociationState> for FfiInboxState {
         Self {
             inbox_id: state.inbox_id().to_string(),
             recovery_address: state.recovery_address().to_string(),
-            installation_ids: state.installation_ids(),
+            installation_ids: state.members().into(),
             account_addresses: state.account_addresses(),
+        }
+    }
+}
+
+impl From<GroupMember> for FfiInstallation {
+    fn from(member: GroupMember) -> Self {
+        Self {
+            installation_id: member.installation_id,
+            server_timestamp_ns: member.recovery_address().to_string(),
         }
     }
 }
