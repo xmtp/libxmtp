@@ -37,8 +37,24 @@ pub enum IdentityUpdateError {
 
 #[derive(Debug)]
 pub struct InstallationDiff {
-    pub added_installations: HashSet<Vec<u8>>,
-    pub removed_installations: HashSet<Vec<u8>>,
+    pub added_installations: HashSet<InboxInstallation>,
+    pub removed_installations: HashSet<InboxInstallation>,
+}
+
+impl InstallationDiff {
+    pub(crate) fn added_installations(&self) -> HashSet<Vec<u8>> {
+        self.added_installations
+            .iter()
+            .map(|i| i.installation.clone())
+            .collect()
+    }
+
+    pub(crate) fn removed_installations(&self) -> HashSet<Vec<u8>> {
+        self.removed_installations
+            .iter()
+            .map(|i| i.installation.clone())
+            .collect()
+    }
 }
 
 #[derive(Debug, Error)]
@@ -51,6 +67,21 @@ impl RetryableError for InstallationDiffError {
     fn is_retryable(&self) -> bool {
         match self {
             InstallationDiffError::Client(client_error) => retryable!(client_error),
+        }
+    }
+}
+
+#[derive(Hash, Clone, PartialEq, Eq, Debug)]
+pub struct InboxInstallation {
+    pub inbox_id: String,
+    pub installation: Vec<u8>,
+}
+
+impl From<(String, Vec<u8>)> for InboxInstallation {
+    fn from(value: (String, Vec<u8>)) -> Self {
+        InboxInstallation {
+            inbox_id: value.0,
+            installation: value.1,
         }
     }
 }
@@ -127,12 +158,16 @@ where
         let inbox_id = inbox_id.as_ref();
         // TODO: Refactor this so that we don't have to fetch all the identity updates if the value is in the cache
         let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
+
+        log::debug!("\n\ngetting last seq id for inbox_id={}", inbox_id);
         let last_sequence_id = updates
             .last()
             .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
             .sequence_id;
+        log::debug!("---------------- ----------------");
         if let Some(to_sequence_id) = to_sequence_id {
             if to_sequence_id != last_sequence_id {
+                log::debug!("FAILING HERE");
                 return Err(AssociationError::MissingIdentityUpdate.into());
             }
         }
@@ -370,6 +405,7 @@ where
         old_group_membership: &GroupMembership,
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
+        sender_inbox_id: &str,
     ) -> Result<InstallationDiff, InstallationDiffError> {
         log::info!(
             "Getting installation diff. Old: {:?}. New {:?}",
@@ -399,8 +435,8 @@ where
         )
         .await?;
 
-        let mut added_installations: HashSet<Vec<u8>> = HashSet::new();
-        let mut removed_installations: HashSet<Vec<u8>> = HashSet::new();
+        let mut added_installations: HashSet<InboxInstallation> = HashSet::new();
+        let mut removed_installations: HashSet<InboxInstallation> = HashSet::new();
 
         // TODO: Do all of this in parallel
         for inbox_id in added_and_updated_members {
@@ -418,11 +454,26 @@ where
                 )
                 .await?;
 
-            added_installations.extend(state_diff.new_installations());
-            removed_installations.extend(state_diff.removed_installations());
+            added_installations.extend(
+                state_diff
+                    .new_installations()
+                    .into_iter()
+                    .map(|i| InboxInstallation::from((inbox_id.clone(), i))),
+            );
+            removed_installations.extend(
+                state_diff
+                    .removed_installations()
+                    .into_iter()
+                    .map(|i| InboxInstallation::from((inbox_id.clone(), i))),
+            );
         }
 
-        for inbox_id in membership_diff.removed_inboxes.iter() {
+        for inbox_id in membership_diff
+            .removed_inboxes
+            .iter()
+            .filter(|i| **i != sender_inbox_id)
+            .cloned()
+        {
             let state_diff = self
                 .get_association_state(
                     conn,
@@ -433,7 +484,12 @@ where
                 .as_diff();
 
             // In the case of a removed member, get all the "new installations" from the diff and add them to the list of removed installations
-            removed_installations.extend(state_diff.new_installations());
+            removed_installations.extend(
+                state_diff
+                    .new_installations()
+                    .into_iter()
+                    .map(|i| InboxInstallation::from((inbox_id.clone(), i))),
+            );
         }
 
         Ok(InstallationDiff {
@@ -771,17 +827,18 @@ pub(crate) mod tests {
                 &original_group_membership,
                 &new_group_membership,
                 &membership_diff,
+                &inbox_ids[0],
             )
             .await
             .unwrap();
 
         assert_eq!(installation_diff.added_installations.len(), 1);
         assert!(installation_diff
-            .added_installations
+            .added_installations()
             .contains(&client_3_installation_key),);
         assert_eq!(installation_diff.removed_installations.len(), 1);
         assert!(installation_diff
-            .removed_installations
+            .removed_installations()
             .contains(&client_2_installation_key));
     }
 

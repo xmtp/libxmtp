@@ -37,6 +37,12 @@ impl GroupMembership {
             .collect()
     }
 
+    pub fn merge<'inbox_id>(&'inbox_id self, other: &'inbox_id Self) -> GroupMembership {
+        let mut merged = self.members.clone();
+        merged.extend(other.members.clone());
+        Self { members: merged }
+    }
+
     pub fn diff<'inbox_id>(
         &'inbox_id self,
         new_group_membership: &'inbox_id Self,
@@ -44,6 +50,7 @@ impl GroupMembership {
         let mut removed_inboxes: Vec<&String> = vec![];
         let mut updated_inboxes: Vec<&String> = vec![];
 
+        log::debug!("NEW_MEMBERSHIP = {:?}", new_group_membership);
         for (inbox_id, last_sequence_id) in self.members.iter() {
             match new_group_membership.get(inbox_id) {
                 Some(new_last_sequence_id) => {
@@ -52,6 +59,7 @@ impl GroupMembership {
                     }
                 }
                 None => {
+                    log::debug!("ADDING TO REMOVED INBOXES");
                     removed_inboxes.push(inbox_id);
                 }
             }
@@ -68,6 +76,7 @@ impl GroupMembership {
                 }
             })
             .collect::<Vec<&String>>();
+        log::debug!("REMOVED_INBOXES={:?}", removed_inboxes);
 
         MembershipDiff {
             added_inboxes,

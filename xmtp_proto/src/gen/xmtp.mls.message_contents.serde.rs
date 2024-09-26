@@ -2184,6 +2184,7 @@ impl serde::Serialize for membership_policy::BasePolicy {
             Self::Deny => "BASE_POLICY_DENY",
             Self::AllowIfAdminOrSuperAdmin => "BASE_POLICY_ALLOW_IF_ADMIN_OR_SUPER_ADMIN",
             Self::AllowIfSuperAdmin => "BASE_POLICY_ALLOW_IF_SUPER_ADMIN",
+            Self::AllowIfAdminOrSuperAdminOrTarget => "BASE_POLICY_ALLOW_IF_ADMIN_OR_SUPER_ADMIN_OR_TARGET",
         };
         serializer.serialize_str(variant)
     }
@@ -2200,6 +2201,7 @@ impl<'de> serde::Deserialize<'de> for membership_policy::BasePolicy {
             "BASE_POLICY_DENY",
             "BASE_POLICY_ALLOW_IF_ADMIN_OR_SUPER_ADMIN",
             "BASE_POLICY_ALLOW_IF_SUPER_ADMIN",
+            "BASE_POLICY_ALLOW_IF_ADMIN_OR_SUPER_ADMIN_OR_TARGET",
         ];
 
         struct GeneratedVisitor;
@@ -2245,6 +2247,7 @@ impl<'de> serde::Deserialize<'de> for membership_policy::BasePolicy {
                     "BASE_POLICY_DENY" => Ok(membership_policy::BasePolicy::Deny),
                     "BASE_POLICY_ALLOW_IF_ADMIN_OR_SUPER_ADMIN" => Ok(membership_policy::BasePolicy::AllowIfAdminOrSuperAdmin),
                     "BASE_POLICY_ALLOW_IF_SUPER_ADMIN" => Ok(membership_policy::BasePolicy::AllowIfSuperAdmin),
+                    "BASE_POLICY_ALLOW_IF_ADMIN_OR_SUPER_ADMIN_OR_TARGET" => Ok(membership_policy::BasePolicy::AllowIfAdminOrSuperAdminOrTarget),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
