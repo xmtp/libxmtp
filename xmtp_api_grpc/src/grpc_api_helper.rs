@@ -9,7 +9,9 @@ use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
 use tokio::sync::oneshot;
 use tonic::transport::ClientTlsConfig;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
-use xmtp_proto::convert::{build_group_message_topic, build_key_package_topic};
+use xmtp_proto::convert::{
+    build_group_message_topic, build_key_package_topic, build_welcome_message_topic,
+};
 use xmtp_proto::xmtp::xmtpv4::client_envelope::Payload;
 use xmtp_proto::xmtp::xmtpv4::envelopes_query::Filter;
 
@@ -19,7 +21,8 @@ use crate::conversions::{
 };
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpMlsStreams, XmtpReplicationClient};
 use xmtp_proto::xmtp::mls::api::v1::{
-    fetch_key_packages_response, group_message, group_message_input, GroupMessage, WelcomeMessage,
+    fetch_key_packages_response, group_message, group_message_input, welcome_message,
+    welcome_message_input, GroupMessage, WelcomeMessage,
 };
 use xmtp_proto::xmtp::xmtpv4::replication_api_client::ReplicationApiClient;
 use xmtp_proto::xmtp::xmtpv4::{
@@ -554,11 +557,58 @@ impl XmtpMlsClient for Client {
         &self,
         req: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client.query_welcome_messages(self.build_request(req)).await;
+        if self.use_replication_v4 {
+            let client = &mut self.replication_client.clone();
+            let res = client
+                .query_envelopes(QueryEnvelopesRequest {
+                    query: Some(EnvelopesQuery {
+                        last_seen: None,
+                        filter: Some(Filter::Topic(build_welcome_message_topic(
+                            req.installation_key.as_slice(),
+                        ))),
+                    }),
+                    limit: 100,
+                })
+                .await
+                .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-        res.map(|r| r.into_inner())
-            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+            let envelopes = res.into_inner().envelopes;
+            let response = QueryWelcomeMessagesResponse {
+                messages: envelopes
+                    .iter()
+                    .map(|envelope| {
+                        let unsigned_originator_envelope =
+                            extract_unsigned_originator_envelope(envelope);
+                        let client_envelope = extract_client_envelope(envelope);
+                        let Payload::WelcomeMessage(welcome_message) =
+                            client_envelope.payload.unwrap()
+                        else {
+                            panic!("Payload is not a group message");
+                        };
+                        let welcome_message_input::Version::V1(v1_welcome_message) =
+                            welcome_message.version.unwrap();
+
+                        WelcomeMessage {
+                            version: Some(welcome_message::Version::V1(welcome_message::V1 {
+                                id: unsigned_originator_envelope.originator_sequence_id,
+                                created_ns: unsigned_originator_envelope.originator_ns as u64,
+                                installation_key: req.installation_key.clone(),
+                                data: v1_welcome_message.data,
+                                hpke_public_key: v1_welcome_message.hpke_public_key,
+                            })),
+                        }
+                    })
+                    .collect(),
+                paging_info: None,
+            };
+            Ok(response)
+        } else {
+            let client = &mut self.mls_client.clone();
+            let res = client.query_welcome_messages(self.build_request(req)).await;
+
+            res.map(|r| r.into_inner())
+                .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+        }
     }
 }
 

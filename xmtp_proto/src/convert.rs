@@ -135,7 +135,7 @@ pub fn build_key_package_topic(installation_id: &[u8]) -> Vec<u8> {
     format!("kp/{}", hex::encode(installation_id)).into_bytes()
 }
 
-fn build_welcome_message_topic(installation_id: &[u8]) -> Vec<u8> {
+pub fn build_welcome_message_topic(installation_id: &[u8]) -> Vec<u8> {
     format!("w/{}", hex::encode(installation_id)).into_bytes()
 }
 
