@@ -225,7 +225,7 @@ class GroupTests: XCTestCase {
 
 		try await group.sync()
 		let members = try await group.members.map(\.inboxId).sorted()
-		let peerMembers = try Conversation.group(group).peerAddresses.sorted()
+		let peerMembers = try await group.peerInboxIds.sorted()
 
 		XCTAssertEqual([fixtures.bobClient.inboxID, fixtures.aliceClient.inboxID].sorted(), members)
 		XCTAssertEqual([fixtures.bobClient.inboxID].sorted(), peerMembers)
