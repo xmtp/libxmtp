@@ -35,7 +35,7 @@ pub fn extract_client_envelope(req: &OriginatorEnvelope) -> ClientEnvelope {
 pub fn extract_group_id_from_topic(topic: Vec<u8>) -> Vec<u8> {
     let topic_str = String::from_utf8(topic).expect("Failed to convert topic to string");
     let group_id = topic_str
-        .split(":")
+        .split("/")
         .nth(1)
         .expect("Failed to extract group id from topic");
     group_id.as_bytes().to_vec()
