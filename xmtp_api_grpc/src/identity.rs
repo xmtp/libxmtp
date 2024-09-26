@@ -85,35 +85,30 @@ impl XmtpIdentityClient for Client {
         &self,
         request: GetIdentityUpdatesV2Request,
     ) -> Result<GetIdentityUpdatesV2Response, Error> {
-        let client = &mut self.replication_client.clone();
-        let mut responses = vec![];
+        let topics = request
+            .requests
+            .iter()
+            .map(|r| build_identity_update_topic(r.inbox_id.clone()))
+            .collect();
+        let v4_envelopes = self.query_v4_envelopes(topics).await?;
+        let joined_data = v4_envelopes
+            .into_iter()
+            .zip(request.requests.into_iter())
+            .collect::<Vec<_>>();
+        let responses = joined_data
+            .iter()
+            .map(|(envelopes, inner_req)| {
+                let identity_updates = envelopes
+                    .iter()
+                    .map(convert_v4_envelope_to_identity_update)
+                    .collect::<Result<Vec<IdentityUpdateLog>, Error>>()?;
 
-        for inner_req in request.requests.iter() {
-            let v4_envelopes = client
-                .query_envelopes(QueryEnvelopesRequest {
-                    query: Some(EnvelopesQuery {
-                        last_seen: None,
-                        filter: Some(Filter::Topic(build_identity_update_topic(
-                            inner_req.inbox_id.clone(),
-                        ))),
-                    }),
-                    limit: 100,
+                Ok(get_identity_updates_response::Response {
+                    inbox_id: inner_req.inbox_id.clone(),
+                    updates: identity_updates,
                 })
-                .await
-                .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))?;
-
-            let identity_update_responses = v4_envelopes
-                .into_inner()
-                .envelopes
-                .iter()
-                .map(convert_v4_envelope_to_identity_update)
-                .collect::<Result<Vec<IdentityUpdateLog>, Error>>()?;
-
-            responses.push(get_identity_updates_response::Response {
-                inbox_id: inner_req.inbox_id.clone(),
-                updates: identity_update_responses,
-            });
-        }
+            })
+            .collect::<Result<Vec<get_identity_updates_response::Response>, Error>>()?;
 
         Ok(GetIdentityUpdatesV2Response { responses })
     }
@@ -157,4 +152,8 @@ fn convert_v4_envelope_to_identity_update(
 
 fn build_identity_update_topic(inbox_id: String) -> Vec<u8> {
     format!("i/{}", inbox_id).into_bytes()
+}
+
+fn build_key_package_topic(installation_id: Vec<u8>) -> Vec<u8> {
+    format!("kp/{}", hex::encode(installation_id)).into_bytes()
 }

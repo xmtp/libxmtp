@@ -6349,6 +6349,7 @@ dependencies = [
  "futures",
  "hex",
  "openmls",
+ "openmls_rust_crypto",
  "pbjson",
  "pbjson-types",
  "prost",
