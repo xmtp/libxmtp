@@ -2,7 +2,7 @@ use log::debug;
 use thiserror::Error;
 
 use xmtp_cryptography::signature::AddressValidationError;
-use xmtp_id::scw_verifier::{ChainSmartContractWalletVerifier, SmartContractSignatureVerifier};
+use xmtp_id::scw_verifier::{MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier};
 
 use crate::{
     api::ApiClientWrapper,
@@ -115,7 +115,7 @@ where
         }
 
         let scw_verifier = self.scw_verifier.take().unwrap_or_else(|| {
-            Box::new(ChainSmartContractWalletVerifier::new_from_file(
+            Box::new(MultiSmartContractSignatureVerifier::new_from_file(
                 "chain_urls.json",
             ))
         });
