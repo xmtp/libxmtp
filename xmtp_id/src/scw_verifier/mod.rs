@@ -41,11 +41,11 @@ pub trait SmartContractSignatureVerifier: Send + Sync + 'static {
     ) -> Result<bool, VerifierError>;
 }
 
-pub struct ChainSmartContractWalletVerifier {
+pub struct MultiSmartContractSignatureVerifier {
     verifiers: HashMap<u64, Box<dyn SmartContractSignatureVerifier>>,
 }
 
-impl ChainSmartContractWalletVerifier {
+impl MultiSmartContractSignatureVerifier {
     pub fn new(urls: HashMap<u64, url::Url>) -> Self {
         let verifiers: HashMap<u64, Box<dyn SmartContractSignatureVerifier>> = urls
             .into_iter()
@@ -91,7 +91,7 @@ impl ChainSmartContractWalletVerifier {
 }
 
 #[async_trait]
-impl SmartContractSignatureVerifier for ChainSmartContractWalletVerifier {
+impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
