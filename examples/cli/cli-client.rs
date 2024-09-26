@@ -81,6 +81,10 @@ enum Commands {
         #[clap(long)]
         seed_phrase: Option<String>,
     },
+    Check {
+        #[arg(value_name = "address")]
+        address: String,
+    },
     CreateGroup {
         #[clap(value_enum, default_value_t = Permissions::EveryoneIsAdmin)]
         permissions: Permissions,
@@ -189,6 +193,14 @@ async fn main() {
         #[allow(unused_variables)]
         Commands::Register { seed_phrase } => {
             unreachable!()
+        }
+        Commands::Check { address } => {
+            info!("Check {:?}", address);
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+            let dict = client.can_message(vec![address.clone()]).await.unwrap();
+            info!("Can message: {:?}", dict.get(address).unwrap());
         }
         Commands::Info {} => {
             info!("Info");
@@ -428,7 +440,7 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
         } else {
             info!("Using testnet network");
             builder = builder.api_client(
-                ApiClient::create("https://grpc.testnet.xmtp.network:443".into(), true, true)
+                ApiClient::create("http://2.tcp.ngrok.io:10747".into(), true, true)
                     .await
                     .unwrap(),
             );
