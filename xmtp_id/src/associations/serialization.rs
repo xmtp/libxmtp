@@ -519,9 +519,11 @@ impl TryFrom<String> for AccountId {
             return Err(DeserializationError::InvalidAccountId);
         }
         let chain_id = format!("{}:{}", parts[0], parts[1]);
-        let chain_id_regex = Regex::new(r"^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$").unwrap();
+        let chain_id_regex = Regex::new(r"^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$")
+            .expect("Static regex should always compile");
         let account_address = parts[2];
-        let account_address_regex = Regex::new(r"^[-.%a-zA-Z0-9]{1,128}$").unwrap();
+        let account_address_regex =
+            Regex::new(r"^[-.%a-zA-Z0-9]{1,128}$").expect("static regex should always compile");
         if !chain_id_regex.is_match(&chain_id) || !account_address_regex.is_match(account_address) {
             return Err(DeserializationError::InvalidAccountId);
         }

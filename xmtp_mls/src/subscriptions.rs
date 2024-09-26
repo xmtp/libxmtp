@@ -77,6 +77,7 @@ where
         let creation_result = retry_async!(
             Retry::default(),
             (async {
+                log::info!("Trying to process streamed welcome");
                 let welcome_v1 = welcome_v1.clone();
                 self.context
                     .store
@@ -147,6 +148,7 @@ where
         let installation_key = self.installation_public_key();
         let id_cursor = 0;
 
+        log::info!("Setting up conversation stream");
         let subscription = self
             .api_client
             .subscribe_welcome_messages(installation_key, Some(id_cursor))
@@ -242,6 +244,7 @@ where
             futures::pin_mut!(stream);
             let _ = tx.send(());
             while let Some(convo) = stream.next().await {
+                log::info!("Trigger conversation callback");
                 convo_callback(convo)
             }
             log::debug!("`stream_conversations` stream ended, dropping stream");
@@ -298,6 +301,7 @@ where
                 .await?;
             futures::pin_mut!(messages_stream);
 
+            log::info!("Setting up conversation stream in stream_all_messages");
             let convo_stream = self.stream_conversations().await?;
             futures::pin_mut!(convo_stream);
 
@@ -321,6 +325,7 @@ where
                         yield Ok(message);
                     }
                     Some(new_group) = convo_stream.next() => {
+                        log::info!("Received new conversation inside streamAllMessages");
                         if group_id_to_info.contains_key(&new_group.group_id) {
                             continue;
                         }
