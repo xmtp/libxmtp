@@ -13,9 +13,14 @@ use xmtp_proto::convert::{build_group_message_topic, build_key_package_topic};
 use xmtp_proto::xmtp::xmtpv4::client_envelope::Payload;
 use xmtp_proto::xmtp::xmtpv4::envelopes_query::Filter;
 
-use crate::conversions::{extract_client_envelope, wrap_client_envelope};
+use crate::conversions::{
+    extract_client_envelope, extract_group_id_from_topic, extract_unsigned_originator_envelope,
+    wrap_client_envelope,
+};
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpMlsStreams, XmtpReplicationClient};
-use xmtp_proto::xmtp::mls::api::v1::{fetch_key_packages_response, GroupMessage, WelcomeMessage};
+use xmtp_proto::xmtp::mls::api::v1::{
+    fetch_key_packages_response, group_message, group_message_input, GroupMessage, WelcomeMessage,
+};
 use xmtp_proto::xmtp::xmtpv4::replication_api_client::ReplicationApiClient;
 use xmtp_proto::xmtp::xmtpv4::{
     BatchSubscribeEnvelopesRequest, BatchSubscribeEnvelopesResponse, ClientEnvelope,
@@ -504,7 +509,37 @@ impl XmtpMlsClient for Client {
                 .await
                 .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-            Err(Error::new(ErrorKind::MlsError).with("not implemented"))
+            let envelopes = res.into_inner().envelopes;
+            let response = QueryGroupMessagesResponse {
+                messages: envelopes
+                    .iter()
+                    .map(|envelope| {
+                        let unsigned_originator_envelope =
+                            extract_unsigned_originator_envelope(envelope);
+                        let client_envelope = extract_client_envelope(envelope);
+                        let Payload::GroupMessage(group_message) = client_envelope.payload.unwrap()
+                        else {
+                            panic!("Payload is not a group message");
+                        };
+                        let group_id =
+                            extract_group_id_from_topic(client_envelope.aad.unwrap().target_topic);
+                        let group_message_input::Version::V1(v1_group_message) =
+                            group_message.version.unwrap();
+
+                        GroupMessage {
+                            version: Some(group_message::Version::V1(group_message::V1 {
+                                id: unsigned_originator_envelope.originator_sequence_id,
+                                created_ns: unsigned_originator_envelope.originator_ns as u64,
+                                group_id,
+                                data: v1_group_message.data,
+                                sender_hmac: v1_group_message.sender_hmac,
+                            })),
+                        }
+                    })
+                    .collect(),
+                paging_info: None,
+            };
+            Ok(response)
         } else {
             let client = &mut self.mls_client.clone();
             let res = client.query_group_messages(self.build_request(req)).await;

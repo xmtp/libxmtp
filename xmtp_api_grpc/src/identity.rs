@@ -1,13 +1,10 @@
 use crate::conversions::wrap_client_envelope;
 use crate::Client;
 use prost::Message;
+use xmtp_proto::convert::build_identity_update_topic;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::{self, IdentityUpdateLog};
 use xmtp_proto::xmtp::xmtpv4::client_envelope::Payload;
-use xmtp_proto::xmtp::xmtpv4::envelopes_query::Filter;
-use xmtp_proto::xmtp::xmtpv4::{
-    ClientEnvelope, EnvelopesQuery, OriginatorEnvelope, QueryEnvelopesRequest,
-    UnsignedOriginatorEnvelope,
-};
+use xmtp_proto::xmtp::xmtpv4::{ClientEnvelope, OriginatorEnvelope, UnsignedOriginatorEnvelope};
 use xmtp_proto::{
     api_client::{Error, ErrorKind, XmtpIdentityClient},
     xmtp::identity::api::v1::{
@@ -148,12 +145,4 @@ fn convert_v4_envelope_to_identity_update(
         server_timestamp_ns: originator_envelope.originator_ns as u64,
         update: Some(identity_update),
     })
-}
-
-fn build_identity_update_topic(inbox_id: String) -> Vec<u8> {
-    format!("i/{}", inbox_id).into_bytes()
-}
-
-fn build_key_package_topic(installation_id: Vec<u8>) -> Vec<u8> {
-    format!("kp/{}", hex::encode(installation_id)).into_bytes()
 }
