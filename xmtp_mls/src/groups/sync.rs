@@ -10,7 +10,8 @@ use super::{
         Installation, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
-    validated_commit::extract_group_membership,
+    members::GroupMember,
+    validated_commit::{extract_group_membership, get_latest_group_membership},
     GroupError, MlsGroup,
 };
 #[cfg(feature = "message-history")]
@@ -22,6 +23,7 @@ use crate::{
         GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
         SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
+    groups::GroupMembership,
     groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
     identity::parse_credential,
@@ -499,12 +501,17 @@ impl MlsGroup {
                     "[{}] staged commit is valid, will attempt to merge",
                     self.context.inbox_id()
                 );
+                let group_membership = get_latest_group_membership(&sc)?;
                 openmls_group.merge_staged_commit(provider, sc)?;
                 self.save_transcript_message(
                     provider.conn_ref(),
                     validated_commit,
                     envelope_timestamp_ns,
                 )?;
+
+                self.remove_orphaned_installations(provider, client, group_membership)
+                    .await
+                    .map_err(Box::new)?;
             }
         };
 
@@ -757,7 +764,6 @@ impl MlsGroup {
                         .await
                 })
             );
-
             match result {
                 Err(err) => {
                     log::error!("error getting publish intent data {:?}", err);
@@ -812,7 +818,12 @@ impl MlsGroup {
                     }
                 }
                 Ok(None) => {
-                    log::info!("Skipping intent because no publish data returned");
+                    log::info!("{} Skipping intent id={},kind={},state={:?} because no publish data returned",
+                        client.inbox_id(),
+                        intent.id,
+                        intent.kind,
+                        intent.state
+                    );
                     let deleter: &dyn Delete<StoredGroupIntent, Key = i32> = provider.conn_ref();
                     deleter.delete(intent.id)?;
                 }
@@ -1038,8 +1049,37 @@ impl MlsGroup {
             intent_data.into(),
         ))?;
 
+        // list of installations to remove because no member in member list
+        // construct commit that removes those members
         self.sync_until_intent_resolved(provider, intent.id, client)
             .await
+    }
+
+    pub(super) async fn remove_orphaned_installations<ApiClient: XmtpApi>(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        client: &Client<ApiClient>,
+        received_members: GroupMembership,
+    ) -> Result<(), GroupError> {
+        // time stuff for thundering herd
+        // commit for every found installation that needs removing
+        let received_members: HashSet<String> = received_members.members.keys().cloned().collect();
+        let local_members = self.members_with_provider(client, provider).await?;
+        for GroupMember {
+            inbox_id,
+            installation_ids: _,
+            ..
+        } in local_members
+        {
+            if !received_members.contains(&inbox_id) {
+                tracing::info!("Orphaned local inbox_id={inbox_id}. Prune installations");
+                // get_membership_update_intent(client, provider, vec![], vec![])
+                // prune/create new intent
+                // check that we're not trying to remove our installations
+            }
+        }
+
+        Ok(())
     }
 
     /**
@@ -1201,6 +1241,12 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
     let old_group_membership = extract_group_membership(&extensions)?;
     let new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
 
+    log::debug!(
+        "OLD_MEMBERSHIP={:?},\nNEW_MEMBERSHIP={:?}",
+        old_group_membership,
+        new_group_membership
+    );
+
     // Diff the two membership hashmaps getting a list of inboxes that have been added, removed, or updated
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
@@ -1212,6 +1258,7 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
             &old_group_membership,
             &new_group_membership,
             &membership_diff,
+            &client.inbox_id(),
         )
         .await?;
 
@@ -1260,6 +1307,7 @@ async fn apply_update_group_membership_intent<ApiClient: XmtpApi>(
     if leaf_nodes_to_remove.is_empty()
         && new_key_packages.is_empty()
         && membership_diff.updated_inboxes.is_empty()
+        && membership_diff.removed_inboxes.is_empty()
     {
         return Ok(None);
     }
@@ -1354,5 +1402,37 @@ mod tests {
             futures.push(amal_group.publish_intents(&provider, &amal))
         }
         future::join_all(futures).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn self_removal_basic_case() {
+        let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+
+        log::info!(
+            "alix={},bo={},amal={}",
+            alix.inbox_id(),
+            bo.inbox_id(),
+            amal.inbox_id()
+        );
+
+        let amal_group: Arc<MlsGroup> =
+            Arc::new(amal.create_group(None, Default::default()).unwrap());
+        amal_group.sync(&amal).await.unwrap();
+        // log::debug!("amal_group={:?}", amal_group);
+        amal_group
+            .add_members_by_inbox_id(&amal, vec![bo.inbox_id(), alix.inbox_id()])
+            .await
+            .unwrap();
+
+        alix.sync_welcomes().await.unwrap();
+
+        let alix_group = alix.group(amal_group.group_id.clone()).unwrap();
+        log::info!("Got alix group");
+        amal_group.sync(&amal).await.unwrap();
+        log::info!("\nABOUT TO REMOVE SELF\n");
+        alix_group.remove_self(&alix).await.unwrap();
+        amal_group.sync(&amal).await.unwrap();
     }
 }

@@ -158,12 +158,16 @@ where
         let inbox_id = inbox_id.as_ref();
         // TODO: Refactor this so that we don't have to fetch all the identity updates if the value is in the cache
         let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
+
+        log::debug!("\n\ngetting last seq id for inbox_id={}", inbox_id);
         let last_sequence_id = updates
             .last()
             .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
             .sequence_id;
+        log::debug!("---------------- ----------------");
         if let Some(to_sequence_id) = to_sequence_id {
             if to_sequence_id != last_sequence_id {
+                log::debug!("FAILING HERE");
                 return Err(AssociationError::MissingIdentityUpdate.into());
             }
         }
@@ -401,6 +405,7 @@ where
         old_group_membership: &GroupMembership,
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
+        sender_inbox_id: &str,
     ) -> Result<InstallationDiff, InstallationDiffError> {
         log::info!(
             "Getting installation diff. Old: {:?}. New {:?}",
@@ -463,7 +468,12 @@ where
             );
         }
 
-        for inbox_id in membership_diff.removed_inboxes.iter().cloned() {
+        for inbox_id in membership_diff
+            .removed_inboxes
+            .iter()
+            .filter(|i| **i != sender_inbox_id)
+            .cloned()
+        {
             let state_diff = self
                 .get_association_state(
                     conn,
@@ -817,17 +827,18 @@ pub(crate) mod tests {
                 &original_group_membership,
                 &new_group_membership,
                 &membership_diff,
+                &inbox_ids[0],
             )
             .await
             .unwrap();
 
         assert_eq!(installation_diff.added_installations.len(), 1);
         assert!(installation_diff
-            .added_installations
+            .added_installations()
             .contains(&client_3_installation_key),);
         assert_eq!(installation_diff.removed_installations.len(), 1);
         assert!(installation_diff
-            .removed_installations
+            .removed_installations()
             .contains(&client_2_installation_key));
     }
 

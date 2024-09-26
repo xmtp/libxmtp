@@ -264,6 +264,7 @@ impl ValidatedCommit {
             &mutable_metadata,
         )?;
 
+        let old_group_membership = extract_group_membership(existing_group_context.extensions())?;
         // Get the expected diff of installations added and removed based on the difference between the current
         // group membership and the new group membership.
         // Also gets back the added and removed inbox ids from the expected diff
@@ -276,9 +277,10 @@ impl ValidatedCommit {
             conn,
             client,
             staged_commit,
-            existing_group_context,
+            &old_group_membership,
             &immutable_metadata,
             &mutable_metadata,
+            &actor.inbox_id,
         )
         .await?;
 
@@ -297,10 +299,12 @@ impl ValidatedCommit {
         // 2. Anyone referenced in an update proposal
         // Satisfies Rule 4
         for participant in credentials_to_verify {
-            let to_sequence_id = new_group_membership
+            let all_members = old_group_membership.merge(&new_group_membership);
+            let to_sequence_id = all_members
                 .get(&participant.inbox_id)
                 .ok_or(CommitValidationError::SubjectDoesNotExist)?;
-
+            log::debug!("\nMERGED = {:#?}", all_members);
+            log::debug!("\nGETTING ASSOCIATION STATE\n");
             let inbox_state = client
                 .get_association_state(
                     conn,
@@ -319,6 +323,8 @@ impl ValidatedCommit {
                 ));
             }
         }
+
+        log::debug!("\nBuilding verified commit\n");
 
         let verified_commit = Self {
             actor,
@@ -418,7 +424,7 @@ fn get_proposal_changes(
     })
 }
 
-fn get_latest_group_membership(
+pub(super) fn get_latest_group_membership(
     staged_commit: &StagedCommit,
 ) -> Result<GroupMembership, CommitValidationError> {
     for proposal in staged_commit.queued_proposals() {
@@ -454,16 +460,17 @@ async fn extract_expected_diff<'diff, ApiClient: XmtpApi>(
     conn: &DbConnection,
     client: &Client<ApiClient>,
     staged_commit: &StagedCommit,
-    existing_group_context: &GroupContext,
+    old_group_membership: &GroupMembership,
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
+    sender_inbox_id: &str,
+    // sender_installation_id: Vec<u8>
 ) -> Result<ExpectedDiff, CommitValidationError> {
-    let old_group_membership = extract_group_membership(existing_group_context.extensions())?;
     let new_group_membership = get_latest_group_membership(staged_commit)?;
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
     validate_membership_diff(
-        &old_group_membership,
+        old_group_membership,
         &new_group_membership,
         &membership_diff,
     )?;
@@ -486,6 +493,7 @@ async fn extract_expected_diff<'diff, ApiClient: XmtpApi>(
             &old_group_membership,
             &new_group_membership,
             &membership_diff,
+            sender_inbox_id,
         )
         .await?;
 

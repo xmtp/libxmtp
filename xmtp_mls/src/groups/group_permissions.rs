@@ -598,6 +598,7 @@ pub enum PolicyError {
     FromProtoUpdatePermissionsInvalidPolicy,
 }
 
+/// Order must be same as proto
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[allow(dead_code)]
 #[repr(u8)]
@@ -608,6 +609,7 @@ pub enum BasePolicies {
     AllowSameMember,
     AllowIfAdminOrSuperAdmin,
     AllowIfSuperAdmin,
+    AllowIfAdminOrSuperAdminOrTarget,
 }
 
 impl MembershipPolicy for BasePolicies {
@@ -618,6 +620,9 @@ impl MembershipPolicy for BasePolicies {
             BasePolicies::AllowSameMember => inbox.inbox_id == actor.inbox_id,
             BasePolicies::AllowIfAdminOrSuperAdmin => actor.is_admin || actor.is_super_admin,
             BasePolicies::AllowIfSuperAdmin => actor.is_super_admin,
+            BasePolicies::AllowIfAdminOrSuperAdminOrTarget => {
+                actor.is_admin || actor.is_super_admin || actor.inbox_id == inbox.inbox_id
+            }
         }
     }
 
@@ -630,6 +635,9 @@ impl MembershipPolicy for BasePolicies {
                 BasePolicyProto::AllowIfAdminOrSuperAdmin as i32
             }
             BasePolicies::AllowIfSuperAdmin => BasePolicyProto::AllowIfSuperAdmin as i32,
+            BasePolicies::AllowIfAdminOrSuperAdminOrTarget => {
+                BasePolicyProto::AllowIfAdminOrSuperAdminOrTarget as i32
+            }
         };
 
         Ok(MembershipPolicyProto {
@@ -660,9 +668,14 @@ impl MembershipPolicies {
         MembershipPolicies::Standard(BasePolicies::AllowSameMember)
     }
 
-    #[allow(dead_code)]
     pub fn allow_if_actor_admin() -> Self {
         MembershipPolicies::Standard(BasePolicies::AllowIfAdminOrSuperAdmin)
+    }
+
+    /// Allow a remove if admin is removing or remover
+    /// is themselves (both commit sender and target)
+    pub fn allow_if_actor_admin_or_superadmin_or_target() -> Self {
+        MembershipPolicies::Standard(BasePolicies::AllowIfAdminOrSuperAdminOrTarget)
     }
 
     #[allow(dead_code)]
@@ -689,6 +702,7 @@ impl TryFrom<MembershipPolicyProto> for MembershipPolicies {
                 2 => Ok(MembershipPolicies::deny()),
                 3 => Ok(MembershipPolicies::allow_if_actor_admin()),
                 4 => Ok(MembershipPolicies::allow_if_actor_super_admin()),
+                5 => Ok(MembershipPolicies::allow_if_actor_admin_or_superadmin_or_target()),
                 _ => Err(PolicyError::InvalidMembershipPolicy),
             },
             Some(PolicyKindProto::AndCondition(inner)) => {
@@ -1087,7 +1101,7 @@ pub(crate) fn policy_all_members() -> PolicySet {
     }
     PolicySet::new(
         MembershipPolicies::allow(),
-        MembershipPolicies::allow_if_actor_admin(),
+        MembershipPolicies::allow_if_actor_admin_or_superadmin_or_target(),
         metadata_policies_map,
         PermissionsPolicies::allow_if_actor_super_admin(),
         PermissionsPolicies::allow_if_actor_super_admin(),

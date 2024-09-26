@@ -672,7 +672,9 @@ impl MlsGroup {
         &self,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError> {
-        self.remove_members_by_inbox_id(client, vec![client.identity().inbox_id()])
+        log::info!("Removing myself inbox_id={} from the group", client.inbox_id());
+        self.remove_members_by_inbox_id(client, vec![client.identity().inbox_id().to_string()])
+            .await
     }
 
     /// Remove members by Ethereum Account Address
