@@ -27,7 +27,7 @@ abigen!(
     derives(serde::Serialize, serde::Deserialize)
 );
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RpcSmartContractWalletVerifier {
     pub provider: Arc<Provider<Http>>,
 }

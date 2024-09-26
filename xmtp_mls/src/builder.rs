@@ -96,7 +96,7 @@ where
         self
     }
 
-    pub fn scw_signatuer_verifier(mut self, verifier: impl SmartContractSignatureVerifier) -> Self {
+    pub fn scw_signature_verifier(mut self, verifier: impl SmartContractSignatureVerifier) -> Self {
         self.scw_verifier = Some(Box::new(verifier));
         self
     }

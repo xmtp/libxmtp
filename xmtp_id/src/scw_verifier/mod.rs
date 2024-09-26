@@ -3,6 +3,7 @@ mod chain_rpc_verifier;
 use std::{collections::HashMap, fs, path::Path, str::FromStr};
 
 use async_trait::async_trait;
+use dyn_clone::DynClone;
 use ethers::{
     providers::{Http, Provider},
     types::{BlockNumber, Bytes},
@@ -31,7 +32,7 @@ pub enum VerifierError {
 }
 
 #[async_trait]
-pub trait SmartContractSignatureVerifier: Send + Sync + 'static {
+pub trait SmartContractSignatureVerifier: Send + Sync + DynClone + 'static {
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
@@ -41,8 +42,10 @@ pub trait SmartContractSignatureVerifier: Send + Sync + 'static {
     ) -> Result<bool, VerifierError>;
 }
 
+dyn_clone::clone_trait_object!(SmartContractSignatureVerifier);
+
 #[async_trait]
-impl<S: SmartContractSignatureVerifier + ?Sized> SmartContractSignatureVerifier for Box<S> {
+impl<S: SmartContractSignatureVerifier + Clone + ?Sized> SmartContractSignatureVerifier for Box<S> {
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
@@ -56,6 +59,7 @@ impl<S: SmartContractSignatureVerifier + ?Sized> SmartContractSignatureVerifier 
     }
 }
 
+#[derive(Clone)]
 pub struct MultiSmartContractSignatureVerifier {
     verifiers: HashMap<u64, Box<dyn SmartContractSignatureVerifier>>,
 }

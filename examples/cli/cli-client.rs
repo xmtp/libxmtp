@@ -467,7 +467,10 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
     let signature =
         UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(sig_bytes));
     signature_request
-        .add_signature(signature, client.smart_contract_signature_verifier())
+        .add_signature(
+            signature,
+            client.smart_contract_signature_verifier().as_ref(),
+        )
         .await
         .unwrap();
 

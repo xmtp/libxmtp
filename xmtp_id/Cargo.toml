@@ -24,6 +24,7 @@ tokio = { workspace = true, features = ["macros"] }
 url = { workspace = true, features = ["serde"] }
 xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
+dyn-clone = "1"
 
 [dev-dependencies]
 ctor = "0.2.5"

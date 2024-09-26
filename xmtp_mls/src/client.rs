@@ -236,7 +236,7 @@ pub struct XmtpMlsLocalContext {
     /// XMTP Local Storage
     pub(crate) store: EncryptedMessageStore,
     pub(crate) mutexes: MutexRegistry,
-    pub(crate) scw_verifier: Box<dyn SmartContractSignatureVerifier + 'static>,
+    pub scw_verifier: Box<dyn SmartContractSignatureVerifier + 'static>,
 }
 
 impl XmtpMlsLocalContext {
@@ -446,8 +446,8 @@ where
         &self.context
     }
 
-    pub fn smart_contract_signature_verifier(&self) -> &dyn SmartContractSignatureVerifier {
-        &self.context.scw_verifier
+    pub fn smart_contract_signature_verifier(&self) -> Box<dyn SmartContractSignatureVerifier> {
+        self.context.scw_verifier.clone()
     }
 
     /// Create a new group with the default settings

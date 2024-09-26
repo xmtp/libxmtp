@@ -120,7 +120,7 @@ impl ClientBuilder<TestClient> {
             nonce,
             None,
         ))
-        .scw_signatuer_verifier(MockSmartContractSignatureVerifier::new(true))
+        .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
         .temp_store()
         .local_client()
         .await
@@ -201,7 +201,7 @@ pub async fn register_client<T: XmtpApi>(client: &Client<T>, owner: &impl InboxO
     signature_request
         .add_signature(
             unverified_signature,
-            client.smart_contract_signature_verifier(),
+            client.smart_contract_signature_verifier().as_ref(),
         )
         .await
         .unwrap();
