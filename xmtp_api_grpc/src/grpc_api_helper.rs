@@ -524,8 +524,7 @@ impl XmtpMlsClient for Client {
                         else {
                             panic!("Payload is not a group message");
                         };
-                        let group_id =
-                            extract_group_id_from_topic(client_envelope.aad.unwrap().target_topic);
+
                         let group_message_input::Version::V1(v1_group_message) =
                             group_message.version.unwrap();
 
@@ -533,7 +532,7 @@ impl XmtpMlsClient for Client {
                             version: Some(group_message::Version::V1(group_message::V1 {
                                 id: unsigned_originator_envelope.originator_sequence_id,
                                 created_ns: unsigned_originator_envelope.originator_ns as u64,
-                                group_id,
+                                group_id: req.group_id.clone(),
                                 data: v1_group_message.data,
                                 sender_hmac: v1_group_message.sender_hmac,
                             })),
