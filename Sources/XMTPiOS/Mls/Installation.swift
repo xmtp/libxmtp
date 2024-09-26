@@ -19,7 +19,7 @@ public struct Installation {
 		ffiInstallation.id.toHex
     }
 	
-	var createdAt: Date? {
+	public var createdAt: Date? {
 		guard let timestampNs = ffiInstallation.clientTimestampNs else { return nil }
 		return Date(timeIntervalSince1970: TimeInterval(timestampNs) / 1_000_000_000)
 	}
