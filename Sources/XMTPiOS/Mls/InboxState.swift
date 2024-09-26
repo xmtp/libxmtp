@@ -23,8 +23,8 @@ public struct InboxState {
 		ffiInboxState.accountAddresses
 	}
 	
-	public var installationIds: [String] {
-		ffiInboxState.installationIds.map { $0.toHex }
+	public var installations: [Installation] {
+		ffiInboxState.installations.map { Installation(ffiInstallation: $0) }
 	}
 	
 	public var recoveryAddress: String {

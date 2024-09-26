@@ -83,7 +83,7 @@ public enum Conversation: Sendable {
 			case let .v2(conversationV2):
 				return conversationV2.peerAddress
 			case let .group(group):
-				return try group.peerInboxIds.joined(separator: ",")
+				throw GroupError.notSupportedByGroups
 			}
 		}
 	}
@@ -96,7 +96,7 @@ public enum Conversation: Sendable {
 			case let .v2(conversationV2):
 				return [conversationV2.peerAddress]
 			case let .group(group):
-				return try group.peerInboxIds
+				throw GroupError.notSupportedByGroups
 			}
 		}
 	}

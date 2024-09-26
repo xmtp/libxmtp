@@ -112,16 +112,16 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 
 	public var members: [Member] {
-		get throws {
-			return try ffiGroup.listMembers().map { ffiGroupMember in
+		get async throws {
+			return try await ffiGroup.listMembers().map { ffiGroupMember in
 				Member(ffiGroupMember: ffiGroupMember)
 			}
 		}
 	}
 
 	public var peerInboxIds: [String] {
-		get throws {
-			var ids = try members.map(\.inboxId)
+		get async throws {
+			var ids = try await members.map(\.inboxId)
 			if let index = ids.firstIndex(of: client.inboxID) {
 				ids.remove(at: index)
 			}

@@ -213,7 +213,7 @@ class GroupPermissionTests: XCTestCase {
         let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
 
         // Initial checks for group members and their permissions
-        var members = try bobGroup.members
+        var members = try await bobGroup.members
         var admins = members.filter { $0.permissionLevel == PermissionLevel.Admin }
         var superAdmins = members.filter { $0.permissionLevel == PermissionLevel.SuperAdmin }
         var regularMembers = members.filter { $0.permissionLevel == PermissionLevel.Member }
@@ -227,7 +227,7 @@ class GroupPermissionTests: XCTestCase {
         try await bobGroup.sync()
         try await aliceGroup.sync()
 
-        members = try bobGroup.members
+        members = try await bobGroup.members
         admins = members.filter { $0.permissionLevel == PermissionLevel.Admin }
         superAdmins = members.filter { $0.permissionLevel == PermissionLevel.SuperAdmin }
         regularMembers = members.filter { $0.permissionLevel == PermissionLevel.Member }
@@ -241,7 +241,7 @@ class GroupPermissionTests: XCTestCase {
         try await bobGroup.sync()
         try await aliceGroup.sync()
 
-        members = try bobGroup.members
+        members = try await bobGroup.members
         admins = members.filter { $0.permissionLevel == PermissionLevel.Admin }
         superAdmins = members.filter { $0.permissionLevel == PermissionLevel.SuperAdmin }
         regularMembers = members.filter { $0.permissionLevel == PermissionLevel.Member }

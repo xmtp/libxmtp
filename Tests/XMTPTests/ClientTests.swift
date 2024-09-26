@@ -506,11 +506,12 @@ class ClientTests: XCTestCase {
 		)
 		
 		let state = try await alixClient3.inboxState(refreshFromNetwork: true)
-		XCTAssertEqual(state.installationIds.count, 3)
+		XCTAssertEqual(state.installations.count, 3)
+		XCTAssert(state.installations.first?.createdAt != nil)
 		
 		try await alixClient3.revokeAllOtherInstallations(signingKey: alix)
 		
 		let newState = try await alixClient3.inboxState(refreshFromNetwork: true)
-		XCTAssertEqual(newState.installationIds.count, 1)
+		XCTAssertEqual(newState.installations.count, 1)
 	}
 }
