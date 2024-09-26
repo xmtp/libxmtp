@@ -186,7 +186,7 @@ pub struct FfiSignatureRequest {
 
 // TODO:nm store the verifier on the request from the client
 fn signature_verifier() -> impl SmartContractSignatureVerifier {
-    RpcSmartContractWalletVerifier::new("http://www.fake.com".to_string())
+    MultiSmartContractSignatureVerifier::new_from_file("chain_urls.json")
 }
 
 #[uniffi::export(async_runtime = "tokio")]

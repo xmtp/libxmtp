@@ -201,7 +201,7 @@ pub async fn register_client<T: XmtpApi>(client: &Client<T>, owner: &impl InboxO
     signature_request
         .add_signature(
             unverified_signature,
-            client.smart_contract_signature_verifier().as_ref(),
+            client.smart_contract_signature_verifier(),
         )
         .await
         .unwrap();

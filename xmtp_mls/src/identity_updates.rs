@@ -147,11 +147,8 @@ where
             .into_iter()
             .map(UnverifiedIdentityUpdate::try_from)
             .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
-        let updates = verify_updates(
-            unverified_updates,
-            self.smart_contract_signature_verifier().as_ref(),
-        )
-        .await?;
+        let updates =
+            verify_updates(unverified_updates, self.smart_contract_signature_verifier()).await?;
 
         let association_state = get_state(updates)?;
 
@@ -212,7 +209,7 @@ where
 
         let incremental_updates = verify_updates(
             unverified_incremental_updates,
-            self.smart_contract_signature_verifier().as_ref(),
+            self.smart_contract_signature_verifier(),
         )
         .await?;
         let mut final_state = initial_state.clone();
@@ -260,7 +257,7 @@ where
                     sig_bytes,
                     installation_public_key.to_vec(),
                 )),
-                self.smart_contract_signature_verifier().as_ref(),
+                self.smart_contract_signature_verifier(),
             )
             .await?;
 

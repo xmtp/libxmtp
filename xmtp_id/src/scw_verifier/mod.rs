@@ -2,8 +2,6 @@ mod chain_rpc_verifier;
 
 use std::{collections::HashMap, fs, path::Path, str::FromStr};
 
-use std::collections::HashMap;
-
 use async_trait::async_trait;
 use ethers::{
     providers::{Http, Provider},
@@ -41,6 +39,21 @@ pub trait SmartContractSignatureVerifier: Send + Sync + 'static {
         signature: &Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError>;
+}
+
+#[async_trait]
+impl<S: SmartContractSignatureVerifier + ?Sized> SmartContractSignatureVerifier for Box<S> {
+    async fn is_valid_signature(
+        &self,
+        account_id: AccountId,
+        hash: [u8; 32],
+        signature: &Bytes,
+        block_number: Option<BlockNumber>,
+    ) -> Result<bool, VerifierError> {
+        (**self)
+            .is_valid_signature(account_id, hash, signature, block_number)
+            .await
+    }
 }
 
 pub struct MultiSmartContractSignatureVerifier {
