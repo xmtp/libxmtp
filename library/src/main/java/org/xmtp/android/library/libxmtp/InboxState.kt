@@ -1,6 +1,5 @@
 package uniffi.xmtpv3.org.xmtp.android.library.libxmtp
 
-import org.xmtp.android.library.toHex
 import uniffi.xmtpv3.FfiInboxState
 
 class InboxState(private val ffiInboxState: FfiInboxState) {
@@ -9,8 +8,8 @@ class InboxState(private val ffiInboxState: FfiInboxState) {
     val addresses: List<String>
         get() = ffiInboxState.accountAddresses
 
-    val installationIds: List<String>
-        get() = ffiInboxState.installationIds.map { it.toHex() }
+    val installations: List<Installation>
+        get() = ffiInboxState.installations.map { Installation(it) }
 
     val recoveryAddress: String
         get() = ffiInboxState.recoveryAddress

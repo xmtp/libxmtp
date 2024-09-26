@@ -82,7 +82,7 @@ class V3ClientTest {
     fun testsCanCreateGroup() {
         val group = runBlocking { boV3Client.conversations.newGroup(listOf(caroV2V3.walletAddress)) }
         assertEquals(
-            group.members().map { it.inboxId }.sorted(),
+            runBlocking { group.members().map { it.inboxId }.sorted() },
             listOf(caroV2V3Client.inboxId, boV3Client.inboxId).sorted()
         )
 

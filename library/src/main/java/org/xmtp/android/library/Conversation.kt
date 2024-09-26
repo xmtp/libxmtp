@@ -3,6 +3,7 @@ package org.xmtp.android.library
 import android.util.Log
 import com.google.protobuf.kotlin.toByteString
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.libxmtp.MessageV3
 import org.xmtp.android.library.messages.DecryptedMessage
@@ -56,7 +57,7 @@ sealed class Conversation {
             return when (this) {
                 is V1 -> conversationV1.peerAddress
                 is V2 -> conversationV2.peerAddress
-                is Group -> group.peerInboxIds().joinToString(",")
+                is Group -> runBlocking { group.peerInboxIds().joinToString(",") }
             }
         }
 
@@ -65,7 +66,7 @@ sealed class Conversation {
             return when (this) {
                 is V1 -> listOf(conversationV1.peerAddress)
                 is V2 -> listOf(conversationV2.peerAddress)
-                is Group -> group.peerInboxIds()
+                is Group -> runBlocking { group.peerInboxIds() }
             }
         }
 

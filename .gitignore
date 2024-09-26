@@ -92,3 +92,6 @@ lint/tmp/
 # lint/reports/
 
 *google-services.json
+
+# OSX
+.DS_Store

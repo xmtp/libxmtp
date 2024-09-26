@@ -7,7 +7,6 @@ import org.xmtp.android.example.R
 import org.xmtp.android.example.databinding.ListItemConversationBinding
 import org.xmtp.android.example.extension.truncatedAddress
 import org.xmtp.android.library.Conversation
-import org.xmtp.android.library.codecs.GroupUpdatedCodec
 import org.xmtp.proto.mls.message.contents.TranscriptMessages
 import org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated
 

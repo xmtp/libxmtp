@@ -247,11 +247,11 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
         }
     }
 
-    fun members(): List<Member> {
+    suspend fun members(): List<Member> {
         return libXMTPGroup.listMembers().map { Member(it) }
     }
 
-    fun peerInboxIds(): List<String> {
+    suspend fun peerInboxIds(): List<String> {
         val ids = members().map { it.inboxId }.toMutableList()
         ids.remove(client.inboxId)
         return ids

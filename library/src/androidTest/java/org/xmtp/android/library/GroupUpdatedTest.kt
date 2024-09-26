@@ -89,11 +89,11 @@ class GroupUpdatedTest {
         }
         val messages = group.messages()
         assertEquals(messages.size, 1)
-        assertEquals(group.members().size, 3)
+        assertEquals(runBlocking { group.members().size }, 3)
         runBlocking { group.removeMembers(listOf(caro.walletAddress)) }
         val updatedMessages = group.messages()
         assertEquals(updatedMessages.size, 2)
-        assertEquals(group.members().size, 2)
+        assertEquals(runBlocking { group.members().size }, 2)
         val content: GroupUpdated? = updatedMessages.first().content()
 
         assertEquals(
@@ -119,7 +119,7 @@ class GroupUpdatedTest {
         }
         val messages = group.messages()
         assertEquals(messages.size, 1)
-        assertEquals(group.members().size, 3)
+        assertEquals(runBlocking { group.members().size }, 3)
         runBlocking {
             group.send(
                 content = membershipChange,

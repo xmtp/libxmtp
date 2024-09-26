@@ -509,13 +509,14 @@ class ClientTest {
         }
 
         var state = runBlocking { alixClient3.inboxState(true) }
-        assertEquals(state.installationIds.size, 3)
+        assertEquals(state.installations.size, 3)
+        assert(state.installations.first().createdAt != null)
 
         runBlocking {
             alixClient3.revokeAllOtherInstallations(alixWallet)
         }
 
         state = runBlocking { alixClient3.inboxState(true) }
-        assertEquals(state.installationIds.size, 1)
+        assertEquals(state.installations.size, 1)
     }
 }

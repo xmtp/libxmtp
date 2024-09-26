@@ -20,7 +20,7 @@ To learn about example app push notifications, see [Enable the quickstart app to
 
 ## Reference docs
 
-> **View the reference**  
+> **View the reference**
 > Access the [Kotlin client SDK reference documentation](https://xmtp.github.io/xmtp-android/).
 
 ## Install from Maven Central
@@ -51,15 +51,15 @@ val messages = conversation.messages()
 // Send a message
 conversation.send(text = "gm")
 // Listen for new messages in the conversation
-conversation.streamMessages().collect { 
+conversation.streamMessages().collect {
     print("${message.senderAddress}: ${message.body}")
 }
 ```
 
 ## Use local storage
 
-> **Important**  
-> If you are building a production-grade app, be sure to use an architecture that includes a local cache backed by an XMTP SDK.  
+> **Important**
+> If you are building a production-grade app, be sure to use an architecture that includes a local cache backed by an XMTP SDK.
 
 To learn more, see [Use a local cache](https://xmtp.org/docs/build/local-first).
 
@@ -70,7 +70,7 @@ A client is created with `Client().create(account: SigningKey): Client` that req
 1. To sign the newly generated key bundle. This happens only the very first time when a key bundle is not found in storage.
 2. To sign a random salt used to encrypt the key bundle in storage. This happens every time the client is started, including the very first time.
 
-> **Note**  
+> **Note**
 > The client connects to the XMTP `dev` environment by default. [Use `ClientOptions`](#configure-the-client) to change this and other parameters of the network connection.
 
 ```kotlin
@@ -106,10 +106,10 @@ val client = Client().buildFrom(bundle = keys, options = options)
 
 You can configure the client with these parameters of `Client.create`:
 
-| Parameter | Default | Description                                                                                                                                                                                                                                                                           |
-| --------- | ------- |---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| env       | `DEV`   | Connect to the specified XMTP network environment. Valid values include `DEV`, `.PRODUCTION`, or `LOCAL`. For important details about working with these environments, see [XMTP `production` and `dev` network environments](#xmtp-production-and-dev-network-environments). |
-| appVersion                | `undefined`                                                                       | Add a client app version identifier that's included with API requests.<br/>For example, you can use the following format: `appVersion: APP_NAME + '/' + APP_VERSION`.<br/>Setting this value provides telemetry that shows which apps are using the XMTP client SDK. This information can help XMTP developers provide app support, especially around communicating important SDK updates, including deprecations and required upgrades. |
+| Parameter  | Default     | Description                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ---------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| env        | `DEV`       | Connect to the specified XMTP network environment. Valid values include `DEV`, `.PRODUCTION`, or `LOCAL`. For important details about working with these environments, see [XMTP `production` and `dev` network environments](#xmtp-production-and-dev-network-environments).                                                                                                                                                            |
+| appVersion | `undefined` | Add a client app version identifier that's included with API requests.<br/>For example, you can use the following format: `appVersion: APP_NAME + '/' + APP_VERSION`.<br/>Setting this value provides telemetry that shows which apps are using the XMTP client SDK. This information can help XMTP developers provide app support, especially around communicating important SDK updates, including deprecations and required upgrades. |
 
 **Configure `env`**
 
@@ -119,7 +119,7 @@ val options = ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.PRODUC
 val client = Client().create(account = account, options = options)
 ```
 
-> **Note**  
+> **Note**
 > The `apiUrl`, `keyStoreType`, `codecs`, and `maxContentSize` parameters from the XMTP client SDK for JavaScript (xmtp-js) are not yet supported.
 
 ## Handle conversations
@@ -214,7 +214,7 @@ conversation.streamMessages().collect {
     if (it.senderAddress == client.address) {
         // This message was sent from me
     }
-    
+
     print("New message from ${it.senderAddress}: ${it.body}")
 }
 ```
@@ -285,11 +285,11 @@ To learn more, see [Request and respect user consent](https://xmtp.org/docs/buil
 
 ## Handle different types of content
 
-All the send functions support `SendOptions` as an optional parameter. The `contentType` option allows specifying different types of content than the default simple string, which is identified with content type identifier `ContentTypeText`. 
+All the send functions support `SendOptions` as an optional parameter. The `contentType` option allows specifying different types of content than the default simple string, which is identified with content type identifier `ContentTypeText`.
 
 To learn more about content types, see [Content types with XMTP](https://xmtp.org/docs/concepts/content-types).
 
-Support for other types of content can be added by registering additional `ContentCodec`s with the Client. Every codec is associated with a content type identifier, `ContentTypeId`, which is used to signal to the Client which codec should be used to process the content that is being sent or received. 
+Support for other types of content can be added by registering additional `ContentCodec`s with the Client. Every codec is associated with a content type identifier, `ContentTypeId`, which is used to signal to the Client which codec should be used to process the content that is being sent or received.
 
 ```kotlin
 // Assuming we've loaded a fictional NumberCodec that can be used to encode numbers,
@@ -302,7 +302,7 @@ aliceConversation.send(content = 3.14, options = options)
 
 As shown in the example above, you must provide a `contentFallback` value. Use it to provide an alt text-like description of the original content. Providing a `contentFallback` value enables clients that don't support the content type to still display something meaningful.
 
-> **Caution**  
+> **Caution**
 > If you don't provide a `contentFallback` value, clients that don't support the content type will display an empty message. This results in a poor user experience and breaks interoperability.
 
 ### Handle custom content types
@@ -334,9 +334,9 @@ Older versions of the SDK will eventually be deprecated, which means:
 
 The following table provides the deprecation schedule.
 
-| Announced  | Effective  | Minimum Version | Rationale                                                                                                         |
-| ---------- | ---------- | --------------- | ----------------------------------------------------------------------------------------------------------------- |
-| There are no deprecations scheduled for `xmtp-android` at this time. |  |          |  |
+| Announced                                                            | Effective | Minimum Version | Rationale |
+| -------------------------------------------------------------------- | --------- | --------------- | --------- |
+| There are no deprecations scheduled for `xmtp-android` at this time. |           |                 |           |
 
 Bug reports, feature requests, and PRs are welcome in accordance with these [contribution guidelines](https://github.com/xmtp/xmtp-android/blob/main/CONTRIBUTING.md).
 
@@ -347,7 +347,7 @@ XMTP provides both `production` and `dev` network environments to support the de
 The `production` and `dev` networks are completely separate and not interchangeable.
 For example, for a given blockchain account, its XMTP identity on `dev` network is completely distinct from its XMTP identity on the `production` network, as are the messages associated with these identities. In addition, XMTP identities and messages created on the `dev` network can't be accessed from or moved to the `production` network, and vice versa.
 
-> **Note**  
+> **Note**
 > When you [create a client](#create-a-client), it connects to the XMTP `dev` environment by default. To learn how to use the `env` parameter to set your client's network environment, see [Configure the client](#configure-the-client).
 
 The `env` parameter accepts one of three valid values: `dev`, `production`, or `local`. Here are some best practices for when to use each environment:
