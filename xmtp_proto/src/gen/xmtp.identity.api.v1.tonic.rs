@@ -172,6 +172,38 @@ pub mod identity_api_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn verify_smart_contract_wallet_signatures(
+            &mut self,
+            request: impl tonic::IntoRequest<
+                super::VerifySmartContractWalletSignaturesRequest,
+            >,
+        ) -> std::result::Result<
+            tonic::Response<super::VerifySmartContractWalletSignaturesResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/xmtp.identity.api.v1.IdentityApi/VerifySmartContractWalletSignatures",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "xmtp.identity.api.v1.IdentityApi",
+                        "VerifySmartContractWalletSignatures",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -201,6 +233,13 @@ pub mod identity_api_server {
             request: tonic::Request<super::GetInboxIdsRequest>,
         ) -> std::result::Result<
             tonic::Response<super::GetInboxIdsResponse>,
+            tonic::Status,
+        >;
+        async fn verify_smart_contract_wallet_signatures(
+            &self,
+            request: tonic::Request<super::VerifySmartContractWalletSignaturesRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::VerifySmartContractWalletSignaturesResponse>,
             tonic::Status,
         >;
     }
@@ -402,6 +441,60 @@ pub mod identity_api_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetInboxIdsSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/xmtp.identity.api.v1.IdentityApi/VerifySmartContractWalletSignatures" => {
+                    #[allow(non_camel_case_types)]
+                    struct VerifySmartContractWalletSignaturesSvc<T: IdentityApi>(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: IdentityApi,
+                    > tonic::server::UnaryService<
+                        super::VerifySmartContractWalletSignaturesRequest,
+                    > for VerifySmartContractWalletSignaturesSvc<T> {
+                        type Response = super::VerifySmartContractWalletSignaturesResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                super::VerifySmartContractWalletSignaturesRequest,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as IdentityApi>::verify_smart_contract_wallet_signatures(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = VerifySmartContractWalletSignaturesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

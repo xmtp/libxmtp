@@ -15,13 +15,10 @@ use xmtp_mls::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use xmtp_proto::xmtp::{
-    identity::associations::IdentityUpdate as IdentityUpdateProto,
+    identity::{ associations::{IdentityUpdate as IdentityUpdateProto, Signature}},
     mls_validation::v1::{
-        validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
-        validate_inbox_id_key_packages_response::Response as ValidateInboxIdKeyPackageResponse,
-        validation_api_server::ValidationApi, GetAssociationStateRequest,
-        GetAssociationStateResponse, ValidateGroupMessagesRequest, ValidateGroupMessagesResponse,
-        ValidateInboxIdKeyPackagesRequest, ValidateInboxIdKeyPackagesResponse,
+        validate_key_packages_response::ValidationResponse as ValidateKeyPackagesValidationResponse,
+        validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse, validate_inbox_id_key_packages_response::Response as ValidateInboxIdKeyPackageResponse, validation_api_server::ValidationApi, GetAssociationStateRequest, GetAssociationStateResponse, ValidateGroupMessagesRequest, ValidateGroupMessagesResponse, ValidateInboxIdKeyPackagesRequest, ValidateInboxIdKeyPackagesResponse, ValidateKeyPackagesRequest, ValidateKeyPackagesResponse, VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse
     },
 };
 
@@ -99,11 +96,20 @@ impl ValidationApi for ValidationService {
             .map_err(Into::into)
     }
 
+    async fn verify_smart_contract_wallet_signatures(
+        &self,
+        request: Request<VerifySmartContractWalletSignaturesRequest>,
+    ) -> Result<Response<VerifySmartContractWalletSignaturesResponse>, Status> {
+        let VerifySmartContractWalletSignaturesRequest { signatures } = request.into_inner();
+
+        verify_smart_contract_wallet_signatures(signatures, self.scw_verifier.as_ref()).await
+    }
+
     async fn validate_inbox_id_key_packages(
         &self,
-        request: Request<ValidateInboxIdKeyPackagesRequest>,
-    ) -> Result<Response<ValidateInboxIdKeyPackagesResponse>, Status> {
-        let ValidateInboxIdKeyPackagesRequest { key_packages } = request.into_inner();
+        request: Request<ValidateKeyPackagesRequest>,
+    ) -> Result<Response<ValidateKeyPackagesResponse>, Status> {
+        let ValidateKeyPackagesRequest { key_packages } = request.into_inner();
 
         let responses: Vec<_> = key_packages
             .into_iter()
@@ -111,14 +117,14 @@ impl ValidationApi for ValidationService {
             .map(validate_inbox_id_key_package)
             .collect();
 
-        let responses: Vec<ValidateInboxIdKeyPackageResponse> = join_all(responses)
+        let responses: Vec<ValidateKeyPackagesValidationResponse> = join_all(responses)
             .await
             .into_iter()
-            .map(|res| res.map_err(ValidateInboxIdKeyPackageResponse::from))
+            .map(|res| res.map_err(ValidateInboxIdKeyPackageError::from))
             .map(|r| r.unwrap_or_else(|e| e))
             .collect();
 
-        Ok(Response::new(ValidateInboxIdKeyPackagesResponse {
+        Ok(Response::new(ValidateKeyPackagesResponse {
             responses,
         }))
     }
@@ -158,6 +164,14 @@ async fn validate_inbox_id_key_package(
     })
 }
 
+async fn verify_smart_contract_wallet_signatures(
+    signatures: Vec<Signature>,
+    scw_verifier: &dyn SmartContractSignatureVerifier,
+) -> Result<Response<VerifySmartContractWalletSignaturesResponse>, Status> {
+
+    signatures.into_iter().map(|s| scw_verifier.is_valid_signature(, hash, signature, block_number))
+}
+
 async fn get_association_state(
     old_updates: Vec<IdentityUpdateProto>,
     new_updates: Vec<IdentityUpdateProto>,
@@ -169,13 +183,13 @@ async fn get_association_state(
     let old_updates = try_join_all(
         old_unverified_updates
             .iter()
-            .map(|u| async { u.to_verified(scw_verifier).await }),
+            .map(|u| u.to_verified(scw_verifier)),
     )
     .await?;
     let new_updates = try_join_all(
         new_unverified_updates
             .iter()
-            .map(|u| async { u.to_verified(scw_verifier).await }),
+            .map(|u| u.to_verified(scw_verifier)),
     )
     .await?;
     if old_updates.is_empty() {

@@ -548,11 +548,14 @@ impl serde::Serialize for ClientEnvelope {
                 client_envelope::Payload::WelcomeMessage(v) => {
                     struct_ser.serialize_field("welcomeMessage", v)?;
                 }
-                client_envelope::Payload::IdentityUpdate(v) => {
-                    struct_ser.serialize_field("identityUpdate", v)?;
+                client_envelope::Payload::RegisterInstallation(v) => {
+                    struct_ser.serialize_field("registerInstallation", v)?;
                 }
                 client_envelope::Payload::UploadKeyPackage(v) => {
                     struct_ser.serialize_field("uploadKeyPackage", v)?;
+                }
+                client_envelope::Payload::RevokeInstallation(v) => {
+                    struct_ser.serialize_field("revokeInstallation", v)?;
                 }
             }
         }
@@ -571,10 +574,12 @@ impl<'de> serde::Deserialize<'de> for ClientEnvelope {
             "groupMessage",
             "welcome_message",
             "welcomeMessage",
-            "identity_update",
-            "identityUpdate",
+            "register_installation",
+            "registerInstallation",
             "upload_key_package",
             "uploadKeyPackage",
+            "revoke_installation",
+            "revokeInstallation",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -582,8 +587,9 @@ impl<'de> serde::Deserialize<'de> for ClientEnvelope {
             Aad,
             GroupMessage,
             WelcomeMessage,
-            IdentityUpdate,
+            RegisterInstallation,
             UploadKeyPackage,
+            RevokeInstallation,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -608,8 +614,9 @@ impl<'de> serde::Deserialize<'de> for ClientEnvelope {
                             "aad" => Ok(GeneratedField::Aad),
                             "groupMessage" | "group_message" => Ok(GeneratedField::GroupMessage),
                             "welcomeMessage" | "welcome_message" => Ok(GeneratedField::WelcomeMessage),
-                            "identityUpdate" | "identity_update" => Ok(GeneratedField::IdentityUpdate),
+                            "registerInstallation" | "register_installation" => Ok(GeneratedField::RegisterInstallation),
                             "uploadKeyPackage" | "upload_key_package" => Ok(GeneratedField::UploadKeyPackage),
+                            "revokeInstallation" | "revoke_installation" => Ok(GeneratedField::RevokeInstallation),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -653,11 +660,11 @@ impl<'de> serde::Deserialize<'de> for ClientEnvelope {
                             payload__ = map_.next_value::<::std::option::Option<_>>()?.map(client_envelope::Payload::WelcomeMessage)
 ;
                         }
-                        GeneratedField::IdentityUpdate => {
+                        GeneratedField::RegisterInstallation => {
                             if payload__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("identityUpdate"));
+                                return Err(serde::de::Error::duplicate_field("registerInstallation"));
                             }
-                            payload__ = map_.next_value::<::std::option::Option<_>>()?.map(client_envelope::Payload::IdentityUpdate)
+                            payload__ = map_.next_value::<::std::option::Option<_>>()?.map(client_envelope::Payload::RegisterInstallation)
 ;
                         }
                         GeneratedField::UploadKeyPackage => {
@@ -665,6 +672,13 @@ impl<'de> serde::Deserialize<'de> for ClientEnvelope {
                                 return Err(serde::de::Error::duplicate_field("uploadKeyPackage"));
                             }
                             payload__ = map_.next_value::<::std::option::Option<_>>()?.map(client_envelope::Payload::UploadKeyPackage)
+;
+                        }
+                        GeneratedField::RevokeInstallation => {
+                            if payload__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("revokeInstallation"));
+                            }
+                            payload__ = map_.next_value::<::std::option::Option<_>>()?.map(client_envelope::Payload::RevokeInstallation)
 ;
                         }
                     }
