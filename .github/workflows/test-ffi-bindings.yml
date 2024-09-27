@@ -50,8 +50,8 @@ jobs:
           cd bindings_ffi
           make install-jar
           echo "$(make echo-jar | tail -n 1 | sed -e 's/\.*export //')" >> "$GITHUB_ENV"
-      - name: Install Nexte.st
-        run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
       - name: Run cargo nextest on FFI bindings
         run: |
           export CLASSPATH="${{ env.CLASSPATH }}"

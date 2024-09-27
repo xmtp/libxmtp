@@ -36,8 +36,8 @@ jobs:
             .
       - name: Start Docker containers
         run: dev/up
-      - name: Install Nexte.st
-        run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
       - name: Run cargo nextest on main workspace
         run: cargo nextest run --workspace --exclude xmtp_api_grpc --features http-api --test-threads 2
 
