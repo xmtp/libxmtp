@@ -36,6 +36,8 @@ jobs:
             .
       - name: Start Docker containers
         run: dev/up
+      - name: Install Nexte.st
+        run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
       - name: Run cargo nextest on main workspace
         run: cargo nextest run --test-threads 2
 
