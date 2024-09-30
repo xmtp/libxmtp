@@ -157,7 +157,7 @@ impl NapiClient {
 
   #[napi]
   pub fn is_registered(&self) -> bool {
-    self.inner_client.identity().signature_request().is_none()
+    self.inner_client.identity().is_ready()
   }
 
   #[napi]
@@ -254,6 +254,21 @@ impl NapiClient {
     let state = self
       .inner_client
       .inbox_state(refresh_from_network)
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    Ok(state.into())
+  }
+
+  #[napi]
+  pub async fn get_latest_inbox_state(&self, inbox_id: String) -> Result<NapiInboxState> {
+    let conn = self
+      .inner_client
+      .store()
+      .conn()
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    let state = self
+      .inner_client
+      .get_latest_association_state(&conn, &inbox_id)
       .await
       .map_err(|e| Error::from_reason(format!("{}", e)))?;
     Ok(state.into())

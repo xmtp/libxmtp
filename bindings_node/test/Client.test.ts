@@ -45,6 +45,16 @@ describe('Client', () => {
       user.account.address.toLowerCase(),
     ])
     expect(inboxState.recoveryAddress).toBe(user.account.address.toLowerCase())
+
+    const user2 = createUser()
+    const client2 = await createClient(user2)
+    const inboxState2 = await client2.getLatestInboxState(client.inboxId())
+    expect(inboxState2.inboxId).toBe(client.inboxId())
+    expect(inboxState2.installationIds).toEqual([client.installationId()])
+    expect(inboxState2.accountAddresses).toEqual([
+      user.account.address.toLowerCase(),
+    ])
+    expect(inboxState2.recoveryAddress).toBe(user.account.address.toLowerCase())
   })
 
   it('should add a wallet association to the client', async () => {
