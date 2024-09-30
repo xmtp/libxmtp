@@ -1865,38 +1865,40 @@ mod tests {
         assert!(matching_message.is_some());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_create_from_welcome_validation() {
-        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    #[test]
+    fn test_create_from_welcome_validation() {
+        crate::traced_test(|| async {
+            let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+            let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alix_group: MlsGroup = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        let provider = alix.mls_provider().unwrap();
-        // Doctor the group membership
-        let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
-        let mut existing_extensions = mls_group.extensions().clone();
-        let mut group_membership = GroupMembership::new();
-        group_membership.add("foo".to_string(), 1);
-        existing_extensions.add_or_replace(build_group_membership_extension(&group_membership));
-        mls_group
-            .update_group_context_extensions(
-                &provider,
-                existing_extensions.clone(),
-                &alix.identity().installation_keys,
-            )
-            .unwrap();
-        mls_group.merge_pending_commit(&provider).unwrap();
+            let alix_group: MlsGroup = alix
+                .create_group(None, GroupMetadataOptions::default())
+                .unwrap();
+            let provider = alix.mls_provider().unwrap();
+            // Doctor the group membership
+            let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
+            let mut existing_extensions = mls_group.extensions().clone();
+            let mut group_membership = GroupMembership::new();
+            group_membership.add("foo".to_string(), 1);
+            existing_extensions.add_or_replace(build_group_membership_extension(&group_membership));
+            mls_group
+                .update_group_context_extensions(
+                    &provider,
+                    existing_extensions.clone(),
+                    &alix.identity().installation_keys,
+                )
+                .unwrap();
+            mls_group.merge_pending_commit(&provider).unwrap();
 
-        // Now add bo to the group
-        force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
+            // Now add bo to the group
+            force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
 
-        // Bo should not be able to actually read this group
-        bo.sync_welcomes().await.unwrap();
-        let groups = bo.find_groups(FindGroupParams::default()).unwrap();
-        assert_eq!(groups.len(), 0);
-        assert_logged!("failed to create group from welcome", 1);
+            // Bo should not be able to actually read this group
+            bo.sync_welcomes().await.unwrap();
+            let groups = bo.find_groups(FindGroupParams::default()).unwrap();
+            assert_eq!(groups.len(), 0);
+            assert_logged!("failed to create group from welcome", 1);
+        });
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
