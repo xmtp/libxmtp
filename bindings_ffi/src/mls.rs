@@ -10,8 +10,7 @@ use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::{
     associations::{
         builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id,
-        unverified::UnverifiedSignature, AccountId, AssociationState,
-        MemberIdentifier
+        unverified::UnverifiedSignature, AccountId, AssociationState, MemberIdentifier,
     },
     scw_verifier::{RpcSmartContractWalletVerifier, SmartContractSignatureVerifier},
     InboxId,
