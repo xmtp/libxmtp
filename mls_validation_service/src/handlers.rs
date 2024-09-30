@@ -173,8 +173,7 @@ impl ValidationApi for ValidationService {
     async fn validate_inbox_id_key_packages(
         &self,
         request: tonic::Request<ValidateKeyPackagesRequest>,
-    ) -> std::result::Result<tonic::Response<ValidateInboxIdKeyPackagesResponse>, tonic::Status>
-    {
+    ) -> Result<Response<ValidateInboxIdKeyPackagesResponse>, Status> {
         let ValidateKeyPackagesRequest { key_packages } = request.into_inner();
 
         let responses: Vec<_> = key_packages
@@ -183,7 +182,7 @@ impl ValidationApi for ValidationService {
             .map(validate_inbox_id_key_package)
             .collect();
 
-        let responses: Vec<ValidateInboxIdKeyPackageResponse> = join_all(responses)
+        let responses: Vec<_> = join_all(responses)
             .await
             .into_iter()
             .map(|res| res.map_err(ValidateInboxIdKeyPackageResponse::from))
@@ -460,10 +459,11 @@ mod tests {
         unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
     };
     use xmtp_mls::configuration::CIPHERSUITE;
-    use xmtp_proto::xmtp::identity::{
-        associations::IdentityUpdate as IdentityUpdateProto, MlsCredential as InboxIdMlsCredential,
+    use xmtp_proto::xmtp::{
+        identity::associations::IdentityUpdate as IdentityUpdateProto,
+        identity::MlsCredential as InboxIdMlsCredential,
+        mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
     };
-    use xmtp_proto::xmtp::mls_validation::v1::validate_inbox_id_key_packages_request::KeyPackage as KeyPackageProtoWrapper;
 
     use super::*;
 
@@ -570,7 +570,7 @@ mod tests {
         };
 
         let key_package_bytes = build_key_package_bytes(&keypair, &credential_with_key, None);
-        let request = ValidateInboxIdKeyPackagesRequest {
+        let request = ValidateKeyPackagesRequest {
             key_packages: vec![KeyPackageProtoWrapper {
                 key_package_bytes_tls_serialized: key_package_bytes,
                 is_inbox_id_credential: false,
@@ -611,7 +611,7 @@ mod tests {
         };
 
         let key_package_bytes = build_key_package_bytes(&keypair, &credential_with_key, None);
-        let request = ValidateInboxIdKeyPackagesRequest {
+        let request = ValidateKeyPackagesRequest {
             key_packages: vec![KeyPackageProtoWrapper {
                 key_package_bytes_tls_serialized: key_package_bytes,
                 is_inbox_id_credential: false,
