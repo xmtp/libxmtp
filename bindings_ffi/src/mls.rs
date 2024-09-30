@@ -3117,7 +3117,7 @@ mod tests {
     async fn test_message_streaming_when_removed_then_added() {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
-        tracing::info!(
+        log::info!(
             "Created Inbox IDs {} and {}",
             amal.inbox_id(),
             bola.inbox_id()

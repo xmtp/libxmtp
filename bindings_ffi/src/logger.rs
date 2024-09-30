@@ -10,13 +10,13 @@ struct RustLogger {
 }
 
 impl log::Log for RustLogger {
-    f
-    n enabled(&self, _metadata: &Metadata) -> bool {
+    fn enabled(&self, _metadata: &Metadata) -> bool {
         true
     }
 
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
+            // TODO handle errors
             self.logger.lock().log(
                 record.level() as u32,
                 record.level().to_string(),
@@ -30,6 +30,7 @@ impl log::Log for RustLogger {
 
 static LOGGER_INIT: Once = Once::new();
 pub fn init_logger(logger: Box<dyn FfiLogger>) {
+    // TODO handle errors
     LOGGER_INIT.call_once(|| {
         let logger = RustLogger {
             logger: parking_lot::Mutex::new(logger),
