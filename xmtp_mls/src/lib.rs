@@ -137,9 +137,13 @@ mod tests {
     // Execute once before any tests are run
     #[ctor::ctor]
     fn setup() {
+        let filter = EnvFilter::builder()
+            .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
+            .from_env_lossy();
+
         tracing_subscriber::registry()
             .with(fmt::layer())
-            .with(EnvFilter::from_default_env())
+            .with(filter)
             .init();
     }
 
@@ -172,6 +176,8 @@ mod tests {
     impl io::Write for TestWriter {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
             let mut this = self.0.lock();
+            // still print logs for tests
+            print!("{}", String::from_utf8_lossy(buf));
             Vec::<u8>::write(&mut this, buf)
         }
 
