@@ -478,6 +478,9 @@ impl MlsGroup {
         self.sync_until_last_intent_resolved(&provider, client)
             .await?;
 
+        // implicitly set group consent state to allowed
+        self.update_consent_state(ConsentState::Allowed)?;
+
         message_id
     }
 
@@ -496,6 +499,10 @@ impl MlsGroup {
             .await?;
         self.sync_until_last_intent_resolved(&provider, client)
             .await?;
+
+        // implicitly set group consent state to allowed
+        self.update_consent_state(ConsentState::Allowed)?;
+
         Ok(())
     }
 
@@ -3258,13 +3265,55 @@ mod tests {
     #[tokio::test]
     async fn test_get_and_set_consent() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let group = alix
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let alix_group = alix
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
-        group.update_consent_state(ConsentState::Denied).unwrap();
-        let consent = group.consent_state().unwrap();
+        // group consent state should be allowed if user created it
+        assert_eq!(alix_group.consent_state().unwrap(), ConsentState::Allowed);
 
-        assert_eq!(consent, ConsentState::Denied);
+        alix_group
+            .update_consent_state(ConsentState::Denied)
+            .unwrap();
+        assert_eq!(alix_group.consent_state().unwrap(), ConsentState::Denied);
+
+        alix_group
+            .add_members_by_inbox_id(&alix, vec![bola.inbox_id()])
+            .await
+            .unwrap();
+
+        bola.sync_welcomes().await.unwrap();
+        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_group = bola_groups.first().unwrap();
+        // group consent state should default to unknown for users who did not create the group
+        assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Unknown);
+
+        bola_group
+            .send_message("hi from bola".as_bytes(), &bola)
+            .await
+            .unwrap();
+
+        // group consent state should be allowed if user sends a message to the group
+        assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Allowed);
+
+        alix_group
+            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+            .await
+            .unwrap();
+
+        caro.sync_welcomes().await.unwrap();
+        let caro_groups = caro.find_groups(None, None, None, None).unwrap();
+        let caro_group = caro_groups.first().unwrap();
+
+        caro_group
+            .send_message_optimistic("hi from caro".as_bytes())
+            .unwrap();
+
+        caro_group.publish_messages(&caro).await.unwrap();
+
+        // group consent state should be allowed if user publishes a message to the group
+        assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Allowed);
     }
 }
