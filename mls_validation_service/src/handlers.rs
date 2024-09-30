@@ -1,4 +1,4 @@
-use ethers::types::{BlockNumber, Bytes, U64};
+use ethers::types::{BlockNumber, U64};
 use futures::future::{join_all, try_join_all};
 use openmls::prelude::{tls_codec::Deserialize, BasicCredential, MlsMessageIn, ProtocolMessage};
 use openmls_rust_crypto::RustCrypto;
@@ -7,7 +7,7 @@ use tonic::{Request, Response, Status};
 use xmtp_id::{
     associations::{
         self, try_map_vec, unverified::UnverifiedIdentityUpdate, AccountId, AssociationError,
-        DeserializationError, MemberIdentifier, SignatureError,
+        DeserializationError, IdentityUpdate, MemberIdentifier, SignatureError,
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
@@ -17,9 +17,7 @@ use xmtp_mls::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use xmtp_proto::xmtp::{
-    identity::associations::{
-        IdentityUpdate as IdentityUpdateProto, Signature, SmartContractWalletSignature,
-    },
+    identity::associations::{IdentityUpdate as IdentityUpdateProto, SmartContractWalletSignature},
     mls_validation::v1::{
         validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
         validate_inbox_id_key_packages_response::Response as ValidateInboxIdKeyPackageResponse,
@@ -29,10 +27,9 @@ use xmtp_proto::xmtp::{
         validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
         validation_api_server::ValidationApi, GetAssociationStateRequest,
         GetAssociationStateResponse, ValidateGroupMessagesRequest, ValidateGroupMessagesResponse,
-        ValidateInboxIdKeyPackagesRequest, ValidateInboxIdKeyPackagesResponse,
-        ValidateInboxIdsRequest, ValidateInboxIdsResponse, ValidateKeyPackagesRequest,
-        ValidateKeyPackagesResponse, VerifySmartContractWalletSignaturesRequest,
-        VerifySmartContractWalletSignaturesResponse,
+        ValidateInboxIdKeyPackagesResponse, ValidateInboxIdsRequest, ValidateInboxIdsResponse,
+        ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
+        VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
     },
 };
 
@@ -71,7 +68,10 @@ impl ValidationApi for ValidationService {
         request: tonic::Request<ValidateInboxIdsRequest>,
     ) -> Result<tonic::Response<ValidateInboxIdsResponse>, tonic::Status> {
         let ValidateInboxIdsRequest { requests } = request.into_inner();
-        let responses: Vec<_> = requests.into_iter().map(validate_inbox_id).collect();
+        let responses: Vec<_> = requests
+            .into_iter()
+            .map(|r| validate_inbox_id(r, &*self.scw_verifier))
+            .collect();
 
         let responses: Vec<InboxIdValidationResponse> = join_all(responses)
             .await
@@ -254,6 +254,7 @@ impl From<InboxIdValidationError> for InboxIdValidationResponse {
 
 async fn validate_inbox_id(
     request: InboxIdValidationRequest,
+    scw_verifier: &dyn SmartContractSignatureVerifier,
 ) -> Result<InboxIdValidationResponse, InboxIdValidationError> {
     let InboxIdValidationRequest {
         credential,
@@ -267,16 +268,25 @@ async fn validate_inbox_id(
 
     let inbox_id = credential.expect("checked for empty credential").inbox_id;
 
-    let state = associations::get_state(try_map_vec(identity_updates).map_err(|e| {
-        InboxIdValidationError::Deserialization {
+    let unverified_identity_updates: Vec<UnverifiedIdentityUpdate> = try_map_vec(identity_updates)
+        .map_err(|e| InboxIdValidationError::Deserialization {
+            source: e,
+            id: inbox_id.clone(),
+        })?;
+    let identity_updates: Vec<IdentityUpdate> = try_join_all(
+        unverified_identity_updates
+            .iter()
+            .map(|u| u.to_verified(scw_verifier))
+            .collect::<Vec<_>>(),
+    )
+    .await
+    .unwrap();
+
+    let state = associations::get_state(identity_updates).map_err(|e| {
+        InboxIdValidationError::Association {
             source: e,
             id: inbox_id.clone(),
         }
-    })?)
-    .await
-    .map_err(|e| InboxIdValidationError::Association {
-        source: e,
-        id: inbox_id.clone(),
     })?;
 
     // this is defensive and should not happen.
