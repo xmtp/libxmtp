@@ -1,18 +1,19 @@
 use ethers::types::{BlockNumber, Bytes, U64};
 use futures::future::{join_all, try_join_all};
-use openmls::prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage};
+use openmls::prelude::{tls_codec::Deserialize, BasicCredential, MlsMessageIn, ProtocolMessage};
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
 use xmtp_id::{
     associations::{
         self, try_map_vec, unverified::UnverifiedIdentityUpdate, AccountId, AssociationError,
-        DeserializationError, SignatureError,
+        DeserializationError, MemberIdentifier, SignatureError,
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
 use xmtp_mls::{
     utils::id::serialize_group_id,
+    verified_key_package::VerifiedKeyPackage,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use xmtp_proto::xmtp::{
@@ -22,12 +23,16 @@ use xmtp_proto::xmtp::{
     mls_validation::v1::{
         validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
         validate_inbox_id_key_packages_response::Response as ValidateInboxIdKeyPackageResponse,
+        validate_inbox_ids_request::ValidationRequest as InboxIdValidationRequest,
+        validate_inbox_ids_response::ValidationResponse as InboxIdValidationResponse,
         validate_key_packages_response::ValidationResponse as ValidateKeyPackagesValidationResponse,
+        validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
         validation_api_server::ValidationApi, GetAssociationStateRequest,
         GetAssociationStateResponse, ValidateGroupMessagesRequest, ValidateGroupMessagesResponse,
         ValidateInboxIdKeyPackagesRequest, ValidateInboxIdKeyPackagesResponse,
-        ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
-        VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
+        ValidateInboxIdsRequest, ValidateInboxIdsResponse, ValidateKeyPackagesRequest,
+        ValidateKeyPackagesResponse, VerifySmartContractWalletSignaturesRequest,
+        VerifySmartContractWalletSignaturesResponse,
     },
 };
 
@@ -61,6 +66,57 @@ impl ValidationService {
 
 #[tonic::async_trait]
 impl ValidationApi for ValidationService {
+    async fn validate_inbox_ids(
+        &self,
+        request: tonic::Request<ValidateInboxIdsRequest>,
+    ) -> Result<tonic::Response<ValidateInboxIdsResponse>, tonic::Status> {
+        let ValidateInboxIdsRequest { requests } = request.into_inner();
+        let responses: Vec<_> = requests.into_iter().map(validate_inbox_id).collect();
+
+        let responses: Vec<InboxIdValidationResponse> = join_all(responses)
+            .await
+            .into_iter()
+            .map(|res| res.map_err(InboxIdValidationResponse::from))
+            .map(|r| r.unwrap_or_else(|e| e))
+            .collect();
+        Ok(Response::new(ValidateInboxIdsResponse { responses }))
+    }
+
+    async fn validate_key_packages(
+        &self,
+        request: tonic::Request<ValidateKeyPackagesRequest>,
+    ) -> std::result::Result<tonic::Response<ValidateKeyPackagesResponse>, tonic::Status> {
+        let out: Vec<ValidateKeyPackagesValidationResponse> = request
+            .into_inner()
+            .key_packages
+            .into_iter()
+            .map(
+                |kp| match validate_key_package(kp.key_package_bytes_tls_serialized) {
+                    Ok(res) => ValidateKeyPackageValidationResponse {
+                        is_ok: true,
+                        error_message: "".to_string(),
+                        installation_id: res.installation_id,
+                        account_address: res.account_address,
+                        credential_identity_bytes: res.credential_identity_bytes,
+                        expiration: res.expiration,
+                    },
+                    Err(e) => ValidateKeyPackageValidationResponse {
+                        is_ok: false,
+                        error_message: e,
+                        installation_id: vec![],
+                        account_address: "".to_string(),
+                        credential_identity_bytes: vec![],
+                        expiration: 0,
+                    },
+                },
+            )
+            .collect();
+
+        Ok(Response::new(ValidateKeyPackagesResponse {
+            responses: out,
+        }))
+    }
+
     async fn validate_group_messages(
         &self,
         request: Request<ValidateGroupMessagesRequest>,
@@ -116,8 +172,9 @@ impl ValidationApi for ValidationService {
 
     async fn validate_inbox_id_key_packages(
         &self,
-        request: Request<ValidateKeyPackagesRequest>,
-    ) -> Result<Response<ValidateKeyPackagesResponse>, Status> {
+        request: tonic::Request<ValidateKeyPackagesRequest>,
+    ) -> std::result::Result<tonic::Response<ValidateInboxIdKeyPackagesResponse>, tonic::Status>
+    {
         let ValidateKeyPackagesRequest { key_packages } = request.into_inner();
 
         let responses: Vec<_> = key_packages
@@ -126,15 +183,125 @@ impl ValidationApi for ValidationService {
             .map(validate_inbox_id_key_package)
             .collect();
 
-        let responses: Vec<ValidateKeyPackagesValidationResponse> = join_all(responses)
+        let responses: Vec<ValidateInboxIdKeyPackageResponse> = join_all(responses)
             .await
             .into_iter()
-            .map(|res| res.map_err(ValidateInboxIdKeyPackageError::from))
+            .map(|res| res.map_err(ValidateInboxIdKeyPackageResponse::from))
             .map(|r| r.unwrap_or_else(|e| e))
             .collect();
 
-        Ok(Response::new(ValidateKeyPackagesResponse { responses }))
+        Ok(Response::new(ValidateInboxIdKeyPackagesResponse {
+            responses,
+        }))
     }
+}
+
+/// Error type for inbox ID validation
+/// Each variant requires carrying the ID that failed to validate
+/// The error variant itself becomes the failed version of `InboxIdValidationResponse` but allows
+/// us to write normal rust in `validate_inbox_id`
+#[derive(thiserror::Error, Debug)]
+enum InboxIdValidationError {
+    #[error("Inbox ID {id} failed to validate")]
+    Deserialization {
+        id: String,
+        source: DeserializationError,
+    },
+    #[error("Valid association state could not be found for inbox {id}, {source}")]
+    Association {
+        id: String,
+        source: AssociationError,
+    },
+    #[error("Missing Credential")]
+    MissingCredential,
+    #[error("Inbox {id} is not associated with member {member}")]
+    MemberNotAssociated {
+        id: String,
+        member: MemberIdentifier,
+    },
+    #[error(
+        "Given Inbox Id, {credential_inbox_id} does not match resulting inbox id, {state_inbox_id}"
+    )]
+    InboxIdDoesNotMatch {
+        credential_inbox_id: String,
+        state_inbox_id: String,
+    },
+}
+
+impl InboxIdValidationError {
+    pub fn inbox_id(&self) -> String {
+        match self {
+            InboxIdValidationError::Deserialization { id, .. } => id.clone(),
+            InboxIdValidationError::MissingCredential => "null".to_string(),
+            InboxIdValidationError::Association { id, .. } => id.clone(),
+            InboxIdValidationError::MemberNotAssociated { id, .. } => id.clone(),
+            InboxIdValidationError::InboxIdDoesNotMatch {
+                credential_inbox_id,
+                ..
+            } => credential_inbox_id.clone(),
+        }
+    }
+}
+
+impl From<InboxIdValidationError> for InboxIdValidationResponse {
+    fn from(err: InboxIdValidationError) -> Self {
+        InboxIdValidationResponse {
+            is_ok: false,
+            error_message: err.to_string(),
+            inbox_id: err.inbox_id(),
+        }
+    }
+}
+
+async fn validate_inbox_id(
+    request: InboxIdValidationRequest,
+) -> Result<InboxIdValidationResponse, InboxIdValidationError> {
+    let InboxIdValidationRequest {
+        credential,
+        installation_public_key,
+        identity_updates,
+    } = request;
+
+    if credential.is_none() {
+        return Err(InboxIdValidationError::MissingCredential);
+    }
+
+    let inbox_id = credential.expect("checked for empty credential").inbox_id;
+
+    let state = associations::get_state(try_map_vec(identity_updates).map_err(|e| {
+        InboxIdValidationError::Deserialization {
+            source: e,
+            id: inbox_id.clone(),
+        }
+    })?)
+    .await
+    .map_err(|e| InboxIdValidationError::Association {
+        source: e,
+        id: inbox_id.clone(),
+    })?;
+
+    // this is defensive and should not happen.
+    // The only way an inbox id is different is if xmtp-node-go hands over identity updates with a different inbox id.
+    // which is a bug.
+    if state.inbox_id().as_ref() != *inbox_id {
+        return Err(InboxIdValidationError::InboxIdDoesNotMatch {
+            credential_inbox_id: inbox_id.clone(),
+            state_inbox_id: state.inbox_id().clone(),
+        });
+    }
+
+    let member = MemberIdentifier::Installation(installation_public_key);
+    if state.get(&member).is_none() {
+        return Err(InboxIdValidationError::MemberNotAssociated {
+            id: inbox_id,
+            member,
+        });
+    }
+    Ok(InboxIdValidationResponse {
+        is_ok: true,
+        error_message: "".to_string(),
+        inbox_id,
+    })
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -174,7 +341,7 @@ async fn validate_inbox_id_key_package(
 async fn verify_smart_contract_wallet_signatures(
     signatures: Vec<SmartContractWalletSignature>,
     scw_verifier: &dyn SmartContractSignatureVerifier,
-) -> Result<VerifySmartContractWalletSignaturesResponse, Status> {
+) -> Result<Response<VerifySmartContractWalletSignaturesResponse>, Status> {
     let mut futures = vec![];
 
     for sig in signatures {
@@ -186,7 +353,9 @@ async fn verify_smart_contract_wallet_signatures(
         ));
     }
 
-    Ok(VerifySmartContractWalletSignaturesResponse { responses: vec![] })
+    Ok(Response::new(VerifySmartContractWalletSignaturesResponse {
+        responses: vec![],
+    }))
 }
 
 async fn get_association_state(
@@ -245,6 +414,32 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
 
     Ok(ValidateGroupMessageResult {
         group_id: serialize_group_id(protocol_message.group_id().as_slice()),
+    })
+}
+
+struct ValidateKeyPackageResult {
+    installation_id: Vec<u8>,
+    account_address: String,
+    credential_identity_bytes: Vec<u8>,
+    expiration: u64,
+}
+
+fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackageResult, String> {
+    let rust_crypto = RustCrypto::default();
+    let verified_key_package =
+        VerifiedKeyPackage::from_bytes(&rust_crypto, key_package_bytes.as_slice())
+            .map_err(|e| e.to_string())?;
+
+    let credential = verified_key_package.inner.leaf_node().credential();
+
+    let basic_credential =
+        BasicCredential::try_from(credential.clone()).map_err(|e| e.to_string())?;
+
+    Ok(ValidateKeyPackageResult {
+        installation_id: verified_key_package.installation_id(),
+        account_address: verified_key_package.account_address,
+        credential_identity_bytes: basic_credential.identity().to_vec(),
+        expiration: 0,
     })
 }
 
