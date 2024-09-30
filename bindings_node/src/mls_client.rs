@@ -1,4 +1,5 @@
 use crate::conversations::NapiConversations;
+use crate::inbox_state::NapiInboxState;
 use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::collections::HashMap;
@@ -8,8 +9,8 @@ use tokio::sync::Mutex;
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
+use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 use xmtp_id::associations::unverified::UnverifiedSignature;
-use xmtp_id::associations::{generate_inbox_id as xmtp_id_generate_inbox_id, AssociationState};
 use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::identity::IdentityStrategy;
@@ -26,29 +27,6 @@ pub enum NapiSignatureRequestType {
   CreateInbox,
   RevokeWallet,
   RevokeInstallations,
-}
-
-#[napi(object)]
-pub struct NapiInboxState {
-  pub inbox_id: String,
-  pub recovery_address: String,
-  pub installation_ids: Vec<String>,
-  pub account_addresses: Vec<String>,
-}
-
-impl From<AssociationState> for NapiInboxState {
-  fn from(state: AssociationState) -> Self {
-    Self {
-      inbox_id: state.inbox_id().to_string(),
-      recovery_address: state.recovery_address().to_string(),
-      installation_ids: state
-        .installation_ids()
-        .into_iter()
-        .map(|id| ed25519_public_key_to_address(id.as_slice()))
-        .collect(),
-      account_addresses: state.account_addresses(),
-    }
-  }
 }
 
 #[napi]

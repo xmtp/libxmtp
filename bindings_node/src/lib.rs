@@ -4,6 +4,7 @@
 mod conversations;
 pub mod encoded_content;
 mod groups;
+mod inbox_state;
 mod messages;
 pub mod mls_client;
 mod permissions;

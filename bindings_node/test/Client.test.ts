@@ -40,7 +40,8 @@ describe('Client', () => {
     const client = await createRegisteredClient(user)
     const inboxState = await client.inboxState(false)
     expect(inboxState.inboxId).toBe(client.inboxId())
-    expect(inboxState.installationIds).toEqual([client.installationId()])
+    expect(inboxState.installations.length).toBe(1)
+    expect(inboxState.installations[0].id).toBe(client.installationId())
     expect(inboxState.accountAddresses).toEqual([
       user.account.address.toLowerCase(),
     ])
@@ -50,7 +51,8 @@ describe('Client', () => {
     const client2 = await createClient(user2)
     const inboxState2 = await client2.getLatestInboxState(client.inboxId())
     expect(inboxState2.inboxId).toBe(client.inboxId())
-    expect(inboxState2.installationIds).toEqual([client.installationId()])
+    expect(inboxState.installations.length).toBe(1)
+    expect(inboxState.installations[0].id).toBe(client.installationId())
     expect(inboxState2.accountAddresses).toEqual([
       user.account.address.toLowerCase(),
     ])
@@ -153,10 +155,12 @@ describe('Client', () => {
     const client3 = await createRegisteredClient(user)
 
     const inboxState = await client3.inboxState(true)
-    expect(inboxState.installationIds.length).toEqual(3)
-    expect(inboxState.installationIds).toContain(client.installationId())
-    expect(inboxState.installationIds).toContain(client2.installationId())
-    expect(inboxState.installationIds).toContain(client3.installationId())
+    expect(inboxState.installations.length).toBe(3)
+
+    const installationIds = inboxState.installations.map((i) => i.id)
+    expect(installationIds).toContain(client.installationId())
+    expect(installationIds).toContain(client2.installationId())
+    expect(installationIds).toContain(client3.installationId())
 
     const signatureText = await client3.revokeInstallationsSignatureText()
     expect(signatureText).toBeDefined()
@@ -172,6 +176,8 @@ describe('Client', () => {
     )
     await client3.applySignatureRequests()
     const inboxState2 = await client3.inboxState(true)
-    expect(inboxState2.installationIds).toEqual([client3.installationId()])
+
+    expect(inboxState2.installations.length).toBe(1)
+    expect(inboxState2.installations[0].id).toBe(client3.installationId())
   })
 })
