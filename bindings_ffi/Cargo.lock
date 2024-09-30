@@ -5715,7 +5715,6 @@ dependencies = [
  "getrandom",
  "hex",
  "k256 0.13.3",
- "log",
  "rand",
  "rand_chacha",
  "rustc-hex",
@@ -5723,6 +5722,7 @@ dependencies = [
  "sha2",
  "sha3",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -5735,7 +5735,6 @@ dependencies = [
  "ethers",
  "futures",
  "hex",
- "log",
  "openmls_traits",
  "prost",
  "rand",
@@ -5745,6 +5744,7 @@ dependencies = [
  "sha2",
  "thiserror",
  "tokio",
+ "tracing",
  "url",
  "xmtp_cryptography",
  "xmtp_proto",
@@ -5763,7 +5763,6 @@ dependencies = [
  "futures",
  "hex",
  "libsqlite3-sys",
- "log",
  "openmls",
  "openmls_basic_credential",
  "openmls_rust_crypto",
@@ -5836,7 +5835,6 @@ version = "0.0.1"
 dependencies = [
  "ethers",
  "futures",
- "log",
  "parking_lot",
  "rand",
  "tempfile",
@@ -5844,6 +5842,7 @@ dependencies = [
  "thread-id",
  "tokio",
  "tokio-test",
+ "tracing",
  "tracing-subscriber",
  "uniffi",
  "uuid 1.9.1",

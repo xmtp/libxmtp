@@ -194,7 +194,7 @@ where
 
         // publish the intent
         if let Err(err) = sync_group.publish_intents(&conn.into(), self).await {
-            log::error!("error publishing sync group intents: {:?}", err);
+            tracing::error!("error publishing sync group intents: {:?}", err);
         }
 
         Ok((request_id, pin_code))
@@ -242,7 +242,7 @@ where
             }
         };
 
-        log::info!("{:?}", last_message);
+        tracing::info!("{:?}", last_message);
 
         if let Some(msg) = last_message {
             // ensure the requester is a member of all the groups
@@ -266,7 +266,7 @@ where
 
         // publish the intent
         if let Err(err) = sync_group.publish_intents(&conn.into(), self).await {
-            log::error!("error publishing sync group intents: {:?}", err);
+            tracing::error!("error publishing sync group intents: {:?}", err);
         }
         Ok(())
     }
@@ -418,7 +418,7 @@ where
                     request.request_id.eq(request_id) && request.pin_code.eq(pin_code)
                 }
                 Err(e) => {
-                    log::debug!("serde_json error: {:?}", e);
+                    tracing::debug!("serde_json error: {:?}", e);
                     false
                 }
                 _ => false,
@@ -469,12 +469,12 @@ where
             None => return Err(MessageHistoryError::MissingHistorySyncUrl),
         };
         let upload_url = format!("{}{}", url, "upload");
-        log::info!("using upload url {:?}", upload_url);
+        tracing::info!("using upload url {:?}", upload_url);
 
         let bundle_file = upload_history_bundle(&upload_url, history_file.clone()).await?;
         let bundle_url = format!("{}files/{}", url, bundle_file);
 
-        log::info!("history bundle uploaded to {:?}", bundle_url);
+        tracing::info!("history bundle uploaded to {:?}", bundle_url);
 
         Ok(HistoryReply::new(request_id, &bundle_url, enc_key))
     }
@@ -608,7 +608,7 @@ async fn upload_history_bundle(
     if response.status().is_success() {
         Ok(response.text().await?)
     } else {
-        log::error!(
+        tracing::error!(
             "Failed to upload file. Status code: {} Response: {:?}",
             response.status(),
             response
@@ -624,7 +624,7 @@ async fn upload_history_bundle(
 pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, MessageHistoryError> {
     let client = reqwest::Client::new();
 
-    log::info!("downloading history bundle from {:?}", url);
+    tracing::info!("downloading history bundle from {:?}", url);
 
     let bundle_name = url
         .split('/')
@@ -639,10 +639,10 @@ pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, Messag
         let mut file = File::create(&file_path)?;
         let bytes = response.bytes().await?;
         file.write_all(&bytes)?;
-        log::info!("downloaded history bundle to {:?}", file_path);
+        tracing::info!("downloaded history bundle to {:?}", file_path);
         Ok(file_path)
     } else {
-        log::error!(
+        tracing::error!(
             "Failed to download file. Status code: {} Response: {:?}",
             response.status(),
             response

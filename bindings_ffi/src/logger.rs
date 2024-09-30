@@ -1,4 +1,4 @@
-use log::{LevelFilter, Metadata, Record};
+use tracing::{LevelFilter, Metadata, Record};
 use std::sync::Once;
 
 pub trait FfiLogger: Send + Sync {
@@ -9,7 +9,7 @@ struct RustLogger {
     logger: parking_lot::Mutex<Box<dyn FfiLogger>>,
 }
 
-impl log::Log for RustLogger {
+impl tracing::Log for RustLogger {
     fn enabled(&self, _metadata: &Metadata) -> bool {
         true
     }
@@ -35,9 +35,9 @@ pub fn init_logger(logger: Box<dyn FfiLogger>) {
         let logger = RustLogger {
             logger: parking_lot::Mutex::new(logger),
         };
-        log::set_boxed_logger(Box::new(logger))
-            .map(|()| log::set_max_level(LevelFilter::Info))
+        tracing::set_boxed_logger(Box::new(logger))
+            .map(|()| tracing::set_max_level(LevelFilter::Info))
             .expect("Failed to initialize logger");
-        log::info!("Logger initialized");
+        tracing::info!("Logger initialized");
     });
 }

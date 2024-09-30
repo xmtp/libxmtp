@@ -352,16 +352,16 @@ impl FfiV2Subscription {
                     item = subscription.next() => {
                         match item {
                             Some(Ok(envelope)) => callback.on_message(envelope.into()),
-                            Some(Err(e)) => log::error!("Stream error {}", e),
+                            Some(Err(e)) => tracing::error!("Stream error {}", e),
                             None => {
-                                log::debug!("stream closed");
+                                tracing::debug!("stream closed");
                                 break;
                             }
                         }
                     },
                     update = rx.recv() => {
                         if let Some(update) = update {
-                            let _ = subscription.update(update.into()).await.map_err(|e| log::error!("{}", e)).ok();
+                            let _ = subscription.update(update.into()).await.map_err(|e| tracing::error!("{}", e)).ok();
                         }
                     },
                 }
@@ -393,7 +393,7 @@ impl FfiV2ApiClient {
     }
 
     pub fn set_app_version(&self, _version: String) {
-        log::info!("Needs implementation")
+        tracing::info!("Needs implementation")
     }
 
     pub async fn publish(

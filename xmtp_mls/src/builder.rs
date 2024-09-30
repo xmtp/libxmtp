@@ -1,5 +1,5 @@
-use log::debug;
 use thiserror::Error;
+use tracing::debug;
 
 use xmtp_cryptography::signature::AddressValidationError;
 use xmtp_id::scw_verifier::{RpcSmartContractWalletVerifier, SmartContractSignatureVerifier};

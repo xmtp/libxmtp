@@ -14,7 +14,7 @@ use xmtp_id::scw_verifier::RpcSmartContractWalletVerifier;
 use xmtp_proto::xmtp::mls_validation::v1::validation_api_server::ValidationApiServer;
 
 #[macro_use]
-extern crate log;
+extern crate tracing;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -650,7 +650,7 @@ impl MlsGroup {
         // If some existing group member has an update, this will return an intent with changes
         // when we really should return an error
         if intent_data.is_empty() {
-            log::warn!("Member already added");
+            tracing::warn!("Member already added");
             return Ok(());
         }
 
@@ -1307,7 +1307,6 @@ mod tests {
     use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
     use prost::Message;
     use std::sync::Arc;
-    use tracing_test::traced_test;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
@@ -1552,13 +1551,13 @@ mod tests {
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
 
-        log::info!("Adding charlie from amal");
+        tracing::info!("Adding charlie from amal");
         // Have amal and bola both invite charlie.
         amal_group
             .add_members_by_inbox_id(&amal, vec![charlie.inbox_id()])
             .await
             .expect("failed to add charlie");
-        log::info!("Adding charlie from bola");
+        tracing::info!("Adding charlie from bola");
         bola_group
             .add_members_by_inbox_id(&bola, vec![charlie.inbox_id()])
             .await
@@ -1622,43 +1621,44 @@ mod tests {
         let matching_message = bola_messages
             .iter()
             .find(|m| m.decrypted_message_bytes == "hello from amal".as_bytes());
-        log::info!("found message: {:?}", bola_messages);
+        tracing::info!("found message: {:?}", bola_messages);
         assert!(matching_message.is_some());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    #[traced_test]
-    async fn test_create_from_welcome_validation() {
-        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    #[test]
+    fn test_create_from_welcome_validation() {
+        crate::traced_test(|| async {
+            let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+            let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alix_group: MlsGroup = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        let provider = alix.mls_provider().unwrap();
-        // Doctor the group membership
-        let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
-        let mut existing_extensions = mls_group.extensions().clone();
-        let mut group_membership = GroupMembership::new();
-        group_membership.add("foo".to_string(), 1);
-        existing_extensions.add_or_replace(build_group_membership_extension(&group_membership));
-        mls_group
-            .update_group_context_extensions(
-                &provider,
-                existing_extensions.clone(),
-                &alix.identity().installation_keys,
-            )
-            .unwrap();
-        mls_group.merge_pending_commit(&provider).unwrap();
+            let alix_group: MlsGroup = alix
+                .create_group(None, GroupMetadataOptions::default())
+                .unwrap();
+            let provider = alix.mls_provider().unwrap();
+            // Doctor the group membership
+            let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
+            let mut existing_extensions = mls_group.extensions().clone();
+            let mut group_membership = GroupMembership::new();
+            group_membership.add("foo".to_string(), 1);
+            existing_extensions.add_or_replace(build_group_membership_extension(&group_membership));
+            mls_group
+                .update_group_context_extensions(
+                    &provider,
+                    existing_extensions.clone(),
+                    &alix.identity().installation_keys,
+                )
+                .unwrap();
+            mls_group.merge_pending_commit(&provider).unwrap();
 
-        // Now add bo to the group
-        force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
+            // Now add bo to the group
+            force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
 
-        // Bo should not be able to actually read this group
-        bo.sync_welcomes().await.unwrap();
-        let groups = bo.find_groups(None, None, None, None).unwrap();
-        assert_eq!(groups.len(), 0);
-        assert_logged!("failed to create group from welcome", 1);
+            // Bo should not be able to actually read this group
+            bo.sync_welcomes().await.unwrap();
+            let groups = bo.find_groups(None, None, None, None).unwrap();
+            assert_eq!(groups.len(), 0);
+            assert_logged!("failed to create group from welcome", 1);
+        });
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1834,7 +1834,7 @@ mod tests {
             )
             .await
             .unwrap();
-        log::info!("created the group with 2 additional members");
+        tracing::info!("created the group with 2 additional members");
         assert_eq!(group.members(&bola).await.unwrap().len(), 3);
         let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 1);
@@ -1850,7 +1850,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(group.members(&bola).await.unwrap().len(), 2);
-        log::info!("removed bola");
+        tracing::info!("removed bola");
         let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[1].kind, GroupMessageKind::MembershipChange);
