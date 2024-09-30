@@ -68,7 +68,7 @@ pub async fn create_client(
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
 ) -> Result<NapiClient> {
-  let api_client = TonicApiClient::create(host.clone(), is_secure)
+  let api_client = TonicApiClient::create(host.clone(), is_secure, false)
     .await
     .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
 
@@ -126,7 +126,7 @@ pub async fn get_inbox_id_for_address(
 ) -> Result<Option<String>> {
   let account_address = account_address.to_lowercase();
   let api_client = ApiClientWrapper::new(
-    TonicApiClient::create(host.clone(), is_secure)
+    TonicApiClient::create(host.clone(), is_secure, false)
       .await
       .map_err(|e| Error::from_reason(format!("{}", e)))?,
     Retry::default(),

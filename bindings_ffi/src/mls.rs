@@ -93,7 +93,7 @@ pub async fn create_client(
         host,
         is_secure
     );
-    let api_client = TonicApiClient::create(host.clone(), is_secure).await?;
+    let api_client = TonicApiClient::create(host.clone(), is_secure, false).await?;
 
     log::info!(
         "Creating message store with path: {:?} and encryption key: {} of length {:?}",
@@ -161,7 +161,7 @@ pub async fn get_inbox_id_for_address(
     account_address: String,
 ) -> Result<Option<String>, GenericError> {
     let api_client = ApiClientWrapper::new(
-        TonicApiClient::create(host.clone(), is_secure).await?,
+        TonicApiClient::create(host.clone(), is_secure, false).await?,
         Retry::default(),
     );
 

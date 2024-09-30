@@ -1,6 +1,7 @@
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex}; // TODO switch to async mutexes
+use std::sync::{Arc, Mutex};
+// TODO switch to async mutexes
 use std::time::Duration;
 
 use futures::stream::{AbortHandle, Abortable};
@@ -8,9 +9,27 @@ use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
 use tokio::sync::oneshot;
 use tonic::transport::ClientTlsConfig;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
+use xmtp_proto::convert::{
+    build_group_message_topic, build_key_package_topic, build_welcome_message_topic,
+};
+use xmtp_proto::xmtp::xmtpv4::client_envelope::Payload;
+use xmtp_proto::xmtp::xmtpv4::envelopes_query::Filter;
 
-use xmtp_proto::api_client::{ClientWithMetadata, XmtpMlsStreams};
-use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
+use crate::conversions::{
+    extract_client_envelope, extract_group_id_from_topic, extract_unsigned_originator_envelope,
+    wrap_client_envelope,
+};
+use xmtp_proto::api_client::{ClientWithMetadata, XmtpMlsStreams, XmtpReplicationClient};
+use xmtp_proto::xmtp::mls::api::v1::{
+    fetch_key_packages_response, group_message, group_message_input, welcome_message,
+    welcome_message_input, GroupMessage, WelcomeMessage,
+};
+use xmtp_proto::xmtp::xmtpv4::replication_api_client::ReplicationApiClient;
+use xmtp_proto::xmtp::xmtpv4::{
+    BatchSubscribeEnvelopesRequest, BatchSubscribeEnvelopesResponse, ClientEnvelope,
+    EnvelopesQuery, OriginatorEnvelope, PublishEnvelopeRequest, PublishEnvelopeResponse,
+    QueryEnvelopesRequest, QueryEnvelopesResponse,
+};
 use xmtp_proto::{
     api_client::{
         Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
@@ -72,10 +91,16 @@ pub struct Client {
     pub(crate) identity_client: ProtoIdentityApiClient<Channel>,
     pub(crate) app_version: MetadataValue<tonic::metadata::Ascii>,
     pub(crate) libxmtp_version: MetadataValue<tonic::metadata::Ascii>,
+    pub(crate) replication_client: ReplicationApiClient<Channel>,
+    pub(crate) use_replication_v4: bool,
 }
 
 impl Client {
-    pub async fn create(host: String, is_secure: bool) -> Result<Self, Error> {
+    pub async fn create(
+        host: String,
+        is_secure: bool,
+        use_replication_v4: bool,
+    ) -> Result<Self, Error> {
         let host = host.to_string();
         let app_version = MetadataValue::try_from(&String::from("0.0.0"))
             .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
@@ -93,7 +118,8 @@ impl Client {
 
         let client = MessageApiClient::new(channel.clone());
         let mls_client = ProtoMlsApiClient::new(channel.clone());
-        let identity_client = ProtoIdentityApiClient::new(channel);
+        let identity_client = ProtoIdentityApiClient::new(channel.clone());
+        let replication_client = ReplicationApiClient::new(channel);
 
         Ok(Self {
             client,
@@ -101,6 +127,8 @@ impl Client {
             app_version,
             libxmtp_version,
             identity_client,
+            replication_client,
+            use_replication_v4,
         })
     }
 
@@ -112,6 +140,29 @@ impl Client {
             .insert("x-libxmtp-version", self.libxmtp_version.clone());
 
         req
+    }
+
+    pub async fn query_v4_envelopes(
+        &self,
+        topics: Vec<Vec<u8>>,
+    ) -> Result<Vec<Vec<OriginatorEnvelope>>, Error> {
+        let requests = topics.iter().map(|topic| async {
+            let client = &mut self.replication_client.clone();
+            let v4_envelopes = client
+                .query_envelopes(QueryEnvelopesRequest {
+                    query: Some(EnvelopesQuery {
+                        last_seen: None,
+                        filter: Some(Filter::Topic(topic.to_vec())),
+                    }),
+                    limit: 100,
+                })
+                .await
+                .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))?;
+
+            Ok(v4_envelopes.into_inner().envelopes)
+        });
+
+        Ok(futures::future::try_join_all(requests).await?)
     }
 }
 
@@ -335,12 +386,22 @@ impl MutableApiSubscription for GrpcMutableSubscription {
 impl XmtpMlsClient for Client {
     #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Error> {
-        let client = &mut self.mls_client.clone();
+        if self.use_replication_v4 {
+            let client = &mut self.replication_client.clone();
+            let payload = wrap_client_envelope(ClientEnvelope::from(req));
+            let res = client.publish_envelope(payload).await;
+            match res {
+                Ok(_) => Ok(()),
+                Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+            }
+        } else {
+            let client = &mut self.mls_client.clone();
 
-        let res = client.upload_key_package(self.build_request(req)).await;
-        match res {
-            Ok(_) => Ok(()),
-            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+            let res = client.upload_key_package(self.build_request(req)).await;
+            match res {
+                Ok(_) => Ok(()),
+                Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+            }
         }
     }
 
@@ -349,32 +410,85 @@ impl XmtpMlsClient for Client {
         &self,
         req: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client.fetch_key_packages(self.build_request(req)).await;
+        if self.use_replication_v4 {
+            let topics = req
+                .installation_keys
+                .iter()
+                .map(|key| build_key_package_topic(key.as_slice()))
+                .collect();
 
-        res.map(|r| r.into_inner())
-            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+            let envelopes = self.query_v4_envelopes(topics).await?;
+            let key_packages = envelopes
+                .iter()
+                .map(|envelopes| {
+                    // The last envelope should be the newest key package upload
+                    let unsigned = envelopes.last().unwrap();
+                    let client_env = extract_client_envelope(unsigned);
+                    if let Some(Payload::UploadKeyPackage(upload_key_package)) = client_env.payload
+                    {
+                        fetch_key_packages_response::KeyPackage {
+                            key_package_tls_serialized: upload_key_package
+                                .key_package
+                                .unwrap()
+                                .key_package_tls_serialized,
+                        }
+                    } else {
+                        panic!("Payload is not a key package");
+                    }
+                })
+                .collect();
+
+            Ok(FetchKeyPackagesResponse { key_packages })
+        } else {
+            let client = &mut self.mls_client.clone();
+            let res = client.fetch_key_packages(self.build_request(req)).await;
+
+            res.map(|r| r.into_inner())
+                .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+        }
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client.send_group_messages(self.build_request(req)).await;
-
-        match res {
-            Ok(_) => Ok(()),
-            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+        if self.use_replication_v4 {
+            let client = &mut self.replication_client.clone();
+            for message in req.messages {
+                let payload = wrap_client_envelope(ClientEnvelope::from(message));
+                let res = client.publish_envelope(payload).await;
+                if let Err(e) = res {
+                    return Err(Error::new(ErrorKind::MlsError).with(e));
+                }
+            }
+            Ok(())
+        } else {
+            let client = &mut self.mls_client.clone();
+            let res = client.send_group_messages(self.build_request(req)).await;
+            match res {
+                Ok(_) => Ok(()),
+                Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+            }
         }
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn send_welcome_messages(&self, req: SendWelcomeMessagesRequest) -> Result<(), Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client.send_welcome_messages(self.build_request(req)).await;
-
-        match res {
-            Ok(_) => Ok(()),
-            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+        if self.use_replication_v4 {
+            let client = &mut self.replication_client.clone();
+            for message in req.messages {
+                let payload = wrap_client_envelope(ClientEnvelope::from(message));
+                let res = client.publish_envelope(payload).await;
+                if let Err(e) = res {
+                    return Err(Error::new(ErrorKind::MlsError).with(e));
+                }
+            }
+            Ok(())
+        } else {
+            let client = &mut self.mls_client.clone();
+            let res = client.send_welcome_messages(self.build_request(req)).await;
+            match res {
+                Ok(_) => Ok(()),
+                Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+            }
         }
     }
 
@@ -383,11 +497,58 @@ impl XmtpMlsClient for Client {
         &self,
         req: QueryGroupMessagesRequest,
     ) -> Result<QueryGroupMessagesResponse, Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client.query_group_messages(self.build_request(req)).await;
+        if self.use_replication_v4 {
+            let client = &mut self.replication_client.clone();
+            let res = client
+                .query_envelopes(QueryEnvelopesRequest {
+                    query: Some(EnvelopesQuery {
+                        last_seen: None,
+                        filter: Some(Filter::Topic(build_group_message_topic(
+                            req.group_id.as_slice(),
+                        ))),
+                    }),
+                    limit: 100,
+                })
+                .await
+                .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-        res.map(|r| r.into_inner())
-            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+            let envelopes = res.into_inner().envelopes;
+            let response = QueryGroupMessagesResponse {
+                messages: envelopes
+                    .iter()
+                    .map(|envelope| {
+                        let unsigned_originator_envelope =
+                            extract_unsigned_originator_envelope(envelope);
+                        let client_envelope = extract_client_envelope(envelope);
+                        let Payload::GroupMessage(group_message) = client_envelope.payload.unwrap()
+                        else {
+                            panic!("Payload is not a group message");
+                        };
+
+                        let group_message_input::Version::V1(v1_group_message) =
+                            group_message.version.unwrap();
+
+                        GroupMessage {
+                            version: Some(group_message::Version::V1(group_message::V1 {
+                                id: unsigned_originator_envelope.originator_sequence_id,
+                                created_ns: unsigned_originator_envelope.originator_ns as u64,
+                                group_id: req.group_id.clone(),
+                                data: v1_group_message.data,
+                                sender_hmac: v1_group_message.sender_hmac,
+                            })),
+                        }
+                    })
+                    .collect(),
+                paging_info: None,
+            };
+            Ok(response)
+        } else {
+            let client = &mut self.mls_client.clone();
+            let res = client.query_group_messages(self.build_request(req)).await;
+
+            res.map(|r| r.into_inner())
+                .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+        }
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -395,11 +556,58 @@ impl XmtpMlsClient for Client {
         &self,
         req: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client.query_welcome_messages(self.build_request(req)).await;
+        if self.use_replication_v4 {
+            let client = &mut self.replication_client.clone();
+            let res = client
+                .query_envelopes(QueryEnvelopesRequest {
+                    query: Some(EnvelopesQuery {
+                        last_seen: None,
+                        filter: Some(Filter::Topic(build_welcome_message_topic(
+                            req.installation_key.as_slice(),
+                        ))),
+                    }),
+                    limit: 100,
+                })
+                .await
+                .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-        res.map(|r| r.into_inner())
-            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+            let envelopes = res.into_inner().envelopes;
+            let response = QueryWelcomeMessagesResponse {
+                messages: envelopes
+                    .iter()
+                    .map(|envelope| {
+                        let unsigned_originator_envelope =
+                            extract_unsigned_originator_envelope(envelope);
+                        let client_envelope = extract_client_envelope(envelope);
+                        let Payload::WelcomeMessage(welcome_message) =
+                            client_envelope.payload.unwrap()
+                        else {
+                            panic!("Payload is not a group message");
+                        };
+                        let welcome_message_input::Version::V1(v1_welcome_message) =
+                            welcome_message.version.unwrap();
+
+                        WelcomeMessage {
+                            version: Some(welcome_message::Version::V1(welcome_message::V1 {
+                                id: unsigned_originator_envelope.originator_sequence_id,
+                                created_ns: unsigned_originator_envelope.originator_ns as u64,
+                                installation_key: req.installation_key.clone(),
+                                data: v1_welcome_message.data,
+                                hpke_public_key: v1_welcome_message.hpke_public_key,
+                            })),
+                        }
+                    })
+                    .collect(),
+                paging_info: None,
+            };
+            Ok(response)
+        } else {
+            let client = &mut self.mls_client.clone();
+            let res = client.query_welcome_messages(self.build_request(req)).await;
+
+            res.map(|r| r.into_inner())
+                .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+        }
     }
 }
 
@@ -476,6 +684,74 @@ impl XmtpMlsStreams for Client {
             .subscribe_welcome_messages(self.build_request(req))
             .await
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+
+        let stream = res.into_inner();
+
+        Ok(stream.into())
+    }
+}
+
+pub struct BatchSubscribeStream {
+    inner: tonic::codec::Streaming<BatchSubscribeEnvelopesResponse>,
+}
+
+impl From<tonic::codec::Streaming<BatchSubscribeEnvelopesResponse>> for BatchSubscribeStream {
+    fn from(inner: tonic::codec::Streaming<BatchSubscribeEnvelopesResponse>) -> Self {
+        BatchSubscribeStream { inner }
+    }
+}
+
+impl Stream for BatchSubscribeStream {
+    type Item = Result<BatchSubscribeEnvelopesResponse, Error>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.inner
+            .poll_next_unpin(cx)
+            .map(|data| data.map(|v| v.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))))
+    }
+}
+
+impl XmtpReplicationClient for Client {
+    type BatchSubscribeStream<'a> = BatchSubscribeStream;
+
+    async fn publish_envelope(
+        &self,
+        request: PublishEnvelopeRequest,
+    ) -> Result<PublishEnvelopeResponse, Error> {
+        let client = &mut self.replication_client.clone();
+
+        client
+            .publish_envelope(request)
+            .await
+            .map(|r| r.into_inner())
+            .map_err(|e| Error::new(ErrorKind::PublishError).with(e))
+    }
+
+    async fn query_envelopes(
+        &self,
+        request: QueryEnvelopesRequest,
+    ) -> Result<QueryEnvelopesResponse, Error> {
+        let client = &mut self.replication_client.clone();
+
+        client
+            .query_envelopes(request)
+            .await
+            .map(|r| r.into_inner())
+            .map_err(|e| Error::new(ErrorKind::QueryError).with(e))
+    }
+
+    async fn batch_subscribe_envelopes(
+        &self,
+        request: BatchSubscribeEnvelopesRequest,
+    ) -> Result<Self::BatchSubscribeStream<'_>, Error> {
+        let client = &mut self.replication_client.clone();
+        let res = client
+            .batch_subscribe_envelopes(request)
+            .await
+            .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?;
 
         let stream = res.into_inner();
 

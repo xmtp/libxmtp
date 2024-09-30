@@ -66,13 +66,13 @@ impl XmtpTestClient for XmtpHttpApiClient {
 
 impl XmtpTestClient for GrpcClient {
     async fn create_local() -> Self {
-        GrpcClient::create("http://localhost:5556".into(), false)
+        GrpcClient::create("http://localhost:5556".into(), false, false)
             .await
             .unwrap()
     }
 
     async fn create_dev() -> Self {
-        GrpcClient::create("https://grpc.dev.xmtp.network:443".into(), false)
+        GrpcClient::create("https://grpc.dev.xmtp.network:443".into(), false, false)
             .await
             .unwrap()
     }

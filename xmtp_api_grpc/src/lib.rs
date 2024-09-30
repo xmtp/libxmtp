@@ -1,4 +1,5 @@
 pub mod auth_token;
+mod conversions;
 pub mod grpc_api_helper;
 mod identity;
 
@@ -49,7 +50,7 @@ mod tests {
 
     #[tokio::test]
     async fn grpc_query_test() {
-        let mut client = Client::create(LOCALHOST_ADDRESS.to_string(), false)
+        let mut client = Client::create(LOCALHOST_ADDRESS.to_string(), false, false)
             .await
             .unwrap();
 
@@ -70,7 +71,7 @@ mod tests {
 
     #[tokio::test]
     async fn grpc_batch_query_test() {
-        let client = Client::create(LOCALHOST_ADDRESS.to_string(), false)
+        let client = Client::create(LOCALHOST_ADDRESS.to_string(), false, false)
             .await
             .unwrap();
         let req = BatchQueryRequest {
@@ -85,7 +86,7 @@ mod tests {
 
     #[tokio::test]
     async fn publish_test() {
-        let client = Client::create(LOCALHOST_ADDRESS.to_string(), false)
+        let client = Client::create(LOCALHOST_ADDRESS.to_string(), false, false)
             .await
             .unwrap();
 
@@ -115,7 +116,7 @@ mod tests {
     #[tokio::test]
     async fn subscribe_test() {
         tokio::time::timeout(std::time::Duration::from_secs(5), async move {
-            let client = Client::create(LOCALHOST_ADDRESS.to_string(), false)
+            let client = Client::create(LOCALHOST_ADDRESS.to_string(), false, false)
                 .await
                 .unwrap();
 
@@ -162,7 +163,9 @@ mod tests {
 
     #[tokio::test]
     async fn tls_test() {
-        let client = Client::create(DEV_ADDRESS.to_string(), true).await.unwrap();
+        let client = Client::create(DEV_ADDRESS.to_string(), true, false)
+            .await
+            .unwrap();
 
         let result = client
             .query(QueryRequest {
@@ -177,7 +180,7 @@ mod tests {
 
     #[tokio::test]
     async fn bidrectional_streaming_test() {
-        let client = Client::create(LOCALHOST_ADDRESS.to_string(), false)
+        let client = Client::create(LOCALHOST_ADDRESS.to_string(), false, false)
             .await
             .unwrap();
 
@@ -234,7 +237,9 @@ mod tests {
     #[tokio::test]
     async fn test_dev_publish() {
         let auth_token = get_auth_token();
-        let dev_client = Client::create(DEV_ADDRESS.to_string(), true).await.unwrap();
+        let dev_client = Client::create(DEV_ADDRESS.to_string(), true, false)
+            .await
+            .unwrap();
         dev_client
             .publish(
                 auth_token,
@@ -254,7 +259,9 @@ mod tests {
     async fn long_lived_subscribe_test() {
         let auth_token = get_auth_token();
         tokio::time::timeout(std::time::Duration::from_secs(100), async move {
-            let client = Client::create(DEV_ADDRESS.to_string(), true).await.unwrap();
+            let client = Client::create(DEV_ADDRESS.to_string(), true, false)
+                .await
+                .unwrap();
 
             let topic = uuid::Uuid::new_v4();
             let mut subscription = client
@@ -307,7 +314,9 @@ mod tests {
 
     #[tokio::test]
     async fn metadata_test() {
-        let mut client = Client::create(DEV_ADDRESS.to_string(), true).await.unwrap();
+        let mut client = Client::create(DEV_ADDRESS.to_string(), true, false)
+            .await
+            .unwrap();
         let app_version = "test/1.0.0".to_string();
         let libxmtp_version = "0.0.1".to_string();
 

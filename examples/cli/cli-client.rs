@@ -64,6 +64,8 @@ struct Cli {
     local: bool,
     #[clap(long, default_value_t = false)]
     json: bool,
+    #[clap(long, default_value_t = false)]
+    testnet: bool,
 }
 
 #[derive(ValueEnum, Debug, Copy, Clone)]
@@ -78,6 +80,10 @@ enum Commands {
     Register {
         #[clap(long)]
         seed_phrase: Option<String>,
+    },
+    Check {
+        #[arg(value_name = "address")]
+        address: String,
     },
     CreateGroup {
         #[clap(value_enum, default_value_t = Permissions::EveryoneIsAdmin)]
@@ -187,6 +193,14 @@ async fn main() {
         #[allow(unused_variables)]
         Commands::Register { seed_phrase } => {
             unreachable!()
+        }
+        Commands::Check { address } => {
+            info!("Check {:?}", address);
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+            let dict = client.can_message(vec![address.clone()]).await.unwrap();
+            info!("Can message: {:?}", dict.get(address).unwrap());
         }
         Commands::Info {} => {
             info!("Info");
@@ -415,24 +429,43 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
     let msg_store = get_encrypted_store(&cli.db).unwrap();
     let mut builder = ClientBuilder::new(account).store(msg_store);
 
-    if cli.local {
-        info!("Using local network");
-        builder = builder
-            .api_client(
-                ApiClient::create("http://localhost:5556".into(), false)
+    if cli.testnet {
+        if cli.local {
+            info!("Using local testnet network");
+            builder = builder.api_client(
+                ApiClient::create("http://localhost:5050".into(), false, true)
                     .await
                     .unwrap(),
-            )
-            .history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS);
+            );
+        } else {
+            info!("Using testnet network");
+            builder = builder.api_client(
+                ApiClient::create("http://2.tcp.ngrok.io:10747".into(), true, true)
+                    .await
+                    .unwrap(),
+            );
+        }
     } else {
-        info!("Using dev network");
-        builder = builder
-            .api_client(
-                ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true)
-                    .await
-                    .unwrap(),
-            )
-            .history_sync_url(MessageHistoryUrls::DEV_ADDRESS);
+        #[deny(clippy::collapsible_else_if)]
+        if cli.local {
+            info!("Using local network");
+            builder = builder
+                .api_client(
+                    ApiClient::create("http://localhost:5556".into(), false, false)
+                        .await
+                        .unwrap(),
+                )
+                .history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS);
+        } else {
+            info!("Using dev network");
+            builder = builder
+                .api_client(
+                    ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true, false)
+                        .await
+                        .unwrap(),
+                )
+                .history_sync_url(MessageHistoryUrls::DEV_ADDRESS);
+        }
     }
 
     let client = builder.build().await.map_err(CliError::ClientBuilder)?;
