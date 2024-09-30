@@ -77,6 +77,7 @@ where
         let creation_result = retry_async!(
             Retry::default(),
             (async {
+                tracing::info!("Trying to process streamed welcome");
                 let welcome_v1 = welcome_v1.clone();
                 self.context
                     .store()
@@ -99,7 +100,7 @@ where
             let result = conn.find_group_by_welcome_id(welcome_v1.id as i64);
             match result {
                 Ok(Some(group)) => {
-                    log::info!(
+                    tracing::info!(
                         "Loading existing group for welcome_id: {:?}",
                         group.welcome_id
                     );
@@ -138,7 +139,7 @@ where
             match event {
                 Ok(LocalEvents::NewGroup(g)) => Some(g),
                 Err(BroadcastStreamRecvError::Lagged(missed)) => {
-                    log::warn!("Missed {missed} messages due to local event queue lagging");
+                    tracing::warn!("Missed {missed} messages due to local event queue lagging");
                     None
                 }
             }
@@ -147,6 +148,7 @@ where
         let installation_key = self.installation_public_key();
         let id_cursor = 0;
 
+        tracing::info!("Setting up conversation stream");
         let subscription = self
             .api_client
             .subscribe_welcome_messages(installation_key, Some(id_cursor))
@@ -154,14 +156,17 @@ where
 
         let stream = subscription
             .map(|welcome| async {
-                log::info!("Received conversation streaming payload");
+                tracing::info!("Received conversation streaming payload");
                 self.process_streamed_welcome(welcome?).await
             })
             .filter_map(|res| async {
                 match res.await {
                     Ok(group) => Some(group),
                     Err(err) => {
-                        log::error!("Error processing stream entry for conversation: {:?}", err);
+                        tracing::error!(
+                            "Error processing stream entry for conversation: {:?}",
+                            err
+                        );
                         None
                     }
                 }
@@ -191,9 +196,9 @@ where
                 async move {
                     match res {
                         Ok(envelope) => {
-                            log::info!("Received message streaming payload");
+                            tracing::info!("Received message streaming payload");
                             let group_id = extract_group_id(&envelope)?;
-                            log::info!("Extracted group id {}", hex::encode(&group_id));
+                            tracing::info!("Extracted group id {}", hex::encode(&group_id));
                             let stream_info = group_info.get(&group_id).ok_or(
                                 ClientError::StreamInconsistency(
                                     "Received message for a non-subscribed group".to_string(),
@@ -214,11 +219,11 @@ where
                 match res.await {
                     Ok(Some(message)) => Some(message),
                     Ok(None) => {
-                        log::info!("Skipped message streaming payload");
+                        tracing::info!("Skipped message streaming payload");
                         None
                     }
                     Err(err) => {
-                        log::error!("Error processing stream entry: {:?}", err);
+                        tracing::error!("Error processing stream entry: {:?}", err);
                         None
                     }
                 }
@@ -242,9 +247,10 @@ where
             futures::pin_mut!(stream);
             let _ = tx.send(());
             while let Some(convo) = stream.next().await {
+                tracing::info!("Trigger conversation callback");
                 convo_callback(convo)
             }
-            log::debug!("`stream_conversations` stream ended, dropping stream");
+            tracing::debug!("`stream_conversations` stream ended, dropping stream");
             Ok::<_, ClientError>(())
         })
     }
@@ -265,7 +271,7 @@ where
             while let Some(message) = stream.next().await {
                 callback(message)
             }
-            log::debug!("`stream_messages` stream ended, dropping stream");
+            tracing::debug!("`stream_messages` stream ended, dropping stream");
             Ok::<_, ClientError>(())
         })
     }
@@ -289,6 +295,7 @@ where
                 .await?;
             futures::pin_mut!(messages_stream);
 
+            tracing::info!("Setting up conversation stream in stream_all_messages");
             let convo_stream = self.stream_conversations().await?;
             futures::pin_mut!(convo_stream);
 
@@ -312,6 +319,7 @@ where
                         yield Ok(message);
                     }
                     Some(new_group) = convo_stream.next() => {
+                        tracing::info!("Received new conversation inside streamAllMessages");
                         if group_id_to_info.contains_key(&new_group.group_id) {
                             continue;
                         }
@@ -328,12 +336,12 @@ where
                         let new_messages_stream = match self.stream_messages(Arc::new(group_id_to_info.clone())).await {
                             Ok(stream) => stream,
                             Err(e) => {
-                                log::error!("{}", e);
+                                tracing::error!("{}", e);
                                 break;
                             }
                         };
 
-                        log::debug!("switching streams");
+                        tracing::debug!("switching streams");
                         // attempt to drain all ready messages from existing stream
                         while let Some(Some(message)) = messages_stream.next().now_or_never() {
                             extra_messages.push(message);
@@ -360,10 +368,10 @@ where
             while let Some(message) = stream.next().await {
                 match message {
                     Ok(m) => callback(m),
-                    Err(m) => log::error!("error during stream all messages {}", m),
+                    Err(m) => tracing::error!("error during stream all messages {}", m),
                 }
             }
-            log::debug!("`stream_all_messages` stream ended, dropping stream");
+            tracing::debug!("`stream_all_messages` stream ended, dropping stream");
             Ok::<_, ClientError>(())
         })
     }

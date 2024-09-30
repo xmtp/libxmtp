@@ -42,7 +42,6 @@ futures = "0.3.30"
 futures-core = "0.3.30"
 getrandom = { version = "0.2", default-features = false }
 hex = "0.4.3"
-log = { version = "0.4" }
 openmls = { git = "https://github.com/xmtp/openmls", rev = "87e7e257d8eb15d6662b104518becfc75ef6db76", default-features = false }
 openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "87e7e257d8eb15d6662b104518becfc75ef6db76" }
 openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "87e7e257d8eb15d6662b104518becfc75ef6db76" }
@@ -61,7 +60,7 @@ thiserror = "1.0"
 tls_codec = "0.4.1"
 tokio = { version = "1.35.1", default-features = false }
 tonic = "^0.12"
-tracing = { version = "0.1" }
+tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = "0.3"
 diesel = { version = "2.2", default-features = false }
 diesel-wasm-sqlite = "0.0.1"

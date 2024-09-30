@@ -44,16 +44,15 @@ pub mod id {
     }
 }
 
+#[cfg(all(target_arch = "wasm32", test))]
 pub mod wasm {
     use tokio::sync::OnceCell;
     static INIT: OnceCell<()> = OnceCell::const_new();
 
     /// can be used to debug wasm tests
     /// normal tracing logs are output to the browser console
-    #[cfg(all(target_arch = "wasm32", test))]
     pub async fn init() {
         use web_sys::console;
-        use tracing_subscriber::prelude::*;
 
         INIT.get_or_init(|| async {
             console::log_1(&"INIT".into());
@@ -63,8 +62,4 @@ pub mod wasm {
         })
         .await;
     }
-
-    // no-op
-    #[cfg(not(target_arch = "wasm32"))]
-    pub async fn init() {}
 }

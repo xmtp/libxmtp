@@ -21,6 +21,12 @@ use crate::{
 };
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod traced_test;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use traced_test::traced_test;
+
+#[cfg(not(target_arch = "wasm32"))]
 use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
 #[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
 pub type TestClient = GrpcClient;

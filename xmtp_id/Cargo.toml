@@ -12,9 +12,7 @@ ed25519.workspace = true
 ethers.workspace = true
 futures.workspace = true
 hex.workspace = true
-log.workspace = true
-openmls_basic_credential.workspace = true
-openmls_rust_crypto.workspace = true
+tracing.workspace = true
 openmls_traits.workspace = true
 prost.workspace = true
 rand.workspace = true
@@ -24,7 +22,6 @@ serde.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros"] }
-tracing.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
 wasm-timer.workspace = true

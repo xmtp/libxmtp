@@ -5,7 +5,6 @@ use diesel::{
     prelude::*,
     sql_query,
 };
-use log::log_enabled;
 use std::{
     fmt::Display,
     fs::File,
@@ -64,12 +63,12 @@ impl EncryptedConnection {
                     }
                     // the db exists and needs to be migrated
                     (false, true) => {
-                        log::debug!("migrating sqlcipher db to plaintext header.");
+                        tracing::debug!("migrating sqlcipher db to plaintext header.");
                         Self::migrate(db_path, key, &mut salt)?;
                     }
                     // the db doesn't exist yet and needs to be created
                     (false, false) => {
-                        log::debug!("creating new sqlcipher db");
+                        tracing::debug!("creating new sqlcipher db");
                         Self::create(db_path, key, &mut salt)?;
                     }
                     // the db doesn't exist but the salt does
@@ -148,7 +147,7 @@ impl EncryptedConnection {
             "Cipher salt doesn't exist in database".into(),
         ))??;
         let salt = <String as FromSqlRow<diesel::sql_types::Text, _>>::build_from_row(&row)?;
-        log::debug!(
+        tracing::debug!(
             "writing salt={} to file {:?}",
             salt,
             Self::salt_file(PathBuf::from(path))?,
@@ -224,20 +223,20 @@ impl super::native::ValidatedConnection for EncryptedConnection {
             cipher_provider_version,
         } = sql_query("PRAGMA cipher_provider_version")
             .get_result::<CipherProviderVersion>(conn)?;
-        log::info!(
+        tracing::info!(
             "Sqlite cipher_version={:?}, cipher_provider_version={:?}",
             cipher_version.first().as_ref().map(|v| &v.cipher_version),
             cipher_provider_version
         );
 
-        if log_enabled!(log::Level::Info) {
+        if tracing::enabled!(tracing::Level::INFO) {
             conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")
                 .ok();
         } else {
             conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = WARN;")
                 .ok();
         }
-        log::debug!("SQLCipher Database validated.");
+        tracing::debug!("SQLCipher Database validated.");
         Ok(())
     }
 }

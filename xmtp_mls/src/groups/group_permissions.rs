@@ -903,7 +903,7 @@ impl PolicySet {
         changes.all(|change| {
             let is_ok = policy.evaluate(actor, change);
             if !is_ok {
-                log::info!(
+                tracing::info!(
                     "Policy {:?} failed for actor {:?} and change {:?}",
                     policy,
                     actor,
@@ -926,7 +926,7 @@ impl PolicySet {
         changes.all(|change| {
             if let Some(policy) = policies.get(&change.field_name) {
                 if !policy.evaluate(actor, change) {
-                    log::info!(
+                    tracing::info!(
                         "Policy for field {} failed for actor {:?} and change {:?}",
                         change.field_name,
                         actor,
@@ -946,7 +946,7 @@ impl PolicySet {
                     MetadataPolicies::allow_if_actor_admin()
                 };
             if !policy_for_unrecognized_field.evaluate(actor, change) {
-                log::info!(
+                tracing::info!(
                     "Metadata field update with unknown policy was denied: {}",
                     change.field_name
                 );

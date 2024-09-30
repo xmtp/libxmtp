@@ -132,7 +132,7 @@ impl EncryptedMessageStore {
         opts: StorageOption,
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
-        log::info!("Setting up DB connection pool");
+        tracing::info!("Setting up DB connection pool");
         let db = native::NativeDb::new(&opts, enc_key)?;
         let mut this = Self { db, opts };
         this.init_db()?;
@@ -158,7 +158,6 @@ impl EncryptedMessageStore {
         opts: StorageOption,
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
-        log::info!("Setting up DB connection pool");
         let db = wasm::WasmDb::new(&opts, enc_key).await?;
         let mut this = Self { db, opts };
         this.init_db()?;
@@ -187,14 +186,14 @@ pub mod private {
             self.db.validate(&self.opts)?;
             self.db.conn()?.raw_query(|conn| {
                 conn.batch_execute("PRAGMA journal_mode = WAL;")?;
-                log::info!("Running DB migrations");
+                tracing::info!("Running DB migrations");
                 conn.run_pending_migrations(MIGRATIONS)?;
 
                 let sqlite_version =
                     sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
-                log::info!("sqlite_version={}", sqlite_version[0].version);
+                tracing::info!("sqlite_version={}", sqlite_version[0].version);
 
-                log::info!("Migrations successful");
+                tracing::info!("Migrations successful");
                 Ok::<_, StorageError>(())
             })?;
             Ok::<_, StorageError>(())
@@ -224,7 +223,7 @@ pub mod private {
             F: FnOnce(&XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Result<T, E>,
             E: From<diesel::result::Error> + From<StorageError>,
         {
-            log::debug!("Transaction beginning");
+            tracing::debug!("Transaction beginning");
             let connection = self.db.conn()?;
             {
                 let mut connection = connection.inner_mut_ref();
@@ -239,11 +238,11 @@ pub mod private {
                     conn.raw_query(|conn| {
                         <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
                     })?;
-                    log::debug!("Transaction being committed");
+                    tracing::debug!("Transaction being committed");
                     Ok(value)
                 }
                 Err(err) => {
-                    log::debug!("Transaction being rolled back");
+                    tracing::debug!("Transaction being rolled back");
                     match conn.raw_query(|conn| {
                         <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
                     }) {
@@ -275,7 +274,7 @@ pub mod private {
             Fut: futures::Future<Output = Result<T, E>>,
             E: From<diesel::result::Error> + From<StorageError>,
         {
-            log::debug!("Transaction async beginning");
+            tracing::debug!("Transaction async beginning");
             let db_connection = self.db.conn()?;
             {
                 let mut connection = db_connection.inner_mut_ref();
@@ -288,13 +287,15 @@ pub mod private {
             // ensuring we have only one strong reference
             let result = fun(provider).await;
             if Arc::strong_count(&local_connection) > 1 {
-                log::warn!(
+                tracing::warn!(
                     "More than 1 strong connection references still exist during transaction"
                 );
             }
 
             if Arc::weak_count(&local_connection) > 1 {
-                log::warn!("More than 1 weak connection references still exist during transaction");
+                tracing::warn!(
+                    "More than 1 weak connection references still exist during transaction"
+                );
             }
 
             // after the closure finishes, `local_provider` should have the only reference ('strong')
@@ -305,11 +306,11 @@ pub mod private {
                     local_connection.raw_query(|conn| {
                         <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
                     })?;
-                    log::debug!("Transaction async being committed");
+                    tracing::debug!("Transaction async being committed");
                     Ok(value)
                 }
                 Err(err) => {
-                    log::debug!("Transaction async being rolled back");
+                    tracing::debug!("Transaction async being rolled back");
                     match local_connection.raw_query(|conn| {
                         <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
                     }) {
@@ -334,7 +335,7 @@ pub mod private {
 #[allow(dead_code)]
 fn warn_length<T>(list: &[T], str_id: &str, max_length: usize) {
     if list.len() > max_length {
-        log::warn!(
+        tracing::warn!(
             "EncryptedStore expected at most {} {} however found {}. Using the Oldest.",
             max_length,
             str_id,
@@ -440,7 +441,6 @@ pub(crate) mod tests {
         utils::test::{rand_vec, tmp_path},
         Fetch, Store, StreamHandle as _,
     };
-    use std::sync::Barrier;
 
     /// Test harness that loads an Ephemeral store.
     pub async fn with_connection<F, R>(fun: F) -> R
@@ -596,7 +596,7 @@ pub(crate) mod tests {
                 .unwrap();
 
             let conn2 = &store.conn().unwrap();
-            log::info!("Getting conn 2");
+            tracing::info!("Getting conn 2");
             let fetched_identity: StoredIdentity = conn2.fetch(&()).unwrap().unwrap();
             assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
@@ -654,9 +654,12 @@ pub(crate) mod tests {
     // try to write with second connection
     // write should fail & rollback
     // first thread succeeds
-    // #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    // wasm does not have threads
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[cfg(not(target_arch = "wasm32"))]
     async fn test_transaction_rollback() {
+        use std::sync::Barrier;
+
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
             StorageOption::Persistent(db_path.clone()),

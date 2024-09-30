@@ -461,7 +461,7 @@ where
         permissions_policy_set: Option<PolicySet>,
         opts: GroupMetadataOptions,
     ) -> Result<MlsGroup, ClientError> {
-        log::info!("creating group");
+        tracing::info!("creating group");
 
         let group = MlsGroup::create_and_insert(
             self.context.clone(),
@@ -482,7 +482,7 @@ where
         permissions_policy_set: Option<PolicySet>,
         opts: GroupMetadataOptions,
     ) -> Result<MlsGroup, ClientError> {
-        log::info!("creating group");
+        tracing::info!("creating group");
 
         let group = MlsGroup::create_and_insert(
             self.context.clone(),
@@ -501,7 +501,7 @@ where
 
     #[cfg(feature = "message-history")]
     pub(crate) fn create_sync_group(&self) -> Result<MlsGroup, ClientError> {
-        log::info!("creating sync group");
+        tracing::info!("creating sync group");
         let sync_group = MlsGroup::create_and_insert_sync_group(self.context.clone())?;
 
         Ok(sync_group)
@@ -574,7 +574,7 @@ where
         &self,
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
-        log::info!("registering identity");
+        tracing::info!("registering identity");
         // Register the identity before applying the signature request
         let provider: XmtpOpenMlsProvider = self.store().conn()?.into();
 
@@ -682,7 +682,7 @@ where
                 let welcome_v1 = match extract_welcome_message(envelope) {
                     Ok(inner) => inner,
                     Err(err) => {
-                        log::error!("failed to extract welcome message: {}", err);
+                        tracing::error!("failed to extract welcome message: {}", err);
                         return None;
                     }
                 };
@@ -707,7 +707,10 @@ where
                                 match result {
                                     Ok(mls_group) => Ok(Some(mls_group)),
                                     Err(err) => {
-                                        log::error!("failed to create group from welcome: {}", err);
+                                        tracing::error!(
+                                            "failed to create group from welcome: {}",
+                                            err
+                                        );
                                         Err(MessageProcessingError::WelcomeProcessing(
                                             err.to_string(),
                                         ))
@@ -749,8 +752,8 @@ where
                 let active_group_count = Arc::clone(&active_group_count);
                 async move {
                     let mls_group = group.load_mls_group(provider_ref)?;
-                    log::info!("[{}] syncing group", self.inbox_id());
-                    log::info!(
+                    tracing::info!("[{}] syncing group", self.inbox_id());
+                    tracing::info!(
                         "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
                         self.inbox_id(),
                         mls_group.epoch()
@@ -1123,13 +1126,13 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(amal_group.members(&amal).await.unwrap().len(), 1);
-        log::info!("Syncing bolas welcomes");
+        tracing::info!("Syncing bolas welcomes");
         // See if Bola can see that they were added to the group
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(None, None, None, None).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
-        log::info!("Syncing bolas messages");
+        tracing::info!("Syncing bolas messages");
         bola_group.sync(&bola).await.unwrap();
         // TODO: figure out why Bola's status is not updating to be inactive
         // assert!(!bola_group.is_active().unwrap());

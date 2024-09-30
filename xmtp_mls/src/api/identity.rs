@@ -122,7 +122,7 @@ where
         &self,
         account_addresses: Vec<String>,
     ) -> Result<AddressToInboxIdMap, WrappedApiError> {
-        log::info!(
+        tracing::info!(
             "Getting inbox_ids for account addresses: {:?}",
             &account_addresses
         );

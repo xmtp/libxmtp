@@ -81,7 +81,7 @@ impl MlsGroup {
                 // Cache miss - not expected to happen because:
                 // 1. We don't allow updates to the group metadata unless we have already validated the association state
                 // 2. When validating the association state, we must have written it to the cache
-                log::error!(
+                tracing::error!(
                     "Failed to load all members for group - metadata: {:?}, computed members: {:?}",
                     requests,
                     association_states

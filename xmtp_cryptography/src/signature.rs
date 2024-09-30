@@ -168,7 +168,7 @@ pub fn is_valid_ed25519_public_key<Bytes: AsRef<[u8]>>(public_key: Bytes) -> boo
     let compressed = match CompressedEdwardsY::from_slice(public_key) {
         Ok(v) => v,
         Err(_) => {
-            log::debug!("Invalid ed22519 public key. Does not have length of 32");
+            tracing::debug!("Invalid ed22519 public key. Does not have length of 32");
             return false;
         }
     };
@@ -176,14 +176,14 @@ pub fn is_valid_ed25519_public_key<Bytes: AsRef<[u8]>>(public_key: Bytes) -> boo
     match compressed.decompress() {
         Some(point) => {
             if point.is_small_order() || point.is_identity() {
-                log::debug!(
+                tracing::debug!(
                     "Invalid public key, not a point on the curve or is the identity element."
                 );
                 return false;
             }
         }
         None => {
-            log::debug!("Not a valid ed25519 public key: Decompression failure");
+            tracing::debug!("Not a valid ed25519 public key: Decompression failure");
             return false;
         }
     }

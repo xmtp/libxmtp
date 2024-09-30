@@ -172,7 +172,7 @@ where
         starting_sequence_id: Option<i64>,
         ending_sequence_id: Option<i64>,
     ) -> Result<AssociationStateDiff, ClientError> {
-        log::debug!(
+        tracing::debug!(
             "Computing diff for {:?} from {:?} to {:?}",
             inbox_id.as_ref(),
             starting_sequence_id,
@@ -197,7 +197,7 @@ where
             && last_sequence_id.is_some()
             && last_sequence_id != ending_sequence_id
         {
-            log::error!(
+            tracing::error!(
                 "Did not find the expected last sequence id. Expected: {:?}, Found: {:?}",
                 ending_sequence_id,
                 last_sequence_id
@@ -220,7 +220,7 @@ where
             final_state = apply_update(final_state, update)?;
         }
 
-        log::debug!("Final state at {:?}: {:?}", last_sequence_id, final_state);
+        tracing::debug!("Final state at {:?}: {:?}", last_sequence_id, final_state);
         if let Some(last_sequence_id) = last_sequence_id {
             StoredAssociationState::write_to_cache(
                 conn,
@@ -272,7 +272,7 @@ where
         existing_wallet_address: String,
         new_wallet_address: String,
     ) -> Result<SignatureRequest, ClientError> {
-        log::info!("Associating new wallet with inbox_id {}", self.inbox_id());
+        tracing::info!("Associating new wallet with inbox_id {}", self.inbox_id());
         let inbox_id = self.inbox_id();
         let builder = SignatureRequestBuilder::new(inbox_id);
 
@@ -371,7 +371,7 @@ where
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
     ) -> Result<InstallationDiff, InstallationDiffError> {
-        log::info!(
+        tracing::info!(
             "Getting installation diff. Old: {:?}. New {:?}",
             old_group_membership,
             new_group_membership
@@ -453,7 +453,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
     if inbox_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    log::debug!("Fetching identity updates for: {:?}", inbox_ids);
+    tracing::debug!("Fetching identity updates for: {:?}", inbox_ids);
 
     let existing_sequence_ids = conn.get_latest_sequence_id(&inbox_ids)?;
     let filters: Vec<GetIdentityUpdatesV2Filter> = inbox_ids
@@ -510,7 +510,6 @@ pub(crate) mod tests {
     };
 
     use crate::{
-        assert_logged,
         builder::ClientBuilder,
         groups::group_membership::GroupMembership,
         storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
@@ -608,61 +607,60 @@ pub(crate) mod tests {
         assert!(association_state.get(&wallet_2_address.into()).is_some());
     }
 
-    // #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    #[tracing_test::traced_test]
-    async fn cache_association_state() {
-        if cfg!(target_arch = "wasm32") {
-            let _ = tracing_log::LogTracer::init_with_filter(log::LevelFilter::Debug);
-        }
-        let wallet = generate_local_wallet();
-        let wallet_2 = generate_local_wallet();
-        let wallet_address = wallet.get_address();
-        let wallet_2_address = wallet_2.get_address();
-        let client = ClientBuilder::new_test_client(&wallet).await;
-        let inbox_id = client.inbox_id();
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn cache_association_state() {
+        use crate::{assert_logged, utils::test::traced_test};
+        traced_test(|| async {
+            let wallet = generate_local_wallet();
+            let wallet_2 = generate_local_wallet();
+            let wallet_address = wallet.get_address();
+            let wallet_2_address = wallet_2.get_address();
+            let client = ClientBuilder::new_test_client(&wallet).await;
+            let inbox_id = client.inbox_id();
 
-        get_association_state(&client, inbox_id.clone()).await;
+            get_association_state(&client, inbox_id.clone()).await;
 
-        assert_logged!("Loaded association", 0);
-        assert_logged!("Wrote association", 1);
+            assert_logged!("Loaded association", 0);
+            assert_logged!("Wrote association", 1);
 
-        let association_state = get_association_state(&client, inbox_id.clone()).await;
+            let association_state = get_association_state(&client, inbox_id.clone()).await;
 
-        assert_eq!(association_state.members().len(), 2);
-        assert_eq!(association_state.recovery_address(), &wallet_address);
-        assert!(association_state
-            .get(&wallet_address.clone().into())
-            .is_some());
+            assert_eq!(association_state.members().len(), 2);
+            assert_eq!(association_state.recovery_address(), &wallet_address);
+            assert!(association_state
+                .get(&wallet_address.clone().into())
+                .is_some());
 
-        assert_logged!("Loaded association", 1);
-        assert_logged!("Wrote association", 1);
+            assert_logged!("Loaded association", 1);
+            assert_logged!("Wrote association", 1);
 
-        let mut add_association_request = client
-            .associate_wallet(wallet_address.clone(), wallet_2_address.clone())
-            .unwrap();
+            let mut add_association_request = client
+                .associate_wallet(wallet_address.clone(), wallet_2_address.clone())
+                .unwrap();
 
-        add_wallet_signature(&mut add_association_request, &wallet).await;
-        add_wallet_signature(&mut add_association_request, &wallet_2).await;
+            add_wallet_signature(&mut add_association_request, &wallet).await;
+            add_wallet_signature(&mut add_association_request, &wallet_2).await;
 
-        client
-            .apply_signature_request(add_association_request)
-            .await
-            .unwrap();
+            client
+                .apply_signature_request(add_association_request)
+                .await
+                .unwrap();
 
-        get_association_state(&client, inbox_id.clone()).await;
+            get_association_state(&client, inbox_id.clone()).await;
 
-        assert_logged!("Loaded association", 1);
-        assert_logged!("Wrote association", 2);
+            assert_logged!("Loaded association", 1);
+            assert_logged!("Wrote association", 2);
 
-        let association_state = get_association_state(&client, inbox_id.clone()).await;
+            let association_state = get_association_state(&client, inbox_id.clone()).await;
 
-        assert_logged!("Loaded association", 2);
-        assert_logged!("Wrote association", 2);
+            assert_logged!("Loaded association", 2);
+            assert_logged!("Wrote association", 2);
 
-        assert_eq!(association_state.members().len(), 3);
-        assert_eq!(association_state.recovery_address(), &wallet_address);
-        assert!(association_state.get(&wallet_2_address.into()).is_some());
+            assert_eq!(association_state.members().len(), 3);
+            assert_eq!(association_state.recovery_address(), &wallet_address);
+            assert!(association_state.get(&wallet_2_address.into()).is_some());
+        });
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

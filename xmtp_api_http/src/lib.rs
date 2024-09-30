@@ -134,7 +134,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .await
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-        log::debug!("upload_key_package");
+        tracing::debug!("upload_key_package");
         handle_error(&*res)
     }
 
@@ -153,7 +153,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .await
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-        log::debug!("fetch_key_packages");
+        tracing::debug!("fetch_key_packages");
         handle_error(&*res)
     }
 
@@ -169,7 +169,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .await
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-        log::debug!("send_group_messages");
+        tracing::debug!("send_group_messages");
         handle_error(&*res)
     }
 
@@ -188,7 +188,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .await
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-        log::debug!("send_welcome_messages");
+        tracing::debug!("send_welcome_messages");
         handle_error(&*res)
     }
 
@@ -207,7 +207,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .await
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-        log::debug!("query_group_messages");
+        tracing::debug!("query_group_messages");
         handle_error(&*res)
     }
 
@@ -226,7 +226,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .await
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
-        log::debug!("query_welcome_messages");
+        tracing::debug!("query_welcome_messages");
         handle_error(&*res)
     }
 }
@@ -252,7 +252,7 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
         &self,
         request: SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream<'_>, Error> {
-        log::debug!("subscribe_group_messages");
+        tracing::debug!("subscribe_group_messages");
         Ok(create_grpc_stream::<_, GroupMessage>(
             request,
             self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES),
@@ -264,7 +264,7 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
         &self,
         request: SubscribeWelcomeMessagesRequest,
     ) -> Result<Self::WelcomeMessageStream<'_>, Error> {
-        log::debug!("subscribe_welcome_messages");
+        tracing::debug!("subscribe_welcome_messages");
         Ok(create_grpc_stream::<_, WelcomeMessage>(
             request,
             self.endpoint(ApiEndpoints::SUBSCRIBE_WELCOME_MESSAGES),
@@ -289,7 +289,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
             .await
             .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
 
-        log::debug!("publish_identity_update");
+        tracing::debug!("publish_identity_update");
         handle_error(&*res)
     }
 
@@ -308,7 +308,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
             .await
             .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
 
-        log::debug!("get_identity_updates_v2");
+        tracing::debug!("get_identity_updates_v2");
         handle_error(&*res)
     }
 
@@ -327,7 +327,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
             .await
             .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
 
-        log::debug!("get_inbox_ids");
+        tracing::debug!("get_inbox_ids");
         handle_error(&*res)
     }
 }

@@ -1382,29 +1382,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "env_filter"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f2c92ceda6ceec50f43169f9ee8424fe2db276791afde7b2cd8bc084cb376ab"
-dependencies = [
- "log",
- "regex",
-]
-
-[[package]]
-name = "env_logger"
-version = "0.11.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13fa619b91fb2381732789fc5de83b45675e882f66623b7d8cb4f643017018d"
-dependencies = [
- "anstream",
- "anstyle",
- "env_filter",
- "humantime",
- "log",
-]
-
-[[package]]
 name = "equivalent"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2383,12 +2360,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
-name = "humantime"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
-
-[[package]]
 name = "hyper"
 version = "0.14.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3031,11 +3002,9 @@ dependencies = [
  "anyhow",
  "clap",
  "ed25519-dalek",
- "env_logger",
  "ethers",
  "futures",
  "hex",
- "log",
  "openmls",
  "openmls_basic_credential",
  "openmls_rust_crypto",
@@ -3047,6 +3016,8 @@ dependencies = [
  "thiserror",
  "tokio",
  "tonic",
+ "tracing",
+ "tracing-subscriber",
  "warp",
  "xmtp_id",
  "xmtp_mls",
@@ -5587,27 +5558,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-test"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "557b891436fe0d5e0e363427fc7f217abf9ccd510d5136549847bdcbcd011d68"
-dependencies = [
- "tracing-core",
- "tracing-subscriber",
- "tracing-test-macro",
-]
-
-[[package]]
-name = "tracing-test-macro"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04659ddb06c87d233c566112c1c9c5b9e98256d9af50ec3bc9c8327f873a7568"
-dependencies = [
- "quote",
- "syn 2.0.72",
-]
-
-[[package]]
 name = "tracing-wasm"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6355,12 +6305,12 @@ dependencies = [
  "async-stream",
  "futures",
  "hyper 1.4.1",
- "log",
  "reqwest 0.12.5",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
+ "tracing",
  "wasm-bindgen-test",
  "xmtp_proto",
 ]
@@ -6399,7 +6349,6 @@ dependencies = [
  "getrandom",
  "hex",
  "k256 0.13.3",
- "log",
  "rand",
  "rand_chacha",
  "rustc-hex",
@@ -6408,6 +6357,7 @@ dependencies = [
  "sha3",
  "thiserror",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -6423,10 +6373,7 @@ dependencies = [
  "getrandom",
  "gloo-timers 0.3.0",
  "hex",
- "log",
  "openmls",
- "openmls_basic_credential",
- "openmls_rust_crypto",
  "openmls_traits",
  "prost",
  "rand",
@@ -6470,7 +6417,6 @@ dependencies = [
  "hex",
  "indicatif",
  "libsqlite3-sys",
- "log",
  "mockall",
  "mockito",
  "once_cell",
@@ -6495,7 +6441,6 @@ dependencies = [
  "tracing-flame",
  "tracing-log",
  "tracing-subscriber",
- "tracing-test",
  "tracing-wasm",
  "trait-variant",
  "wasm-bindgen-futures",

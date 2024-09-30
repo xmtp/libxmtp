@@ -196,29 +196,18 @@ pub async fn sleep(duration: core::time::Duration) {
 pub(crate) mod tests {
     // Execute once before any tests are run
     #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
-    // Capture traces in a variable that can be checked in tests, as well as outputting them to stdout on test failure
-    #[cfg_attr(not(target_arch = "wasm32"), tracing_test::traced_test)]
     #[cfg(not(target_arch = "wasm32"))]
-    fn setup() {
-        // Capture logs (e.g. log::info!()) as traces too
-        let _ = tracing_log::LogTracer::init_with_filter(log::LevelFilter::Debug);
-    }
+    fn _setup() {
+        use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-    /// Note: tests that use this must have the #[traced_test] attribute
-    #[macro_export]
-    macro_rules! assert_logged {
-        ( $search:expr , $occurrences:expr ) => {
-            logs_assert(|lines: &[&str]| {
-                let actual = lines.iter().filter(|line| line.contains($search)).count();
-                if actual != $occurrences {
-                    return Err(format!(
-                        "Expected '{}' to be logged {} times, but was logged {} times instead",
-                        $search, $occurrences, actual
-                    ));
-                }
-                Ok(())
-            });
-        };
+        let filter = EnvFilter::builder()
+            .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
+            .from_env_lossy();
+
+        tracing_subscriber::registry()
+            .with(fmt::layer())
+            .with(filter)
+            .init();
     }
 
     /// wrapper over assert!(matches!()) for Errors

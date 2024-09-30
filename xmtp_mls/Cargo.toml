@@ -22,7 +22,6 @@ async-stream.workspace = true
 trait-variant.workspace = true
 bincode = "1.3.3"
 hex.workspace = true
-log.workspace = true
 tracing.workspace = true
 openmls_basic_credential = { workspace = true }
 openmls_rust_crypto = { workspace = true }
@@ -96,10 +95,9 @@ web-sys = "0.3"
 [dev-dependencies]
 ethers.workspace = true
 mockall = "0.13.0"
-tracing-log = "0.2.0"
-tracing-test = "0.2.4"
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 anyhow.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
@@ -107,6 +105,7 @@ tracing-subscriber.workspace = true
 tempfile = "3.5.0"
 mockito = "1.4.0"
 ctor.workspace = true
+tracing-log = "0.2.0"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 xmtp_api_http = { path = "../xmtp_api_http" }
