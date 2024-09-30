@@ -5,12 +5,12 @@ rust-version = "1.70"
 version.workspace = true
 
 [dependencies]
+tracing.workspace = true
 curve25519-dalek = "4"
 ecdsa = "0.16.9"
 ethers = { workspace = true }
 hex = { workspace = true }
 k256 = { version = "0.13.3", features = ["ecdh"] }
-log = { workspace = true }
 rand = { workspace = true }
 rand_chacha = "0.3.1"
 rustc-hex.workspace = true

@@ -25,7 +25,7 @@ impl MlsGroup {
         let msgv1 = extract_message_v1(envelope)?;
         let msg_id = msgv1.id;
         let client_id = client.inbox_id();
-        log::info!(
+        tracing::info!(
             "client [{}]  is about to process streamed envelope: [{}]",
             &client_id.clone(),
             &msg_id
@@ -45,7 +45,7 @@ impl MlsGroup {
 
                             // Attempt processing immediately, but fail if the message is not an Application Message
                             // Returning an error should roll back the DB tx
-                            log::info!(
+                            tracing::info!(
                                 "current epoch for [{}] in process_stream_entry() is Epoch: [{}]",
                                 client_id,
                                 openmls_group.epoch()
@@ -70,14 +70,14 @@ impl MlsGroup {
                 // to the DB
                 match self.sync_with_conn(&client.mls_provider()?, client).await {
                     Ok(_) => {
-                        log::debug!("Sync triggered by streamed message successful")
+                        tracing::debug!("Sync triggered by streamed message successful")
                     }
                     Err(err) => {
-                        log::warn!("Sync triggered by streamed message failed: {}", err);
+                        tracing::warn!("Sync triggered by streamed message failed: {}", err);
                     }
                 };
             } else if process_result.is_err() {
-                log::error!("Process stream entry {:?}", process_result.err());
+                tracing::error!("Process stream entry {:?}", process_result.err());
             }
         }
 
