@@ -107,7 +107,7 @@ impl NapiGroup {
 
   /// send a message without immediately publishing to the delivery service.
   #[napi]
-  pub fn send_optimistic(&self, encoded_content: NapiEncodedContent) -> Result<Vec<u8>> {
+  pub fn send_optimistic(&self, encoded_content: NapiEncodedContent) -> Result<String> {
     let encoded_content: EncodedContent = encoded_content.into();
     let group = MlsGroup::new(
       self.inner_client.context().clone(),
@@ -119,7 +119,7 @@ impl NapiGroup {
       .send_message_optimistic(encoded_content.encode_to_vec().as_slice())
       .map_err(ErrorWrapper::from)?;
 
-    Ok(id)
+    Ok(hex::encode(id.clone()))
   }
 
   /// Publish all unpublished messages
