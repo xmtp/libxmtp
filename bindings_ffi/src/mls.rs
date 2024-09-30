@@ -87,14 +87,14 @@ pub async fn create_client(
     history_sync_url: Option<String>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     init_logger(logger);
-    tracing::info!(
+    log::info!(
         "Creating API client for host: {}, isSecure: {}",
         host,
         is_secure
     );
     let api_client = TonicApiClient::create(host.clone(), is_secure).await?;
 
-    tracing::info!(
+    log::info!(
         "Creating message store with path: {:?} and encryption key: {} of length {:?}",
         db,
         encryption_key.is_some(),
@@ -115,7 +115,7 @@ pub async fn create_client(
         }
         None => EncryptedMessageStore::new_unencrypted(storage_option)?,
     };
-    tracing::info!("Creating XMTP client");
+    log::info!("Creating XMTP client");
     let identity_strategy = IdentityStrategy::CreateIfNotFound(
         inbox_id.clone(),
         account_address.clone(),
@@ -141,7 +141,7 @@ pub async fn create_client(
         }
     };
 
-    tracing::info!(
+    log::info!(
         "Created XMTP client for inbox_id: {}",
         xmtp_client.inbox_id()
     );
@@ -709,7 +709,7 @@ impl FfiConversations {
         account_addresses: Vec<String>,
         opts: FfiCreateGroupOptions,
     ) -> Result<Arc<FfiGroup>, GenericError> {
-        tracing::info!(
+        log::info!(
             "creating group with account addresses: {}",
             account_addresses.join(", ")
         );
@@ -1072,7 +1072,7 @@ impl FfiGroup {
     }
 
     pub async fn add_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
-        tracing::info!("adding members: {}", account_addresses.join(","));
+        log::info!("adding members: {}", account_addresses.join(","));
 
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
@@ -1091,7 +1091,7 @@ impl FfiGroup {
         &self,
         inbox_ids: Vec<String>,
     ) -> Result<(), GenericError> {
-        tracing::info!("adding members by inbox id: {}", inbox_ids.join(","));
+        log::info!("adding members by inbox id: {}", inbox_ids.join(","));
 
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
@@ -1596,7 +1596,7 @@ impl FfiStreamCloser {
                 }),
             }
         } else {
-            tracing::warn!("subscription already closed");
+            log::warn!("subscription already closed");
             Ok(())
         }
     }
@@ -1772,7 +1772,7 @@ mod tests {
     impl FfiMessageCallback for RustStreamCallback {
         fn on_message(&self, message: FfiMessage) {
             let mut messages = self.messages.lock().unwrap();
-            tracing::info!(
+            log::info!(
                 "ON MESSAGE Received\n-------- \n{}\n----------",
                 String::from_utf8_lossy(&message.content)
             );
@@ -1784,7 +1784,7 @@ mod tests {
 
     impl FfiConversationCallback for RustStreamCallback {
         fn on_conversation(&self, group: Arc<super::FfiGroup>) {
-            tracing::debug!("received conversation");
+            log::debug!("received conversation");
             let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
             let mut convos = self.conversations.lock().unwrap();
             convos.push(group);
@@ -2648,14 +2648,14 @@ mod tests {
         let caro_group = caro.group(group.id()).unwrap();
 
         alix_group.update_installations().await.unwrap();
-        tracing::info!("Alix sending first message");
+        log::info!("Alix sending first message");
         // Alix sends a message in the group
         alix_group
             .send("First message".as_bytes().to_vec())
             .await
             .unwrap();
 
-        tracing::info!("Caro sending second message");
+        log::info!("Caro sending second message");
         caro_group.update_installations().await.unwrap();
         // Caro sends a message in the group
         caro_group
@@ -2676,7 +2676,7 @@ mod tests {
 
         alix_group.update_installations().await.unwrap();
 
-        tracing::info!("Alix sending third message after Bo's second installation added");
+        log::info!("Alix sending third message after Bo's second installation added");
         // Alix sends a message to the group
         alix_group
             .send("Third message".as_bytes().to_vec())
@@ -2687,7 +2687,7 @@ mod tests {
         bo2.conversations().sync().await.unwrap();
         let bo2_group = bo2.group(group.id()).unwrap();
 
-        tracing::info!("Bo sending fourth message");
+        log::info!("Bo sending fourth message");
         // Bo sends a message to the group
         bo2_group.update_installations().await.unwrap();
         bo2_group
@@ -2695,7 +2695,7 @@ mod tests {
             .await
             .unwrap();
 
-        tracing::info!("Caro sending fifth message");
+        log::info!("Caro sending fifth message");
         // Caro sends a message in the group
         caro_group.update_installations().await.unwrap();
         caro_group
@@ -2703,13 +2703,13 @@ mod tests {
             .await
             .unwrap();
 
-        tracing::info!("Syncing alix");
+        log::info!("Syncing alix");
         alix_group.sync().await.unwrap();
-        tracing::info!("Syncing bo 1");
+        log::info!("Syncing bo 1");
         bo_group.sync().await.unwrap();
-        tracing::info!("Syncing bo 2");
+        log::info!("Syncing bo 2");
         bo2_group.sync().await.unwrap();
-        tracing::info!("Syncing caro");
+        log::info!("Syncing caro");
         caro_group.sync().await.unwrap();
 
         // Get the message count for all the clients
