@@ -36,7 +36,7 @@ pub trait SmartContractSignatureVerifier: Send + Sync + 'static {
         &self,
         account_id: AccountId,
         hash: [u8; 32],
-        signature: &Bytes,
+        signature: Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError>;
 }
@@ -96,7 +96,7 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
         &self,
         account_id: AccountId,
         hash: [u8; 32],
-        signature: &Bytes,
+        signature: Bytes,
         _block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
         let id: u64 = account_id.chain_id.parse().unwrap();

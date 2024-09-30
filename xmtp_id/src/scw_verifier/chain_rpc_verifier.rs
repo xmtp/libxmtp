@@ -52,7 +52,7 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
         &self,
         signer: AccountId,
         hash: [u8; 32],
-        signature: &Bytes,
+        signature: Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
         let code = hex::decode(VALIDATE_SIG_OFFCHAIN_BYTECODE).unwrap();
@@ -223,7 +223,7 @@ pub mod tests {
                     .is_valid_signature(
                         account_id.clone(),
                         hash,
-                        &abi::encode(&[Token::Tuple(vec![
+                        abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(0)),
                             Token::Bytes(sig0.to_vec()),
                         ])])
@@ -239,7 +239,7 @@ pub mod tests {
                     .is_valid_signature(
                         account_id.clone(),
                         hash,
-                        &abi::encode(&[Token::Tuple(vec![
+                        abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(1)),
                             Token::Bytes(sig1.to_vec()),
                         ])])
@@ -254,7 +254,7 @@ pub mod tests {
                     .is_valid_signature(
                         account_id.clone(),
                         hash,
-                        &abi::encode(&[Token::Tuple(vec![
+                        abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(1)),
                             Token::Bytes(sig0.to_vec()),
                         ])])
@@ -278,7 +278,7 @@ pub mod tests {
                     .is_valid_signature(
                         account_id.clone(),
                         hash,
-                        &abi::encode(&[Token::Tuple(vec![
+                        abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(1)),
                             Token::Bytes(sig1.to_vec()),
                         ])])
@@ -293,7 +293,7 @@ pub mod tests {
                     .is_valid_signature(
                         account_id.clone(),
                         hash,
-                        &abi::encode(&[Token::Tuple(vec![
+                        abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(1)),
                             Token::Bytes(sig1.to_vec()),
                         ])])
@@ -352,12 +352,12 @@ pub mod tests {
 
             // Testing ERC-6492 signatures with deployed ERC-1271.
             assert!(verifier
-                .is_valid_signature(account_id.clone(), hash, &signature, None)
+                .is_valid_signature(account_id.clone(), hash, signature.clone(), None)
                 .await
                 .unwrap());
 
             assert!(!verifier
-                .is_valid_signature(account_id.clone(), H256::random().into(), &signature, None)
+                .is_valid_signature(account_id.clone(), H256::random().into(), signature, None)
                 .await
                 .unwrap());
 
@@ -369,7 +369,7 @@ pub mod tests {
                 .is_valid_signature(
                     owner_account_id.clone(),
                     hash,
-                    &signature.to_vec().into(),
+                    signature.to_vec().into(),
                     None
                 )
                 .await
@@ -379,7 +379,7 @@ pub mod tests {
                 .is_valid_signature(
                     owner_account_id,
                     H256::random().into(),
-                    &signature.to_vec().into(),
+                    signature.to_vec().into(),
                     None
                 )
                 .await
@@ -401,7 +401,7 @@ pub mod tests {
 
         let verifier = RpcSmartContractWalletVerifier::new("https://polygon-rpc.com".to_string());
         assert!(verifier
-            .is_valid_signature(AccountId::new_evm(1, signer), hash.into(), &signature, None)
+            .is_valid_signature(AccountId::new_evm(1, signer), hash.into(), signature, None)
             .await
             .unwrap());
     }

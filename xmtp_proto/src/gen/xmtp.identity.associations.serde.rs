@@ -1830,7 +1830,10 @@ impl serde::Serialize for SmartContractWalletSignature {
         if !self.signature.is_empty() {
             len += 1;
         }
-        if !self.chain_rpc_url.is_empty() {
+        if self.chain_id != 0 {
+            len += 1;
+        }
+        if !self.hash.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.SmartContractWalletSignature", len)?;
@@ -1847,8 +1850,15 @@ impl serde::Serialize for SmartContractWalletSignature {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("signature", pbjson::private::base64::encode(&self.signature).as_str())?;
         }
-        if !self.chain_rpc_url.is_empty() {
-            struct_ser.serialize_field("chainRpcUrl", &self.chain_rpc_url)?;
+        if self.chain_id != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("chainId", ToString::to_string(&self.chain_id).as_str())?;
+        }
+        if !self.hash.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("hash", pbjson::private::base64::encode(&self.hash).as_str())?;
         }
         struct_ser.end()
     }
@@ -1865,8 +1875,9 @@ impl<'de> serde::Deserialize<'de> for SmartContractWalletSignature {
             "block_number",
             "blockNumber",
             "signature",
-            "chain_rpc_url",
-            "chainRpcUrl",
+            "chain_id",
+            "chainId",
+            "hash",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1874,7 +1885,8 @@ impl<'de> serde::Deserialize<'de> for SmartContractWalletSignature {
             AccountId,
             BlockNumber,
             Signature,
-            ChainRpcUrl,
+            ChainId,
+            Hash,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1899,7 +1911,8 @@ impl<'de> serde::Deserialize<'de> for SmartContractWalletSignature {
                             "accountId" | "account_id" => Ok(GeneratedField::AccountId),
                             "blockNumber" | "block_number" => Ok(GeneratedField::BlockNumber),
                             "signature" => Ok(GeneratedField::Signature),
-                            "chainRpcUrl" | "chain_rpc_url" => Ok(GeneratedField::ChainRpcUrl),
+                            "chainId" | "chain_id" => Ok(GeneratedField::ChainId),
+                            "hash" => Ok(GeneratedField::Hash),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1922,7 +1935,8 @@ impl<'de> serde::Deserialize<'de> for SmartContractWalletSignature {
                 let mut account_id__ = None;
                 let mut block_number__ = None;
                 let mut signature__ = None;
-                let mut chain_rpc_url__ = None;
+                let mut chain_id__ = None;
+                let mut hash__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AccountId => {
@@ -1947,11 +1961,21 @@ impl<'de> serde::Deserialize<'de> for SmartContractWalletSignature {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::ChainRpcUrl => {
-                            if chain_rpc_url__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("chainRpcUrl"));
+                        GeneratedField::ChainId => {
+                            if chain_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("chainId"));
                             }
-                            chain_rpc_url__ = Some(map_.next_value()?);
+                            chain_id__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Hash => {
+                            if hash__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("hash"));
+                            }
+                            hash__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
                         }
                     }
                 }
@@ -1959,7 +1983,8 @@ impl<'de> serde::Deserialize<'de> for SmartContractWalletSignature {
                     account_id: account_id__.unwrap_or_default(),
                     block_number: block_number__.unwrap_or_default(),
                     signature: signature__.unwrap_or_default(),
-                    chain_rpc_url: chain_rpc_url__.unwrap_or_default(),
+                    chain_id: chain_id__.unwrap_or_default(),
+                    hash: hash__.unwrap_or_default(),
                 })
             }
         }

@@ -54,7 +54,7 @@ impl SmartContractSignatureVerifier for MockSmartContractSignatureVerifier {
         &self,
         _account_id: AccountId,
         _hash: [u8; 32],
-        _signature: &Bytes,
+        _signature: Bytes,
         _block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
         Ok(self.is_valid_signature)
