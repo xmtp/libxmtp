@@ -1866,7 +1866,6 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    #[traced_test]
     async fn test_create_from_welcome_validation() {
         crate::traced_test(|| async {
             let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1896,7 +1895,7 @@ mod tests {
 
             // Bo should not be able to actually read this group
             bo.sync_welcomes().await.unwrap();
-            let groups = bo.find_groups(None, None, None, None).unwrap();
+            let groups = bo.find_groups(FindGroupParams::default()).unwrap();
             assert_eq!(groups.len(), 0);
             assert_logged!("failed to create group from welcome", 1);
         });
@@ -3586,7 +3585,7 @@ mod tests {
             .unwrap();
 
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         let bola_group = bola_groups.first().unwrap();
         // group consent state should default to unknown for users who did not create the group
         assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Unknown);
@@ -3605,7 +3604,7 @@ mod tests {
             .unwrap();
 
         caro.sync_welcomes().await.unwrap();
-        let caro_groups = caro.find_groups(None, None, None, None).unwrap();
+        let caro_groups = caro.find_groups(FindGroupParams::default()).unwrap();
         let caro_group = caro_groups.first().unwrap();
 
         caro_group
