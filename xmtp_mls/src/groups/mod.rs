@@ -340,6 +340,7 @@ impl MlsGroup {
         added_by_inbox: String,
         welcome_id: i64,
     ) -> Result<Self, GroupError> {
+        log::info!("Creating from welcome");
         let mls_welcome =
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
 
@@ -386,6 +387,7 @@ impl MlsGroup {
         encrypted_welcome_bytes: Vec<u8>,
         welcome_id: i64,
     ) -> Result<Self, GroupError> {
+        log::info!("Trying to decrypt welcome");
         let welcome_bytes = decrypt_welcome(provider, hpke_public_key, &encrypted_welcome_bytes)?;
 
         let welcome = deserialize_welcome(&welcome_bytes)?;
@@ -396,6 +398,7 @@ impl MlsGroup {
             ProcessedWelcome::new_from_welcome(provider, &join_config, welcome.clone())?;
         let psks = processed_welcome.psks();
         if !psks.is_empty() {
+            log::error!("No PSK support for welcome");
             return Err(GroupError::NoPSKSupport);
         }
         let staged_welcome = processed_welcome.into_staged_welcome(provider, None)?;
@@ -1258,6 +1261,7 @@ async fn validate_initial_group_membership<ApiClient: XmtpApi>(
     conn: &DbConnection,
     mls_group: &OpenMlsGroup,
 ) -> Result<(), GroupError> {
+    log::info!("Validating initial group membership");
     let membership = extract_group_membership(mls_group.extensions())?;
     let needs_update = client.filter_inbox_ids_needing_updates(conn, membership.to_filters())?;
     if !needs_update.is_empty() {
@@ -1289,6 +1293,7 @@ async fn validate_initial_group_membership<ApiClient: XmtpApi>(
         return Err(GroupError::InvalidGroupMembership);
     }
 
+    log::info!("Group membership validated");
     Ok(())
 }
 
