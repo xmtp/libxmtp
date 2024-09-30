@@ -506,7 +506,7 @@ where
 
     /// Create a new Direct Message with the default settings
     pub async fn create_dm(&self, account_address: String) -> Result<MlsGroup, ClientError> {
-        log::info!("creating dm with address: {}", account_address);
+        tracing::info!("creating dm with address: {}", account_address);
 
         let inbox_id = match self
             .find_inbox_id_from_address(account_address.clone())
@@ -529,7 +529,7 @@ where
         &self,
         dm_target_inbox_id: InboxId,
     ) -> Result<MlsGroup, ClientError> {
-        log::info!("creating dm with {}", dm_target_inbox_id);
+        tracing::info!("creating dm with {}", dm_target_inbox_id);
 
         let group = MlsGroup::create_dm_and_insert(
             self.context.clone(),

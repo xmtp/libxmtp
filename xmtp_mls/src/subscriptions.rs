@@ -150,17 +150,7 @@ where
                     }
                 }
                 Err(err) => {
-                    log::error!("Error processing group metadata: {:?}", err);
-                    None
-                }
-            }
-        };
-
-        let event_queue = event_queue.filter_map(|event| async move {
-            match event {
-                Ok(LocalEvents::NewGroup(g)) => Some(g),
-                Err(BroadcastStreamRecvError::Lagged(missed)) => {
-                    tracing::warn!("Missed {missed} messages due to local event queue lagging");
+                    tracing::error!("Error processing group metadata: {:?}", err);
                     None
                 }
             }
@@ -173,7 +163,7 @@ where
                 match event {
                     Ok(LocalEvents::NewGroup(group)) => filter_group(group, provider).await,
                     Err(BroadcastStreamRecvError::Lagged(missed)) => {
-                        log::warn!("Missed {missed} messages due to local event queue lagging");
+                        tracing::warn!("Missed {missed} messages due to local event queue lagging");
                         None
                     }
                 }
@@ -201,7 +191,7 @@ where
                     match res.await {
                         Ok(group) => filter_group(group, provider).await,
                         Err(err) => {
-                            log::error!(
+                            tracing::error!(
                                 "Error processing stream entry for conversation: {:?}",
                                 err
                             );
