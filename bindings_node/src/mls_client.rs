@@ -1,3 +1,4 @@
+use crate::consent_state::{NapiConsent, NapiConsentEntityType, NapiConsentState};
 use crate::conversations::NapiConversations;
 use crate::inbox_state::NapiInboxState;
 use napi::bindgen_prelude::{Error, Result, Uint8Array};
@@ -15,6 +16,7 @@ use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::retry::Retry;
+use xmtp_mls::storage::consent_record::StoredConsentRecord;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
 
@@ -369,5 +371,33 @@ impl NapiClient {
     }
 
     Ok(())
+  }
+
+  #[napi]
+  pub async fn set_consent_states(&self, records: Vec<NapiConsent>) -> Result<()> {
+    let inner = self.inner_client.as_ref();
+    let stored_records: Vec<StoredConsentRecord> =
+      records.into_iter().map(StoredConsentRecord::from).collect();
+
+    inner
+      .set_consent_states(stored_records)
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    Ok(())
+  }
+
+  #[napi]
+  pub async fn get_consent_state(
+    &self,
+    entity_type: NapiConsentEntityType,
+    entity: String,
+  ) -> Result<NapiConsentState> {
+    let inner = self.inner_client.as_ref();
+    let result = inner
+      .get_consent_state(entity_type.into(), entity)
+      .await
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(result.into())
   }
 }
