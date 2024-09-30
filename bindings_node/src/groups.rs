@@ -14,6 +14,7 @@ use xmtp_mls::groups::{
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 use crate::{
+  consent_state::NapiConsentState,
   encoded_content::NapiEncodedContent,
   messages::{NapiListMessagesOptions, NapiMessage},
   mls_client::RustXmtpClient,
@@ -61,6 +62,7 @@ pub struct NapiGroupMember {
   pub account_addresses: Vec<String>,
   pub installation_ids: Vec<String>,
   pub permission_level: NapiPermissionLevel,
+  pub consent_state: NapiConsentState,
 }
 
 #[derive(Debug)]
@@ -234,6 +236,7 @@ impl NapiGroup {
           PermissionLevel::Admin => NapiPermissionLevel::Admin,
           PermissionLevel::SuperAdmin => NapiPermissionLevel::SuperAdmin,
         },
+        consent_state: member.consent_state.into(),
       })
       .collect();
 
@@ -607,5 +610,33 @@ impl NapiGroup {
       .map_err(ErrorWrapper::from)?;
 
     Ok(NapiGroupMetadata { inner: metadata })
+  }
+
+  #[napi]
+  pub fn consent_state(&self) -> Result<NapiConsentState> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    let state = group.consent_state().map_err(ErrorWrapper::from)?;
+
+    Ok(state.into())
+  }
+
+  #[napi]
+  pub fn update_consent_state(&self, state: NapiConsentState) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    group
+      .update_consent_state(state.into())
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
   }
 }
