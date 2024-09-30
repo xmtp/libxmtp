@@ -35,13 +35,13 @@ pub struct BookForm {
 }
 
 #[derive(Queryable, QueryableByName, Selectable, PartialEq, Debug)]
-#[diesel(table_name = books)]
+#[diesel(table_name = books, check_for_backend(diesel_wasm_sqlite::WasmSqlite))]
 pub struct StoredBook {
     #[diesel(sql_type = Integer)]
     id: i32,
     #[diesel(sql_type = Text)]
     title: String,
-    #[diesel(sql_type = Nullable<String>)]
+    #[diesel(sql_type = Nullable<Text>)]
     author: Option<String>,
     // published_year: NaiveDateTime,
 }
@@ -176,7 +176,7 @@ async fn test_orm_insert() {
 }
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
-#[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
+#[derive(Insertable, Identifiable, Queryable, Selectable, Debug, Clone, PartialEq, Eq)]
 #[diesel(table_name = test_table)]
 #[diesel(primary_key(id, id2))]
 pub struct Item {
@@ -214,6 +214,36 @@ async fn can_insert_or_ignore() {
         },
     ];
     insert_or_ignore(&updates, &mut conn);
+}
+
+#[wasm_bindgen_test]
+async fn can_retrieve_blob() {
+    init().await;
+    let mut conn = establish_connection().await;
+    let updates = vec![
+        Item {
+            id: "test".into(),
+            id2: 13,
+            timestamp_ns: 1231232,
+            payload: b"testing 1".to_vec(),
+        },
+        Item {
+            id: "test2".into(),
+            id2: 14,
+            timestamp_ns: 1201222,
+            payload: b"testing 2".to_vec(),
+        },
+    ];
+    insert_or_ignore(&updates, &mut conn);
+
+    let res = schema::test_table::dsl::test_table
+        .select(Item::as_select())
+        .load(&mut conn)
+        .unwrap();
+
+    assert_eq!(res[0].payload, b"testing 1");
+    assert_eq!(res[1].payload, b"testing 2");
+
 }
 
 #[wasm_bindgen_test]
@@ -258,4 +288,45 @@ async fn serializing() {
             author: Some("George R.R".into()),
         },]
     );
+}
+
+#[wasm_bindgen_test]
+async fn can_find() {
+    use schema::{books::dsl, self};
+
+    init().await;
+    let mut conn = establish_connection().await;
+    let new_books = vec![
+        BookForm {
+            title: "Game of Thrones".into(),
+            author: Some("George R.R".into()),
+        },
+        BookForm {
+            title: "1984".into(),
+            author: Some("George Orwell".into()),
+        }
+    ];
+
+    let changed = insert_books(&mut conn, new_books).unwrap();
+    tracing::info!("{changed} rows changed");
+
+    let res: Option<StoredBook> = dsl::books.find(1).first(&mut conn).optional().unwrap();
+    tracing::debug!("res: {:?}", res);
+    tracing::debug!("FIND RES: {:?}", res);
+
+    let res: Vec<StoredBook> = diesel::sql_query("SELECT * FROM books where (id = 1)")
+        .load::<StoredBook>(&mut conn).unwrap();
+    tracing::debug!("SQL_QUERY RES: {:?}", res);
+/*
+    assert_eq!(res, vec![
+        StoredBook { id: 0, title: "Game of Thrones".into(), author: Some("George R.R".into())   }
+    ]);
+*/
+    let stored_books = schema::books::dsl::books
+        .select(StoredBook::as_select())
+        .load(&mut conn);
+    tracing::debug!("Books: {:?}", stored_books);
+
+    let first: Option<StoredBook> = dsl::books.first(&mut conn).optional().unwrap();
+    tracing::debug!("FIRST BOOK {:?}", first)
 }

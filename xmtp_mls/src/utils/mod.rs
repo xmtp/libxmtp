@@ -48,15 +48,17 @@ pub mod wasm {
     use tokio::sync::OnceCell;
     static INIT: OnceCell<()> = OnceCell::const_new();
 
+    /// can be used to debug wasm tests
+    /// normal tracing logs are output to the browser console
     #[cfg(all(target_arch = "wasm32", test))]
     pub async fn init() {
         use web_sys::console;
-        tracing_log::LogTracer::init().unwrap();
+        use tracing_subscriber::prelude::*;
 
         INIT.get_or_init(|| async {
             console::log_1(&"INIT".into());
-            console_error_panic_hook::set_once();
             tracing_wasm::set_as_global_default();
+            console_error_panic_hook::set_once();
             diesel_wasm_sqlite::init_sqlite().await;
         })
         .await;

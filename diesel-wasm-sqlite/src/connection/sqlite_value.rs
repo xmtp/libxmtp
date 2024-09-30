@@ -118,8 +118,8 @@ impl<'row, 'stmt, 'query> SqliteValue<'row, 'stmt, 'query> {
             let ptr = sqlite3.value_blob(self.value);
             let len = sqlite3.value_bytes(self.value);
             let mut bytes = Vec::with_capacity(len as usize);
+            bytes.set_len(len as usize);
             ffi::raw_copy_from_sqlite(ptr, len, bytes.as_mut_slice());
-            // bytes.set_len(len); // not sure we need this
             bytes
         }
     }

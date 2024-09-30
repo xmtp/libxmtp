@@ -5922,6 +5922,7 @@ dependencies = [
  "trait-variant",
  "wasm-bindgen-futures",
  "wasm-timer",
+ "web-sys",
  "xmtp_api_grpc",
  "xmtp_cryptography",
  "xmtp_id",

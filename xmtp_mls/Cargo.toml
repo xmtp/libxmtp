@@ -114,6 +114,7 @@ tracing-wasm = { version = "0.2" }
 diesel-wasm-sqlite = { workspace = true, features = ["unsafe-debug-query", "r2d2"] }
 console_error_panic_hook = { version = "0.1"}
 wasm-bindgen-test.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [[bin]]
 doc = false

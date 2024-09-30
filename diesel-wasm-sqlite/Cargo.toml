@@ -39,7 +39,7 @@ chrono = { version = "0.4", features = ["wasmbind", "serde"] }
 diesel_migrations = "2.2"
 diesel = { version = "2.2", features = ["chrono"]}
 tracing-wasm = { version = "0.2" }
-ctor = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "tracing-log"] }
 
 [patch.crates-io]
 diesel = { git = "https://github.com/xmtp/diesel", branch = "insipx/sqlite-replace-ignore-pub" }

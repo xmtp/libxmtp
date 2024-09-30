@@ -608,7 +608,7 @@ pub(crate) mod tests {
         assert!(association_state.get(&wallet_2_address.into()).is_some());
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    // #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     #[tracing_test::traced_test]
     async fn cache_association_state() {

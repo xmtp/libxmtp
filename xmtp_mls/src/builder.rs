@@ -612,6 +612,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn identity_persistence_test() {
+        // crate::utils::wasm::init().await;
         let tmpdb = tmp_path();
         let wallet = &generate_local_wallet();
         let db_key = EncryptedMessageStore::generate_enc_key();

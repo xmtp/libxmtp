@@ -35,9 +35,9 @@ impl WasmDb {
         let conn = match opts {
             Ephemeral => SqliteConnection::establish(":memory:"),
             Persistent(ref db_path) => SqliteConnection::establish(db_path),
-        };
+        }?;
         Ok(Self {
-            conn: Arc::new(Mutex::new(conn?)),
+            conn: Arc::new(Mutex::new(conn)),
             opts: opts.clone(),
             enc_key,
         })

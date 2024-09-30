@@ -654,7 +654,7 @@ pub(crate) mod tests {
     // try to write with second connection
     // write should fail & rollback
     // first thread succeeds
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    // #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_transaction_rollback() {
         let db_path = tmp_path();

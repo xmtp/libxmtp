@@ -23,6 +23,7 @@ use diesel::sql_types::SqlType;
 /*
 // Not posible until we share mem with sqlite. There's no
 // way to avoid an allocation into our host memory until then.
+
 impl FromSql<sql_types::VarChar, WasmSqlite> for *const str {
     fn from_sql(value: SqliteValue<'_, '_, '_>) -> deserialize::Result<Self> {
         tracing::debug!("IN FROM SQL");

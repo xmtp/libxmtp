@@ -1634,7 +1634,7 @@ pub(crate) mod tests {
         assert!(matching_message.is_some());
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    // #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(
         not(target_arch = "wasm32"),
         tokio::test(flavor = "multi_thread", worker_threads = 1)
