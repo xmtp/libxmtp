@@ -4694,6 +4694,7 @@ version = "0.1.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3523ab5a71916ccf420eebdf5521fcef02141234bbc0b8a49f2fdc4544364ef"
 dependencies = [
+ "log",
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
@@ -5322,12 +5323,12 @@ dependencies = [
  "async-stream",
  "futures",
  "hyper 1.4.1",
- "log",
  "reqwest 0.12.7",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
+ "tracing",
  "xmtp_proto",
 ]
 
@@ -5341,7 +5342,6 @@ dependencies = [
  "getrandom",
  "hex",
  "k256 0.13.3",
- "log",
  "rand",
  "rand_chacha",
  "rustc-hex",
@@ -5349,6 +5349,7 @@ dependencies = [
  "sha2",
  "sha3",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -5363,10 +5364,7 @@ dependencies = [
  "futures",
  "getrandom",
  "hex",
- "log",
  "openmls",
- "openmls_basic_credential",
- "openmls_rust_crypto",
  "openmls_traits",
  "prost",
  "rand",
@@ -5402,7 +5400,6 @@ dependencies = [
  "gloo-timers 0.3.0",
  "hex",
  "libsqlite3-sys",
- "log",
  "openmls",
  "openmls_basic_credential",
  "openmls_rust_crypto",

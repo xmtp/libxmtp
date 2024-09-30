@@ -10,7 +10,7 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown", "aarch64-apple-
 
 [features]
 default = []
-test-utils = ["dep:xmtp_api_grpc", "xmtp_id/test-utils"]
+test-utils = ["dep:xmtp_api_grpc", "xmtp_id/test-utils", "tracing-subscriber"]
 bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "tracing-flame", "once_cell", "dep:xmtp_api_grpc", "criterion"]
 update-schema = ["toml"]
 http-api = ["xmtp_api_http"]

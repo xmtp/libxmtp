@@ -7,16 +7,11 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_id::associations::unverified::UnverifiedSignature;
-use xmtp_id::associations::AccountId;
-use xmtp_id::associations::AssociationState;
-use xmtp_id::associations::MemberIdentifier;
-use xmtp_id::scw_verifier::RpcSmartContractWalletVerifier;
-use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     associations::{
         builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id,
         unverified::UnverifiedSignature, AccountId, AssociationState,
+        MemberIdentifier
     },
     scw_verifier::{RpcSmartContractWalletVerifier, SmartContractSignatureVerifier},
     InboxId,
