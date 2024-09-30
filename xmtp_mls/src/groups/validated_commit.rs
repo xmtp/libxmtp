@@ -428,7 +428,7 @@ fn get_latest_group_membership(
             Proposal::GroupContextExtensions(group_context_extensions) => {
                 let new_group_membership: GroupMembership =
                     extract_group_membership(group_context_extensions.extensions())?;
-                log::info!(
+                tracing::info!(
                     "Group context extensions proposal found: {:?}",
                     new_group_membership
                 );

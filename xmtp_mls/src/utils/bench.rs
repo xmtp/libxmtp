@@ -181,7 +181,7 @@ pub async fn create_identities_if_dont_exist(
 ) -> Vec<Identity> {
     match load_identities(is_dev_network) {
         Ok(identities) => {
-            log::info!(
+            tracing::info!(
                 "Found generated identities at {}, checking for existence on backend...",
                 file_path(is_dev_network)
             );
@@ -195,7 +195,7 @@ pub async fn create_identities_if_dont_exist(
         _ => (),
     }
 
-    log::info!(
+    tracing::info!(
         "Could not find any identitites to load, creating new identitites \n
         Beware, this fills $TMPDIR with ~10GBs of identities"
     );

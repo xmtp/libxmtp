@@ -19,7 +19,7 @@ femme = "2.2.1"
 futures.workspace = true
 hex = "0.4.3"
 kv-log-macro = "1.0.7"
-log = { workspace = true, features = [
+log = { version = "0.4", features = [
     "kv_unstable",
     "std",
     "kv_unstable_serde",
