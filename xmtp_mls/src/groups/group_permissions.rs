@@ -32,6 +32,7 @@ use super::{
     validated_commit::{CommitParticipant, Inbox, MetadataFieldChange, ValidatedCommit},
 };
 
+/// Errors that can occur when working with GroupMutablePermissions.
 #[derive(Debug, Error)]
 pub enum GroupMutablePermissionsError {
     #[error("serialization: {0}")]
@@ -50,22 +51,29 @@ pub enum GroupMutablePermissionsError {
     InvalidPermissionPolicyOption,
 }
 
+/// Represents the mutable permissions for a group.
+///
+/// This struct is stored as an MLS Unknown Group Context Extension.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupMutablePermissions {
+    /// The set of policies that define the permissions for the group.
     pub policies: PolicySet,
 }
 
 impl GroupMutablePermissions {
+    /// Creates a new GroupMutablePermissions instance.
     pub fn new(policies: PolicySet) -> Self {
         Self { policies }
     }
 
+    /// Returns the preconfigured policy for the group permissions.
     pub fn preconfigured_policy(
         &self,
     ) -> Result<PreconfiguredPolicies, GroupMutablePermissionsError> {
         Ok(PreconfiguredPolicies::from_policy_set(&self.policies)?)
     }
 
+    /// Creates a GroupMutablePermissions instance from a proto representation.
     pub(crate) fn from_proto(
         proto: GroupMutablePermissionsProto,
     ) -> Result<Self, GroupMutablePermissionsError> {
@@ -77,6 +85,7 @@ impl GroupMutablePermissions {
         Ok(Self::new(PolicySet::from_proto(policies)?))
     }
 
+    /// Converts the GroupMutablePermissions to its proto representation.
     pub(crate) fn to_proto(
         &self,
     ) -> Result<GroupMutablePermissionsProto, GroupMutablePermissionsError> {
@@ -86,6 +95,7 @@ impl GroupMutablePermissions {
     }
 }
 
+/// Implements conversion from GroupMutablePermissions to Vec<u8>.
 impl TryFrom<GroupMutablePermissions> for Vec<u8> {
     type Error = GroupMutablePermissionsError;
 
@@ -98,6 +108,7 @@ impl TryFrom<GroupMutablePermissions> for Vec<u8> {
     }
 }
 
+/// Implements conversion from &Vec<u8> to GroupMutablePermissions.
 impl TryFrom<&Vec<u8>> for GroupMutablePermissions {
     type Error = GroupMutablePermissionsError;
 
@@ -107,6 +118,7 @@ impl TryFrom<&Vec<u8>> for GroupMutablePermissions {
     }
 }
 
+/// Implements conversion from GroupMutablePermissionsProto to GroupMutablePermissions.
 impl TryFrom<GroupMutablePermissionsProto> for GroupMutablePermissions {
     type Error = GroupMutablePermissionsError;
 
@@ -115,6 +127,7 @@ impl TryFrom<GroupMutablePermissionsProto> for GroupMutablePermissions {
     }
 }
 
+/// Implements conversion from &Extensions to GroupMutablePermissions.
 impl TryFrom<&Extensions> for GroupMutablePermissions {
     type Error = GroupMutablePermissionsError;
 
@@ -130,6 +143,7 @@ impl TryFrom<&Extensions> for GroupMutablePermissions {
     }
 }
 
+/// Implements conversion from &OpenMlsGroup to GroupMutablePermissions.
 impl TryFrom<&OpenMlsGroup> for GroupMutablePermissions {
     type Error = GroupMutablePermissionsError;
 
@@ -139,6 +153,7 @@ impl TryFrom<&OpenMlsGroup> for GroupMutablePermissions {
     }
 }
 
+/// Extracts group permissions from an OpenMlsGroup.
 pub fn extract_group_permissions(
     group: &OpenMlsGroup,
 ) -> Result<GroupMutablePermissions, GroupMutablePermissionsError> {
@@ -146,14 +161,19 @@ pub fn extract_group_permissions(
     extensions.try_into()
 }
 
-// A trait for policies that can update Metadata for the group
+/// A trait for policies that can update Metadata for the group.
 pub trait MetadataPolicy: std::fmt::Debug {
-    // Verify relevant metadata is actually changed before evaluating against the MetadataPolicy
-    // See evaluate_metadata_policy
+    /// Evaluates the policy for a given actor and metadata change.
+    ///
+    /// Verify relevant metadata is actually changed before evaluating against the MetadataPolicy.
+    /// See evaluate_metadata_policy.
     fn evaluate(&self, actor: &CommitParticipant, change: &MetadataFieldChange) -> bool;
+
+    /// Converts the policy to its proto representation.
     fn to_proto(&self) -> Result<MetadataPolicyProto, PolicyError>;
 }
 
+/// Represents the base policies for metadata updates.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MetadataBasePolicies {
     Allow,
@@ -162,6 +182,7 @@ pub enum MetadataBasePolicies {
     AllowIfActorSuperAdmin,
 }
 
+/// Implements the MetadataPolicy trait for MetadataBasePolicies.
 impl MetadataPolicy for &MetadataBasePolicies {
     fn evaluate(&self, actor: &CommitParticipant, _change: &MetadataFieldChange) -> bool {
         match self {
@@ -192,6 +213,7 @@ impl MetadataPolicy for &MetadataBasePolicies {
     }
 }
 
+/// Represents the different types of metadata policies.
 #[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub enum MetadataPolicies {
@@ -201,6 +223,7 @@ pub enum MetadataPolicies {
 }
 
 impl MetadataPolicies {
+    /// Creates a default map of metadata policies.
     pub fn default_map(policies: MetadataPolicies) -> HashMap<String, MetadataPolicies> {
         let mut map: HashMap<String, MetadataPolicies> = HashMap::new();
         for field in GroupMutableMetadata::supported_fields() {
@@ -209,31 +232,47 @@ impl MetadataPolicies {
         map
     }
 
+    // by default members of DM groups can update all metadata
+    pub fn dm_map() -> HashMap<String, MetadataPolicies> {
+        let mut map: HashMap<String, MetadataPolicies> = HashMap::new();
+        for field in GroupMutableMetadata::supported_fields() {
+            map.insert(field.to_string(), MetadataPolicies::allow());
+        }
+        map
+    }
+
+    /// Creates an "Allow" metadata policy.
     pub fn allow() -> Self {
         MetadataPolicies::Standard(MetadataBasePolicies::Allow)
     }
 
+    /// Creates a "Deny" metadata policy.
     pub fn deny() -> Self {
         MetadataPolicies::Standard(MetadataBasePolicies::Deny)
     }
 
+    /// Creates an "Allow if actor is admin" metadata policy.
     pub fn allow_if_actor_admin() -> Self {
         MetadataPolicies::Standard(MetadataBasePolicies::AllowIfActorAdminOrSuperAdmin)
     }
 
+    /// Creates an "Allow if actor is super admin" metadata policy.
     pub fn allow_if_actor_super_admin() -> Self {
         MetadataPolicies::Standard(MetadataBasePolicies::AllowIfActorSuperAdmin)
     }
 
+    /// Creates an "And" condition metadata policy.
     pub fn and(policies: Vec<MetadataPolicies>) -> Self {
         MetadataPolicies::AndCondition(MetadataAndCondition::new(policies))
     }
 
+    /// Creates an "Any" condition metadata policy.
     pub fn any(policies: Vec<MetadataPolicies>) -> Self {
         MetadataPolicies::AnyCondition(MetadataAnyCondition::new(policies))
     }
 }
 
+/// Implements conversion from MetadataPolicyProto to MetadataPolicies.
 impl TryFrom<MetadataPolicyProto> for MetadataPolicies {
     type Error = PolicyError;
 
@@ -276,6 +315,7 @@ impl TryFrom<MetadataPolicyProto> for MetadataPolicies {
     }
 }
 
+/// Implements the MetadataPolicy trait for MetadataPolicies.
 impl MetadataPolicy for MetadataPolicies {
     fn evaluate(&self, actor: &CommitParticipant, change: &MetadataFieldChange) -> bool {
         match self {
@@ -294,7 +334,7 @@ impl MetadataPolicy for MetadataPolicies {
     }
 }
 
-// An AndCondition evaluates to true if all the policies it contains evaluate to true
+/// An AndCondition evaluates to true if all the policies it contains evaluate to true.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetadataAndCondition {
     policies: Vec<MetadataPolicies>,
@@ -306,6 +346,7 @@ impl MetadataAndCondition {
     }
 }
 
+/// Implements the MetadataPolicy trait for MetadataAndCondition.
 impl MetadataPolicy for MetadataAndCondition {
     fn evaluate(&self, actor: &CommitParticipant, change: &MetadataFieldChange) -> bool {
         self.policies
@@ -328,7 +369,7 @@ impl MetadataPolicy for MetadataAndCondition {
     }
 }
 
-// An AnyCondition evaluates to true if any of the contained policies evaluate to true
+/// An AnyCondition evaluates to true if any of the contained policies evaluate to true.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetadataAnyCondition {
     policies: Vec<MetadataPolicies>,
@@ -341,6 +382,7 @@ impl MetadataAnyCondition {
     }
 }
 
+/// Implements the MetadataPolicy trait for MetadataAnyCondition.
 impl MetadataPolicy for MetadataAnyCondition {
     fn evaluate(&self, actor: &CommitParticipant, change: &MetadataFieldChange) -> bool {
         self.policies
@@ -363,14 +405,16 @@ impl MetadataPolicy for MetadataAnyCondition {
     }
 }
 
-// A trait for policies that can update Permissions for the group
+/// A trait for policies that can update Permissions for the group.
 pub trait PermissionsPolicy: std::fmt::Debug {
-    // Verify relevant metadata is actually changed before evaluating against the MetadataPolicy
-    // See evaluate_metadata_policy
+    /// Evaluates the policy for a given actor.
     fn evaluate(&self, actor: &CommitParticipant) -> bool;
+
+    /// Converts the policy to its proto representation.
     fn to_proto(&self) -> Result<PermissionsPolicyProto, PolicyError>;
 }
 
+/// Represents the base policies for permissions updates.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PermissionsBasePolicies {
     Deny,
@@ -378,6 +422,7 @@ pub enum PermissionsBasePolicies {
     AllowIfActorSuperAdmin,
 }
 
+/// Implements the PermissionsPolicy trait for PermissionsBasePolicies.
 impl PermissionsPolicy for &PermissionsBasePolicies {
     fn evaluate(&self, actor: &CommitParticipant) -> bool {
         match self {
@@ -406,6 +451,7 @@ impl PermissionsPolicy for &PermissionsBasePolicies {
     }
 }
 
+/// Represents the different types of permissions policies.
 #[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub enum PermissionsPolicies {
@@ -415,29 +461,33 @@ pub enum PermissionsPolicies {
 }
 
 impl PermissionsPolicies {
+    /// Creates a "Deny" permissions policy.
     pub fn deny() -> Self {
         PermissionsPolicies::Standard(PermissionsBasePolicies::Deny)
     }
 
-    #[allow(dead_code)]
+    /// Creates an "Allow if actor is admin" permissions policy.
     pub fn allow_if_actor_admin() -> Self {
         PermissionsPolicies::Standard(PermissionsBasePolicies::AllowIfActorAdminOrSuperAdmin)
     }
 
-    #[allow(dead_code)]
+    /// Creates an "Allow if actor is super admin" permissions policy.
     pub fn allow_if_actor_super_admin() -> Self {
         PermissionsPolicies::Standard(PermissionsBasePolicies::AllowIfActorSuperAdmin)
     }
 
+    /// Creates an "And" condition permissions policy.
     pub fn and(policies: Vec<PermissionsPolicies>) -> Self {
         PermissionsPolicies::AndCondition(PermissionsAndCondition::new(policies))
     }
 
+    /// Creates an "Any" condition permissions policy.
     pub fn any(policies: Vec<PermissionsPolicies>) -> Self {
         PermissionsPolicies::AnyCondition(PermissionsAnyCondition::new(policies))
     }
 }
 
+/// Implements conversion from PermissionsPolicyProto to PermissionsPolicies.
 impl TryFrom<PermissionsPolicyProto> for PermissionsPolicies {
     type Error = PolicyError;
 
@@ -479,6 +529,7 @@ impl TryFrom<PermissionsPolicyProto> for PermissionsPolicies {
     }
 }
 
+/// Implements the PermissionsPolicy trait for PermissionsPolicies.
 impl PermissionsPolicy for PermissionsPolicies {
     fn evaluate(&self, actor: &CommitParticipant) -> bool {
         match self {
@@ -497,7 +548,7 @@ impl PermissionsPolicy for PermissionsPolicies {
     }
 }
 
-// An AndCondition evaluates to true if all the policies it contains evaluate to true
+/// An AndCondition evaluates to true if all the policies it contains evaluate to true.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PermissionsAndCondition {
     policies: Vec<PermissionsPolicies>,
@@ -509,6 +560,7 @@ impl PermissionsAndCondition {
     }
 }
 
+/// Implements the PermissionsPolicy trait for PermissionsAndCondition.
 impl PermissionsPolicy for PermissionsAndCondition {
     fn evaluate(&self, actor: &CommitParticipant) -> bool {
         self.policies.iter().all(|policy| policy.evaluate(actor))
@@ -529,7 +581,7 @@ impl PermissionsPolicy for PermissionsAndCondition {
     }
 }
 
-// An AnyCondition evaluates to true if any of the contained policies evaluate to true
+/// An AnyCondition evaluates to true if any of the contained policies evaluate to true.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PermissionsAnyCondition {
     policies: Vec<PermissionsPolicies>,
@@ -542,6 +594,7 @@ impl PermissionsAnyCondition {
     }
 }
 
+/// Implements the PermissionsPolicy trait for PermissionsAnyCondition.
 impl PermissionsPolicy for PermissionsAnyCondition {
     fn evaluate(&self, actor: &CommitParticipant) -> bool {
         self.policies.iter().any(|policy| policy.evaluate(actor))
@@ -562,12 +615,16 @@ impl PermissionsPolicy for PermissionsAnyCondition {
     }
 }
 
-// A trait for policies that can add/remove members and installations for the group
+/// A trait for policies that can add/remove members and installations for the group.
 pub trait MembershipPolicy: std::fmt::Debug {
+    /// Evaluates the policy for a given actor and inbox change.
     fn evaluate(&self, actor: &CommitParticipant, change: &Inbox) -> bool;
+
+    /// Converts the policy to its proto representation.
     fn to_proto(&self) -> Result<MembershipPolicyProto, PolicyError>;
 }
 
+/// Errors that can occur when working with policies.
 #[derive(Debug, Error)]
 pub enum PolicyError {
     #[error("serialization {0}")]
@@ -598,7 +655,8 @@ pub enum PolicyError {
     FromProtoUpdatePermissionsInvalidPolicy,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// Represents the base policies for membership updates.
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[allow(dead_code)]
 #[repr(u8)]
 pub enum BasePolicies {
@@ -610,6 +668,7 @@ pub enum BasePolicies {
     AllowIfSuperAdmin,
 }
 
+/// Implements the MembershipPolicy trait for BasePolicies.
 impl MembershipPolicy for BasePolicies {
     fn evaluate(&self, actor: &CommitParticipant, inbox: &Inbox) -> bool {
         match self {
@@ -638,6 +697,7 @@ impl MembershipPolicy for BasePolicies {
     }
 }
 
+/// Represents the different types of membership policies.
 #[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub enum MembershipPolicies {
@@ -647,38 +707,40 @@ pub enum MembershipPolicies {
 }
 
 impl MembershipPolicies {
+    /// Creates an "Allow" membership policy.
     pub fn allow() -> Self {
         MembershipPolicies::Standard(BasePolicies::Allow)
     }
 
+    /// Creates a "Deny" membership policy.
     pub fn deny() -> Self {
         MembershipPolicies::Standard(BasePolicies::Deny)
     }
 
-    #[allow(dead_code)]
-    pub fn allow_same_member() -> Self {
-        MembershipPolicies::Standard(BasePolicies::AllowSameMember)
-    }
-
+    /// Creates an "Allow if actor is admin" membership policy.
     #[allow(dead_code)]
     pub fn allow_if_actor_admin() -> Self {
         MembershipPolicies::Standard(BasePolicies::AllowIfAdminOrSuperAdmin)
     }
 
+    /// Creates an "Allow if actor is super admin" membership policy.
     #[allow(dead_code)]
     pub fn allow_if_actor_super_admin() -> Self {
         MembershipPolicies::Standard(BasePolicies::AllowIfSuperAdmin)
     }
 
+    /// Creates an "And" condition membership policy.
     pub fn and(policies: Vec<MembershipPolicies>) -> Self {
         MembershipPolicies::AndCondition(AndCondition::new(policies))
     }
 
+    /// Creates an "Any" condition membership policy.
     pub fn any(policies: Vec<MembershipPolicies>) -> Self {
         MembershipPolicies::AnyCondition(AnyCondition::new(policies))
     }
 }
 
+/// Implements conversion from MembershipPolicyProto to MembershipPolicies.
 impl TryFrom<MembershipPolicyProto> for MembershipPolicies {
     type Error = PolicyError;
 
@@ -721,6 +783,7 @@ impl TryFrom<MembershipPolicyProto> for MembershipPolicies {
     }
 }
 
+/// Implements the MembershipPolicy trait for MembershipPolicies.
 impl MembershipPolicy for MembershipPolicies {
     fn evaluate(&self, actor: &CommitParticipant, inbox: &Inbox) -> bool {
         match self {
@@ -739,7 +802,7 @@ impl MembershipPolicy for MembershipPolicies {
     }
 }
 
-// An AndCondition evaluates to true if all the policies it contains evaluate to true
+/// An AndCondition evaluates to true if all the policies it contains evaluate to true.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AndCondition {
     policies: Vec<MembershipPolicies>,
@@ -751,6 +814,7 @@ impl AndCondition {
     }
 }
 
+/// Implements the MembershipPolicy trait for AndCondition.
 impl MembershipPolicy for AndCondition {
     fn evaluate(&self, actor: &CommitParticipant, inbox: &Inbox) -> bool {
         self.policies
@@ -771,7 +835,7 @@ impl MembershipPolicy for AndCondition {
     }
 }
 
-// An AnyCondition evaluates to true if any of the contained policies evaluate to true
+/// An AnyCondition evaluates to true if any of the contained policies evaluate to true.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AnyCondition {
     policies: Vec<MembershipPolicies>,
@@ -784,6 +848,7 @@ impl AnyCondition {
     }
 }
 
+/// Implements the MembershipPolicy trait for AnyCondition.
 impl MembershipPolicy for AnyCondition {
     fn evaluate(&self, actor: &CommitParticipant, inbox: &Inbox) -> bool {
         self.policies
@@ -804,18 +869,26 @@ impl MembershipPolicy for AnyCondition {
     }
 }
 
+/// Represents a set of policies for a group.
 #[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub struct PolicySet {
+    /// The policy for adding members to the group.
     pub add_member_policy: MembershipPolicies,
+    /// The policy for removing members from the group.
     pub remove_member_policy: MembershipPolicies,
+    /// The policies for updating metadata fields.
     pub update_metadata_policy: HashMap<String, MetadataPolicies>,
+    /// The policy for adding admins to the group.
     pub add_admin_policy: PermissionsPolicies,
+    /// The policy for removing admins from the group.
     pub remove_admin_policy: PermissionsPolicies,
+    /// The policy for updating permissions.
     pub update_permissions_policy: PermissionsPolicies,
 }
 
 impl PolicySet {
+    /// Creates a new PolicySet instance.
     pub fn new(
         add_member_policy: MembershipPolicies,
         remove_member_policy: MembershipPolicies,
@@ -834,13 +907,40 @@ impl PolicySet {
         }
     }
 
+    pub fn new_dm() -> Self {
+        Self {
+            add_member_policy: MembershipPolicies::deny(),
+            remove_member_policy: MembershipPolicies::deny(),
+            update_metadata_policy: MetadataPolicies::dm_map(),
+            add_admin_policy: PermissionsPolicies::deny(),
+            remove_admin_policy: PermissionsPolicies::deny(),
+            update_permissions_policy: PermissionsPolicies::deny(),
+        }
+    }
+
+    /// The [evaluate_commit] function is the core function for client side verification
+    /// that [ValidatedCommit](crate::groups::validated_commit::ValidatedCommit)
+    /// adheres to the XMTP permission policies set in the PolicySet.
     pub fn evaluate_commit(&self, commit: &ValidatedCommit) -> bool {
         // Verify add member policy was not violated
-        let added_inboxes_valid = self.evaluate_policy(
+        let mut added_inboxes_valid = self.evaluate_policy(
             commit.added_inboxes.iter(),
             &self.add_member_policy,
             &commit.actor,
         );
+
+        // We can always add DM member's inboxId to a DM
+        if let Some(dm_members) = &commit.dm_members {
+            if commit.added_inboxes.len() == 1 {
+                let added_inbox_id = &commit.added_inboxes[0].inbox_id;
+                if (added_inbox_id == &dm_members.member_one_inbox_id
+                    || added_inbox_id == &dm_members.member_two_inbox_id)
+                    && added_inbox_id != &commit.actor_inbox_id()
+                {
+                    added_inboxes_valid = true;
+                }
+            }
+        }
 
         // Verify remove member policy was not violated
         // Super admin can not be removed from a group
@@ -890,6 +990,7 @@ impl PolicySet {
             && permissions_changes_valid
     }
 
+    /// Evaluates a policy for a given set of changes.
     fn evaluate_policy<'a, I, P>(
         &self,
         mut changes: I,
@@ -914,6 +1015,7 @@ impl PolicySet {
         })
     }
 
+    /// Evaluates metadata policies for a given set of changes.
     fn evaluate_metadata_policy<'a, I>(
         &self,
         mut changes: I,
@@ -956,6 +1058,7 @@ impl PolicySet {
         })
     }
 
+    /// Converts the PolicySet to its proto representation.
     pub(crate) fn to_proto(&self) -> Result<PolicySetProto, PolicyError> {
         let add_member_policy = Some(self.add_member_policy.to_proto()?);
         let remove_member_policy = Some(self.remove_member_policy.to_proto()?);
@@ -978,6 +1081,7 @@ impl PolicySet {
         })
     }
 
+    /// Creates a PolicySet from its proto representation.
     pub(crate) fn from_proto(proto: PolicySetProto) -> Result<Self, PolicyError> {
         let add_member_policy = MembershipPolicies::try_from(
             proto
@@ -1020,6 +1124,7 @@ impl PolicySet {
         ))
     }
 
+    /// Converts the PolicySet to a Vec<u8>.
     pub fn to_bytes(&self) -> Result<Vec<u8>, PolicyError> {
         let proto = self.to_proto()?;
         let mut buf = Vec::new();
@@ -1027,16 +1132,19 @@ impl PolicySet {
         Ok(buf)
     }
 
+    /// Creates a PolicySet from a Vec<u8>.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, PolicyError> {
         let proto = PolicySetProto::decode(bytes)?;
         Self::from_proto(proto)
     }
 }
 
-// Depending on if the client is on a newer or older version of libxmtp
-// since the group was created, the number of metadata policies might not match
-// the default All Members Policy Set. As long as all metadata policies are allow, we will
-// match against All Members Preconfigured Policy
+/// Checks if a PolicySet is equivalent to the "All Members" preconfigured policy.
+///
+/// Depending on if the client is on a newer or older version of libxmtp
+/// since the group was created, the number of metadata policies might not match
+/// the default All Members Policy Set. As long as all metadata policies are allow, we will
+/// match against All Members Preconfigured Policy
 pub fn is_policy_all_members(policy: &PolicySet) -> Result<bool, PolicyError> {
     let mut metadata_policies_equal = true;
     for field_name in policy.update_metadata_policy.keys() {
@@ -1056,10 +1164,12 @@ pub fn is_policy_all_members(policy: &PolicySet) -> Result<bool, PolicyError> {
         && policy.update_permissions_policy == PermissionsPolicies::allow_if_actor_super_admin())
 }
 
-// Depending on if the client is on a newer or older version of libxmtp
-// since the group was created, the number of metadata policies might not match
-// the default Admin Only Policy Set. As long as all metadata policies are admin only, we will
-// match against Admin Only Preconfigured Policy
+/// Checks if a PolicySet is equivalent to the "Admin Only" preconfigured policy.
+///
+/// Depending on if the client is on a newer or older version of libxmtp
+/// since the group was created, the number of metadata policies might not match
+/// the default Admin Only Policy Set. As long as all metadata policies are admin only, we will
+/// match against Admin Only Preconfigured Policy
 pub fn is_policy_admin_only(policy: &PolicySet) -> Result<bool, PolicyError> {
     let mut metadata_policies_equal = true;
     for field_name in policy.update_metadata_policy.keys() {
@@ -1079,6 +1189,8 @@ pub fn is_policy_admin_only(policy: &PolicySet) -> Result<bool, PolicyError> {
         && policy.update_permissions_policy == PermissionsPolicies::allow_if_actor_super_admin())
 }
 
+/// Returns the "All Members" preconfigured policy.
+///
 /// A policy where any member can add or remove any other member
 pub(crate) fn policy_all_members() -> PolicySet {
     let mut metadata_policies_map: HashMap<String, MetadataPolicies> = HashMap::new();
@@ -1095,6 +1207,8 @@ pub(crate) fn policy_all_members() -> PolicySet {
     )
 }
 
+/// Returns the "Admin Only" preconfigured policy.
+///
 /// A policy where only the admins can add or remove members
 pub(crate) fn policy_admin_only() -> PolicySet {
     let mut metadata_policies_map: HashMap<String, MetadataPolicies> = HashMap::new();
@@ -1110,20 +1224,26 @@ pub(crate) fn policy_admin_only() -> PolicySet {
         PermissionsPolicies::allow_if_actor_super_admin(),
     )
 }
+
+/// Implements the Default trait for PolicySet.
 impl Default for PolicySet {
     fn default() -> Self {
         PreconfiguredPolicies::default().to_policy_set()
     }
 }
 
+/// Represents preconfigured policies for a group.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum PreconfiguredPolicies {
+    /// The "All Members" preconfigured policy.
     #[default]
     AllMembers,
+    /// The "Admin Only" preconfigured policy.
     AdminsOnly,
 }
 
 impl PreconfiguredPolicies {
+    /// Converts the PreconfiguredPolicies to a PolicySet.
     pub fn to_policy_set(&self) -> PolicySet {
         match self {
             PreconfiguredPolicies::AllMembers => policy_all_members(),
@@ -1131,6 +1251,7 @@ impl PreconfiguredPolicies {
         }
     }
 
+    /// Creates a PreconfiguredPolicies from a PolicySet.
     pub fn from_policy_set(policy_set: &PolicySet) -> Result<Self, PolicyError> {
         if is_policy_all_members(policy_set)? {
             Ok(PreconfiguredPolicies::AllMembers)
@@ -1142,6 +1263,7 @@ impl PreconfiguredPolicies {
     }
 }
 
+/// Implements the Display trait for PreconfiguredPolicies.
 impl std::fmt::Display for PreconfiguredPolicies {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{:?}", self)
@@ -1151,7 +1273,10 @@ impl std::fmt::Display for PreconfiguredPolicies {
 #[cfg(test)]
 mod tests {
     use crate::{
-        groups::{group_mutable_metadata::MetadataField, validated_commit::MutableMetadataChanges},
+        groups::{
+            group_metadata::DmMembers, group_mutable_metadata::MetadataField,
+            validated_commit::MutableMetadataChanges,
+        },
         utils::test::{rand_string, rand_vec},
     };
 
@@ -1166,6 +1291,7 @@ mod tests {
         }
     }
 
+    /// Test helper function for building a CommitParticipant.
     fn build_actor(
         inbox_id: Option<String>,
         installation_id: Option<Vec<u8>>,
@@ -1181,26 +1307,35 @@ mod tests {
         }
     }
 
+    enum MemberType {
+        SameAsActor,
+        DmTarget,
+        Random,
+    }
+
+    /// Test helper function for building a ValidatedCommit.
     fn build_validated_commit(
         // Add a member with the same account address as the actor if true, random account address if false
-        member_added: Option<bool>,
-        member_removed: Option<bool>,
+        member_added: Option<MemberType>,
+        member_removed: Option<MemberType>,
         metadata_fields_changed: Option<Vec<String>>,
         permissions_changed: bool,
         actor_is_admin: bool,
         actor_is_super_admin: bool,
+        dm_target_inbox_id: Option<String>,
     ) -> ValidatedCommit {
         let actor = build_actor(None, None, actor_is_admin, actor_is_super_admin);
-        let build_membership_change = |same_address_as_actor| {
-            if same_address_as_actor {
-                vec![build_change(
-                    Some(actor.inbox_id.clone()),
-                    actor_is_admin,
-                    actor_is_super_admin,
-                )]
-            } else {
-                vec![build_change(None, false, false)]
+        let dm_target_inbox_id_clone = dm_target_inbox_id.clone();
+        let build_membership_change = |member_type: MemberType| match member_type {
+            MemberType::SameAsActor => vec![build_change(
+                Some(actor.inbox_id.clone()),
+                actor_is_admin,
+                actor_is_super_admin,
+            )],
+            MemberType::DmTarget => {
+                vec![build_change(dm_target_inbox_id_clone.clone(), false, false)]
             }
+            MemberType::Random => vec![build_change(None, false, false)],
         };
 
         let field_changes = metadata_fields_changed
@@ -1208,6 +1343,15 @@ mod tests {
             .into_iter()
             .map(|field| MetadataFieldChange::new(field, Some(rand_string()), Some(rand_string())))
             .collect();
+
+        let dm_members = if let Some(dm_target_inbox_id) = dm_target_inbox_id {
+            Some(DmMembers {
+                member_one_inbox_id: actor.inbox_id.clone(),
+                member_two_inbox_id: dm_target_inbox_id,
+            })
+        } else {
+            None
+        };
 
         ValidatedCommit {
             actor: actor.clone(),
@@ -1222,9 +1366,12 @@ mod tests {
                 ..Default::default()
             },
             permissions_changed,
+            dm_members,
         }
     }
 
+    /// Tests that a commit by a non admin/super admin can add and remove members
+    /// with allow policies.
     #[test]
     fn test_allow_all() {
         let permissions = PolicySet::new(
@@ -1236,10 +1383,19 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let commit = build_validated_commit(Some(true), Some(true), None, false, false, false);
+        let commit = build_validated_commit(
+            Some(MemberType::SameAsActor),
+            Some(MemberType::SameAsActor),
+            None,
+            false,
+            false,
+            false,
+            None,
+        );
         assert!(permissions.evaluate_commit(&commit));
     }
 
+    /// Tests that a commit by a non admin/super admin is denied for add and remove member policies.
     #[test]
     fn test_deny() {
         let permissions = PolicySet::new(
@@ -1251,15 +1407,30 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let member_added_commit =
-            build_validated_commit(Some(false), None, None, false, false, false);
+        let member_added_commit = build_validated_commit(
+            Some(MemberType::Random),
+            None,
+            None,
+            false,
+            false,
+            false,
+            None,
+        );
         assert!(!permissions.evaluate_commit(&member_added_commit));
 
-        let member_removed_commit =
-            build_validated_commit(None, Some(false), None, false, false, false);
+        let member_removed_commit = build_validated_commit(
+            None,
+            Some(MemberType::Random),
+            None,
+            false,
+            false,
+            false,
+            None,
+        );
         assert!(!permissions.evaluate_commit(&member_removed_commit));
     }
 
+    /// Tests that a group creator can perform super admin actions.
     #[test]
     fn test_actor_is_creator() {
         let permissions = PolicySet::new(
@@ -1272,39 +1443,41 @@ mod tests {
         );
 
         // Can not remove the creator if they are the only super admin
-        let commit_with_creator =
-            build_validated_commit(Some(true), Some(true), None, false, false, true);
+        let commit_with_creator = build_validated_commit(
+            Some(MemberType::SameAsActor),
+            Some(MemberType::SameAsActor),
+            None,
+            false,
+            false,
+            true,
+            None,
+        );
         assert!(!permissions.evaluate_commit(&commit_with_creator));
 
-        let commit_with_creator =
-            build_validated_commit(Some(true), Some(false), None, false, false, true);
+        let commit_with_creator = build_validated_commit(
+            Some(MemberType::SameAsActor),
+            Some(MemberType::Random),
+            None,
+            false,
+            false,
+            true,
+            None,
+        );
         assert!(permissions.evaluate_commit(&commit_with_creator));
 
-        let commit_without_creator =
-            build_validated_commit(Some(true), Some(true), None, false, false, false);
+        let commit_without_creator = build_validated_commit(
+            Some(MemberType::SameAsActor),
+            Some(MemberType::SameAsActor),
+            None,
+            false,
+            false,
+            false,
+            None,
+        );
         assert!(!permissions.evaluate_commit(&commit_without_creator));
     }
 
-    #[test]
-    fn test_allow_same_member() {
-        let permissions = PolicySet::new(
-            MembershipPolicies::allow_same_member(),
-            MembershipPolicies::deny(),
-            MetadataPolicies::default_map(MetadataPolicies::deny()),
-            PermissionsPolicies::allow_if_actor_super_admin(),
-            PermissionsPolicies::allow_if_actor_super_admin(),
-            PermissionsPolicies::allow_if_actor_super_admin(),
-        );
-
-        let commit_with_same_member =
-            build_validated_commit(Some(true), None, None, false, false, false);
-        assert!(permissions.evaluate_commit(&commit_with_same_member));
-
-        let commit_with_different_member =
-            build_validated_commit(Some(false), None, None, false, false, false);
-        assert!(!permissions.evaluate_commit(&commit_with_different_member));
-    }
-
+    /// Tests that and conditions are enforced as expected.
     #[test]
     fn test_and_condition() {
         let permissions = PolicySet::new(
@@ -1319,11 +1492,19 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let member_added_commit =
-            build_validated_commit(Some(true), None, None, false, false, false);
+        let member_added_commit = build_validated_commit(
+            Some(MemberType::SameAsActor),
+            None,
+            None,
+            false,
+            false,
+            false,
+            None,
+        );
         assert!(!permissions.evaluate_commit(&member_added_commit));
     }
 
+    /// Tests that any conditions are enforced as expected.
     #[test]
     fn test_any_condition() {
         let permissions = PolicySet::new(
@@ -1338,11 +1519,19 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let member_added_commit =
-            build_validated_commit(Some(true), None, None, false, false, false);
+        let member_added_commit = build_validated_commit(
+            Some(MemberType::SameAsActor),
+            None,
+            None,
+            false,
+            false,
+            false,
+            None,
+        );
         assert!(permissions.evaluate_commit(&member_added_commit));
     }
 
+    /// Tests that the PolicySet can be serialized and deserialized.
     #[test]
     fn test_serialize() {
         let permissions = PolicySet::new(
@@ -1370,6 +1559,7 @@ mod tests {
         assert!(permissions.eq(&restored))
     }
 
+    /// Tests that the PolicySet can enforce update group name policy.
     #[test]
     fn test_update_group_name() {
         let allow_permissions = PolicySet::new(
@@ -1382,12 +1572,13 @@ mod tests {
         );
 
         let member_added_commit = build_validated_commit(
-            Some(true),
+            Some(MemberType::SameAsActor),
             None,
             Some(vec![MetadataField::GroupName.to_string()]),
             false,
             false,
             false,
+            None,
         );
 
         assert!(allow_permissions.evaluate_commit(&member_added_commit));
@@ -1404,21 +1595,7 @@ mod tests {
         assert!(!deny_permissions.evaluate_commit(&member_added_commit));
     }
 
-    #[test]
-    fn test_disallow_serialize_allow_same_member() {
-        let permissions = PolicySet::new(
-            MembershipPolicies::allow_same_member(),
-            MembershipPolicies::deny(),
-            MetadataPolicies::default_map(MetadataPolicies::deny()),
-            PermissionsPolicies::allow_if_actor_super_admin(),
-            PermissionsPolicies::allow_if_actor_super_admin(),
-            PermissionsPolicies::allow_if_actor_super_admin(),
-        );
-
-        let proto_result = permissions.to_proto();
-        assert!(proto_result.is_err());
-    }
-
+    /// Tests that the preconfigured policy functions work as expected
     #[test]
     fn test_preconfigured_policy() {
         let group_permissions = GroupMutablePermissions::new(policy_all_members());
@@ -1439,6 +1616,7 @@ mod tests {
         );
     }
 
+    /// Tests that the preconfigured policy functions work as expected with new metadata fields.
     #[test]
     fn test_preconfigured_policy_equality_new_metadata() {
         let mut metadata_policies_map = MetadataPolicies::default_map(MetadataPolicies::allow());
@@ -1472,6 +1650,7 @@ mod tests {
         assert!(is_policy_admin_only(&policy_set_new_metadata_permission).unwrap());
     }
 
+    /// Tests that the permission update policy is enforced as expected.
     #[test]
     fn test_permission_update() {
         let permissions = PolicySet::new(
@@ -1484,14 +1663,15 @@ mod tests {
         );
 
         // Commit should fail because actor is not superadmin
-        let commit = build_validated_commit(None, None, None, true, false, false);
+        let commit = build_validated_commit(None, None, None, true, false, false, None);
         assert!(!permissions.evaluate_commit(&commit));
 
         // Commit should pass because actor is superadmin
-        let commit = build_validated_commit(None, None, None, true, false, true);
+        let commit = build_validated_commit(None, None, None, true, false, true, None);
         assert!(permissions.evaluate_commit(&commit));
     }
 
+    /// Tests that the PolicySet can evaluate field updates with unknown policies.
     #[test]
     fn test_evaluate_field_with_unknown_policy() {
         // Create a group whose default metadata can be updated by any member
@@ -1512,6 +1692,7 @@ mod tests {
             false,
             false,
             false,
+            None,
         );
         assert!(permissions.evaluate_commit(&name_updated_commit));
 
@@ -1523,6 +1704,7 @@ mod tests {
             false,
             false,
             false,
+            None,
         );
         assert!(!permissions.evaluate_commit(&non_existing_field_updated_commit));
 
@@ -1534,6 +1716,7 @@ mod tests {
             false,
             true,
             false,
+            None,
         );
         assert!(permissions.evaluate_commit(&non_existing_field_updated_commit));
 
@@ -1547,6 +1730,7 @@ mod tests {
             false,
             true,
             false,
+            None,
         );
         assert!(!permissions.evaluate_commit(&non_existing_field_updated_commit));
 
@@ -1560,7 +1744,97 @@ mod tests {
             false,
             false,
             true,
+            None,
         );
         assert!(permissions.evaluate_commit(&non_existing_field_updated_commit));
+    }
+
+    #[test]
+    fn test_dm_group_permissions() {
+        // Simulate a group with DM Permissions
+        let permissions = PolicySet::new_dm();
+
+        // String below represents the inbox id of the DM target
+        const TARGET_INBOX_ID: &str = "example_target_dm_id";
+
+        // DM group can not add a random inbox
+        let commit = build_validated_commit(
+            Some(MemberType::Random),
+            None,
+            None,
+            false,
+            false,
+            false,
+            Some(TARGET_INBOX_ID.to_string()),
+        );
+        assert!(!permissions.evaluate_commit(&commit));
+
+        // DM group can not add themselves
+        let commit = build_validated_commit(
+            Some(MemberType::SameAsActor),
+            None,
+            None,
+            false,
+            false,
+            false,
+            Some(TARGET_INBOX_ID.to_string()),
+        );
+        assert!(!permissions.evaluate_commit(&commit));
+
+        // DM group can add the target inbox
+        let commit = build_validated_commit(
+            Some(MemberType::DmTarget),
+            None,
+            None,
+            false,
+            false,
+            false,
+            Some(TARGET_INBOX_ID.to_string()),
+        );
+        assert!(permissions.evaluate_commit(&commit));
+
+        // DM group can not remove
+        let commit = build_validated_commit(
+            None,
+            Some(MemberType::Random),
+            None,
+            false,
+            false,
+            false,
+            Some(TARGET_INBOX_ID.to_string()),
+        );
+        assert!(!permissions.evaluate_commit(&commit));
+        let commit = build_validated_commit(
+            None,
+            Some(MemberType::DmTarget),
+            None,
+            false,
+            false,
+            false,
+            Some(TARGET_INBOX_ID.to_string()),
+        );
+        assert!(!permissions.evaluate_commit(&commit));
+        let commit = build_validated_commit(
+            None,
+            Some(MemberType::SameAsActor),
+            None,
+            false,
+            false,
+            false,
+            Some(TARGET_INBOX_ID.to_string()),
+        );
+        assert!(!permissions.evaluate_commit(&commit));
+
+        // DM group can update metadata
+        let commit = build_validated_commit(
+            None,
+            None,
+            Some(vec![MetadataField::GroupName.to_string()]),
+            false,
+            false,
+            false,
+            Some(TARGET_INBOX_ID.to_string()),
+        );
+        assert!(permissions.evaluate_commit(&commit));
     }
 }
