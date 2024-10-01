@@ -4,6 +4,7 @@ use openmls::prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage};
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
+use xmtp_cryptography::hash::sha256_bytes;
 use xmtp_id::{
     associations::{
         self, try_map_vec, unverified::UnverifiedIdentityUpdate, AccountId, AssociationError,
@@ -193,9 +194,13 @@ async fn verify_smart_contract_wallet_signatures(
     let mut futures = vec![];
 
     for sig in signatures {
+        let hash = sha256_bytes(&sig.signature)
+            .try_into()
+            .expect("Sha256 should be 32 bytes");
+
         futures.push(scw_verifier.is_valid_signature(
             AccountId::new_evm(sig.chain_id, sig.account_id),
-            [0; 32],
+            hash,
             sig.signature.into(),
             Some(BlockNumber::Number(U64::from(sig.block_number))),
         ));

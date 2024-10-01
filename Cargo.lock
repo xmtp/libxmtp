@@ -2990,6 +2990,7 @@ dependencies = [
  "tokio",
  "tonic",
  "warp",
+ "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",
  "xmtp_proto",
