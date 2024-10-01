@@ -30,7 +30,7 @@ use diesel::{
     connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
     prelude::*,
     r2d2::{ConnectionManager, Pool, PoolTransactionManager, PooledConnection},
-    result::{DatabaseErrorKind, Error},
+    result::Error,
     sql_query,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
@@ -51,16 +51,6 @@ pub type RawDbConnection = PooledConnection<ConnectionManager<SqliteConnection>>
 struct SqliteVersion {
     #[diesel(sql_type = diesel::sql_types::Text)]
     version: String,
-}
-
-pub fn ignore_unique_violation<T>(
-    result: Result<T, diesel::result::Error>,
-) -> Result<(), StorageError> {
-    match result {
-        Ok(_) => Ok(()),
-        Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => Ok(()),
-        Err(error) => Err(StorageError::from(error)),
-    }
 }
 
 #[derive(Default, Clone, Debug)]
@@ -414,12 +404,13 @@ macro_rules! impl_store_or_ignore {
                 &self,
                 into: &$crate::storage::encrypted_store::db_connection::DbConnection,
             ) -> Result<(), $crate::StorageError> {
-                let result = into.raw_query(|conn| {
-                    diesel::insert_into($table::table)
+                into.raw_query(|conn| {
+                    diesel::insert_or_ignore_into($table::table)
                         .values(self)
                         .execute(conn)
-                });
-                $crate::storage::ignore_unique_violation(result)
+                        .map(|_| ())
+                })
+                .map_err($crate::StorageError::from)
             }
         }
     };
@@ -595,48 +586,6 @@ mod tests {
             assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
         EncryptedMessageStore::remove_db_files(db_path)
-    }
-
-    #[test]
-    fn it_returns_ok_when_given_ok_result() {
-        let result: Result<(), diesel::result::Error> = Ok(());
-        assert!(
-            super::ignore_unique_violation(result).is_ok(),
-            "Expected Ok(()) when given Ok result"
-        );
-    }
-
-    #[test]
-    fn it_returns_ok_on_unique_violation_error() {
-        let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::DatabaseError(
-            diesel::result::DatabaseErrorKind::UniqueViolation,
-            Box::new("violation".to_string()),
-        ));
-        assert!(
-            super::ignore_unique_violation(result).is_ok(),
-            "Expected Ok(()) when given UniqueViolation error"
-        );
-    }
-
-    #[test]
-    fn it_returns_err_on_non_unique_violation_database_errors() {
-        let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::DatabaseError(
-            diesel::result::DatabaseErrorKind::NotNullViolation,
-            Box::new("other kind".to_string()),
-        ));
-        assert!(
-            super::ignore_unique_violation(result).is_err(),
-            "Expected Err when given non-UniqueViolation database error"
-        );
-    }
-
-    #[test]
-    fn it_returns_err_on_non_database_errors() {
-        let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::NotFound);
-        assert!(
-            super::ignore_unique_violation(result).is_err(),
-            "Expected Err when given a non-database error"
-        );
     }
 
     // get two connections
