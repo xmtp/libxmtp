@@ -1,7 +1,7 @@
 use std::{ops::Deref, sync::Arc};
 
 use napi::{
-  bindgen_prelude::{Error, Result, Uint8Array},
+  bindgen_prelude::{Result, Uint8Array},
   threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode},
   JsFunction,
 };
