@@ -4,7 +4,6 @@ use openmls::prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage};
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
-use xmtp_cryptography::hash::sha256_bytes;
 use xmtp_id::{
     associations::{
         self, try_map_vec, unverified::UnverifiedIdentityUpdate, AccountId, AssociationError,
@@ -21,10 +20,11 @@ use xmtp_proto::xmtp::{
     mls_validation::v1::{
         validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
         validate_inbox_id_key_packages_response::Response as ValidateInboxIdKeyPackageResponse,
-        validation_api_server::ValidationApi, GetAssociationStateRequest,
-        GetAssociationStateResponse, ValidateGroupMessagesRequest, ValidateGroupMessagesResponse,
-        ValidateInboxIdKeyPackagesResponse, ValidateInboxIdsRequest, ValidateInboxIdsResponse,
-        ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
+        validation_api_server::ValidationApi,
+        verify_smart_contract_wallet_signatures_response::ValidationResponse as VerifySmartContractWalletSignaturesValidationResponse,
+        GetAssociationStateRequest, GetAssociationStateResponse, ValidateGroupMessagesRequest,
+        ValidateGroupMessagesResponse, ValidateInboxIdKeyPackagesResponse, ValidateInboxIdsRequest,
+        ValidateInboxIdsResponse, ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
         VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
     },
 };
@@ -191,23 +191,32 @@ async fn verify_smart_contract_wallet_signatures(
     signatures: Vec<SmartContractWalletSignature>,
     scw_verifier: &dyn SmartContractSignatureVerifier,
 ) -> Result<Response<VerifySmartContractWalletSignaturesResponse>, Status> {
-    let mut futures = vec![];
+    let responses: Vec<_> = signatures
+        .into_iter()
+        .map(|sig| {
+            scw_verifier.is_valid_signature(
+                AccountId::new_evm(sig.chain_id, sig.account_id),
+                sig.hash.try_into().expect("Hash should be 32 bytes"),
+                sig.signature.into(),
+                Some(BlockNumber::Number(U64::from(sig.block_number))),
+            )
+        })
+        .collect();
 
-    for sig in signatures {
-        let hash = sha256_bytes(&sig.signature)
-            .try_into()
-            .expect("Sha256 should be 32 bytes");
-
-        futures.push(scw_verifier.is_valid_signature(
-            AccountId::new_evm(sig.chain_id, sig.account_id),
-            hash,
-            sig.signature.into(),
-            Some(BlockNumber::Number(U64::from(sig.block_number))),
-        ));
-    }
+    let responses: Vec<_> = try_join_all(responses)
+        .await
+        .map_err(|e| Status::unknown(format!("{e:?}")))?
+        .into_iter()
+        .map(
+            |is_ok| VerifySmartContractWalletSignaturesValidationResponse {
+                is_ok,
+                error_message: "".to_string(),
+            },
+        )
+        .collect();
 
     Ok(Response::new(VerifySmartContractWalletSignaturesResponse {
-        responses: vec![],
+        responses,
     }))
 }
 
