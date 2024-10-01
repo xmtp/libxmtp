@@ -45,7 +45,7 @@ pub trait SmartContractSignatureVerifier: Send + Sync + DynClone + 'static {
 dyn_clone::clone_trait_object!(SmartContractSignatureVerifier);
 
 #[async_trait]
-impl<S: SmartContractSignatureVerifier + Clone + ?Sized> SmartContractSignatureVerifier for Box<S> {
+impl<S: SmartContractSignatureVerifier + Clone> SmartContractSignatureVerifier for Box<S> {
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
