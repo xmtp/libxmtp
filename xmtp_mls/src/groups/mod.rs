@@ -465,11 +465,8 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        let conn = self.context.store.conn()?;
-
         self.pre_intent_hook(client).await?;
-        let provider = XmtpOpenMlsProvider::from(conn);
+        let provider = client.mls_provider()?;
         let message_id = self.prepare_message(message, provider.conn_ref(), |now| {
             Self::into_envelope(message, now)
         });
@@ -696,6 +693,7 @@ impl MlsGroup {
         inbox_ids: Vec<InboxId>,
     ) -> Result<(), GroupError> {
         self.pre_intent_hook(client).await?;
+        let provider = client.mls_provider()?;
         let intent_data = self
             .get_membership_update_intent(client, &provider, vec![], inbox_ids)
             .await?;
@@ -1015,16 +1013,14 @@ impl MlsGroup {
         let last_rotated_time = conn.get_rotated_time_checked(self.group_id.clone())?;
 
         if last_rotated_time == 0 {
-            self.key_update(client).await?;
             conn.update_rotated_time_checked(self.group_id.clone())?;
+            self.key_update(client).await?;
         }
-        let provider = client.mls_provider(conn.clone());
+        let provider: XmtpOpenMlsProvider = conn.into();
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(&provider, update_interval_ns, client)
             .await?;
-
-        // TODO(rich) Use correct sync method
-        self.sync_with_conn(conn, client).await
+        Ok(())
     }
 
     pub fn is_active(&self, provider: impl OpenMlsProvider) -> Result<bool, GroupError> {
@@ -1900,8 +1896,7 @@ mod tests {
             _ => panic!("error mls_message"),
         };
 
-        let conn = &client_a.context.store.conn().unwrap();
-        let provider = client_a.mls_provider(conn.clone());
+        let provider = client_a.mls_provider().unwrap();
         let mut openmls_group = group.load_mls_group(&provider).unwrap();
         let decrypted_message = openmls_group
             .process_message(&provider, mls_message)
@@ -1981,8 +1976,7 @@ mod tests {
             _ => panic!("error mls_message"),
         };
 
-        let conn = &client_a.context.store.conn().unwrap();
-        let provider = client_a.mls_provider(conn.clone());
+        let provider = client_a.mls_provider().unwrap();
         let mut openmls_group = group.load_mls_group(&provider).unwrap();
         let decrypted_message = openmls_group
             .process_message(&provider, mls_message)

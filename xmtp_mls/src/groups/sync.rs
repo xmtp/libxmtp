@@ -200,6 +200,7 @@ impl MlsGroup {
                 }
                 Ok(Some(StoredGroupIntent {
                     id,
+                    kind,
                     state: IntentState::Error,
                     ..
                 })) => {
@@ -207,9 +208,9 @@ impl MlsGroup {
                         "not retrying intent ID {id}. since it is in state Error. {:?}",
                         last_err
                     );
-                    return Err(last_err.unwrap_or(GroupError::Generic(
-                        "Group intent could not be committed".to_string(),
-                    )));
+                    return Err(last_err.unwrap_or(GroupError::Generic(format!(
+                        "Group intent {id} of kind {kind} could not be committed"
+                    ))));
                 }
                 Ok(Some(StoredGroupIntent { id, state, .. })) => {
                     tracing::warn!("retrying intent ID {id}. intent currently in state {state:?}");
@@ -996,10 +997,10 @@ impl MlsGroup {
             .get_installations_time_checked(self.group_id.clone())?;
         let elapsed_ns = now_ns - last_ns;
         if elapsed_ns > interval_ns {
-            self.add_missing_installations(provider, client).await?;
             provider
                 .conn_ref()
                 .update_installations_time_checked(self.group_id.clone())?;
+            self.add_missing_installations(provider, client).await?;
         }
 
         Ok(())
