@@ -232,6 +232,15 @@ impl MetadataPolicies {
         map
     }
 
+    // by default members of DM groups can update all metadata
+    pub fn dm_map() -> HashMap<String, MetadataPolicies> {
+        let mut map: HashMap<String, MetadataPolicies> = HashMap::new();
+        for field in GroupMutableMetadata::supported_fields() {
+            map.insert(field.to_string(), MetadataPolicies::allow());
+        }
+        map
+    }
+
     /// Creates an "Allow" metadata policy.
     pub fn allow() -> Self {
         MetadataPolicies::Standard(MetadataBasePolicies::Allow)
@@ -898,16 +907,40 @@ impl PolicySet {
         }
     }
 
+    pub fn new_dm() -> Self {
+        Self {
+            add_member_policy: MembershipPolicies::deny(),
+            remove_member_policy: MembershipPolicies::deny(),
+            update_metadata_policy: MetadataPolicies::dm_map(),
+            add_admin_policy: PermissionsPolicies::deny(),
+            remove_admin_policy: PermissionsPolicies::deny(),
+            update_permissions_policy: PermissionsPolicies::deny(),
+        }
+    }
+
     /// The [evaluate_commit] function is the core function for client side verification
     /// that [ValidatedCommit](crate::groups::validated_commit::ValidatedCommit)
     /// adheres to the XMTP permission policies set in the PolicySet.
     pub fn evaluate_commit(&self, commit: &ValidatedCommit) -> bool {
         // Verify add member policy was not violated
-        let added_inboxes_valid = self.evaluate_policy(
+        let mut added_inboxes_valid = self.evaluate_policy(
             commit.added_inboxes.iter(),
             &self.add_member_policy,
             &commit.actor,
         );
+
+        // We can always add DM member's inboxId to a DM
+        if let Some(dm_members) = &commit.dm_members {
+            if commit.added_inboxes.len() == 1 {
+                let added_inbox_id = &commit.added_inboxes[0].inbox_id;
+                if (added_inbox_id == &dm_members.member_one_inbox_id
+                    || added_inbox_id == &dm_members.member_two_inbox_id)
+                    && added_inbox_id != &commit.actor_inbox_id()
+                {
+                    added_inboxes_valid = true;
+                }
+            }
+        }
 
         // Verify remove member policy was not violated
         // Super admin can not be removed from a group
@@ -1240,7 +1273,10 @@ impl std::fmt::Display for PreconfiguredPolicies {
 #[cfg(test)]
 mod tests {
     use crate::{
-        groups::{group_mutable_metadata::MetadataField, validated_commit::MutableMetadataChanges},
+        groups::{
+            group_metadata::DmMembers, group_mutable_metadata::MetadataField,
+            validated_commit::MutableMetadataChanges,
+        },
         utils::test::{rand_string, rand_vec},
     };
 
@@ -1271,27 +1307,35 @@ mod tests {
         }
     }
 
+    enum MemberType {
+        SameAsActor,
+        DmTarget,
+        Random,
+    }
+
     /// Test helper function for building a ValidatedCommit.
     fn build_validated_commit(
         // Add a member with the same account address as the actor if true, random account address if false
-        member_added: Option<bool>,
-        member_removed: Option<bool>,
+        member_added: Option<MemberType>,
+        member_removed: Option<MemberType>,
         metadata_fields_changed: Option<Vec<String>>,
         permissions_changed: bool,
         actor_is_admin: bool,
         actor_is_super_admin: bool,
+        dm_target_inbox_id: Option<String>,
     ) -> ValidatedCommit {
         let actor = build_actor(None, None, actor_is_admin, actor_is_super_admin);
-        let build_membership_change = |same_address_as_actor| {
-            if same_address_as_actor {
-                vec![build_change(
-                    Some(actor.inbox_id.clone()),
-                    actor_is_admin,
-                    actor_is_super_admin,
-                )]
-            } else {
-                vec![build_change(None, false, false)]
+        let dm_target_inbox_id_clone = dm_target_inbox_id.clone();
+        let build_membership_change = |member_type: MemberType| match member_type {
+            MemberType::SameAsActor => vec![build_change(
+                Some(actor.inbox_id.clone()),
+                actor_is_admin,
+                actor_is_super_admin,
+            )],
+            MemberType::DmTarget => {
+                vec![build_change(dm_target_inbox_id_clone.clone(), false, false)]
             }
+            MemberType::Random => vec![build_change(None, false, false)],
         };
 
         let field_changes = metadata_fields_changed
@@ -1299,6 +1343,15 @@ mod tests {
             .into_iter()
             .map(|field| MetadataFieldChange::new(field, Some(rand_string()), Some(rand_string())))
             .collect();
+
+        let dm_members = if let Some(dm_target_inbox_id) = dm_target_inbox_id {
+            Some(DmMembers {
+                member_one_inbox_id: actor.inbox_id.clone(),
+                member_two_inbox_id: dm_target_inbox_id,
+            })
+        } else {
+            None
+        };
 
         ValidatedCommit {
             actor: actor.clone(),
@@ -1313,6 +1366,7 @@ mod tests {
                 ..Default::default()
             },
             permissions_changed,
+            dm_members,
         }
     }
 
@@ -1329,7 +1383,15 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let commit = build_validated_commit(Some(true), Some(true), None, false, false, false);
+        let commit = build_validated_commit(
+            Some(MemberType::SameAsActor),
+            Some(MemberType::SameAsActor),
+            None,
+            false,
+            false,
+            false,
+            None,
+        );
         assert!(permissions.evaluate_commit(&commit));
     }
 
@@ -1345,12 +1407,26 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let member_added_commit =
-            build_validated_commit(Some(false), None, None, false, false, false);
+        let member_added_commit = build_validated_commit(
+            Some(MemberType::Random),
+            None,
+            None,
+            false,
+            false,
+            false,
+            None,
+        );
         assert!(!permissions.evaluate_commit(&member_added_commit));
 
-        let member_removed_commit =
-            build_validated_commit(None, Some(false), None, false, false, false);
+        let member_removed_commit = build_validated_commit(
+            None,
+            Some(MemberType::Random),
+            None,
+            false,
+            false,
+            false,
+            None,
+        );
         assert!(!permissions.evaluate_commit(&member_removed_commit));
     }
 
@@ -1367,16 +1443,37 @@ mod tests {
         );
 
         // Can not remove the creator if they are the only super admin
-        let commit_with_creator =
-            build_validated_commit(Some(true), Some(true), None, false, false, true);
+        let commit_with_creator = build_validated_commit(
+            Some(MemberType::SameAsActor),
+            Some(MemberType::SameAsActor),
+            None,
+            false,
+            false,
+            true,
+            None,
+        );
         assert!(!permissions.evaluate_commit(&commit_with_creator));
 
-        let commit_with_creator =
-            build_validated_commit(Some(true), Some(false), None, false, false, true);
+        let commit_with_creator = build_validated_commit(
+            Some(MemberType::SameAsActor),
+            Some(MemberType::Random),
+            None,
+            false,
+            false,
+            true,
+            None,
+        );
         assert!(permissions.evaluate_commit(&commit_with_creator));
 
-        let commit_without_creator =
-            build_validated_commit(Some(true), Some(true), None, false, false, false);
+        let commit_without_creator = build_validated_commit(
+            Some(MemberType::SameAsActor),
+            Some(MemberType::SameAsActor),
+            None,
+            false,
+            false,
+            false,
+            None,
+        );
         assert!(!permissions.evaluate_commit(&commit_without_creator));
     }
 
@@ -1395,8 +1492,15 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let member_added_commit =
-            build_validated_commit(Some(true), None, None, false, false, false);
+        let member_added_commit = build_validated_commit(
+            Some(MemberType::SameAsActor),
+            None,
+            None,
+            false,
+            false,
+            false,
+            None,
+        );
         assert!(!permissions.evaluate_commit(&member_added_commit));
     }
 
@@ -1415,8 +1519,15 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let member_added_commit =
-            build_validated_commit(Some(true), None, None, false, false, false);
+        let member_added_commit = build_validated_commit(
+            Some(MemberType::SameAsActor),
+            None,
+            None,
+            false,
+            false,
+            false,
+            None,
+        );
         assert!(permissions.evaluate_commit(&member_added_commit));
     }
 
@@ -1461,12 +1572,13 @@ mod tests {
         );
 
         let member_added_commit = build_validated_commit(
-            Some(true),
+            Some(MemberType::SameAsActor),
             None,
             Some(vec![MetadataField::GroupName.to_string()]),
             false,
             false,
             false,
+            None,
         );
 
         assert!(allow_permissions.evaluate_commit(&member_added_commit));
@@ -1551,11 +1663,11 @@ mod tests {
         );
 
         // Commit should fail because actor is not superadmin
-        let commit = build_validated_commit(None, None, None, true, false, false);
+        let commit = build_validated_commit(None, None, None, true, false, false, None);
         assert!(!permissions.evaluate_commit(&commit));
 
         // Commit should pass because actor is superadmin
-        let commit = build_validated_commit(None, None, None, true, false, true);
+        let commit = build_validated_commit(None, None, None, true, false, true, None);
         assert!(permissions.evaluate_commit(&commit));
     }
 
@@ -1580,6 +1692,7 @@ mod tests {
             false,
             false,
             false,
+            None,
         );
         assert!(permissions.evaluate_commit(&name_updated_commit));
 
@@ -1591,6 +1704,7 @@ mod tests {
             false,
             false,
             false,
+            None,
         );
         assert!(!permissions.evaluate_commit(&non_existing_field_updated_commit));
 
@@ -1602,6 +1716,7 @@ mod tests {
             false,
             true,
             false,
+            None,
         );
         assert!(permissions.evaluate_commit(&non_existing_field_updated_commit));
 
@@ -1615,6 +1730,7 @@ mod tests {
             false,
             true,
             false,
+            None,
         );
         assert!(!permissions.evaluate_commit(&non_existing_field_updated_commit));
 
@@ -1628,7 +1744,97 @@ mod tests {
             false,
             false,
             true,
+            None,
         );
         assert!(permissions.evaluate_commit(&non_existing_field_updated_commit));
+    }
+
+    #[test]
+    fn test_dm_group_permissions() {
+        // Simulate a group with DM Permissions
+        let permissions = PolicySet::new_dm();
+
+        // String below represents the inbox id of the DM target
+        const TARGET_INBOX_ID: &str = "example_target_dm_id";
+
+        // DM group can not add a random inbox
+        let commit = build_validated_commit(
+            Some(MemberType::Random),
+            None,
+            None,
+            false,
+            false,
+            false,
+            Some(TARGET_INBOX_ID.to_string()),
+        );
+        assert!(!permissions.evaluate_commit(&commit));
+
+        // DM group can not add themselves
+        let commit = build_validated_commit(
+            Some(MemberType::SameAsActor),
+            None,
+            None,
+            false,
+            false,
+            false,
+            Some(TARGET_INBOX_ID.to_string()),
+        );
+        assert!(!permissions.evaluate_commit(&commit));
+
+        // DM group can add the target inbox
+        let commit = build_validated_commit(
+            Some(MemberType::DmTarget),
+            None,
+            None,
+            false,
+            false,
+            false,
+            Some(TARGET_INBOX_ID.to_string()),
+        );
+        assert!(permissions.evaluate_commit(&commit));
+
+        // DM group can not remove
+        let commit = build_validated_commit(
+            None,
+            Some(MemberType::Random),
+            None,
+            false,
+            false,
+            false,
+            Some(TARGET_INBOX_ID.to_string()),
+        );
+        assert!(!permissions.evaluate_commit(&commit));
+        let commit = build_validated_commit(
+            None,
+            Some(MemberType::DmTarget),
+            None,
+            false,
+            false,
+            false,
+            Some(TARGET_INBOX_ID.to_string()),
+        );
+        assert!(!permissions.evaluate_commit(&commit));
+        let commit = build_validated_commit(
+            None,
+            Some(MemberType::SameAsActor),
+            None,
+            false,
+            false,
+            false,
+            Some(TARGET_INBOX_ID.to_string()),
+        );
+        assert!(!permissions.evaluate_commit(&commit));
+
+        // DM group can update metadata
+        let commit = build_validated_commit(
+            None,
+            None,
+            Some(vec![MetadataField::GroupName.to_string()]),
+            false,
+            false,
+            false,
+            Some(TARGET_INBOX_ID.to_string()),
+        );
+        assert!(permissions.evaluate_commit(&commit));
     }
 }
