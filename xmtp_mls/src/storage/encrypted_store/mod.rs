@@ -156,9 +156,9 @@ impl EncryptedMessageStore {
     /// This function is private so that an unencrypted database cannot be created by accident
     async fn new_database(
         opts: StorageOption,
-        enc_key: Option<EncryptionKey>,
+        _enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
-        let db = wasm::WasmDb::new(&opts, enc_key).await?;
+        let db = wasm::WasmDb::new(&opts).await?;
         let mut this = Self { db, opts };
         this.init_db()?;
         Ok(this)
@@ -404,12 +404,13 @@ macro_rules! impl_store_or_ignore {
                 &self,
                 into: &$crate::storage::encrypted_store::db_connection::DbConnection,
             ) -> Result<(), $crate::StorageError> {
-                let result = into.raw_query(|conn| {
-                    diesel::insert_into($table::table)
+                into.raw_query(|conn| {
+                    diesel::insert_or_ignore_into($table::table)
                         .values(self)
                         .execute(conn)
-                });
-                $crate::storage::ignore_unique_violation(result)
+                        .map_err(Into::into)
+                        .map(|_| ())
+                })
             }
         }
     };

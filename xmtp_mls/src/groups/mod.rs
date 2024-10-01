@@ -1962,6 +1962,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_add_missing_installations() {
+        crate::utils::wasm::init().await;
         // Setup for test
         let amal_wallet = generate_local_wallet();
         let amal = ClientBuilder::new_test_client(&amal_wallet).await;
@@ -3007,6 +3008,7 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     // #[cfg(not(target_arch = "wasm32"))]
     async fn process_messages_abort_on_retryable_error() {
+        crate::utils::wasm::init().await;
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 

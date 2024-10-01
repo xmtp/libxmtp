@@ -259,7 +259,7 @@ export class SQLite {
   }
 
   //TODO: At some point need a way to register functions from rust
-  //but for just libxmtp this is fine.
+  //but for now this is fine.
   register_diesel_sql_functions(database) {
     try {
       this.sqlite3.capi.sqlite3_create_function(

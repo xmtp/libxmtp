@@ -289,7 +289,6 @@ impl ValidatedCommit {
             removed_installations,
             current_group_members,
         )?;
-
         credentials_to_verify.push(actor.clone());
 
         // Verify the credentials of the following entities
@@ -480,6 +479,7 @@ async fn extract_expected_diff<'diff, ApiClient: XmtpApi>(
         .map(|inbox_id| build_inbox(inbox_id, immutable_metadata, mutable_metadata))
         .collect::<Vec<Inbox>>();
 
+    tracing::debug!("\n\n------------------------GETTING INSTALLATION DIFF ------------------------------------\n\n");
     let expected_installation_diff = client
         .get_installation_diff(
             conn,
