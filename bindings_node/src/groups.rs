@@ -63,7 +63,6 @@ pub struct NapiGroupMember {
   pub permission_level: NapiPermissionLevel,
 }
 
-#[derive(Debug)]
 #[napi]
 pub struct NapiGroup {
   inner_client: Arc<RustXmtpClient>,
