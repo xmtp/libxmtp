@@ -180,11 +180,14 @@ macro_rules! retry_async {
                 Ok(v) => break Ok(v),
                 Err(e) => {
                     if (&e).is_retryable() && attempts < $retry.retries() {
-                        log::warn!("retrying function that failed with error={}", e.to_string());
+                        tracing::warn!(
+                            "retrying function that failed with error={}",
+                            e.to_string()
+                        );
                         attempts += 1;
                         tokio::time::sleep($retry.duration(attempts)).await;
                     } else {
-                        log::info!("error is not retryable. {:?}", e);
+                        tracing::info!("error is not retryable. {:?}", e);
                         break Err(e);
                     }
                 }

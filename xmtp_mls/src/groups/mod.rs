@@ -340,6 +340,7 @@ impl MlsGroup {
         added_by_inbox: String,
         welcome_id: i64,
     ) -> Result<Self, GroupError> {
+        tracing::info!("Creating from welcome");
         let mls_welcome =
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
 
@@ -386,6 +387,7 @@ impl MlsGroup {
         encrypted_welcome_bytes: Vec<u8>,
         welcome_id: i64,
     ) -> Result<Self, GroupError> {
+        tracing::info!("Trying to decrypt welcome");
         let welcome_bytes = decrypt_welcome(provider, hpke_public_key, &encrypted_welcome_bytes)?;
 
         let welcome = deserialize_welcome(&welcome_bytes)?;
@@ -396,6 +398,7 @@ impl MlsGroup {
             ProcessedWelcome::new_from_welcome(provider, &join_config, welcome.clone())?;
         let psks = processed_welcome.psks();
         if !psks.is_empty() {
+            tracing::error!("No PSK support for welcome");
             return Err(GroupError::NoPSKSupport);
         }
         let staged_welcome = processed_welcome.into_staged_welcome(provider, None)?;
@@ -475,6 +478,9 @@ impl MlsGroup {
         self.sync_until_last_intent_resolved(&provider, client)
             .await?;
 
+        // implicitly set group consent state to allowed
+        self.update_consent_state(ConsentState::Allowed)?;
+
         message_id
     }
 
@@ -493,6 +499,10 @@ impl MlsGroup {
             .await?;
         self.sync_until_last_intent_resolved(&provider, client)
             .await?;
+
+        // implicitly set group consent state to allowed
+        self.update_consent_state(ConsentState::Allowed)?;
+
         Ok(())
     }
 
@@ -650,7 +660,7 @@ impl MlsGroup {
         // If some existing group member has an update, this will return an intent with changes
         // when we really should return an error
         if intent_data.is_empty() {
-            log::warn!("Member already added");
+            tracing::warn!("Member already added");
             return Ok(());
         }
 
@@ -1258,6 +1268,7 @@ async fn validate_initial_group_membership<ApiClient: XmtpApi>(
     conn: &DbConnection,
     mls_group: &OpenMlsGroup,
 ) -> Result<(), GroupError> {
+    tracing::info!("Validating initial group membership");
     let membership = extract_group_membership(mls_group.extensions())?;
     let needs_update = client.filter_inbox_ids_needing_updates(conn, membership.to_filters())?;
     if !needs_update.is_empty() {
@@ -1289,6 +1300,7 @@ async fn validate_initial_group_membership<ApiClient: XmtpApi>(
         return Err(GroupError::InvalidGroupMembership);
     }
 
+    tracing::info!("Group membership validated");
     Ok(())
 }
 
@@ -1307,7 +1319,6 @@ mod tests {
     use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
     use prost::Message;
     use std::sync::Arc;
-    use tracing_test::traced_test;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
@@ -1552,13 +1563,13 @@ mod tests {
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
 
-        log::info!("Adding charlie from amal");
+        tracing::info!("Adding charlie from amal");
         // Have amal and bola both invite charlie.
         amal_group
             .add_members_by_inbox_id(&amal, vec![charlie.inbox_id()])
             .await
             .expect("failed to add charlie");
-        log::info!("Adding charlie from bola");
+        tracing::info!("Adding charlie from bola");
         bola_group
             .add_members_by_inbox_id(&bola, vec![charlie.inbox_id()])
             .await
@@ -1622,43 +1633,44 @@ mod tests {
         let matching_message = bola_messages
             .iter()
             .find(|m| m.decrypted_message_bytes == "hello from amal".as_bytes());
-        log::info!("found message: {:?}", bola_messages);
+        tracing::info!("found message: {:?}", bola_messages);
         assert!(matching_message.is_some());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    #[traced_test]
-    async fn test_create_from_welcome_validation() {
-        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    #[test]
+    fn test_create_from_welcome_validation() {
+        crate::traced_test(|| async {
+            let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+            let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alix_group: MlsGroup = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        let provider = alix.mls_provider().unwrap();
-        // Doctor the group membership
-        let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
-        let mut existing_extensions = mls_group.extensions().clone();
-        let mut group_membership = GroupMembership::new();
-        group_membership.add("foo".to_string(), 1);
-        existing_extensions.add_or_replace(build_group_membership_extension(&group_membership));
-        mls_group
-            .update_group_context_extensions(
-                &provider,
-                existing_extensions.clone(),
-                &alix.identity().installation_keys,
-            )
-            .unwrap();
-        mls_group.merge_pending_commit(&provider).unwrap();
+            let alix_group: MlsGroup = alix
+                .create_group(None, GroupMetadataOptions::default())
+                .unwrap();
+            let provider = alix.mls_provider().unwrap();
+            // Doctor the group membership
+            let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
+            let mut existing_extensions = mls_group.extensions().clone();
+            let mut group_membership = GroupMembership::new();
+            group_membership.add("foo".to_string(), 1);
+            existing_extensions.add_or_replace(build_group_membership_extension(&group_membership));
+            mls_group
+                .update_group_context_extensions(
+                    &provider,
+                    existing_extensions.clone(),
+                    &alix.identity().installation_keys,
+                )
+                .unwrap();
+            mls_group.merge_pending_commit(&provider).unwrap();
 
-        // Now add bo to the group
-        force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
+            // Now add bo to the group
+            force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
 
-        // Bo should not be able to actually read this group
-        bo.sync_welcomes().await.unwrap();
-        let groups = bo.find_groups(None, None, None, None).unwrap();
-        assert_eq!(groups.len(), 0);
-        assert_logged!("failed to create group from welcome", 1);
+            // Bo should not be able to actually read this group
+            bo.sync_welcomes().await.unwrap();
+            let groups = bo.find_groups(None, None, None, None).unwrap();
+            assert_eq!(groups.len(), 0);
+            assert_logged!("failed to create group from welcome", 1);
+        });
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1834,7 +1846,7 @@ mod tests {
             )
             .await
             .unwrap();
-        log::info!("created the group with 2 additional members");
+        tracing::info!("created the group with 2 additional members");
         assert_eq!(group.members(&bola).await.unwrap().len(), 3);
         let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 1);
@@ -1850,7 +1862,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(group.members(&bola).await.unwrap().len(), 2);
-        log::info!("removed bola");
+        tracing::info!("removed bola");
         let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[1].kind, GroupMessageKind::MembershipChange);
@@ -3253,13 +3265,55 @@ mod tests {
     #[tokio::test]
     async fn test_get_and_set_consent() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let group = alix
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let alix_group = alix
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
-        group.update_consent_state(ConsentState::Denied).unwrap();
-        let consent = group.consent_state().unwrap();
+        // group consent state should be allowed if user created it
+        assert_eq!(alix_group.consent_state().unwrap(), ConsentState::Allowed);
 
-        assert_eq!(consent, ConsentState::Denied);
+        alix_group
+            .update_consent_state(ConsentState::Denied)
+            .unwrap();
+        assert_eq!(alix_group.consent_state().unwrap(), ConsentState::Denied);
+
+        alix_group
+            .add_members_by_inbox_id(&alix, vec![bola.inbox_id()])
+            .await
+            .unwrap();
+
+        bola.sync_welcomes().await.unwrap();
+        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_group = bola_groups.first().unwrap();
+        // group consent state should default to unknown for users who did not create the group
+        assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Unknown);
+
+        bola_group
+            .send_message("hi from bola".as_bytes(), &bola)
+            .await
+            .unwrap();
+
+        // group consent state should be allowed if user sends a message to the group
+        assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Allowed);
+
+        alix_group
+            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+            .await
+            .unwrap();
+
+        caro.sync_welcomes().await.unwrap();
+        let caro_groups = caro.find_groups(None, None, None, None).unwrap();
+        let caro_group = caro_groups.first().unwrap();
+
+        caro_group
+            .send_message_optimistic("hi from caro".as_bytes())
+            .unwrap();
+
+        caro_group.publish_messages(&caro).await.unwrap();
+
+        // group consent state should be allowed if user publishes a message to the group
+        assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Allowed);
     }
 }
