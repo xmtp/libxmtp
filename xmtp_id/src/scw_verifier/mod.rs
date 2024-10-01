@@ -50,7 +50,7 @@ impl<S: SmartContractSignatureVerifier + Clone + ?Sized> SmartContractSignatureV
         &self,
         account_id: AccountId,
         hash: [u8; 32],
-        signature: &Bytes,
+        signature: Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
         (**self)
