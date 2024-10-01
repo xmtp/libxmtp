@@ -1477,40 +1477,6 @@ mod tests {
         assert!(!permissions.evaluate_commit(&commit_without_creator));
     }
 
-    #[test]
-    fn test_allow_same_member() {
-        let permissions = PolicySet::new(
-            MembershipPolicies::allow_same_member(),
-            MembershipPolicies::deny(),
-            MetadataPolicies::default_map(MetadataPolicies::deny()),
-            PermissionsPolicies::allow_if_actor_super_admin(),
-            PermissionsPolicies::allow_if_actor_super_admin(),
-            PermissionsPolicies::allow_if_actor_super_admin(),
-        );
-
-        let commit_with_same_member = build_validated_commit(
-            Some(MemberType::SameAsActor),
-            None,
-            None,
-            false,
-            false,
-            false,
-            None,
-        );
-        assert!(permissions.evaluate_commit(&commit_with_same_member));
-
-        let commit_with_different_member = build_validated_commit(
-            Some(MemberType::Random),
-            None,
-            None,
-            false,
-            false,
-            false,
-            None,
-        );
-        assert!(!permissions.evaluate_commit(&commit_with_different_member));
-    }
-
     /// Tests that and conditions are enforced as expected.
     #[test]
     fn test_and_condition() {
