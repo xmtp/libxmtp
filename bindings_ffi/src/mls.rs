@@ -217,7 +217,7 @@ impl FfiSignatureRequest {
             block_number,
             chain_id,
             hash.try_into().map_err(|_| GenericError::Generic {
-                err: format!("Hash byte array is wrong length. (Should be 32)"),
+                err: "Hash byte array is wrong length. (Should be 32)".to_string(),
             })?,
         );
         inner
