@@ -206,7 +206,6 @@ impl FfiSignatureRequest {
         account_address: String,
         chain_id: u64,
         block_number: u64,
-        hash: Vec<u8>,
     ) -> Result<(), GenericError> {
         let mut inner = self.inner.lock().await;
         let account_id = AccountId::new_evm(chain_id, account_address);
@@ -216,9 +215,6 @@ impl FfiSignatureRequest {
             account_id,
             block_number,
             chain_id,
-            hash.try_into().map_err(|_| GenericError::Generic {
-                err: "Hash byte array is wrong length. (Should be 32)".to_string(),
-            })?,
         );
         inner
             .add_signature(signature, self.scw_verifier.clone().as_ref())

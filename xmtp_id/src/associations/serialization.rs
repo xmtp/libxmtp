@@ -176,9 +176,6 @@ impl TryFrom<SignatureWrapperProto> for UnverifiedSignature {
                     sig.account_id.try_into()?,
                     sig.block_number,
                     sig.chain_id,
-                    sig.hash
-                        .try_into()
-                        .map_err(|_| DeserializationError::InvalidHash)?,
                 ),
             ),
         };
