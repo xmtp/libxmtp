@@ -316,7 +316,7 @@ impl MlsGroup {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
-        let stored_group = StoredGroup::new(
+        let stored_group = StoredGroup::new_as_creator(
             group_id.clone(),
             now_ns(),
             membership_state,
@@ -444,8 +444,11 @@ impl MlsGroup {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
-        let stored_group =
-            StoredGroup::new_sync_group(group_id.clone(), now_ns(), GroupMembershipState::Allowed);
+        let stored_group = StoredGroup::new_sync_group_as_creator(
+            group_id.clone(),
+            now_ns(),
+            GroupMembershipState::Allowed,
+        );
 
         stored_group.store(provider.conn_ref())?;
 

@@ -676,7 +676,7 @@ mod tests {
             barrier.wait();
             let result = store_pointer.transaction(|provider| -> Result<(), anyhow::Error> {
                 let connection = provider.conn_ref();
-                let group = StoredGroup::new(
+                let group = StoredGroup::new_as_creator(
                     b"should not exist".to_vec(),
                     0,
                     GroupMembershipState::Allowed,
@@ -727,7 +727,7 @@ mod tests {
                         .store(conn1)
                         .unwrap();
 
-                    let group = StoredGroup::new(
+                    let group = StoredGroup::new_as_creator(
                         b"should not exist".to_vec(),
                         0,
                         GroupMembershipState::Allowed,

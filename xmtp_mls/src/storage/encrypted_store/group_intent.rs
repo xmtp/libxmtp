@@ -399,7 +399,7 @@ mod tests {
     };
 
     fn insert_group(conn: &DbConnection, group_id: Vec<u8>) {
-        let group = StoredGroup::new(
+        let group = StoredGroup::new_as_creator(
             group_id,
             100,
             GroupMembershipState::Allowed,

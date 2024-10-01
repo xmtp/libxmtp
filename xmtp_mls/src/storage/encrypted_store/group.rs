@@ -69,7 +69,7 @@ impl StoredGroup {
     }
 
     /// Create a new [`Purpose::Conversation`] group. This is the default type of group.
-    pub fn new(
+    pub fn new_as_creator(
         id: ID,
         created_at_ns: i64,
         membership_state: GroupMembershipState,
@@ -83,13 +83,13 @@ impl StoredGroup {
             purpose: Purpose::Conversation,
             added_by_inbox_id,
             welcome_id: None,
-            rotated_at_ns: 0,
+            rotated_at_ns: crate::utils::time::now_ns(),
         }
     }
 
     /// Create a new [`Purpose::Sync`] group.  This is less common and is used to sync message history.
     /// TODO: Set added_by_inbox to your own inbox_id
-    pub fn new_sync_group(
+    pub fn new_sync_group_as_creator(
         id: ID,
         created_at_ns: i64,
         membership_state: GroupMembershipState,
@@ -102,7 +102,7 @@ impl StoredGroup {
             purpose: Purpose::Sync,
             added_by_inbox_id: "".into(),
             welcome_id: None,
-            rotated_at_ns: 0,
+            rotated_at_ns: crate::utils::time::now_ns(),
         }
     }
 }
@@ -224,7 +224,9 @@ impl DbConnection {
     pub fn update_rotated_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let now = crate::utils::time::now_ns();
-            diesel::update(dsl::groups.find(&group_id)).set(dsl::rotated_at_ns.eq(now)).execute(conn)
+            diesel::update(dsl::groups.find(&group_id))
+                .set(dsl::rotated_at_ns.eq(now))
+                .execute(conn)
         })?;
 
         Ok(())
@@ -362,7 +364,7 @@ pub(crate) mod tests {
         let id = rand_vec();
         let created_at_ns = now_ns();
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
-        StoredGroup::new(
+        StoredGroup::new_as_creator(
             id,
             created_at_ns,
             membership_state,
@@ -504,7 +506,8 @@ pub(crate) mod tests {
             let created_at_ns = now_ns();
             let membership_state = GroupMembershipState::Allowed;
 
-            let sync_group = StoredGroup::new_sync_group(id, created_at_ns, membership_state);
+            let sync_group =
+                StoredGroup::new_sync_group_as_creator(id, created_at_ns, membership_state);
             let purpose = sync_group.purpose;
             assert_eq!(purpose, Purpose::Sync);
 
