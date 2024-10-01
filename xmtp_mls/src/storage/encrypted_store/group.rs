@@ -439,6 +439,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_installations_last_checked_is_updated() {
+        crate::utils::wasm::init().await;
         with_connection(|conn| {
             let test_group = generate_group(None);
             test_group.store(conn).unwrap();

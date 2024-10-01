@@ -63,3 +63,8 @@ pub mod wasm {
         .await;
     }
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod wasm {
+    pub async fn init() {}
+}
