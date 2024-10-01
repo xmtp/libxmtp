@@ -35,7 +35,6 @@ pub struct StoredGroup {
     pub installations_last_checked: i64,
     /// Enum, [`Purpose`] signifies the group purpose which extends to who can access it.
     pub purpose: Purpose,
-
     /// The inbox_id of who added the user to a group.
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message

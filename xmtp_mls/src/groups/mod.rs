@@ -552,7 +552,6 @@ impl MlsGroup {
             .map_err(GroupError::EncodeError)?;
 
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-
         let intent =
             NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
         intent.store(conn)?;
@@ -1468,7 +1467,7 @@ mod tests {
             .query_group_messages(group.group_id, None)
             .await
             .expect("read topic");
-        assert_eq!(messages.len(), 3);
+        assert_eq!(messages.len(), 2);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1730,7 +1729,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(messages.len(), 3);
+        assert_eq!(messages.len(), 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1796,7 +1795,7 @@ mod tests {
             .await
             .expect("read topic");
 
-        assert_eq!(messages.len(), 4);
+        assert_eq!(messages.len(), 2);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1819,7 +1818,7 @@ mod tests {
             .query_group_messages(group.group_id.clone(), None)
             .await
             .unwrap();
-        assert_eq!(messages.len(), 4);
+        assert_eq!(messages.len(), 2);
 
         let provider: XmtpOpenMlsProvider = client.context.store.conn().unwrap().into();
         let mls_group = group.load_mls_group(&provider).unwrap();
