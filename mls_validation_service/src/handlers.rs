@@ -1,6 +1,6 @@
 use ethers::types::{BlockNumber, U64};
 use futures::future::{join_all, try_join_all};
-use openmls::prelude::{tls_codec::Deserialize, BasicCredential, MlsMessageIn, ProtocolMessage};
+use openmls::prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage};
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
@@ -13,7 +13,6 @@ use xmtp_id::{
 };
 use xmtp_mls::{
     utils::id::serialize_group_id,
-    verified_key_package::VerifiedKeyPackage,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use xmtp_proto::xmtp::{
@@ -433,23 +432,8 @@ struct ValidateKeyPackageResult {
     expiration: u64,
 }
 
-fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackageResult, String> {
-    let rust_crypto = RustCrypto::default();
-    let verified_key_package =
-        VerifiedKeyPackage::from_bytes(&rust_crypto, key_package_bytes.as_slice())
-            .map_err(|e| e.to_string())?;
-
-    let credential = verified_key_package.inner.leaf_node().credential();
-
-    let basic_credential =
-        BasicCredential::try_from(credential.clone()).map_err(|e| e.to_string())?;
-
-    Ok(ValidateKeyPackageResult {
-        installation_id: verified_key_package.installation_id(),
-        account_address: verified_key_package.account_address,
-        credential_identity_bytes: basic_credential.identity().to_vec(),
-        expiration: 0,
-    })
+fn validate_key_package(_key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackageResult, String> {
+    unimplemented!()
 }
 
 #[cfg(test)]
@@ -463,23 +447,17 @@ mod tests {
     };
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_rust_crypto::OpenMlsRustCrypto;
-    use xmtp_id::{
-        associations::{
-            generate_inbox_id,
-            test_utils::{rand_string, rand_u64, MockSmartContractSignatureVerifier},
-            unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
-        },
-        InboxOwner,
+    use xmtp_id::associations::{
+        generate_inbox_id,
+        test_utils::{rand_string, rand_u64, MockSmartContractSignatureVerifier},
+        unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
     };
-    use xmtp_mls::{configuration::CIPHERSUITE, credential::Credential};
+    use xmtp_mls::configuration::CIPHERSUITE;
     use xmtp_proto::xmtp::{
         identity::associations::IdentityUpdate as IdentityUpdateProto,
         identity::MlsCredential as InboxIdMlsCredential,
-        mls::message_contents::MlsCredential as CredentialProto,
         mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
     };
-
-    use prost::Message;
 
     use super::*;
 
@@ -487,25 +465,6 @@ mod tests {
         fn default() -> Self {
             Self::new(MockSmartContractSignatureVerifier::new(true))
         }
-    }
-
-    fn generate_identity() -> (Vec<u8>, SignatureKeyPair, String) {
-        let rng = &mut rand::thread_rng();
-        let wallet = LocalWallet::new(rng);
-        let signature_key_pair = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
-
-        let _pub_key = signature_key_pair.public();
-        let account_address = wallet.get_address();
-
-        let credential =
-            Credential::create(&signature_key_pair, &wallet).expect("failed to create credential");
-        let credential_proto: CredentialProto = credential.into();
-
-        (
-            credential_proto.encode_to_vec(),
-            signature_key_pair,
-            account_address,
-        )
     }
 
     async fn generate_inbox_id_credential() -> (String, SigningKey) {
@@ -556,72 +515,6 @@ mod tests {
             secret.into(),
             public.into(),
         )
-    }
-
-    #[tokio::test]
-    async fn test_validate_key_packages_happy_path() {
-        let (identity, keypair, account_address) = generate_identity();
-
-        let credential: OpenMlsCredential = BasicCredential::new(identity).into();
-        let credential_with_key = CredentialWithKey {
-            credential,
-            signature_key: keypair.to_public_vec().into(),
-        };
-
-        let key_package_bytes = build_key_package_bytes(
-            &keypair,
-            &credential_with_key,
-            Some(account_address.clone()),
-        );
-        let request = ValidateKeyPackagesRequest {
-            key_packages: vec![KeyPackageProtoWrapper {
-                key_package_bytes_tls_serialized: key_package_bytes,
-                is_inbox_id_credential: false,
-            }],
-        };
-
-        let res = ValidationService::default()
-            .validate_key_packages(Request::new(request))
-            .await
-            .unwrap();
-
-        let first_response = &res.into_inner().responses[0];
-        assert_eq!(first_response.installation_id, keypair.public());
-        assert_eq!(first_response.account_address, account_address);
-        assert!(!first_response.credential_identity_bytes.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_validate_key_packages_fail() {
-        let (identity, keypair, account_address) = generate_identity();
-        let (_, other_keypair, _) = generate_identity();
-
-        let credential: OpenMlsCredential = BasicCredential::new(identity).into();
-        let credential_with_key = CredentialWithKey {
-            credential,
-            // Use the wrong signature key to make the validation fail
-            signature_key: other_keypair.to_public_vec().into(),
-        };
-
-        let key_package_bytes =
-            build_key_package_bytes(&keypair, &credential_with_key, Some(account_address));
-
-        let request = ValidateKeyPackagesRequest {
-            key_packages: vec![KeyPackageProtoWrapper {
-                key_package_bytes_tls_serialized: key_package_bytes,
-                is_inbox_id_credential: false,
-            }],
-        };
-
-        let res = ValidationService::default()
-            .validate_key_packages(Request::new(request))
-            .await
-            .unwrap();
-
-        let first_response = &res.into_inner().responses[0];
-
-        assert!(!first_response.is_ok);
-        assert_eq!(first_response.account_address, "".to_string());
     }
 
     // this test will panic until signature recovery is added

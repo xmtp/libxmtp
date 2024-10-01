@@ -6,7 +6,6 @@ pub mod builder;
 pub mod client;
 pub mod codecs;
 pub mod configuration;
-pub mod credential;
 pub mod groups;
 mod hpke;
 pub mod identity;
@@ -17,7 +16,6 @@ pub mod storage;
 pub mod subscriptions;
 pub mod types;
 pub mod utils;
-pub mod verified_key_package;
 pub mod verified_key_package_v2;
 mod xmtp_openmls_provider;
 
