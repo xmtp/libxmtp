@@ -545,7 +545,7 @@ impl NapiGroup {
 
     let group_pinned_frame_url = group
       .group_pinned_frame_url(group.mls_provider().map_err(ErrorWrapper::from)?)
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(group_pinned_frame_url)
   }

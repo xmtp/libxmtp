@@ -11,6 +11,7 @@ use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
 
 use crate::messages::NapiMessage;
 use crate::permissions::NapiGroupPermissionsOptions;
+use crate::ErrorWrapper;
 use crate::{groups::NapiGroup, mls_client::RustXmtpClient, streams::NapiStreamCloser};
 
 #[napi(object)]
@@ -105,12 +106,12 @@ impl NapiConversations {
 
   #[napi]
   pub fn find_group_by_id(&self, group_id: String) -> Result<NapiGroup> {
-    let group_id = hex::decode(group_id).map_err(|e| Error::from_reason(format!("{}", e)))?;
+    let group_id = hex::decode(group_id).map_err(ErrorWrapper::from)?;
 
     let group = self
       .inner_client
       .group(group_id)
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(NapiGroup::new(
       self.inner_client.clone(),
@@ -121,12 +122,12 @@ impl NapiConversations {
 
   #[napi]
   pub fn find_message_by_id(&self, message_id: String) -> Result<NapiMessage> {
-    let message_id = hex::decode(message_id).map_err(|e| Error::from_reason(format!("{}", e)))?;
+    let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
 
     let message = self
       .inner_client
       .message(message_id)
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(NapiMessage::from(message))
   }
@@ -141,7 +142,7 @@ impl NapiConversations {
       .inner_client
       .process_streamed_welcome_message(envelope_bytes)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
     let out = NapiGroup::new(
       self.inner_client.clone(),
       group.group_id,
@@ -156,7 +157,7 @@ impl NapiConversations {
       .inner_client
       .sync_welcomes()
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
     Ok(())
   }
 
@@ -178,7 +179,7 @@ impl NapiConversations {
         limit: opts.limit,
         ..FindGroupParams::default()
       })
-      .map_err(|e| Error::from_reason(format!("{}", e)))?
+      .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|group| {
         NapiGroup::new(
