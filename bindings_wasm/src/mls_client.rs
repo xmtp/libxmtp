@@ -164,9 +164,8 @@ impl WasmClient {
     signature_bytes: Uint8Array,
     chain_id: u64,
     account_address: String,
-    // TODO:nm Remove this
-    _chain_rpc_url: String,
     block_number: u64,
+    hash: Uint8Array,
   ) -> Result<(), JsError> {
     if self.is_registered() {
       return Err(JsError::new(
@@ -180,6 +179,11 @@ impl WasmClient {
       signature_bytes.to_vec(),
       account_id,
       block_number,
+      chain_id,
+      hash
+        .to_vec()
+        .try_into()
+        .map_err(|_| JsError::new("Hash byte array is wrong length. (Should be 32)"))?,
     );
 
     self.signatures.insert(

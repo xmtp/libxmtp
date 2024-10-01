@@ -208,17 +208,22 @@ impl FfiSignatureRequest {
     pub async fn add_scw_signature(
         &self,
         signature_bytes: Vec<u8>,
-        address: String,
+        account_address: String,
         chain_id: u64,
         block_number: u64,
+        hash: Vec<u8>,
     ) -> Result<(), GenericError> {
         let mut inner = self.inner.lock().await;
-        let account_id = AccountId::new_evm(chain_id, address);
+        let account_id = AccountId::new_evm(chain_id, account_address);
 
         let signature = UnverifiedSignature::new_smart_contract_wallet(
             signature_bytes,
             account_id,
             block_number,
+            chain_id,
+            hash.try_into().map_err(|_| GenericError::Generic {
+                err: format!("Hash byte array is wrong length. (Should be 32)"),
+            })?,
         );
         inner
             .add_signature(signature, &signature_verifier())
