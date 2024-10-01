@@ -572,7 +572,6 @@ impl PermissionsPolicy for PermissionsAndCondition {
     }
 }
 
-
 /// An AnyCondition evaluates to true if any of the contained policies evaluate to true.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PermissionsAnyCondition {
