@@ -18,6 +18,7 @@ use crate::configuration::{
 
 use super::GroupMetadataOptions;
 
+/// Errors that can occur when working with GroupMutableMetadata.
 #[derive(Debug, Error)]
 pub enum GroupMutableMetadataError {
     #[error("serialization: {0}")]
@@ -36,7 +37,10 @@ pub enum GroupMutableMetadataError {
     MissingMetadataField,
 }
 
-// Fields should be added to supported_fields fn for Metadata Update Support
+/// Represents the "updateable" metadata fields for a group.
+/// Members ability to update metadata is gated by the group permissions.
+///
+/// New fields should be added to the `supported_fields` function for Metadata Update Support.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MetadataField {
     GroupName,
@@ -46,6 +50,7 @@ pub enum MetadataField {
 }
 
 impl MetadataField {
+    /// String representations used as keys in the GroupMutableMetadata attributes map.
     pub const fn as_str(&self) -> &'static str {
         match self {
             MetadataField::GroupName => "group_name",
@@ -62,15 +67,24 @@ impl fmt::Display for MetadataField {
     }
 }
 
+/// Represents the mutable metadata for a group.
+///
+/// This struct is stored as an MLS Unknown Group Context Extension.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupMutableMetadata {
-    // Allow libxmtp to receive attributes from updated versions not yet captured in MetadataField
+    /// Map to store various metadata attributes (e.g., group name, description).
+    /// Allows libxmtp to receive attributes from updated versions not yet captured in MetadataField.
     pub attributes: HashMap<String, String>,
+    /// List of admin inbox IDs for this group.
+    /// See [GroupMutablePermissions](crate::groups::GroupMutablePermissions) for more details on admin permissions.
     pub admin_list: Vec<String>,
+    /// List of super admin inbox IDs for this group.
+    /// See [GroupMutablePermissions](crate::groups::GroupMutablePermissions) for more details on super admin permissions.
     pub super_admin_list: Vec<String>,
 }
 
 impl GroupMutableMetadata {
+    /// Creates a new GroupMutableMetadata instance.
     pub fn new(
         attributes: HashMap<String, String>,
         admin_list: Vec<String>,
@@ -83,6 +97,9 @@ impl GroupMutableMetadata {
         }
     }
 
+    /// Creates a new GroupMutableMetadata instance with default values.
+    /// The creator is automatically added as a super admin.
+    /// See [GroupMutablePermissions](crate::groups::GroupMutablePermissions) for more details on super admin permissions.
     pub fn new_default(creator_inbox_id: String, opts: GroupMetadataOptions) -> Self {
         let mut attributes = HashMap::new();
         attributes.insert(
@@ -142,7 +159,9 @@ impl GroupMutableMetadata {
         }
     }
 
-    // These fields will receive default permission policies for new groups
+    /// Returns a vector of supported metadata fields.
+    ///
+    /// These fields will receive default permission policies for new groups.
     pub fn supported_fields() -> Vec<MetadataField> {
         vec![
             MetadataField::GroupName,
@@ -152,10 +171,12 @@ impl GroupMutableMetadata {
         ]
     }
 
+    /// Checks if the given inbox ID is an admin.
     pub fn is_admin(&self, inbox_id: &String) -> bool {
         self.admin_list.contains(inbox_id)
     }
 
+    /// Checks if the given inbox ID is a super admin.
     pub fn is_super_admin(&self, inbox_id: &String) -> bool {
         self.super_admin_list.contains(inbox_id)
     }
@@ -164,6 +185,7 @@ impl GroupMutableMetadata {
 impl TryFrom<GroupMutableMetadata> for Vec<u8> {
     type Error = GroupMutableMetadataError;
 
+    /// Converts GroupMutableMetadata to a byte vector for storage as an MLS Unknown Group Context Extension.
     fn try_from(value: GroupMutableMetadata) -> Result<Self, Self::Error> {
         let mut buf = Vec::new();
         let proto_val = GroupMutableMetadataProto {
@@ -184,6 +206,7 @@ impl TryFrom<GroupMutableMetadata> for Vec<u8> {
 impl TryFrom<&Vec<u8>> for GroupMutableMetadata {
     type Error = GroupMutableMetadataError;
 
+    /// Converts a byte vector to GroupMutableMetadata.
     fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
         let proto_val = GroupMutableMetadataProto::decode(value.as_slice())?;
         Self::try_from(proto_val)
@@ -193,6 +216,7 @@ impl TryFrom<&Vec<u8>> for GroupMutableMetadata {
 impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
     type Error = GroupMutableMetadataError;
 
+    /// Converts a GroupMutableMetadataProto to GroupMutableMetadata.
     fn try_from(value: GroupMutableMetadataProto) -> Result<Self, Self::Error> {
         let admin_list = value
             .admin_list
@@ -215,6 +239,7 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
 impl TryFrom<&Extensions> for GroupMutableMetadata {
     type Error = GroupMutableMetadataError;
 
+    /// Attempts to extract GroupMutableMetadata from MLS Extensions.
     fn try_from(value: &Extensions) -> Result<Self, Self::Error> {
         match find_mutable_metadata_extension(value) {
             Some(metadata) => GroupMutableMetadata::try_from(metadata),
@@ -226,12 +251,17 @@ impl TryFrom<&Extensions> for GroupMutableMetadata {
 impl TryFrom<&OpenMlsGroup> for GroupMutableMetadata {
     type Error = GroupMutableMetadataError;
 
+    /// Attempts to extract GroupMutableMetadata from an OpenMlsGroup.
     fn try_from(value: &OpenMlsGroup) -> Result<Self, Self::Error> {
         let extensions = value.export_group_context().extensions();
         extensions.try_into()
     }
 }
 
+/// Finds the mutable metadata extension in the given MLS Extensions.
+///
+/// This function searches for an Unknown Extension with the
+/// [MUTABLE_METADATA_EXTENSION_ID](crate::configuration::MUTABLE_METADATA_EXTENSION_ID).
 pub fn find_mutable_metadata_extension(extensions: &Extensions) -> Option<&Vec<u8>> {
     extensions.iter().find_map(|extension| {
         if let Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, UnknownExtension(metadata)) =
