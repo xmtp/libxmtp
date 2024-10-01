@@ -3,7 +3,10 @@ pub mod mls;
 #[cfg(test)]
 pub mod test_utils;
 
-use crate::{retry::Retry, XmtpApi};
+use crate::{
+    retry::{Retry, RetryableError},
+    XmtpApi,
+};
 use thiserror::Error;
 use xmtp_id::associations::DeserializationError as AssociationDeserializationError;
 use xmtp_proto::api_client::Error as ApiError;
@@ -17,6 +20,12 @@ pub enum WrappedApiError {
     Api(#[from] ApiError),
     #[error("Deserialization error {0}")]
     AssociationDeserialization(#[from] AssociationDeserializationError),
+}
+
+impl RetryableError for WrappedApiError {
+    fn is_retryable(&self) -> bool {
+        matches!(self, Self::Api(_))
+    }
 }
 
 #[derive(Debug)]

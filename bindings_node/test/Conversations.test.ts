@@ -1,4 +1,3 @@
-import { encode } from 'punycode'
 import { describe, expect, it } from 'vitest'
 import { AsyncStream } from '@test/AsyncStream'
 import {
@@ -6,14 +5,14 @@ import {
   createUser,
   encodeTextMessage,
 } from '@test/helpers'
-import { GroupPermissions, NapiGroup, NapiMessage } from '../dist'
+import { NapiGroup, NapiGroupPermissionsOptions, NapiMessage } from '../dist'
 
 describe('Conversations', () => {
   it('should not have initial conversations', async () => {
     const user = createUser()
     const client = await createRegisteredClient(user)
-    const conversations = client.conversations().list()
-    expect((await conversations).length).toBe(0)
+    const conversations = await client.conversations().list()
+    expect(conversations.length).toBe(0)
   })
 
   it('should create a new group', async () => {
@@ -30,11 +29,21 @@ describe('Conversations', () => {
     expect(group.isActive()).toBe(true)
     expect(group.groupName()).toBe('')
     expect(group.groupPermissions().policyType()).toBe(
-      GroupPermissions.EveryoneIsAdmin
+      NapiGroupPermissionsOptions.AllMembers
     )
+    expect(group.groupPermissions().policySet()).toEqual({
+      addMemberPolicy: 0,
+      removeMemberPolicy: 2,
+      addAdminPolicy: 3,
+      removeAdminPolicy: 3,
+      updateGroupNamePolicy: 0,
+      updateGroupDescriptionPolicy: 0,
+      updateGroupImageUrlSquarePolicy: 0,
+      updateGroupPinnedFrameUrlPolicy: 0,
+    })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
     expect(group.findMessages().length).toBe(1)
-    const members = group.listMembers()
+    const members = await group.listMembers()
     expect(members.length).toBe(2)
     const memberInboxIds = members.map((member) => member.inboxId)
     expect(memberInboxIds).toContain(client1.inboxId())
@@ -53,6 +62,37 @@ describe('Conversations', () => {
     const group2 = await client2.conversations().list()
     expect(group2.length).toBe(1)
     expect(group2[0].id).toBe(group.id)
+  })
+
+  it('should find a group by ID', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+    const group = await client1
+      .conversations()
+      .createGroup([user2.account.address])
+    expect(group).toBeDefined()
+    expect(group.id()).toBeDefined()
+    const foundGroup = client1.conversations().findGroupById(group.id())
+    expect(foundGroup).toBeDefined()
+    expect(foundGroup!.id()).toBe(group.id())
+  })
+
+  it('should find a message by ID', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    await createRegisteredClient(user2)
+    const group = await client1
+      .conversations()
+      .createGroup([user2.account.address])
+    const messageId = await group.send(encodeTextMessage('gm!'))
+    expect(messageId).toBeDefined()
+
+    const message = client1.conversations().findMessageById(messageId)
+    expect(message).toBeDefined()
+    expect(message!.id).toBe(messageId)
   })
 
   it('should create a new group with options', async () => {
@@ -99,14 +139,70 @@ describe('Conversations', () => {
     const groupWithPermissions = await client1
       .conversations()
       .createGroup([user4.account.address], {
-        permissions: GroupPermissions.GroupCreatorIsAdmin,
+        permissions: NapiGroupPermissionsOptions.AdminOnly,
       })
     expect(groupWithPermissions).toBeDefined()
     expect(groupWithPermissions.groupName()).toBe('')
     expect(groupWithPermissions.groupImageUrlSquare()).toBe('')
     expect(groupWithPermissions.groupPermissions().policyType()).toBe(
-      GroupPermissions.GroupCreatorIsAdmin
+      NapiGroupPermissionsOptions.AdminOnly
     )
+
+    expect(groupWithPermissions.groupPermissions().policySet()).toEqual({
+      addMemberPolicy: 2,
+      removeMemberPolicy: 2,
+      addAdminPolicy: 3,
+      removeAdminPolicy: 3,
+      updateGroupNamePolicy: 2,
+      updateGroupDescriptionPolicy: 2,
+      updateGroupImageUrlSquarePolicy: 2,
+      updateGroupPinnedFrameUrlPolicy: 2,
+    })
+
+    const groupWithDescription = await client1
+      .conversations()
+      .createGroup([user2.account.address], {
+        groupDescription: 'foo',
+      })
+    expect(groupWithDescription).toBeDefined()
+    expect(groupWithDescription.groupName()).toBe('')
+    expect(groupWithDescription.groupImageUrlSquare()).toBe('')
+    expect(groupWithDescription.groupDescription()).toBe('foo')
+
+    const groupWithPinnedFrameUrl = await client1
+      .conversations()
+      .createGroup([user2.account.address], {
+        groupPinnedFrameUrl: 'https://frameurl.xyz',
+      })
+    expect(groupWithPinnedFrameUrl).toBeDefined()
+    expect(groupWithPinnedFrameUrl.groupName()).toBe('')
+    expect(groupWithPinnedFrameUrl.groupImageUrlSquare()).toBe('')
+    expect(groupWithPinnedFrameUrl.groupDescription()).toBe('')
+    expect(groupWithPinnedFrameUrl.groupPinnedFrameUrl()).toBe(
+      'https://frameurl.xyz'
+    )
+  })
+
+  it('should update group metadata', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    await createRegisteredClient(user2)
+    const group = await client1
+      .conversations()
+      .createGroup([user2.account.address])
+
+    await group.updateGroupName('foo')
+    expect(group.groupName()).toBe('foo')
+
+    await group.updateGroupImageUrlSquare('https://foo/bar.png')
+    expect(group.groupImageUrlSquare()).toBe('https://foo/bar.png')
+
+    await group.updateGroupDescription('bar')
+    expect(group.groupDescription()).toBe('bar')
+
+    await group.updateGroupPinnedFrameUrl('https://frameurl.xyz')
+    expect(group.groupPinnedFrameUrl()).toBe('https://frameurl.xyz')
   })
 
   it('should stream new groups', async () => {

@@ -518,6 +518,7 @@ impl serde::Serialize for CreateInbox {
         }
         if self.nonce != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("nonce", ToString::to_string(&self.nonce).as_str())?;
         }
         if let Some(v) = self.initial_address_signature.as_ref() {
@@ -785,6 +786,7 @@ impl serde::Serialize for IdentityUpdate {
         }
         if self.client_timestamp_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("clientTimestampNs", ToString::to_string(&self.client_timestamp_ns).as_str())?;
         }
         if !self.inbox_id.is_empty() {
@@ -1015,12 +1017,20 @@ impl serde::Serialize for Member {
         if self.added_by_entity.is_some() {
             len += 1;
         }
+        if self.client_timestamp_ns.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.Member", len)?;
         if let Some(v) = self.identifier.as_ref() {
             struct_ser.serialize_field("identifier", v)?;
         }
         if let Some(v) = self.added_by_entity.as_ref() {
             struct_ser.serialize_field("addedByEntity", v)?;
+        }
+        if let Some(v) = self.client_timestamp_ns.as_ref() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("clientTimestampNs", ToString::to_string(&v).as_str())?;
         }
         struct_ser.end()
     }
@@ -1035,12 +1045,15 @@ impl<'de> serde::Deserialize<'de> for Member {
             "identifier",
             "added_by_entity",
             "addedByEntity",
+            "client_timestamp_ns",
+            "clientTimestampNs",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Identifier,
             AddedByEntity,
+            ClientTimestampNs,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1064,6 +1077,7 @@ impl<'de> serde::Deserialize<'de> for Member {
                         match value {
                             "identifier" => Ok(GeneratedField::Identifier),
                             "addedByEntity" | "added_by_entity" => Ok(GeneratedField::AddedByEntity),
+                            "clientTimestampNs" | "client_timestamp_ns" => Ok(GeneratedField::ClientTimestampNs),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1085,6 +1099,7 @@ impl<'de> serde::Deserialize<'de> for Member {
             {
                 let mut identifier__ = None;
                 let mut added_by_entity__ = None;
+                let mut client_timestamp_ns__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Identifier => {
@@ -1099,11 +1114,20 @@ impl<'de> serde::Deserialize<'de> for Member {
                             }
                             added_by_entity__ = map_.next_value()?;
                         }
+                        GeneratedField::ClientTimestampNs => {
+                            if client_timestamp_ns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("clientTimestampNs"));
+                            }
+                            client_timestamp_ns__ = 
+                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
+                            ;
+                        }
                     }
                 }
                 Ok(Member {
                     identifier: identifier__,
                     added_by_entity: added_by_entity__,
+                    client_timestamp_ns: client_timestamp_ns__,
                 })
             }
         }
@@ -1129,6 +1153,7 @@ impl serde::Serialize for MemberIdentifier {
                 }
                 member_identifier::Kind::InstallationPublicKey(v) => {
                     #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
                     struct_ser.serialize_field("installationPublicKey", pbjson::private::base64::encode(&v).as_str())?;
                 }
             }
@@ -1341,6 +1366,7 @@ impl serde::Serialize for RecoverableEcdsaSignature {
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.RecoverableEcdsaSignature", len)?;
         if !self.bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("bytes", pbjson::private::base64::encode(&self.bytes).as_str())?;
         }
         struct_ser.end()
@@ -1438,10 +1464,12 @@ impl serde::Serialize for RecoverableEd25519Signature {
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.RecoverableEd25519Signature", len)?;
         if !self.bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("bytes", pbjson::private::base64::encode(&self.bytes).as_str())?;
         }
         if !self.public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("publicKey", pbjson::private::base64::encode(&self.public_key).as_str())?;
         }
         struct_ser.end()
@@ -1811,10 +1839,12 @@ impl serde::Serialize for SmartContractWalletSignature {
         }
         if self.block_number != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("blockNumber", ToString::to_string(&self.block_number).as_str())?;
         }
         if !self.signature.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("signature", pbjson::private::base64::encode(&self.signature).as_str())?;
         }
         if !self.chain_rpc_url.is_empty() {

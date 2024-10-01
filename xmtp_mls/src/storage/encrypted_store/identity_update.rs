@@ -7,7 +7,7 @@ use super::{
     schema::identity_updates::{self, dsl},
 };
 use diesel::{dsl::max, prelude::*};
-use xmtp_id::associations::{AssociationError, IdentityUpdate};
+use xmtp_id::associations::{unverified::UnverifiedIdentityUpdate, AssociationError};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
@@ -36,11 +36,11 @@ impl StoredIdentityUpdate {
     }
 }
 
-impl TryFrom<StoredIdentityUpdate> for IdentityUpdate {
+impl TryFrom<StoredIdentityUpdate> for UnverifiedIdentityUpdate {
     type Error = AssociationError;
 
     fn try_from(update: StoredIdentityUpdate) -> Result<Self, Self::Error> {
-        Ok(IdentityUpdate::try_from(update.payload)?)
+        Ok(UnverifiedIdentityUpdate::try_from(update.payload)?)
     }
 }
 
@@ -97,7 +97,7 @@ impl DbConnection {
         Ok(self.raw_query(|conn| query.first::<i64>(conn))?)
     }
 
-    /// Given a list of inbox_ids return a hashamp of each inbox ID -> highest known sequence ID
+    /// Given a list of inbox_ids return a HashMap of each inbox ID -> highest known sequence ID
     #[tracing::instrument(level = "trace", skip_all)]
     pub fn get_latest_sequence_id(
         &self,

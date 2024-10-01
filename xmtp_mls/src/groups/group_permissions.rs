@@ -25,7 +25,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
     PermissionsUpdatePolicy as PermissionsPolicyProto, PolicySet as PolicySetProto,
 };
 
-use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
+use crate::configuration::{GROUP_PERMISSIONS_EXTENSION_ID, SUPER_ADMIN_METADATA_PREFIX};
 
 use super::{
     group_mutable_metadata::GroupMutableMetadata,
@@ -46,6 +46,8 @@ pub enum GroupMutablePermissionsError {
     MissingPolicies,
     #[error("missing extension")]
     MissingExtension,
+    #[error("invalid permission policy option")]
+    InvalidPermissionPolicyOption,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -70,7 +72,7 @@ impl GroupMutablePermissions {
         if proto.policies.is_none() {
             return Err(GroupMutablePermissionsError::MissingPolicies);
         }
-        let policies = proto.policies.unwrap();
+        let policies = proto.policies.expect("checked for none");
 
         Ok(Self::new(PolicySet::from_proto(policies)?))
     }
@@ -125,6 +127,15 @@ impl TryFrom<&Extensions> for GroupMutablePermissions {
             }
         }
         Err(GroupMutablePermissionsError::MissingExtension)
+    }
+}
+
+impl TryFrom<&OpenMlsGroup> for GroupMutablePermissions {
+    type Error = GroupMutablePermissionsError;
+
+    fn try_from(value: &OpenMlsGroup) -> Result<Self, Self::Error> {
+        let extensions = value.export_group_context().extensions();
+        extensions.try_into()
     }
 }
 
@@ -233,11 +244,11 @@ impl TryFrom<MetadataPolicyProto> for MetadataPolicies {
                 2 => Ok(MetadataPolicies::deny()),
                 3 => Ok(MetadataPolicies::allow_if_actor_admin()),
                 4 => Ok(MetadataPolicies::allow_if_actor_super_admin()),
-                _ => Err(PolicyError::InvalidPolicy),
+                _ => Err(PolicyError::InvalidMetadataPolicy),
             },
             Some(MetadataPolicyKindProto::AndCondition(inner)) => {
                 if inner.policies.is_empty() {
-                    return Err(PolicyError::InvalidPolicy);
+                    return Err(PolicyError::InvalidMetadataPolicy);
                 }
                 let policies = inner
                     .policies
@@ -249,7 +260,7 @@ impl TryFrom<MetadataPolicyProto> for MetadataPolicies {
             }
             Some(MetadataPolicyKindProto::AnyCondition(inner)) => {
                 if inner.policies.is_empty() {
-                    return Err(PolicyError::InvalidPolicy);
+                    return Err(PolicyError::InvalidMetadataPolicy);
                 }
 
                 let policies = inner
@@ -260,7 +271,7 @@ impl TryFrom<MetadataPolicyProto> for MetadataPolicies {
 
                 Ok(MetadataPolicies::any(policies))
             }
-            None => Err(PolicyError::InvalidPolicy),
+            None => Err(PolicyError::InvalidMetadataPolicy),
         }
     }
 }
@@ -436,11 +447,11 @@ impl TryFrom<PermissionsPolicyProto> for PermissionsPolicies {
                 1 => Ok(PermissionsPolicies::deny()),
                 2 => Ok(PermissionsPolicies::allow_if_actor_admin()),
                 3 => Ok(PermissionsPolicies::allow_if_actor_super_admin()),
-                _ => Err(PolicyError::InvalidPolicy),
+                _ => Err(PolicyError::InvalidPermissionsPolicy),
             },
             Some(PermissionsPolicyKindProto::AndCondition(inner)) => {
                 if inner.policies.is_empty() {
-                    return Err(PolicyError::InvalidPolicy);
+                    return Err(PolicyError::InvalidPermissionsPolicy);
                 }
                 let policies = inner
                     .policies
@@ -452,7 +463,7 @@ impl TryFrom<PermissionsPolicyProto> for PermissionsPolicies {
             }
             Some(PermissionsPolicyKindProto::AnyCondition(inner)) => {
                 if inner.policies.is_empty() {
-                    return Err(PolicyError::InvalidPolicy);
+                    return Err(PolicyError::InvalidPermissionsPolicy);
                 }
 
                 let policies = inner
@@ -463,7 +474,7 @@ impl TryFrom<PermissionsPolicyProto> for PermissionsPolicies {
 
                 Ok(PermissionsPolicies::any(policies))
             }
-            None => Err(PolicyError::InvalidPolicy),
+            None => Err(PolicyError::InvalidPermissionsPolicy),
         }
     }
 }
@@ -563,8 +574,28 @@ pub enum PolicyError {
     Serialization(#[from] prost::EncodeError),
     #[error("deserialization {0}")]
     Deserialization(#[from] prost::DecodeError),
+    #[error("Missing metadata policy field: {name}")]
+    MissingMetadataPolicyField { name: String },
     #[error("invalid policy")]
     InvalidPolicy,
+    #[error("unexpected preset policy")]
+    InvalidPresetPolicy,
+    #[error("invalid metadata policy")]
+    InvalidMetadataPolicy,
+    #[error("invalid membership policy")]
+    InvalidMembershipPolicy,
+    #[error("invalid permissions policy")]
+    InvalidPermissionsPolicy,
+    #[error("from proto add member invalid policy")]
+    FromProtoAddMemberInvalidPolicy,
+    #[error("from proto remove member invalid policy")]
+    FromProtoRemoveMemberInvalidPolicy,
+    #[error("from proto add admin invalid policy")]
+    FromProtoAddAdminInvalidPolicy,
+    #[error("from proto remove admin invalid policy")]
+    FromProtoRemoveAdminInvalidPolicy,
+    #[error("from proto update permissions invalid policy")]
+    FromProtoUpdatePermissionsInvalidPolicy,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -658,11 +689,11 @@ impl TryFrom<MembershipPolicyProto> for MembershipPolicies {
                 2 => Ok(MembershipPolicies::deny()),
                 3 => Ok(MembershipPolicies::allow_if_actor_admin()),
                 4 => Ok(MembershipPolicies::allow_if_actor_super_admin()),
-                _ => Err(PolicyError::InvalidPolicy),
+                _ => Err(PolicyError::InvalidMembershipPolicy),
             },
             Some(PolicyKindProto::AndCondition(inner)) => {
                 if inner.policies.is_empty() {
-                    return Err(PolicyError::InvalidPolicy);
+                    return Err(PolicyError::InvalidMembershipPolicy);
                 }
                 let policies = inner
                     .policies
@@ -674,7 +705,7 @@ impl TryFrom<MembershipPolicyProto> for MembershipPolicies {
             }
             Some(PolicyKindProto::AnyCondition(inner)) => {
                 if inner.policies.is_empty() {
-                    return Err(PolicyError::InvalidPolicy);
+                    return Err(PolicyError::InvalidMembershipPolicy);
                 }
 
                 let policies = inner
@@ -685,7 +716,7 @@ impl TryFrom<MembershipPolicyProto> for MembershipPolicies {
 
                 Ok(MembershipPolicies::any(policies))
             }
-            None => Err(PolicyError::InvalidPolicy),
+            None => Err(PolicyError::InvalidMembershipPolicy),
         }
     }
 }
@@ -846,8 +877,8 @@ impl PolicySet {
         let super_admin_remove_valid = commit.metadata_changes.super_admins_removed.is_empty()
             || (commit.actor.is_super_admin && commit.metadata_changes.num_super_admins > 0);
 
-        // TODO Validate permissions updates are valid
-        // once we add the user actions for updating permissions
+        // Permissions can only be changed by the super admin
+        let permissions_changes_valid = !commit.permissions_changed || commit.actor.is_super_admin;
 
         added_inboxes_valid
             && removed_inboxes_valid
@@ -856,6 +887,7 @@ impl PolicySet {
             && removed_admins_valid
             && super_admin_add_valid
             && super_admin_remove_valid
+            && permissions_changes_valid
     }
 
     fn evaluate_policy<'a, I, P>(
@@ -871,7 +903,7 @@ impl PolicySet {
         changes.all(|change| {
             let is_ok = policy.evaluate(actor, change);
             if !is_ok {
-                log::info!(
+                tracing::info!(
                     "Policy {:?} failed for actor {:?} and change {:?}",
                     policy,
                     actor,
@@ -893,9 +925,8 @@ impl PolicySet {
     {
         changes.all(|change| {
             if let Some(policy) = policies.get(&change.field_name) {
-                let is_ok = policy.evaluate(actor, change);
-                if !is_ok {
-                    log::info!(
+                if !policy.evaluate(actor, change) {
+                    tracing::info!(
                         "Policy for field {} failed for actor {:?} and change {:?}",
                         change.field_name,
                         actor,
@@ -903,13 +934,25 @@ impl PolicySet {
                     );
                     return false;
                 }
-                return is_ok;
+                return true;
             }
-            log::info!(
-                "Missing policy for changed metadata field: {}",
-                change.field_name
-            );
-            false
+            // Policy is not found for metadata change, let's check if the new field contains the super_admin prefix
+            // and evaluate accordingly
+            let policy_for_unrecognized_field =
+                if change.field_name.starts_with(SUPER_ADMIN_METADATA_PREFIX) {
+                    MetadataPolicies::allow_if_actor_super_admin()
+                } else {
+                    // Otherwise we default to admin only for fields with missing policies
+                    MetadataPolicies::allow_if_actor_admin()
+                };
+            if !policy_for_unrecognized_field.evaluate(actor, change) {
+                tracing::info!(
+                    "Metadata field update with unknown policy was denied: {}",
+                    change.field_name
+                );
+                return false;
+            }
+            true
         })
     }
 
@@ -937,25 +980,29 @@ impl PolicySet {
 
     pub(crate) fn from_proto(proto: PolicySetProto) -> Result<Self, PolicyError> {
         let add_member_policy = MembershipPolicies::try_from(
-            proto.add_member_policy.ok_or(PolicyError::InvalidPolicy)?,
+            proto
+                .add_member_policy
+                .ok_or(PolicyError::FromProtoAddMemberInvalidPolicy)?,
         )?;
         let remove_member_policy = MembershipPolicies::try_from(
             proto
                 .remove_member_policy
-                .ok_or(PolicyError::InvalidPolicy)?,
+                .ok_or(PolicyError::FromProtoRemoveMemberInvalidPolicy)?,
         )?;
         let add_admin_policy = PermissionsPolicies::try_from(
-            proto.add_admin_policy.ok_or(PolicyError::InvalidPolicy)?,
+            proto
+                .add_admin_policy
+                .ok_or(PolicyError::FromProtoAddAdminInvalidPolicy)?,
         )?;
         let remove_admin_policy = PermissionsPolicies::try_from(
             proto
                 .remove_admin_policy
-                .ok_or(PolicyError::InvalidPolicy)?,
+                .ok_or(PolicyError::FromProtoRemoveAdminInvalidPolicy)?,
         )?;
         let update_permissions_policy = PermissionsPolicies::try_from(
             proto
                 .update_permissions_policy
-                .ok_or(PolicyError::InvalidPolicy)?,
+                .ok_or(PolicyError::FromProtoUpdatePermissionsInvalidPolicy)?,
         )?;
 
         let mut update_metadata_policy = HashMap::new();
@@ -986,6 +1033,52 @@ impl PolicySet {
     }
 }
 
+// Depending on if the client is on a newer or older version of libxmtp
+// since the group was created, the number of metadata policies might not match
+// the default All Members Policy Set. As long as all metadata policies are allow, we will
+// match against All Members Preconfigured Policy
+pub fn is_policy_all_members(policy: &PolicySet) -> Result<bool, PolicyError> {
+    let mut metadata_policies_equal = true;
+    for field_name in policy.update_metadata_policy.keys() {
+        let metadata_policy = policy.update_metadata_policy.get(field_name).ok_or(
+            PolicyError::MissingMetadataPolicyField {
+                name: field_name.to_string(),
+            },
+        )?;
+        metadata_policies_equal =
+            metadata_policies_equal && metadata_policy.eq(&MetadataPolicies::allow());
+    }
+    Ok(metadata_policies_equal
+        && policy.add_member_policy == MembershipPolicies::allow()
+        && policy.remove_member_policy == MembershipPolicies::allow_if_actor_admin()
+        && policy.add_admin_policy == PermissionsPolicies::allow_if_actor_super_admin()
+        && policy.remove_admin_policy == PermissionsPolicies::allow_if_actor_super_admin()
+        && policy.update_permissions_policy == PermissionsPolicies::allow_if_actor_super_admin())
+}
+
+// Depending on if the client is on a newer or older version of libxmtp
+// since the group was created, the number of metadata policies might not match
+// the default Admin Only Policy Set. As long as all metadata policies are admin only, we will
+// match against Admin Only Preconfigured Policy
+pub fn is_policy_admin_only(policy: &PolicySet) -> Result<bool, PolicyError> {
+    let mut metadata_policies_equal = true;
+    for field_name in policy.update_metadata_policy.keys() {
+        let metadata_policy = policy.update_metadata_policy.get(field_name).ok_or(
+            PolicyError::MissingMetadataPolicyField {
+                name: field_name.to_string(),
+            },
+        )?;
+        metadata_policies_equal = metadata_policies_equal
+            && metadata_policy.eq(&MetadataPolicies::allow_if_actor_admin());
+    }
+    Ok(metadata_policies_equal
+        && policy.add_member_policy == MembershipPolicies::allow_if_actor_admin()
+        && policy.remove_member_policy == MembershipPolicies::allow_if_actor_admin()
+        && policy.add_admin_policy == PermissionsPolicies::allow_if_actor_super_admin()
+        && policy.remove_admin_policy == PermissionsPolicies::allow_if_actor_super_admin()
+        && policy.update_permissions_policy == PermissionsPolicies::allow_if_actor_super_admin())
+}
+
 /// A policy where any member can add or remove any other member
 pub(crate) fn policy_all_members() -> PolicySet {
     let mut metadata_policies_map: HashMap<String, MetadataPolicies> = HashMap::new();
@@ -994,7 +1087,7 @@ pub(crate) fn policy_all_members() -> PolicySet {
     }
     PolicySet::new(
         MembershipPolicies::allow(),
-        MembershipPolicies::allow(),
+        MembershipPolicies::allow_if_actor_admin(),
         metadata_policies_map,
         PermissionsPolicies::allow_if_actor_super_admin(),
         PermissionsPolicies::allow_if_actor_super_admin(),
@@ -1017,6 +1110,11 @@ pub(crate) fn policy_admin_only() -> PolicySet {
         PermissionsPolicies::allow_if_actor_super_admin(),
     )
 }
+impl Default for PolicySet {
+    fn default() -> Self {
+        PreconfiguredPolicies::default().to_policy_set()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum PreconfiguredPolicies {
@@ -1034,12 +1132,12 @@ impl PreconfiguredPolicies {
     }
 
     pub fn from_policy_set(policy_set: &PolicySet) -> Result<Self, PolicyError> {
-        if policy_set.eq(&policy_all_members()) {
+        if is_policy_all_members(policy_set)? {
             Ok(PreconfiguredPolicies::AllMembers)
-        } else if policy_set.eq(&policy_admin_only()) {
+        } else if is_policy_admin_only(policy_set)? {
             Ok(PreconfiguredPolicies::AdminsOnly)
         } else {
-            Err(PolicyError::InvalidPolicy)
+            Err(PolicyError::InvalidPresetPolicy)
         }
     }
 }
@@ -1088,14 +1186,16 @@ mod tests {
         member_added: Option<bool>,
         member_removed: Option<bool>,
         metadata_fields_changed: Option<Vec<String>>,
+        permissions_changed: bool,
+        actor_is_admin: bool,
         actor_is_super_admin: bool,
     ) -> ValidatedCommit {
-        let actor = build_actor(None, None, actor_is_super_admin, actor_is_super_admin);
+        let actor = build_actor(None, None, actor_is_admin, actor_is_super_admin);
         let build_membership_change = |same_address_as_actor| {
             if same_address_as_actor {
                 vec![build_change(
                     Some(actor.inbox_id.clone()),
-                    actor_is_super_admin,
+                    actor_is_admin,
                     actor_is_super_admin,
                 )]
             } else {
@@ -1121,6 +1221,7 @@ mod tests {
                 metadata_field_changes: field_changes,
                 ..Default::default()
             },
+            permissions_changed,
         }
     }
 
@@ -1135,7 +1236,7 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let commit = build_validated_commit(Some(true), Some(true), None, false);
+        let commit = build_validated_commit(Some(true), Some(true), None, false, false, false);
         assert!(permissions.evaluate_commit(&commit));
     }
 
@@ -1150,10 +1251,12 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let member_added_commit = build_validated_commit(Some(false), None, None, false);
+        let member_added_commit =
+            build_validated_commit(Some(false), None, None, false, false, false);
         assert!(!permissions.evaluate_commit(&member_added_commit));
 
-        let member_removed_commit = build_validated_commit(None, Some(false), None, false);
+        let member_removed_commit =
+            build_validated_commit(None, Some(false), None, false, false, false);
         assert!(!permissions.evaluate_commit(&member_removed_commit));
     }
 
@@ -1169,13 +1272,16 @@ mod tests {
         );
 
         // Can not remove the creator if they are the only super admin
-        let commit_with_creator = build_validated_commit(Some(true), Some(true), None, true);
+        let commit_with_creator =
+            build_validated_commit(Some(true), Some(true), None, false, false, true);
         assert!(!permissions.evaluate_commit(&commit_with_creator));
 
-        let commit_with_creator = build_validated_commit(Some(true), Some(false), None, true);
+        let commit_with_creator =
+            build_validated_commit(Some(true), Some(false), None, false, false, true);
         assert!(permissions.evaluate_commit(&commit_with_creator));
 
-        let commit_without_creator = build_validated_commit(Some(true), Some(true), None, false);
+        let commit_without_creator =
+            build_validated_commit(Some(true), Some(true), None, false, false, false);
         assert!(!permissions.evaluate_commit(&commit_without_creator));
     }
 
@@ -1190,10 +1296,12 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let commit_with_same_member = build_validated_commit(Some(true), None, None, false);
+        let commit_with_same_member =
+            build_validated_commit(Some(true), None, None, false, false, false);
         assert!(permissions.evaluate_commit(&commit_with_same_member));
 
-        let commit_with_different_member = build_validated_commit(Some(false), None, None, false);
+        let commit_with_different_member =
+            build_validated_commit(Some(false), None, None, false, false, false);
         assert!(!permissions.evaluate_commit(&commit_with_different_member));
     }
 
@@ -1211,7 +1319,8 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let member_added_commit = build_validated_commit(Some(true), None, None, false);
+        let member_added_commit =
+            build_validated_commit(Some(true), None, None, false, false, false);
         assert!(!permissions.evaluate_commit(&member_added_commit));
     }
 
@@ -1229,7 +1338,8 @@ mod tests {
             PermissionsPolicies::allow_if_actor_super_admin(),
         );
 
-        let member_added_commit = build_validated_commit(Some(true), None, None, false);
+        let member_added_commit =
+            build_validated_commit(Some(true), None, None, false, false, false);
         assert!(permissions.evaluate_commit(&member_added_commit));
     }
 
@@ -1275,6 +1385,8 @@ mod tests {
             Some(true),
             None,
             Some(vec![MetadataField::GroupName.to_string()]),
+            false,
+            false,
             false,
         );
 
@@ -1325,5 +1437,130 @@ mod tests {
                 .unwrap(),
             PreconfiguredPolicies::AdminsOnly
         );
+    }
+
+    #[test]
+    fn test_preconfigured_policy_equality_new_metadata() {
+        let mut metadata_policies_map = MetadataPolicies::default_map(MetadataPolicies::allow());
+        metadata_policies_map.insert("new_metadata_field".to_string(), MetadataPolicies::allow());
+        let policy_set_new_metadata_permission = PolicySet {
+            add_member_policy: MembershipPolicies::allow(),
+            remove_member_policy: MembershipPolicies::allow_if_actor_admin(),
+            update_metadata_policy: metadata_policies_map,
+            add_admin_policy: PermissionsPolicies::allow_if_actor_super_admin(),
+            remove_admin_policy: PermissionsPolicies::allow_if_actor_super_admin(),
+            update_permissions_policy: PermissionsPolicies::allow_if_actor_super_admin(),
+        };
+
+        assert!(is_policy_all_members(&policy_set_new_metadata_permission).unwrap());
+
+        let mut metadata_policies_map =
+            MetadataPolicies::default_map(MetadataPolicies::allow_if_actor_admin());
+        metadata_policies_map.insert(
+            "new_metadata_field_2".to_string(),
+            MetadataPolicies::allow_if_actor_admin(),
+        );
+        let policy_set_new_metadata_permission = PolicySet {
+            add_member_policy: MembershipPolicies::allow_if_actor_admin(),
+            remove_member_policy: MembershipPolicies::allow_if_actor_admin(),
+            update_metadata_policy: metadata_policies_map,
+            add_admin_policy: PermissionsPolicies::allow_if_actor_super_admin(),
+            remove_admin_policy: PermissionsPolicies::allow_if_actor_super_admin(),
+            update_permissions_policy: PermissionsPolicies::allow_if_actor_super_admin(),
+        };
+
+        assert!(is_policy_admin_only(&policy_set_new_metadata_permission).unwrap());
+    }
+
+    #[test]
+    fn test_permission_update() {
+        let permissions = PolicySet::new(
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow_if_actor_admin(),
+            MetadataPolicies::default_map(MetadataPolicies::allow()),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+        );
+
+        // Commit should fail because actor is not superadmin
+        let commit = build_validated_commit(None, None, None, true, false, false);
+        assert!(!permissions.evaluate_commit(&commit));
+
+        // Commit should pass because actor is superadmin
+        let commit = build_validated_commit(None, None, None, true, false, true);
+        assert!(permissions.evaluate_commit(&commit));
+    }
+
+    #[test]
+    fn test_evaluate_field_with_unknown_policy() {
+        // Create a group whose default metadata can be updated by any member
+        let permissions = PolicySet::new(
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
+            MetadataPolicies::default_map(MetadataPolicies::allow()),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+            PermissionsPolicies::allow_if_actor_super_admin(),
+        );
+
+        // Non admin, non super admin can update group name
+        let name_updated_commit = build_validated_commit(
+            None,
+            None,
+            Some(vec![MetadataField::GroupName.to_string()]),
+            false,
+            false,
+            false,
+        );
+        assert!(permissions.evaluate_commit(&name_updated_commit));
+
+        // Non admin, non super admin can NOT update non existing field
+        let non_existing_field_updated_commit = build_validated_commit(
+            None,
+            None,
+            Some(vec!["non_existing_field".to_string()]),
+            false,
+            false,
+            false,
+        );
+        assert!(!permissions.evaluate_commit(&non_existing_field_updated_commit));
+
+        // Admin can update non existing field
+        let non_existing_field_updated_commit = build_validated_commit(
+            None,
+            None,
+            Some(vec!["non_existing_field".to_string()]),
+            false,
+            true,
+            false,
+        );
+        assert!(permissions.evaluate_commit(&non_existing_field_updated_commit));
+
+        // Admin can NOT update non existing field that starts with super_admin only prefix
+        let non_existing_field_updated_commit = build_validated_commit(
+            None,
+            None,
+            Some(vec![
+                SUPER_ADMIN_METADATA_PREFIX.to_string() + "non_existing_field",
+            ]),
+            false,
+            true,
+            false,
+        );
+        assert!(!permissions.evaluate_commit(&non_existing_field_updated_commit));
+
+        // Super Admin CAN update non existing field that starts with super_admin only prefix
+        let non_existing_field_updated_commit = build_validated_commit(
+            None,
+            None,
+            Some(vec![
+                SUPER_ADMIN_METADATA_PREFIX.to_string() + "non_existing_field",
+            ]),
+            false,
+            false,
+            true,
+        );
+        assert!(permissions.evaluate_commit(&non_existing_field_updated_commit));
     }
 }

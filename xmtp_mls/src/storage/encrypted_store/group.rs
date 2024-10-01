@@ -158,6 +158,21 @@ impl DbConnection {
         Ok(groups.into_iter().next())
     }
 
+    /// Return a single group that matches the given welcome ID
+    pub fn find_group_by_welcome_id(
+        &self,
+        welcome_id: i64,
+    ) -> Result<Option<StoredGroup>, StorageError> {
+        let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
+        query = query.filter(dsl::welcome_id.eq(welcome_id));
+        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
+        if groups.len() > 1 {
+            tracing::error!("More than one group found for welcome_id {}", welcome_id);
+        }
+        // Manually extract the first element
+        Ok(groups.into_iter().next())
+    }
+
     /// Updates group membership state
     pub fn update_group_membership<GroupId: AsRef<[u8]>>(
         &self,
@@ -228,6 +243,7 @@ impl DbConnection {
     }
 
     pub fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
+        tracing::info!("Trying to insert group");
         let stored_group = self.raw_query(|conn| {
             let maybe_inserted_group: Option<StoredGroup> = diesel::insert_into(dsl::groups)
                 .values(&group)
@@ -236,16 +252,20 @@ impl DbConnection {
                 .optional()?;
 
             if maybe_inserted_group.is_none() {
-                let existing_group: StoredGroup = dsl::groups.find(group.id).first(conn).unwrap();
+                let existing_group: StoredGroup = dsl::groups.find(group.id).first(conn)?;
                 if existing_group.welcome_id == group.welcome_id {
+                    tracing::info!("Group welcome id already exists");
                     // Error so OpenMLS db transaction are rolled back on duplicate welcomes
                     return Err(diesel::result::Error::DatabaseError(
                         diesel::result::DatabaseErrorKind::UniqueViolation,
                         Box::new("welcome id already exists".to_string()),
                     ));
                 } else {
+                    tracing::info!("Group already exists");
                     return Ok(existing_group);
                 }
+            } else {
+                tracing::info!("Group is inserted");
             }
 
             match maybe_inserted_group {

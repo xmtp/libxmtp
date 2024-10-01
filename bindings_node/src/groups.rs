@@ -8,9 +8,8 @@ use napi::{
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_mls::groups::{
   group_metadata::{ConversationType, GroupMetadata},
-  group_permissions::GroupMutablePermissions,
   members::PermissionLevel,
-  MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
+  MlsGroup, UpdateAdminListType,
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
@@ -18,36 +17,14 @@ use crate::{
   encoded_content::NapiEncodedContent,
   messages::{NapiListMessagesOptions, NapiMessage},
   mls_client::RustXmtpClient,
+  permissions::NapiGroupPermissions,
   streams::NapiStreamCloser,
+  ErrorWrapper,
 };
 
 use prost::Message;
 
 use napi_derive::napi;
-
-#[napi]
-pub enum GroupPermissions {
-  EveryoneIsAdmin,
-  GroupCreatorIsAdmin,
-}
-
-impl From<PreconfiguredPolicies> for GroupPermissions {
-  fn from(policy: PreconfiguredPolicies) -> Self {
-    match policy {
-      PreconfiguredPolicies::AllMembers => GroupPermissions::EveryoneIsAdmin,
-      PreconfiguredPolicies::AdminsOnly => GroupPermissions::GroupCreatorIsAdmin,
-    }
-  }
-}
-
-impl From<GroupPermissions> for PreconfiguredPolicies {
-  fn from(permissions: GroupPermissions) -> Self {
-    match permissions {
-      GroupPermissions::EveryoneIsAdmin => PreconfiguredPolicies::AllMembers,
-      GroupPermissions::GroupCreatorIsAdmin => PreconfiguredPolicies::AdminsOnly,
-    }
-  }
-}
 
 #[napi]
 pub struct NapiGroupMetadata {
@@ -84,25 +61,6 @@ pub struct NapiGroupMember {
   pub account_addresses: Vec<String>,
   pub installation_ids: Vec<String>,
   pub permission_level: NapiPermissionLevel,
-}
-
-#[napi]
-pub struct NapiGroupPermissions {
-  inner: GroupMutablePermissions,
-}
-
-#[napi]
-impl NapiGroupPermissions {
-  #[napi]
-  pub fn policy_type(&self) -> Result<GroupPermissions> {
-    Ok(
-      self
-        .inner
-        .preconfigured_policy()
-        .map_err(|e| Error::from_reason(format!("{}", e)))?
-        .into(),
-    )
-  }
 }
 
 #[derive(Debug)]
@@ -143,8 +101,40 @@ impl NapiGroup {
         &self.inner_client,
       )
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
     Ok(hex::encode(message_id.clone()))
+  }
+
+  /// send a message without immediately publishing to the delivery service.
+  #[napi]
+  pub fn send_optimistic(&self, encoded_content: NapiEncodedContent) -> Result<Vec<u8>> {
+    let encoded_content: EncodedContent = encoded_content.into();
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    let id = group
+      .send_message_optimistic(encoded_content.encode_to_vec().as_slice())
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(id)
+  }
+
+  /// Publish all unpublished messages
+  #[napi]
+  pub async fn publish_messages(&self) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+    group
+      .publish_messages(&self.inner_client)
+      .await
+      .map_err(ErrorWrapper::from)?;
+    Ok(())
   }
 
   #[napi]
@@ -158,7 +148,7 @@ impl NapiGroup {
     group
       .sync(&self.inner_client)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(())
   }
@@ -191,7 +181,7 @@ impl NapiGroup {
         delivery_status,
         opts.limit,
       )
-      .map_err(|e| Error::from_reason(format!("{}", e)))?
+      .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|msg| msg.into())
       .collect();
@@ -211,15 +201,15 @@ impl NapiGroup {
     );
     let envelope_bytes: Vec<u8> = envelope_bytes.deref().to_vec();
     let message = group
-      .process_streamed_group_message(envelope_bytes, self.inner_client.clone())
+      .process_streamed_group_message(envelope_bytes, &self.inner_client)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(message.into())
   }
 
   #[napi]
-  pub fn list_members(&self) -> Result<Vec<NapiGroupMember>> {
+  pub async fn list_members(&self) -> Result<Vec<NapiGroupMember>> {
     let group = MlsGroup::new(
       self.inner_client.context().clone(),
       self.group_id.clone(),
@@ -227,8 +217,9 @@ impl NapiGroup {
     );
 
     let members: Vec<NapiGroupMember> = group
-      .members()
-      .map_err(|e| Error::from_reason(format!("{}", e)))?
+      .members(&self.inner_client)
+      .await
+      .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|member| NapiGroupMember {
         inbox_id: member.inbox_id,
@@ -258,8 +249,8 @@ impl NapiGroup {
     );
 
     let admin_list = group
-      .admin_list()
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .admin_list(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .map_err(ErrorWrapper::from)?;
 
     Ok(admin_list)
   }
@@ -273,25 +264,21 @@ impl NapiGroup {
     );
 
     let super_admin_list = group
-      .super_admin_list()
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .super_admin_list(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .map_err(ErrorWrapper::from)?;
 
     Ok(super_admin_list)
   }
 
   #[napi]
   pub fn is_admin(&self, inbox_id: String) -> Result<bool> {
-    let admin_list = self
-      .admin_list()
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    let admin_list = self.admin_list().map_err(ErrorWrapper::from)?;
     Ok(admin_list.contains(&inbox_id))
   }
 
   #[napi]
   pub fn is_super_admin(&self, inbox_id: String) -> Result<bool> {
-    let super_admin_list = self
-      .super_admin_list()
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    let super_admin_list = self.super_admin_list().map_err(ErrorWrapper::from)?;
     Ok(super_admin_list.contains(&inbox_id))
   }
 
@@ -306,7 +293,7 @@ impl NapiGroup {
     group
       .add_members(&self.inner_client, account_addresses)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(())
   }
@@ -321,7 +308,7 @@ impl NapiGroup {
     group
       .update_admin_list(&self.inner_client, UpdateAdminListType::Add, inbox_id)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(())
   }
@@ -336,7 +323,7 @@ impl NapiGroup {
     group
       .update_admin_list(&self.inner_client, UpdateAdminListType::Remove, inbox_id)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(())
   }
@@ -351,7 +338,7 @@ impl NapiGroup {
     group
       .update_admin_list(&self.inner_client, UpdateAdminListType::AddSuper, inbox_id)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(())
   }
@@ -370,7 +357,7 @@ impl NapiGroup {
         inbox_id,
       )
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(())
   }
@@ -383,11 +370,9 @@ impl NapiGroup {
       self.created_at_ns,
     );
 
-    let permissions = group
-      .permissions()
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    let permissions = group.permissions().map_err(ErrorWrapper::from)?;
 
-    Ok(NapiGroupPermissions { inner: permissions })
+    Ok(NapiGroupPermissions::new(permissions))
   }
 
   #[napi]
@@ -401,7 +386,7 @@ impl NapiGroup {
     group
       .add_members_by_inbox_id(&self.inner_client, inbox_ids)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(())
   }
@@ -417,7 +402,7 @@ impl NapiGroup {
     group
       .remove_members(&self.inner_client, account_addresses)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(())
   }
@@ -433,7 +418,7 @@ impl NapiGroup {
     group
       .remove_members_by_inbox_id(&self.inner_client, inbox_ids)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(())
   }
@@ -449,7 +434,7 @@ impl NapiGroup {
     group
       .update_group_name(&self.inner_client, group_name)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(())
   }
@@ -463,8 +448,8 @@ impl NapiGroup {
     );
 
     let group_name = group
-      .group_name()
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .group_name(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .map_err(ErrorWrapper::from)?;
 
     Ok(group_name)
   }
@@ -480,7 +465,7 @@ impl NapiGroup {
     group
       .update_group_image_url_square(&self.inner_client, group_image_url_square)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(())
   }
@@ -494,10 +479,72 @@ impl NapiGroup {
     );
 
     let group_image_url_square = group
-      .group_image_url_square()
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .group_image_url_square(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .map_err(ErrorWrapper::from)?;
 
     Ok(group_image_url_square)
+  }
+
+  #[napi]
+  pub async fn update_group_description(&self, group_description: String) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    group
+      .update_group_description(&self.inner_client, group_description)
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub fn group_description(&self) -> Result<String> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    let group_description = group
+      .group_description(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(group_description)
+  }
+
+  #[napi]
+  pub async fn update_group_pinned_frame_url(&self, pinned_frame_url: String) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    group
+      .update_group_pinned_frame_url(&self.inner_client, pinned_frame_url)
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub fn group_pinned_frame_url(&self) -> Result<String> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    let group_pinned_frame_url = group
+      .group_pinned_frame_url(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+
+    Ok(group_pinned_frame_url)
   }
 
   #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage) => void")]
@@ -511,13 +558,9 @@ impl NapiGroup {
       move |message| {
         tsfn.call(Ok(message.into()), ThreadsafeFunctionCallMode::Blocking);
       },
-    )
-    .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    );
 
-    Ok(NapiStreamCloser::new(
-      stream_closer.close_fn,
-      stream_closer.is_closed_atomic,
-    ))
+    Ok(stream_closer.into())
   }
 
   #[napi]
@@ -533,9 +576,11 @@ impl NapiGroup {
       self.created_at_ns,
     );
 
-    group
-      .is_active()
-      .map_err(|e| Error::from_reason(format!("{}", e)))
+    Ok(
+      group
+        .is_active(group.mls_provider().map_err(ErrorWrapper::from)?)
+        .map_err(ErrorWrapper::from)?,
+    )
   }
 
   #[napi]
@@ -546,9 +591,7 @@ impl NapiGroup {
       self.created_at_ns,
     );
 
-    group
-      .added_by_inbox_id()
-      .map_err(|e| Error::from_reason(format!("{}", e)))
+    Ok(group.added_by_inbox_id().map_err(ErrorWrapper::from)?)
   }
 
   #[napi]
@@ -560,8 +603,9 @@ impl NapiGroup {
     );
 
     let metadata = group
-      .metadata()
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .metadata(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .map_err(ErrorWrapper::from)?;
+
     Ok(NapiGroupMetadata { inner: metadata })
   }
 }

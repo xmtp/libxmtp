@@ -18,26 +18,33 @@
 
 use std::time::Duration;
 
-use smart_default::SmartDefault;
+use rand::Rng;
 
 /// Specifies which errors are retryable.
 /// All Errors are not retryable by-default.
 pub trait RetryableError: std::error::Error {
-    fn is_retryable(&self) -> bool {
-        false
-    }
+    fn is_retryable(&self) -> bool;
 }
 
-// we use &T and make use of autoref specialization
-impl<T> RetryableError for &T where T: std::error::Error {}
-
 /// Options to specify how to retry a function
-#[derive(SmartDefault, Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct Retry {
-    #[default = 3]
     retries: usize,
-    #[default(_code = "std::time::Duration::from_millis(100)")]
     duration: std::time::Duration,
+    // The amount to multiply the duration on each subsequent attempt
+    multiplier: u32,
+    max_jitter_ms: usize,
+}
+
+impl Default for Retry {
+    fn default() -> Self {
+        Self {
+            retries: 5,
+            duration: std::time::Duration::from_millis(50),
+            multiplier: 3,
+            max_jitter_ms: 25,
+        }
+    }
 }
 
 impl Retry {
@@ -47,8 +54,16 @@ impl Retry {
     }
 
     /// Get the duration to wait between retries.
-    pub fn duration(&self) -> Duration {
-        self.duration
+    /// Multiples the duration by the multiplier for each subsequent attempt
+    /// and adds a random jitter to avoid repeated collisions
+    pub fn duration(&self, attempts: usize) -> Duration {
+        let mut duration = self.duration;
+        for _ in 0..attempts - 1 {
+            duration *= self.multiplier;
+        }
+
+        let jitter = rand::thread_rng().gen_range(0..=self.max_jitter_ms);
+        duration + Duration::from_millis(jitter as u64)
     }
 }
 
@@ -106,80 +121,11 @@ impl Retry {
     }
 }
 
-/// Retry a function, specifying the strategy with $retry.
-///
-/// # Example
-///  ```
-///  use thiserror::Error;
-///  use xmtp_mls::{retry_sync, retry::{RetryableError, Retry}};
-///
-/// #[derive(Debug, Error)]
-/// enum MyError {
-///     #[error("A retryable error")]
-///     Retryable,
-///     #[error("An error we don't want to retry")]
-///     NotRetryable
-/// }
-///
-/// impl RetryableError for MyError {
-///     fn is_retryable(&self) -> bool {
-///         match self {
-///             Self::Retryable => true,
-///             _=> false,
-///         }
-///     }
-/// }
-///
-/// fn fallable_fn(i: usize) -> Result<(), MyError> {
-///     if i == 2 {
-///         return Ok(());
-///     }
-///
-///     Err(MyError::Retryable)
-/// }
-///
-/// fn main() {
-///      let mut i = 0;
-///      retry_sync!(Retry::default(), (|| -> Result<(), MyError> {
-///         let res = fallable_fn(i);
-///         i += 1;
-///         res
-///      })).unwrap();
-///
-///  }
-/// ```
-#[macro_export]
-macro_rules! retry_sync {
-    ($retry: expr, $code: tt) => {{
-        #[allow(unused)]
-        use $crate::retry::RetryableError;
-        let mut attempts = 0;
-        tracing::trace_span!("retry").in_scope(|| loop {
-            #[allow(clippy::redundant_closure_call)]
-            match $code() {
-                Ok(v) => break Ok(v),
-                Err(e) => {
-                    if (&e).is_retryable() && attempts < $retry.retries() {
-                        log::debug!(
-                            "retrying function that failed with error=`{}`",
-                            e.to_string()
-                        );
-                        attempts += 1;
-                        std::thread::sleep($retry.duration());
-                    } else {
-                        break Err(e);
-                    }
-                }
-            }
-        })
-    }};
-}
-
 /// Retry but for an async context
 /// ```
 /// use xmtp_mls::{retry_async, retry::{RetryableError, Retry}};
 /// use thiserror::Error;
-/// use flume::bounded;
+/// use tokio::sync::mpsc;
 ///
 /// #[derive(Debug, Error)]
 /// enum MyError {
@@ -198,8 +144,8 @@ macro_rules! retry_sync {
 ///     }
 /// }
 ///
-/// async fn fallable_fn(rx: &flume::Receiver<usize>) -> Result<(), MyError> {
-///     if rx.recv_async().await.unwrap() == 2 {
+/// async fn fallable_fn(rx: &mut mpsc::Receiver<usize>) -> Result<(), MyError> {
+///     if rx.recv().await.unwrap() == 2 {
 ///         return Ok(());
 ///     }
 ///     Err(MyError::Retryable)
@@ -207,14 +153,14 @@ macro_rules! retry_sync {
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), MyError> {
-///     
-///     let (tx, rx) = flume::bounded(3);
+///
+///     let (tx, mut rx) = mpsc::channel(3);
 ///
 ///     for i in 0..3 {
-///         tx.send(i).unwrap();
+///         tx.send(i).await.unwrap();
 ///     }
 ///     retry_async!(Retry::default(), (async {
-///         fallable_fn(&rx.clone()).await
+///         fallable_fn(&mut rx).await
 ///     }))
 /// }
 /// ```
@@ -229,14 +175,19 @@ macro_rules! retry_async {
         loop {
             let span = span.clone();
             #[allow(clippy::redundant_closure_call)]
-            match $code.instrument(span).await {
+            let res = $code.instrument(span).await;
+            match res {
                 Ok(v) => break Ok(v),
                 Err(e) => {
                     if (&e).is_retryable() && attempts < $retry.retries() {
-                        log::debug!("retrying function that failed with error={}", e.to_string());
+                        tracing::warn!(
+                            "retrying function that failed with error={}",
+                            e.to_string()
+                        );
                         attempts += 1;
-                        tokio::time::sleep($retry.duration()).await;
+                        tokio::time::sleep($retry.duration(attempts)).await;
                     } else {
+                        tracing::info!("error is not retryable. {:?}", e);
                         break Err(e);
                     }
                 }
@@ -250,11 +201,11 @@ macro_rules! retryable {
     ($error: ident) => {{
         #[allow(unused)]
         use $crate::retry::RetryableError;
-        (&$error).is_retryable()
+        $error.is_retryable()
     }};
     ($error: expr) => {{
         use $crate::retry::RetryableError;
-        (&$error).is_retryable()
+        $error.is_retryable()
     }};
 }
 
@@ -269,6 +220,7 @@ impl RetryableError for xmtp_proto::api_client::Error {
 mod tests {
     use super::*;
     use thiserror::Error;
+    use tokio::sync::mpsc;
 
     #[derive(Debug, Error)]
     enum SomeError {
@@ -293,8 +245,8 @@ mod tests {
         Err(SomeError::ARetryableError)
     }
 
-    #[test]
-    fn it_retries_twice_and_succeeds() {
+    #[tokio::test]
+    async fn it_retries_twice_and_succeeds() {
         let mut i = 0;
         let mut test_fn = || -> Result<(), SomeError> {
             if i == 2 {
@@ -305,11 +257,11 @@ mod tests {
             Ok(())
         };
 
-        retry_sync!(Retry::default(), test_fn).unwrap();
+        retry_async!(Retry::default(), (async { test_fn() })).unwrap();
     }
 
-    #[test]
-    fn it_works_with_random_args() {
+    #[tokio::test]
+    async fn it_works_with_random_args() {
         let mut i = 0;
         let list = vec!["String".into(), "Foo".into()];
         let mut test_fn = || -> Result<(), SomeError> {
@@ -320,37 +272,37 @@ mod tests {
             retryable_with_args(i, "Hello".to_string(), &list)
         };
 
-        retry_sync!(Retry::default(), test_fn).unwrap();
+        retry_async!(Retry::default(), (async { test_fn() })).unwrap();
     }
 
-    #[test]
-    fn it_fails_on_three_retries() {
+    #[tokio::test]
+    async fn it_fails_on_three_retries() {
         let closure = || -> Result<(), SomeError> {
             retry_error_fn()?;
             Ok(())
         };
-        let result: Result<(), SomeError> = retry_sync!(Retry::default(), (closure));
+        let result: Result<(), SomeError> = retry_async!(Retry::default(), (async { closure() }));
 
         assert!(result.is_err())
     }
 
-    #[test]
-    fn it_only_runs_non_retryable_once() {
+    #[tokio::test]
+    async fn it_only_runs_non_retryable_once() {
         let mut attempts = 0;
         let mut test_fn = || -> Result<(), SomeError> {
             attempts += 1;
             Err(SomeError::DontRetryThis)
         };
 
-        let _r = retry_sync!(Retry::default(), test_fn);
+        let _r = retry_async!(Retry::default(), (async { test_fn() }));
 
         assert_eq!(attempts, 1);
     }
 
     #[tokio::test]
     async fn it_works_async() {
-        async fn retryable_async_fn(rx: &flume::Receiver<usize>) -> Result<(), SomeError> {
-            let val = rx.recv_async().await.unwrap();
+        async fn retryable_async_fn(rx: &mut mpsc::Receiver<usize>) -> Result<(), SomeError> {
+            let val = rx.recv().await.unwrap();
             if val == 2 {
                 return Ok(());
             }
@@ -359,14 +311,14 @@ mod tests {
             Err(SomeError::ARetryableError)
         }
 
-        let (tx, rx) = flume::bounded(3);
+        let (tx, mut rx) = mpsc::channel(3);
 
         for i in 0..3 {
-            tx.send(i).unwrap();
+            tx.send(i).await.unwrap();
         }
         retry_async!(
             Retry::default(),
-            (async { retryable_async_fn(&rx.clone()).await })
+            (async { retryable_async_fn(&mut rx).await })
         )
         .unwrap();
         assert!(rx.is_empty());
@@ -390,5 +342,14 @@ mod tests {
             (async { retryable_async_fn(&mut data).await })
         )
         .unwrap();
+    }
+
+    #[test]
+    fn backoff_retry() {
+        let backoff_retry = Retry::default();
+
+        assert!(backoff_retry.duration(1).as_millis() - 50 <= 25);
+        assert!(backoff_retry.duration(2).as_millis() - 150 <= 25);
+        assert!(backoff_retry.duration(3).as_millis() - 450 <= 25);
     }
 }

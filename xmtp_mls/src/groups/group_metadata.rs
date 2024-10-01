@@ -46,6 +46,7 @@ impl GroupMetadata {
             conversation_type: conversation_type as i32,
             creator_inbox_id: self.creator_inbox_id.clone(),
             creator_account_address: "".to_string(), // TODO: remove from proto
+            dm_members: None,
         })
     }
 }

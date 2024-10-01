@@ -1,14 +1,15 @@
 use std::collections::HashMap;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::Stream;
 
 use super::{extract_message_v1, GroupError, MlsGroup};
 use crate::storage::group_message::StoredGroupMessage;
-use crate::subscriptions::{MessagesStreamInfo, StreamCloser};
-use crate::Client;
+use crate::storage::refresh_state::EntityKind;
+use crate::storage::StorageError;
+use crate::subscriptions::{MessagesStreamInfo, StreamHandle};
 use crate::XmtpApi;
+use crate::{retry::Retry, retry_async, Client};
 use prost::Message;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
@@ -16,49 +17,68 @@ impl MlsGroup {
     pub(crate) async fn process_stream_entry<ApiClient>(
         &self,
         envelope: GroupMessage,
-        client: Arc<Client<ApiClient>>,
+        client: &Client<ApiClient>,
     ) -> Result<Option<StoredGroupMessage>, GroupError>
     where
         ApiClient: XmtpApi,
     {
         let msgv1 = extract_message_v1(envelope)?;
         let msg_id = msgv1.id;
-        let client_id = client.inbox_id().clone();
-        log::info!(
+        let client_id = client.inbox_id();
+        tracing::info!(
             "client [{}]  is about to process streamed envelope: [{}]",
             &client_id.clone(),
             &msg_id
         );
         let created_ns = msgv1.created_ns;
 
-        let client_pointer = client.clone();
-        let process_result = self
-            .context
-            .store
-            .transaction_async(|provider| async move {
-                let mut openmls_group = self.load_mls_group(&provider)?;
+        if !self.has_already_synced(msg_id).await? {
+            let process_result = retry_async!(
+                Retry::default(),
+                (async {
+                    let client_id = client_id.clone();
+                    let msgv1 = msgv1.clone();
+                    self.context
+                        .store
+                        .transaction_async(|provider| async move {
+                            let mut openmls_group = self.load_mls_group(&provider)?;
 
-                // Attempt processing immediately, but fail if the message is not an Application Message
-                // Returning an error should roll back the DB tx
-                log::info!(
-                    "current epoch for [{}] in process_stream_entry() is Epoch: [{}]",
-                    &client_id.clone(),
-                    self.load_mls_group(&provider).unwrap().epoch()
-                );
-                self.process_message(
-                    client_pointer.as_ref(),
-                    &mut openmls_group,
-                    &provider,
-                    &msgv1,
-                    false,
-                )
-                .await
-                .map_err(GroupError::ReceiveError)
-            })
-            .await;
+                            // Attempt processing immediately, but fail if the message is not an Application Message
+                            // Returning an error should roll back the DB tx
+                            tracing::info!(
+                                "current epoch for [{}] in process_stream_entry() is Epoch: [{}]",
+                                client_id,
+                                openmls_group.epoch()
+                            );
 
-        if let Some(GroupError::ReceiveError(_)) = process_result.err() {
-            self.sync(&client).await?;
+                            self.process_message(
+                                client,
+                                &mut openmls_group,
+                                &provider,
+                                &msgv1,
+                                false,
+                            )
+                            .await
+                            .map_err(GroupError::ReceiveError)
+                        })
+                        .await
+                })
+            );
+
+            if let Some(GroupError::ReceiveError(_)) = process_result.as_ref().err() {
+                // Swallow errors here, since another process may have successfully saved the message
+                // to the DB
+                match self.sync_with_conn(&client.mls_provider()?, client).await {
+                    Ok(_) => {
+                        tracing::debug!("Sync triggered by streamed message successful")
+                    }
+                    Err(err) => {
+                        tracing::warn!("Sync triggered by streamed message failed: {}", err);
+                    }
+                };
+            } else if process_result.is_err() {
+                tracing::error!("Process stream entry {:?}", process_result.err());
+            }
         }
 
         // Load the message from the DB to handle cases where it may have been already processed in
@@ -72,10 +92,21 @@ impl MlsGroup {
         Ok(new_message)
     }
 
+    // Checks if a message has already been processed through a sync
+    async fn has_already_synced(&self, id: u64) -> Result<bool, GroupError> {
+        let check_for_last_cursor = || -> Result<i64, StorageError> {
+            let conn = self.context.store.conn()?;
+            conn.get_last_cursor_for_id(&self.group_id, EntityKind::Group)
+        };
+
+        let last_id = retry_async!(Retry::default(), (async { check_for_last_cursor() }))?;
+        Ok(last_id >= id as i64)
+    }
+
     pub async fn process_streamed_group_message<ApiClient>(
         &self,
         envelope_bytes: Vec<u8>,
-        client: Arc<Client<ApiClient>>,
+        client: &Client<ApiClient>,
     ) -> Result<StoredGroupMessage, GroupError>
     where
         ApiClient: XmtpApi,
@@ -84,24 +115,24 @@ impl MlsGroup {
             .map_err(|e| GroupError::Generic(e.to_string()))?;
 
         let message = self.process_stream_entry(envelope, client).await?;
-        Ok(message.unwrap())
+        message.ok_or(GroupError::MissingMessage)
     }
 
-    pub async fn stream<ApiClient>(
-        &self,
-        client: Arc<Client<ApiClient>>,
-    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + Send + '_>>, GroupError>
+    pub async fn stream<'a, ApiClient>(
+        &'a self,
+        client: &'a Client<ApiClient>,
+    ) -> Result<impl Stream<Item = StoredGroupMessage> + '_, GroupError>
     where
-        ApiClient: crate::XmtpApi,
+        ApiClient: crate::XmtpApi + 'static,
     {
         Ok(client
-            .stream_messages(HashMap::from([(
+            .stream_messages(Arc::new(HashMap::from([(
                 self.group_id.clone(),
                 MessagesStreamInfo {
                     convo_created_at_ns: self.created_at_ns,
                     cursor: 0,
                 },
-            )]))
+            )])))
             .await?)
     }
 
@@ -110,11 +141,11 @@ impl MlsGroup {
         group_id: Vec<u8>,
         created_at_ns: i64,
         callback: impl FnMut(StoredGroupMessage) + Send + 'static,
-    ) -> Result<StreamCloser, GroupError>
+    ) -> StreamHandle<Result<(), crate::groups::ClientError>>
     where
-        ApiClient: crate::XmtpApi,
+        ApiClient: crate::XmtpApi + 'static,
     {
-        Ok(Client::<ApiClient>::stream_messages_with_callback(
+        Client::<ApiClient>::stream_messages_with_callback(
             client,
             HashMap::from([(
                 group_id,
@@ -124,19 +155,20 @@ impl MlsGroup {
                 },
             )]),
             callback,
-        )?)
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use prost::Message;
-    use std::sync::Arc;
+    use super::*;
+    use std::time::Duration;
+    use tokio_stream::wrappers::UnboundedReceiverStream;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions,
-        storage::group_message::GroupMessageKind,
+        storage::group_message::GroupMessageKind, utils::test::Delivery,
     };
     use futures::StreamExt;
 
@@ -167,7 +199,7 @@ mod tests {
         let mut message_bytes: Vec<u8> = Vec::new();
         message.encode(&mut message_bytes).unwrap();
         let message_again = amal_group
-            .process_streamed_group_message(message_bytes, Arc::new(amal))
+            .process_streamed_group_message(message_bytes, &amal)
             .await;
 
         if let Ok(message) = message_again {
@@ -180,7 +212,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_messages() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
 
         let amal_group = amal
             .create_group(None, GroupMetadataOptions::default())
@@ -193,15 +225,31 @@ mod tests {
 
         // Get bola's version of the same group
         let bola_groups = bola.sync_welcomes().await.unwrap();
-        let bola_group = bola_groups.first().unwrap();
+        let bola_group = Arc::new(bola_groups.first().unwrap().clone());
 
-        let mut stream = bola_group.stream(Arc::new(bola)).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let bola_ptr = bola.clone();
+        let bola_group_ptr = bola_group.clone();
+        let notify = Delivery::new(Some(Duration::from_secs(10)));
+        let notify_ptr = notify.clone();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut stream = UnboundedReceiverStream::new(rx);
+        tokio::spawn(async move {
+            let stream = bola_group_ptr.stream(&bola_ptr).await.unwrap();
+            futures::pin_mut!(stream);
+            while let Some(item) = stream.next().await {
+                let _ = tx.send(item);
+                notify_ptr.notify_one();
+            }
+        });
+
         amal_group
             .send_message("hello".as_bytes(), &amal)
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        notify
+            .wait_for_delivery()
+            .await
+            .expect("timed out waiting for first message");
         let first_val = stream.next().await.unwrap();
         assert_eq!(first_val.decrypted_message_bytes, "hello".as_bytes());
 
@@ -210,6 +258,10 @@ mod tests {
             .await
             .unwrap();
 
+        notify
+            .wait_for_delivery()
+            .await
+            .expect("timed out waiting for second message");
         let second_val = stream.next().await.unwrap();
         assert_eq!(second_val.decrypted_message_bytes, "goodbye".as_bytes());
     }
@@ -217,13 +269,22 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_multiple() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let group = amal
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let group = Arc::new(
+            amal.create_group(None, GroupMetadataOptions::default())
+                .unwrap(),
+        );
 
-        let stream = group.stream(amal.clone()).await.unwrap();
-
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+        let amal_ptr = amal.clone();
+        let group_ptr = group.clone();
+        tokio::spawn(async move {
+            let stream = group_ptr.stream(&amal_ptr).await.unwrap();
+            futures::pin_mut!(stream);
+            while let Some(item) = stream.next().await {
+                let _ = tx.send(item);
+            }
+        });
 
         for i in 0..10 {
             group
@@ -252,15 +313,36 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
-        let mut stream = amal_group.stream(amal.clone()).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let amal_ptr = amal.clone();
+        let amal_group_ptr = amal_group.clone();
+        let notify = Delivery::new(Some(Duration::from_secs(20)));
+        let notify_ptr = notify.clone();
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (start_tx, start_rx) = tokio::sync::oneshot::channel();
+        let mut stream = UnboundedReceiverStream::new(rx);
+        tokio::spawn(async move {
+            let stream = amal_group_ptr.stream(&amal_ptr).await.unwrap();
+            futures::pin_mut!(stream);
+            let _ = start_tx.send(());
+            while let Some(item) = stream.next().await {
+                let _ = tx.send(item);
+                notify_ptr.notify_one();
+            }
+        });
+        // just to make sure stream is started
+        let _ = start_rx.await;
+        // Adding in a sleep, since the HTTP API client may acknowledge requests before they are ready
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
+        notify
+            .wait_for_delivery()
+            .await
+            .expect("Never received group membership change from stream");
         let first_val = stream.next().await.unwrap();
         assert_eq!(first_val.kind, GroupMessageKind::MembershipChange);
 
@@ -268,6 +350,10 @@ mod tests {
             .send_message("hello".as_bytes(), &amal)
             .await
             .unwrap();
+        notify
+            .wait_for_delivery()
+            .await
+            .expect("Never received second message from stream");
         let second_val = stream.next().await.unwrap();
         assert_eq!(second_val.decrypted_message_bytes, "hello".as_bytes());
     }

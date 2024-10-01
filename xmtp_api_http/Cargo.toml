@@ -1,0 +1,24 @@
+[package]
+edition = "2021"
+name = "xmtp_api_http"
+version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+async-stream.workspace = true
+futures = { workspace = true }
+tracing.workspace = true
+reqwest = { version = "0.12.5", features = ["json", "stream"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = "1.0"
+tokio = { workspace = true, features = ["sync", "rt", "macros"] }
+xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+[profile.release]
+opt-level = "s"

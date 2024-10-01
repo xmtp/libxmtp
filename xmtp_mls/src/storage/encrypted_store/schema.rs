@@ -9,6 +9,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    consent_records (entity_type, entity) {
+        entity_type -> Integer,
+        state -> Integer,
+        entity -> Text,
+    }
+}
+
+diesel::table! {
     group_intents (id) {
         id -> Integer,
         kind -> Integer,
@@ -18,6 +26,8 @@ diesel::table! {
         payload_hash -> Nullable<Binary>,
         post_commit_data -> Nullable<Binary>,
         publish_attempts -> Integer,
+        staged_commit -> Nullable<Binary>,
+        published_in_epoch -> Nullable<BigInt>,
     }
 }
 
@@ -66,6 +76,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    key_package_history (id) {
+        id -> Integer,
+        key_package_hash_ref -> Binary,
+        created_at_ns -> BigInt,
+    }
+}
+
+diesel::table! {
     openmls_key_store (key_bytes) {
         key_bytes -> Binary,
         value_bytes -> Binary,
@@ -93,11 +111,13 @@ diesel::joinable!(group_messages -> groups (group_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     association_state,
+    consent_records,
     group_intents,
     group_messages,
     groups,
     identity,
     identity_updates,
+    key_package_history,
     openmls_key_store,
     openmls_key_value,
     refresh_state,

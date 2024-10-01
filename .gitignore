@@ -10,6 +10,7 @@ wasm-pack.log
 # generated
 bindings_swift/Sources
 bindings_swift/xmtp-rust-swift.zip
+bindings_ffi/jniLibs
 
 # Logs
 logs
@@ -120,6 +121,9 @@ dist
 
 # Stores VSCode versions used for testing VSCode extensions
 .vscode-test
+
+# JetBrains IDE Info
+.idea/
 
 # yarn v2
 .yarn/cache

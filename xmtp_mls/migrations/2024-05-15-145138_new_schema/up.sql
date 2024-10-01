@@ -87,6 +87,8 @@ CREATE TABLE group_intents(
 
 CREATE INDEX group_intents_group_id_state ON group_intents(group_id, state);
 
+-- Caches the identity update payload at a given sequence ID, so that API calls
+-- don't need to be repeated.
 CREATE TABLE identity_updates(
     -- The inbox_id the update refers to
     "inbox_id" text NOT NULL,

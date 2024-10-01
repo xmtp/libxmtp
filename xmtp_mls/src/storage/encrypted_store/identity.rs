@@ -1,4 +1,6 @@
-use crate::storage::encrypted_store::schema::identity;
+use std::sync::atomic::AtomicBool;
+
+use crate::storage::{encrypted_store::schema::identity, StorageError};
 use diesel::prelude::*;
 use xmtp_id::InboxId;
 
@@ -33,25 +35,30 @@ impl StoredIdentity {
     }
 }
 
-impl From<&Identity> for StoredIdentity {
-    fn from(identity: &Identity) -> Self {
-        StoredIdentity {
+impl TryFrom<&Identity> for StoredIdentity {
+    type Error = StorageError;
+
+    fn try_from(identity: &Identity) -> Result<Self, Self::Error> {
+        Ok(StoredIdentity {
             inbox_id: identity.inbox_id.clone(),
-            installation_keys: db_serialize(&identity.installation_keys).unwrap(),
-            credential_bytes: db_serialize(&identity.credential()).unwrap(),
+            installation_keys: db_serialize(&identity.installation_keys)?,
+            credential_bytes: db_serialize(&identity.credential())?,
             rowid: None,
-        }
+        })
     }
 }
 
-impl From<StoredIdentity> for Identity {
-    fn from(identity: StoredIdentity) -> Self {
-        Identity {
+impl TryFrom<StoredIdentity> for Identity {
+    type Error = StorageError;
+
+    fn try_from(identity: StoredIdentity) -> Result<Self, Self::Error> {
+        Ok(Identity {
             inbox_id: identity.inbox_id.clone(),
-            installation_keys: db_deserialize(&identity.installation_keys).unwrap(),
-            credential: db_deserialize(&identity.credential_bytes).unwrap(),
+            installation_keys: db_deserialize(&identity.installation_keys)?,
+            credential: db_deserialize(&identity.credential_bytes)?,
             signature_request: None,
-        }
+            is_ready: AtomicBool::new(true),
+        })
     }
 }
 

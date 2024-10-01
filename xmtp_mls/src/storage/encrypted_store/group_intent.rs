@@ -7,14 +7,24 @@ use diesel::{
     sql_types::Integer,
     sqlite::Sqlite,
 };
+use prost::Message;
 
 use super::{
     db_connection::DbConnection,
     group,
     schema::{group_intents, group_intents::dsl},
 };
-use crate::{impl_fetch, impl_store, storage::StorageError, Delete};
-
+use crate::{
+    groups::{intents::SendMessageIntentData, IntentError},
+    impl_fetch, impl_store,
+    storage::StorageError,
+    utils::id::calculate_message_id,
+    Delete,
+};
+use xmtp_proto::xmtp::mls::message_contents::{
+    plaintext_envelope::{Content, V1},
+    PlaintextEnvelope,
+};
 pub type ID = i32;
 
 #[repr(i32)]
@@ -26,6 +36,7 @@ pub enum IntentKind {
     MetadataUpdate = 3,
     UpdateGroupMembership = 4,
     UpdateAdminList = 5,
+    UpdatePermission = 6,
 }
 
 impl std::fmt::Display for IntentKind {
@@ -36,6 +47,7 @@ impl std::fmt::Display for IntentKind {
             IntentKind::MetadataUpdate => "MetadataUpdate",
             IntentKind::UpdateGroupMembership => "UpdateGroupMembership",
             IntentKind::UpdateAdminList => "UpdateAdminList",
+            IntentKind::UpdatePermission => "UpdatePermission",
         };
         write!(f, "{}", description)
     }
@@ -63,6 +75,43 @@ pub struct StoredGroupIntent {
     pub payload_hash: Option<Vec<u8>>,
     pub post_commit_data: Option<Vec<u8>>,
     pub publish_attempts: i32,
+    pub staged_commit: Option<Vec<u8>>,
+    pub published_in_epoch: Option<i64>,
+}
+
+impl StoredGroupIntent {
+    /// Calculate the message id for this intent.
+    ///
+    /// # Note
+    /// This functions deserializes and decodes a [`PlaintextEnvelope`] from encoded bytes.
+    /// It would be costly to call this method while pulling extra data from a
+    /// [`PlaintextEnvelope`] elsewhere. The caller should consider combining implementations.
+    ///
+    /// # Returns
+    /// Returns [`Option::None`] if [`StoredGroupIntent`] is not [`IntentKind::SendMessage`] or if
+    /// an error occurs during decoding of intent data for [`IntentKind::SendMessage`].
+    pub fn message_id(&self) -> Result<Option<Vec<u8>>, IntentError> {
+        if self.kind != IntentKind::SendMessage {
+            return Ok(None);
+        }
+
+        let data = SendMessageIntentData::from_bytes(&self.data)?;
+        let envelope: PlaintextEnvelope = PlaintextEnvelope::decode(data.message.as_slice())?;
+
+        // optimistic message should always have a plaintext envelope
+        let PlaintextEnvelope {
+            content:
+                Some(Content::V1(V1 {
+                    content: message,
+                    idempotency_key: key,
+                })),
+        } = envelope
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some(calculate_message_id(&self.group_id, &message, &key)))
+    }
 }
 
 impl_fetch!(StoredGroupIntent, group_intents, ID);
@@ -142,17 +191,25 @@ impl DbConnection {
         intent_id: ID,
         payload_hash: Vec<u8>,
         post_commit_data: Option<Vec<u8>>,
+        staged_commit: Option<Vec<u8>>,
+        published_in_epoch: i64,
     ) -> Result<(), StorageError> {
         let res = self.raw_query(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 // State machine requires that the only valid state transition to Published is from
                 // ToPublish
-                .filter(dsl::state.eq(IntentState::ToPublish))
+                .filter(
+                    dsl::state
+                        .eq(IntentState::ToPublish)
+                        .or(dsl::state.eq(IntentState::Published)),
+                )
                 .set((
                     dsl::state.eq(IntentState::Published),
                     dsl::payload_hash.eq(payload_hash),
                     dsl::post_commit_data.eq(post_commit_data),
+                    dsl::staged_commit.eq(staged_commit),
+                    dsl::published_in_epoch.eq(published_in_epoch),
                 ))
                 .execute(conn)
         })?;
@@ -201,6 +258,8 @@ impl DbConnection {
                     // When moving to ToPublish, clear the payload hash and post commit data
                     dsl::payload_hash.eq(None::<Vec<u8>>),
                     dsl::post_commit_data.eq(None::<Vec<u8>>),
+                    dsl::published_in_epoch.eq(None::<i64>),
+                    dsl::staged_commit.eq(None::<Vec<u8>>),
                 ))
                 .execute(conn)
         })?;
@@ -262,6 +321,17 @@ impl DbConnection {
 
         Ok(())
     }
+
+    pub fn set_group_intent_error_and_fail_msg(
+        &self,
+        intent: &StoredGroupIntent,
+    ) -> Result<(), StorageError> {
+        self.set_group_intent_error(intent.id)?;
+        if let Some(id) = intent.message_id()? {
+            self.set_delivery_status_to_failed(&id)?;
+        }
+        Ok(())
+    }
 }
 
 impl ToSql<Integer, Sqlite> for IntentKind
@@ -285,6 +355,7 @@ where
             3 => Ok(IntentKind::MetadataUpdate),
             4 => Ok(IntentKind::UpdateGroupMembership),
             5 => Ok(IntentKind::UpdateAdminList),
+            6 => Ok(IntentKind::UpdatePermission),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
@@ -500,6 +571,8 @@ mod tests {
                 intent.id,
                 payload_hash.clone(),
                 Some(post_commit_data.clone()),
+                None,
+                1,
             )
             .unwrap();
 
@@ -509,6 +582,7 @@ mod tests {
                 .unwrap();
 
             assert_eq!(find_result.id, intent.id);
+            assert_eq!(find_result.published_in_epoch, Some(1));
         })
     }
 
@@ -537,6 +611,8 @@ mod tests {
                 intent.id,
                 payload_hash.clone(),
                 Some(post_commit_data.clone()),
+                None,
+                1,
             )
             .unwrap();
 
@@ -579,6 +655,8 @@ mod tests {
                 intent.id,
                 payload_hash.clone(),
                 Some(post_commit_data.clone()),
+                None,
+                1,
             )
             .unwrap();
 

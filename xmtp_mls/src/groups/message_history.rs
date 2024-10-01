@@ -7,13 +7,11 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
-use prost::Message;
 use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
 };
-use ring::hmac;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use xmtp_cryptography::utils as crypto_utils;
@@ -27,23 +25,32 @@ use xmtp_proto::{
     },
 };
 
-use super::GroupError;
+use super::{GroupError, MlsGroup};
 
 use crate::XmtpApi;
 use crate::{
     client::ClientError,
-    configuration::DELIMITER,
-    groups::{intents::SendMessageIntentData, GroupMessageKind, StoredGroupMessage},
-    storage::{
-        group::StoredGroup,
-        group_intent::{IntentKind, NewGroupIntent},
-        StorageError,
-    },
+    groups::{GroupMessageKind, StoredGroupMessage},
+    storage::{group::StoredGroup, StorageError},
     Client, Store,
 };
 
 const ENC_KEY_SIZE: usize = 32; // 256-bit key
 const NONCE_SIZE: usize = 12; // 96-bit nonce
+
+pub struct MessageHistoryUrls;
+
+impl MessageHistoryUrls {
+    pub const LOCAL_ADDRESS: &'static str = "http://0.0.0.0:5558";
+    pub const DEV_ADDRESS: &'static str = "https://message-history.dev.ephemera.network/";
+    pub const PRODUCTION_ADDRESS: &'static str = "https://message-history.ephemera.network/";
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum MessageHistoryContent {
+    Request(MessageHistoryRequest),
+    Reply(MessageHistoryReply),
+}
 
 #[derive(Debug, Error)]
 pub enum MessageHistoryError {
@@ -53,8 +60,8 @@ pub enum MessageHistoryError {
     PinMismatch,
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),
-    #[error("JSON serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
+    #[error("Serialization/Deserialization Error {0}")]
+    Serde(#[from] serde_json::Error),
     #[error("AES-GCM encryption error")]
     AesGcm(#[from] aes_gcm::Error),
     #[error("reqwest error: {0}")]
@@ -69,6 +76,22 @@ pub enum MessageHistoryError {
     Client(#[from] ClientError),
     #[error("group error: {0}")]
     Group(#[from] GroupError),
+    #[error("request ID of reply does not match request")]
+    ReplyRequestIdMismatch,
+    #[error("reply already processed")]
+    ReplyAlreadyProcessed,
+    #[error("no pending request to reply to")]
+    NoPendingRequest,
+    #[error("no reply to process")]
+    NoReplyToProcess,
+    #[error("generic: {0}")]
+    Generic(String),
+    #[error("missing history sync url")]
+    MissingHistorySyncUrl,
+    #[error("invalid history message payload")]
+    InvalidPayload,
+    #[error("invalid history bundle url")]
+    InvalidBundleUrl,
 }
 
 #[derive(Debug, Deserialize)]
@@ -82,9 +105,31 @@ impl<ApiClient> Client<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    pub async fn allow_history_sync(&self) -> Result<(), GroupError> {
-        let history_sync_group = self.create_sync_group()?;
-        history_sync_group.sync(self).await?;
+    pub fn get_sync_group(&self) -> Result<MlsGroup, GroupError> {
+        let conn = self.store().conn()?;
+        let sync_group_id = conn
+            .find_sync_groups()?
+            .pop()
+            .ok_or(GroupError::GroupNotFound)?
+            .id;
+        let sync_group = self.group(sync_group_id.clone())?;
+
+        Ok(sync_group)
+    }
+
+    pub async fn enable_history_sync(&self) -> Result<(), GroupError> {
+        // look for the sync group, create if not found
+        let sync_group = match self.get_sync_group() {
+            Ok(group) => group,
+            Err(_) => {
+                // create the sync group
+                self.create_sync_group()?
+            }
+        };
+
+        // sync the group
+        sync_group.sync(self).await?;
+
         Ok(())
     }
 
@@ -99,113 +144,289 @@ where
         Ok(())
     }
 
-    pub(crate) async fn send_history_request(&self) -> Result<String, GroupError> {
+    // returns (request_id, pin_code)
+    pub async fn send_history_request(&self) -> Result<(String, String), MessageHistoryError> {
         // find the sync group
         let conn = self.store().conn()?;
-        let sync_group_id = conn
-            .find_sync_groups()?
-            .pop()
-            .ok_or(GroupError::GroupNotFound)?
-            .id;
-        let sync_group = self.group(sync_group_id.clone())?;
+        let sync_group = self.get_sync_group()?;
+
+        // sync the group
+        sync_group.sync(self).await?;
+
+        let messages = sync_group.find_messages(
+            Some(GroupMessageKind::Application),
+            None,
+            None,
+            None,
+            None,
+        )?;
+
+        let last_message = messages.last();
+        if let Some(msg) = last_message {
+            let message_history_content =
+                serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes)?;
+
+            if let MessageHistoryContent::Request(request) = message_history_content {
+                return Ok((request.request_id, request.pin_code));
+            }
+        };
 
         // build the request
         let history_request = HistoryRequest::new();
         let pin_code = history_request.pin_code.clone();
-        let idempotency_key = new_request_id();
-        let envelope = PlaintextEnvelope {
-            content: Some(Content::V2(V2 {
-                message_type: Some(Request(history_request.into())),
-                idempotency_key,
-            })),
-        };
+        let request_id = history_request.request_id.clone();
 
-        // build the intent
-        let mut encoded_envelope = vec![];
-        envelope
-            .encode(&mut encoded_envelope)
-            .map_err(GroupError::EncodeError)?;
-        let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        let intent = NewGroupIntent::new(IntentKind::SendMessage, sync_group_id, intent_data);
-        intent.store(&conn)?;
+        let content = MessageHistoryContent::Request(MessageHistoryRequest {
+            request_id: request_id.clone(),
+            pin_code: pin_code.clone(),
+        });
+        let content_bytes = serde_json::to_vec(&content)?;
+
+        let _message_id =
+            sync_group.prepare_message(content_bytes.as_slice(), &conn, move |_time_ns| {
+                PlaintextEnvelope {
+                    content: Some(Content::V2(V2 {
+                        message_type: Some(Request(history_request.into())),
+                        idempotency_key: new_request_id(),
+                    })),
+                }
+            })?;
 
         // publish the intent
-        if let Err(err) = sync_group.publish_intents(conn, self).await {
-            log::error!("error publishing sync group intents: {:?}", err);
+        if let Err(err) = sync_group.publish_intents(&conn.into(), self).await {
+            tracing::error!("error publishing sync group intents: {:?}", err);
         }
 
-        Ok(pin_code)
+        Ok((request_id, pin_code))
     }
 
     pub(crate) async fn send_history_reply(
         &self,
         contents: MessageHistoryReply,
-    ) -> Result<(), GroupError> {
+    ) -> Result<(), MessageHistoryError> {
         // find the sync group
         let conn = self.store().conn()?;
-        let sync_group_id = conn
-            .find_sync_groups()?
-            .pop()
-            .ok_or(GroupError::GroupNotFound)?
-            .id;
+        let sync_group = self.get_sync_group()?;
 
-        // build the reply
-        let envelope = PlaintextEnvelope {
-            content: Some(Content::V2(V2 {
-                idempotency_key: new_request_id(),
-                message_type: Some(Reply(contents)),
-            })),
+        // sync the group
+        Box::pin(sync_group.sync(self)).await?;
+
+        let messages = sync_group.find_messages(
+            Some(GroupMessageKind::Application),
+            None,
+            None,
+            None,
+            None,
+        )?;
+
+        let last_message = match messages.last() {
+            Some(msg) => {
+                let message_history_content =
+                    serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes)?;
+                match message_history_content {
+                    MessageHistoryContent::Request(request) => {
+                        // check that the request ID matches
+                        if !request.request_id.eq(&contents.request_id) {
+                            return Err(MessageHistoryError::ReplyRequestIdMismatch);
+                        }
+                        Some(msg)
+                    }
+                    MessageHistoryContent::Reply(_) => {
+                        // if last message is a reply, it's already been processed
+                        return Err(MessageHistoryError::ReplyAlreadyProcessed);
+                    }
+                }
+            }
+            None => {
+                return Err(MessageHistoryError::NoPendingRequest);
+            }
         };
 
-        // build the intent
-        let mut encoded_envelope = vec![];
-        envelope
-            .encode(&mut encoded_envelope)
-            .map_err(GroupError::EncodeError)?;
-        let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        let intent =
-            NewGroupIntent::new(IntentKind::SendMessage, sync_group_id.clone(), intent_data);
-        intent.store(&conn)?;
+        tracing::info!("{:?}", last_message);
+
+        if let Some(msg) = last_message {
+            // ensure the requester is a member of all the groups
+            self.ensure_member_of_all_groups(msg.sender_inbox_id.clone())
+                .await?;
+        }
+
+        // the reply message
+        let content = MessageHistoryContent::Reply(contents.clone());
+        let content_bytes = serde_json::to_vec(&content)?;
+
+        let _message_id =
+            sync_group.prepare_message(content_bytes.as_slice(), &conn, move |_time_ns| {
+                PlaintextEnvelope {
+                    content: Some(Content::V2(V2 {
+                        idempotency_key: new_request_id(),
+                        message_type: Some(Reply(contents)),
+                    })),
+                }
+            })?;
 
         // publish the intent
-        let sync_group = self.group(sync_group_id)?;
-        if let Err(err) = sync_group.publish_intents(conn, self).await {
-            log::error!("error publishing sync group intents: {:?}", err);
+        if let Err(err) = sync_group.publish_intents(&conn.into(), self).await {
+            tracing::error!("error publishing sync group intents: {:?}", err);
         }
         Ok(())
     }
 
-    pub(crate) fn provide_pin(&self, pin_challenge: &str) -> Result<(), GroupError> {
-        let conn = self.store().conn()?;
-        let sync_group_id = conn
-            .find_sync_groups()?
-            .pop()
-            .ok_or(GroupError::GroupNotFound)?
-            .id;
+    pub async fn get_pending_history_request(
+        &self,
+    ) -> Result<Option<(String, String)>, MessageHistoryError> {
+        let sync_group = self.get_sync_group()?;
 
-        let requests = conn.get_group_messages(
-            sync_group_id,
-            None,
-            None,
+        // sync the group
+        sync_group.sync(self).await?;
+
+        let messages = sync_group.find_messages(
             Some(GroupMessageKind::Application),
+            None,
+            None,
+            None,
+            None,
+        )?;
+        let last_message = messages.last();
+
+        let history_request: Option<(String, String)> = if let Some(msg) = last_message {
+            let message_history_content =
+                serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes)?;
+            match message_history_content {
+                // if the last message is a request, return its request ID and pin code
+                MessageHistoryContent::Request(request) => {
+                    Some((request.request_id, request.pin_code))
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        Ok(history_request)
+    }
+
+    pub async fn reply_to_history_request(
+        &self,
+    ) -> Result<MessageHistoryReply, MessageHistoryError> {
+        let pending_request = self.get_pending_history_request().await?;
+
+        if let Some((request_id, _)) = pending_request {
+            let reply = self.prepare_history_reply(&request_id).await?;
+            self.send_history_reply(reply.clone().into()).await?;
+            return Ok(reply.into());
+        }
+
+        Err(MessageHistoryError::NoPendingRequest)
+    }
+
+    pub async fn get_latest_history_reply(
+        &self,
+    ) -> Result<Option<MessageHistoryReply>, MessageHistoryError> {
+        let sync_group = self.get_sync_group()?;
+
+        // sync the group
+        sync_group.sync(self).await?;
+
+        let messages = sync_group.find_messages(
+            Some(GroupMessageKind::Application),
+            None,
+            None,
+            None,
+            None,
+        )?;
+
+        let last_message = messages.last();
+
+        let reply: Option<MessageHistoryReply> = match last_message {
+            Some(msg) => {
+                // if the message was sent by this installation, ignore it
+                if msg
+                    .sender_installation_id
+                    .eq(&self.installation_public_key())
+                {
+                    None
+                } else {
+                    let message_history_content = serde_json::from_slice::<MessageHistoryContent>(
+                        &msg.decrypted_message_bytes,
+                    )?;
+                    match message_history_content {
+                        // if the last message is a reply, return it
+                        MessageHistoryContent::Reply(reply) => Some(reply),
+                        _ => None,
+                    }
+                }
+            }
+            None => None,
+        };
+
+        Ok(reply)
+    }
+
+    pub async fn process_history_reply(&self) -> Result<(), MessageHistoryError> {
+        let reply = self.get_latest_history_reply().await?;
+
+        if let Some(reply) = reply {
+            let Some(encryption_key) = reply.encryption_key.clone() else {
+                return Err(MessageHistoryError::InvalidPayload);
+            };
+
+            let history_bundle = download_history_bundle(&reply.url).await?;
+            let messages_path = std::env::temp_dir().join("messages.jsonl");
+
+            decrypt_history_file(&history_bundle, &messages_path, encryption_key)?;
+
+            self.insert_history_bundle(&messages_path)?;
+
+            // clean up temporary files associated with the bundle
+            std::fs::remove_file(history_bundle.as_path())?;
+            std::fs::remove_file(messages_path.as_path())?;
+
+            self.sync_welcomes().await?;
+
+            let conn = self.store().conn()?;
+            let groups = conn.find_groups(None, None, None, None)?;
+            for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {
+                let group = self.group(id)?;
+                Box::pin(group.sync(self)).await?;
+            }
+
+            return Ok(());
+        }
+
+        Err(MessageHistoryError::NoReplyToProcess)
+    }
+
+    pub(crate) fn verify_pin(
+        &self,
+        request_id: &str,
+        pin_code: &str,
+    ) -> Result<(), MessageHistoryError> {
+        let sync_group = self.get_sync_group()?;
+        let requests = sync_group.find_messages(
+            Some(GroupMessageKind::Application),
+            None,
+            None,
             None,
             None,
         )?;
         let request = requests.into_iter().find(|msg| {
-            let msg_bytes = &msg.decrypted_message_bytes;
-            match msg_bytes.iter().position(|&idx| idx == DELIMITER as u8) {
-                Some(index) => {
-                    let (_id_part, pin_part) = msg_bytes.split_at(index);
-                    let pin = String::from_utf8_lossy(&pin_part[1..]);
-                    verify_pin(&pin, pin_challenge)
+            let message_history_content =
+                serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
+
+            match message_history_content {
+                Ok(MessageHistoryContent::Request(request)) => {
+                    request.request_id.eq(request_id) && request.pin_code.eq(pin_code)
                 }
-                None => false,
+                Err(e) => {
+                    tracing::debug!("serde_json error: {:?}", e);
+                    false
+                }
+                _ => false,
             }
         });
+
         if request.is_none() {
-            return Err(GroupError::MessageHistory(Box::new(
-                MessageHistoryError::PinNotFound,
-            )));
+            return Err(MessageHistoryError::PinNotFound);
         }
 
         Ok(())
@@ -241,22 +462,21 @@ where
     pub(crate) async fn prepare_history_reply(
         &self,
         request_id: &str,
-        url: &str,
     ) -> Result<HistoryReply, MessageHistoryError> {
         let (history_file, enc_key) = self.write_history_bundle().await?;
+        let url = match &self.history_sync_url {
+            Some(url) => url.as_str(),
+            None => return Err(MessageHistoryError::MissingHistorySyncUrl),
+        };
+        let upload_url = format!("{}{}", url, "upload");
+        tracing::info!("using upload url {:?}", upload_url);
 
-        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
-        upload_history_bundle(url, history_file.clone(), signing_key.as_bytes()).await?;
+        let bundle_file = upload_history_bundle(&upload_url, history_file.clone()).await?;
+        let bundle_url = format!("{}files/{}", url, bundle_file);
 
-        let history_reply = HistoryReply::new(
-            request_id,
-            url,
-            signing_key.as_bytes().to_vec(),
-            signing_key,
-            enc_key,
-        );
+        tracing::info!("history bundle uploaded to {:?}", bundle_url);
 
-        Ok(history_reply)
+        Ok(HistoryReply::new(request_id, &bundle_url, enc_key))
     }
 
     async fn write_history_bundle(&self) -> Result<(PathBuf, HistoryKeyType), MessageHistoryError> {
@@ -282,14 +502,7 @@ where
 
     async fn prepare_groups_to_sync(&self) -> Result<Vec<StoredGroup>, MessageHistoryError> {
         let conn = self.store().conn()?;
-        let groups = conn.find_groups(None, None, None, None)?;
-        let mut all_groups: Vec<StoredGroup> = vec![];
-
-        for group in groups.into_iter() {
-            all_groups.push(group);
-        }
-
-        Ok(all_groups)
+        Ok(conn.find_groups(None, None, None, None)?)
     }
 
     async fn prepare_messages_to_sync(
@@ -384,56 +597,60 @@ pub(crate) fn decrypt_history_file(
 async fn upload_history_bundle(
     url: &str,
     file_path: PathBuf,
-    signing_key: &[u8],
-) -> Result<(), MessageHistoryError> {
+) -> Result<String, MessageHistoryError> {
     let mut file = File::open(file_path)?;
     let mut content = Vec::new();
     file.read_to_end(&mut content)?;
 
-    let key = hmac::Key::new(hmac::HMAC_SHA256, signing_key);
-    let tag = hmac::sign(&key, &content);
-    let hmac_hex = hex::encode(tag.as_ref());
-
     let client = reqwest::Client::new();
-    let _response = client
-        .post(url)
-        .header("X-HMAC", hmac_hex)
-        .body(content)
-        .send()
-        .await?;
-
-    Ok(())
-}
-
-pub(crate) async fn download_history_bundle(
-    url: &str,
-    hmac_value: Vec<u8>,
-    signing_key: MessageHistoryKeyType,
-) -> Result<PathBuf, MessageHistoryError> {
-    let sign_key: HistoryKeyType = signing_key.try_into()?;
-    let sign_key_bytes = sign_key.as_bytes().to_vec();
-    let client = reqwest::Client::new();
-    let response = client
-        .get(url)
-        .header("X-HMAC", hmac_value)
-        .header("X-SIGNING-KEY", hex::encode(sign_key_bytes))
-        .send()
-        .await?;
+    let response = client.post(url).body(content).send().await?;
 
     if response.status().is_success() {
-        let file_path = std::env::temp_dir().join("downloaded_bundle.jsonl.enc");
+        Ok(response.text().await?)
+    } else {
+        tracing::error!(
+            "Failed to upload file. Status code: {} Response: {:?}",
+            response.status(),
+            response
+        );
+        Err(MessageHistoryError::Reqwest(
+            response
+                .error_for_status()
+                .expect_err("Checked for success"),
+        ))
+    }
+}
+
+pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, MessageHistoryError> {
+    let client = reqwest::Client::new();
+
+    tracing::info!("downloading history bundle from {:?}", url);
+
+    let bundle_name = url
+        .split('/')
+        .last()
+        .ok_or(MessageHistoryError::InvalidBundleUrl)?;
+
+    let response = client.get(url).send().await?;
+
+    if response.status().is_success() {
+        let file_name = format!("{}.jsonl.enc", bundle_name);
+        let file_path = std::env::temp_dir().join(file_name);
         let mut file = File::create(&file_path)?;
         let bytes = response.bytes().await?;
         file.write_all(&bytes)?;
+        tracing::info!("downloaded history bundle to {:?}", file_path);
         Ok(file_path)
     } else {
-        eprintln!(
+        tracing::error!(
             "Failed to download file. Status code: {} Response: {:?}",
             response.status(),
             response
         );
         Err(MessageHistoryError::Reqwest(
-            response.error_for_status().unwrap_err(),
+            response
+                .error_for_status()
+                .expect_err("Checked for success"),
         ))
     }
 }
@@ -462,33 +679,21 @@ impl From<HistoryRequest> for MessageHistoryRequest {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct HistoryReply {
     /// Unique ID for each client Message History Request
     request_id: String,
     /// URL to download the backup bundle
     url: String,
-    /// HMAC value of the backup bundle
-    bundle_hash: Vec<u8>,
-    /// HMAC Signing key for the backup bundle
-    signing_key: HistoryKeyType,
     /// Encryption key for the backup bundle
     encryption_key: HistoryKeyType,
 }
 
 impl HistoryReply {
-    pub(crate) fn new(
-        id: &str,
-        url: &str,
-        bundle_hash: Vec<u8>,
-        signing_key: HistoryKeyType,
-        encryption_key: HistoryKeyType,
-    ) -> Self {
+    pub(crate) fn new(id: &str, url: &str, encryption_key: HistoryKeyType) -> Self {
         Self {
             request_id: id.into(),
             url: url.into(),
-            bundle_hash,
-            signing_key,
             encryption_key,
         }
     }
@@ -499,8 +704,6 @@ impl From<HistoryReply> for MessageHistoryReply {
         MessageHistoryReply {
             request_id: reply.request_id,
             url: reply.url,
-            bundle_hash: reply.bundle_hash,
-            signing_key: Some(reply.signing_key.into()),
             encryption_key: Some(reply.encryption_key.into()),
         }
     }
@@ -576,13 +779,6 @@ fn new_pin() -> String {
     format!("{:04}", pin)
 }
 
-// Yes, this is a just a simple string comparison.
-// If we need to add more complex logic, we can do so here.
-// For example if we want to add a time limit or enforce a certain number of attempts.
-fn verify_pin(expected: &str, actual: &str) -> bool {
-    expected.eq(actual)
-}
-
 #[cfg(test)]
 mod tests {
 
@@ -594,14 +790,15 @@ mod tests {
     use std::io::{BufRead, BufReader};
     use tempfile::NamedTempFile;
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_id::InboxOwner;
 
     use crate::{assert_ok, builder::ClientBuilder, groups::GroupMetadataOptions};
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_allow_history_sync() {
+    async fn test_enable_history_sync() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(client.allow_history_sync().await);
+        assert_ok!(client.enable_history_sync().await);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -610,7 +807,7 @@ mod tests {
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
         let amal_c = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_c.allow_history_sync().await);
+        assert_ok!(amal_c.enable_history_sync().await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
         amal_b.sync_welcomes().await.expect("sync_welcomes");
@@ -636,30 +833,76 @@ mod tests {
     async fn test_send_history_request() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(client.allow_history_sync().await);
+        assert_ok!(client.enable_history_sync().await);
 
         // test that the request is sent, and that the pin code is returned
-        let pin_code = client
+        let (request_id, pin_code) = client
             .send_history_request()
             .await
             .expect("history request");
+        assert_eq!(request_id.len(), 32);
         assert_eq!(pin_code.len(), 4);
+
+        // test that another request will return the same request_id and
+        // pin_code because it hasn't been replied to yet
+        let (request_id2, pin_code2) = client
+            .send_history_request()
+            .await
+            .expect("history request");
+        assert_eq!(request_id, request_id2);
+        assert_eq!(pin_code, pin_code2);
+
+        // make sure there's only 1 message in the sync group
+        let sync_group = client.get_sync_group().unwrap();
+        let messages = sync_group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap();
+        assert_eq!(messages.len(), 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_send_history_reply() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(client.allow_history_sync().await);
+        assert_ok!(client.enable_history_sync().await);
 
         let request_id = new_request_id();
         let url = "https://test.com/abc-123";
-        let backup_hash = b"ABC123".into();
-        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
         let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
-        let reply = HistoryReply::new(&request_id, url, backup_hash, signing_key, encryption_key);
+        let reply = HistoryReply::new(&request_id, url, encryption_key);
         let result = client.send_history_reply(reply.into()).await;
+
+        // the reply should fail because there's no pending request to reply to
+        assert!(result.is_err());
+
+        let (request_id, _) = client
+            .send_history_request()
+            .await
+            .expect("history request");
+
+        let request_id2 = new_request_id();
+        let url = "https://test.com/abc-123";
+        let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let reply = HistoryReply::new(&request_id2, url, encryption_key);
+        let result = client.send_history_reply(reply.into()).await;
+
+        // the reply should fail because there's a mismatched request ID
+        assert!(result.is_err());
+
+        let url = "https://test.com/abc-123";
+        let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let reply = HistoryReply::new(&request_id, url, encryption_key);
+        let result = client.send_history_reply(reply.into()).await;
+
+        // the reply should succeed with a valid request ID
         assert_ok!(result);
+
+        // make sure there's 2 messages in the sync group
+        let sync_group = client.get_sync_group().unwrap();
+        let messages = sync_group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap();
+        assert_eq!(messages.len(), 2);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -667,11 +910,11 @@ mod tests {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_b.allow_history_sync().await);
+        assert_ok!(amal_b.enable_history_sync().await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
-        let _sent = amal_b
+        let (_group_id, _pin_code) = amal_b
             .send_history_request()
             .await
             .expect("history request");
@@ -696,15 +939,15 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     #[ignore] // this test is only relevant if we are enforcing the PIN challenge
-    async fn test_provide_pin_challenge() {
+    async fn test_verify_pin() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_b.allow_history_sync().await);
+        assert_ok!(amal_b.enable_history_sync().await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
-        let pin_code = amal_b
+        let (request_id, pin_code) = amal_b
             .send_history_request()
             .await
             .expect("history request");
@@ -714,25 +957,72 @@ mod tests {
         // get the first sync group
         let amal_a_sync_group = amal_a.group(amal_a_sync_groups[0].id.clone()).unwrap();
         amal_a_sync_group.sync(&amal_a).await.expect("sync");
-        let pin_challenge_result = amal_a.provide_pin(&pin_code);
+        let pin_challenge_result = amal_a.verify_pin(&request_id, &pin_code);
         assert_ok!(pin_challenge_result);
 
-        let pin_challenge_result_2 = amal_a.provide_pin("000");
+        let pin_challenge_result_2 = amal_a.verify_pin("000", "000");
         assert!(pin_challenge_result_2.is_err());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     #[ignore]
     async fn test_request_reply_roundtrip() {
+        let options = mockito::ServerOpts {
+            host: HISTORY_SERVER_HOST,
+            port: HISTORY_SERVER_PORT + 1,
+            ..Default::default()
+        };
+        let mut server = mockito::Server::new_with_opts_async(options).await;
+
+        let _m = server
+            .mock("POST", "/upload")
+            .with_status(201)
+            .with_body("File uploaded")
+            .create();
+
+        let history_sync_url = format!(
+            "http://{}:{}/upload",
+            HISTORY_SERVER_HOST,
+            HISTORY_SERVER_PORT + 1
+        );
+
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let _group_a = amal_a
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
+
+        let groups = amal_a.prepare_groups_to_sync().await.unwrap();
+
+        let input_file = NamedTempFile::new().unwrap();
+        let input_path = input_file.path();
+        write_to_file(input_path, groups).unwrap();
+
+        let output_file = NamedTempFile::new().unwrap();
+        let output_path = output_file.path();
+        let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
+        encrypt_history_file(input_path, output_path, encryption_key.as_bytes()).unwrap();
+
+        let mut file = File::open(output_path).unwrap();
+        let mut content = Vec::new();
+        file.read_to_end(&mut content).unwrap();
+
+        let _m = server
+            .mock("GET", "/upload")
+            .with_status(201)
+            .with_body(content)
+            .create();
+
+        let wallet = generate_local_wallet();
+        let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
+        amal_a.history_sync_url = Some(history_sync_url.clone());
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_b.allow_history_sync().await);
+        assert_ok!(amal_b.enable_history_sync().await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
         // amal_b sends a message history request to sync group messages
-        let _pin_code = amal_b
+        let (_group_id, _pin_code) = amal_b
             .send_history_request()
             .await
             .expect("history request");
@@ -744,13 +1034,7 @@ mod tests {
         amal_a_sync_group.sync(&amal_a).await.expect("sync");
 
         // amal_a builds and sends a message history reply back
-        let history_reply = HistoryReply::new(
-            "test",
-            "https://test.com/abc-123",
-            b"ABC123".into(),
-            HistoryKeyType::new_chacha20_poly1305_key(),
-            HistoryKeyType::new_chacha20_poly1305_key(),
-        );
+        let history_reply = HistoryReply::new(&new_request_id(), &history_sync_url, encryption_key);
         amal_a
             .send_history_reply(history_reply.into())
             .await
@@ -798,22 +1082,10 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
 
-        group_a
-            .send_message(b"hi", &amal_a)
-            .await
-            .expect("send message");
-        group_a
-            .send_message(b"hi x2", &amal_a)
-            .await
-            .expect("send message");
-        group_b
-            .send_message(b"hi", &amal_a)
-            .await
-            .expect("send message");
-        group_b
-            .send_message(b"hi x2", &amal_a)
-            .await
-            .expect("send message");
+        group_a.send_message(b"hi", &amal_a).await.expect("send");
+        group_a.send_message(b"hi x2", &amal_a).await.expect("send");
+        group_b.send_message(b"hi", &amal_a).await.expect("send");
+        group_b.send_message(b"hi x2", &amal_a).await.expect("send");
 
         let messages_result = amal_a.prepare_messages_to_sync().await.unwrap();
         assert_eq!(messages_result.len(), 4);
@@ -830,22 +1102,10 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
 
-        group_a
-            .send_message(b"hi", &amal_a)
-            .await
-            .expect("send message");
-        group_a
-            .send_message(b"hi", &amal_a)
-            .await
-            .expect("send message");
-        group_b
-            .send_message(b"hi", &amal_a)
-            .await
-            .expect("send message");
-        group_b
-            .send_message(b"hi", &amal_a)
-            .await
-            .expect("send message");
+        group_a.send_message(b"hi", &amal_a).await.expect("send");
+        group_a.send_message(b"hi", &amal_a).await.expect("send");
+        group_b.send_message(b"hi", &amal_a).await.expect("send");
+        group_b.send_message(b"hi", &amal_a).await.expect("send");
 
         let groups = amal_a.prepare_groups_to_sync().await.unwrap();
         let messages = amal_a.prepare_messages_to_sync().await.unwrap();
@@ -909,12 +1169,11 @@ mod tests {
 
         let _m = server
             .mock("POST", "/upload")
-            .with_status(200)
+            .with_status(201)
             .with_body("File uploaded")
             .create();
 
-        let signing_key = b"test_signing_key";
-        let file_content = b"test file content";
+        let file_content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'";
 
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(file_content).unwrap();
@@ -925,7 +1184,7 @@ mod tests {
             HISTORY_SERVER_HOST,
             HISTORY_SERVER_PORT + 1
         );
-        let result = upload_history_bundle(&url, file_path.into(), signing_key).await;
+        let result = upload_history_bundle(&url, file_path.into()).await;
 
         assert!(result.is_ok());
         _m.assert_async().await;
@@ -935,8 +1194,6 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_download_history_bundle() {
         let bundle_id = "test_bundle_id";
-        let hmac_value = "test_hmac_value";
-        let signing_key = HistoryKeyType::new_chacha20_poly1305_key();
         let options = mockito::ServerOpts {
             host: HISTORY_SERVER_HOST,
             port: HISTORY_SERVER_PORT,
@@ -954,7 +1211,7 @@ mod tests {
             "http://{}:{}/files/{bundle_id}",
             HISTORY_SERVER_HOST, HISTORY_SERVER_PORT
         );
-        let output_path = download_history_bundle(&url, hmac_value.into(), signing_key.into())
+        let output_path = download_history_bundle(&url)
             .await
             .expect("could not download history bundle");
 
@@ -966,9 +1223,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_prepare_history_reply() {
         let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_b.allow_history_sync().await);
+        assert_ok!(amal_b.enable_history_sync().await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
@@ -982,15 +1239,154 @@ mod tests {
         };
         let mut server = mockito::Server::new_with_opts_async(options).await;
 
-        let url = format!("http://{HISTORY_SERVER_HOST}:{port}/upload");
+        let url = format!("http://{HISTORY_SERVER_HOST}:{port}/");
         let _m = server
             .mock("POST", "/upload")
             .with_status(201)
             .with_body("encrypted_content")
             .create();
 
-        let reply = amal_a.prepare_history_reply(&request_id, &url).await;
+        amal_a.history_sync_url = Some(url);
+        let reply = amal_a.prepare_history_reply(&request_id).await;
         assert!(reply.is_ok());
+        _m.assert_async().await;
+        server.reset();
+    }
+
+    #[tokio::test]
+    async fn test_get_pending_history_request() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+
+        // enable history sync for the client
+        assert_ok!(amal_a.enable_history_sync().await);
+
+        // ensure there's no pending request initially
+        let initial_request = amal_a.get_pending_history_request().await;
+        assert!(initial_request.is_ok());
+        assert!(initial_request.unwrap().is_none());
+
+        // create a history request
+        let request = amal_a
+            .send_history_request()
+            .await
+            .expect("history request");
+
+        // check for the pending request
+        let pending_request = amal_a.get_pending_history_request().await;
+        assert!(pending_request.is_ok());
+        let pending = pending_request.unwrap();
+        assert!(pending.is_some());
+
+        let (request_id, pin_code) = pending.unwrap();
+        assert_eq!(request_id, request.0);
+        assert_eq!(pin_code, request.1);
+    }
+
+    #[tokio::test]
+    async fn test_get_latest_history_reply() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let amal_b = ClientBuilder::new_test_client(&wallet).await;
+
+        // enable history sync for both clients
+        assert_ok!(amal_a.enable_history_sync().await);
+        assert_ok!(amal_b.enable_history_sync().await);
+
+        // ensure there's no reply initially
+        let initial_reply = amal_b.get_latest_history_reply().await;
+        assert!(initial_reply.is_ok());
+        assert!(initial_reply.unwrap().is_none());
+
+        // amal_b sends a history request
+        let (request_id, _pin_code) = amal_b
+            .send_history_request()
+            .await
+            .expect("history request");
+
+        // sync amal_a
+        amal_a.sync_welcomes().await.expect("sync_welcomes");
+
+        // amal_a sends a reply
+        amal_a
+            .send_history_reply(MessageHistoryReply {
+                request_id: request_id.clone(),
+                url: "http://foo/bar".to_string(),
+                encryption_key: None,
+            })
+            .await
+            .expect("send reply");
+
+        // check latest reply for amal_b
+        let latest_reply = amal_b.get_latest_history_reply().await;
+        assert!(latest_reply.is_ok());
+        let received_reply = latest_reply.unwrap();
+        assert!(received_reply.is_some());
+
+        let received_reply = received_reply.unwrap();
+        assert_eq!(received_reply.request_id, request_id);
+    }
+
+    #[tokio::test]
+    async fn test_reply_to_history_request() {
+        let wallet = generate_local_wallet();
+        let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let amal_b = ClientBuilder::new_test_client(&wallet).await;
+
+        // enable history sync for both clients
+        assert_ok!(amal_a.enable_history_sync().await);
+        assert_ok!(amal_b.enable_history_sync().await);
+
+        // amal_b sends a history request
+        let (request_id, _pin_code) = amal_b
+            .send_history_request()
+            .await
+            .expect("history request");
+
+        // sync amal_a
+        amal_a.sync_welcomes().await.expect("sync_welcomes");
+
+        // start mock server
+        let options = mockito::ServerOpts {
+            host: HISTORY_SERVER_HOST,
+            port: HISTORY_SERVER_PORT + 3,
+            ..Default::default()
+        };
+        let mut server = mockito::Server::new_with_opts_async(options).await;
+
+        let _m = server
+            .mock("POST", "/upload")
+            .with_status(201)
+            .with_body("File uploaded")
+            .create();
+
+        let url = format!(
+            "http://{}:{}/",
+            HISTORY_SERVER_HOST,
+            HISTORY_SERVER_PORT + 3
+        );
+        amal_a.history_sync_url = Some(url);
+
+        // amal_a replies to the history request
+        let reply = amal_a.reply_to_history_request().await;
+        assert!(reply.is_ok());
+        let reply = reply.unwrap();
+
+        // verify the reply
+        assert_eq!(reply.request_id, request_id);
+        assert!(!reply.url.is_empty());
+        assert!(reply.encryption_key.is_some());
+
+        // check if amal_b received the reply
+        let received_reply = amal_b.get_latest_history_reply().await;
+        assert!(received_reply.is_ok());
+        let received_reply = received_reply.unwrap();
+        assert!(received_reply.is_some());
+        let received_reply = received_reply.unwrap();
+        assert_eq!(received_reply.request_id, request_id);
+        assert_eq!(received_reply.url, reply.url);
+        assert_eq!(received_reply.encryption_key, reply.encryption_key);
+
         _m.assert_async().await;
         server.reset();
     }
@@ -1023,11 +1419,49 @@ mod tests {
         assert!(inserted.is_ok());
     }
 
+    #[tokio::test]
+    async fn test_externals_cant_join_sync_group() {
+        let wallet = generate_local_wallet();
+        let amal = ClientBuilder::new_test_client(&wallet).await;
+        assert_ok!(amal.enable_history_sync().await);
+        amal.sync_welcomes().await.expect("sync welcomes");
+
+        let external_wallet = generate_local_wallet();
+        let external_client = ClientBuilder::new_test_client(&external_wallet).await;
+        assert_ok!(external_client.enable_history_sync().await);
+        external_client
+            .sync_welcomes()
+            .await
+            .expect("sync welcomes");
+
+        let amal_sync_groups = amal
+            .store()
+            .conn()
+            .unwrap()
+            .find_sync_groups()
+            .expect("find sync groups");
+        assert_eq!(amal_sync_groups.len(), 1);
+
+        // try to join amal's sync group
+        let sync_group_id = amal_sync_groups[0].id.clone();
+        let group = amal.group(sync_group_id).expect("get group");
+        let result = group
+            .add_members(&external_client, vec![external_wallet.get_address()])
+            .await;
+        assert!(result.is_err());
+    }
+
     #[test]
     fn test_new_pin() {
         let pin = new_pin();
         assert!(pin.chars().all(|c| c.is_numeric()));
         assert_eq!(pin.len(), 4);
+    }
+
+    #[test]
+    fn test_new_request_id() {
+        let request_id = new_request_id();
+        assert_eq!(request_id.len(), ENC_KEY_SIZE);
     }
 
     #[test]

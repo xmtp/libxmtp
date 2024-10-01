@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "mls_validation_service"
-version = "0.1.0"
+version.workspace = true
 
 [[bin]] # Bin to run the Validation Service
 name = "mls-validation-service"
@@ -9,35 +9,31 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.4.6", features = ["derive"] }
-env_logger = "0.10.0"
+ed25519-dalek = { workspace = true, features = ["digest"] }
+futures = { workspace = true }
 hex = { workspace = true }
-log = { workspace = true }
 openmls = { workspace = true }
 openmls_rust_crypto = { workspace = true }
 openmls_traits = { workspace = true }
 prost = { workspace = true, features = ["prost-derive"] }
 serde = { workspace = true }
-futures = { workspace = true }
+thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tonic = { workspace = true }
 warp = "0.3.6"
+xmtp_id.workspace = true
+xmtp_mls.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = [
     "proto_full",
-    "grpc",
-    "tonic",
     "convert",
 ] }
-xmtp_id.workspace = true
-xmtp_mls.workspace = true 
-thiserror.workspace = true
-ed25519-dalek = { workspace = true, features = ["digest"] }
-
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [dev-dependencies]
-ethers.workspace = true 
-rand = { workspace = true }
-xmtp_id = { workspace = true, features = ["test-utils"]}
 anyhow.workspace = true
-sha2.workspace = true
+ethers.workspace = true
 openmls_basic_credential = { workspace = true, features = ["test-utils"] }
-
+rand = { workspace = true }
+sha2.workspace = true
+xmtp_id = { workspace = true, features = ["test-utils"] }

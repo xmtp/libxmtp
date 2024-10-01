@@ -24,6 +24,8 @@ use xmtp_proto::xmtp::{
 use crate::{
     configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
     identity_updates::{InstallationDiff, InstallationDiffError},
+    retry::RetryableError,
+    retryable,
     storage::db_connection::DbConnection,
     Client, XmtpApi,
 };
@@ -34,7 +36,9 @@ use super::{
     group_mutable_metadata::{
         find_mutable_metadata_extension, GroupMutableMetadata, GroupMutableMetadataError,
     },
-    group_permissions::{extract_group_permissions, GroupMutablePermissionsError},
+    group_permissions::{
+        extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
+    },
 };
 
 #[derive(Debug, Error)]
@@ -80,6 +84,15 @@ pub enum CommitValidationError {
     GroupMutablePermissions(#[from] GroupMutablePermissionsError),
     #[error("PSKs are not support")]
     NoPSKSupport,
+}
+
+impl RetryableError for CommitValidationError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            CommitValidationError::InstallationDiff(diff_error) => retryable!(diff_error),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -182,11 +195,11 @@ impl MetadataFieldChange {
  * Commit Validation Rules:
  * 1. If the `sequence_id` for an inbox has changed, it can only increase
  * 2. The client must create an expected diff of installations added and removed based on the difference between the current
- * [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`]
+ *      [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`]
  * 3. Installations may only be added or removed in the commit if they were added/removed in the expected diff
  * 4. For updates (either updating a path or via an Update Proposal) clients must verify that the `installation_id` is
- * present in the [`AssociationState`] for the `inbox_id` presented in the credential at the `to_sequence_id` found in the
- * new [`GroupMembership`].
+ *      present in the [`AssociationState`] for the `inbox_id` presented in the credential at the `to_sequence_id` found in the
+ *      new [`GroupMembership`].
  * 5. All proposals in a commit must come from the same installation
  * 6. No PSK proposals will be allowed
  */
@@ -196,6 +209,7 @@ pub struct ValidatedCommit {
     pub added_inboxes: Vec<Inbox>,
     pub removed_inboxes: Vec<Inbox>,
     pub metadata_changes: MutableMetadataChanges,
+    pub permissions_changed: bool,
 }
 
 impl ValidatedCommit {
@@ -209,6 +223,7 @@ impl ValidatedCommit {
         let extensions = openmls_group.extensions();
         let immutable_metadata: GroupMetadata = extensions.try_into()?;
         let mutable_metadata: GroupMutableMetadata = extensions.try_into()?;
+        let group_permissions: GroupMutablePermissions = extensions.try_into()?;
         let current_group_members = get_current_group_members(openmls_group);
 
         let existing_group_context = openmls_group.export_group_context();
@@ -220,6 +235,9 @@ impl ValidatedCommit {
             existing_group_context,
             new_group_context,
         )?;
+
+        let permissions_changed =
+            extract_permissions_changed(&group_permissions, new_group_context)?;
         // Get the actor who created the commit.
         // Because we don't allow for multiple actors in a commit, this will error if two proposals come from different authors.
         let actor = extract_actor(
@@ -307,6 +325,7 @@ impl ValidatedCommit {
             added_inboxes,
             removed_inboxes,
             metadata_changes,
+            permissions_changed,
         };
 
         let policy_set = extract_group_permissions(openmls_group)?;
@@ -407,7 +426,7 @@ fn get_latest_group_membership(
             Proposal::GroupContextExtensions(group_context_extensions) => {
                 let new_group_membership: GroupMembership =
                     extract_group_membership(group_context_extensions.extensions())?;
-                log::info!(
+                tracing::info!(
                     "Group context extensions proposal found: {:?}",
                     new_group_membership
                 );
@@ -641,6 +660,16 @@ fn extract_metadata_changes(
     })
 }
 
+// Returns true if the permissions have changed, false otherwise
+fn extract_permissions_changed(
+    old_group_permissions: &GroupMutablePermissions,
+    new_group_context: &GroupContext,
+) -> Result<bool, CommitValidationError> {
+    let new_group_permissions: GroupMutablePermissions =
+        new_group_context.extensions().try_into()?;
+    Ok(!old_group_permissions.eq(&new_group_permissions))
+}
+
 fn get_added_members(
     old: &[String],
     new: &[String],
@@ -753,14 +782,15 @@ fn extract_actor(
         )?;
 
     // If there is both a path update and there are proposals we need to make sure that they are from the same actor
-    if path_update_leaf_node.is_some() && proposal_author_leaf_index.is_some() {
+    if let (Some(path_update_leaf_node), Some(proposal_author_leaf_index)) =
+        (path_update_leaf_node, proposal_author_leaf_index)
+    {
         let proposal_author = openmls_group
-            .member_at(*proposal_author_leaf_index.unwrap())
+            .member_at(*proposal_author_leaf_index)
             .ok_or(CommitValidationError::ActorCouldNotBeFound)?;
 
         // Verify that the signature keys are the same
         if path_update_leaf_node
-            .unwrap()
             .signature_key()
             .as_slice()
             .to_vec()
@@ -832,200 +862,204 @@ impl From<ValidatedCommit> for GroupUpdatedProto {
 }
 
 // TODO:nm bring these tests back in add/remove members PR
+/*
+#[cfg(test)]
+mod tests {
+    use openmls::{
+        credentials::{BasicCredential, CredentialWithKey},
+        extensions::ExtensionType,
+        messages::proposals::ProposalType,
+        prelude::Capabilities,
+        prelude_test::KeyPackage,
+    };
+    use xmtp_api_grpc::Client as GrpcClient;
+    use xmtp_cryptography::utils::generate_local_wallet;
 
-// #[cfg(test)]
-// mod tests {
-//     use openmls::{
-//         credentials::{BasicCredential, CredentialWithKey},
-//         extensions::ExtensionType,
-//         group::config::CryptoConfig,
-//         messages::proposals::ProposalType,
-//         prelude::Capabilities,
-//         prelude_test::KeyPackage,
-//         versions::ProtocolVersion,
-//     };
-//     use xmtp_api_grpc::Client as GrpcClient;
-//     use xmtp_cryptography::utils::generate_local_wallet;
+    use super::ValidatedCommit;
+    use crate::{
+        builder::ClientBuilder,
+        configuration::{
+            CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID,
+        },
+        Client,
+    };
 
-//     use super::ValidatedCommit;
-//     use crate::{
-//         builder::ClientBuilder,
-//         configuration::{
-//             CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID,
-//         },
-//         Client,
-//     };
+    fn get_key_package(client: &Client<GrpcClient>) -> KeyPackage {
+        client
+            .identity()
+            .new_key_package(client.mls_provider().unwrap())
+            .unwrap()
+    }
 
-//     fn get_key_package(client: &Client<GrpcClient>) -> KeyPackage {
-//         client
-//             .identity()
-//             .new_key_package(&client.mls_provider(client.store().conn().unwrap()))
-//             .unwrap()
-//     }
+    #[tokio::test]
+    async fn test_membership_changes() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_key_package = get_key_package(&bola);
 
-//     #[tokio::test]
-//     async fn test_membership_changes() {
-//         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-//         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-//         let bola_key_package = get_key_package(&bola);
+        let amal_group = amal.create_group(None, Default::default()).unwrap();
+        let amal_provider = amal.mls_provider().unwrap();
+        let mut mls_group = amal_group.load_mls_group(&amal_provider).unwrap();
+        // Create a pending commit to add bola to the group
+        mls_group
+            .add_members(
+                &amal_provider,
+                &amal.identity().installation_keys,
+                &[bola_key_package],
+            )
+            .unwrap();
 
-//         let amal_group = amal.create_group(None).unwrap();
-//         let amal_conn = amal.store().conn().unwrap();
-//         let amal_provider = amal.mls_provider(amal_conn);
-//         let mut mls_group = amal_group.load_mls_group(&amal_provider).unwrap();
-//         // Create a pending commit to add bola to the group
-//         mls_group
-//             .add_members(
-//                 &amal_provider,
-//                 &amal.identity().installation_keys,
-//                 &[bola_key_package],
-//             )
-//             .unwrap();
+        let mut staged_commit = mls_group.pending_commit().unwrap();
 
-//         let mut staged_commit = mls_group.pending_commit().unwrap();
+        let validated_commit = ValidatedCommit::from_staged_commit(
+            &amal,
+            amal_provider.conn_ref(),
+            staged_commit,
+            &mls_group,
+        )
+        .await
+        .unwrap();
 
-//         let validated_commit = ValidatedCommit::from_staged_commit(
-//             &amal.store().conn().unwrap(),
-//             staged_commit,
-//             &mls_group,
-//             &amal,
-//         )
-//         .await
-//         .unwrap();
+        assert_eq!(validated_commit.added_inboxes.len(), 1);
+        assert_eq!(validated_commit.added_inboxes[0].inbox_id, bola.inbox_id());
+        // Amal is the creator of the group and the actor
+        assert!(validated_commit.actor.is_creator);
+        // Bola is not the creator of the group
+        assert!(!validated_commit.added_inboxes[0].is_creator);
 
-//         assert_eq!(validated_commit.added_inboxes.len(), 1);
-//         assert_eq!(validated_commit.added_inboxes[0].inbox_id, bola.inbox_id());
-//         // Amal is the creator of the group and the actor
-//         assert!(validated_commit.actor.is_creator);
-//         // Bola is not the creator of the group
-//         assert!(!validated_commit.added_inboxes[0].is_creator);
+        // Merge the commit adding bola
+        mls_group.merge_pending_commit(&amal_provider).unwrap();
+        // Now we are going to remove bola
 
-//         // Merge the commit adding bola
-//         mls_group.merge_pending_commit(&amal_provider).unwrap();
-//         // Now we are going to remove bola
+        let bola_leaf_node = mls_group
+            .members()
+            .find(|m| {
+                m.signature_key
+                    .eq(&bola.identity().installation_keys.public())
+            })
+            .unwrap()
+            .index;
+        mls_group
+            .remove_members(
+                &amal_provider,
+                &amal.identity().installation_keys,
+                &[bola_leaf_node],
+            )
+            .unwrap();
 
-//         let bola_leaf_node = mls_group
-//             .members()
-//             .find(|m| {
-//                 m.signature_key
-//                     .eq(&bola.identity.installation_keys.public())
-//             })
-//             .unwrap()
-//             .index;
-//         mls_group
-//             .remove_members(
-//                 &amal_provider,
-//                 &amal.identity.installation_keys,
-//                 &[bola_leaf_node],
-//             )
-//             .unwrap();
+        staged_commit = mls_group.pending_commit().unwrap();
+        let remove_message = ValidatedCommit::from_staged_commit(
+            &amal,
+            amal_provider.conn_ref(),
+            staged_commit,
+            &mls_group,
+        )
+        .await
+        .unwrap();
 
-//         staged_commit = mls_group.pending_commit().unwrap();
-//         let remove_message = ValidatedCommit::from_staged_commit(staged_commit, &mls_group)
-//             .unwrap()
-//             .unwrap();
+        assert_eq!(remove_message.removed_inboxes.len(), 1);
+    }
 
-//         assert_eq!(remove_message.members_removed.len(), 1);
-//         assert_eq!(remove_message.installations_removed.len(), 0);
-//     }
+    #[tokio::test]
+    async fn test_installation_changes() {
+        let wallet = generate_local_wallet();
+        let amal_1 = ClientBuilder::new_test_client(&wallet).await;
+        let amal_2 = ClientBuilder::new_test_client(&wallet).await;
 
-//     #[tokio::test]
-//     async fn test_installation_changes() {
-//         let wallet = generate_local_wallet();
-//         let amal_1 = ClientBuilder::new_test_client(&wallet).await;
-//         let amal_2 = ClientBuilder::new_test_client(&wallet).await;
+        let amal_1_provider = amal_1.mls_provider().unwrap();
+        let amal_2_provider = amal_2.mls_provider().unwrap();
 
-//         let amal_1_conn = amal_1.store().conn().unwrap();
-//         let amal_2_conn = amal_2.store().conn().unwrap();
+        let amal_group = amal_1.create_group(None, Default::default()).unwrap();
+        let mut amal_mls_group = amal_group.load_mls_group(&amal_1_provider).unwrap();
 
-//         let amal_1_provider = amal_1().mls_provider(&amal_1_conn);
-//         let amal_2_provider = amal_2().mls_provider(&amal_2_conn);
+        let amal_2_kp = amal_2.identity().new_key_package(&amal_2_provider).unwrap();
 
-//         let amal_group = amal_1.create_group(None).unwrap();
-//         let mut amal_mls_group = amal_group.load_mls_group(&amal_1_provider).unwrap();
+        // Add Amal's second installation to the existing group
+        amal_mls_group
+            .add_members(
+                &amal_1_provider,
+                &amal_1.identity().installation_keys,
+                &[amal_2_kp],
+            )
+            .unwrap();
 
-//         let amal_2_kp = amal_2.identity.new_key_package(&amal_2_provider).unwrap();
+        let staged_commit = amal_mls_group.pending_commit().unwrap();
 
-//         // Add Amal's second installation to the existing group
-//         amal_mls_group
-//             .add_members(
-//                 &amal_1_provider,
-//                 &amal_1.identity.installation_keys,
-//                 &[amal_2_kp],
-//             )
-//             .unwrap();
+        let validated_commit = ValidatedCommit::from_staged_commit(
+            &amal_1,
+            amal_1_provider.conn_ref(),
+            staged_commit,
+            &amal_mls_group,
+        )
+        .await
+        .unwrap();
 
-//         let staged_commit = amal_mls_group.pending_commit().unwrap();
+        assert_eq!(validated_commit.added_inboxes.len(), 1);
+        assert_eq!(
+            validated_commit.added_inboxes[0].inbox_id,
+            amal_2.inbox_id()
+        )
+    }
 
-//         let validated_commit = ValidatedCommit::from_staged_commit(staged_commit, &amal_mls_group)
-//             .unwrap()
-//             .unwrap();
+    #[tokio::test]
+    async fn test_bad_key_package() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-//         assert_eq!(validated_commit.installations_added.len(), 1);
-//         assert_eq!(
-//             validated_commit.installations_added[0].installation_ids[0],
-//             amal_2.installation_public_key()
-//         )
-//     }
+        let amal_provider = amal.mls_provider().unwrap();
+        let bola_provider = bola.mls_provider().unwrap();
 
-//     #[tokio::test]
-//     async fn test_bad_key_package() {
-//         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-//         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let amal_group = amal.create_group(None, Default::default()).unwrap();
+        let mut amal_mls_group = amal_group.load_mls_group(&amal_provider).unwrap();
 
-//         let amal_conn = amal.store.conn().unwrap();
-//         let bola_conn = bola.store.conn().unwrap();
+        let capabilities = Capabilities::new(
+            None,
+            Some(&[CIPHERSUITE]),
+            Some(&[
+                ExtensionType::LastResort,
+                ExtensionType::ApplicationId,
+                ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
+                ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
+                ExtensionType::ImmutableMetadata,
+            ]),
+            Some(&[ProposalType::GroupContextExtensions]),
+            None,
+        );
 
-//         let amal_provider = amal.mls_provider(&amal_conn);
-//         let bola_provider = bola.mls_provider(&bola_conn);
+        // Create a key package with a malformed credential
+        let bad_key_package = KeyPackage::builder()
+            .leaf_node_capabilities(capabilities)
+            .build(
+                CIPHERSUITE,
+                &bola_provider,
+                &bola.identity().installation_keys,
+                CredentialWithKey {
+                    // Broken credential
+                    credential: BasicCredential::new(vec![1, 2, 3]).into(),
+                    signature_key: bola.identity().installation_keys.to_public_vec().into(),
+                },
+            )
+            .unwrap();
 
-//         let amal_group = amal.create_group(None).unwrap();
-//         let mut amal_mls_group = amal_group.load_mls_group(&amal_provider).unwrap();
+        amal_mls_group
+            .add_members(
+                &amal_provider,
+                &amal.identity().installation_keys,
+                &[bad_key_package.key_package().clone()],
+            )
+            .unwrap();
 
-//         let capabilities = Capabilities::new(
-//             None,
-//             Some(&[CIPHERSUITE]),
-//             Some(&[
-//                 ExtensionType::LastResort,
-//                 ExtensionType::ApplicationId,
-//                 ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
-//                 ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
-//                 ExtensionType::ImmutableMetadata,
-//             ]),
-//             Some(&[ProposalType::GroupContextExtensions]),
-//             None,
-//         );
+        let staged_commit = amal_mls_group.pending_commit().unwrap();
 
-//         // Create a key package with a malformed credential
-//         let bad_key_package = KeyPackage::builder()
-//             .leaf_node_capabilities(capabilities)
-//             .build(
-//                 CryptoConfig {
-//                     ciphersuite: CIPHERSUITE,
-//                     version: ProtocolVersion::default(),
-//                 },
-//                 &bola_provider,
-//                 &bola.identity.installation_keys,
-//                 CredentialWithKey {
-//                     // Broken credential
-//                     credential: BasicCredential::new(vec![1, 2, 3]).unwrap().into(),
-//                     signature_key: bola.identity.installation_keys.to_public_vec().into(),
-//                 },
-//             )
-//             .unwrap();
+        let validated_commit = ValidatedCommit::from_staged_commit(
+            &amal,
+            amal_provider.conn_ref(),
+            staged_commit,
+            &amal_mls_group,
+        )
+        .await;
 
-//         amal_mls_group
-//             .add_members(
-//                 &amal_provider,
-//                 &amal.identity.installation_keys,
-//                 &[bad_key_package],
-//             )
-//             .unwrap();
-
-//         let staged_commit = amal_mls_group.pending_commit().unwrap();
-
-//         let validated_commit = ValidatedCommit::from_staged_commit(staged_commit, &amal_mls_group);
-
-//         assert!(validated_commit.is_err());
-//     }
-// }
+        assert!(validated_commit.is_err());
+    }
+}
+*/

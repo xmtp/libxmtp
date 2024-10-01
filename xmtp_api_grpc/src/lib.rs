@@ -5,7 +5,7 @@ mod identity;
 pub const LOCALHOST_ADDRESS: &str = "http://localhost:5556";
 pub const DEV_ADDRESS: &str = "https://grpc.dev.xmtp.network:443";
 
-pub use grpc_api_helper::Client;
+pub use grpc_api_helper::{Client, GroupMessageStream, WelcomeMessageStream};
 
 #[cfg(test)]
 mod tests {
@@ -15,6 +15,7 @@ mod tests {
 
     use super::*;
     use futures::StreamExt;
+    use xmtp_proto::api_client::ClientWithMetadata;
     use xmtp_proto::{
         api_client::{MutableApiSubscription, XmtpApiClient, XmtpApiSubscription},
         xmtp::message_api::v1::{
@@ -52,7 +53,9 @@ mod tests {
             .await
             .unwrap();
 
-        client.set_app_version("test/0.1.0".to_string());
+        client
+            .set_app_version("test/0.1.0".to_string())
+            .expect("failed to set app version");
 
         let result = client
             .query(QueryRequest {
@@ -300,5 +303,38 @@ mod tests {
         })
         .await
         .expect("Timed out");
+    }
+
+    #[tokio::test]
+    async fn metadata_test() {
+        let mut client = Client::create(DEV_ADDRESS.to_string(), true).await.unwrap();
+        let app_version = "test/1.0.0".to_string();
+        let libxmtp_version = "0.0.1".to_string();
+
+        client.set_app_version(app_version.clone()).unwrap();
+        client.set_libxmtp_version(libxmtp_version.clone()).unwrap();
+
+        let request = client.build_request(PublishRequest { envelopes: vec![] });
+
+        assert_eq!(
+            request
+                .metadata()
+                .get("x-app-version")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string(),
+            app_version
+        );
+        assert_eq!(
+            request
+                .metadata()
+                .get("x-libxmtp-version")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string(),
+            libxmtp_version
+        );
     }
 }

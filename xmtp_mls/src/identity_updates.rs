@@ -1,13 +1,24 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::storage::association_state::StoredAssociationState;
-use prost::Message;
+use crate::{
+    retry::{Retry, RetryableError},
+    retry_async, retryable,
+    storage::association_state::StoredAssociationState,
+};
+use futures::future::try_join_all;
 use thiserror::Error;
-use xmtp_id::associations::{
-    apply_update,
-    builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
-    generate_inbox_id, get_state, AssociationError, AssociationState, AssociationStateDiff,
-    IdentityUpdate, InstallationKeySignature, MemberIdentifier,
+use xmtp_id::{
+    associations::{
+        apply_update,
+        builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
+        generate_inbox_id, get_state,
+        unverified::{
+            UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature, UnverifiedSignature,
+        },
+        AssociationError, AssociationState, AssociationStateDiff, IdentityUpdate, MemberIdentifier,
+        SignatureError,
+    },
+    scw_verifier::SmartContractSignatureVerifier,
 };
 
 use crate::{
@@ -34,6 +45,14 @@ pub struct InstallationDiff {
 pub enum InstallationDiffError {
     #[error(transparent)]
     Client(#[from] ClientError),
+}
+
+impl RetryableError for InstallationDiffError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            InstallationDiffError::Client(client_error) => retryable!(client_error),
+        }
+    }
 }
 
 impl<'a, ApiClient> Client<ApiClient>
@@ -71,6 +90,24 @@ where
         Ok(needs_update)
     }
 
+    pub async fn batch_get_association_state<InboxId: AsRef<str>>(
+        &self,
+        conn: &DbConnection,
+        identifiers: &[(InboxId, Option<i64>)],
+    ) -> Result<Vec<AssociationState>, ClientError> {
+        let association_states = try_join_all(
+            identifiers
+                .iter()
+                .map(|(inbox_id, to_sequence_id)| {
+                    self.get_association_state(conn, inbox_id, *to_sequence_id)
+                })
+                .collect::<Vec<_>>(),
+        )
+        .await?;
+
+        Ok(association_states)
+    }
+
     pub async fn get_latest_association_state<InboxId: AsRef<str>>(
         &self,
         conn: &DbConnection,
@@ -94,22 +131,29 @@ where
             .last()
             .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
             .sequence_id;
-        if to_sequence_id.is_some() && to_sequence_id != Some(last_sequence_id) {
-            return Err(AssociationError::MissingIdentityUpdate.into());
+        if let Some(to_sequence_id) = to_sequence_id {
+            if to_sequence_id != last_sequence_id {
+                return Err(AssociationError::MissingIdentityUpdate.into());
+            }
         }
 
         if let Some(association_state) =
             StoredAssociationState::read_from_cache(conn, inbox_id.to_string(), last_sequence_id)?
         {
-            log::debug!("Loaded association state from cache");
             return Ok(association_state);
         }
 
-        let updates = updates
+        let unverified_updates = updates
             .into_iter()
-            .map(IdentityUpdate::try_from)
-            .collect::<Result<Vec<IdentityUpdate>, AssociationError>>()?;
-        let association_state = get_state(updates).await?;
+            .map(UnverifiedIdentityUpdate::try_from)
+            .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
+        let updates = verify_updates(
+            unverified_updates,
+            self.smart_contract_signature_verifier().as_ref(),
+        )
+        .await?;
+
+        let association_state = get_state(updates)?;
 
         StoredAssociationState::write_to_cache(
             conn,
@@ -117,7 +161,6 @@ where
             last_sequence_id,
             association_state.clone(),
         )?;
-        log::debug!("Wrote association state to cache");
 
         Ok(association_state)
     }
@@ -129,6 +172,12 @@ where
         starting_sequence_id: Option<i64>,
         ending_sequence_id: Option<i64>,
     ) -> Result<AssociationStateDiff, ClientError> {
+        tracing::debug!(
+            "Computing diff for {:?} from {:?} to {:?}",
+            inbox_id.as_ref(),
+            starting_sequence_id,
+            ending_sequence_id
+        );
         if starting_sequence_id.is_none() {
             return Ok(self
                 .get_association_state(conn, inbox_id.as_ref(), ending_sequence_id)
@@ -140,15 +189,45 @@ where
             .get_association_state(conn, inbox_id.as_ref(), starting_sequence_id)
             .await?;
 
-        let incremental_updates = conn
-            .get_identity_updates(inbox_id, starting_sequence_id, ending_sequence_id)?
+        let incremental_updates =
+            conn.get_identity_updates(inbox_id.as_ref(), starting_sequence_id, ending_sequence_id)?;
+
+        let last_sequence_id = incremental_updates.last().map(|update| update.sequence_id);
+        if ending_sequence_id.is_some()
+            && last_sequence_id.is_some()
+            && last_sequence_id != ending_sequence_id
+        {
+            tracing::error!(
+                "Did not find the expected last sequence id. Expected: {:?}, Found: {:?}",
+                ending_sequence_id,
+                last_sequence_id
+            );
+            return Err(AssociationError::MissingIdentityUpdate.into());
+        }
+
+        let unverified_incremental_updates: Vec<UnverifiedIdentityUpdate> = incremental_updates
             .into_iter()
             .map(|update| update.try_into())
-            .collect::<Result<Vec<IdentityUpdate>, AssociationError>>()?;
+            .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
 
+        let incremental_updates = verify_updates(
+            unverified_incremental_updates,
+            self.smart_contract_signature_verifier().as_ref(),
+        )
+        .await?;
         let mut final_state = initial_state.clone();
         for update in incremental_updates {
-            final_state = apply_update(final_state, update).await?;
+            final_state = apply_update(final_state, update)?;
+        }
+
+        tracing::debug!("Final state at {:?}: {:?}", last_sequence_id, final_state);
+        if let Some(last_sequence_id) = last_sequence_id {
+            StoredAssociationState::write_to_cache(
+                conn,
+                inbox_id.as_ref().to_string(),
+                last_sequence_id,
+                final_state.clone(),
+            )?;
         }
 
         Ok(initial_state.diff(&final_state))
@@ -170,14 +249,19 @@ where
             .add_association(installation_public_key.to_vec().into(), member_identifier)
             .build();
 
+        let sig_bytes = self
+            .identity()
+            .sign(signature_request.signature_text())?
+            .to_vec();
         // We can pre-sign the request with an installation key signature, since we have access to the key
         signature_request
-            .add_signature(Box::new(InstallationKeySignature::new(
-                signature_request.signature_text(),
-                // TODO: Move this to a method on the new identity
-                self.identity().sign(signature_request.signature_text())?,
-                self.installation_public_key(),
-            )))
+            .add_signature(
+                UnverifiedSignature::InstallationKey(UnverifiedInstallationKeySignature::new(
+                    sig_bytes,
+                    installation_public_key.to_vec(),
+                )),
+                self.smart_contract_signature_verifier().as_ref(),
+            )
             .await?;
 
         Ok(signature_request)
@@ -185,11 +269,11 @@ where
 
     pub fn associate_wallet(
         &self,
-        // TODO: Replace this argument with a value stored on the client
-        inbox_id: String,
         existing_wallet_address: String,
         new_wallet_address: String,
     ) -> Result<SignatureRequest, ClientError> {
+        tracing::info!("Associating new wallet with inbox_id {}", self.inbox_id());
+        let inbox_id = self.inbox_id();
         let builder = SignatureRequestBuilder::new(inbox_id);
 
         Ok(builder
@@ -197,22 +281,54 @@ where
             .build())
     }
 
-    pub async fn revoke_wallet(
+    pub async fn revoke_wallets(
         &self,
-        inbox_id: String,
-        wallet_to_revoke: String,
+        wallets_to_revoke: Vec<String>,
     ) -> Result<SignatureRequest, ClientError> {
-        let current_state = self
-            .get_association_state(&self.store().conn()?, &inbox_id, None)
-            .await?;
-        let builder = SignatureRequestBuilder::new(inbox_id);
+        let inbox_id = self.inbox_id();
+        let current_state = retry_async!(
+            Retry::default(),
+            (async {
+                self.get_association_state(&self.store().conn()?, &inbox_id, None)
+                    .await
+            })
+        )?;
+        let mut builder = SignatureRequestBuilder::new(inbox_id);
 
-        Ok(builder
-            .revoke_association(
+        for wallet in wallets_to_revoke {
+            builder = builder.revoke_association(
                 current_state.recovery_address().clone().into(),
-                wallet_to_revoke.into(),
+                wallet.into(),
             )
-            .build())
+        }
+
+        Ok(builder.build())
+    }
+
+    pub async fn revoke_installations(
+        &self,
+        installation_ids: Vec<Vec<u8>>,
+    ) -> Result<SignatureRequest, ClientError> {
+        let inbox_id = self.inbox_id();
+
+        let current_state = retry_async!(
+            Retry::default(),
+            (async {
+                self.get_association_state(&self.store().conn()?, &inbox_id, None)
+                    .await
+            })
+        )?;
+
+        let mut builder = SignatureRequestBuilder::new(inbox_id);
+
+        for installation_id in installation_ids {
+            builder = builder.revoke_association(
+                current_state.recovery_address().clone().into(),
+                installation_id.into(),
+            )
+        }
+
+        Ok(builder.build())
     }
 
     pub async fn apply_signature_request(
@@ -231,7 +347,17 @@ where
             .await?;
 
         // Load the identity updates for the inbox so that we have a record in our DB
-        load_identity_updates(&self.api_client, &self.store().conn()?, vec![inbox_id]).await?;
+        retry_async!(
+            Retry::default(),
+            (async {
+                load_identity_updates(
+                    &self.api_client,
+                    &self.store().conn()?,
+                    vec![inbox_id.clone()],
+                )
+                .await
+            })
+        )?;
 
         Ok(())
     }
@@ -245,7 +371,7 @@ where
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
     ) -> Result<InstallationDiff, InstallationDiffError> {
-        log::info!(
+        tracing::info!(
             "Getting installation diff. Old: {:?}. New {:?}",
             old_group_membership,
             new_group_membership
@@ -327,6 +453,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
     if inbox_ids.is_empty() {
         return Ok(HashMap::new());
     }
+    tracing::debug!("Fetching identity updates for: {:?}", inbox_ids);
 
     let existing_sequence_ids = conn.get_latest_sequence_id(&inbox_ids)?;
     let filters: Vec<GetIdentityUpdatesV2Filter> = inbox_ids
@@ -350,7 +477,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
                 inbox_id: inbox_id.clone(),
                 sequence_id: update.sequence_id as i64,
                 server_timestamp_ns: update.server_timestamp_ns as i64,
-                payload: update.update.to_proto().encode_to_vec(),
+                payload: update.update.into(),
             })
         })
         .collect::<Vec<StoredIdentityUpdate>>();
@@ -359,13 +486,26 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
     Ok(updates)
 }
 
+async fn verify_updates(
+    updates: Vec<UnverifiedIdentityUpdate>,
+    scw_verifier: &dyn SmartContractSignatureVerifier,
+) -> Result<Vec<IdentityUpdate>, SignatureError> {
+    try_join_all(
+        updates
+            .iter()
+            .map(|update| update.to_verified(scw_verifier)),
+    )
+    .await
+}
+
 #[cfg(test)]
-mod tests {
-    use ethers::signers::LocalWallet;
-    use tracing_test::traced_test;
+pub(crate) mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{
-        associations::{builder::SignatureRequest, AssociationState, RecoverableEcdsaSignature},
+        associations::{
+            builder::SignatureRequest, test_utils::add_wallet_signature, AssociationState,
+            MemberIdentifier,
+        },
         InboxOwner,
     };
 
@@ -379,21 +519,6 @@ mod tests {
     };
 
     use super::load_identity_updates;
-
-    async fn sign_with_wallet(wallet: &LocalWallet, signature_request: &mut SignatureRequest) {
-        let wallet_signature: Vec<u8> = wallet
-            .sign(signature_request.signature_text().as_str())
-            .unwrap()
-            .into();
-
-        signature_request
-            .add_signature(Box::new(RecoverableEcdsaSignature::new(
-                signature_request.signature_text(),
-                wallet_signature,
-            )))
-            .await
-            .unwrap();
-    }
 
     async fn get_association_state<ApiClient>(
         client: &Client<ApiClient>,
@@ -433,7 +558,7 @@ mod tests {
             .unwrap();
         let inbox_id = signature_request.inbox_id();
 
-        sign_with_wallet(&wallet, &mut signature_request).await;
+        add_wallet_signature(&mut signature_request, &wallet).await;
 
         client
             .apply_signature_request(signature_request)
@@ -455,109 +580,84 @@ mod tests {
         let wallet_2_address = wallet_2.get_address();
         let client = ClientBuilder::new_test_client(&wallet).await;
 
-        let mut signature_request: SignatureRequest = client
-            .create_inbox(wallet_address.clone(), None)
-            .await
-            .unwrap();
-        let inbox_id = signature_request.inbox_id();
-
-        sign_with_wallet(&wallet, &mut signature_request).await;
-
-        client
-            .apply_signature_request(signature_request)
-            .await
-            .unwrap();
-
         let mut add_association_request = client
-            .associate_wallet(
-                inbox_id.clone(),
-                wallet_address.clone(),
-                wallet_2_address.clone(),
-            )
+            .associate_wallet(wallet_address.clone(), wallet_2_address.clone())
             .unwrap();
 
-        sign_with_wallet(&wallet, &mut add_association_request).await;
-        sign_with_wallet(&wallet_2, &mut add_association_request).await;
+        add_wallet_signature(&mut add_association_request, &wallet).await;
+        add_wallet_signature(&mut add_association_request, &wallet_2).await;
 
         client
             .apply_signature_request(add_association_request)
             .await
             .unwrap();
 
-        let association_state = get_association_state(&client, inbox_id.clone()).await;
+        let association_state = get_association_state(&client, client.inbox_id()).await;
+
+        let members =
+            association_state.members_by_parent(&MemberIdentifier::Address(wallet_address.clone()));
+        // Those members should have timestamps
+        for member in members {
+            assert!(member.client_timestamp_ns.is_some());
+        }
 
         assert_eq!(association_state.members().len(), 3);
         assert_eq!(association_state.recovery_address(), &wallet_address);
         assert!(association_state.get(&wallet_2_address.into()).is_some());
     }
 
-    #[tokio::test]
-    #[traced_test]
-    async fn cache_association_state() {
-        let wallet = generate_local_wallet();
-        let wallet_2 = generate_local_wallet();
-        let wallet_address = wallet.get_address();
-        let wallet_2_address = wallet_2.get_address();
-        let client = ClientBuilder::new_test_client(&wallet).await;
+    #[test]
+    fn cache_association_state() {
+        crate::traced_test(|| async {
+            let wallet = generate_local_wallet();
+            let wallet_2 = generate_local_wallet();
+            let wallet_address = wallet.get_address();
+            let wallet_2_address = wallet_2.get_address();
+            let client = ClientBuilder::new_test_client(&wallet).await;
+            let inbox_id = client.inbox_id();
 
-        let mut signature_request: SignatureRequest = client
-            .create_inbox(wallet_address.clone(), None)
-            .await
-            .unwrap();
-        let inbox_id = signature_request.inbox_id();
+            get_association_state(&client, inbox_id.clone()).await;
 
-        sign_with_wallet(&wallet, &mut signature_request).await;
+            assert_logged!("Loaded association", 0);
+            assert_logged!("Wrote association", 1);
 
-        client
-            .apply_signature_request(signature_request)
-            .await
-            .unwrap();
+            let association_state = get_association_state(&client, inbox_id.clone()).await;
 
-        get_association_state(&client, inbox_id.clone()).await;
+            assert_eq!(association_state.members().len(), 2);
+            assert_eq!(association_state.recovery_address(), &wallet_address);
+            assert!(association_state
+                .get(&wallet_address.clone().into())
+                .is_some());
 
-        assert_logged!("Loaded association", 0);
-        assert_logged!("Wrote association", 1);
+            assert_logged!("Loaded association", 1);
+            assert_logged!("Wrote association", 1);
 
-        let association_state = get_association_state(&client, inbox_id.clone()).await;
+            let mut add_association_request = client
+                .associate_wallet(wallet_address.clone(), wallet_2_address.clone())
+                .unwrap();
 
-        assert_eq!(association_state.members().len(), 2);
-        assert_eq!(association_state.recovery_address(), &wallet_address);
-        assert!(association_state
-            .get(&wallet_address.clone().into())
-            .is_some());
+            add_wallet_signature(&mut add_association_request, &wallet).await;
+            add_wallet_signature(&mut add_association_request, &wallet_2).await;
 
-        assert_logged!("Loaded association", 1);
-        assert_logged!("Wrote association", 1);
+            client
+                .apply_signature_request(add_association_request)
+                .await
+                .unwrap();
 
-        let mut add_association_request = client
-            .associate_wallet(
-                inbox_id.clone(),
-                wallet_address.clone(),
-                wallet_2_address.clone(),
-            )
-            .unwrap();
+            get_association_state(&client, inbox_id.clone()).await;
 
-        sign_with_wallet(&wallet, &mut add_association_request).await;
-        sign_with_wallet(&wallet_2, &mut add_association_request).await;
+            assert_logged!("Loaded association", 1);
+            assert_logged!("Wrote association", 2);
 
-        client
-            .apply_signature_request(add_association_request)
-            .await
-            .unwrap();
+            let association_state = get_association_state(&client, inbox_id.clone()).await;
 
-        get_association_state(&client, inbox_id.clone()).await;
+            assert_logged!("Loaded association", 2);
+            assert_logged!("Wrote association", 2);
 
-        assert_logged!("Loaded association", 1);
-        assert_logged!("Wrote association", 2);
-
-        let association_state = get_association_state(&client, inbox_id.clone()).await;
-
-        assert_logged!("Loaded association", 2);
-        assert_logged!("Wrote association", 2);
-
-        assert_eq!(association_state.members().len(), 3);
-        assert_eq!(association_state.recovery_address(), &wallet_address);
-        assert!(association_state.get(&wallet_2_address.into()).is_some());
+            assert_eq!(association_state.members().len(), 3);
+            assert_eq!(association_state.recovery_address(), &wallet_address);
+            assert!(association_state.get(&wallet_2_address.into()).is_some());
+        });
     }
 
     #[tokio::test]
@@ -605,18 +705,18 @@ mod tests {
             let inbox_id = signature_request.inbox_id();
             inbox_ids.push(inbox_id.clone());
 
-            sign_with_wallet(&wallet, &mut signature_request).await;
+            add_wallet_signature(&mut signature_request, &wallet).await;
             client
                 .apply_signature_request(signature_request)
                 .await
                 .unwrap();
             let new_wallet = generate_local_wallet();
             let mut add_association_request = client
-                .associate_wallet(inbox_id, wallet.get_address(), new_wallet.get_address())
+                .associate_wallet(wallet.get_address(), new_wallet.get_address())
                 .unwrap();
 
-            sign_with_wallet(&wallet, &mut add_association_request).await;
-            sign_with_wallet(&new_wallet, &mut add_association_request).await;
+            add_wallet_signature(&mut add_association_request, &wallet).await;
+            add_wallet_signature(&mut add_association_request, &new_wallet).await;
 
             client
                 .apply_signature_request(add_association_request)
@@ -683,5 +783,87 @@ mod tests {
         assert!(installation_diff
             .removed_installations
             .contains(&client_2_installation_key));
+    }
+
+    #[tokio::test]
+    pub async fn revoke_wallet() {
+        let recovery_wallet = generate_local_wallet();
+        let second_wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(&recovery_wallet).await;
+
+        let mut add_wallet_signature_request = client
+            .associate_wallet(recovery_wallet.get_address(), second_wallet.get_address())
+            .unwrap();
+
+        add_wallet_signature(&mut add_wallet_signature_request, &recovery_wallet).await;
+        add_wallet_signature(&mut add_wallet_signature_request, &second_wallet).await;
+
+        client
+            .apply_signature_request(add_wallet_signature_request)
+            .await
+            .unwrap();
+
+        let association_state_after_add = get_association_state(&client, client.inbox_id()).await;
+        assert_eq!(association_state_after_add.account_addresses().len(), 2);
+
+        // Make sure the inbox ID is correctly registered
+        let inbox_ids = client
+            .api_client
+            .get_inbox_ids(vec![second_wallet.get_address()])
+            .await
+            .unwrap();
+        assert_eq!(inbox_ids.len(), 1);
+
+        // Now revoke the second wallet
+
+        let mut revoke_signature_request = client
+            .revoke_wallets(vec![second_wallet.get_address()])
+            .await
+            .unwrap();
+        add_wallet_signature(&mut revoke_signature_request, &recovery_wallet).await;
+
+        client
+            .apply_signature_request(revoke_signature_request)
+            .await
+            .unwrap();
+
+        // Make sure that the association state has removed the second wallet
+        let association_state_after_revoke =
+            get_association_state(&client, client.inbox_id()).await;
+        assert_eq!(association_state_after_revoke.account_addresses().len(), 1);
+
+        // Make sure the inbox ID is correctly unregistered
+        let inbox_ids = client
+            .api_client
+            .get_inbox_ids(vec![second_wallet.get_address()])
+            .await
+            .unwrap();
+        assert_eq!(inbox_ids.len(), 0);
+    }
+
+    #[tokio::test]
+    pub async fn revoke_installation() {
+        let wallet = generate_local_wallet();
+        let client1 = ClientBuilder::new_test_client(&wallet).await;
+        let client2 = ClientBuilder::new_test_client(&wallet).await;
+
+        let association_state = get_association_state(&client1, client1.inbox_id()).await;
+        // Ensure there are two installations on the inbox
+        assert_eq!(association_state.installation_ids().len(), 2);
+
+        // Now revoke the second client
+        let mut revoke_installation_request = client1
+            .revoke_installations(vec![client2.installation_public_key()])
+            .await
+            .unwrap();
+        add_wallet_signature(&mut revoke_installation_request, &wallet).await;
+        client1
+            .apply_signature_request(revoke_installation_request)
+            .await
+            .unwrap();
+
+        // Make sure there is only one installation on the inbox
+        let association_state = get_association_state(&client1, client1.inbox_id()).await;
+        assert_eq!(association_state.installation_ids().len(), 1);
     }
 }

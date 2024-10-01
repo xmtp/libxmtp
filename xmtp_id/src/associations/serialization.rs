@@ -1,26 +1,26 @@
 use std::collections::{HashMap, HashSet};
 
 use super::{
-    association_log::{
-        Action, AddAssociation, ChangeRecoveryAddress, CreateInbox, RevokeAssociation,
-    },
     member::Member,
-    signature::{
-        AccountId, InstallationKeySignature, LegacyDelegatedSignature, RecoverableEcdsaSignature,
-        SmartContractWalletSignature, ValidatedLegacySignedPublicKey,
-    },
+    signature::{AccountId, ValidatedLegacySignedPublicKey},
     state::{AssociationState, AssociationStateDiff},
     unsigned_actions::{
-        SignatureTextCreator, UnsignedAction, UnsignedAddAssociation,
-        UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
+        UnsignedAddAssociation, UnsignedChangeRecoveryAddress, UnsignedCreateInbox,
         UnsignedRevokeAssociation,
     },
-    IdentityUpdate, MemberIdentifier, Signature, SignatureError,
+    unverified::{
+        UnverifiedAction, UnverifiedAddAssociation, UnverifiedChangeRecoveryAddress,
+        UnverifiedCreateInbox, UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature,
+        UnverifiedLegacyDelegatedSignature, UnverifiedRecoverableEcdsaSignature,
+        UnverifiedRevokeAssociation, UnverifiedSignature, UnverifiedSmartContractWalletSignature,
+    },
+    verified_signature::VerifiedSignature,
+    MemberIdentifier, SignatureError,
 };
 use prost::{DecodeError, Message};
 use regex::Regex;
 use thiserror::Error;
-use xmtp_cryptography::signature::{sanitize_evm_addresses, RecoverableSignature};
+use xmtp_cryptography::signature::sanitize_evm_addresses;
 use xmtp_proto::xmtp::{
     identity::associations::{
         identity_action::Kind as IdentityActionKindProto,
@@ -30,9 +30,12 @@ use xmtp_proto::xmtp::{
         AssociationStateDiff as AssociationStateDiffProto,
         ChangeRecoveryAddress as ChangeRecoveryAddressProto, CreateInbox as CreateInboxProto,
         IdentityAction as IdentityActionProto, IdentityUpdate as IdentityUpdateProto,
-        Member as MemberProto, MemberIdentifier as MemberIdentifierProto,
-        MemberMap as MemberMapProto, RevokeAssociation as RevokeAssociationProto,
-        Signature as SignatureWrapperProto,
+        LegacyDelegatedSignature as LegacyDelegatedSignatureProto, Member as MemberProto,
+        MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
+        RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
+        RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
+        RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
+        SmartContractWalletSignature as SmartContractWalletSignatureProto,
     },
     message_contents::{
         signature::{Union, WalletEcdsaCompact},
@@ -62,133 +65,242 @@ pub enum DeserializationError {
     InvalidAccountId,
 }
 
-pub fn from_identity_update_proto(
-    proto: IdentityUpdateProto,
-) -> Result<IdentityUpdate, DeserializationError> {
-    let client_timestamp_ns = proto.client_timestamp_ns;
-    let inbox_id = proto.inbox_id;
-    let all_actions = proto
-        .actions
-        .into_iter()
-        .map(|action| match action.kind {
-            Some(action) => Ok(action),
-            None => Err(DeserializationError::MissingAction),
-        })
-        .collect::<Result<Vec<IdentityActionKindProto>, DeserializationError>>()?;
+impl TryFrom<IdentityUpdateProto> for UnverifiedIdentityUpdate {
+    type Error = DeserializationError;
 
-    let signature_text = get_signature_text(&all_actions, inbox_id.clone(), client_timestamp_ns)?;
+    fn try_from(proto: IdentityUpdateProto) -> Result<Self, Self::Error> {
+        let IdentityUpdateProto {
+            client_timestamp_ns,
+            inbox_id,
+            actions,
+        } = proto;
+        let all_actions = actions
+            .into_iter()
+            .map(|action| match action.kind {
+                Some(action) => Ok(action),
+                None => Err(DeserializationError::MissingAction),
+            })
+            .collect::<Result<Vec<IdentityActionKindProto>, DeserializationError>>()?;
 
-    let processed_actions: Vec<Action> = all_actions
-        .into_iter()
-        .map(|action| match action {
-            IdentityActionKindProto::Add(add_action) => {
-                Ok(Action::AddAssociation(AddAssociation {
-                    new_member_signature: from_signature_proto_option(
-                        add_action.new_member_signature,
-                        signature_text.clone(),
-                    )?,
-                    existing_member_signature: from_signature_proto_option(
-                        add_action.existing_member_signature,
-                        signature_text.clone(),
-                    )?,
-                    new_member_identifier: from_member_identifier_proto_option(
-                        add_action.new_member_identifier,
-                    )?,
-                }))
-            }
-            IdentityActionKindProto::CreateInbox(create_inbox_action) => {
-                Ok(Action::CreateInbox(CreateInbox {
-                    nonce: create_inbox_action.nonce,
-                    account_address: create_inbox_action.initial_address,
-                    initial_address_signature: from_signature_proto_option(
-                        create_inbox_action.initial_address_signature,
-                        signature_text.clone(),
-                    )?,
-                }))
-            }
-            IdentityActionKindProto::ChangeRecoveryAddress(change_recovery_address_action) => {
-                Ok(Action::ChangeRecoveryAddress(ChangeRecoveryAddress {
-                    new_recovery_address: change_recovery_address_action.new_recovery_address,
-                    recovery_address_signature: from_signature_proto_option(
-                        change_recovery_address_action.existing_recovery_address_signature,
-                        signature_text.clone(),
-                    )?,
-                }))
-            }
-            IdentityActionKindProto::Revoke(revoke_action) => {
-                Ok(Action::RevokeAssociation(RevokeAssociation {
-                    revoked_member: from_member_identifier_proto_option(
-                        revoke_action.member_to_revoke,
-                    )?,
-                    recovery_address_signature: from_signature_proto_option(
-                        revoke_action.recovery_address_signature,
-                        signature_text.clone(),
-                    )?,
-                }))
-            }
-        })
-        .collect::<Result<Vec<Action>, DeserializationError>>()?;
+        let processed_actions: Vec<UnverifiedAction> = all_actions
+            .into_iter()
+            .map(UnverifiedAction::try_from)
+            .collect::<Result<Vec<UnverifiedAction>, DeserializationError>>()?;
 
-    Ok(IdentityUpdate::new(
-        processed_actions,
-        inbox_id,
-        client_timestamp_ns,
-    ))
+        Ok(UnverifiedIdentityUpdate::new(
+            inbox_id,
+            client_timestamp_ns,
+            processed_actions,
+        ))
+    }
 }
 
-fn get_signature_text(
-    actions: &[IdentityActionKindProto],
-    inbox_id: String,
-    client_timestamp_ns: u64,
-) -> Result<String, DeserializationError> {
-    let unsigned_actions: Vec<UnsignedAction> = actions
-        .iter()
-        .map(|action| match action {
+impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
+    type Error = DeserializationError;
+
+    fn try_from(action: IdentityActionKindProto) -> Result<Self, Self::Error> {
+        Ok(match action {
             IdentityActionKindProto::Add(add_action) => {
-                Ok(UnsignedAction::AddAssociation(UnsignedAddAssociation {
-                    new_member_identifier: from_member_identifier_proto_option(
-                        add_action.new_member_identifier.clone(),
-                    )?,
-                }))
+                UnverifiedAction::AddAssociation(UnverifiedAddAssociation {
+                    new_member_signature: add_action.new_member_signature.try_into()?,
+                    existing_member_signature: add_action.existing_member_signature.try_into()?,
+                    unsigned_action: UnsignedAddAssociation {
+                        new_member_identifier: add_action
+                            .new_member_identifier
+                            .ok_or(DeserializationError::MissingMemberIdentifier)?
+                            .try_into()?,
+                    },
+                })
             }
-            IdentityActionKindProto::CreateInbox(create_inbox_action) => {
-                Ok(UnsignedAction::CreateInbox(UnsignedCreateInbox {
-                    nonce: create_inbox_action.nonce,
-                    account_address: create_inbox_action.initial_address.clone(),
-                }))
+            IdentityActionKindProto::CreateInbox(action_proto) => {
+                UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
+                    initial_address_signature: action_proto.initial_address_signature.try_into()?,
+                    unsigned_action: UnsignedCreateInbox {
+                        nonce: action_proto.nonce,
+                        account_address: action_proto.initial_address,
+                    },
+                })
             }
-            IdentityActionKindProto::ChangeRecoveryAddress(change_recovery_address_action) => Ok(
-                UnsignedAction::ChangeRecoveryAddress(UnsignedChangeRecoveryAddress {
-                    new_recovery_address: change_recovery_address_action
-                        .new_recovery_address
-                        .clone(),
-                }),
-            ),
-            IdentityActionKindProto::Revoke(revoke_action) => Ok(
-                UnsignedAction::RevokeAssociation(UnsignedRevokeAssociation {
-                    revoked_member: from_member_identifier_proto_option(
-                        revoke_action.member_to_revoke.clone(),
-                    )?,
-                }),
-            ),
+            IdentityActionKindProto::ChangeRecoveryAddress(action_proto) => {
+                UnverifiedAction::ChangeRecoveryAddress(UnverifiedChangeRecoveryAddress {
+                    recovery_address_signature: action_proto
+                        .existing_recovery_address_signature
+                        .try_into()?,
+                    unsigned_action: UnsignedChangeRecoveryAddress {
+                        new_recovery_address: action_proto.new_recovery_address,
+                    },
+                })
+            }
+            IdentityActionKindProto::Revoke(action_proto) => {
+                UnverifiedAction::RevokeAssociation(UnverifiedRevokeAssociation {
+                    recovery_address_signature: action_proto
+                        .recovery_address_signature
+                        .try_into()?,
+                    unsigned_action: UnsignedRevokeAssociation {
+                        revoked_member: action_proto
+                            .member_to_revoke
+                            .ok_or(DeserializationError::MissingMember)?
+                            .try_into()?,
+                    },
+                })
+            }
         })
-        .collect::<Result<Vec<UnsignedAction>, DeserializationError>>()?;
-
-    let unsigned_update =
-        UnsignedIdentityUpdate::new(unsigned_actions, inbox_id, client_timestamp_ns);
-
-    Ok(unsigned_update.signature_text())
+    }
 }
 
-fn from_member_identifier_proto_option(
-    proto: Option<MemberIdentifierProto>,
-) -> Result<MemberIdentifier, DeserializationError> {
-    match proto {
-        None => Err(DeserializationError::MissingMemberIdentifier),
-        Some(identifier_proto) => match identifier_proto.kind {
-            Some(identifier) => Ok(identifier.into()),
-            None => Err(DeserializationError::MissingMemberIdentifier),
-        },
+impl TryFrom<SignatureWrapperProto> for UnverifiedSignature {
+    type Error = DeserializationError;
+
+    fn try_from(proto: SignatureWrapperProto) -> Result<Self, Self::Error> {
+        let signature = unwrap_proto_signature(proto)?;
+        let unverified_sig = match signature {
+            SignatureKindProto::Erc191(sig) => UnverifiedSignature::RecoverableEcdsa(
+                UnverifiedRecoverableEcdsaSignature::new(sig.bytes),
+            ),
+            SignatureKindProto::DelegatedErc191(sig) => {
+                UnverifiedSignature::LegacyDelegated(UnverifiedLegacyDelegatedSignature::new(
+                    UnverifiedRecoverableEcdsaSignature::new(
+                        sig.signature.ok_or(DeserializationError::Signature)?.bytes,
+                    ),
+                    sig.delegated_key.ok_or(DeserializationError::Signature)?,
+                ))
+            }
+            SignatureKindProto::InstallationKey(sig) => UnverifiedSignature::InstallationKey(
+                UnverifiedInstallationKeySignature::new(sig.bytes, sig.public_key),
+            ),
+            SignatureKindProto::Erc6492(sig) => UnverifiedSignature::SmartContractWallet(
+                UnverifiedSmartContractWalletSignature::new(
+                    sig.signature,
+                    sig.account_id.try_into()?,
+                    sig.block_number,
+                ),
+            ),
+        };
+
+        Ok(unverified_sig)
+    }
+}
+
+impl TryFrom<Option<SignatureWrapperProto>> for UnverifiedSignature {
+    type Error = DeserializationError;
+
+    fn try_from(value: Option<SignatureWrapperProto>) -> Result<Self, Self::Error> {
+        value
+            .ok_or_else(|| DeserializationError::Signature)?
+            .try_into()
+    }
+}
+
+fn unwrap_proto_signature(
+    value: SignatureWrapperProto,
+) -> Result<SignatureKindProto, DeserializationError> {
+    match value.signature {
+        Some(inner) => Ok(inner),
+        None => Err(DeserializationError::Signature),
+    }
+}
+
+impl From<UnverifiedIdentityUpdate> for IdentityUpdateProto {
+    fn from(value: UnverifiedIdentityUpdate) -> Self {
+        Self {
+            inbox_id: value.inbox_id,
+            client_timestamp_ns: value.client_timestamp_ns,
+            actions: map_vec(value.actions),
+        }
+    }
+}
+
+impl From<UnverifiedAction> for IdentityActionProto {
+    fn from(value: UnverifiedAction) -> Self {
+        let kind: IdentityActionKindProto = match value {
+            UnverifiedAction::CreateInbox(action) => {
+                IdentityActionKindProto::CreateInbox(CreateInboxProto {
+                    nonce: action.unsigned_action.nonce,
+                    initial_address: action.unsigned_action.account_address,
+                    initial_address_signature: Some(action.initial_address_signature.into()),
+                })
+            }
+            UnverifiedAction::AddAssociation(action) => {
+                IdentityActionKindProto::Add(AddAssociationProto {
+                    new_member_identifier: Some(
+                        action.unsigned_action.new_member_identifier.into(),
+                    ),
+                    existing_member_signature: Some(action.existing_member_signature.into()),
+                    new_member_signature: Some(action.new_member_signature.into()),
+                })
+            }
+            UnverifiedAction::ChangeRecoveryAddress(action) => {
+                IdentityActionKindProto::ChangeRecoveryAddress(ChangeRecoveryAddressProto {
+                    new_recovery_address: action.unsigned_action.new_recovery_address,
+                    existing_recovery_address_signature: Some(
+                        action.recovery_address_signature.into(),
+                    ),
+                })
+            }
+            UnverifiedAction::RevokeAssociation(action) => {
+                IdentityActionKindProto::Revoke(RevokeAssociationProto {
+                    recovery_address_signature: Some(action.recovery_address_signature.into()),
+                    member_to_revoke: Some(action.unsigned_action.revoked_member.into()),
+                })
+            }
+        };
+
+        IdentityActionProto { kind: Some(kind) }
+    }
+}
+
+impl From<UnverifiedSignature> for SignatureWrapperProto {
+    fn from(value: UnverifiedSignature) -> Self {
+        let signature = match value {
+            UnverifiedSignature::SmartContractWallet(sig) => {
+                SignatureKindProto::Erc6492(SmartContractWalletSignatureProto {
+                    account_id: sig.account_id.into(),
+                    block_number: sig.block_number,
+                    signature: sig.signature_bytes,
+                    // TOOD:nm Remove this field altogether
+                    chain_rpc_url: "".to_string(),
+                })
+            }
+            UnverifiedSignature::InstallationKey(sig) => {
+                SignatureKindProto::InstallationKey(RecoverableEd25519SignatureProto {
+                    bytes: sig.signature_bytes,
+                    public_key: sig.verifying_key,
+                })
+            }
+            UnverifiedSignature::LegacyDelegated(sig) => {
+                SignatureKindProto::DelegatedErc191(LegacyDelegatedSignatureProto {
+                    delegated_key: Some(sig.signed_public_key_proto),
+                    signature: Some(RecoverableEcdsaSignatureProto {
+                        bytes: sig.legacy_key_signature.signature_bytes,
+                    }),
+                })
+            }
+            UnverifiedSignature::RecoverableEcdsa(sig) => {
+                SignatureKindProto::Erc191(RecoverableEcdsaSignatureProto {
+                    bytes: sig.signature_bytes,
+                })
+            }
+        };
+
+        Self {
+            signature: Some(signature),
+        }
+    }
+}
+
+impl TryFrom<Vec<u8>> for UnverifiedIdentityUpdate {
+    type Error = DeserializationError;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        let update_proto: IdentityUpdateProto = IdentityUpdateProto::decode(value.as_slice())?;
+        UnverifiedIdentityUpdate::try_from(update_proto)
+    }
+}
+
+impl From<UnverifiedIdentityUpdate> for Vec<u8> {
+    fn from(value: UnverifiedIdentityUpdate) -> Self {
+        let proto: IdentityUpdateProto = value.into();
+        proto.encode_to_vec()
     }
 }
 
@@ -201,122 +313,12 @@ impl From<MemberIdentifierKindProto> for MemberIdentifier {
     }
 }
 
-fn from_signature_proto_option(
-    proto: Option<SignatureWrapperProto>,
-    signature_text: String,
-) -> Result<Box<dyn Signature>, DeserializationError> {
-    match proto {
-        None => Err(DeserializationError::Signature),
-        Some(signature_proto) => match signature_proto.signature {
-            Some(signature) => Ok(from_signature_kind_proto(signature, signature_text)?),
-            None => Err(DeserializationError::Signature),
-        },
-    }
-}
-
-fn from_signature_kind_proto(
-    proto: SignatureKindProto,
-    signature_text: String,
-) -> Result<Box<dyn Signature>, DeserializationError> {
-    Ok(match proto {
-        SignatureKindProto::InstallationKey(installation_key_signature) => {
-            Box::new(InstallationKeySignature::new(
-                signature_text,
-                installation_key_signature.bytes,
-                installation_key_signature.public_key,
-            ))
-        }
-        SignatureKindProto::Erc191(erc191_signature) => Box::new(RecoverableEcdsaSignature::new(
-            signature_text,
-            erc191_signature.bytes,
-        )),
-        SignatureKindProto::Erc6492(signature) => Box::new(SmartContractWalletSignature::new(
-            signature_text,
-            signature.signature,
-            signature.account_id.try_into()?,
-            signature.chain_rpc_url,
-            signature.block_number,
-        )),
-        SignatureKindProto::DelegatedErc191(delegated_erc191_signature) => {
-            let signature_value = delegated_erc191_signature
-                .signature
-                .ok_or(DeserializationError::Signature)?;
-            let recoverable_ecdsa_signature =
-                RecoverableEcdsaSignature::new(signature_text, signature_value.bytes);
-
-            Box::new(LegacyDelegatedSignature::new(
-                recoverable_ecdsa_signature,
-                delegated_erc191_signature
-                    .delegated_key
-                    .ok_or(DeserializationError::Signature)?,
-            ))
-        }
-    })
-}
-
-impl From<IdentityUpdate> for IdentityUpdateProto {
-    fn from(update: IdentityUpdate) -> IdentityUpdateProto {
-        let actions: Vec<IdentityActionProto> =
-            update.actions.into_iter().map(Into::into).collect();
-
-        IdentityUpdateProto {
-            client_timestamp_ns: update.client_timestamp_ns,
-            inbox_id: update.inbox_id,
-            actions,
-        }
-    }
-}
-
-impl From<Action> for IdentityActionProto {
-    fn from(action: Action) -> IdentityActionProto {
-        match action {
-            Action::AddAssociation(add_association) => IdentityActionProto {
-                kind: Some(IdentityActionKindProto::Add(AddAssociationProto {
-                    new_member_identifier: Some(add_association.new_member_identifier.into()),
-                    new_member_signature: Some(add_association.new_member_signature.to_proto()),
-                    existing_member_signature: Some(
-                        add_association.existing_member_signature.to_proto(),
-                    ),
-                })),
-            },
-            Action::CreateInbox(create_inbox) => IdentityActionProto {
-                kind: Some(IdentityActionKindProto::CreateInbox(CreateInboxProto {
-                    nonce: create_inbox.nonce,
-                    initial_address: create_inbox.account_address,
-                    initial_address_signature: Some(
-                        create_inbox.initial_address_signature.to_proto(),
-                    ),
-                })),
-            },
-            Action::RevokeAssociation(revoke_association) => IdentityActionProto {
-                kind: Some(IdentityActionKindProto::Revoke(RevokeAssociationProto {
-                    member_to_revoke: Some(revoke_association.revoked_member.into()),
-                    recovery_address_signature: Some(
-                        revoke_association.recovery_address_signature.to_proto(),
-                    ),
-                })),
-            },
-            Action::ChangeRecoveryAddress(change_recovery_address) => IdentityActionProto {
-                kind: Some(IdentityActionKindProto::ChangeRecoveryAddress(
-                    ChangeRecoveryAddressProto {
-                        new_recovery_address: change_recovery_address.new_recovery_address,
-                        existing_recovery_address_signature: Some(
-                            change_recovery_address
-                                .recovery_address_signature
-                                .to_proto(),
-                        ),
-                    },
-                )),
-            },
-        }
-    }
-}
-
 impl From<Member> for MemberProto {
     fn from(member: Member) -> MemberProto {
         MemberProto {
             identifier: Some(member.identifier.into()),
             added_by_entity: member.added_by_entity.map(Into::into),
+            client_timestamp_ns: member.client_timestamp_ns,
         }
     }
 }
@@ -331,6 +333,7 @@ impl TryFrom<MemberProto> for Member {
                 .ok_or(DeserializationError::MissingMemberIdentifier)?
                 .try_into()?,
             added_by_entity: proto.added_by_entity.map(TryInto::try_into).transpose()?,
+            client_timestamp_ns: proto.client_timestamp_ns,
         })
     }
 }
@@ -432,6 +435,7 @@ pub fn try_map_vec<A, B: TryFrom<A>>(other: Vec<A>) -> Result<Vec<B>, <B as TryF
     other.into_iter().map(B::try_from).collect()
 }
 
+// TODO:nm This doesn't really feel like serialization, maybe should move
 impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
     type Error = SignatureError;
 
@@ -460,9 +464,12 @@ impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
                 signature
             }
         };
-        let wallet_signature = RecoverableSignature::Eip191Signature(wallet_signature);
-        let account_address =
-            wallet_signature.recover_address(&Self::text(&serialized_key_data))?;
+        let verified_wallet_signature = VerifiedSignature::from_recoverable_ecdsa(
+            Self::text(&serialized_key_data),
+            &wallet_signature,
+        )?;
+
+        let account_address = verified_wallet_signature.signer.to_string();
         let account_address = sanitize_evm_addresses(vec![account_address])?[0].clone();
 
         let legacy_unsigned_public_key_proto =
@@ -480,7 +487,7 @@ impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
 
         Ok(Self {
             account_address,
-            wallet_signature,
+            wallet_signature: verified_wallet_signature,
             serialized_key_data,
             public_key_bytes,
             created_ns,
@@ -490,7 +497,7 @@ impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
 
 impl From<ValidatedLegacySignedPublicKey> for LegacySignedPublicKeyProto {
     fn from(validated: ValidatedLegacySignedPublicKey) -> Self {
-        let RecoverableSignature::Eip191Signature(signature) = validated.wallet_signature;
+        let signature = validated.wallet_signature.raw_bytes;
         Self {
             key_bytes: validated.serialized_key_data,
             signature: Some(SignedPublicKeySignatureProto {
@@ -518,6 +525,7 @@ impl TryFrom<String> for AccountId {
         if !chain_id_regex.is_match(&chain_id) || !account_address_regex.is_match(account_address) {
             return Err(DeserializationError::InvalidAccountId);
         }
+
         Ok(AccountId {
             chain_id: chain_id.to_string(),
             account_address: account_address.to_string(),
@@ -543,28 +551,58 @@ impl From<AccountId> for String {
 mod tests {
     use crate::associations::{
         hashes::generate_inbox_id,
-        test_utils::{rand_string, rand_u64},
+        test_utils::{rand_string, rand_u64, rand_vec},
     };
 
     use super::*;
 
     #[test]
-    fn test_round_trip() {
+    fn test_round_trip_unverified() {
         let account_address = rand_string();
         let nonce = rand_u64();
         let inbox_id = generate_inbox_id(&account_address, &nonce);
+        let client_timestamp_ns = rand_u64();
+        let signature_bytes = rand_vec();
 
-        let identity_update = IdentityUpdate::new(
-            vec![Action::CreateInbox(CreateInbox {
-                nonce,
-                account_address,
-                initial_address_signature: Box::new(RecoverableEcdsaSignature::new(
-                    "foo".to_string(),
-                    vec![1, 2, 3],
-                )),
-            })],
+        let identity_update = UnverifiedIdentityUpdate::new(
             inbox_id,
-            rand_u64(),
+            client_timestamp_ns,
+            vec![
+                UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
+                    initial_address_signature: UnverifiedSignature::RecoverableEcdsa(
+                        UnverifiedRecoverableEcdsaSignature::new(signature_bytes),
+                    ),
+                    unsigned_action: UnsignedCreateInbox {
+                        nonce,
+                        account_address,
+                    },
+                }),
+                UnverifiedAction::AddAssociation(UnverifiedAddAssociation {
+                    new_member_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![1, 2, 3]),
+                    existing_member_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![
+                        4, 5, 6,
+                    ]),
+                    unsigned_action: UnsignedAddAssociation {
+                        new_member_identifier: rand_string().into(),
+                    },
+                }),
+                UnverifiedAction::ChangeRecoveryAddress(UnverifiedChangeRecoveryAddress {
+                    recovery_address_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![
+                        7, 8, 9,
+                    ]),
+                    unsigned_action: UnsignedChangeRecoveryAddress {
+                        new_recovery_address: rand_string(),
+                    },
+                }),
+                UnverifiedAction::RevokeAssociation(UnverifiedRevokeAssociation {
+                    recovery_address_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![
+                        10, 11, 12,
+                    ]),
+                    unsigned_action: UnsignedRevokeAssociation {
+                        revoked_member: rand_string().into(),
+                    },
+                }),
+            ],
         );
 
         let serialized_update = IdentityUpdateProto::from(identity_update.clone());
@@ -573,10 +611,14 @@ mod tests {
             serialized_update.client_timestamp_ns,
             identity_update.client_timestamp_ns
         );
-        assert_eq!(serialized_update.actions.len(), 1);
+        assert_eq!(serialized_update.actions.len(), 4);
 
-        let deserialized_update = from_identity_update_proto(serialized_update.clone())
-            .expect("deserialization should succeed");
+        let deserialized_update: UnverifiedIdentityUpdate = serialized_update
+            .clone()
+            .try_into()
+            .expect("deserialization error");
+
+        assert_eq!(deserialized_update, identity_update);
 
         let reserialized = IdentityUpdateProto::from(deserialized_update);
 
@@ -683,5 +725,14 @@ mod tests {
             result,
             Err(DeserializationError::InvalidAccountId)
         ));
+    }
+
+    #[test]
+    fn test_account_id_create() {
+        let address = "0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb".to_string();
+        let chain_id = 12;
+        let account_id = AccountId::new_evm(chain_id, address.clone());
+        assert_eq!(account_id.account_address, address);
+        assert_eq!(account_id.chain_id, "eip155:12");
     }
 }

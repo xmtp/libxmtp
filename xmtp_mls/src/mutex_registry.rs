@@ -1,0 +1,23 @@
+use std::{collections::HashMap, sync::Arc};
+
+use tokio::sync::Mutex;
+
+#[derive(Debug, Clone)]
+pub struct MutexRegistry {
+    mutexes: HashMap<Vec<u8>, Arc<Mutex<()>>>,
+}
+
+impl MutexRegistry {
+    pub fn new() -> Self {
+        Self {
+            mutexes: HashMap::new(),
+        }
+    }
+
+    pub fn get_mutex(&mut self, key: Vec<u8>) -> Arc<Mutex<()>> {
+        self.mutexes
+            .entry(key)
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    }
+}

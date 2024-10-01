@@ -13,7 +13,7 @@ use super::{
     db_connection::DbConnection,
     schema::{group_messages, group_messages::dsl},
 };
-use crate::{impl_fetch, impl_store, StorageError};
+use crate::{impl_fetch, impl_store, impl_store_or_ignore, StorageError};
 
 #[derive(
     Debug, Clone, Serialize, Deserialize, Insertable, Identifiable, Queryable, Eq, PartialEq,
@@ -106,6 +106,7 @@ where
 
 impl_fetch!(StoredGroupMessage, group_messages, Vec<u8>);
 impl_store!(StoredGroupMessage, group_messages);
+impl_store_or_ignore!(StoredGroupMessage, group_messages);
 
 impl DbConnection {
     /// Query for group messages
@@ -185,6 +186,18 @@ impl DbConnection {
                     dsl::delivery_status.eq(DeliveryStatus::Published),
                     dsl::sent_at_ns.eq(timestamp as i64),
                 ))
+                .execute(conn)
+        })?)
+    }
+
+    pub fn set_delivery_status_to_failed<MessageId: AsRef<[u8]>>(
+        &self,
+        msg_id: &MessageId,
+    ) -> Result<usize, StorageError> {
+        Ok(self.raw_query(|conn| {
+            diesel::update(dsl::group_messages)
+                .filter(dsl::id.eq(msg_id.as_ref()))
+                .set((dsl::delivery_status.eq(DeliveryStatus::Failed),))
                 .execute(conn)
         })?)
     }

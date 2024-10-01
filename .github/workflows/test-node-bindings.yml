@@ -25,10 +25,14 @@ on:
 
 jobs:
   test:
+    name: Test
     runs-on: warp-ubuntu-latest-x64-16x
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Update rust toolchains
+        run: rustup update
 
       - name: Cache
         uses: Swatinem/rust-cache@v2
@@ -36,9 +40,6 @@ jobs:
           workspaces: |
             .
             bindings_node
-
-      - name: Update rust toolchain from rust-toolchain file
-        run: rustup update
 
       - name: Start Docker containers
         run: dev/up
@@ -56,16 +57,16 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
+        working-directory: bindings_node
         run: |
-          cd bindings_node
           yarn
 
       - name: Build release
+        working-directory: bindings_node
         run: |
-          cd bindings_node
           yarn build:release
 
       - name: Run tests
+        working-directory: bindings_node
         run: |
-          cd bindings_node
           yarn test

@@ -1,8 +1,9 @@
 //! Utilities for xmtp_mls benchmarks
 //! Utilities mostly include pre-generating identities in order to save time when writing/testing
 //! benchmarks.
-use crate::builder::ClientBuilder;
-use ethers::signers::{LocalWallet, Signer};
+#![allow(clippy::unwrap_used)]
+
+use crate::{builder::ClientBuilder, Client};
 use indicatif::{ProgressBar, ProgressStyle};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,8 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
     EnvFilter,
 };
-use xmtp_cryptography::utils::rng;
+use xmtp_cryptography::utils::generate_local_wallet;
+use xmtp_id::InboxOwner;
 
 use super::test::TestClient;
 
@@ -124,13 +126,13 @@ impl Identity {
 }
 
 async fn create_identity(is_dev_network: bool) -> Identity {
-    let wallet = LocalWallet::new(&mut rng());
+    let wallet = generate_local_wallet();
     let client = if is_dev_network {
         ClientBuilder::new_dev_client(&wallet).await
     } else {
         ClientBuilder::new_test_client(&wallet).await
     };
-    Identity::new(client.inbox_id(), format!("0x{:x}", wallet.address()))
+    Identity::new(client.inbox_id(), wallet.get_address())
 }
 
 async fn create_identities(n: usize, is_dev_network: bool) -> Vec<Identity> {
@@ -174,12 +176,12 @@ async fn create_identities(n: usize, is_dev_network: bool) -> Vec<Identity> {
 /// node still has those identities.
 pub async fn create_identities_if_dont_exist(
     identities: usize,
-    client: &TestClient,
+    client: &Client<TestClient>,
     is_dev_network: bool,
 ) -> Vec<Identity> {
     match load_identities(is_dev_network) {
         Ok(identities) => {
-            log::info!(
+            tracing::info!(
                 "Found generated identities at {}, checking for existence on backend...",
                 file_path(is_dev_network)
             );
@@ -193,7 +195,7 @@ pub async fn create_identities_if_dont_exist(
         _ => (),
     }
 
-    log::info!(
+    tracing::info!(
         "Could not find any identitites to load, creating new identitites \n
         Beware, this fills $TMPDIR with ~10GBs of identities"
     );

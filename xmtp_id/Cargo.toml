@@ -1,22 +1,16 @@
 [package]
 edition = "2021"
 name = "xmtp_id"
-version = "0.1.0"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+version.workspace = true
 
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true
 ed25519-dalek = { workspace = true, features = ["digest"] }
-ed25519.workspace = true
 ethers.workspace = true
 futures.workspace = true
 hex.workspace = true
-log.workspace = true
-openmls.workspace = true
-openmls_basic_credential.workspace = true
-openmls_rust_crypto.workspace = true
+tracing.workspace = true
 openmls_traits.workspace = true
 prost.workspace = true
 rand.workspace = true
@@ -25,8 +19,7 @@ rustc-hex.workspace = true
 serde.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
-tracing.workspace = true
+tokio = { workspace = true, features = ["macros"] }
 url.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
@@ -34,10 +27,9 @@ xmtp_proto = { workspace = true, features = ["proto_full"] }
 [dev-dependencies]
 ctor = "0.2.5"
 ed25519-dalek = { workspace = true, features = ["digest"] }
-ethers.workspace = true
 futures = "0.3"
 regex = "1.10"
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["macros", "time"] }
 xmtp_v2 = { path = "../xmtp_v2" }
 
 [features]

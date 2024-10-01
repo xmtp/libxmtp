@@ -116,14 +116,17 @@ impl serde::Serialize for ciphertext::Aes256gcmHkdfsha256 {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.Ciphertext.Aes256gcmHkdfsha256", len)?;
         if !self.hkdf_salt.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("hkdfSalt", pbjson::private::base64::encode(&self.hkdf_salt).as_str())?;
         }
         if !self.gcm_nonce.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("gcmNonce", pbjson::private::base64::encode(&self.gcm_nonce).as_str())?;
         }
         if !self.payload.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("payload", pbjson::private::base64::encode(&self.payload).as_str())?;
         }
         struct_ser.end()
@@ -526,6 +529,7 @@ impl serde::Serialize for ConsentProofPayload {
         }
         if self.timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("timestamp", ToString::to_string(&self.timestamp).as_str())?;
         }
         if self.payload_version != 0 {
@@ -1180,6 +1184,7 @@ impl serde::Serialize for ConversationReference {
         }
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
         }
         if let Some(v) = self.context.as_ref() {
@@ -1360,6 +1365,7 @@ impl serde::Serialize for DecodedMessage {
         }
         if self.sent_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("sentNs", ToString::to_string(&self.sent_ns).as_str())?;
         }
         if !self.content_topic.is_empty() {
@@ -1370,6 +1376,7 @@ impl serde::Serialize for DecodedMessage {
         }
         if !self.content_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("contentBytes", pbjson::private::base64::encode(&self.content_bytes).as_str())?;
         }
         struct_ser.end()
@@ -1551,6 +1558,7 @@ impl serde::Serialize for EciesMessage {
             match v {
                 ecies_message::Version::V1(v) => {
                     #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
                     struct_ser.serialize_field("v1", pbjson::private::base64::encode(&v).as_str())?;
                 }
             }
@@ -1671,6 +1679,7 @@ impl serde::Serialize for EncodedContent {
         }
         if !self.content.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("content", pbjson::private::base64::encode(&self.content).as_str())?;
         }
         struct_ser.end()
@@ -1910,6 +1919,7 @@ impl serde::Serialize for EncryptedPrivateKeyBundleV1 {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.EncryptedPrivateKeyBundleV1", len)?;
         if !self.wallet_pre_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("walletPreKey", pbjson::private::base64::encode(&self.wallet_pre_key).as_str())?;
         }
         if let Some(v) = self.ciphertext.as_ref() {
@@ -2031,6 +2041,7 @@ impl serde::Serialize for FrameAction {
         }
         if !self.action_body.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("actionBody", pbjson::private::base64::encode(&self.action_body).as_str())?;
         }
         struct_ser.end()
@@ -2179,6 +2190,7 @@ impl serde::Serialize for FrameActionBody {
         }
         if self.timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("timestamp", ToString::to_string(&self.timestamp).as_str())?;
         }
         if !self.opaque_conversation_identifier.is_empty() {
@@ -2538,6 +2550,7 @@ impl serde::Serialize for invitation_v1::Aes256gcmHkdfsha256 {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.InvitationV1.Aes256gcmHkdfsha256", len)?;
         if !self.key_material.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("keyMaterial", pbjson::private::base64::encode(&self.key_material).as_str())?;
         }
         struct_ser.end()
@@ -2865,6 +2878,7 @@ impl serde::Serialize for MessageHeaderV1 {
         }
         if self.timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("timestamp", ToString::to_string(&self.timestamp).as_str())?;
         }
         struct_ser.end()
@@ -2984,6 +2998,7 @@ impl serde::Serialize for MessageHeaderV2 {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.MessageHeaderV2", len)?;
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
         }
         if !self.topic.is_empty() {
@@ -3096,6 +3111,7 @@ impl serde::Serialize for MessageV1 {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.MessageV1", len)?;
         if !self.header_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("headerBytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
         }
         if let Some(v) = self.ciphertext.as_ref() {
@@ -3214,6 +3230,7 @@ impl serde::Serialize for MessageV2 {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.MessageV2", len)?;
         if !self.header_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("headerBytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
         }
         if let Some(v) = self.ciphertext.as_ref() {
@@ -3221,6 +3238,7 @@ impl serde::Serialize for MessageV2 {
         }
         if let Some(v) = self.sender_hmac.as_ref() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("senderHmac", pbjson::private::base64::encode(&v).as_str())?;
         }
         if let Some(v) = self.should_push.as_ref() {
@@ -3362,6 +3380,7 @@ impl serde::Serialize for PrivateKey {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PrivateKey", len)?;
         if self.timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("timestamp", ToString::to_string(&self.timestamp).as_str())?;
         }
         if let Some(v) = self.public_key.as_ref() {
@@ -3490,6 +3509,7 @@ impl serde::Serialize for private_key::Secp256k1 {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PrivateKey.Secp256k1", len)?;
         if !self.bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("bytes", pbjson::private::base64::encode(&self.bytes).as_str())?;
         }
         struct_ser.end()
@@ -4171,7 +4191,7 @@ impl serde::Serialize for private_preferences_action::AllowGroup {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PrivatePreferencesAction.AllowGroup", len)?;
         if !self.group_ids.is_empty() {
-            struct_ser.serialize_field("groupIds", &self.group_ids.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+            struct_ser.serialize_field("groupIds", &self.group_ids)?;
         }
         struct_ser.end()
     }
@@ -4238,10 +4258,7 @@ impl<'de> serde::Deserialize<'de> for private_preferences_action::AllowGroup {
                             if group_ids__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("groupIds"));
                             }
-                            group_ids__ = 
-                                Some(map_.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
-                                    .into_iter().map(|x| x.0).collect())
-                            ;
+                            group_ids__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -4450,7 +4467,7 @@ impl serde::Serialize for private_preferences_action::DenyGroup {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PrivatePreferencesAction.DenyGroup", len)?;
         if !self.group_ids.is_empty() {
-            struct_ser.serialize_field("groupIds", &self.group_ids.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+            struct_ser.serialize_field("groupIds", &self.group_ids)?;
         }
         struct_ser.end()
     }
@@ -4517,10 +4534,7 @@ impl<'de> serde::Deserialize<'de> for private_preferences_action::DenyGroup {
                             if group_ids__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("groupIds"));
                             }
-                            group_ids__ = 
-                                Some(map_.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
-                                    .into_iter().map(|x| x.0).collect())
-                            ;
+                            group_ids__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -4740,6 +4754,7 @@ impl serde::Serialize for PublicKey {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PublicKey", len)?;
         if self.timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("timestamp", ToString::to_string(&self.timestamp).as_str())?;
         }
         if let Some(v) = self.signature.as_ref() {
@@ -4868,6 +4883,7 @@ impl serde::Serialize for public_key::Secp256k1Uncompressed {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PublicKey.Secp256k1Uncompressed", len)?;
         if !self.bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("bytes", pbjson::private::base64::encode(&self.bytes).as_str())?;
         }
         struct_ser.end()
@@ -5180,6 +5196,7 @@ impl serde::Serialize for SealedInvitationHeaderV1 {
         }
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
         }
         struct_ser.end()
@@ -5300,6 +5317,7 @@ impl serde::Serialize for SealedInvitationV1 {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.SealedInvitationV1", len)?;
         if !self.header_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("headerBytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
         }
         if let Some(v) = self.ciphertext.as_ref() {
@@ -5523,6 +5541,7 @@ impl serde::Serialize for signature::EcdsaCompact {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.Signature.ECDSACompact", len)?;
         if !self.bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("bytes", pbjson::private::base64::encode(&self.bytes).as_str())?;
         }
         if self.recovery != 0 {
@@ -5636,6 +5655,7 @@ impl serde::Serialize for signature::WalletEcdsaCompact {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.Signature.WalletECDSACompact", len)?;
         if !self.bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("bytes", pbjson::private::base64::encode(&self.bytes).as_str())?;
         }
         if self.recovery != 0 {
@@ -5752,6 +5772,7 @@ impl serde::Serialize for SignedContent {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.SignedContent", len)?;
         if !self.payload.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("payload", pbjson::private::base64::encode(&self.payload).as_str())?;
         }
         if let Some(v) = self.sender.as_ref() {
@@ -5877,6 +5898,7 @@ impl serde::Serialize for SignedEciesCiphertext {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.SignedEciesCiphertext", len)?;
         if !self.ecies_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("eciesBytes", pbjson::private::base64::encode(&self.ecies_bytes).as_str())?;
         }
         if let Some(v) = self.signature.as_ref() {
@@ -5995,18 +6017,22 @@ impl serde::Serialize for signed_ecies_ciphertext::Ecies {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.SignedEciesCiphertext.Ecies", len)?;
         if !self.ephemeral_public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("ephemeralPublicKey", pbjson::private::base64::encode(&self.ephemeral_public_key).as_str())?;
         }
         if !self.iv.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("iv", pbjson::private::base64::encode(&self.iv).as_str())?;
         }
         if !self.mac.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("mac", pbjson::private::base64::encode(&self.mac).as_str())?;
         }
         if !self.ciphertext.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("ciphertext", pbjson::private::base64::encode(&self.ciphertext).as_str())?;
         }
         struct_ser.end()
@@ -6144,6 +6170,7 @@ impl serde::Serialize for SignedPayload {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.SignedPayload", len)?;
         if !self.payload.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("payload", pbjson::private::base64::encode(&self.payload).as_str())?;
         }
         if let Some(v) = self.signature.as_ref() {
@@ -6258,6 +6285,7 @@ impl serde::Serialize for SignedPrivateKey {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.SignedPrivateKey", len)?;
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
         }
         if let Some(v) = self.public_key.as_ref() {
@@ -6387,6 +6415,7 @@ impl serde::Serialize for signed_private_key::Secp256k1 {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.SignedPrivateKey.Secp256k1", len)?;
         if !self.bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("bytes", pbjson::private::base64::encode(&self.bytes).as_str())?;
         }
         struct_ser.end()
@@ -6484,6 +6513,7 @@ impl serde::Serialize for SignedPublicKey {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.SignedPublicKey", len)?;
         if !self.key_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("keyBytes", pbjson::private::base64::encode(&self.key_bytes).as_str())?;
         }
         if let Some(v) = self.signature.as_ref() {
@@ -6706,6 +6736,7 @@ impl serde::Serialize for UnsignedPublicKey {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.UnsignedPublicKey", len)?;
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
         }
         if let Some(v) = self.union.as_ref() {
@@ -6821,6 +6852,7 @@ impl serde::Serialize for unsigned_public_key::Secp256k1Uncompressed {
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.UnsignedPublicKey.Secp256k1Uncompressed", len)?;
         if !self.bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("bytes", pbjson::private::base64::encode(&self.bytes).as_str())?;
         }
         struct_ser.end()

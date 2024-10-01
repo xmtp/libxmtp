@@ -1,5 +1,5 @@
+use ethers::core::utils::keccak256;
 pub use ethers::prelude::LocalWallet;
-use ethers_core::utils::keccak256;
 use k256::ecdsa::VerifyingKey;
 use rand::{CryptoRng, RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;

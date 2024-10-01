@@ -7,12 +7,13 @@ use futures::stream::{AbortHandle, Abortable};
 use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
 use tokio::sync::oneshot;
 use tonic::transport::ClientTlsConfig;
-use tonic::{async_trait, metadata::MetadataValue, transport::Channel, Request, Streaming};
+use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 
+use xmtp_proto::api_client::{ClientWithMetadata, XmtpMlsStreams};
+use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
     api_client::{
-        Error, ErrorKind, GroupMessageStream, MutableApiSubscription, WelcomeMessageStream,
-        XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
+        Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
     },
     xmtp::identity::api::v1::identity_api_client::IdentityApiClient as ProtoIdentityApiClient,
     xmtp::message_api::v1::{
@@ -21,11 +22,10 @@ use xmtp_proto::{
     },
     xmtp::mls::api::v1::{
         mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
-        FetchKeyPackagesResponse, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
-        QueryGroupMessagesRequest, QueryGroupMessagesResponse, QueryWelcomeMessagesRequest,
-        QueryWelcomeMessagesResponse, RegisterInstallationRequest, RegisterInstallationResponse,
-        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
-        SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
+        FetchKeyPackagesResponse, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
+        QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, SendGroupMessagesRequest,
+        SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
+        UploadKeyPackageRequest,
     },
 };
 
@@ -56,7 +56,7 @@ async fn create_tls_channel(address: String) -> Result<Channel, Error> {
         // Functionality: If a ping response is not received within this duration, the connection is presumed to be lost and is closed.
         // Impact: This setting is crucial for quickly detecting unresponsive connections and freeing up resources associated with them. It ensures that the client has up-to-date information on the status of connections and can react accordingly.
         .keep_alive_timeout(Duration::from_secs(25))
-        .tls_config(ClientTlsConfig::new())
+        .tls_config(ClientTlsConfig::new().with_enabled_roots())
         .map_err(|e| Error::new(ErrorKind::SetupTLSConfigError).with(e))?
         .connect()
         .await
@@ -71,54 +71,69 @@ pub struct Client {
     pub(crate) mls_client: ProtoMlsApiClient<Channel>,
     pub(crate) identity_client: ProtoIdentityApiClient<Channel>,
     pub(crate) app_version: MetadataValue<tonic::metadata::Ascii>,
+    pub(crate) libxmtp_version: MetadataValue<tonic::metadata::Ascii>,
 }
 
 impl Client {
     pub async fn create(host: String, is_secure: bool) -> Result<Self, Error> {
         let host = host.to_string();
-        let app_version = MetadataValue::try_from(&String::from("0.0.0")).unwrap();
-        if is_secure {
-            let channel = create_tls_channel(host).await?;
+        let app_version = MetadataValue::try_from(&String::from("0.0.0"))
+            .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
+        let libxmtp_version = MetadataValue::try_from(&String::from("0.0.0"))
+            .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
 
-            let client = MessageApiClient::new(channel.clone());
-            let mls_client = ProtoMlsApiClient::new(channel.clone());
-            let identity_client = ProtoIdentityApiClient::new(channel);
-
-            Ok(Self {
-                client,
-                mls_client,
-                app_version,
-                identity_client,
-            })
-        } else {
-            let channel = Channel::from_shared(host)
+        let channel = match is_secure {
+            true => create_tls_channel(host).await?,
+            false => Channel::from_shared(host)
                 .map_err(|e| Error::new(ErrorKind::SetupCreateChannelError).with(e))?
                 .connect()
                 .await
-                .map_err(|e| Error::new(ErrorKind::SetupConnectionError).with(e))?;
+                .map_err(|e| Error::new(ErrorKind::SetupConnectionError).with(e))?,
+        };
 
-            let client = MessageApiClient::new(channel.clone());
-            let mls_client = ProtoMlsApiClient::new(channel.clone());
-            let identity_client = ProtoIdentityApiClient::new(channel);
+        let client = MessageApiClient::new(channel.clone());
+        let mls_client = ProtoMlsApiClient::new(channel.clone());
+        let identity_client = ProtoIdentityApiClient::new(channel);
 
-            Ok(Self {
-                client,
-                mls_client,
-                identity_client,
-                app_version,
-            })
-        }
+        Ok(Self {
+            client,
+            mls_client,
+            app_version,
+            libxmtp_version,
+            identity_client,
+        })
+    }
+
+    pub fn build_request<RequestType>(&self, request: RequestType) -> Request<RequestType> {
+        let mut req = Request::new(request);
+        req.metadata_mut()
+            .insert("x-app-version", self.app_version.clone());
+        req.metadata_mut()
+            .insert("x-libxmtp-version", self.libxmtp_version.clone());
+
+        req
     }
 }
 
-#[async_trait]
+impl ClientWithMetadata for Client {
+    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Error> {
+        self.libxmtp_version = MetadataValue::try_from(&version)
+            .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
+
+        Ok(())
+    }
+
+    fn set_app_version(&mut self, version: String) -> Result<(), Error> {
+        self.app_version = MetadataValue::try_from(&version)
+            .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
+
+        Ok(())
+    }
+}
+
 impl XmtpApiClient for Client {
     type Subscription = Subscription;
     type MutableSubscription = GrpcMutableSubscription;
-
-    fn set_app_version(&mut self, version: String) {
-        self.app_version = MetadataValue::try_from(&version).unwrap();
-    }
 
     async fn publish(
         &self,
@@ -130,11 +145,8 @@ impl XmtpApiClient for Client {
             .parse()
             .map_err(|e| Error::new(ErrorKind::PublishError).with(e))?;
 
-        let mut tonic_request = Request::new(request);
+        let mut tonic_request = self.build_request(request);
         tonic_request.metadata_mut().insert("authorization", token);
-        tonic_request
-            .metadata_mut()
-            .insert("x-app-version", self.app_version.clone());
         let client = &mut self.client.clone();
 
         client
@@ -145,14 +157,9 @@ impl XmtpApiClient for Client {
     }
 
     async fn subscribe(&self, request: SubscribeRequest) -> Result<Subscription, Error> {
-        let mut tonic_request = Request::new(request);
-        tonic_request
-            .metadata_mut()
-            .insert("x-app-version", self.app_version.clone());
-
         let client = &mut self.client.clone();
         let stream = client
-            .subscribe(tonic_request)
+            .subscribe(self.build_request(request))
             .await
             .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
             .into_inner();
@@ -175,16 +182,10 @@ impl XmtpApiClient for Client {
             }
         };
 
-        let mut tonic_request = Request::new(input_stream);
-
-        tonic_request
-            .metadata_mut()
-            .insert("x-app-version", self.app_version.clone());
-
         let client = &mut self.client.clone();
 
         let stream = client
-            .subscribe2(tonic_request)
+            .subscribe2(self.build_request(input_stream))
             .await
             .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
             .into_inner();
@@ -196,13 +197,9 @@ impl XmtpApiClient for Client {
     }
 
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error> {
-        let mut tonic_request = Request::new(request);
-        tonic_request
-            .metadata_mut()
-            .insert("x-app-version", self.app_version.clone());
         let client = &mut self.client.clone();
 
-        let res = client.query(tonic_request).await;
+        let res = client.query(self.build_request(request)).await;
 
         match res {
             Ok(response) => Ok(response.into_inner()),
@@ -211,13 +208,8 @@ impl XmtpApiClient for Client {
     }
 
     async fn batch_query(&self, request: BatchQueryRequest) -> Result<BatchQueryResponse, Error> {
-        let mut tonic_request = Request::new(request);
-        tonic_request
-            .metadata_mut()
-            .insert("x-app-version", self.app_version.clone());
-
         let client = &mut self.client.clone();
-        let res = client.batch_query(tonic_request).await;
+        let res = client.batch_query(self.build_request(request)).await;
 
         match res {
             Ok(response) => Ok(response.into_inner()),
@@ -325,7 +317,6 @@ impl Stream for GrpcMutableSubscription {
     }
 }
 
-#[async_trait]
 impl MutableApiSubscription for GrpcMutableSubscription {
     async fn update(&mut self, req: SubscribeRequest) -> Result<(), Error> {
         self.update_channel
@@ -341,26 +332,12 @@ impl MutableApiSubscription for GrpcMutableSubscription {
         self.update_channel.close_channel();
     }
 }
-
-#[async_trait]
 impl XmtpMlsClient for Client {
-    #[tracing::instrument(level = "trace", skip_all)]
-    async fn register_installation(
-        &self,
-        req: RegisterInstallationRequest,
-    ) -> Result<RegisterInstallationResponse, Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client.register_installation(req).await;
-        match res {
-            Ok(response) => Ok(response.into_inner()),
-            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
-        }
-    }
-
     #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Error> {
         let client = &mut self.mls_client.clone();
-        let res = client.upload_key_package(req).await;
+
+        let res = client.upload_key_package(self.build_request(req)).await;
         match res {
             Ok(_) => Ok(()),
             Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
@@ -373,7 +350,7 @@ impl XmtpMlsClient for Client {
         req: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, Error> {
         let client = &mut self.mls_client.clone();
-        let res = client.fetch_key_packages(req).await;
+        let res = client.fetch_key_packages(self.build_request(req)).await;
 
         res.map(|r| r.into_inner())
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
@@ -382,7 +359,7 @@ impl XmtpMlsClient for Client {
     #[tracing::instrument(level = "trace", skip_all)]
     async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Error> {
         let client = &mut self.mls_client.clone();
-        let res = client.send_group_messages(req).await;
+        let res = client.send_group_messages(self.build_request(req)).await;
 
         match res {
             Ok(_) => Ok(()),
@@ -393,7 +370,7 @@ impl XmtpMlsClient for Client {
     #[tracing::instrument(level = "trace", skip_all)]
     async fn send_welcome_messages(&self, req: SendWelcomeMessagesRequest) -> Result<(), Error> {
         let client = &mut self.mls_client.clone();
-        let res = client.send_welcome_messages(req).await;
+        let res = client.send_welcome_messages(self.build_request(req)).await;
 
         match res {
             Ok(_) => Ok(()),
@@ -407,7 +384,7 @@ impl XmtpMlsClient for Client {
         req: QueryGroupMessagesRequest,
     ) -> Result<QueryGroupMessagesResponse, Error> {
         let client = &mut self.mls_client.clone();
-        let res = client.query_group_messages(req).await;
+        let res = client.query_group_messages(self.build_request(req)).await;
 
         res.map(|r| r.into_inner())
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
@@ -419,55 +396,89 @@ impl XmtpMlsClient for Client {
         req: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Error> {
         let client = &mut self.mls_client.clone();
-        let res = client.query_welcome_messages(req).await;
+        let res = client.query_welcome_messages(self.build_request(req)).await;
 
         res.map(|r| r.into_inner())
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
     }
+}
 
-    #[tracing::instrument(level = "trace", skip_all)]
-    async fn get_identity_updates(
-        &self,
-        req: GetIdentityUpdatesRequest,
-    ) -> Result<GetIdentityUpdatesResponse, Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client.get_identity_updates(req).await;
+pub struct GroupMessageStream {
+    inner: tonic::codec::Streaming<GroupMessage>,
+}
 
-        res.map(|r| r.into_inner())
-            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+impl From<tonic::codec::Streaming<GroupMessage>> for GroupMessageStream {
+    fn from(inner: tonic::codec::Streaming<GroupMessage>) -> Self {
+        GroupMessageStream { inner }
     }
+}
+
+impl Stream for GroupMessageStream {
+    type Item = Result<GroupMessage, Error>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.inner
+            .poll_next_unpin(cx)
+            .map(|data| data.map(|v| v.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))))
+    }
+}
+
+pub struct WelcomeMessageStream {
+    inner: tonic::codec::Streaming<WelcomeMessage>,
+}
+
+impl From<tonic::codec::Streaming<WelcomeMessage>> for WelcomeMessageStream {
+    fn from(inner: tonic::codec::Streaming<WelcomeMessage>) -> Self {
+        WelcomeMessageStream { inner }
+    }
+}
+
+impl Stream for WelcomeMessageStream {
+    type Item = Result<WelcomeMessage, Error>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.inner
+            .poll_next_unpin(cx)
+            .map(|data| data.map(|v| v.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))))
+    }
+}
+
+impl XmtpMlsStreams for Client {
+    type GroupMessageStream<'a> = GroupMessageStream;
+    type WelcomeMessageStream<'a> = WelcomeMessageStream;
 
     async fn subscribe_group_messages(
         &self,
         req: SubscribeGroupMessagesRequest,
-    ) -> Result<GroupMessageStream, Error> {
+    ) -> Result<Self::GroupMessageStream<'_>, Error> {
         let client = &mut self.mls_client.clone();
         let res = client
-            .subscribe_group_messages(req)
+            .subscribe_group_messages(self.build_request(req))
             .await
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
         let stream = res.into_inner();
-
-        let new_stream = stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e));
-
-        Ok(Box::pin(new_stream))
+        Ok(stream.into())
     }
 
     async fn subscribe_welcome_messages(
         &self,
         req: SubscribeWelcomeMessagesRequest,
-    ) -> Result<WelcomeMessageStream, Error> {
+    ) -> Result<Self::WelcomeMessageStream<'_>, Error> {
         let client = &mut self.mls_client.clone();
         let res = client
-            .subscribe_welcome_messages(req)
+            .subscribe_welcome_messages(self.build_request(req))
             .await
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
         let stream = res.into_inner();
 
-        let new_stream = stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e));
-
-        Ok(Box::pin(new_stream))
+        Ok(stream.into())
     }
 }

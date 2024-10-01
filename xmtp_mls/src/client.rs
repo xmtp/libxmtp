@@ -1,7 +1,14 @@
-use std::{collections::HashMap, mem::Discriminant, sync::Arc};
+use std::{
+    collections::HashMap,
+    mem::Discriminant,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
 
 use futures::{
-    stream::{self, StreamExt},
+    stream::{self, FuturesUnordered, StreamExt},
     Future,
 };
 use openmls::{
@@ -9,18 +16,20 @@ use openmls::{
     framing::{MlsMessageBodyIn, MlsMessageIn},
     group::GroupEpoch,
     messages::Welcome,
-    prelude::tls_codec::{Deserialize, Error as TlsCodecError, Serialize},
+    prelude::tls_codec::{Deserialize, Error as TlsCodecError},
 };
 use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
+use tokio::sync::broadcast;
 
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestError},
-        AssociationError,
+        AssociationError, AssociationState, SignatureError,
     },
+    scw_verifier::{RpcSmartContractWalletVerifier, SmartContractSignatureVerifier},
     InboxId,
 };
 
@@ -32,17 +41,23 @@ use xmtp_proto::xmtp::mls::api::v1::{
 use crate::{
     api::ApiClientWrapper,
     groups::{
-        validated_commit::CommitValidationError, GroupError, GroupMetadataOptions, IntentError,
-        MlsGroup, PreconfiguredPolicies,
+        group_permissions::PolicySet, validated_commit::CommitValidationError, GroupError,
+        GroupMetadataOptions, IntentError, MlsGroup,
     },
     identity::{parse_credential, Identity, IdentityError},
-    identity_updates::IdentityUpdateError,
+    identity_updates::{load_identity_updates, IdentityUpdateError},
+    mutex_registry::MutexRegistry,
+    retry::Retry,
+    retry_async, retryable,
     storage::{
+        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
+        group_message::StoredGroupMessage,
         refresh_state::EntityKind,
         sql_key_store, EncryptedMessageStore, StorageError,
     },
+    subscriptions::LocalEvents,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, XmtpApi,
@@ -83,15 +98,36 @@ pub enum ClientError {
     StreamInconsistency(String),
     #[error("Association error: {0}")]
     Association(#[from] AssociationError),
+    #[error("signature validation error: {0}")]
+    SignatureValidation(#[from] SignatureError),
     #[error(transparent)]
     IdentityUpdate(#[from] IdentityUpdateError),
     #[error(transparent)]
     SignatureRequest(#[from] SignatureRequestError),
     // the box is to prevent infinite cycle between client and group errors
     #[error(transparent)]
-    Group(#[from] Box<GroupError>),
+    Group(Box<GroupError>),
     #[error("generic:{0}")]
     Generic(String),
+}
+
+impl From<GroupError> for ClientError {
+    fn from(err: GroupError) -> ClientError {
+        ClientError::Group(Box::new(err))
+    }
+}
+
+impl crate::retry::RetryableError for ClientError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            ClientError::Group(group_error) => retryable!(group_error),
+            ClientError::Diesel(diesel_error) => retryable!(diesel_error),
+            ClientError::Api(api_error) => retryable!(api_error),
+            ClientError::Storage(storage_error) => retryable!(storage_error),
+            ClientError::Generic(err) => err.contains("database is locked"),
+            _ => false,
+        }
+    }
 }
 
 /// An enum of errors that can occur when reading and processing a message off the network
@@ -111,13 +147,9 @@ pub enum MessageProcessingError {
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error("openmls process message error: {0}")]
-    OpenMlsProcessMessage(
-        #[from] openmls::prelude::ProcessMessageError<sql_key_store::MemoryStorageError>,
-    ),
-    #[error("merge pending commit: {0}")]
-    MergePendingCommit(#[from] openmls::group::MergePendingCommitError<StorageError>),
+    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
     #[error("merge staged commit: {0}")]
-    MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::MemoryStorageError>),
+    MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::SqlKeyStoreError>),
     #[error(
         "no pending commit to merge. group epoch is {group_epoch:?} and got {message_epoch:?}"
     )]
@@ -147,16 +179,28 @@ pub enum MessageProcessingError {
     WrongCredentialType(#[from] BasicCredentialError),
     #[error("proto decode error: {0}")]
     DecodeError(#[from] prost::DecodeError),
+    #[error("clear pending commit error: {0}")]
+    ClearPendingCommit(#[from] sql_key_store::SqlKeyStoreError),
     #[error(transparent)]
     Group(#[from] Box<GroupError>),
+    #[error("Serialization/Deserialization Error {0}")]
+    Serde(#[from] serde_json::Error),
     #[error("generic:{0}")]
     Generic(String),
+    #[error("intent is missing staged_commit field")]
+    IntentMissingStagedCommit,
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::Storage(s) => s.is_retryable(),
+            Self::Group(group_error) => retryable!(group_error),
+            Self::Identity(identity_error) => retryable!(identity_error),
+            Self::OpenMlsProcessMessage(err) => retryable!(err),
+            Self::MergeStagedCommit(err) => retryable!(err),
+            Self::Diesel(diesel_error) => retryable!(diesel_error),
+            Self::Storage(s) => retryable!(s),
+            Self::Generic(err) => err.contains("database is locked"),
             _ => false,
         }
     }
@@ -179,6 +223,9 @@ impl From<&str> for ClientError {
 pub struct Client<ApiClient> {
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
+    #[cfg(feature = "message-history")]
+    pub(crate) history_sync_url: Option<String>,
+    pub(crate) local_events: broadcast::Sender<LocalEvents>,
 }
 
 /// The local context a XMTP MLS needs to function:
@@ -190,6 +237,7 @@ pub struct XmtpMlsLocalContext {
     pub(crate) identity: Identity,
     /// XMTP Local Storage
     pub(crate) store: EncryptedMessageStore,
+    pub(crate) mutexes: MutexRegistry,
 }
 
 impl XmtpMlsLocalContext {
@@ -208,14 +256,15 @@ impl XmtpMlsLocalContext {
         self.identity.sequence_id(conn)
     }
 
+    /// Pulls a new database connection and creates a new provider
+    pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
+        Ok(self.store.conn()?.into())
+    }
+
     /// Integrators should always check the `signature_request` return value of this function before calling [`register_identity`](Self::register_identity).
     /// If `signature_request` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
     pub fn signature_request(&self) -> Option<SignatureRequest> {
         self.identity.signature_request()
-    }
-
-    pub(crate) fn mls_provider(&self, conn: DbConnection) -> XmtpOpenMlsProvider {
-        XmtpOpenMlsProvider::new(conn)
     }
 }
 
@@ -230,11 +279,20 @@ where
         api_client: ApiClientWrapper<ApiClient>,
         identity: Identity,
         store: EncryptedMessageStore,
+        #[cfg(feature = "message-history")] history_sync_url: Option<String>,
     ) -> Self {
-        let context = XmtpMlsLocalContext { identity, store };
+        let context = XmtpMlsLocalContext {
+            identity,
+            store,
+            mutexes: MutexRegistry::new(),
+        };
+        let (tx, _) = broadcast::channel(10);
         Self {
             api_client,
             context: Arc::new(context),
+            #[cfg(feature = "message-history")]
+            history_sync_url,
+            local_events: tx,
         }
     }
 
@@ -246,9 +304,122 @@ where
         self.context.inbox_id()
     }
 
+    /// Pulls a connection and creates a new MLS Provider
+    pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
+        self.context.mls_provider()
+    }
+
+    pub async fn find_inbox_id_from_address(
+        &self,
+        address: String,
+    ) -> Result<Option<String>, ClientError> {
+        let results = self
+            .find_inbox_ids_from_addresses(vec![address.clone()])
+            .await?;
+        if let Some(first_result) = results.into_iter().next() {
+            Ok(first_result)
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn find_inbox_ids_from_addresses(
+        &self,
+        addresses: Vec<String>,
+    ) -> Result<Vec<Option<String>>, ClientError> {
+        let sanitized_addresses = sanitize_evm_addresses(addresses.clone())?;
+        let mut results = self
+            .api_client
+            .get_inbox_ids(sanitized_addresses.clone())
+            .await?;
+        let inbox_ids: Vec<Option<String>> = sanitized_addresses
+            .into_iter()
+            .map(|address| results.remove(&address))
+            .collect();
+
+        Ok(inbox_ids)
+    }
+
     /// Get sequence id, may not be consistent with the backend
     pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
         self.context.inbox_sequence_id(conn)
+    }
+
+    pub async fn inbox_state(
+        &self,
+        refresh_from_network: bool,
+    ) -> Result<AssociationState, ClientError> {
+        let conn = self.store().conn()?;
+        let inbox_id = self.inbox_id();
+        if refresh_from_network {
+            load_identity_updates(&self.api_client, &conn, vec![inbox_id.clone()]).await?;
+        }
+        let state = self.get_association_state(&conn, inbox_id, None).await?;
+        Ok(state)
+    }
+
+    // set the consent record in the database
+    // if the consent record is an address also set the inboxId
+    pub async fn set_consent_states(
+        &self,
+        mut records: Vec<StoredConsentRecord>,
+    ) -> Result<(), ClientError> {
+        let conn = self.store().conn()?;
+
+        let mut new_records = Vec::new();
+        let mut addresses_to_lookup = Vec::new();
+        let mut record_indices = Vec::new();
+
+        for (index, record) in records.iter().enumerate() {
+            if record.entity_type == ConsentType::Address {
+                addresses_to_lookup.push(record.entity.clone());
+                record_indices.push(index);
+            }
+        }
+
+        let inbox_ids = self
+            .find_inbox_ids_from_addresses(addresses_to_lookup)
+            .await?;
+
+        for (i, inbox_id_opt) in inbox_ids.into_iter().enumerate() {
+            if let Some(inbox_id) = inbox_id_opt {
+                let record = &records[record_indices[i]];
+                new_records.push(StoredConsentRecord::new(
+                    ConsentType::InboxId,
+                    record.state,
+                    inbox_id,
+                ));
+            }
+        }
+
+        records.extend(new_records);
+        conn.insert_or_replace_consent_records(records)?;
+
+        Ok(())
+    }
+
+    // get the consent record from the database
+    // if the consent record is an address also get the inboxId instead
+    pub async fn get_consent_state(
+        &self,
+        entity_type: ConsentType,
+        entity: String,
+    ) -> Result<ConsentState, ClientError> {
+        let conn = self.store().conn()?;
+        let record = if entity_type == ConsentType::Address {
+            if let Some(inbox_id) = self.find_inbox_id_from_address(entity.clone()).await? {
+                conn.get_consent_record(inbox_id, ConsentType::InboxId)?
+            } else {
+                conn.get_consent_record(entity, entity_type)?
+            }
+        } else {
+            conn.get_consent_record(entity, entity_type)?
+        };
+
+        match record {
+            Some(rec) => Ok(rec.state),
+            None => Ok(ConsentState::Unknown),
+        }
     }
 
     pub fn store(&self) -> &EncryptedMessageStore {
@@ -270,37 +441,64 @@ where
         &self.context.identity
     }
 
-    pub(crate) fn mls_provider(&self, conn: DbConnection) -> XmtpOpenMlsProvider {
-        XmtpOpenMlsProvider::new(conn)
-    }
-
     pub fn context(&self) -> &Arc<XmtpMlsLocalContext> {
         &self.context
+    }
+
+    // TODO:nm Replace with real implementation
+    pub fn smart_contract_signature_verifier(&self) -> Box<dyn SmartContractSignatureVerifier> {
+        let scw_verifier = RpcSmartContractWalletVerifier::new("http://www.fake.com".to_string());
+        Box::new(scw_verifier)
     }
 
     /// Create a new group with the default settings
     pub fn create_group(
         &self,
-        permissions: Option<PreconfiguredPolicies>,
+        permissions_policy_set: Option<PolicySet>,
         opts: GroupMetadataOptions,
     ) -> Result<MlsGroup, ClientError> {
-        log::info!("creating group");
+        tracing::info!("creating group");
 
         let group = MlsGroup::create_and_insert(
             self.context.clone(),
             GroupMembershipState::Allowed,
-            permissions,
+            permissions_policy_set.unwrap_or_default(),
             opts,
-        )
-        .map_err(Box::new)?;
+        )?;
+
+        // notify any streams of the new group
+        let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
 
         Ok(group)
     }
 
+    pub async fn create_group_with_members(
+        &self,
+        account_addresses: Vec<String>,
+        permissions_policy_set: Option<PolicySet>,
+        opts: GroupMetadataOptions,
+    ) -> Result<MlsGroup, ClientError> {
+        tracing::info!("creating group");
+
+        let group = MlsGroup::create_and_insert(
+            self.context.clone(),
+            GroupMembershipState::Allowed,
+            permissions_policy_set.unwrap_or_default(),
+            opts,
+        )?;
+
+        group.add_members(self, account_addresses).await?;
+
+        // notify any streams of the new group
+        let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
+
+        Ok(group)
+    }
+
+    #[cfg(feature = "message-history")]
     pub(crate) fn create_sync_group(&self) -> Result<MlsGroup, ClientError> {
-        log::info!("creating sync group");
-        let sync_group =
-            MlsGroup::create_and_insert_sync_group(self.context.clone()).map_err(Box::new)?;
+        tracing::info!("creating sync group");
+        let sync_group = MlsGroup::create_and_insert_sync_group(self.context.clone())?;
 
         Ok(sync_group)
     }
@@ -319,6 +517,20 @@ where
             None => Err(ClientError::Storage(StorageError::NotFound(format!(
                 "group {}",
                 hex::encode(group_id)
+            )))),
+        }
+    }
+
+    /// Look up a message by its ID
+    /// Returns a [`StoredGroupMessage`] if the message exists, or an error if it does not
+    pub fn message(&self, message_id: Vec<u8>) -> Result<StoredGroupMessage, ClientError> {
+        let conn = &mut self.store().conn()?;
+        let message = conn.get_group_message(&message_id)?;
+        match message {
+            Some(message) => Ok(message),
+            None => Err(ClientError::Storage(StorageError::NotFound(format!(
+                "message {}",
+                hex::encode(message_id)
             )))),
         }
     }
@@ -352,23 +564,21 @@ where
             .collect())
     }
 
-    /// Register the identity with the network
-    /// Callers should always check the result of [`text_to_sign`](Self::text_to_sign) before invoking this function.
-    ///
-    /// If `text_to_sign` returns `None`, then the wallet signature is not required and this function can be called with `None`.
-    ///
-    /// If `text_to_sign` returns `Some`, then the caller should sign the text with their wallet and pass the signature to this function.
+    /// Upload a Key Package to the network and publish the signed identity update
+    /// from the provided SignatureRequest
     pub async fn register_identity(
         &self,
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
-        log::info!("registering identity");
-        self.apply_signature_request(signature_request).await?;
-        let connection = self.store().conn()?;
-        let provider = self.mls_provider(connection);
+        tracing::info!("registering identity");
+        // Register the identity before applying the signature request
+        let provider: XmtpOpenMlsProvider = self.store().conn()?.into();
+
         self.identity()
             .register(&provider, &self.api_client)
             .await?;
+
+        self.apply_signature_request(signature_request).await?;
 
         Ok(())
     }
@@ -376,12 +586,13 @@ where
     /// Upload a new key package to the network replacing an existing key package
     /// This is expected to be run any time the client receives new Welcome messages
     pub async fn rotate_key_package(&self) -> Result<(), ClientError> {
-        let connection = self.store().conn()?;
-        let kp = self
-            .identity()
-            .new_key_package(&self.mls_provider(connection))?;
-        let kp_bytes = kp.tls_serialize_detached()?;
-        self.api_client.upload_key_package(kp_bytes, true).await?;
+        self.store()
+            .transaction_async(|provider| async move {
+                self.identity()
+                    .rotate_key_package(&provider, &self.api_client)
+                    .await
+            })
+            .await?;
 
         Ok(())
     }
@@ -423,8 +634,7 @@ where
     ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError> {
         let key_package_results = self.api_client.fetch_key_packages(installation_ids).await?;
 
-        let conn = self.store().conn()?;
-        let mls_provider = self.mls_provider(conn);
+        let mls_provider = self.mls_provider()?;
         Ok(key_package_results
             .values()
             .map(|bytes| VerifiedKeyPackageV2::from_bytes(mls_provider.crypto(), bytes.as_slice()))
@@ -446,7 +656,7 @@ where
             .transaction_async(|provider| async move {
                 let is_updated =
                     provider
-                        .conn()
+                        .conn_ref()
                         .update_cursor(entity_id, entity_kind, cursor as i64)?;
                 if !is_updated {
                     return Err(MessageProcessingError::AlreadyProcessed(cursor));
@@ -460,6 +670,7 @@ where
     /// Returns any new groups created in the operation
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup>, ClientError> {
         let envelopes = self.query_welcome_messages(&self.store().conn()?).await?;
+        let num_envelopes = envelopes.len();
         let id = self.installation_public_key();
 
         let groups: Vec<MlsGroup> = stream::iter(envelopes.into_iter())
@@ -467,42 +678,103 @@ where
                 let welcome_v1 = match extract_welcome_message(envelope) {
                     Ok(inner) => inner,
                     Err(err) => {
-                        log::error!("failed to extract welcome message: {}", err);
+                        tracing::error!("failed to extract welcome message: {}", err);
                         return None;
                     }
                 };
+                retry_async!(
+                    Retry::default(),
+                    (async {
+                        let welcome_v1 = welcome_v1.clone();
+                        self.process_for_id(
+                            &id,
+                            EntityKind::Welcome,
+                            welcome_v1.id,
+                            |provider| async move {
+                                let result = MlsGroup::create_from_encrypted_welcome(
+                                    self,
+                                    &provider,
+                                    welcome_v1.hpke_public_key.as_slice(),
+                                    welcome_v1.data,
+                                    welcome_v1.id as i64,
+                                )
+                                .await;
 
-                self.process_for_id(
-                    &id,
-                    EntityKind::Welcome,
-                    welcome_v1.id,
-                    |provider| async move {
-                        // TODO: Abort if error is retryable
-                        match MlsGroup::create_from_encrypted_welcome(
-                            self,
-                            &provider,
-                            welcome_v1.hpke_public_key.as_slice(),
-                            welcome_v1.data,
-                            welcome_v1.id as i64,
+                                match result {
+                                    Ok(mls_group) => Ok(Some(mls_group)),
+                                    Err(err) => {
+                                        tracing::error!(
+                                            "failed to create group from welcome: {}",
+                                            err
+                                        );
+                                        Err(MessageProcessingError::WelcomeProcessing(
+                                            err.to_string(),
+                                        ))
+                                    }
+                                }
+                            },
                         )
                         .await
-                        {
-                            Ok(mls_group) => Ok(Some(mls_group)),
-                            Err(err) => {
-                                log::error!("failed to create group from welcome: {}", err);
-                                Err(MessageProcessingError::WelcomeProcessing(err.to_string()))
-                            }
-                        }
-                    },
+                    })
                 )
-                .await
                 .ok()
                 .flatten()
             })
             .collect()
             .await;
 
+        // If any welcomes were found, rotate your key package
+        if num_envelopes > 0 {
+            self.rotate_key_package().await?;
+        }
+
         Ok(groups)
+    }
+
+    /// Sync all groups for the current user and return the number of groups that were synced.
+    /// Only active groups will be synced.
+    pub async fn sync_all_groups(&self, groups: Vec<MlsGroup>) -> Result<usize, GroupError> {
+        // Acquire a single connection to be reused
+        let provider: XmtpOpenMlsProvider = self.mls_provider()?;
+
+        let active_group_count = Arc::new(AtomicUsize::new(0));
+
+        let sync_futures = groups
+            .into_iter()
+            .map(|group| {
+                // create new provider ref that gets moved, leaving original
+                // provider alone.
+                let provider_ref = &provider;
+                let active_group_count = Arc::clone(&active_group_count);
+                async move {
+                    let mls_group = group.load_mls_group(provider_ref)?;
+                    tracing::info!("[{}] syncing group", self.inbox_id());
+                    tracing::info!(
+                        "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
+                        self.inbox_id(),
+                        mls_group.epoch()
+                    );
+                    if mls_group.is_active() {
+                        group
+                            .maybe_update_installations(provider_ref, None, self)
+                            .await?;
+
+                        group.sync_with_conn(provider_ref, self).await?;
+                        active_group_count.fetch_add(1, Ordering::SeqCst);
+                    }
+
+                    Ok::<(), GroupError>(())
+                }
+            })
+            .collect::<FuturesUnordered<_>>();
+
+        sync_futures
+            .collect::<Vec<Result<_, _>>>()
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(active_group_count.load(Ordering::SeqCst))
     }
 
     /**
@@ -579,20 +851,56 @@ pub fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientErr
 
 #[cfg(test)]
 mod tests {
+    use diesel::RunQueryDsl;
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_id::InboxOwner;
 
     use crate::{
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
         hpke::{decrypt_welcome, encrypt_welcome},
+        identity::serialize_key_package_hash_ref,
+        storage::{
+            consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+            schema::identity_updates,
+        },
+        XmtpApi,
     };
+
+    use super::Client;
+
+    #[tokio::test]
+    async fn test_group_member_recovery() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_wallet = generate_local_wallet();
+        // Add two separate installations for Bola
+        let bola_a = ClientBuilder::new_test_client(&bola_wallet).await;
+        let bola_b = ClientBuilder::new_test_client(&bola_wallet).await;
+        let group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        // Add both of Bola's installations to the group
+        group
+            .add_members_by_inbox_id(&amal, vec![bola_a.inbox_id(), bola_b.inbox_id()])
+            .await
+            .unwrap();
+
+        let conn = amal.store().conn().unwrap();
+        conn.raw_query(|conn| diesel::delete(identity_updates::table).execute(conn))
+            .unwrap();
+
+        let members = group.members(&amal).await.unwrap();
+        // // The three installations should count as two members
+        assert_eq!(members.len(), 2);
+    }
 
     #[tokio::test]
     async fn test_mls_error() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let result = client
             .api_client
-            .register_installation(vec![1, 2, 3], false)
+            .upload_key_package(vec![1, 2, 3], false)
             .await;
 
         assert!(result.is_err());
@@ -656,7 +964,20 @@ mod tests {
         assert_eq!(groups[1].group_id, group_2.group_id);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
+    async fn test_find_inbox_id() {
+        let wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(&wallet).await;
+        assert_eq!(
+            client
+                .find_inbox_id_from_address(wallet.get_address())
+                .await
+                .unwrap(),
+            Some(client.inbox_id())
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_sync_welcomes() {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -678,6 +999,62 @@ mod tests {
 
         let duplicate_received_groups = bob.sync_welcomes().await.unwrap();
         assert_eq!(duplicate_received_groups.len(), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_sync_all_groups() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let alix_bo_group1 = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        let alix_bo_group2 = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        alix_bo_group1
+            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .await
+            .unwrap();
+        alix_bo_group2
+            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .await
+            .unwrap();
+
+        let bob_received_groups = bo.sync_welcomes().await.unwrap();
+        assert_eq!(bob_received_groups.len(), 2);
+
+        let bo_groups = bo.find_groups(None, None, None, None).unwrap();
+        let bo_group1 = bo.group(alix_bo_group1.clone().group_id).unwrap();
+        let bo_messages1 = bo_group1
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(bo_messages1.len(), 0);
+        let bo_group2 = bo.group(alix_bo_group2.clone().group_id).unwrap();
+        let bo_messages2 = bo_group2
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(bo_messages2.len(), 0);
+        alix_bo_group1
+            .send_message(vec![1, 2, 3].as_slice(), &alix)
+            .await
+            .unwrap();
+        alix_bo_group2
+            .send_message(vec![1, 2, 3].as_slice(), &alix)
+            .await
+            .unwrap();
+
+        bo.sync_all_groups(bo_groups).await.unwrap();
+
+        let bo_messages1 = bo_group1
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(bo_messages1.len(), 1);
+        let bo_group2 = bo.group(alix_bo_group2.clone().group_id).unwrap();
+        let bo_messages2 = bo_group2
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(bo_messages2.len(), 1);
     }
 
     #[tokio::test]
@@ -714,8 +1091,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_welcome_encryption() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let conn = client.store().conn().unwrap();
-        let provider = client.mls_provider(conn);
+        let provider = client.mls_provider().unwrap();
 
         let kp = client.identity().new_key_package(&provider).unwrap();
         let hpke_public_key = kp.hpke_init_key().as_slice();
@@ -742,21 +1118,21 @@ mod tests {
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
             .unwrap();
-        assert_eq!(amal_group.members().unwrap().len(), 2);
+        assert_eq!(amal_group.members(&amal).await.unwrap().len(), 2);
 
         // Now remove bola
         amal_group
             .remove_members_by_inbox_id(&amal, vec![bola.inbox_id()])
             .await
             .unwrap();
-        assert_eq!(amal_group.members().unwrap().len(), 1);
-        log::info!("Syncing bolas welcomes");
+        assert_eq!(amal_group.members(&amal).await.unwrap().len(), 1);
+        tracing::info!("Syncing bolas welcomes");
         // See if Bola can see that they were added to the group
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(None, None, None, None).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
-        log::info!("Syncing bolas messages");
+        tracing::info!("Syncing bolas messages");
         bola_group.sync(&bola).await.unwrap();
         // TODO: figure out why Bola's status is not updating to be inactive
         // assert!(!bola_group.is_active().unwrap());
@@ -765,7 +1141,7 @@ mod tests {
         let mut bola_messages = bola_group
             .find_messages(None, None, None, None, None)
             .unwrap();
-        // TODO:nm figure out why the transcript message is no longer decryptable
+
         assert_eq!(bola_messages.len(), 1);
 
         // Add Bola back to the group
@@ -793,5 +1169,107 @@ mod tests {
             bola_messages.get(1).unwrap().decrypted_message_bytes,
             vec![1, 2, 3]
         )
+    }
+
+    #[tokio::test]
+    async fn test_get_and_set_consent() {
+        let bo_wallet = generate_local_wallet();
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
+        let record = StoredConsentRecord::new(
+            ConsentType::Address,
+            ConsentState::Denied,
+            bo_wallet.get_address(),
+        );
+        alix.set_consent_states(vec![record]).await.unwrap();
+        let inbox_consent = alix
+            .get_consent_state(ConsentType::InboxId, bo.inbox_id())
+            .await
+            .unwrap();
+        let address_consent = alix
+            .get_consent_state(ConsentType::Address, bo_wallet.get_address())
+            .await
+            .unwrap();
+
+        assert_eq!(inbox_consent, ConsentState::Denied);
+        assert_eq!(address_consent, ConsentState::Denied);
+    }
+
+    async fn get_key_package_init_key<ApiClient: XmtpApi>(
+        client: &Client<ApiClient>,
+        installation_id: &[u8],
+    ) -> Vec<u8> {
+        let kps = client
+            .get_key_packages_for_installation_ids(vec![installation_id.to_vec()])
+            .await
+            .unwrap();
+        let kp = kps.first().unwrap();
+
+        serialize_key_package_hash_ref(&kp.inner, &client.mls_provider().unwrap()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_key_package_rotation() {
+        let alix_wallet = generate_local_wallet();
+        let bo_wallet = generate_local_wallet();
+        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
+        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
+        let bo_store = bo.store();
+
+        let alix_original_init_key =
+            get_key_package_init_key(&alix, &alix.installation_public_key()).await;
+        let bo_original_init_key =
+            get_key_package_init_key(&bo, &bo.installation_public_key()).await;
+
+        // Bo's original key should be deleted
+        let bo_original_from_db = bo_store
+            .conn()
+            .unwrap()
+            .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone());
+        assert!(bo_original_from_db.is_ok());
+
+        alix.create_group_with_members(
+            vec![bo_wallet.get_address()],
+            None,
+            GroupMetadataOptions::default(),
+        )
+        .await
+        .unwrap();
+
+        bo.sync_welcomes().await.unwrap();
+
+        let bo_new_key = get_key_package_init_key(&bo, &bo.installation_public_key()).await;
+        // Bo's key should have changed
+        assert_ne!(bo_original_init_key, bo_new_key);
+
+        bo.sync_welcomes().await.unwrap();
+        let bo_new_key_2 = get_key_package_init_key(&bo, &bo.installation_public_key()).await;
+        // Bo's key should not have changed syncing the second time.
+        assert_eq!(bo_new_key, bo_new_key_2);
+
+        alix.sync_welcomes().await.unwrap();
+        let alix_key_2 = get_key_package_init_key(&alix, &alix.installation_public_key()).await;
+        // Alix's key should not have changed at all
+        assert_eq!(alix_original_init_key, alix_key_2);
+
+        alix.create_group_with_members(
+            vec![bo_wallet.get_address()],
+            None,
+            GroupMetadataOptions::default(),
+        )
+        .await
+        .unwrap();
+        bo.sync_welcomes().await.unwrap();
+
+        // Bo should have two groups now
+        let bo_groups = bo.find_groups(None, None, None, None).unwrap();
+        assert_eq!(bo_groups.len(), 2);
+
+        // Bo's original key should be deleted
+        let bo_original_after_delete = bo_store
+            .conn()
+            .unwrap()
+            .find_key_package_history_entry_by_hash_ref(bo_original_init_key);
+        assert!(bo_original_after_delete.is_err());
     }
 }
