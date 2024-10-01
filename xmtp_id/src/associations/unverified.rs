@@ -11,9 +11,7 @@ use super::{
     AccountId, Action, AddAssociation, CreateInbox, IdentityUpdate, RevokeAssociation,
     SignatureError,
 };
-use ethers::{abi::AbiEncode, types::H256};
 use futures::future::try_join_all;
-use sha2::Digest;
 use xmtp_cryptography::hash::sha256_bytes;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
