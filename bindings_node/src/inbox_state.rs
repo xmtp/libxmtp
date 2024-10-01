@@ -29,7 +29,7 @@ impl From<AssociationState> for NapiInboxState {
           MemberIdentifier::Address(_) => None,
           MemberIdentifier::Installation(inst) => Some(NapiInstallation {
             id: ed25519_public_key_to_address(inst.as_slice()),
-            client_timestamp_ns: m.client_timestamp_ns.map(|ts| BigInt::from(ts)),
+            client_timestamp_ns: m.client_timestamp_ns.map(BigInt::from),
           }),
         })
         .collect(),
