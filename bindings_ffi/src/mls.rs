@@ -11,7 +11,6 @@ use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::AccountId;
 use xmtp_id::associations::AssociationState;
 use xmtp_id::associations::MemberIdentifier;
-use xmtp_id::scw_verifier::RpcSmartContractWalletVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     associations::{builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id},
@@ -182,11 +181,7 @@ pub fn generate_inbox_id(account_address: String, nonce: u64) -> String {
 #[derive(uniffi::Object)]
 pub struct FfiSignatureRequest {
     inner: Arc<Mutex<SignatureRequest>>,
-}
-
-// TODO:nm store the verifier on the request from the client
-fn signature_verifier() -> impl SmartContractSignatureVerifier {
-    RpcSmartContractWalletVerifier::new("http://www.fake.com".to_string())
+    scw_verifier: Box<dyn SmartContractSignatureVerifier>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -197,7 +192,7 @@ impl FfiSignatureRequest {
         inner
             .add_signature(
                 UnverifiedSignature::new_recoverable_ecdsa(signature_bytes),
-                &signature_verifier(),
+                self.scw_verifier.clone().as_ref(),
             )
             .await?;
 
@@ -226,7 +221,7 @@ impl FfiSignatureRequest {
             })?,
         );
         inner
-            .add_signature(signature, &signature_verifier())
+            .add_signature(signature, self.scw_verifier.clone().as_ref())
             .await?;
         Ok(())
     }
@@ -362,12 +357,14 @@ impl FfiXmtpClient {
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
     pub fn signature_request(&self) -> Option<Arc<FfiSignatureRequest>> {
+        let scw_verifier = self.inner_client.context().scw_verifier.clone();
         self.inner_client
             .identity()
             .signature_request()
             .map(|request| {
                 Arc::new(FfiSignatureRequest {
                     inner: Arc::new(Mutex::new(request)),
+                    scw_verifier,
                 })
             })
     }
@@ -404,6 +401,7 @@ impl FfiXmtpClient {
 
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+            scw_verifier: self.inner_client.context().scw_verifier.clone(),
         });
 
         Ok(request)
@@ -433,6 +431,7 @@ impl FfiXmtpClient {
 
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+            scw_verifier: self.inner_client.context().scw_verifier.clone(),
         });
 
         Ok(request)
@@ -459,6 +458,7 @@ impl FfiXmtpClient {
 
         Ok(Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+            scw_verifier: self.inner_client.context().scw_verifier.clone(),
         }))
     }
 }
@@ -1701,7 +1701,7 @@ impl FfiGroupPermissions {
 
 #[cfg(test)]
 mod tests {
-    use super::{create_client, signature_verifier, FfiMessage, FfiMessageCallback, FfiXmtpClient};
+    use super::{create_client, FfiMessage, FfiMessageCallback, FfiXmtpClient};
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConsent,
         FfiConsentEntityType, FfiConsentState, FfiConversationCallback, FfiCreateGroupOptions,
@@ -2034,6 +2034,7 @@ mod tests {
         wallet: &xmtp_cryptography::utils::LocalWallet,
         signature_request: &FfiSignatureRequest,
     ) {
+        let scw_verifier = signature_request.scw_verifier.clone();
         let signature_text = signature_request.inner.lock().await.signature_text();
         let wallet_signature: Vec<u8> = wallet.sign(&signature_text.clone()).unwrap().into();
 
@@ -2045,7 +2046,7 @@ mod tests {
                 UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(
                     wallet_signature,
                 )),
-                &signature_verifier(),
+                scw_verifier.clone().as_ref(),
             )
             .await
             .unwrap();

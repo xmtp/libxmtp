@@ -26,7 +26,7 @@ pub struct StreamHandle<T> {
 
 /// Events local to this client
 /// are broadcast across all senders/receivers of streams
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) enum LocalEvents {
     // a new group was created
     NewGroup(MlsGroup),

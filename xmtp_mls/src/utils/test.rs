@@ -120,7 +120,7 @@ impl ClientBuilder<TestClient> {
             nonce,
             None,
         ))
-        .scw_signatuer_verifier(MockSmartContractSignatureVerifier::new(true))
+        .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
         .temp_store()
         .local_client()
         .await

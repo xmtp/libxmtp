@@ -96,7 +96,7 @@ where
         self
     }
 
-    pub fn scw_signatuer_verifier(mut self, verifier: impl SmartContractSignatureVerifier) -> Self {
+    pub fn scw_signature_verifier(mut self, verifier: impl SmartContractSignatureVerifier) -> Self {
         self.scw_verifier = Some(Box::new(verifier));
         self
     }
@@ -140,10 +140,16 @@ where
         .await?;
 
         #[cfg(feature = "message-history")]
-        let client = Client::new(api_client_wrapper, identity, store, self.history_sync_url);
+        let client = Client::new(
+            api_client_wrapper,
+            identity,
+            store,
+            scw_verifier,
+            self.history_sync_url,
+        );
 
         #[cfg(not(feature = "message-history"))]
-        let client = Client::new(api_client_wrapper, identity, store);
+        let client = Client::new(api_client_wrapper, identity, store, scw_verifier);
 
         Ok(client)
     }
