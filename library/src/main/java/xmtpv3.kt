@@ -868,6 +868,10 @@ internal interface UniffiLib : Library {
         `ptr`: Pointer, uniffi_out_err: UniffiRustCallStatus,
     ): Unit
 
+    fun uniffi_xmtpv3_fn_method_fficonversations_create_dm(
+        `ptr`: Pointer, `accountAddress`: RustBuffer.ByValue,
+    ): Long
+
     fun uniffi_xmtpv3_fn_method_fficonversations_create_group(
         `ptr`: Pointer, `accountAddresses`: RustBuffer.ByValue, `opts`: RustBuffer.ByValue,
     ): Long
@@ -1663,6 +1667,9 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_checksum_func_verify_k256_sha256(
     ): Short
 
+    fun uniffi_xmtpv3_checksum_method_fficonversations_create_dm(
+    ): Short
+
     fun uniffi_xmtpv3_checksum_method_fficonversations_create_group(
     ): Short
 
@@ -1996,6 +2003,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_verify_k256_sha256() != 25521.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversations_create_dm() != 61687.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversations_create_group() != 62996.toShort()) {
@@ -2682,6 +2692,8 @@ private class JavaLangRefCleanable(
 
 public interface FfiConversationsInterface {
 
+    suspend fun `createDm`(`accountAddress`: kotlin.String): FfiGroup
+
     suspend fun `createGroup`(
         `accountAddresses`: List<kotlin.String>,
         `opts`: FfiCreateGroupOptions,
@@ -2781,6 +2793,38 @@ open class FfiConversations : Disposable, AutoCloseable, FfiConversationsInterfa
         return uniffiRustCall() { status ->
             UniffiLib.INSTANCE.uniffi_xmtpv3_fn_clone_fficonversations(pointer!!, status)
         }
+    }
+
+
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `createDm`(`accountAddress`: kotlin.String): FfiGroup {
+        return uniffiRustCallAsync(
+            callWithPointer { thisPtr ->
+                UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversations_create_dm(
+                    thisPtr,
+                    FfiConverterString.lower(`accountAddress`),
+                )
+            },
+            { future, callback, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_pointer(
+                    future,
+                    callback,
+                    continuation
+                )
+            },
+            { future, continuation ->
+                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_pointer(
+                    future,
+                    continuation
+                )
+            },
+            { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_pointer(future) },
+            // lift function
+            { FfiConverterTypeFfiGroup.lift(it) },
+            // Error FFI converter
+            GenericException.ErrorHandler,
+        )
     }
 
 
