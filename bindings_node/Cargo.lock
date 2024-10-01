@@ -5264,7 +5264,6 @@ dependencies = [
  "aes-gcm",
  "async-stream",
  "bincode",
- "chrono",
  "diesel",
  "diesel_migrations",
  "ed25519-dalek",
@@ -5294,7 +5293,6 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_proto",
- "xmtp_v2",
 ]
 
 [[package]]

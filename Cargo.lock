@@ -6307,7 +6307,6 @@ dependencies = [
  "async-barrier",
  "async-stream",
  "bincode",
- "chrono",
  "criterion",
  "ctor",
  "diesel",
@@ -6350,7 +6349,6 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_proto",
- "xmtp_v2",
 ]
 
 [[package]]
