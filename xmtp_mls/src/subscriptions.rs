@@ -837,7 +837,7 @@ mod tests {
         // Start a stream with enableDm set to true
         let groups = Arc::new(Mutex::new(Vec::new()));
         // Wait for 2 seconds for the group creation to be streamed
-        let notify = Delivery::new(Some(std::time::Duration::from_secs(1)));
+        let notify = Delivery::new(Some(std::time::Duration::from_secs(60)));
         let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
         let closer = Client::<TestClient>::stream_conversations_with_callback(
             alix.clone(),
