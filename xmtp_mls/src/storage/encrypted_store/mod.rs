@@ -43,7 +43,7 @@ use diesel::{
     connection::{LoadConnection, TransactionManager},
     migration::MigrationConnection,
     prelude::*,
-    result::{DatabaseErrorKind, Error},
+    result::Error,
     sql_query,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
@@ -67,16 +67,6 @@ pub type EncryptionKey = [u8; 32];
 struct SqliteVersion {
     #[diesel(sql_type = diesel::sql_types::Text)]
     version: String,
-}
-
-pub fn ignore_unique_violation<T>(
-    result: Result<T, diesel::result::Error>,
-) -> Result<(), StorageError> {
-    match result {
-        Ok(_) => Ok(()),
-        Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => Ok(()),
-        Err(error) => Err(StorageError::from(error)),
-    }
 }
 
 #[derive(Default, Clone, Debug)]
@@ -604,52 +594,6 @@ pub(crate) mod tests {
         EncryptedMessageStore::remove_db_files(db_path)
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn it_returns_ok_when_given_ok_result() {
-        let result: Result<(), diesel::result::Error> = Ok(());
-        assert!(
-            super::ignore_unique_violation(result).is_ok(),
-            "Expected Ok(()) when given Ok result"
-        );
-    }
-
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn it_returns_ok_on_unique_violation_error() {
-        let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::DatabaseError(
-            diesel::result::DatabaseErrorKind::UniqueViolation,
-            Box::new("violation".to_string()),
-        ));
-        assert!(
-            super::ignore_unique_violation(result).is_ok(),
-            "Expected Ok(()) when given UniqueViolation error"
-        );
-    }
-
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn it_returns_err_on_non_unique_violation_database_errors() {
-        let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::DatabaseError(
-            diesel::result::DatabaseErrorKind::NotNullViolation,
-            Box::new("other kind".to_string()),
-        ));
-        assert!(
-            super::ignore_unique_violation(result).is_err(),
-            "Expected Err when given non-UniqueViolation database error"
-        );
-    }
-
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn it_returns_err_on_non_database_errors() {
-        let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::NotFound);
-        assert!(
-            super::ignore_unique_violation(result).is_err(),
-            "Expected Err when given a non-database error"
-        );
-    }
-
     // get two connections
     // start a transaction
     // try to write with second connection
@@ -697,6 +641,7 @@ pub(crate) mod tests {
                     0,
                     GroupMembershipState::Allowed,
                     "goodbye".to_string(),
+                    None,
                 );
                 group.store(connection)?;
                 Ok(())
@@ -750,6 +695,7 @@ pub(crate) mod tests {
                         0,
                         GroupMembershipState::Allowed,
                         "goodbye".to_string(),
+                        None,
                     );
                     group.store(conn1).unwrap();
 

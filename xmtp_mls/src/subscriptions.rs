@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
+use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use futures::{FutureExt, Stream, StreamExt};
 use prost::Message;
 use tokio::{sync::oneshot, task::JoinHandle};
@@ -9,7 +10,7 @@ use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 use crate::{
     api::GroupFilter,
     client::{extract_welcome_message, ClientError},
-    groups::{extract_group_id, GroupError, MlsGroup},
+    groups::{extract_group_id, group_metadata::ConversationType, GroupError, MlsGroup},
     retry::Retry,
     retry_async,
     storage::{group::StoredGroup, group_message::StoredGroupMessage},
@@ -131,16 +132,40 @@ where
 
     pub async fn stream_conversations(
         &self,
+        include_dm: bool,
     ) -> Result<impl Stream<Item = MlsGroup> + '_, ClientError> {
+        let provider = Arc::new(self.context.mls_provider()?);
+
         let event_queue =
             tokio_stream::wrappers::BroadcastStream::new(self.local_events.subscribe());
 
-        let event_queue = event_queue.filter_map(|event| async move {
-            match event {
-                Ok(LocalEvents::NewGroup(g)) => Some(g),
-                Err(BroadcastStreamRecvError::Lagged(missed)) => {
-                    tracing::warn!("Missed {missed} messages due to local event queue lagging");
+        // Helper function for filtering Dm groups
+        let filter_group = move |group: MlsGroup, provider: Arc<XmtpOpenMlsProvider>| async move {
+            match group.metadata(provider.as_ref()) {
+                Ok(metadata) => {
+                    if include_dm || metadata.conversation_type != ConversationType::Dm {
+                        Some(group)
+                    } else {
+                        None
+                    }
+                }
+                Err(err) => {
+                    tracing::error!("Error processing group metadata: {:?}", err);
                     None
+                }
+            }
+        };
+
+        let event_provider = Arc::clone(&provider);
+        let event_queue = event_queue.filter_map(move |event| {
+            let provider = Arc::clone(&event_provider);
+            async move {
+                match event {
+                    Ok(LocalEvents::NewGroup(group)) => filter_group(group, provider).await,
+                    Err(BroadcastStreamRecvError::Lagged(missed)) => {
+                        tracing::warn!("Missed {missed} messages due to local event queue lagging");
+                        None
+                    }
                 }
             }
         });
@@ -154,20 +179,24 @@ where
             .subscribe_welcome_messages(installation_key, Some(id_cursor))
             .await?;
 
+        let stream_provider = Arc::clone(&provider);
         let stream = subscription
             .map(|welcome| async {
                 tracing::info!("Received conversation streaming payload");
                 self.process_streamed_welcome(welcome?).await
             })
-            .filter_map(|res| async {
-                match res.await {
-                    Ok(group) => Some(group),
-                    Err(err) => {
-                        tracing::error!(
-                            "Error processing stream entry for conversation: {:?}",
-                            err
-                        );
-                        None
+            .filter_map(move |res| {
+                let provider = Arc::clone(&stream_provider);
+                async move {
+                    match res.await {
+                        Ok(group) => filter_group(group, provider).await,
+                        Err(err) => {
+                            tracing::error!(
+                                "Error processing stream entry for conversation: {:?}",
+                                err
+                            );
+                            None
+                        }
                     }
                 }
             });
@@ -239,11 +268,12 @@ where
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient>>,
         mut convo_callback: impl FnMut(MlsGroup) + Send + 'static,
+        include_dm: bool,
     ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
         crate::spawn(Some(rx), async move {
-            let stream = client.stream_conversations().await?;
+            let stream = client.stream_conversations(include_dm).await?;
             futures::pin_mut!(stream);
             let _ = tx.send(());
             while let Some(convo) = stream.next().await {
@@ -284,7 +314,7 @@ where
         let mut group_id_to_info = self
             .store()
             .conn()?
-            .find_groups(None, None, None, None)?
+            .find_groups(None, None, None, None, false)?
             .into_iter()
             .map(Into::into)
             .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
@@ -296,7 +326,8 @@ where
             futures::pin_mut!(messages_stream);
 
             tracing::info!("Setting up conversation stream in stream_all_messages");
-            let convo_stream = self.stream_conversations().await?;
+            let convo_stream = self.stream_conversations(true).await?;
+
             futures::pin_mut!(convo_stream);
 
             let mut extra_messages = Vec::new();
@@ -417,7 +448,7 @@ pub(crate) mod tests {
         let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
         let bob_ptr = bob.clone();
         crate::spawn(None, async move {
-            let bob_stream = bob_ptr.stream_conversations().await.unwrap();
+            let bob_stream = bob_ptr.stream_conversations(true).await.unwrap();
             futures::pin_mut!(bob_stream);
             while let Some(item) = bob_stream.next().await {
                 let _ = tx.send(item);
@@ -744,12 +775,15 @@ pub(crate) mod tests {
         let notify = Delivery::new(None);
         let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
 
-        let closer =
-            Client::<TestClient>::stream_conversations_with_callback(alix.clone(), move |g| {
+        let closer = Client::<TestClient>::stream_conversations_with_callback(
+            alix.clone(),
+            move |g| {
                 let mut groups = groups_pointer.lock();
                 groups.push(g);
                 notify_pointer.notify_one();
-            });
+            },
+            false,
+        );
 
         alix.create_group(None, GroupMetadataOptions::default())
             .unwrap();
@@ -774,6 +808,69 @@ pub(crate) mod tests {
 
         notify.wait_for_delivery().await.unwrap();
 
+        {
+            let grps = groups.lock();
+            assert_eq!(grps.len(), 2);
+        }
+
+        closer.end();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_dm_streaming() {
+        let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+
+        let groups = Arc::new(Mutex::new(Vec::new()));
+        // Wait for 2 seconds for the group creation to be streamed
+        let notify = Delivery::new(Some(std::time::Duration::from_secs(1)));
+        let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
+
+        // Start a stream with enableDm set to false
+        let closer = Client::<TestClient>::stream_conversations_with_callback(
+            alix.clone(),
+            move |g| {
+                let mut groups = groups_pointer.lock();
+                groups.push(g);
+                notify_pointer.notify_one();
+            },
+            false,
+        );
+
+        alix.create_dm_by_inbox_id(bo.inbox_id()).await.unwrap();
+
+        let result = notify.wait_for_delivery().await;
+        assert!(result.is_err(), "Stream unexpectedly received a DM group");
+
+        closer.end();
+
+        // Start a stream with enableDm set to true
+        let groups = Arc::new(Mutex::new(Vec::new()));
+        // Wait for 2 seconds for the group creation to be streamed
+        let notify = Delivery::new(Some(std::time::Duration::from_secs(60)));
+        let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
+        let closer = Client::<TestClient>::stream_conversations_with_callback(
+            alix.clone(),
+            move |g| {
+                let mut groups = groups_pointer.lock();
+                groups.push(g);
+                notify_pointer.notify_one();
+            },
+            true,
+        );
+
+        alix.create_dm_by_inbox_id(bo.inbox_id()).await.unwrap();
+        notify.wait_for_delivery().await.unwrap();
+        {
+            let grps = groups.lock();
+            assert_eq!(grps.len(), 1);
+        }
+
+        let dm = bo.create_dm_by_inbox_id(alix.inbox_id()).await.unwrap();
+        dm.add_members_by_inbox_id(&bo, vec![alix.inbox_id()])
+            .await
+            .unwrap();
+        notify.wait_for_delivery().await.unwrap();
         {
             let grps = groups.lock();
             assert_eq!(grps.len(), 2);
