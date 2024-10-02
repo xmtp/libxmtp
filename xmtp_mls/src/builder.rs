@@ -115,7 +115,9 @@ where
         }
 
         let scw_verifier = self.scw_verifier.take().unwrap_or_else(|| {
-            // TODO:nm Enforce that everyone provides this
+            // TODO: enforce that a valid Smart Contract Wallet verifier is provided
+            // We allow setting a default and broken SCW verifier for now, as smart contract wallet's are not
+            // currently present on the network.
             Box::new(RpcSmartContractWalletVerifier::new(
                 "https://fixme.com".to_string(),
             ))
@@ -141,7 +143,13 @@ where
         .await?;
 
         #[cfg(feature = "message-history")]
-        let client = Client::new(api_client_wrapper, identity, store, self.history_sync_url);
+        let client = Client::new(
+            api_client_wrapper,
+            identity,
+            store,
+            self.history_sync_url,
+            scw_verifier,
+        );
 
         #[cfg(not(feature = "message-history"))]
         let client = Client::new(api_client_wrapper, identity, store);
