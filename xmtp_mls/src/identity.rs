@@ -48,6 +48,19 @@ use xmtp_id::{
 };
 use xmtp_proto::xmtp::identity::MlsCredential;
 
+/**
+ * The identity strategy determines how the [`ClientBuilder`] constructs an identity on startup.
+ *
+ * [`IdentityStrategy::CreateIfNotFound`] will attempt to create a new identity if one isn't found in the store.
+ * This is the default behavior.
+ *
+ * [`IdentityStrategy::CachedOnly`] will attempt to get an identity from the store. If not found, it will
+ * return an error. This is useful if you don't want to create a new identity on startup because the caller
+ * does not have access to a signer.
+ *
+ * [`IdentityStrategy::ExternalIdentity`] allows you to provide an already-constructed identity to the
+ * client. This is useful for testing and not expected to be used in production.
+ */
 #[derive(Debug, Clone)]
 pub enum IdentityStrategy {
     /// Tries to get an identity from the disk store. If not found, getting one from backend.
@@ -60,6 +73,14 @@ pub enum IdentityStrategy {
 }
 
 impl IdentityStrategy {
+    /**
+     * Initialize an identity from the given strategy. If a stored identity is found in the database,
+     * it will return that identity.
+     *
+     * If a stored identity is found, it will validate that the inbox_id of the stored identity matches
+     * the inbox_id configured on the strategy.
+     *
+     **/
     pub(crate) async fn initialize_identity<ApiClient: XmtpApi>(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
@@ -209,7 +230,9 @@ impl Identity {
     /// Users will be required to sign with their wallet, and the legacy is ignored even if it's provided.
     ///
     /// If the address is NOT associated with an inbox_id, a new inbox_id will be generated.
-    /// Prioritize legacy key if provided, otherwise use wallet to sign.
+    /// If a legacy key is provided, it will be used to sign the identity update and no wallet signature is needed.
+    ///
+    /// If no legacy key is provided, a wallet signature is always required.
     pub(crate) async fn new<ApiClient: XmtpApi>(
         inbox_id: InboxId,
         address: String,
@@ -261,11 +284,13 @@ impl Identity {
 
             Ok(identity)
         } else if let Some(legacy_signed_private_key) = legacy_signed_private_key {
+            // The legacy signed private key may only be used if the nonce is 0
             if nonce != 0 {
                 return Err(IdentityError::NewIdentity(
                     "Nonce must be 0 if legacy key is provided".to_string(),
                 ));
             }
+            // If the inbox_id found on the network does not match the one generated from the address and nonce, we must error
             if inbox_id != generate_inbox_id(&address, &nonce) {
                 return Err(IdentityError::NewIdentity(
                     "Inbox ID doesn't match nonce & address".to_string(),
@@ -378,6 +403,9 @@ impl Identity {
         self.credential.clone()
     }
 
+    /**
+     * Sign the given text with the installation private key.
+     */
     pub(crate) fn sign<Text: AsRef<str>>(&self, text: Text) -> Result<Vec<u8>, IdentityError> {
         let mut prehashed = Sha512::new();
         prehashed.update(text.as_ref());
@@ -387,6 +415,7 @@ impl Identity {
         Ok(signature.to_vec())
     }
 
+    /// Generate a new key package and store the associated keys in the database.
     pub(crate) fn new_key_package(
         &self,
         provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore>,
@@ -458,6 +487,7 @@ impl Identity {
         Ok(StoredIdentity::try_from(self)?.store(provider.conn_ref())?)
     }
 
+    /// Upload a new key package to the network, which will replace any existing key packages for the installation.
     pub(crate) async fn rotate_key_package<ApiClient: XmtpApi>(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -483,6 +513,7 @@ impl Identity {
         Ok(())
     }
 
+    /// Delete a key package from the local database.
     pub(crate) fn delete_key_package(
         &self,
         provider: &XmtpOpenMlsProvider,

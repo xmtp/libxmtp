@@ -18,6 +18,7 @@ pub enum GroupMetadataError {
     MissingExtension,
 }
 
+/// `GroupMetadata` is immutable and created at the time of group creation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupMetadata {
     pub conversation_type: ConversationType,
@@ -91,6 +92,13 @@ impl TryFrom<&Extensions> for GroupMetadata {
     }
 }
 
+/**
+ * XMTP supports the following types of conversation
+ *
+ * Group: A conversation with 1->N members and complex permissions and roles
+ * DM: A conversation between 2 members with simplified permissions
+ * Sync: A conversation between all the devices of a single member with simplified permissions
+ */
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConversationType {
     Group,

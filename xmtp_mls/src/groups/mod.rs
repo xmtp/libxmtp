@@ -252,6 +252,10 @@ pub enum UpdateAdminListType {
     RemoveSuper,
 }
 
+/// Represents a group, which can contain anywhere from 1 to MAX_GROUP_SIZE inboxes.
+///
+/// This is a wrapper around OpenMLS's `MlsGroup` that handles our application-level configuration
+/// and validations.
 impl MlsGroup {
     // Creates a new group instance. Does not validate that the group exists in the DB
     pub fn new(context: Arc<XmtpMlsLocalContext>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
@@ -270,7 +274,7 @@ impl MlsGroup {
         Ok(self.context.store.conn()?.into())
     }
 
-    // Load the stored MLS group from the OpenMLS provider's keystore
+    // Load the stored OpenMLS group from the OpenMLS provider's keystore
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn load_mls_group(
         &self,
@@ -331,8 +335,8 @@ impl MlsGroup {
         Ok(new_group)
     }
 
-    // Create a group from a decrypted and decoded welcome message
-    // If the group already exists in the store, overwrite the MLS state and do not update the group entry
+    /// Create a group from a decrypted and decoded welcome message
+    /// If the group already exists in the store, overwrite the MLS state and do not update the group entry
     async fn create_from_welcome<ApiClient: XmtpApi>(
         client: &Client<ApiClient>,
         provider: &XmtpOpenMlsProvider,
@@ -368,8 +372,12 @@ impl MlsGroup {
             ),
         };
 
+        // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
+        // in the `GroupMembership` extension.
         validate_initial_group_membership(client, provider.conn_ref(), &mls_group).await?;
 
+        // Insert or replace the group in the database.
+        // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
         let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
 
         Ok(Self::new(
@@ -379,7 +387,7 @@ impl MlsGroup {
         ))
     }
 
-    // Decrypt a welcome message using HPKE and then create and save a group from the stored message
+    /// Decrypt a welcome message using HPKE and then create and save a group from the stored message
     pub async fn create_from_encrypted_welcome<ApiClient: XmtpApi>(
         client: &Client<ApiClient>,
         provider: &XmtpOpenMlsProvider,
@@ -456,7 +464,7 @@ impl MlsGroup {
         ))
     }
 
-    /// Send a message on this users XMTP [`Client`].
+    /// Send a message on this user's XMTP [`Client`].
     pub async fn send_message<ApiClient>(
         &self,
         message: &[u8],
@@ -484,7 +492,8 @@ impl MlsGroup {
         message_id
     }
 
-    /// Publish all unpublished messages
+    /// Publish all unpublished messages. This happens by calling `sync_until_last_intent_resolved`
+    /// which publishes all pending intents and reads them back from the network.
     pub async fn publish_messages<ApiClient>(
         &self,
         client: &Client<ApiClient>,
@@ -506,7 +515,10 @@ impl MlsGroup {
         Ok(())
     }
 
-    /// Update group installations
+    /// Checks the network to see if any group members have identity updates that would cause installations
+    /// to be added or removed from the group.
+    ///
+    /// If so, adds/removes those group members
     pub async fn update_installations<ApiClient>(
         &self,
         client: &Client<ApiClient>,
@@ -583,8 +595,8 @@ impl MlsGroup {
         }
     }
 
-    // Query the database for stored messages. Optionally filtered by time, kind, delivery_status
-    // and limit
+    /// Query the database for stored messages. Optionally filtered by time, kind, delivery_status
+    /// and limit
     pub fn find_messages(
         &self,
         kind: Option<GroupMessageKind>,
@@ -609,8 +621,8 @@ impl MlsGroup {
     /**
      * Add members to the group by account address
      *
-     * If any existing members have new installations that have not been added, the missing installations
-     * will be added as part of this process as well.
+     * If any existing members have new installations that have not been added or removed, the
+     * group membership will be updated to include those changes as well.
      */
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members<ApiClient>(
@@ -676,6 +688,14 @@ impl MlsGroup {
             .await
     }
 
+    /// Removes members from the group by their account addresses.
+    ///
+    /// # Arguments
+    /// * `client` - The XMTP client.
+    /// * `account_addresses_to_remove` - A vector of account addresses to remove from the group.
+    ///
+    /// # Returns
+    /// A `Result` indicating success or failure of the operation.
     pub async fn remove_members<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
@@ -688,6 +708,14 @@ impl MlsGroup {
             .await
     }
 
+    /// Removes members from the group by their inbox IDs.
+    ///
+    /// # Arguments
+    /// * `client` - The XMTP client.
+    /// * `inbox_ids` - A vector of inbox IDs to remove from the group.
+    ///
+    /// # Returns
+    /// A `Result` indicating success or failure of the operation.
     pub async fn remove_members_by_inbox_id<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
@@ -711,6 +739,8 @@ impl MlsGroup {
             .await
     }
 
+    /// Updates the name of the group. Will error if the user does not have the appropriate permissions
+    /// to perform these updates.
     pub async fn update_group_name<ApiClient>(
         &self,
         client: &Client<ApiClient>,
@@ -732,6 +762,7 @@ impl MlsGroup {
             .await
     }
 
+    /// Updates the permission policy of the group. This requires super admin permissions.
     pub async fn update_permission_policy<ApiClient: XmtpApi>(
         &self,
         client: &Client<ApiClient>,
@@ -764,6 +795,7 @@ impl MlsGroup {
             .await
     }
 
+    /// Retrieves the group name from the group's mutable metadata extension.
     pub fn group_name(&self, provider: impl OpenMlsProvider) -> Result<String, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
         match mutable_metadata
@@ -777,6 +809,7 @@ impl MlsGroup {
         }
     }
 
+    /// Updates the description of the group.
     pub async fn update_group_description<ApiClient>(
         &self,
         client: &Client<ApiClient>,
@@ -811,6 +844,7 @@ impl MlsGroup {
         }
     }
 
+    /// Updates the image URL (square) of the group.
     pub async fn update_group_image_url_square<ApiClient>(
         &self,
         client: &Client<ApiClient>,
@@ -833,6 +867,7 @@ impl MlsGroup {
             .await
     }
 
+    /// Retrieves the image URL (square) of the group from the group's mutable metadata extension.
     pub fn group_image_url_square(
         &self,
         provider: impl OpenMlsProvider,
@@ -886,11 +921,13 @@ impl MlsGroup {
         }
     }
 
+    /// Retrieves the admin list of the group from the group's mutable metadata extension.
     pub fn admin_list(&self, provider: impl OpenMlsProvider) -> Result<Vec<String>, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
         Ok(mutable_metadata.admin_list)
     }
 
+    /// Retrieves the super admin list of the group from the group's mutable metadata extension.    
     pub fn super_admin_list(
         &self,
         provider: impl OpenMlsProvider,
@@ -899,6 +936,7 @@ impl MlsGroup {
         Ok(mutable_metadata.super_admin_list)
     }
 
+    /// Checks if the given inbox ID is an admin of the group at the most recently synced epoch.
     pub fn is_admin(
         &self,
         inbox_id: String,
@@ -908,6 +946,7 @@ impl MlsGroup {
         Ok(mutable_metadata.admin_list.contains(&inbox_id))
     }
 
+    /// Checks if the given inbox ID is a super admin of the group at the most recently synced epoch.
     pub fn is_super_admin(
         &self,
         inbox_id: String,
@@ -917,6 +956,7 @@ impl MlsGroup {
         Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
     }
 
+    /// Updates the admin list of the group and syncs the changes to the network.
     pub async fn update_admin_list<ApiClient>(
         &self,
         client: &Client<ApiClient>,
@@ -996,16 +1036,21 @@ impl MlsGroup {
             .await
     }
 
+    /// Checks if the the current user is active in the group.
+    ///
+    /// If the current user has been kicked out of the group, `is_active` will return `false`
     pub fn is_active(&self, provider: impl OpenMlsProvider) -> Result<bool, GroupError> {
         let mls_group = self.load_mls_group(provider)?;
         Ok(mls_group.is_active())
     }
 
+    /// Get the `GroupMetadata` of the group.
     pub fn metadata(&self, provider: impl OpenMlsProvider) -> Result<GroupMetadata, GroupError> {
         let mls_group = self.load_mls_group(provider)?;
         Ok(extract_group_metadata(&mls_group)?)
     }
 
+    /// Get the `GroupMutableMetadata` of the group.
     pub fn mutable_metadata(
         &self,
         provider: impl OpenMlsProvider,
@@ -1263,6 +1308,9 @@ fn build_group_config(
         .build())
 }
 
+/**
+ * Ensures that the membership in the MLS tree matches the inboxes specified in the `GroupMembership` extension.
+ */
 async fn validate_initial_group_membership<ApiClient: XmtpApi>(
     client: &Client<ApiClient>,
     conn: &DbConnection,

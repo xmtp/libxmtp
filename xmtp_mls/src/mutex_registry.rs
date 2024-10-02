@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use tokio::sync::Mutex;
 
+/// A registry of mutexes that can be locked and unlocked by a given key.
 #[derive(Debug, Clone)]
 pub struct MutexRegistry {
     mutexes: HashMap<Vec<u8>, Arc<Mutex<()>>>,

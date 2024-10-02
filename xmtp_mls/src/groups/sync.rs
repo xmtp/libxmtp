@@ -1007,10 +1007,10 @@ impl MlsGroup {
 
     /**
      * Checks each member of the group for `IdentityUpdates` after their current sequence_id. If updates
-     * are found the method will construct an [`UpdateGroupMembershipIntentData`] and publish a change
+     * are found the method will construct an [`UpdateGroupMembershipIntentData`] and create a change
      * to the [`GroupMembership`] that will add any missing installations.
      *
-     * This is designed to handle cases where existing members have added a new installation to their inbox
+     * This is designed to handle cases where existing members have added a new installation to their inbox or revoked an installation
      * and the group has not been updated to include it.
      */
     pub(super) async fn add_missing_installations<ApiClient>(
@@ -1108,6 +1108,11 @@ impl MlsGroup {
         ))
     }
 
+    /**
+     * Sends welcome messages to the installations specified in the action
+     *
+     * Internally, this breaks the request into chunks to avoid exceeding the GRPC max message size limits
+     */
     #[tracing::instrument(level = "trace", skip_all)]
     pub(super) async fn send_welcomes<ApiClient>(
         &self,
