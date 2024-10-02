@@ -327,7 +327,7 @@ mod tests {
         }
     }
 
-    async fn generate_inbox_id_credential() -> (String, SigningKey) {
+    fn generate_inbox_id_credential() -> (String, SigningKey) {
         let signing_key = SigningKey::generate(&mut rand::thread_rng());
 
         let wallet = LocalWallet::new(&mut rand::thread_rng());
@@ -409,7 +409,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_inbox_id_key_package_happy_path() {
-        let (inbox_id, keypair) = generate_inbox_id_credential().await;
+        let (inbox_id, keypair) = generate_inbox_id_credential();
         let keypair = to_signature_keypair(keypair);
 
         let credential: OpenMlsCredential = InboxIdMlsCredential {
@@ -447,8 +447,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_inbox_id_key_package_failure() {
-        let (inbox_id, keypair) = generate_inbox_id_credential().await;
-        let (_, other_keypair) = generate_inbox_id_credential().await;
+        let (inbox_id, keypair) = generate_inbox_id_credential();
+        let (_, other_keypair) = generate_inbox_id_credential();
 
         let keypair = to_signature_keypair(keypair);
         let other_keypair = to_signature_keypair(other_keypair);
