@@ -63,7 +63,9 @@ criterion = { version = "0.5", features = ["html_reports", "async_tokio"], optio
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Native Dependencies
-libsqlite3-sys = { version = "0.29.0", features = ["bundled-sqlcipher-vendored-openssl" ] }
+libsqlite3-sys = { workspace = true }
+openssl-sys.workspace = true
+openssl.workspace = true
 diesel = { workspace = true, features = [
     "r2d2",
     "returning_clauses_for_sqlite_3_35",

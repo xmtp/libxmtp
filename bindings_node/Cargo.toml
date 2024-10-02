@@ -27,9 +27,5 @@ xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 [build-dependencies]
 napi-build = "2.0.1"
 
-[profile.release]
-lto = true
-strip = "symbols"
-
 [package.metadata.cross.build.env]
 volumes = ["__LIB12_DEP=../"]

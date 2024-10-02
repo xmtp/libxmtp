@@ -68,6 +68,11 @@ wasm-bindgen = "=0.2.92"
 gloo-timers = "0.3"
 web-sys = "0.3"
 js-sys = "0.3"
+# NOTE: A regression in openssl-sys exists where libatomic is dynamically linked
+# for i686-linux-android targets. https://github.com/sfackler/rust-openssl/issues/2163
+openssl-sys = "=0.9.92"
+openssl = "=0.10.57"
+libsqlite3-sys = { version = "0.29", features = ["bundled-sqlcipher-vendored-openssl" ] }
 
 # Internal Crate Dependencies
 xmtp_cryptography = { path = "xmtp_cryptography" }
@@ -75,7 +80,28 @@ xmtp_id = { path = "xmtp_id" }
 xmtp_mls = { path = "xmtp_mls" }
 xmtp_proto = { path = "xmtp_proto" }
 
+[profile.dev]
+incremental = true
+
+[profile.test]
+incremental = true
+
 [profile.release]
+opt-level = "s"
+panic = 'abort'
+lto = true
+
+[profile.release.package.bindings_node]
+strip = "symbols"
+
+# NOTE: The release profile reduces bundle size from 230M to 41M - may have performance impliciations
+# https://stackoverflow.com/a/54842093
+[profile.release.package.xmtpv3]
+codegen-units = 1 # Reduce number of codegen units to increase optimizations
+opt-level = 'z'   # Optimize for size
+strip = true      # Strip symbols from binary*
+
+[profile.release.package.bindings_wasm]
 opt-level = "s"
 
 # patch needed until some items
@@ -86,4 +112,3 @@ diesel = { git = "https://github.com/xmtp/diesel", branch = "insipx/sqlite-repla
 diesel_derives = { git = "https://github.com/xmtp/diesel", branch = "insipx/sqlite-replace-ignore-pub" }
 diesel_migrations = { git = "https://github.com/xmtp/diesel", branch = "insipx/sqlite-replace-ignore-pub" }
 diesel-wasm-sqlite = { git = "https://github.com/xmtp/diesel-wasm-sqlite", branch = "main" }
-
