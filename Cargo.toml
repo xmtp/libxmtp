@@ -88,5 +88,5 @@ opt-level = "s"
 diesel = { git = "https://github.com/xmtp/diesel", branch = "insipx/sqlite-replace-ignore-pub" }
 diesel_derives = { git = "https://github.com/xmtp/diesel", branch = "insipx/sqlite-replace-ignore-pub" }
 diesel_migrations = { git = "https://github.com/xmtp/diesel", branch = "insipx/sqlite-replace-ignore-pub" }
-diesel-wasm-sqlite = { path = "./diesel-wasm-sqlite" }
+diesel-wasm-sqlite = { git = "https://github.com/xmtp/diesel-wasm-sqlite", branch = "main" }
 
