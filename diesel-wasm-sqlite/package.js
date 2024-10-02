@@ -198,22 +198,6 @@ export class SQLite {
     );
   }
 
-  into_statement(pStmt) {
-    const BindTypes = {
-      null: 1,
-      number: 2,
-      string: 3,
-      boolean: 4,
-      blob: 5,
-    };
-    BindTypes["undefined"] == BindTypes.null;
-    if (wasm.bigIntEnabled) {
-      BindTypes.bigint = BindTypes.number;
-    }
-
-    new Stmt(this, pStmt, BindTypes);
-  }
-
   step(stmt) {
     return this.sqlite3.capi.sqlite3_step(stmt);
   }

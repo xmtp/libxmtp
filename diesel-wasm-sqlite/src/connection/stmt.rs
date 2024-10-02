@@ -86,6 +86,24 @@ impl Statement {
         })
     }
 
+    fn copy_value_to_sqlite(bytes: &[u8]) -> *mut u8 {
+        let sqlite3 = crate::get_sqlite_unchecked();
+        let wasm = sqlite3.inner().wasm();
+        let wasm_inner = wasm.alloc_inner();
+
+        let len = bytes.len();
+        let ptr = if len == 0 {
+            wasm.alloc_ptr(1, true)
+        } else {
+            wasm_inner.alloc_impl(len as u32)
+        };
+        ffi::raw_copy_to_sqlite(bytes, ptr);
+        // TODO: Maybe check for null here and return [`std::ptr::NonNull`]?
+        // null is valid for bind function, it will just bind_null instead
+        // but seems like something that should be an error.
+        ptr
+    }
+
     // The caller of this function has to ensure that:
     // * Any buffer provided as `SqliteBindValue::BorrowedBinary`, `SqliteBindValue::Binary`
     // `SqliteBindValue::String` or `SqliteBindValue::BorrowedString` is valid
@@ -108,8 +126,8 @@ impl Statement {
             }
             (SqliteType::Binary, InternalSqliteBindValue::BorrowedBinary(bytes)) => {
                 // copy bytes from our WASM memory to SQLites WASM memory
-                let ptr = wasm.alloc(bytes.len() as u32);
-                ffi::raw_copy_to_sqlite(bytes, ptr);
+                tracing::trace!("Binding binary Borrowed! len={}", bytes.len());
+                let ptr = Self::copy_value_to_sqlite(bytes);
                 ret_ptr = NonNull::new(ptr);
                 sqlite3.bind_blob(
                     &self.inner_statement,
@@ -120,8 +138,8 @@ impl Statement {
                 )
             }
             (SqliteType::Binary, InternalSqliteBindValue::Binary(bytes)) => {
-                let ptr = wasm.alloc(bytes.len() as u32);
-                ffi::raw_copy_to_sqlite(bytes.as_slice(), ptr);
+                tracing::trace!("Binding binary Owned! len={}", bytes.len());
+                let ptr = Self::copy_value_to_sqlite(bytes.as_slice());
                 ret_ptr = NonNull::new(ptr);
                 sqlite3.bind_blob(
                     &self.inner_statement,
@@ -132,6 +150,7 @@ impl Statement {
                 )
             }
             (SqliteType::Text, InternalSqliteBindValue::BorrowedString(bytes)) => {
+                tracing::trace!("Binding Borrowed String! len={}", bytes.len());
                 let ptr = wasm.alloc_cstring(bytes.to_string());
                 ret_ptr = NonNull::new(ptr);
                 sqlite3.bind_text(
@@ -143,6 +162,7 @@ impl Statement {
                 )
             }
             (SqliteType::Text, InternalSqliteBindValue::String(bytes)) => {
+                tracing::trace!("Binding Owned String!");
                 let len = bytes.len();
                 let ptr = wasm.alloc_cstring(bytes);
                 ret_ptr = NonNull::new(ptr);
