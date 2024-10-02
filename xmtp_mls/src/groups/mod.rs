@@ -87,7 +87,7 @@ use crate::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
         group::{GroupMembershipState, Purpose, StoredGroup},
-        group_intent::{IntentKind, NewGroupIntent, PreIntentComplete},
+        group_intent::{IntentKind, NewGroupIntent, PreIntentComplete, StoredGroupIntent},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         sql_key_store,
     },
@@ -503,7 +503,6 @@ impl MlsGroup {
     }
 
     /// Update group installations
-    #[cfg(test)]
     pub async fn update_installations<ApiClient>(
         &self,
         client: &Client<ApiClient>,
@@ -553,6 +552,14 @@ impl MlsGroup {
         let intent =
             NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
         // TODO(rich) Plumb client, call pre-intent hook without syncing
+        // Issue: maybe_update_installations is async because it needs a network call to figure out the
+        // members to include on the intent_data. We can't block prepare_message on a network call.
+        // Ideas:
+        // - Figure out the intent_data at time of publish
+        // - Update installations at time of publish, AFTER intent is inserted (i.e. goes through after message is sent)
+        // - Make prepare_message/send_message do everything in another thread
+        // Worth checking: If both key rotation and update intent happen at the same time, will update intent commit
+        // use wrong encryption at time of publish?
         conn.insert_group_intent(intent, PreIntentComplete {})?;
 
         // store this unpublished message locally before sending
@@ -1000,18 +1007,22 @@ impl MlsGroup {
         Ok(())
     }
 
+    fn prepare_key_update(&self, conn: &DbConnection) -> Result<StoredGroupIntent, GroupError> {
+        let intent = conn.insert_group_intent(
+            NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]),
+            // This is a private method called from pre_intent_hook, hence why we pass an empty PreIntentComplete
+            PreIntentComplete {},
+        )?;
+        Ok(intent)
+    }
+
     // Update this installation's leaf key in the group by creating a key update commit
     async fn key_update<ApiClient>(&self, client: &Client<ApiClient>) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
-        let intent = conn.insert_group_intent(
-            NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]),
-            // This is a private method called from pre_intent_hook, hence why we pass an empty PreIntentComplete
-            PreIntentComplete {},
-        )?;
-
+        let intent = self.prepare_key_update(&conn)?;
         self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
@@ -3338,7 +3349,7 @@ mod tests {
                 group.group_id.clone(),
                 intent_data.into(),
             ),
-            PreIntentComplete {}, // TODO(rich) Allow pre-intent hook to run without syncing
+            PreIntentComplete {}, // No pre-intent needed in tests
         )
         .unwrap();
     }
