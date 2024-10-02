@@ -175,10 +175,6 @@ impl TryFrom<SignatureWrapperProto> for UnverifiedSignature {
                     sig.signature,
                     sig.account_id.try_into()?,
                     sig.block_number,
-                    sig.chain_id,
-                    sig.hash
-                        .try_into()
-                        .map_err(|_| DeserializationError::InvalidHash)?,
                 ),
             ),
         };
@@ -263,9 +259,6 @@ impl From<UnverifiedSignature> for SignatureWrapperProto {
                     account_id: sig.account_id.into(),
                     block_number: sig.block_number,
                     signature: sig.signature_bytes,
-                    // Ethereum
-                    chain_id: sig.chain_id,
-                    hash: sig.hash.to_vec(),
                 })
             }
             UnverifiedSignature::InstallationKey(sig) => {

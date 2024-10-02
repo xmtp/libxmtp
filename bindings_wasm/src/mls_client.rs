@@ -166,7 +166,6 @@ impl WasmClient {
     chain_id: u64,
     account_address: String,
     block_number: u64,
-    payload: String,
   ) -> Result<(), JsError> {
     if self.is_registered() {
       return Err(JsError::new(
@@ -175,14 +174,11 @@ impl WasmClient {
     }
 
     let account_id = AccountId::new_evm(chain_id, account_address.clone());
-    let hash = sha256_bytes(payload.as_bytes());
 
     let signature = UnverifiedSignature::new_smart_contract_wallet(
       signature_bytes.to_vec(),
       account_id,
       block_number,
-      chain_id,
-      hash.try_into().expect("SHA256 hash should be 32 bytes"),
     );
 
     self.signatures.insert(

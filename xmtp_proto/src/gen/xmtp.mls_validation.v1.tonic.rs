@@ -238,10 +238,12 @@ pub mod validation_api_client {
         pub async fn verify_smart_contract_wallet_signatures(
             &mut self,
             request: impl tonic::IntoRequest<
-                super::VerifySmartContractWalletSignaturesRequest,
+                super::super::super::identity::api::v1::VerifySmartContractWalletSignaturesRequest,
             >,
         ) -> std::result::Result<
-            tonic::Response<super::VerifySmartContractWalletSignaturesResponse>,
+            tonic::Response<
+                super::super::super::identity::api::v1::VerifySmartContractWalletSignaturesResponse,
+            >,
             tonic::Status,
         > {
             self.inner
@@ -314,9 +316,13 @@ pub mod validation_api_server {
         >;
         async fn verify_smart_contract_wallet_signatures(
             &self,
-            request: tonic::Request<super::VerifySmartContractWalletSignaturesRequest>,
+            request: tonic::Request<
+                super::super::super::identity::api::v1::VerifySmartContractWalletSignaturesRequest,
+            >,
         ) -> std::result::Result<
-            tonic::Response<super::VerifySmartContractWalletSignaturesResponse>,
+            tonic::Response<
+                super::super::super::identity::api::v1::VerifySmartContractWalletSignaturesResponse,
+            >,
             tonic::Status,
         >;
     }
@@ -640,9 +646,9 @@ pub mod validation_api_server {
                     impl<
                         T: ValidationApi,
                     > tonic::server::UnaryService<
-                        super::VerifySmartContractWalletSignaturesRequest,
+                        super::super::super::identity::api::v1::VerifySmartContractWalletSignaturesRequest,
                     > for VerifySmartContractWalletSignaturesSvc<T> {
-                        type Response = super::VerifySmartContractWalletSignaturesResponse;
+                        type Response = super::super::super::identity::api::v1::VerifySmartContractWalletSignaturesResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -650,7 +656,7 @@ pub mod validation_api_server {
                         fn call(
                             &mut self,
                             request: tonic::Request<
-                                super::VerifySmartContractWalletSignaturesRequest,
+                                super::super::super::identity::api::v1::VerifySmartContractWalletSignaturesRequest,
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);

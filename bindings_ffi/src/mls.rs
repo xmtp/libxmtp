@@ -207,18 +207,14 @@ impl FfiSignatureRequest {
         account_address: String,
         chain_id: u64,
         block_number: u64,
-        payload: String,
     ) -> Result<(), GenericError> {
         let mut inner = self.inner.lock().await;
         let account_id = AccountId::new_evm(chain_id, account_address);
 
-        let hash = sha256_bytes(payload.as_bytes());
         let signature = UnverifiedSignature::new_smart_contract_wallet(
             signature_bytes,
             account_id,
             block_number,
-            chain_id,
-            hash.try_into().expect("SHA256 hash should be 32 bytes"),
         );
         inner
             .add_signature(signature, self.scw_verifier.clone().as_ref())
