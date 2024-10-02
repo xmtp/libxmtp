@@ -204,12 +204,12 @@ impl FfiSignatureRequest {
     pub async fn add_scw_signature(
         &self,
         signature_bytes: Vec<u8>,
-        account_address: String,
+        address: String,
         chain_id: u64,
         block_number: u64,
     ) -> Result<(), GenericError> {
         let mut inner = self.inner.lock().await;
-        let account_id = AccountId::new_evm(chain_id, account_address);
+        let account_id = AccountId::new_evm(chain_id, address);
 
         let signature = UnverifiedSignature::new_smart_contract_wallet(
             signature_bytes,
