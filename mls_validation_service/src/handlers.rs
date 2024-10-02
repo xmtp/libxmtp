@@ -130,7 +130,7 @@ impl ValidationApi for ValidationService {
 
     async fn validate_inbox_id_key_packages(
         &self,
-        request: tonic::Request<ValidateKeyPackagesRequest>,
+        request: Request<ValidateKeyPackagesRequest>,
     ) -> Result<Response<ValidateInboxIdKeyPackagesResponse>, Status> {
         let ValidateKeyPackagesRequest { key_packages } = request.into_inner();
 
@@ -207,12 +207,7 @@ async fn verify_smart_contract_wallet_signatures(
         .await
         .map_err(|e| Status::unknown(format!("{e:?}")))?
         .into_iter()
-        .map(
-            |is_ok| VerifySmartContractWalletSignaturesValidationResponse {
-                is_ok,
-                error_message: "".to_string(),
-            },
-        )
+        .map(|is_valid| VerifySmartContractWalletSignaturesValidationResponse { is_valid })
         .collect();
 
     Ok(Response::new(VerifySmartContractWalletSignaturesResponse {
@@ -297,8 +292,10 @@ mod tests {
     };
     use xmtp_mls::configuration::CIPHERSUITE;
     use xmtp_proto::xmtp::{
-        identity::associations::IdentityUpdate as IdentityUpdateProto,
-        identity::MlsCredential as InboxIdMlsCredential,
+        identity::{
+            associations::IdentityUpdate as IdentityUpdateProto,
+            MlsCredential as InboxIdMlsCredential,
+        },
         mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
     };
 

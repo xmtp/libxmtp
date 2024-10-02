@@ -1274,18 +1274,12 @@ impl serde::Serialize for verify_smart_contract_wallet_signatures_response::Vali
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.is_ok {
-            len += 1;
-        }
-        if !self.error_message.is_empty() {
+        if self.is_valid {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.VerifySmartContractWalletSignaturesResponse.ValidationResponse", len)?;
-        if self.is_ok {
-            struct_ser.serialize_field("isOk", &self.is_ok)?;
-        }
-        if !self.error_message.is_empty() {
-            struct_ser.serialize_field("errorMessage", &self.error_message)?;
+        if self.is_valid {
+            struct_ser.serialize_field("isValid", &self.is_valid)?;
         }
         struct_ser.end()
     }
@@ -1297,16 +1291,13 @@ impl<'de> serde::Deserialize<'de> for verify_smart_contract_wallet_signatures_re
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "is_ok",
-            "isOk",
-            "error_message",
-            "errorMessage",
+            "is_valid",
+            "isValid",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            IsOk,
-            ErrorMessage,
+            IsValid,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1328,8 +1319,7 @@ impl<'de> serde::Deserialize<'de> for verify_smart_contract_wallet_signatures_re
                         E: serde::de::Error,
                     {
                         match value {
-                            "isOk" | "is_ok" => Ok(GeneratedField::IsOk),
-                            "errorMessage" | "error_message" => Ok(GeneratedField::ErrorMessage),
+                            "isValid" | "is_valid" => Ok(GeneratedField::IsValid),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1349,27 +1339,19 @@ impl<'de> serde::Deserialize<'de> for verify_smart_contract_wallet_signatures_re
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut is_ok__ = None;
-                let mut error_message__ = None;
+                let mut is_valid__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::IsOk => {
-                            if is_ok__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("isOk"));
+                        GeneratedField::IsValid => {
+                            if is_valid__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("isValid"));
                             }
-                            is_ok__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::ErrorMessage => {
-                            if error_message__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("errorMessage"));
-                            }
-                            error_message__ = Some(map_.next_value()?);
+                            is_valid__ = Some(map_.next_value()?);
                         }
                     }
                 }
                 Ok(verify_smart_contract_wallet_signatures_response::ValidationResponse {
-                    is_ok: is_ok__.unwrap_or_default(),
-                    error_message: error_message__.unwrap_or_default(),
+                    is_valid: is_valid__.unwrap_or_default(),
                 })
             }
         }
