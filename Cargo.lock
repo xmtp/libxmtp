@@ -368,6 +368,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "bindings_wasm"
+version = "0.0.1"
+dependencies = [
+ "js-sys",
+ "serde",
+ "serde-wasm-bindgen",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "xmtp_api_http",
+ "xmtp_cryptography",
+ "xmtp_id",
+ "xmtp_mls",
+ "xmtp_proto",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

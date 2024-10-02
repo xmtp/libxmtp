@@ -45,7 +45,6 @@ pub async fn create_client(
       EncryptedMessageStore::new(storage_option, key)
         .await
         .map_err(|_| JsError::new("Error creating encrypted message store"))?
-        
     }
     None => EncryptedMessageStore::new_unencrypted(storage_option)
       .await

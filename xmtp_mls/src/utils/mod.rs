@@ -13,7 +13,6 @@ pub mod time {
     pub const NS_IN_SEC: i64 = 1_000_000_000;
 
     pub fn now_ns() -> i64 {
-        tracing::debug!("GETTING NOW");
         let now = SystemTime::now();
 
         now.duration_since(UNIX_EPOCH)
@@ -62,4 +61,9 @@ pub mod wasm {
         })
         .await;
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod wasm {
+    pub async fn init() {}
 }

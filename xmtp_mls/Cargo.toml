@@ -84,14 +84,14 @@ diesel = { workspace = true, features = [
     "returning_clauses_for_sqlite_3_35",
 ] }
 diesel_migrations.workspace = true
-getrandom = { version = "0.2", features = ["js"] }
+getrandom = { workspace = true, features = ["js"] }
 chrono = { workspace = true, features = ["wasmbind"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
 openmls = { workspace = true, features = ["test-utils", "js"] }
 gloo-timers = { workspace = true, features = ["futures"] }
 wasm-bindgen-futures.workspace = true
-web-sys = "0.3"
 
+web-sys.workspace = true
 [dev-dependencies]
 ethers.workspace = true
 mockall = "0.13.0"

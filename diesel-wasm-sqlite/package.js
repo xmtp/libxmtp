@@ -198,22 +198,6 @@ export class SQLite {
     );
   }
 
-  into_statement(pStmt) {
-    const BindTypes = {
-      null: 1,
-      number: 2,
-      string: 3,
-      boolean: 4,
-      blob: 5,
-    };
-    BindTypes["undefined"] == BindTypes.null;
-    if (wasm.bigIntEnabled) {
-      BindTypes.bigint = BindTypes.number;
-    }
-
-    new Stmt(this, pStmt, BindTypes);
-  }
-
   step(stmt) {
     return this.sqlite3.capi.sqlite3_step(stmt);
   }
@@ -259,7 +243,7 @@ export class SQLite {
   }
 
   //TODO: At some point need a way to register functions from rust
-  //but for just libxmtp this is fine.
+  //but for now this is fine.
   register_diesel_sql_functions(database) {
     try {
       this.sqlite3.capi.sqlite3_create_function(

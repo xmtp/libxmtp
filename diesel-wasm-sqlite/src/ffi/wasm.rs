@@ -22,10 +22,26 @@ extern "C" {
     #[wasm_bindgen(method)]
     pub fn alloc(this: &Wasm, bytes: u32) -> *mut u8;
 
-    // Uses alloc() to allocate enough memory for the byte-length of the given JS string, plus 1 (for a NUL terminator), copies the given JS string to that memory using jstrcpy(), NUL-terminates it, and returns the pointer to that C-string. Ownership of the pointer is transfered to the caller, who must eventually pass the pointer to dealloc() to free it.
-    //
+    #[wasm_bindgen(method, getter, js_name = "alloc")]
+    pub fn alloc_inner(this: &Wasm) -> Alloc;
+
+    /// Uses alloc() to allocate enough memory for the byte-length of the given JS string,
+    /// plus 1 (for a NUL terminator), copies the given JS string to that memory using jstrcpy(),
+    /// NUL-terminates it, and returns the pointer to that C-string.
+    /// Ownership of the pointer is transfered to the caller, who must eventually pass the pointer to dealloc() to free it.
+    //TODO: Avoid using this since it allocates in JS and other webassembly. Instead use technique
+    // used in Statement::prepare
     #[wasm_bindgen(method, js_name = "allocCString")]
     pub fn alloc_cstring(this: &Wasm, string: String) -> *mut u8;
+
+    /// Allocates one or more pointers as a single chunk of memory and zeroes them out.
+    /// The first argument is the number of pointers to allocate.
+    /// The second specifies whether they should use a "safe" pointer size (8 bytes)
+    /// or whether they may use the default pointer size (typically 4 but also possibly 8).
+    /// How the result is returned depends on its first argument: if passed 1, it returns the allocated memory address.
+    /// If passed more than one then an array of pointer addresses is returned
+    #[wasm_bindgen(method, js_name = "allocPtr")]
+    pub fn alloc_ptr(this: &Wasm, how_many: u32, safe_ptr_size: bool) -> *mut u8;
 
     #[wasm_bindgen(method)]
     pub fn dealloc(this: &Wasm, ptr: NonNull<u8>);
@@ -62,4 +78,14 @@ extern "C" {
     #[wasm_bindgen(method)]
     pub fn restore(this: &PStack, ptr: &JsValue);
 
+}
+
+#[wasm_bindgen]
+extern "C" {
+    pub type Alloc;
+
+    /// Non-throwing version of `Wasm::Alloc`
+    /// returns NULL pointer if cannot allocate
+    #[wasm_bindgen(method, js_name = "impl")]
+    pub fn alloc_impl(this: &Alloc, bytes: u32) -> *mut u8;
 }
