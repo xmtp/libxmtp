@@ -4,7 +4,6 @@ use std::sync::Arc;
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
-use xmtp_cryptography::hash::sha256_bytes;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::{
   generate_inbox_id as xmtp_id_generate_inbox_id, unverified::UnverifiedSignature, AccountId,
