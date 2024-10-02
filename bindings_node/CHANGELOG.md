@@ -1,8 +1,18 @@
 # @xmtp/mls-client-bindings-node
 
+## 0.0.12
+
+- Added ability to add wallet associations to a client
+- Added ability to revoke wallet associations from a client
+- Added ability to revoke all installation IDs from a client
+- Added `getLatestInboxState` to client
+- Added installation timestamps to `inboxState`
+- Updated `send_optimistic` to return the message ID as a hex string
+- Added consent state methods to groups and client
+
 ## 0.0.11
 
-- Added `inbox_state` to client
+- Added `inboxState` to client
 - Skip duplicate message processing when streaming
 
 ## 0.0.10
@@ -29,8 +39,8 @@
 - Improved streaming welcomes
 - Improved DB retries
 - Changed encoding of the MLS database to `bincode` for performance
-- Added `find_inbox_id_by_address` to client
-- Added `find_group_by_id` and `find_message_by_id` to conversations
+- Added `findInboxIdByAddress` to client
+- Added `findGroupById` and `findMessageById` to conversations
 
 ## 0.0.6
 
@@ -40,11 +50,11 @@
 
 - Added ability to set group name and image URL during creation
 - Added getter and setter for group image URL
-- Renamed `add_erc1271_signature` to `add_scw_signature`
+- Renamed `addErc1271Signature` to `addScwSignature`
 
 ## 0.0.4
 
-- Added `stream_all_messages`
+- Added `streamAllMessages`
 
 ## 0.0.3
 

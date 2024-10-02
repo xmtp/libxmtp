@@ -38,7 +38,6 @@ ed25519-dalek = "2.1.1"
 futures.workspace = true
 hex.workspace = true
 libsqlite3-sys = { version = "0.29.0", optional = true }
-log.workspace = true
 openmls = { workspace = true, features = ["test-utils"] }
 openmls_basic_credential = { workspace = true }
 openmls_rust_crypto = { workspace = true }
@@ -59,7 +58,7 @@ tokio = { workspace = true, features = [
 ] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 toml = "0.8.4"
-tracing.workspace = true
+tracing = { workspace = true, features = ["release_max_level_debug"] }
 trait-variant.workspace = true
 xmtp_cryptography = { workspace = true }
 xmtp_id = { path = "../xmtp_id" }
@@ -83,9 +82,7 @@ ethers.workspace = true
 mockall = "0.13.0"
 mockito = "1.4.0"
 tempfile = "3.5.0"
-tracing-log = "0.2.0"
-tracing-subscriber.workspace = true
-tracing-test = "0.2.4"
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing.workspace = true
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }

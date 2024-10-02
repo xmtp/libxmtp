@@ -6,10 +6,12 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::JsFunction;
 use napi_derive::napi;
+use xmtp_mls::client::FindGroupParams;
 use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
 
 use crate::messages::NapiMessage;
 use crate::permissions::NapiGroupPermissionsOptions;
+use crate::ErrorWrapper;
 use crate::{groups::NapiGroup, mls_client::RustXmtpClient, streams::NapiStreamCloser};
 
 #[napi(object)]
@@ -104,12 +106,12 @@ impl NapiConversations {
 
   #[napi]
   pub fn find_group_by_id(&self, group_id: String) -> Result<NapiGroup> {
-    let group_id = hex::decode(group_id).map_err(|e| Error::from_reason(format!("{}", e)))?;
+    let group_id = hex::decode(group_id).map_err(ErrorWrapper::from)?;
 
     let group = self
       .inner_client
       .group(group_id)
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(NapiGroup::new(
       self.inner_client.clone(),
@@ -120,12 +122,12 @@ impl NapiConversations {
 
   #[napi]
   pub fn find_message_by_id(&self, message_id: String) -> Result<NapiMessage> {
-    let message_id = hex::decode(message_id).map_err(|e| Error::from_reason(format!("{}", e)))?;
+    let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
 
     let message = self
       .inner_client
       .message(message_id)
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(NapiMessage::from(message))
   }
@@ -140,7 +142,7 @@ impl NapiConversations {
       .inner_client
       .process_streamed_welcome_message(envelope_bytes)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
     let out = NapiGroup::new(
       self.inner_client.clone(),
       group.group_id,
@@ -155,7 +157,7 @@ impl NapiConversations {
       .inner_client
       .sync_welcomes()
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
     Ok(())
   }
 
@@ -171,13 +173,13 @@ impl NapiConversations {
     };
     let convo_list: Vec<NapiGroup> = self
       .inner_client
-      .find_groups(
-        None,
-        opts.created_after_ns,
-        opts.created_before_ns,
-        opts.limit,
-      )
-      .map_err(|e| Error::from_reason(format!("{}", e)))?
+      .find_groups(FindGroupParams {
+        created_after_ns: opts.created_after_ns,
+        created_before_ns: opts.created_before_ns,
+        limit: opts.limit,
+        ..FindGroupParams::default()
+      })
+      .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|group| {
         NapiGroup::new(
@@ -196,8 +198,9 @@ impl NapiConversations {
     let tsfn: ThreadsafeFunction<NapiGroup, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let client = self.inner_client.clone();
-    let stream_closer =
-      RustXmtpClient::stream_conversations_with_callback(client.clone(), move |convo| {
+    let stream_closer = RustXmtpClient::stream_conversations_with_callback(
+      client.clone(),
+      move |convo| {
         tsfn.call(
           Ok(NapiGroup::new(
             client.clone(),
@@ -206,7 +209,9 @@ impl NapiConversations {
           )),
           ThreadsafeFunctionCallMode::Blocking,
         );
-      });
+      },
+      false,
+    );
 
     Ok(NapiStreamCloser::new(stream_closer))
   }

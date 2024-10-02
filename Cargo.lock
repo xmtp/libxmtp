@@ -2977,7 +2977,6 @@ dependencies = [
  "ethers",
  "futures",
  "hex",
- "log",
  "openmls",
  "openmls_basic_credential",
  "openmls_rust_crypto",
@@ -2989,6 +2988,8 @@ dependencies = [
  "thiserror",
  "tokio",
  "tonic",
+ "tracing",
+ "tracing-subscriber",
  "warp",
  "xmtp_cryptography",
  "xmtp_id",
@@ -5474,27 +5475,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-test"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "557b891436fe0d5e0e363427fc7f217abf9ccd510d5136549847bdcbcd011d68"
-dependencies = [
- "tracing-core",
- "tracing-subscriber",
- "tracing-test-macro",
-]
-
-[[package]]
-name = "tracing-test-macro"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04659ddb06c87d233c566112c1c9c5b9e98256d9af50ec3bc9c8327f873a7568"
-dependencies = [
- "quote",
- "syn 2.0.72",
-]
-
-[[package]]
 name = "trait-variant"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6216,12 +6196,12 @@ version = "0.0.1"
 dependencies = [
  "async-stream",
  "futures",
- "log",
  "reqwest 0.12.5",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
+ "tracing",
  "xmtp_proto",
 ]
 
@@ -6259,7 +6239,6 @@ dependencies = [
  "getrandom",
  "hex",
  "k256 0.13.3",
- "log",
  "rand",
  "rand_chacha",
  "rustc-hex",
@@ -6268,6 +6247,7 @@ dependencies = [
  "sha3",
  "thiserror",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -6282,7 +6262,6 @@ dependencies = [
  "ethers",
  "futures",
  "hex",
- "log",
  "openmls_traits",
  "prost",
  "rand",
@@ -6293,6 +6272,7 @@ dependencies = [
  "sha2 0.10.8",
  "thiserror",
  "tokio",
+ "tracing",
  "url",
  "xmtp_cryptography",
  "xmtp_proto",
@@ -6318,7 +6298,6 @@ dependencies = [
  "hex",
  "indicatif",
  "libsqlite3-sys",
- "log",
  "mockall",
  "mockito",
  "once_cell",
@@ -6341,9 +6320,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-flame",
- "tracing-log",
  "tracing-subscriber",
- "tracing-test",
  "trait-variant",
  "xmtp_api_grpc",
  "xmtp_api_http",

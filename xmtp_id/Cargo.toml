@@ -10,7 +10,7 @@ ed25519-dalek = { workspace = true, features = ["digest"] }
 ethers.workspace = true
 futures.workspace = true
 hex.workspace = true
-log.workspace = true
+tracing.workspace = true
 openmls_traits.workspace = true
 prost.workspace = true
 rand.workspace = true
