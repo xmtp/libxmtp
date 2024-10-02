@@ -1,7 +1,6 @@
 [package]
 edition = "2021"
 name = "bindings_wasm"
-resolver = "2"
 version.workspace = true
 
 [lib]
@@ -9,7 +8,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 js-sys.workspace = true
-serde = { workspace = true, features = ["derive"] }
 serde-wasm-bindgen = "0.6.5"
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
@@ -17,10 +15,9 @@ xmtp_api_http = { path = "../xmtp_api_http" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_mls = { path = "../xmtp_mls", features = ["message-history"] }
-xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3.42"
+wasm-bindgen-test.workspace = true
 
 [profile.release]
 opt-level = "s"

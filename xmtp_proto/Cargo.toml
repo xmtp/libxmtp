@@ -8,8 +8,6 @@ futures = { workspace = true }
 pbjson-types.workspace = true
 pbjson.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
-# Only necessary if using Protobuf well-known types:
-prost-types = { workspace = true }
 serde = { workspace = true }
 openmls = { workspace = true, optional = true }
 trait-variant = "0.1.2"

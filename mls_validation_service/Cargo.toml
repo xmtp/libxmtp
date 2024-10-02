@@ -14,9 +14,6 @@ futures = { workspace = true }
 hex = { workspace = true }
 openmls = { workspace = true }
 openmls_rust_crypto = { workspace = true }
-openmls_traits = { workspace = true }
-prost = { workspace = true, features = ["prost-derive"] }
-serde = { workspace = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tonic = { workspace = true }

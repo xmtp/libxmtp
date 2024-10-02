@@ -1,26 +1,23 @@
 [package]
 edition = "2021"
 name = "bindings_node"
-version = "0.0.1"
+version.workspace = true
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
 # Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
-futures = "0.3.30"
-hex = "0.4.3"
-tracing = { version = "0.1", features = ["release_max_level_debug"] }
+hex.workspace = true
+tracing.workspace = true
 napi = { version = "2.12.2", default-features = false, features = [
   "napi4",
   "napi6",
   "async",
 ] }
 napi-derive = "2.12.2"
-prost = "^0.13"
-rand = "0.8.5"
-tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread", "time"] }
-tonic = { version = "^0.12", features = ["tls"] }
+prost.workspace = true
+tokio = { workspace = true, features = ["full"]}
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
