@@ -16,8 +16,6 @@ use crate::{
 };
 use crate::{retryable, Fetch, Store};
 use ed25519_dalek::SigningKey;
-use log::debug;
-use log::info;
 use openmls::prelude::hash_ref::HashReference;
 use openmls::prelude::tls_codec::Serialize;
 use openmls::{
@@ -36,6 +34,8 @@ use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use sha2::{Digest, Sha512};
 use thiserror::Error;
+use tracing::debug;
+use tracing::info;
 use xmtp_id::associations::unverified::{UnverifiedInstallationKeySignature, UnverifiedSignature};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{

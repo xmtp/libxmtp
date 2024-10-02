@@ -135,7 +135,7 @@ where
 
     pub async fn ensure_member_of_all_groups(&self, inbox_id: String) -> Result<(), GroupError> {
         let conn = self.store().conn()?;
-        let groups = conn.find_groups(None, None, None, None)?;
+        let groups = conn.find_groups(None, None, None, None, false)?;
         for group in groups {
             let group = self.group(group.id)?;
             Box::pin(group.add_members_by_inbox_id(self, vec![inbox_id.clone()])).await?;
@@ -194,7 +194,7 @@ where
 
         // publish the intent
         if let Err(err) = sync_group.publish_intents(&conn.into(), self).await {
-            log::error!("error publishing sync group intents: {:?}", err);
+            tracing::error!("error publishing sync group intents: {:?}", err);
         }
 
         Ok((request_id, pin_code))
@@ -242,7 +242,7 @@ where
             }
         };
 
-        log::info!("{:?}", last_message);
+        tracing::info!("{:?}", last_message);
 
         if let Some(msg) = last_message {
             // ensure the requester is a member of all the groups
@@ -266,7 +266,7 @@ where
 
         // publish the intent
         if let Err(err) = sync_group.publish_intents(&conn.into(), self).await {
-            log::error!("error publishing sync group intents: {:?}", err);
+            tracing::error!("error publishing sync group intents: {:?}", err);
         }
         Ok(())
     }
@@ -384,7 +384,7 @@ where
             self.sync_welcomes().await?;
 
             let conn = self.store().conn()?;
-            let groups = conn.find_groups(None, None, None, None)?;
+            let groups = conn.find_groups(None, None, None, None, false)?;
             for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {
                 let group = self.group(id)?;
                 Box::pin(group.sync(self)).await?;
@@ -418,7 +418,7 @@ where
                     request.request_id.eq(request_id) && request.pin_code.eq(pin_code)
                 }
                 Err(e) => {
-                    log::debug!("serde_json error: {:?}", e);
+                    tracing::debug!("serde_json error: {:?}", e);
                     false
                 }
                 _ => false,
@@ -469,12 +469,12 @@ where
             None => return Err(MessageHistoryError::MissingHistorySyncUrl),
         };
         let upload_url = format!("{}{}", url, "upload");
-        log::info!("using upload url {:?}", upload_url);
+        tracing::info!("using upload url {:?}", upload_url);
 
         let bundle_file = upload_history_bundle(&upload_url, history_file.clone()).await?;
         let bundle_url = format!("{}files/{}", url, bundle_file);
 
-        log::info!("history bundle uploaded to {:?}", bundle_url);
+        tracing::info!("history bundle uploaded to {:?}", bundle_url);
 
         Ok(HistoryReply::new(request_id, &bundle_url, enc_key))
     }
@@ -502,14 +502,14 @@ where
 
     async fn prepare_groups_to_sync(&self) -> Result<Vec<StoredGroup>, MessageHistoryError> {
         let conn = self.store().conn()?;
-        Ok(conn.find_groups(None, None, None, None)?)
+        Ok(conn.find_groups(None, None, None, None, false)?)
     }
 
     async fn prepare_messages_to_sync(
         &self,
     ) -> Result<Vec<StoredGroupMessage>, MessageHistoryError> {
         let conn = self.store().conn()?;
-        let groups = conn.find_groups(None, None, None, None)?;
+        let groups = conn.find_groups(None, None, None, None, false)?;
         let mut all_messages: Vec<StoredGroupMessage> = vec![];
 
         for StoredGroup { id, .. } in groups.into_iter() {
@@ -608,7 +608,7 @@ async fn upload_history_bundle(
     if response.status().is_success() {
         Ok(response.text().await?)
     } else {
-        log::error!(
+        tracing::error!(
             "Failed to upload file. Status code: {} Response: {:?}",
             response.status(),
             response
@@ -624,7 +624,7 @@ async fn upload_history_bundle(
 pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, MessageHistoryError> {
     let client = reqwest::Client::new();
 
-    log::info!("downloading history bundle from {:?}", url);
+    tracing::info!("downloading history bundle from {:?}", url);
 
     let bundle_name = url
         .split('/')
@@ -639,10 +639,10 @@ pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, Messag
         let mut file = File::create(&file_path)?;
         let bytes = response.bytes().await?;
         file.write_all(&bytes)?;
-        log::info!("downloaded history bundle to {:?}", file_path);
+        tracing::info!("downloaded history bundle to {:?}", file_path);
         Ok(file_path)
     } else {
-        log::error!(
+        tracing::error!(
             "Failed to download file. Status code: {} Response: {:?}",
             response.status(),
             response

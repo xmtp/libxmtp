@@ -48,7 +48,7 @@ impl StoredAssociationState {
         .store_or_ignore(conn);
 
         if result.is_ok() {
-            log::debug!(
+            tracing::debug!(
                 "Wrote association state to cache: {} {}",
                 inbox_id,
                 sequence_id
@@ -79,7 +79,7 @@ impl StoredAssociationState {
             .transpose();
 
         if let Ok(Some(_)) = result {
-            log::debug!(
+            tracing::debug!(
                 "Loaded association state from cache: {} {}",
                 inbox_id,
                 sequence_id

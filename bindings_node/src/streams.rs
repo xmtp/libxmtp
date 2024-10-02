@@ -60,7 +60,7 @@ impl NapiStreamCloser {
         Err(e) => Err(Error::from_reason(format!("error joining task {}", e))),
       }
     } else {
-      log::warn!("subscription already closed");
+      tracing::warn!("subscription already closed");
       Ok(())
     }
   }

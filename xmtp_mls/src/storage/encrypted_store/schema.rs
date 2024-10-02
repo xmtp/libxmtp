@@ -53,6 +53,7 @@ diesel::table! {
         purpose -> Integer,
         added_by_inbox_id -> Text,
         welcome_id -> Nullable<BigInt>,
+        dm_inbox_id -> Nullable<Text>,
     }
 }
 

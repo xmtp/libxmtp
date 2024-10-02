@@ -177,6 +177,33 @@ pub mod replication_api_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        /** Get inbox ids
+*/
+        pub async fn get_inbox_ids(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetInboxIdsRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetInboxIdsResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/xmtp.xmtpv4.ReplicationApi/GetInboxIds",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("xmtp.xmtpv4.ReplicationApi", "GetInboxIds"));
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -221,6 +248,15 @@ pub mod replication_api_server {
             request: tonic::Request<super::PublishEnvelopeRequest>,
         ) -> std::result::Result<
             tonic::Response<super::PublishEnvelopeResponse>,
+            tonic::Status,
+        >;
+        /** Get inbox ids
+*/
+        async fn get_inbox_ids(
+            &self,
+            request: tonic::Request<super::GetInboxIdsRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetInboxIdsResponse>,
             tonic::Status,
         >;
     }
@@ -432,6 +468,51 @@ pub mod replication_api_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = PublishEnvelopeSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/xmtp.xmtpv4.ReplicationApi/GetInboxIds" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetInboxIdsSvc<T: ReplicationApi>(pub Arc<T>);
+                    impl<
+                        T: ReplicationApi,
+                    > tonic::server::UnaryService<super::GetInboxIdsRequest>
+                    for GetInboxIdsSvc<T> {
+                        type Response = super::GetInboxIdsResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetInboxIdsRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ReplicationApi>::get_inbox_ids(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetInboxIdsSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

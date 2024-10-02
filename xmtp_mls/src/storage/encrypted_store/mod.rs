@@ -30,7 +30,7 @@ use diesel::{
     connection::{AnsiTransactionManager, SimpleConnection, TransactionManager},
     prelude::*,
     r2d2::{ConnectionManager, Pool, PoolTransactionManager, PooledConnection},
-    result::{DatabaseErrorKind, Error},
+    result::Error,
     sql_query,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
@@ -51,16 +51,6 @@ pub type RawDbConnection = PooledConnection<ConnectionManager<SqliteConnection>>
 struct SqliteVersion {
     #[diesel(sql_type = diesel::sql_types::Text)]
     version: String,
-}
-
-pub fn ignore_unique_violation<T>(
-    result: Result<T, diesel::result::Error>,
-) -> Result<(), StorageError> {
-    match result {
-        Ok(_) => Ok(()),
-        Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => Ok(()),
-        Err(error) => Err(StorageError::from(error)),
-    }
 }
 
 #[derive(Default, Clone, Debug)]
@@ -122,7 +112,7 @@ impl EncryptedMessageStore {
         opts: StorageOption,
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
-        log::info!("Setting up DB connection pool");
+        tracing::info!("Setting up DB connection pool");
         let mut builder = Pool::builder();
 
         let enc_opts = if let Some(key) = enc_key {
@@ -162,15 +152,15 @@ impl EncryptedMessageStore {
 
         let conn = &mut self.raw_conn()?;
         conn.batch_execute("PRAGMA journal_mode = WAL;")?;
-        log::info!("Running DB migrations");
+        tracing::info!("Running DB migrations");
         conn.run_pending_migrations(MIGRATIONS)
             .map_err(|e| StorageError::DbInit(format!("Failed to run migrations: {}", e)))?;
 
         let sqlite_version =
             sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
-        log::info!("sqlite_version={}", sqlite_version[0].version);
+        tracing::info!("sqlite_version={}", sqlite_version[0].version);
 
-        log::info!("Migrations successful");
+        tracing::info!("Migrations successful");
         Ok(())
     }
 
@@ -183,7 +173,7 @@ impl EncryptedMessageStore {
             .as_ref()
             .ok_or(StorageError::PoolNeedsConnection)?;
 
-        log::debug!(
+        tracing::debug!(
             "Pulling connection from pool, idle_connections={}, total_connections={}",
             pool.state().idle_connections,
             pool.state().connections
@@ -215,7 +205,7 @@ impl EncryptedMessageStore {
         F: FnOnce(&XmtpOpenMlsProvider) -> Result<T, E>,
         E: From<diesel::result::Error> + From<StorageError>,
     {
-        log::debug!("Transaction beginning");
+        tracing::debug!("Transaction beginning");
         let mut connection = self.raw_conn()?;
         AnsiTransactionManager::begin_transaction(&mut *connection)?;
 
@@ -228,11 +218,11 @@ impl EncryptedMessageStore {
                 conn.raw_query(|conn| {
                     PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
                 })?;
-                log::debug!("Transaction being committed");
+                tracing::debug!("Transaction being committed");
                 Ok(value)
             }
             Err(err) => {
-                log::debug!("Transaction being rolled back");
+                tracing::debug!("Transaction being rolled back");
                 match conn.raw_query(|conn| {
                     PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(
                         &mut *conn,
@@ -266,7 +256,7 @@ impl EncryptedMessageStore {
         Fut: futures::Future<Output = Result<T, E>>,
         E: From<diesel::result::Error> + From<StorageError>,
     {
-        log::debug!("Transaction async beginning");
+        tracing::debug!("Transaction async beginning");
         let mut connection = self.raw_conn()?;
         AnsiTransactionManager::begin_transaction(&mut *connection)?;
         let connection = Arc::new(parking_lot::Mutex::new(connection));
@@ -278,11 +268,13 @@ impl EncryptedMessageStore {
         // ensuring we have only one strong reference
         let result = fun(provider).await;
         if Arc::strong_count(&local_connection) > 1 {
-            log::warn!("More than 1 strong connection references still exist during transaction");
+            tracing::warn!(
+                "More than 1 strong connection references still exist during transaction"
+            );
         }
 
         if Arc::weak_count(&local_connection) > 1 {
-            log::warn!("More than 1 weak connection references still exist during transaction");
+            tracing::warn!("More than 1 weak connection references still exist during transaction");
         }
 
         // after the closure finishes, `local_provider` should have the only reference ('strong')
@@ -293,11 +285,11 @@ impl EncryptedMessageStore {
                 local_connection.raw_query(|conn| {
                     PoolTransactionManager::<AnsiTransactionManager>::commit_transaction(&mut *conn)
                 })?;
-                log::debug!("Transaction async being committed");
+                tracing::debug!("Transaction async being committed");
                 Ok(value)
             }
             Err(err) => {
-                log::debug!("Transaction async being rolled back");
+                tracing::debug!("Transaction async being rolled back");
                 match local_connection.raw_query(|conn| {
                     PoolTransactionManager::<AnsiTransactionManager>::rollback_transaction(
                         &mut *conn,
@@ -343,7 +335,7 @@ impl EncryptedMessageStore {
 #[allow(dead_code)]
 fn warn_length<T>(list: &[T], str_id: &str, max_length: usize) {
     if list.len() > max_length {
-        log::warn!(
+        tracing::warn!(
             "EncryptedStore expected at most {} {} however found {}. Using the Oldest.",
             max_length,
             str_id,
@@ -412,12 +404,13 @@ macro_rules! impl_store_or_ignore {
                 &self,
                 into: &$crate::storage::encrypted_store::db_connection::DbConnection,
             ) -> Result<(), $crate::StorageError> {
-                let result = into.raw_query(|conn| {
-                    diesel::insert_into($table::table)
+                into.raw_query(|conn| {
+                    diesel::insert_or_ignore_into($table::table)
                         .values(self)
                         .execute(conn)
-                });
-                $crate::storage::ignore_unique_violation(result)
+                        .map(|_| ())
+                })
+                .map_err($crate::StorageError::from)
             }
         }
     };
@@ -588,53 +581,11 @@ mod tests {
                 .unwrap();
 
             let conn2 = &store.conn().unwrap();
-            log::info!("Getting conn 2");
+            tracing::info!("Getting conn 2");
             let fetched_identity: StoredIdentity = conn2.fetch(&()).unwrap().unwrap();
             assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
         EncryptedMessageStore::remove_db_files(db_path)
-    }
-
-    #[test]
-    fn it_returns_ok_when_given_ok_result() {
-        let result: Result<(), diesel::result::Error> = Ok(());
-        assert!(
-            super::ignore_unique_violation(result).is_ok(),
-            "Expected Ok(()) when given Ok result"
-        );
-    }
-
-    #[test]
-    fn it_returns_ok_on_unique_violation_error() {
-        let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::DatabaseError(
-            diesel::result::DatabaseErrorKind::UniqueViolation,
-            Box::new("violation".to_string()),
-        ));
-        assert!(
-            super::ignore_unique_violation(result).is_ok(),
-            "Expected Ok(()) when given UniqueViolation error"
-        );
-    }
-
-    #[test]
-    fn it_returns_err_on_non_unique_violation_database_errors() {
-        let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::DatabaseError(
-            diesel::result::DatabaseErrorKind::NotNullViolation,
-            Box::new("other kind".to_string()),
-        ));
-        assert!(
-            super::ignore_unique_violation(result).is_err(),
-            "Expected Err when given non-UniqueViolation database error"
-        );
-    }
-
-    #[test]
-    fn it_returns_err_on_non_database_errors() {
-        let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::NotFound);
-        assert!(
-            super::ignore_unique_violation(result).is_err(),
-            "Expected Err when given a non-database error"
-        );
     }
 
     // get two connections
@@ -679,6 +630,7 @@ mod tests {
                     0,
                     GroupMembershipState::Allowed,
                     "goodbye".to_string(),
+                    None,
                 );
                 group.store(connection)?;
                 Ok(())
@@ -730,6 +682,7 @@ mod tests {
                         0,
                         GroupMembershipState::Allowed,
                         "goodbye".to_string(),
+                        None,
                     );
                     group.store(conn1).unwrap();
 
