@@ -12,7 +12,6 @@ use super::{
     SignatureError,
 };
 use futures::future::try_join_all;
-use xmtp_cryptography::hash::sha256_bytes;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -296,12 +295,14 @@ impl UnverifiedSignature {
         account_id: AccountId,
         block_number: u64,
         chain_id: u64,
+        hash: [u8; 32],
     ) -> Self {
         Self::SmartContractWallet(UnverifiedSmartContractWalletSignature::new(
             signature,
             account_id,
             block_number,
             chain_id,
+            hash,
         ))
     }
 
@@ -357,11 +358,8 @@ impl UnverifiedSmartContractWalletSignature {
         account_id: AccountId,
         block_number: u64,
         chain_id: u64,
+        hash: [u8; 32],
     ) -> Self {
-        let hash = sha256_bytes(&signature_bytes)
-            .try_into()
-            .expect("SHA256 hash should be 32 bytes");
-
         Self {
             signature_bytes,
             account_id,
