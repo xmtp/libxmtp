@@ -40,6 +40,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 
 use crate::{
     api::ApiClientWrapper,
+    configuration::SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
     groups::{
         group_permissions::PolicySet, validated_commit::CommitValidationError, GroupError,
         GroupMetadataOptions, IntentError, MlsGroup,
@@ -756,7 +757,11 @@ where
                     );
                     if mls_group.is_active() {
                         group
-                            .maybe_update_installations(provider_ref, None, self)
+                            .maybe_update_installations(
+                                provider_ref,
+                                SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
+                                self,
+                            )
                             .await?;
 
                         group.sync_with_conn(provider_ref, self).await?;

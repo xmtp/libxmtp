@@ -493,9 +493,6 @@ impl MlsGroup {
     {
         let conn = self.context.store.conn()?;
         let provider = XmtpOpenMlsProvider::from(conn);
-        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        self.maybe_update_installations(&provider, update_interval_ns, client)
-            .await?;
         self.sync_until_last_intent_resolved(&provider, client)
             .await?;
 
@@ -506,6 +503,7 @@ impl MlsGroup {
     }
 
     /// Update group installations
+    #[cfg(test)]
     pub async fn update_installations<ApiClient>(
         &self,
         client: &Client<ApiClient>,
@@ -515,7 +513,7 @@ impl MlsGroup {
     {
         let conn = self.context.store.conn()?;
         let provider = XmtpOpenMlsProvider::from(conn);
-        self.maybe_update_installations(&provider, Some(0), client)
+        self.maybe_update_installations(&provider, 0 /*interval_ns*/, client)
             .await?;
         Ok(())
     }
@@ -1042,9 +1040,12 @@ impl MlsGroup {
         }
 
         let provider: XmtpOpenMlsProvider = conn.into();
-        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        self.maybe_update_installations(&provider, update_interval_ns, client)
-            .await?;
+        self.maybe_update_installations(
+            &provider,
+            SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
+            client,
+        )
+        .await?;
 
         Ok(PreIntentComplete {})
     }

@@ -99,8 +99,12 @@ impl MlsGroup {
             client.inbox_id(),
             self.load_mls_group(&mls_provider)?.epoch()
         );
-        self.maybe_update_installations(&mls_provider, None, client)
-            .await?;
+        self.maybe_update_installations(
+            &mls_provider,
+            SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
+            client,
+        )
+        .await?;
 
         self.sync_with_conn(&mls_provider, client).await
     }
@@ -979,18 +983,12 @@ impl MlsGroup {
     pub async fn maybe_update_installations<ApiClient>(
         &self,
         provider: &XmtpOpenMlsProvider,
-        update_interval_ns: Option<i64>,
+        interval_ns: i64,
         client: &Client<ApiClient>,
     ) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
-        // determine how long of an interval in time to use before updating list
-        let interval_ns = match update_interval_ns {
-            Some(val) => val,
-            None => SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
-        };
-
         let now_ns = crate::utils::time::now_ns();
         let last_ns = provider
             .conn_ref()
