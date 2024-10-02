@@ -202,24 +202,26 @@ async fn verify_smart_contract_wallet_signatures(
     signatures: Vec<UnverifiedSmartContractWalletSignature>,
     scw_verifier: &dyn SmartContractSignatureVerifier,
 ) -> Result<Response<VerifySmartContractWalletSignaturesResponse>, Status> {
-    let responses: Vec<_> = signatures
-        .into_iter()
-        .filter_map(|request| {
-            let signature = request.scw_signature?;
+    let mut responses = vec![];
+    for request in signatures {
+        let Some(signature) = request.scw_signature else {
+            continue;
+        };
+        let account_id = signature.account_id.try_into().map_err(|_e| {
+            GrpcServerError::Deserialization(DeserializationError::InvalidAccountId)
+        })?;
 
-            let response = scw_verifier.is_valid_signature(
-                signature
-                    .account_id
-                    .try_into()
-                    .expect("TODO: handle nicely in a bit"),
-                request.hash.try_into().expect("Hash should be 32 bytes"),
+        responses.push(
+            scw_verifier.is_valid_signature(
+                account_id,
+                request.hash.try_into().map_err(|_| {
+                    GrpcServerError::Deserialization(DeserializationError::InvalidHash)
+                })?,
                 signature.signature.into(),
                 Some(BlockNumber::Number(U64::from(signature.block_number))),
-            );
-
-            Some(response)
-        })
-        .collect();
+            ),
+        );
+    }
 
     let responses: Vec<_> = try_join_all(responses)
         .await
