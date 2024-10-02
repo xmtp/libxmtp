@@ -11,6 +11,7 @@ mod subscriptions;
 mod sync;
 pub mod validated_commit;
 
+use async_recursion::async_recursion;
 use intents::SendMessageIntentData;
 use openmls::{
     credentials::{BasicCredential, CredentialType},
@@ -86,7 +87,7 @@ use crate::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
         group::{GroupMembershipState, Purpose, StoredGroup},
-        group_intent::{IntentKind, NewGroupIntent},
+        group_intent::{IntentKind, NewGroupIntent, PreIntentComplete},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         sql_key_store,
     },
@@ -468,7 +469,6 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        self.pre_intent_hook(client).await?;
         let provider = client.mls_provider()?;
         let message_id = self.prepare_message(message, provider.conn_ref(), |now| {
             Self::into_envelope(message, now)
@@ -554,7 +554,8 @@ impl MlsGroup {
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         let intent =
             NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
-        intent.store(conn)?;
+        // TODO(rich) Plumb client, call pre-intent hook without syncing
+        conn.insert_group_intent(intent, PreIntentComplete {})?;
 
         // store this unpublished message locally before sending
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
@@ -651,7 +652,6 @@ impl MlsGroup {
         client: &Client<ApiClient>,
         inbox_ids: Vec<String>,
     ) -> Result<(), GroupError> {
-        self.pre_intent_hook(client).await?;
         let provider = client.mls_provider()?;
         let intent_data = self
             .get_membership_update_intent(client, &provider, inbox_ids, vec![])
@@ -665,13 +665,14 @@ impl MlsGroup {
             return Ok(());
         }
 
-        let intent = provider
-            .conn_ref()
-            .insert_group_intent(NewGroupIntent::new(
+        let intent = provider.conn_ref().insert_group_intent(
+            NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
                 self.group_id.clone(),
                 intent_data.into(),
-            ))?;
+            ),
+            self.pre_intent_hook(client).await?,
+        )?;
 
         self.sync_until_intent_resolved(&provider, intent.id, client)
             .await
@@ -694,19 +695,19 @@ impl MlsGroup {
         client: &Client<ApiClient>,
         inbox_ids: Vec<InboxId>,
     ) -> Result<(), GroupError> {
-        self.pre_intent_hook(client).await?;
         let provider = client.mls_provider()?;
         let intent_data = self
             .get_membership_update_intent(client, &provider, vec![], inbox_ids)
             .await?;
 
-        let intent = provider
-            .conn_ref()
-            .insert_group_intent(NewGroupIntent::new(
+        let intent = provider.conn_ref().insert_group_intent(
+            NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
                 self.group_id.clone(),
                 intent_data.into(),
-            ))?;
+            ),
+            self.pre_intent_hook(client).await?,
+        )?;
 
         self.sync_until_intent_resolved(&provider, intent.id, client)
             .await
@@ -724,13 +725,14 @@ impl MlsGroup {
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
 
-        self.pre_intent_hook(client).await?;
-
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::MetadataUpdate,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = conn.insert_group_intent(
+            NewGroupIntent::new(
+                IntentKind::MetadataUpdate,
+                self.group_id.clone(),
+                intent_data,
+            ),
+            self.pre_intent_hook(client).await?,
+        )?;
 
         self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
@@ -758,11 +760,14 @@ impl MlsGroup {
         )
         .into();
 
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::UpdatePermission,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = conn.insert_group_intent(
+            NewGroupIntent::new(
+                IntentKind::UpdatePermission,
+                self.group_id.clone(),
+                intent_data,
+            ),
+            self.pre_intent_hook(client).await?,
+        )?;
 
         self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
@@ -792,11 +797,14 @@ impl MlsGroup {
         let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_description(group_description).into();
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::MetadataUpdate,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = conn.insert_group_intent(
+            NewGroupIntent::new(
+                IntentKind::MetadataUpdate,
+                self.group_id.clone(),
+                intent_data,
+            ),
+            self.pre_intent_hook(client).await?,
+        )?;
 
         self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
@@ -825,15 +833,17 @@ impl MlsGroup {
     {
         let conn = self.context.store.conn()?;
 
-        self.pre_intent_hook(client).await?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_image_url_square(group_image_url_square)
                 .into();
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::MetadataUpdate,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = conn.insert_group_intent(
+            NewGroupIntent::new(
+                IntentKind::MetadataUpdate,
+                self.group_id.clone(),
+                intent_data,
+            ),
+            self.pre_intent_hook(client).await?,
+        )?;
 
         self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
@@ -866,11 +876,14 @@ impl MlsGroup {
         let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_pinned_frame_url(pinned_frame_url).into();
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::MetadataUpdate,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = conn.insert_group_intent(
+            NewGroupIntent::new(
+                IntentKind::MetadataUpdate,
+                self.group_id.clone(),
+                intent_data,
+            ),
+            self.pre_intent_hook(client).await?,
+        )?;
 
         self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
@@ -941,12 +954,14 @@ impl MlsGroup {
         };
         let intent_data: Vec<u8> =
             UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
-        self.pre_intent_hook(client).await?;
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::UpdateAdminList,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = conn.insert_group_intent(
+            NewGroupIntent::new(
+                IntentKind::UpdateAdminList,
+                self.group_id.clone(),
+                intent_data,
+            ),
+            self.pre_intent_hook(client).await?,
+        )?;
 
         self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
@@ -988,41 +1003,50 @@ impl MlsGroup {
     }
 
     // Update this installation's leaf key in the group by creating a key update commit
-    pub async fn key_update<ApiClient>(&self, client: &Client<ApiClient>) -> Result<(), GroupError>
+    async fn key_update<ApiClient>(&self, client: &Client<ApiClient>) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::KeyUpdate,
-            self.group_id.clone(),
-            vec![],
-        ))?;
+        let intent = conn.insert_group_intent(
+            NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]),
+            // This is a private method called from pre_intent_hook, hence why we pass an empty PreIntentComplete
+            PreIntentComplete {},
+        )?;
 
         self.sync_until_intent_resolved(&conn.into(), intent.id, client)
             .await
     }
 
-    /// Checking the last key rotation time before rotating the key.
+    /// Pre-intent hook for group intents.
+    ///
+    /// This is used to ensure that the group is in a consistent state before
+    /// performing an action. This includes rotating the encryption keys if needed,
+    /// as well as syncing the group's installations.
+    ///
+    /// This should be called before any intent is inserted into the database. Infinite
+    /// loops are avoided by checking when each action was last performed.
+    #[async_recursion]
     pub async fn pre_intent_hook<ApiClient>(
         &self,
         client: &Client<ApiClient>,
-    ) -> Result<(), GroupError>
+    ) -> Result<PreIntentComplete, GroupError>
     where
         ApiClient: XmtpApi,
     {
         let conn = self.context.store.conn()?;
         let last_rotated_time = conn.get_rotated_time_checked(self.group_id.clone())?;
-
         if last_rotated_time == 0 {
             conn.update_rotated_time_checked(self.group_id.clone())?;
             self.key_update(client).await?;
         }
+
         let provider: XmtpOpenMlsProvider = conn.into();
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(&provider, update_interval_ns, client)
             .await?;
-        Ok(())
+
+        Ok(PreIntentComplete {})
     }
 
     pub fn is_active(&self, provider: impl OpenMlsProvider) -> Result<bool, GroupError> {
@@ -1344,6 +1368,7 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 #[cfg(test)]
 mod tests {
     use crate::groups::GroupMessageVersion;
+    use crate::storage::group_intent::PreIntentComplete;
     use diesel::connection::SimpleConnection;
     use futures::future::join_all;
     use openmls::prelude::tls_codec::Deserialize;
@@ -1354,7 +1379,6 @@ mod tests {
     use prost::Message;
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     use crate::{
@@ -3307,11 +3331,14 @@ mod tests {
         }
 
         let conn = provider.conn_ref();
-        conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::UpdateGroupMembership,
-            group.group_id.clone(),
-            intent_data.into(),
-        ))
+        conn.insert_group_intent(
+            NewGroupIntent::new(
+                IntentKind::UpdateGroupMembership,
+                group.group_id.clone(),
+                intent_data.into(),
+            ),
+            PreIntentComplete {}, // TODO(rich) Allow pre-intent hook to run without syncing
+        )
         .unwrap();
     }
 

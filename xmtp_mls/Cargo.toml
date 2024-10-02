@@ -72,6 +72,7 @@ tracing-flame = { version = "0.2", optional = true }
 tracing-subscriber = { workspace = true, optional = true }
 xmtp_api_grpc = { path = "../xmtp_api_grpc", optional = true }
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }
+async-recursion = "1.1.1"
 
 [dev-dependencies]
 anyhow.workspace = true

@@ -1034,11 +1034,14 @@ impl MlsGroup {
         debug!("Adding missing installations {:?}", intent_data);
 
         let conn = provider.conn_ref();
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::UpdateGroupMembership,
-            self.group_id.clone(),
-            intent_data.into(),
-        ))?;
+        let intent = conn.insert_group_intent(
+            NewGroupIntent::new(
+                IntentKind::UpdateGroupMembership,
+                self.group_id.clone(),
+                intent_data.into(),
+            ),
+            self.pre_intent_hook(client).await?,
+        )?;
 
         self.sync_until_intent_resolved(provider, intent.id, client)
             .await
@@ -1102,6 +1105,10 @@ impl MlsGroup {
 
                     Ok(updates)
                 })?;
+
+        provider
+            .conn_ref()
+            .update_installations_time_checked(self.group_id.clone())?;
 
         Ok(UpdateGroupMembershipIntentData::new(
             changed_inbox_ids,

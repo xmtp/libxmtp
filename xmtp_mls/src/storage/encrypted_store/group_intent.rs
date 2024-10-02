@@ -16,7 +16,7 @@ use super::{
 };
 use crate::{
     groups::{intents::SendMessageIntentData, IntentError},
-    impl_fetch, impl_store,
+    impl_fetch,
     storage::StorageError,
     utils::id::calculate_message_id,
     Delete,
@@ -124,6 +124,11 @@ impl Delete<StoredGroupIntent> for DbConnection {
     }
 }
 
+/// A marker struct to indicate that the pre-intent hook has been called.
+/// Can be obtained by calling `pre_intent_hook()` on a group.
+#[derive(Debug)]
+pub struct PreIntentComplete {}
+
 #[derive(Insertable, Debug, PartialEq, Clone)]
 #[diesel(table_name = group_intents)]
 pub struct NewGroupIntent {
@@ -132,8 +137,6 @@ pub struct NewGroupIntent {
     pub data: Vec<u8>,
     pub state: IntentState,
 }
-
-impl_store!(NewGroupIntent, group_intents);
 
 impl NewGroupIntent {
     pub fn new(kind: IntentKind, group_id: Vec<u8>, data: Vec<u8>) -> Self {
@@ -151,6 +154,7 @@ impl DbConnection {
     pub fn insert_group_intent(
         &self,
         to_save: NewGroupIntent,
+        pre_intent_complete: PreIntentComplete,
     ) -> Result<StoredGroupIntent, StorageError> {
         Ok(self.raw_query(|conn| {
             diesel::insert_into(dsl::group_intents)
@@ -448,7 +452,8 @@ mod tests {
             // Group needs to exist or FK constraint will fail
             insert_group(conn, group_id.clone());
 
-            to_insert.store(conn).unwrap();
+            conn.insert_group_intent(to_insert, PreIntentComplete {})
+                .unwrap();
 
             let results = conn
                 .find_group_intents(group_id.clone(), Some(vec![IntentState::ToPublish]), None)
@@ -497,7 +502,8 @@ mod tests {
             insert_group(conn, group_id.clone());
 
             for case in test_intents {
-                case.store(conn).unwrap();
+                conn.insert_group_intent(case, PreIntentComplete {})
+                    .unwrap();
             }
 
             // Can query for multiple states
@@ -553,12 +559,14 @@ mod tests {
             insert_group(conn, group_id.clone());
 
             // Store the intent
-            NewGroupIntent::new(
-                IntentKind::UpdateGroupMembership,
-                group_id.clone(),
-                rand_vec(),
+            conn.insert_group_intent(
+                NewGroupIntent::new(
+                    IntentKind::UpdateGroupMembership,
+                    group_id.clone(),
+                    rand_vec(),
+                ),
+                PreIntentComplete {},
             )
-            .store(conn)
             .unwrap();
 
             // Find the intent with the ID populated
@@ -594,12 +602,14 @@ mod tests {
             insert_group(conn, group_id.clone());
 
             // Store the intent
-            NewGroupIntent::new(
-                IntentKind::UpdateGroupMembership,
-                group_id.clone(),
-                rand_vec(),
+            conn.insert_group_intent(
+                NewGroupIntent::new(
+                    IntentKind::UpdateGroupMembership,
+                    group_id.clone(),
+                    rand_vec(),
+                ),
+                PreIntentComplete {},
             )
-            .store(conn)
             .unwrap();
 
             let mut intent = find_first_intent(conn, group_id.clone());
@@ -638,12 +648,14 @@ mod tests {
             insert_group(conn, group_id.clone());
 
             // Store the intent
-            NewGroupIntent::new(
-                IntentKind::UpdateGroupMembership,
-                group_id.clone(),
-                rand_vec(),
+            conn.insert_group_intent(
+                NewGroupIntent::new(
+                    IntentKind::UpdateGroupMembership,
+                    group_id.clone(),
+                    rand_vec(),
+                ),
+                PreIntentComplete {},
             )
-            .store(conn)
             .unwrap();
 
             let mut intent = find_first_intent(conn, group_id.clone());
@@ -681,12 +693,14 @@ mod tests {
             insert_group(conn, group_id.clone());
 
             // Store the intent
-            NewGroupIntent::new(
-                IntentKind::UpdateGroupMembership,
-                group_id.clone(),
-                rand_vec(),
+            conn.insert_group_intent(
+                NewGroupIntent::new(
+                    IntentKind::UpdateGroupMembership,
+                    group_id.clone(),
+                    rand_vec(),
+                ),
+                PreIntentComplete {},
             )
-            .store(conn)
             .unwrap();
 
             let intent = find_first_intent(conn, group_id.clone());
@@ -712,12 +726,14 @@ mod tests {
         let group_id = rand_vec();
         with_connection(|conn| {
             insert_group(conn, group_id.clone());
-            NewGroupIntent::new(
-                IntentKind::UpdateGroupMembership,
-                group_id.clone(),
-                rand_vec(),
+            conn.insert_group_intent(
+                NewGroupIntent::new(
+                    IntentKind::UpdateGroupMembership,
+                    group_id.clone(),
+                    rand_vec(),
+                ),
+                PreIntentComplete {},
             )
-            .store(conn)
             .unwrap();
 
             let mut intent = find_first_intent(conn, group_id.clone());
