@@ -37,7 +37,9 @@ jobs:
           workspaces: |
             .
       - name: Start Docker containers
-        run: dev/up
+        run: |
+          dev/build_validation_service_local
+          dev/docker/up
       - name: Install nextest
         uses: taiki-e/install-action@nextest
       - name: Run cargo nextest on main workspace
