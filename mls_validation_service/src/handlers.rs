@@ -231,10 +231,19 @@ async fn verify_smart_contract_wallet_signatures(
         responses.push(handle);
     }
 
-    let responses: Vec<_> = try_join_all(responses)
-        .await?
+    let responses: Vec<_> = join_all(responses)
+        .await
         .into_iter()
-        .map(|is_valid| VerifySmartContractWalletSignaturesResponseValidationResponse { is_valid })
+        .map(|result| match result {
+            Err(err) => VerifySmartContractWalletSignaturesResponseValidationResponse {
+                is_valid: false,
+                error: Some(format!("{err:?}")),
+            },
+            Ok(is_valid) => VerifySmartContractWalletSignaturesResponseValidationResponse {
+                is_valid,
+                error: None,
+            },
+        })
         .collect();
 
     Ok(Response::new(VerifySmartContractWalletSignaturesResponse {
