@@ -1,4 +1,3 @@
-use ethers::types::{BlockNumber, U64};
 use futures::future::{join_all, try_join_all};
 use openmls::prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage};
 use openmls_rust_crypto::RustCrypto;
@@ -220,7 +219,7 @@ async fn verify_smart_contract_wallet_signatures(
                         GrpcServerError::Deserialization(DeserializationError::InvalidHash)
                     })?,
                     signature.signature.into(),
-                    Some(BlockNumber::Number(U64::from(signature.block_number))),
+                    None,
                 )
                 .await
                 .map_err(|e| GrpcServerError::Signature(SignatureError::VerifierError(e)))?;

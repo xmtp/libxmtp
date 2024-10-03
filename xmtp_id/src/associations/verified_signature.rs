@@ -125,14 +125,14 @@ impl VerifiedSignature {
         signature_verifier: &dyn SmartContractSignatureVerifier,
         signature_bytes: &[u8],
         account_id: AccountId,
-        block_number: u64,
+        block_number: Option<u64>,
     ) -> Result<Self, SignatureError> {
         let is_valid = signature_verifier
             .is_valid_signature(
                 account_id.clone(),
                 hash_message(signature_text.as_ref()).into(),
                 signature_bytes.to_vec().into(),
-                Some(BlockNumber::Number(U64::from(block_number))),
+                block_number.map(|n| BlockNumber::Number(U64::from(n))),
             )
             .await?;
 

@@ -206,7 +206,7 @@ impl FfiSignatureRequest {
         signature_bytes: Vec<u8>,
         address: String,
         chain_id: u64,
-        block_number: u64,
+        block_number: Option<u64>,
     ) -> Result<(), GenericError> {
         let mut inner = self.inner.lock().await;
         let account_id = AccountId::new_evm(chain_id, address);

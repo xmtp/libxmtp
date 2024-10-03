@@ -293,7 +293,7 @@ impl UnverifiedSignature {
     pub fn new_smart_contract_wallet(
         signature: Vec<u8>,
         account_id: AccountId,
-        block_number: u64,
+        block_number: Option<u64>,
     ) -> Self {
         Self::SmartContractWallet(UnverifiedSmartContractWalletSignature::new(
             signature,
@@ -343,11 +343,11 @@ impl UnverifiedRecoverableEcdsaSignature {
 pub struct UnverifiedSmartContractWalletSignature {
     pub(crate) signature_bytes: Vec<u8>,
     pub(crate) account_id: AccountId,
-    pub(crate) block_number: u64,
+    pub(crate) block_number: Option<u64>,
 }
 
 impl UnverifiedSmartContractWalletSignature {
-    pub fn new(signature_bytes: Vec<u8>, account_id: AccountId, block_number: u64) -> Self {
+    pub fn new(signature_bytes: Vec<u8>, account_id: AccountId, block_number: Option<u64>) -> Self {
         Self {
             signature_bytes,
             account_id,

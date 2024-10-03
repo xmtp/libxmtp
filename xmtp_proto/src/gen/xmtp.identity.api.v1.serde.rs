@@ -1095,12 +1095,20 @@ impl serde::Serialize for UnverifiedSmartContractWalletSignature {
         if self.scw_signature.is_some() {
             len += 1;
         }
+        if self.block_number != 0 {
+            len += 1;
+        }
         if !self.hash.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.UnverifiedSmartContractWalletSignature", len)?;
         if let Some(v) = self.scw_signature.as_ref() {
             struct_ser.serialize_field("scwSignature", v)?;
+        }
+        if self.block_number != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("blockNumber", ToString::to_string(&self.block_number).as_str())?;
         }
         if !self.hash.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -1119,12 +1127,15 @@ impl<'de> serde::Deserialize<'de> for UnverifiedSmartContractWalletSignature {
         const FIELDS: &[&str] = &[
             "scw_signature",
             "scwSignature",
+            "block_number",
+            "blockNumber",
             "hash",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ScwSignature,
+            BlockNumber,
             Hash,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1148,6 +1159,7 @@ impl<'de> serde::Deserialize<'de> for UnverifiedSmartContractWalletSignature {
                     {
                         match value {
                             "scwSignature" | "scw_signature" => Ok(GeneratedField::ScwSignature),
+                            "blockNumber" | "block_number" => Ok(GeneratedField::BlockNumber),
                             "hash" => Ok(GeneratedField::Hash),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -1169,6 +1181,7 @@ impl<'de> serde::Deserialize<'de> for UnverifiedSmartContractWalletSignature {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut scw_signature__ = None;
+                let mut block_number__ = None;
                 let mut hash__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -1177,6 +1190,14 @@ impl<'de> serde::Deserialize<'de> for UnverifiedSmartContractWalletSignature {
                                 return Err(serde::de::Error::duplicate_field("scwSignature"));
                             }
                             scw_signature__ = map_.next_value()?;
+                        }
+                        GeneratedField::BlockNumber => {
+                            if block_number__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("blockNumber"));
+                            }
+                            block_number__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
                         }
                         GeneratedField::Hash => {
                             if hash__.is_some() {
@@ -1190,6 +1211,7 @@ impl<'de> serde::Deserialize<'de> for UnverifiedSmartContractWalletSignature {
                 }
                 Ok(UnverifiedSmartContractWalletSignature {
                     scw_signature: scw_signature__,
+                    block_number: block_number__.unwrap_or_default(),
                     hash: hash__.unwrap_or_default(),
                 })
             }
