@@ -19,6 +19,3 @@ xmtp_mls = { path = "../xmtp_mls", features = ["message-history"] }
 [dev-dependencies]
 wasm-bindgen-test.workspace = true
 
-[build]
-target = "wasm32-unknown-unknown"
-

@@ -14,7 +14,7 @@ test-utils = ["dep:xmtp_api_grpc", "xmtp_id/test-utils", "tracing-subscriber"]
 bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "tracing-flame", "once_cell", "dep:xmtp_api_grpc", "criterion"]
 update-schema = ["toml"]
 http-api = ["xmtp_api_http"]
-message-history = []
+message-history = ["dep:reqwest"]
 
 [dependencies]
 parking_lot.workspace = true
@@ -35,22 +35,22 @@ rand = { workspace = true }
 serde = { workspace = true }
 serde_json.workspace = true
 thiserror = { workspace = true }
-tokio-stream = { version = "0.1", features = ["sync"]  }
+tokio-stream = { version = "0.1", default-features = false, features = ["sync"]  }
 async-trait.workspace = true
 futures.workspace = true
-reqwest = { version = "0.12.4", features = ["stream"] }
 dyn-clone = "1"
 wasm-timer.workspace = true
 
 # XMTP/Local
 xmtp_cryptography = { workspace = true }
 xmtp_id = { path = "../xmtp_id" }
-xmtp_proto = { workspace = true, features = ["proto_full", "convert"] }
+xmtp_proto = { workspace = true, features = ["convert"] }
 
 # Optional/Features
 toml = { version = "0.8.4", optional = true }
 # for tests outside of the wasm environment
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }
+reqwest = { version = "0.12.4", features = ["stream"], optional = true }
 
 # Test/Bench Utils
 tracing-subscriber = { workspace = true, features = ["env-filter"], optional = true }
@@ -87,20 +87,20 @@ diesel = { workspace = true, features = [
 diesel_migrations.workspace = true
 getrandom = { workspace = true, features = ["js"] }
 chrono = { workspace = true, features = ["wasmbind"] }
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt", "time"] }
 openmls = { workspace = true, features = ["test-utils", "js"] }
 gloo-timers = { workspace = true, features = ["futures"] }
 wasm-bindgen-futures.workspace = true
 web-sys.workspace = true
 
 [dev-dependencies]
-ethers.workspace = true
 mockall = "0.13.0"
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 anyhow.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+ethers  = { workspace = true, features = ["openssl"] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 tracing-subscriber.workspace = true
 tempfile = "3.5.0"
@@ -108,6 +108,7 @@ mockito = "1.4.0"
 ctor.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+ethers  = { workspace = true, features = ["rustls"] }
 xmtp_api_http = { path = "../xmtp_api_http" }
 tracing-wasm = { version = "0.2" }
 diesel-wasm-sqlite = { workspace = true, features = ["unsafe-debug-query", "r2d2"] }

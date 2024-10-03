@@ -15,7 +15,7 @@ hex = { workspace = true }
 openmls = { workspace = true }
 openmls_rust_crypto = { workspace = true }
 thiserror.workspace = true
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
 tonic = { workspace = true }
 warp = "0.3.6"
 xmtp_id.workspace = true
