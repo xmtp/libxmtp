@@ -456,7 +456,7 @@ where
         &self.context
     }
 
-    ///
+    #[allow(clippy::borrowed_box)]
     pub fn smart_contract_signature_verifier(&self) -> &Box<dyn SmartContractSignatureVerifier> {
         &self.scw_verifier
     }

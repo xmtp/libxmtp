@@ -54,7 +54,6 @@ pub enum IntentError {
     Generic(String),
 }
 
-// Here
 impl MlsGroup {
     pub fn queue_intent(
         &self,
@@ -63,7 +62,7 @@ impl MlsGroup {
     ) -> Result<StoredGroupIntent, GroupError> {
         self.context.store.transaction(|provider| {
             let conn = provider.conn_ref();
-            Ok(self.queue_intent_with_conn(conn, intent_kind, intent_data)?)
+            self.queue_intent_with_conn(conn, intent_kind, intent_data)
         })
     }
 
@@ -78,7 +77,7 @@ impl MlsGroup {
         }
 
         let intent = conn.insert_group_intent(NewGroupIntent::new(
-            intent_kind.clone(),
+            intent_kind,
             self.group_id.clone(),
             intent_data,
         ))?;
