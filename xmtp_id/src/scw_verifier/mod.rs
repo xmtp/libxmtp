@@ -37,7 +37,7 @@ pub trait SmartContractSignatureVerifier: Send + Sync + DynClone + 'static {
         &self,
         account_id: AccountId,
         hash: [u8; 32],
-        signature: &Bytes,
+        signature: Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError>;
 }
@@ -45,12 +45,12 @@ pub trait SmartContractSignatureVerifier: Send + Sync + DynClone + 'static {
 dyn_clone::clone_trait_object!(SmartContractSignatureVerifier);
 
 #[async_trait]
-impl<S: SmartContractSignatureVerifier + Clone + ?Sized> SmartContractSignatureVerifier for Box<S> {
+impl<S: SmartContractSignatureVerifier + Clone> SmartContractSignatureVerifier for Box<S> {
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
         hash: [u8; 32],
-        signature: &Bytes,
+        signature: Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
         (**self)
@@ -115,7 +115,7 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
         &self,
         account_id: AccountId,
         hash: [u8; 32],
-        signature: &Bytes,
+        signature: Bytes,
         _block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
         let id: u64 = account_id.chain_id.parse().unwrap();

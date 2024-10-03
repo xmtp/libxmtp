@@ -282,6 +282,649 @@ impl<'de> serde::Deserialize<'de> for fetch_key_packages_response::KeyPackage {
         deserializer.deserialize_struct("xmtp.mls.api.v1.FetchKeyPackagesResponse.KeyPackage", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for GetIdentityUpdatesRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.account_addresses.is_empty() {
+            len += 1;
+        }
+        if self.start_time_ns != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesRequest", len)?;
+        if !self.account_addresses.is_empty() {
+            struct_ser.serialize_field("accountAddresses", &self.account_addresses)?;
+        }
+        if self.start_time_ns != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("startTimeNs", ToString::to_string(&self.start_time_ns).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for GetIdentityUpdatesRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "account_addresses",
+            "accountAddresses",
+            "start_time_ns",
+            "startTimeNs",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            AccountAddresses,
+            StartTimeNs,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "accountAddresses" | "account_addresses" => Ok(GeneratedField::AccountAddresses),
+                            "startTimeNs" | "start_time_ns" => Ok(GeneratedField::StartTimeNs),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = GetIdentityUpdatesRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.api.v1.GetIdentityUpdatesRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GetIdentityUpdatesRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut account_addresses__ = None;
+                let mut start_time_ns__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::AccountAddresses => {
+                            if account_addresses__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("accountAddresses"));
+                            }
+                            account_addresses__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::StartTimeNs => {
+                            if start_time_ns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("startTimeNs"));
+                            }
+                            start_time_ns__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                    }
+                }
+                Ok(GetIdentityUpdatesRequest {
+                    account_addresses: account_addresses__.unwrap_or_default(),
+                    start_time_ns: start_time_ns__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for GetIdentityUpdatesResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.updates.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse", len)?;
+        if !self.updates.is_empty() {
+            struct_ser.serialize_field("updates", &self.updates)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for GetIdentityUpdatesResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "updates",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Updates,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "updates" => Ok(GeneratedField::Updates),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = GetIdentityUpdatesResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.api.v1.GetIdentityUpdatesResponse")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GetIdentityUpdatesResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut updates__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Updates => {
+                            if updates__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("updates"));
+                            }
+                            updates__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(GetIdentityUpdatesResponse {
+                    updates: updates__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for get_identity_updates_response::NewInstallationUpdate {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.installation_key.is_empty() {
+            len += 1;
+        }
+        if !self.credential_identity.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.NewInstallationUpdate", len)?;
+        if !self.installation_key.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
+        }
+        if !self.credential_identity.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("credentialIdentity", pbjson::private::base64::encode(&self.credential_identity).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for get_identity_updates_response::NewInstallationUpdate {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "installation_key",
+            "installationKey",
+            "credential_identity",
+            "credentialIdentity",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            InstallationKey,
+            CredentialIdentity,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "installationKey" | "installation_key" => Ok(GeneratedField::InstallationKey),
+                            "credentialIdentity" | "credential_identity" => Ok(GeneratedField::CredentialIdentity),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = get_identity_updates_response::NewInstallationUpdate;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.api.v1.GetIdentityUpdatesResponse.NewInstallationUpdate")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<get_identity_updates_response::NewInstallationUpdate, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut installation_key__ = None;
+                let mut credential_identity__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::InstallationKey => {
+                            if installation_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("installationKey"));
+                            }
+                            installation_key__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::CredentialIdentity => {
+                            if credential_identity__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("credentialIdentity"));
+                            }
+                            credential_identity__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                    }
+                }
+                Ok(get_identity_updates_response::NewInstallationUpdate {
+                    installation_key: installation_key__.unwrap_or_default(),
+                    credential_identity: credential_identity__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.NewInstallationUpdate", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for get_identity_updates_response::RevokedInstallationUpdate {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.installation_key.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.RevokedInstallationUpdate", len)?;
+        if !self.installation_key.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for get_identity_updates_response::RevokedInstallationUpdate {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "installation_key",
+            "installationKey",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            InstallationKey,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "installationKey" | "installation_key" => Ok(GeneratedField::InstallationKey),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = get_identity_updates_response::RevokedInstallationUpdate;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.api.v1.GetIdentityUpdatesResponse.RevokedInstallationUpdate")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<get_identity_updates_response::RevokedInstallationUpdate, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut installation_key__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::InstallationKey => {
+                            if installation_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("installationKey"));
+                            }
+                            installation_key__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                    }
+                }
+                Ok(get_identity_updates_response::RevokedInstallationUpdate {
+                    installation_key: installation_key__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.RevokedInstallationUpdate", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for get_identity_updates_response::Update {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.timestamp_ns != 0 {
+            len += 1;
+        }
+        if self.kind.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.Update", len)?;
+        if self.timestamp_ns != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("timestampNs", ToString::to_string(&self.timestamp_ns).as_str())?;
+        }
+        if let Some(v) = self.kind.as_ref() {
+            match v {
+                get_identity_updates_response::update::Kind::NewInstallation(v) => {
+                    struct_ser.serialize_field("newInstallation", v)?;
+                }
+                get_identity_updates_response::update::Kind::RevokedInstallation(v) => {
+                    struct_ser.serialize_field("revokedInstallation", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for get_identity_updates_response::Update {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "timestamp_ns",
+            "timestampNs",
+            "new_installation",
+            "newInstallation",
+            "revoked_installation",
+            "revokedInstallation",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            TimestampNs,
+            NewInstallation,
+            RevokedInstallation,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "timestampNs" | "timestamp_ns" => Ok(GeneratedField::TimestampNs),
+                            "newInstallation" | "new_installation" => Ok(GeneratedField::NewInstallation),
+                            "revokedInstallation" | "revoked_installation" => Ok(GeneratedField::RevokedInstallation),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = get_identity_updates_response::Update;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.api.v1.GetIdentityUpdatesResponse.Update")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<get_identity_updates_response::Update, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut timestamp_ns__ = None;
+                let mut kind__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::TimestampNs => {
+                            if timestamp_ns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("timestampNs"));
+                            }
+                            timestamp_ns__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::NewInstallation => {
+                            if kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("newInstallation"));
+                            }
+                            kind__ = map_.next_value::<::std::option::Option<_>>()?.map(get_identity_updates_response::update::Kind::NewInstallation)
+;
+                        }
+                        GeneratedField::RevokedInstallation => {
+                            if kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("revokedInstallation"));
+                            }
+                            kind__ = map_.next_value::<::std::option::Option<_>>()?.map(get_identity_updates_response::update::Kind::RevokedInstallation)
+;
+                        }
+                    }
+                }
+                Ok(get_identity_updates_response::Update {
+                    timestamp_ns: timestamp_ns__.unwrap_or_default(),
+                    kind: kind__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.Update", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for get_identity_updates_response::WalletUpdates {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.updates.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.WalletUpdates", len)?;
+        if !self.updates.is_empty() {
+            struct_ser.serialize_field("updates", &self.updates)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for get_identity_updates_response::WalletUpdates {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "updates",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Updates,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "updates" => Ok(GeneratedField::Updates),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = get_identity_updates_response::WalletUpdates;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.api.v1.GetIdentityUpdatesResponse.WalletUpdates")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<get_identity_updates_response::WalletUpdates, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut updates__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Updates => {
+                            if updates__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("updates"));
+                            }
+                            updates__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(get_identity_updates_response::WalletUpdates {
+                    updates: updates__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.WalletUpdates", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for GroupMessage {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1447,6 +2090,326 @@ impl<'de> serde::Deserialize<'de> for QueryWelcomeMessagesResponse {
             }
         }
         deserializer.deserialize_struct("xmtp.mls.api.v1.QueryWelcomeMessagesResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for RegisterInstallationRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.key_package.is_some() {
+            len += 1;
+        }
+        if self.is_inbox_id_credential {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.RegisterInstallationRequest", len)?;
+        if let Some(v) = self.key_package.as_ref() {
+            struct_ser.serialize_field("keyPackage", v)?;
+        }
+        if self.is_inbox_id_credential {
+            struct_ser.serialize_field("isInboxIdCredential", &self.is_inbox_id_credential)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for RegisterInstallationRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "key_package",
+            "keyPackage",
+            "is_inbox_id_credential",
+            "isInboxIdCredential",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            KeyPackage,
+            IsInboxIdCredential,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "keyPackage" | "key_package" => Ok(GeneratedField::KeyPackage),
+                            "isInboxIdCredential" | "is_inbox_id_credential" => Ok(GeneratedField::IsInboxIdCredential),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = RegisterInstallationRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.api.v1.RegisterInstallationRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<RegisterInstallationRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut key_package__ = None;
+                let mut is_inbox_id_credential__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::KeyPackage => {
+                            if key_package__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("keyPackage"));
+                            }
+                            key_package__ = map_.next_value()?;
+                        }
+                        GeneratedField::IsInboxIdCredential => {
+                            if is_inbox_id_credential__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("isInboxIdCredential"));
+                            }
+                            is_inbox_id_credential__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(RegisterInstallationRequest {
+                    key_package: key_package__,
+                    is_inbox_id_credential: is_inbox_id_credential__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.api.v1.RegisterInstallationRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for RegisterInstallationResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.installation_key.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.RegisterInstallationResponse", len)?;
+        if !self.installation_key.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for RegisterInstallationResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "installation_key",
+            "installationKey",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            InstallationKey,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "installationKey" | "installation_key" => Ok(GeneratedField::InstallationKey),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = RegisterInstallationResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.api.v1.RegisterInstallationResponse")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<RegisterInstallationResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut installation_key__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::InstallationKey => {
+                            if installation_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("installationKey"));
+                            }
+                            installation_key__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                    }
+                }
+                Ok(RegisterInstallationResponse {
+                    installation_key: installation_key__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.api.v1.RegisterInstallationResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for RevokeInstallationRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.installation_key.is_empty() {
+            len += 1;
+        }
+        if self.wallet_signature.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.RevokeInstallationRequest", len)?;
+        if !self.installation_key.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
+        }
+        if let Some(v) = self.wallet_signature.as_ref() {
+            struct_ser.serialize_field("walletSignature", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for RevokeInstallationRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "installation_key",
+            "installationKey",
+            "wallet_signature",
+            "walletSignature",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            InstallationKey,
+            WalletSignature,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "installationKey" | "installation_key" => Ok(GeneratedField::InstallationKey),
+                            "walletSignature" | "wallet_signature" => Ok(GeneratedField::WalletSignature),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = RevokeInstallationRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.api.v1.RevokeInstallationRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<RevokeInstallationRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut installation_key__ = None;
+                let mut wallet_signature__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::InstallationKey => {
+                            if installation_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("installationKey"));
+                            }
+                            installation_key__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::WalletSignature => {
+                            if wallet_signature__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("walletSignature"));
+                            }
+                            wallet_signature__ = map_.next_value()?;
+                        }
+                    }
+                }
+                Ok(RevokeInstallationRequest {
+                    installation_key: installation_key__.unwrap_or_default(),
+                    wallet_signature: wallet_signature__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.api.v1.RevokeInstallationRequest", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for SendGroupMessagesRequest {

@@ -65,7 +65,6 @@ pub struct NapiGroupMember {
   pub consent_state: NapiConsentState,
 }
 
-#[derive(Debug)]
 #[napi]
 pub struct NapiGroup {
   inner_client: Arc<RustXmtpClient>,

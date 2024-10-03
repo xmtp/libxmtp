@@ -63,6 +63,8 @@ pub enum DeserializationError {
     Decode(#[from] DecodeError),
     #[error("Invalid account id")]
     InvalidAccountId,
+    #[error("Invalid hash (needs to be 32 bytes)")]
+    InvalidHash,
 }
 
 impl TryFrom<IdentityUpdateProto> for UnverifiedIdentityUpdate {
@@ -257,8 +259,6 @@ impl From<UnverifiedSignature> for SignatureWrapperProto {
                     account_id: sig.account_id.into(),
                     block_number: sig.block_number,
                     signature: sig.signature_bytes,
-                    // TOOD:nm Remove this field altogether
-                    chain_rpc_url: "".to_string(),
                 })
             }
             UnverifiedSignature::InstallationKey(sig) => {

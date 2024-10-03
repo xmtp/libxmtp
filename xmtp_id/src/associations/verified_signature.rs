@@ -131,7 +131,7 @@ impl VerifiedSignature {
             .is_valid_signature(
                 account_id.clone(),
                 hash_message(signature_text.as_ref()).into(),
-                &signature_bytes.to_vec().into(),
+                signature_bytes.to_vec().into(),
                 Some(BlockNumber::Number(U64::from(block_number))),
             )
             .await?;

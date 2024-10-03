@@ -32,9 +32,9 @@ proto_full = ["xmtp-identity","xmtp-identity-api-v1","xmtp-identity-associations
 "xmtp-keystore_api-v1" = ["xmtp-message_contents"]
 "xmtp-message_api-v1" = ["xmtp-message_contents"]
 "xmtp-message_contents" = []
-"xmtp-mls-api-v1" = []
+"xmtp-mls-api-v1" = ["xmtp-message_contents"]
 "xmtp-mls-database" = []
 "xmtp-mls-message_contents" = []
-"xmtp-mls_validation-v1" = ["xmtp-identity-associations"]
+"xmtp-mls_validation-v1" = ["xmtp-identity-api-v1","xmtp-identity-associations"]
 "xmtp-xmtpv4" = ["xmtp-identity-associations","xmtp-mls-api-v1"]
 ## @@protoc_insertion_point(features)
