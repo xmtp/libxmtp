@@ -37,6 +37,7 @@ ethers = { workspace = true, features = ["openssl"] }
 
 [dev-dependencies]
 xmtp_v2 = { path = "../xmtp_v2" }
+ed25519-dalek = { workspace = true, features = ["digest", "rand_core"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true

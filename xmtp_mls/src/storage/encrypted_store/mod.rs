@@ -160,7 +160,6 @@ impl EncryptedMessageStore {
     }
 }
 
-
 /// Shared Code between WebAssembly and Native using the `XmtpDb` trait
 pub mod private {
     use super::*;

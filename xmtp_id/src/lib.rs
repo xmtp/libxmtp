@@ -1,3 +1,4 @@
+#[warn(clippy::unwrap_used)]
 pub mod associations;
 pub mod constants;
 pub mod scw_verifier;
@@ -60,7 +61,6 @@ impl InboxOwner for LocalWallet {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ethers::contract::abigen;
 
     #[cfg(target_arch = "wasm32")]
@@ -81,6 +81,7 @@ mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_is_smart_contract() {
+        use super::*;
         use scw_verifier::tests::with_smart_contracts;
 
         with_smart_contracts(|anvil, _provider, _client, smart_contracts| async move {

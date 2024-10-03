@@ -1,0 +1,48 @@
+name: Test Workspace with WebAssembly
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    # only run tests when related changes are made
+    paths:
+      - ".github/workflows/test-webassembly.yml"
+      - "xmtp_mls/src/**"
+      - "xmtp_id/src/**"
+      - "xmtp_api_http/src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain"
+jobs:
+  test:
+    name: Test
+    # running with macos since it contains the safari driver
+    runs-on: warp-ubuntu-latest-x64-16x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Update rust toolchains
+        run: rustup update
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: test `xmtp_mls`
+        run: |
+          wasm-pack test --chrome --release -- --manifest-path ./xmtp_mls/Cargo.toml -- \
+            --skip xmtp_mls::subscriptions --skip xmtp_mls::groups::subscriptions \
+            --skip xmtp_mls::storage::encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
+            --skip xmtp_mls::groups::tests::process_messages_abort_on_retryable_error \
+            --skip  xmtp_mls::storage::encrypted_store::group::tests::test_find_groups \
+            --skip xmtp_mls::storage::encrypted_store::group::tests::test_installations_last_checked_is_updated
+        working-directory: ./
+      - name: test `xmtp_id`
+        run: wasm-pack test --headless --chrome -- --manifest-path ./xmtp_id/Cargo.toml
+        working-directory: ./
+      - name: test `xmtp_api_http`
+        run: wasm-pack test --headless --chrome -- --manifest-path ./xmtp_api_http/Cargo.toml
+        working-directory: ./
