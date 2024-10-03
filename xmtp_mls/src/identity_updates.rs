@@ -185,7 +185,7 @@ where
             starting_sequence_id,
             ending_sequence_id
         );
-        /// If no starting sequence ID, get all updates from the beginning of the inbox's history up to the ending sequence ID
+        // If no starting sequence ID, get all updates from the beginning of the inbox's history up to the ending sequence ID
         if starting_sequence_id.is_none() {
             return Ok(self
                 .get_association_state(conn, inbox_id.as_ref(), ending_sequence_id)

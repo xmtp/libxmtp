@@ -152,7 +152,7 @@ where
         );
 
         #[cfg(not(feature = "message-history"))]
-        let client = Client::new(api_client_wrapper, identity, store);
+        let client = Client::new(api_client_wrapper, identity, store, scw_verifier);
 
         Ok(client)
     }

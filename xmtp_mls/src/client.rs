@@ -29,7 +29,7 @@ use xmtp_id::{
         builder::{SignatureRequest, SignatureRequestError},
         AssociationError, AssociationState, SignatureError,
     },
-    scw_verifier::{RpcSmartContractWalletVerifier, SmartContractSignatureVerifier},
+    scw_verifier::SmartContractSignatureVerifier,
     InboxId,
 };
 
