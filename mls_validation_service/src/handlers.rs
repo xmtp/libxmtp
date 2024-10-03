@@ -225,7 +225,7 @@ async fn verify_smart_contract_wallet_signatures(
                 .await
                 .map_err(|e| GrpcServerError::Signature(SignatureError::VerifierError(e)))?;
 
-            return Ok(valid);
+            Ok(valid)
         };
 
         responses.push(handle);
