@@ -17,11 +17,13 @@ rand.workspace = true
 regex.workspace = true
 rustc-hex.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros"] }
 xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
+dyn-clone.workspace = true
 wasm-timer.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

@@ -4,7 +4,7 @@ use ethers::abi::{Constructor, Param, ParamType, Token};
 use ethers::contract::abigen;
 use ethers::providers::{Http, Middleware, Provider};
 use ethers::types::transaction::eip2718::TypedTransaction;
-use ethers::types::{Address, BlockId, BlockNumber, Bytes, TransactionRequest};
+use ethers::types::{Address, BlockNumber, Bytes, TransactionRequest};
 use hex::{FromHex, FromHexError};
 use std::sync::Arc;
 
@@ -26,7 +26,7 @@ abigen!(
     derives(serde::Serialize, serde::Deserialize)
 );
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RpcSmartContractWalletVerifier {
     pub provider: Arc<Provider<Http>>,
 }
@@ -45,7 +45,6 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
     ///
     /// # Arguments
     ///
-    /// * `block_number` - Block number to verify the signature at.
     /// * `signer` - can be the smart wallet address or EOA address.
     /// * `hash` - Message digest for the signature.
     /// * `signature` - Could be encoded smart wallet signature or raw ECDSA signature.
@@ -53,7 +52,7 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
         &self,
         signer: AccountId,
         hash: [u8; 32],
-        signature: &Bytes,
+        signature: Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
         let code = hex::decode(VALIDATE_SIG_OFFCHAIN_BYTECODE).unwrap();
@@ -88,11 +87,13 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
         ];
         let data = constructor.encode_input(code, tokens)?;
         let tx: TypedTransaction = TransactionRequest::new().data(data).into();
-        let res = self
-            .provider
-            .call(&tx, block_number.map(BlockId::Number))
-            .await?;
-        Ok(res == Bytes::from_hex("0x01").unwrap())
+        let block_number = if let Some(number) = block_number {
+            number
+        } else {
+            BlockNumber::Number(self.provider.get_block_number().await?)
+        };
+        let res = self.provider.call(&tx, Some(block_number.into())).await?;
+        Ok(res == Bytes::from_hex("0x01").expect("Hardcoded hex will not fail."))
     }
 }
 
@@ -107,7 +108,6 @@ pub(crate) mod tests {
         abi::{self, Token},
         core::utils::Anvil,
         middleware::{MiddlewareBuilder, SignerMiddleware},
-        providers::Middleware,
         signers::{LocalWallet, Signer as _},
         types::{H256, U256},
         utils::{hash_message, AnvilInstance},
@@ -225,7 +225,7 @@ pub(crate) mod tests {
                     .is_valid_signature(
                         account_id.clone(),
                         hash,
-                        &abi::encode(&[Token::Tuple(vec![
+                        abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(0)),
                             Token::Bytes(sig0.to_vec()),
                         ])])
@@ -241,7 +241,7 @@ pub(crate) mod tests {
                     .is_valid_signature(
                         account_id.clone(),
                         hash,
-                        &abi::encode(&[Token::Tuple(vec![
+                        abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(1)),
                             Token::Bytes(sig1.to_vec()),
                         ])])
@@ -256,7 +256,7 @@ pub(crate) mod tests {
                     .is_valid_signature(
                         account_id.clone(),
                         hash,
-                        &abi::encode(&[Token::Tuple(vec![
+                        abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(1)),
                             Token::Bytes(sig0.to_vec()),
                         ])])
@@ -280,7 +280,7 @@ pub(crate) mod tests {
                     .is_valid_signature(
                         account_id.clone(),
                         hash,
-                        &abi::encode(&[Token::Tuple(vec![
+                        abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(1)),
                             Token::Bytes(sig1.to_vec()),
                         ])])
@@ -295,7 +295,7 @@ pub(crate) mod tests {
                     .is_valid_signature(
                         account_id.clone(),
                         hash,
-                        &abi::encode(&[Token::Tuple(vec![
+                        abi::encode(&[Token::Tuple(vec![
                             Token::Uint(U256::from(1)),
                             Token::Bytes(sig1.to_vec()),
                         ])])
@@ -354,12 +354,12 @@ pub(crate) mod tests {
 
             // Testing ERC-6492 signatures with deployed ERC-1271.
             assert!(verifier
-                .is_valid_signature(account_id.clone(), hash, &signature, None,)
+                .is_valid_signature(account_id.clone(), hash, signature.clone(), None)
                 .await
                 .unwrap());
 
             assert!(!verifier
-                .is_valid_signature(account_id.clone(), H256::random().into(), &signature, None,)
+                .is_valid_signature(account_id.clone(), H256::random().into(), signature, None)
                 .await
                 .unwrap());
 
@@ -371,8 +371,8 @@ pub(crate) mod tests {
                 .is_valid_signature(
                     owner_account_id.clone(),
                     hash,
-                    &signature.to_vec().into(),
-                    None,
+                    signature.to_vec().into(),
+                    None
                 )
                 .await
                 .unwrap());
@@ -381,8 +381,8 @@ pub(crate) mod tests {
                 .is_valid_signature(
                     owner_account_id,
                     H256::random().into(),
-                    &signature.to_vec().into(),
-                    None,
+                    signature.to_vec().into(),
+                    None
                 )
                 .await
                 .unwrap());
@@ -403,7 +403,7 @@ pub(crate) mod tests {
 
         let verifier = RpcSmartContractWalletVerifier::new("https://polygon-rpc.com".to_string());
         assert!(verifier
-            .is_valid_signature(AccountId::new_evm(1, signer), hash.into(), &signature, None)
+            .is_valid_signature(AccountId::new_evm(1, signer), hash.into(), signature, None)
             .await
             .unwrap());
     }

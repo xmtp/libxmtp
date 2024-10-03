@@ -53,7 +53,7 @@ xmtp_api_http = { path = "../xmtp_api_http", optional = true }
 reqwest = { version = "0.12.4", features = ["stream"], optional = true }
 
 # Test/Bench Utils
-tracing-subscriber = { workspace = true, features = ["env-filter"], optional = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "ansi"], optional = true }
 indicatif = { version = "0.17", optional = true }
 anyhow = { workspace = true, optional = true }
 tracing-flame = { version = "0.2", optional = true }
@@ -97,12 +97,11 @@ web-sys.workspace = true
 mockall = "0.13.0"
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 anyhow.workspace = true
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ethers  = { workspace = true, features = ["openssl"] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
-tracing-subscriber.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "ansi"] }
 tempfile = "3.5.0"
 mockito = "1.4.0"
 ctor.workspace = true

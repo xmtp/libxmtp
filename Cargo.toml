@@ -75,6 +75,7 @@ js-sys = "0.3"
 openssl-sys = "=0.9.92"
 openssl = "=0.10.57"
 libsqlite3-sys = { version = "0.29", features = ["bundled-sqlcipher-vendored-openssl" ] }
+dyn-clone = "1"
 
 # Internal Crate Dependencies
 xmtp_cryptography = { path = "xmtp_cryptography" }
