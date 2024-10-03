@@ -130,9 +130,9 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
             ))
         })?;
         if let Some(verifier) = self.verifiers.get(&id) {
-            return Ok(verifier
+            return verifier
                 .is_valid_signature(account_id, hash, signature, block_number)
-                .await?);
+                .await;
         }
 
         Err(VerifierError::Provider(ProviderError::CustomError(
