@@ -721,6 +721,15 @@ impl TryFrom<Vec<u8>> for PostCommitAction {
 
 #[cfg(test)]
 mod tests {
+    use openmls::prelude::{MlsMessageBodyIn, MlsMessageIn, ProcessedMessageContent};
+    use tls_codec::Deserialize;
+    use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_proto::xmtp::mls::api::v1::{group_message, GroupMessage};
+
+    use crate::{
+        builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::TestClient, Client,
+    };
+
     use super::*;
 
     #[test]
@@ -760,5 +769,108 @@ mod tests {
             UpdateMetadataIntentData::try_from(as_bytes).unwrap();
 
         assert_eq!(intent.field_value, restored_intent.field_value);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_key_rotation_before_first_message() {
+        let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // client A makes a group with client B, and then sends a message to client B.
+        let group_a = client_a
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
+        group_a
+            .add_members_by_inbox_id(&client_a, vec![client_b.inbox_id()])
+            .await
+            .unwrap();
+        group_a
+            .send_message(b"First message from A", &client_a)
+            .await
+            .unwrap();
+
+        // No key rotation needed, because A's commit to add B already performs a rotation.
+        // Group should have a commit to add client B, followed by A's message.
+        verify_num_payloads_in_group(&client_a, &group_a, 2).await;
+
+        // Client B sends a message to Client A
+        let groups_b = client_b.sync_welcomes().await.unwrap();
+        assert_eq!(groups_b.len(), 1);
+        let group_b = groups_b[0].clone();
+        group_b
+            .send_message(b"First message from B", &client_b)
+            .await
+            .expect("send message");
+
+        // B must perform a key rotation before sending their first message.
+        // Group should have a commit to add B, A's message, B's key rotation and then B's message.
+        let payloads_a = verify_num_payloads_in_group(&client_a, &group_a, 4).await;
+        let payloads_b = verify_num_payloads_in_group(&client_b, &group_b, 4).await;
+
+        // Verify key rotation payload
+        for i in 0..payloads_a.len() {
+            assert_eq!(payloads_a[i].encode_to_vec(), payloads_b[i].encode_to_vec());
+        }
+        verify_commit_updates_leaf_node(&client_a, &group_a, &payloads_a[2]);
+
+        // Client B sends another message to Client A, and Client A sends another message to Client B.
+        group_b
+            .send_message(b"Second message from B", &client_b)
+            .await
+            .expect("send message");
+        group_a
+            .send_message(b"Second message from A", &client_a)
+            .await
+            .expect("send message");
+
+        // Group should only have 2 additional messages - no more key rotations needed.
+        verify_num_payloads_in_group(&client_a, &group_a, 6).await;
+        verify_num_payloads_in_group(&client_b, &group_b, 6).await;
+    }
+
+    async fn verify_num_payloads_in_group(
+        client: &Client<TestClient>,
+        group: &MlsGroup,
+        num_messages: usize,
+    ) -> Vec<GroupMessage> {
+        let messages = client
+            .api_client
+            .query_group_messages(group.group_id.clone(), None)
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), num_messages);
+        messages
+    }
+
+    fn verify_commit_updates_leaf_node(
+        client: &Client<TestClient>,
+        group: &MlsGroup,
+        payload: &GroupMessage,
+    ) {
+        let msgv1 = match &payload.version {
+            Some(group_message::Version::V1(value)) => value,
+            _ => panic!("error msgv1"),
+        };
+
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&msgv1.data).unwrap();
+        let mls_message = match mls_message_in.extract() {
+            MlsMessageBodyIn::PrivateMessage(mls_message) => mls_message,
+            _ => panic!("error mls_message"),
+        };
+
+        let provider = client.mls_provider().unwrap();
+        let mut openmls_group = group.load_mls_group(&provider).unwrap();
+        let decrypted_message = openmls_group
+            .process_message(&provider, mls_message)
+            .unwrap();
+
+        let staged_commit = match decrypted_message.into_content() {
+            ProcessedMessageContent::StagedCommitMessage(staged_commit) => *staged_commit,
+            _ => panic!("error staged_commit"),
+        };
+
+        // Check there is indeed some updated leaf node, which means the key update works.
+        let path_update_leaf_node = staged_commit.update_path_leaf_node();
+        assert!(path_update_leaf_node.is_some());
     }
 }
