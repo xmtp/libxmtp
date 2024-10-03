@@ -60,7 +60,7 @@ impl SmartContractSignatureVerifier for MockSmartContractSignatureVerifier {
         Ok(self.is_valid_signature)
     }
 
-    async fn current_block_number(&self, _account_id: &AccountId) -> Result<U64, VerifierError> {
+    async fn current_block_number(&self, _chain_id: &str) -> Result<U64, VerifierError> {
         Ok(1.into())
     }
 }

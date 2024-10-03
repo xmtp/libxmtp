@@ -89,17 +89,17 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
         let tx: TypedTransaction = TransactionRequest::new().data(data).into();
         let block_number = match block_number {
             Some(bn) => bn,
-            None => BlockNumber::Number(self.current_block_number(&signer).await?),
+            None => BlockNumber::Number(self.current_block_number(&signer.chain_id).await?),
         };
         let res = self.provider.call(&tx, Some(block_number.into())).await?;
         Ok(res == Bytes::from_hex("0x01").expect("Hardcoded hex will not fail."))
     }
 
-    async fn current_block_number(&self, _account_id: &AccountId) -> Result<U64, VerifierError> {
+    async fn current_block_number(&self, _chain_id: &str) -> Result<U64, VerifierError> {
         self.provider
             .get_block_number()
             .await
-            .map_err(|e| VerifierError::Provider(e))
+            .map_err(VerifierError::Provider)
     }
 }
 

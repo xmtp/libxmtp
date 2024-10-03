@@ -215,7 +215,7 @@ impl FfiSignatureRequest {
             Some(bn) => bn,
             None => {
                 self.scw_verifier
-                    .current_block_number(&account_id)
+                    .current_block_number(&chain_id.to_string())
                     .await
                     .map_err(GenericError::Verifier)?
                     .0[0]

@@ -33,7 +33,7 @@ pub enum VerifierError {
 
 #[async_trait]
 pub trait SmartContractSignatureVerifier: Send + Sync + DynClone + 'static {
-    async fn current_block_number(&self, account_id: &AccountId) -> Result<U64, VerifierError>;
+    async fn current_block_number(&self, chain_id: &str) -> Result<U64, VerifierError>;
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
@@ -59,8 +59,8 @@ impl<S: SmartContractSignatureVerifier + Clone> SmartContractSignatureVerifier f
             .await
     }
 
-    async fn current_block_number(&self, account_id: &AccountId) -> Result<U64, VerifierError> {
-        (**self).current_block_number(account_id).await
+    async fn current_block_number(&self, chain_id: &str) -> Result<U64, VerifierError> {
+        (**self).current_block_number(chain_id).await
     }
 }
 
@@ -134,10 +134,10 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
         todo!()
     }
 
-    async fn current_block_number(&self, account_id: &AccountId) -> Result<U64, VerifierError> {
-        let id: u64 = account_id.chain_id.parse().unwrap();
+    async fn current_block_number(&self, chain_id: &str) -> Result<U64, VerifierError> {
+        let id: u64 = chain_id.parse().unwrap();
         if let Some(verifier) = self.verifiers.get(&id) {
-            return Ok(verifier.current_block_number(account_id).await?);
+            return verifier.current_block_number(chain_id).await;
         }
         todo!()
     }
