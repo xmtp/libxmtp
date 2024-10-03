@@ -33,7 +33,7 @@ jobs:
             .
       - name: test `xmtp_mls`
         run: |
-          wasm-pack test --chrome --release -- --manifest-path ./Cargo.toml -- \
+          wasm-pack test --chrome --headless --release -- --manifest-path ./Cargo.toml -- \
             --skip xmtp_mls::subscriptions --skip xmtp_mls::groups::subscriptions \
             --skip xmtp_mls::storage::encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
             --skip xmtp_mls::groups::tests::process_messages_abort_on_retryable_error \
