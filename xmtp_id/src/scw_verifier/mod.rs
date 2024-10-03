@@ -5,7 +5,7 @@ use std::{collections::HashMap, fs, path::Path, str::FromStr};
 use async_trait::async_trait;
 use dyn_clone::DynClone;
 use ethers::{
-    providers::{Http, Provider},
+    providers::{Http, Provider, ProviderError},
     types::{BlockNumber, Bytes, U64},
 };
 use thiserror::Error;
@@ -139,6 +139,9 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
         if let Some(verifier) = self.verifiers.get(&id) {
             return verifier.current_block_number(chain_id).await;
         }
-        todo!()
+
+        Err(VerifierError::Provider(ProviderError::CustomError(
+            "Verifier not present".to_string(),
+        )))
     }
 }
