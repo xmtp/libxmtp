@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey as Ed25519VerifyingKey};
-use ethers::types::{BlockNumber, Signature as EthersSignature, U64};
+use ethers::types::Signature as EthersSignature;
 use ethers::utils::hash_message;
 use ethers::{core::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey, utils::public_key_to_address};
 use sha2::{Digest, Sha512};

@@ -217,7 +217,7 @@ impl FfiSignatureRequest {
                 self.scw_verifier
                     .current_block_number(&account_id)
                     .await
-                    .map_err(|e| GenericError::Verifier(e))?
+                    .map_err(GenericError::Verifier)?
                     .0[0]
             }
         };
