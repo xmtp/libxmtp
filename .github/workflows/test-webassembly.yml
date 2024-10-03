@@ -31,6 +31,10 @@ jobs:
         with:
           workspaces: |
             .
+      - name: Start Docker containers
+        run: |
+          dev/build_validation_service_local
+          dev/docker/up
       - name: test `xmtp_mls`
         run: |
           wasm-pack test --chrome --headless --release -- --manifest-path ./Cargo.toml -- \
