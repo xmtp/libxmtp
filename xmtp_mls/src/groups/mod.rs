@@ -86,7 +86,7 @@ use crate::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
         group::{GroupMembershipState, Purpose, StoredGroup},
-        group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
+        group_intent::{IntentKind, NewGroupIntent},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         sql_key_store,
     },
@@ -564,11 +564,10 @@ impl MlsGroup {
             .encode(&mut encoded_envelope)
             .map_err(GroupError::EncodeError)?;
 
-        self.maybe_prepare_key_update()?;
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         let intent =
             NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
-        intent.store(conn)?;
+        conn.insert_group_intent(intent)?;
 
         // store this unpublished message locally before sending
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
@@ -1021,24 +1020,17 @@ impl MlsGroup {
         Ok(())
     }
 
-    pub fn prepare_key_update(&self, conn: &DbConnection) -> Result<StoredGroupIntent, GroupError> {
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::KeyUpdate,
-            self.group_id.clone(),
-            vec![],
-        ))?;
-
-        Ok(intent)
-    }
-
     // Update this installation's leaf key in the group by creating a key update commit
     pub async fn key_update<ApiClient>(&self, client: &Client<ApiClient>) -> Result<(), GroupError>
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
-        let intent = self.prepare_key_update(&conn)?;
-        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
+        let intent = self.queue_intent(NewGroupIntent::new(
+            IntentKind::KeyUpdate,
+            self.group_id.clone(),
+            vec![],
+        ))?;
+        self.sync_until_intent_resolved(&client.mls_provider()?, intent.id, client)
             .await
     }
 

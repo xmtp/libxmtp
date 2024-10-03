@@ -19,8 +19,8 @@ use crate::{
     client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{
-        GROUP_KEY_ROTATION_INTERVAL_NS, GRPC_DATA_LIMIT, MAX_GROUP_SIZE,
-        MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS, SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
+        GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
+        SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
     groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
@@ -972,21 +972,6 @@ impl MlsGroup {
             deleter.delete(intent.id)?;
         }
 
-        Ok(())
-    }
-
-    pub fn maybe_prepare_key_update(&self) -> Result<(), GroupError> {
-        self.context.store.transaction(|provider| {
-            let conn = provider.conn_ref();
-            let last_rotated_at_ns = conn.get_rotated_at_ns(self.group_id.clone())?;
-            let now_ns = crate::utils::time::now_ns();
-            let elapsed_ns = now_ns - last_rotated_at_ns;
-            if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
-                self.prepare_key_update(conn)?;
-                conn.update_rotated_at_ns(self.group_id.clone())?;
-            }
-            Ok::<(), GroupError>(())
-        })?;
         Ok(())
     }
 

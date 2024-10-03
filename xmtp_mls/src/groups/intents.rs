@@ -26,6 +26,11 @@ use xmtp_proto::xmtp::mls::database::{
 };
 
 use crate::{
+    configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
+    storage::{
+        db_connection::DbConnection,
+        group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
+    },
     types::Address,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
@@ -34,6 +39,7 @@ use super::{
     group_membership::GroupMembership,
     group_mutable_metadata::MetadataField,
     group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
+    GroupError, MlsGroup,
 };
 
 #[derive(Debug, Error)]
@@ -46,6 +52,47 @@ pub enum IntentError {
     TlsError(#[from] TlsCodecError),
     #[error("generic: {0}")]
     Generic(String),
+}
+
+// Here
+impl MlsGroup {
+    pub fn queue_intent(&self, to_save: NewGroupIntent) -> Result<StoredGroupIntent, GroupError> {
+        self.context.store.transaction(|provider| {
+            let conn = provider.conn_ref();
+            Ok(self.insert_group_intent_with_conn(conn, to_save)?)
+        })
+    }
+
+    pub fn insert_group_intent_with_conn(
+        &self,
+        conn: &DbConnection,
+        to_save: NewGroupIntent,
+    ) -> Result<StoredGroupIntent, GroupError> {
+        if to_save.kind == IntentKind::SendMessage {
+            self.maybe_insert_key_update_intent(conn)?;
+        }
+
+        let intent = conn.insert_group_intent(to_save)?;
+
+        if intent.kind != IntentKind::SendMessage {
+            conn.update_rotated_at_ns(self.group_id.clone())?;
+        }
+
+        Ok(intent)
+    }
+
+    fn maybe_insert_key_update_intent(&self, conn: &DbConnection) -> Result<(), GroupError> {
+        let last_rotated_at_ns = conn.get_rotated_at_ns(self.group_id.clone())?;
+        let now_ns = crate::utils::time::now_ns();
+        let elapsed_ns = now_ns - last_rotated_at_ns;
+        if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
+            self.insert_group_intent_with_conn(
+                conn,
+                NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]),
+            )?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
