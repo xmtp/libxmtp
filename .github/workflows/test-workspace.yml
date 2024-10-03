@@ -20,7 +20,6 @@ on:
       - "rust-toolchain"
 env:
   CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 1
 jobs:
   test:
     name: Test
@@ -34,8 +33,6 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
       - name: Cache
         uses: Swatinem/rust-cache@v2
-        env:
-          CARGO_INCREMENTAL: 1
         with:
           workspaces: |
             .

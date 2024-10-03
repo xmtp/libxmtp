@@ -91,8 +91,8 @@ tokio = { workspace = true, features = ["macros", "rt"] }
 openmls = { workspace = true, features = ["test-utils", "js"] }
 gloo-timers = { workspace = true, features = ["futures"] }
 wasm-bindgen-futures.workspace = true
-
 web-sys.workspace = true
+
 [dev-dependencies]
 ethers.workspace = true
 mockall = "0.13.0"

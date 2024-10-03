@@ -81,12 +81,12 @@ xmtp_mls = { path = "xmtp_mls" }
 xmtp_proto = { path = "xmtp_proto" }
 
 [profile.dev]
-incremental = true
-
-[profile.test]
-incremental = true
+# Disabling debug info speeds up builds a bunch,
+# and we don't rely on it for debugging that much.
+debug = 0
 
 [profile.release]
+incremental = true
 opt-level = "s"
 panic = 'abort'
 lto = true
@@ -98,10 +98,11 @@ strip = "symbols"
 # https://stackoverflow.com/a/54842093
 [profile.release.package.xmtpv3]
 codegen-units = 1 # Reduce number of codegen units to increase optimizations
-opt-level = 'z'   # Optimize for size
+opt-level = 'z'   # Optimize for size + loop vectorization
 strip = true      # Strip symbols from binary*
 
 [profile.release.package.bindings_wasm]
+# optimize for binary size
 opt-level = "s"
 
 # patch needed until some items
