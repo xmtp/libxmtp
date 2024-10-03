@@ -204,28 +204,35 @@ async fn verify_smart_contract_wallet_signatures(
 ) -> Result<Response<VerifySmartContractWalletSignaturesResponse>, Status> {
     let mut responses = vec![];
     for request in signatures {
-        let Some(signature) = request.scw_signature else {
-            continue;
-        };
-        let account_id = signature.account_id.try_into().map_err(|_e| {
-            GrpcServerError::Deserialization(DeserializationError::InvalidAccountId)
-        })?;
+        let handle = async move {
+            let Some(signature) = request.scw_signature else {
+                return Ok::<bool, GrpcServerError>(false);
+            };
 
-        responses.push(
-            scw_verifier.is_valid_signature(
-                account_id,
-                request.hash.try_into().map_err(|_| {
-                    GrpcServerError::Deserialization(DeserializationError::InvalidHash)
-                })?,
-                signature.signature.into(),
-                Some(BlockNumber::Number(U64::from(signature.block_number))),
-            ),
-        );
+            let account_id = signature.account_id.try_into().map_err(|_e| {
+                GrpcServerError::Deserialization(DeserializationError::InvalidAccountId)
+            })?;
+
+            let valid = scw_verifier
+                .is_valid_signature(
+                    account_id,
+                    request.hash.try_into().map_err(|_| {
+                        GrpcServerError::Deserialization(DeserializationError::InvalidHash)
+                    })?,
+                    signature.signature.into(),
+                    Some(BlockNumber::Number(U64::from(signature.block_number))),
+                )
+                .await
+                .map_err(|e| GrpcServerError::Signature(SignatureError::VerifierError(e)))?;
+
+            return Ok(valid);
+        };
+
+        responses.push(handle);
     }
 
     let responses: Vec<_> = try_join_all(responses)
-        .await
-        .map_err(|e| Status::unknown(format!("{e:?}")))?
+        .await?
         .into_iter()
         .map(|is_valid| VerifySmartContractWalletSignaturesResponseValidationResponse { is_valid })
         .collect();
