@@ -5,6 +5,7 @@ use std::{collections::HashMap, fs, path::Path, str::FromStr};
 use async_trait::async_trait;
 use dyn_clone::DynClone;
 use ethers::{
+    contract::ContractError,
     providers::{Http, Provider, ProviderError},
     types::{BlockNumber, Bytes, U64},
 };
@@ -123,19 +124,28 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
         signature: Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
-        let id: u64 = account_id.chain_id.parse().unwrap();
+        let id: u64 = account_id.chain_id.parse().map_err(|e| {
+            VerifierError::Contract(ContractError::DecodingError(
+                ethers::core::abi::Error::ParseInt(e),
+            ))
+        })?;
         if let Some(verifier) = self.verifiers.get(&id) {
             return Ok(verifier
                 .is_valid_signature(account_id, hash, signature, block_number)
-                .await
-                .unwrap());
+                .await?);
         }
 
-        todo!()
+        Err(VerifierError::Provider(ProviderError::CustomError(
+            "Verifier not present".to_string(),
+        )))
     }
 
     async fn current_block_number(&self, chain_id: &str) -> Result<U64, VerifierError> {
-        let id: u64 = chain_id.parse().unwrap();
+        let id: u64 = chain_id.parse().map_err(|e| {
+            VerifierError::Contract(ContractError::DecodingError(
+                ethers::core::abi::Error::ParseInt(e),
+            ))
+        })?;
         if let Some(verifier) = self.verifiers.get(&id) {
             return verifier.current_block_number(chain_id).await;
         }
