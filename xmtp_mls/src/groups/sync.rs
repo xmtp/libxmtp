@@ -537,6 +537,10 @@ impl MlsGroup {
         let intent = provider
             .conn_ref()
             .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
+        tracing::info!(
+            "Processing envelope with hash {:?}",
+            hex::encode(sha256(envelope.data.as_slice()))
+        );
 
         match intent {
             // Intent with the payload hash matches
