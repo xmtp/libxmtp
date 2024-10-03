@@ -33,16 +33,16 @@ jobs:
             .
       - name: test `xmtp_mls`
         run: |
-          wasm-pack test --chrome --release -- --manifest-path ./xmtp_mls/Cargo.toml -- \
+          wasm-pack test --chrome --release -- --manifest-path ./Cargo.toml -- \
             --skip xmtp_mls::subscriptions --skip xmtp_mls::groups::subscriptions \
             --skip xmtp_mls::storage::encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
             --skip xmtp_mls::groups::tests::process_messages_abort_on_retryable_error \
             --skip  xmtp_mls::storage::encrypted_store::group::tests::test_find_groups \
             --skip xmtp_mls::storage::encrypted_store::group::tests::test_installations_last_checked_is_updated
-        working-directory: ./
+        working-directory: ./xmtp_mls
       - name: test `xmtp_id`
-        run: wasm-pack test --headless --chrome -- --manifest-path ./xmtp_id/Cargo.toml
-        working-directory: ./
+        run: wasm-pack test --headless --chrome -- --manifest-path ./Cargo.toml
+        working-directory: ./xmtp_id
       - name: test `xmtp_api_http`
-        run: wasm-pack test --headless --chrome -- --manifest-path ./xmtp_api_http/Cargo.toml
-        working-directory: ./
+        run: wasm-pack test --headless --chrome -- --manifest-path ./Cargo.toml
+        working-directory: ./xmtp_api_http
