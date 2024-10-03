@@ -162,7 +162,6 @@ impl EncryptedMessageStore {
 
 
 /// Shared Code between WebAssembly and Native using the `XmtpDb` trait
-#[doc(hidden)]
 pub mod private {
     use super::*;
     use diesel::connection::SimpleConnection;
