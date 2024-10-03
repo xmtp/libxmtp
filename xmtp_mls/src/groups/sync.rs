@@ -30,7 +30,7 @@ use crate::{
     retry_async,
     storage::{
         db_connection::DbConnection,
-        group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent, ID},
+        group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         refresh_state::EntityKind,
         serialization::{db_deserialize, db_serialize},
@@ -1032,12 +1032,11 @@ impl MlsGroup {
 
         debug!("Adding missing installations {:?}", intent_data);
 
-        let conn = provider.conn_ref();
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
+        let intent = self.queue_intent_with_conn(
+            provider.conn_ref(),
             IntentKind::UpdateGroupMembership,
-            self.group_id.clone(),
             intent_data.into(),
-        ))?;
+        )?;
 
         self.sync_until_intent_resolved(provider, intent.id, client)
             .await

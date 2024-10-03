@@ -56,25 +56,34 @@ pub enum IntentError {
 
 // Here
 impl MlsGroup {
-    pub fn queue_intent(&self, to_save: NewGroupIntent) -> Result<StoredGroupIntent, GroupError> {
+    pub fn queue_intent(
+        &self,
+        intent_kind: IntentKind,
+        intent_data: Vec<u8>,
+    ) -> Result<StoredGroupIntent, GroupError> {
         self.context.store.transaction(|provider| {
             let conn = provider.conn_ref();
-            Ok(self.insert_group_intent_with_conn(conn, to_save)?)
+            Ok(self.queue_intent_with_conn(conn, intent_kind, intent_data)?)
         })
     }
 
-    pub fn insert_group_intent_with_conn(
+    pub fn queue_intent_with_conn(
         &self,
         conn: &DbConnection,
-        to_save: NewGroupIntent,
+        intent_kind: IntentKind,
+        intent_data: Vec<u8>,
     ) -> Result<StoredGroupIntent, GroupError> {
-        if to_save.kind == IntentKind::SendMessage {
+        if intent_kind == IntentKind::SendMessage {
             self.maybe_insert_key_update_intent(conn)?;
         }
 
-        let intent = conn.insert_group_intent(to_save)?;
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            intent_kind.clone(),
+            self.group_id.clone(),
+            intent_data,
+        ))?;
 
-        if intent.kind != IntentKind::SendMessage {
+        if intent_kind != IntentKind::SendMessage {
             conn.update_rotated_at_ns(self.group_id.clone())?;
         }
 
@@ -86,10 +95,7 @@ impl MlsGroup {
         let now_ns = crate::utils::time::now_ns();
         let elapsed_ns = now_ns - last_rotated_at_ns;
         if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
-            self.insert_group_intent_with_conn(
-                conn,
-                NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]),
-            )?;
+            self.queue_intent_with_conn(conn, IntentKind::KeyUpdate, vec![])?;
         }
         Ok(())
     }

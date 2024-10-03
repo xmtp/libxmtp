@@ -86,7 +86,7 @@ use crate::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
         group::{GroupMembershipState, Purpose, StoredGroup},
-        group_intent::{IntentKind, NewGroupIntent},
+        group_intent::IntentKind,
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         sql_key_store,
     },
@@ -565,9 +565,7 @@ impl MlsGroup {
             .map_err(GroupError::EncodeError)?;
 
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        let intent =
-            NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
-        conn.insert_group_intent(intent)?;
+        self.queue_intent_with_conn(conn, IntentKind::SendMessage, intent_data)?;
 
         // store this unpublished message locally before sending
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
@@ -676,13 +674,11 @@ impl MlsGroup {
             return Ok(());
         }
 
-        let intent = provider
-            .conn_ref()
-            .insert_group_intent(NewGroupIntent::new(
-                IntentKind::UpdateGroupMembership,
-                self.group_id.clone(),
-                intent_data.into(),
-            ))?;
+        let intent = self.queue_intent_with_conn(
+            provider.conn_ref(),
+            IntentKind::UpdateGroupMembership,
+            intent_data.into(),
+        )?;
 
         self.sync_until_intent_resolved(&provider, intent.id, client)
             .await
@@ -727,13 +723,11 @@ impl MlsGroup {
             .get_membership_update_intent(client, &provider, vec![], inbox_ids)
             .await?;
 
-        let intent = provider
-            .conn_ref()
-            .insert_group_intent(NewGroupIntent::new(
-                IntentKind::UpdateGroupMembership,
-                self.group_id.clone(),
-                intent_data.into(),
-            ))?;
+        let intent = self.queue_intent_with_conn(
+            provider.conn_ref(),
+            IntentKind::UpdateGroupMembership,
+            intent_data.into(),
+        )?;
 
         self.sync_until_intent_resolved(&provider, intent.id, client)
             .await
@@ -749,16 +743,11 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::MetadataUpdate,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
+        self.sync_until_intent_resolved(&client.mls_provider()?, intent.id, client)
             .await
     }
 
@@ -770,8 +759,6 @@ impl MlsGroup {
         permission_policy: PermissionPolicyOption,
         metadata_field: Option<MetadataField>,
     ) -> Result<(), GroupError> {
-        let conn = client.store().conn()?;
-
         if permission_update_type == PermissionUpdateType::UpdateMetadata
             && metadata_field.is_none()
         {
@@ -785,13 +772,9 @@ impl MlsGroup {
         )
         .into();
 
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::UpdatePermission,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = self.queue_intent(IntentKind::UpdatePermission, intent_data)?;
 
-        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
+        self.sync_until_intent_resolved(&client.mls_provider()?, intent.id, client)
             .await
     }
 
@@ -818,16 +801,11 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_description(group_description).into();
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::MetadataUpdate,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
+        self.sync_until_intent_resolved(&client.mls_provider()?, intent.id, client)
             .await
     }
 
@@ -853,17 +831,12 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_image_url_square(group_image_url_square)
                 .into();
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::MetadataUpdate,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
+        self.sync_until_intent_resolved(&client.mls_provider()?, intent.id, client)
             .await
     }
 
@@ -892,16 +865,11 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_pinned_frame_url(pinned_frame_url).into();
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::MetadataUpdate,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
+        self.sync_until_intent_resolved(&client.mls_provider()?, intent.id, client)
             .await
     }
 
@@ -966,7 +934,6 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
         let intent_action_type = match action_type {
             UpdateAdminListType::Add => AdminListActionType::Add,
             UpdateAdminListType::Remove => AdminListActionType::Remove,
@@ -975,13 +942,9 @@ impl MlsGroup {
         };
         let intent_data: Vec<u8> =
             UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::UpdateAdminList,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = self.queue_intent(IntentKind::UpdateAdminList, intent_data)?;
 
-        self.sync_until_intent_resolved(&conn.into(), intent.id, client)
+        self.sync_until_intent_resolved(&client.mls_provider()?, intent.id, client)
             .await
     }
 
@@ -1025,11 +988,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let intent = self.queue_intent(NewGroupIntent::new(
-            IntentKind::KeyUpdate,
-            self.group_id.clone(),
-            vec![],
-        ))?;
+        let intent = self.queue_intent(IntentKind::KeyUpdate, vec![])?;
         self.sync_until_intent_resolved(&client.mls_provider()?, intent.id, client)
             .await
     }
@@ -1384,7 +1343,7 @@ mod tests {
         },
         storage::{
             consent_record::ConsentState,
-            group_intent::{IntentKind, IntentState, NewGroupIntent},
+            group_intent::{IntentKind, IntentState},
             group_message::{GroupMessageKind, StoredGroupMessage},
         },
         xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -3159,13 +3118,9 @@ mod tests {
             return;
         }
 
-        let conn = provider.conn_ref();
-        conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::UpdateGroupMembership,
-            group.group_id.clone(),
-            intent_data.into(),
-        ))
-        .unwrap();
+        group
+            .queue_intent(IntentKind::UpdateGroupMembership, intent_data.into())
+            .unwrap();
     }
 
     /**
