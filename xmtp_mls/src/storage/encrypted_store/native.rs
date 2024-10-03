@@ -1,3 +1,4 @@
+/// Native SQLite connection using SqlCipher
 use crate::storage::encrypted_store::DbConnectionPrivate;
 use crate::storage::StorageError;
 pub use diesel::sqlite::SqliteConnection;

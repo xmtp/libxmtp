@@ -92,6 +92,7 @@ pub trait XmtpDb {
         + Send;
     type TransactionManager: diesel::connection::TransactionManager<Self::Connection>;
 
+    /// Validate a connection is as expected
     fn validate(&self, _opts: &StorageOption) -> Result<(), StorageError> {
         Ok(())
     }
@@ -99,8 +100,10 @@ pub trait XmtpDb {
     /// Returns the Connection implementation for this Database
     fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, StorageError>;
 
+    /// Reconnect to the database
     fn reconnect(&self) -> Result<(), StorageError>;
 
+    /// Release connection to the database, closing it
     fn release_connection(&self) -> Result<(), StorageError>;
 }
 
@@ -109,10 +112,12 @@ pub type EncryptedMessageStore = self::private::EncryptedMessageStore<native::Na
 
 #[cfg(not(target_arch = "wasm32"))]
 impl EncryptedMessageStore {
+    /// Created a new store
     pub async fn new(opts: StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
         Self::new_database(opts, Some(enc_key))
     }
 
+    /// Create a new, unencrypted database
     pub async fn new_unencrypted(opts: StorageOption) -> Result<Self, StorageError> {
         Self::new_database(opts, None)
     }
@@ -155,6 +160,8 @@ impl EncryptedMessageStore {
     }
 }
 
+
+/// Shared Code between WebAssembly and Native using the `XmtpDb` trait
 #[doc(hidden)]
 pub mod private {
     use super::*;
@@ -189,6 +196,7 @@ pub mod private {
             Ok::<_, StorageError>(())
         }
 
+        /// Pulls a new connection from the store
         pub fn conn(
             &self,
         ) -> Result<DbConnectionPrivate<<Db as XmtpDb>::Connection>, StorageError> {
@@ -312,10 +320,12 @@ pub mod private {
             }
         }
 
+        /// Release connection to the database, closing it
         pub fn release_connection(&self) -> Result<(), StorageError> {
             self.db.release_connection()
         }
 
+        /// Reconnect to the database
         pub fn reconnect(&self) -> Result<(), StorageError> {
             self.db.reconnect()
         }

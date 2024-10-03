@@ -157,6 +157,8 @@ where
 #[cfg(test)]
 mod tests {
     use crate::storage::encrypted_store::tests::with_connection;
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
 
@@ -172,7 +174,8 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn insert_and_read() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";

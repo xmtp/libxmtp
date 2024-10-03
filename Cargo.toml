@@ -98,7 +98,7 @@ incremental = true
 opt-level = "s"
 panic = 'abort'
 
-[profile.release-wasm]
+[profile.release-with-lto]
 inherits = "release"
 lto = true
 
@@ -108,12 +108,13 @@ strip = "symbols"
 # NOTE: The release profile reduces bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093
 [profile.release.package.xmtpv3]
+inherits = "release-with-lto"
 codegen-units = 1 # Reduce number of codegen units to increase optimizations
 opt-level = 'z'   # Optimize for size + loop vectorization
 strip = true      # Strip symbols from binary*
 
 [profile.release.package.bindings_wasm]
-inherits = "release-wasm"
+inherits = "release-with-lto"
 # optimize for binary size
 opt-level = "s"
 
