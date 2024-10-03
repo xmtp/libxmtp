@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use dyn_clone::DynClone;
 use ethers::{
     providers::{Http, Provider},
-    types::{BlockNumber, Bytes},
+    types::{BlockNumber, Bytes, U64},
 };
 use thiserror::Error;
 use url::Url;
@@ -33,6 +33,7 @@ pub enum VerifierError {
 
 #[async_trait]
 pub trait SmartContractSignatureVerifier: Send + Sync + DynClone + 'static {
+    async fn current_block_number(&self, account_id: &AccountId) -> Result<U64, VerifierError>;
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
@@ -56,6 +57,10 @@ impl<S: SmartContractSignatureVerifier + Clone> SmartContractSignatureVerifier f
         (**self)
             .is_valid_signature(account_id, hash, signature, block_number)
             .await
+    }
+
+    async fn current_block_number(&self, account_id: &AccountId) -> Result<U64, VerifierError> {
+        (**self).current_block_number(account_id).await
     }
 }
 
@@ -116,16 +121,24 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
         account_id: AccountId,
         hash: [u8; 32],
         signature: Bytes,
-        _block_number: Option<BlockNumber>,
+        block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
         let id: u64 = account_id.chain_id.parse().unwrap();
         if let Some(verifier) = self.verifiers.get(&id) {
             return Ok(verifier
-                .is_valid_signature(account_id, hash, signature, None)
+                .is_valid_signature(account_id, hash, signature, block_number)
                 .await
                 .unwrap());
         }
 
+        todo!()
+    }
+
+    async fn current_block_number(&self, account_id: &AccountId) -> Result<U64, VerifierError> {
+        let id: u64 = account_id.chain_id.parse().unwrap();
+        if let Some(verifier) = self.verifiers.get(&id) {
+            return Ok(verifier.current_block_number(account_id).await?);
+        }
         todo!()
     }
 }

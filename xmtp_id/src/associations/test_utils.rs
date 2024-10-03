@@ -12,7 +12,7 @@ use ed25519_dalek::SigningKey as Ed25519SigningKey;
 use ethers::{
     core::types::BlockNumber,
     signers::{LocalWallet, Signer},
-    types::Bytes,
+    types::{Bytes, U64},
 };
 use rand::{distributions::Alphanumeric, Rng};
 use sha2::{Digest, Sha512};
@@ -58,6 +58,10 @@ impl SmartContractSignatureVerifier for MockSmartContractSignatureVerifier {
         _block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
         Ok(self.is_valid_signature)
+    }
+
+    async fn current_block_number(&self, _account_id: &AccountId) -> Result<U64, VerifierError> {
+        Ok(1.into())
     }
 }
 

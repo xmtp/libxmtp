@@ -211,6 +211,17 @@ impl FfiSignatureRequest {
         let mut inner = self.inner.lock().await;
         let account_id = AccountId::new_evm(chain_id, address);
 
+        let block_number = match block_number {
+            Some(bn) => bn,
+            None => {
+                self.scw_verifier
+                    .current_block_number(&account_id)
+                    .await
+                    .map_err(|e| GenericError::Verifier(e))?
+                    .0[0]
+            }
+        };
+
         let signature = UnverifiedSignature::new_smart_contract_wallet(
             signature_bytes,
             account_id,

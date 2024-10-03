@@ -132,7 +132,7 @@ impl VerifiedSignature {
                 account_id.clone(),
                 hash_message(signature_text.as_ref()).into(),
                 signature_bytes.to_vec().into(),
-                block_number.map(|n| BlockNumber::Number(U64::from(n))),
+                block_number.map(|n| n.into()),
             )
             .await?;
 

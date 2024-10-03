@@ -164,7 +164,7 @@ impl WasmClient {
     signature_bytes: Uint8Array,
     chain_id: u64,
     account_address: String,
-    block_number: Option<u64>,
+    block_number: u64,
   ) -> Result<(), JsError> {
     if self.is_registered() {
       return Err(JsError::new(
