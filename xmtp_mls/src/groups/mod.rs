@@ -219,7 +219,6 @@ impl RetryableError for GroupError {
     }
 }
 
-#[derive(Debug)]
 pub struct MlsGroup {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,

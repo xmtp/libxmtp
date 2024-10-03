@@ -29,7 +29,7 @@ use xmtp_id::{
         builder::{SignatureRequest, SignatureRequestError},
         AssociationError, AssociationState, SignatureError,
     },
-    scw_verifier::{RpcSmartContractWalletVerifier, SmartContractSignatureVerifier},
+    scw_verifier::SmartContractSignatureVerifier,
     InboxId,
 };
 
@@ -228,7 +228,6 @@ pub struct FindGroupParams {
 }
 
 /// Clients manage access to the network, identity, and data store
-#[derive(Debug)]
 pub struct Client<ApiClient> {
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
@@ -240,13 +239,13 @@ pub struct Client<ApiClient> {
 /// The local context a XMTP MLS needs to function:
 /// - Sqlite Database
 /// - Identity for the User
-#[derive(Debug)]
 pub struct XmtpMlsLocalContext {
     /// XMTP Identity
     pub(crate) identity: Identity,
     /// XMTP Local Storage
     pub(crate) store: EncryptedMessageStore,
     pub(crate) mutexes: MutexRegistry,
+    pub scw_verifier: Box<dyn SmartContractSignatureVerifier + 'static>,
 }
 
 impl XmtpMlsLocalContext {
@@ -288,12 +287,14 @@ where
         api_client: ApiClientWrapper<ApiClient>,
         identity: Identity,
         store: EncryptedMessageStore,
+        scw_verifier: Box<dyn SmartContractSignatureVerifier>,
         #[cfg(feature = "message-history")] history_sync_url: Option<String>,
     ) -> Self {
         let context = XmtpMlsLocalContext {
             identity,
             store,
             mutexes: MutexRegistry::new(),
+            scw_verifier,
         };
         let (tx, _) = broadcast::channel(10);
         Self {
@@ -454,10 +455,8 @@ where
         &self.context
     }
 
-    // TODO:nm Replace with real implementation
     pub fn smart_contract_signature_verifier(&self) -> Box<dyn SmartContractSignatureVerifier> {
-        let scw_verifier = RpcSmartContractWalletVerifier::new("http://www.fake.com".to_string());
-        Box::new(scw_verifier)
+        self.context.scw_verifier.clone()
     }
 
     /// Create a new group with the default settings

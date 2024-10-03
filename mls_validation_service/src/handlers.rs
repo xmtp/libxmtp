@@ -1,3 +1,4 @@
+use ethers::types::{BlockNumber, U64};
 use futures::future::{join_all, try_join_all};
 use openmls::prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage};
 use openmls_rust_crypto::RustCrypto;
@@ -15,13 +16,27 @@ use xmtp_mls::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use xmtp_proto::xmtp::{
-    identity::associations::IdentityUpdate as IdentityUpdateProto,
+    identity::{
+        api::v1::{
+            verify_smart_contract_wallet_signatures_response::ValidationResponse as VerifySmartContractWalletSignaturesResponseValidationResponse,
+            UnverifiedSmartContractWalletSignature, VerifySmartContractWalletSignaturesRequest,
+            VerifySmartContractWalletSignaturesResponse,
+        },
+        associations::IdentityUpdate as IdentityUpdateProto,
+    },
     mls_validation::v1::{
         validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
         validate_inbox_id_key_packages_response::Response as ValidateInboxIdKeyPackageResponse,
-        validation_api_server::ValidationApi, GetAssociationStateRequest,
-        GetAssociationStateResponse, ValidateGroupMessagesRequest, ValidateGroupMessagesResponse,
-        ValidateInboxIdKeyPackagesRequest, ValidateInboxIdKeyPackagesResponse,
+        validation_api_server::ValidationApi,
+        GetAssociationStateRequest,
+        GetAssociationStateResponse,
+        ValidateGroupMessagesRequest,
+        ValidateGroupMessagesResponse,
+        ValidateInboxIdKeyPackagesResponse,
+        ValidateInboxIdsRequest,
+        ValidateInboxIdsResponse,
+        ValidateKeyPackagesRequest,
+        ValidateKeyPackagesResponse, // VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
     },
 };
 
@@ -41,7 +56,6 @@ impl From<GrpcServerError> for Status {
     }
 }
 
-#[derive(Debug)]
 pub struct ValidationService {
     pub(crate) scw_verifier: Box<dyn SmartContractSignatureVerifier>,
 }
@@ -56,6 +70,22 @@ impl ValidationService {
 
 #[tonic::async_trait]
 impl ValidationApi for ValidationService {
+    async fn validate_inbox_ids(
+        &self,
+        _request: tonic::Request<ValidateInboxIdsRequest>,
+    ) -> Result<tonic::Response<ValidateInboxIdsResponse>, tonic::Status> {
+        // Stubbed for v2 nodes
+        unimplemented!()
+    }
+
+    async fn validate_key_packages(
+        &self,
+        _request: tonic::Request<ValidateKeyPackagesRequest>,
+    ) -> std::result::Result<tonic::Response<ValidateKeyPackagesResponse>, tonic::Status> {
+        // Stubbed out for v2 nodes
+        unimplemented!()
+    }
+
     async fn validate_group_messages(
         &self,
         request: Request<ValidateGroupMessagesRequest>,
@@ -100,11 +130,20 @@ impl ValidationApi for ValidationService {
             .map_err(Into::into)
     }
 
+    async fn verify_smart_contract_wallet_signatures(
+        &self,
+        request: Request<VerifySmartContractWalletSignaturesRequest>,
+    ) -> Result<Response<VerifySmartContractWalletSignaturesResponse>, Status> {
+        let VerifySmartContractWalletSignaturesRequest { signatures } = request.into_inner();
+
+        verify_smart_contract_wallet_signatures(signatures, self.scw_verifier.as_ref()).await
+    }
+
     async fn validate_inbox_id_key_packages(
         &self,
-        request: Request<ValidateInboxIdKeyPackagesRequest>,
+        request: Request<ValidateKeyPackagesRequest>,
     ) -> Result<Response<ValidateInboxIdKeyPackagesResponse>, Status> {
-        let ValidateInboxIdKeyPackagesRequest { key_packages } = request.into_inner();
+        let ValidateKeyPackagesRequest { key_packages } = request.into_inner();
 
         let responses: Vec<_> = key_packages
             .into_iter()
@@ -112,7 +151,7 @@ impl ValidationApi for ValidationService {
             .map(validate_inbox_id_key_package)
             .collect();
 
-        let responses: Vec<ValidateInboxIdKeyPackageResponse> = join_all(responses)
+        let responses: Vec<_> = join_all(responses)
             .await
             .into_iter()
             .map(|res| res.map_err(ValidateInboxIdKeyPackageResponse::from))
@@ -159,6 +198,59 @@ async fn validate_inbox_id_key_package(
     })
 }
 
+async fn verify_smart_contract_wallet_signatures(
+    signatures: Vec<UnverifiedSmartContractWalletSignature>,
+    scw_verifier: &dyn SmartContractSignatureVerifier,
+) -> Result<Response<VerifySmartContractWalletSignaturesResponse>, Status> {
+    let mut responses = vec![];
+    for request in signatures {
+        let handle = async move {
+            let Some(signature) = request.scw_signature else {
+                return Ok::<bool, GrpcServerError>(false);
+            };
+
+            let account_id = signature.account_id.try_into().map_err(|_e| {
+                GrpcServerError::Deserialization(DeserializationError::InvalidAccountId)
+            })?;
+
+            let valid = scw_verifier
+                .is_valid_signature(
+                    account_id,
+                    request.hash.try_into().map_err(|_| {
+                        GrpcServerError::Deserialization(DeserializationError::InvalidHash)
+                    })?,
+                    signature.signature.into(),
+                    Some(BlockNumber::Number(U64::from(signature.block_number))),
+                )
+                .await
+                .map_err(|e| GrpcServerError::Signature(SignatureError::VerifierError(e)))?;
+
+            Ok(valid)
+        };
+
+        responses.push(handle);
+    }
+
+    let responses: Vec<_> = join_all(responses)
+        .await
+        .into_iter()
+        .map(|result| match result {
+            Err(err) => VerifySmartContractWalletSignaturesResponseValidationResponse {
+                is_valid: false,
+                error: Some(format!("{err:?}")),
+            },
+            Ok(is_valid) => VerifySmartContractWalletSignaturesResponseValidationResponse {
+                is_valid,
+                error: None,
+            },
+        })
+        .collect();
+
+    Ok(Response::new(VerifySmartContractWalletSignaturesResponse {
+        responses,
+    }))
+}
+
 async fn get_association_state(
     old_updates: Vec<IdentityUpdateProto>,
     new_updates: Vec<IdentityUpdateProto>,
@@ -170,13 +262,13 @@ async fn get_association_state(
     let old_updates = try_join_all(
         old_unverified_updates
             .iter()
-            .map(|u| async { u.to_verified(scw_verifier).await }),
+            .map(|u| u.to_verified(scw_verifier)),
     )
     .await?;
     let new_updates = try_join_all(
         new_unverified_updates
             .iter()
-            .map(|u| async { u.to_verified(scw_verifier).await }),
+            .map(|u| u.to_verified(scw_verifier)),
     )
     .await?;
     if old_updates.is_empty() {
@@ -235,10 +327,13 @@ mod tests {
         unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
     };
     use xmtp_mls::configuration::CIPHERSUITE;
-    use xmtp_proto::xmtp::identity::{
-        associations::IdentityUpdate as IdentityUpdateProto, MlsCredential as InboxIdMlsCredential,
+    use xmtp_proto::xmtp::{
+        identity::{
+            associations::IdentityUpdate as IdentityUpdateProto,
+            MlsCredential as InboxIdMlsCredential,
+        },
+        mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
     };
-    use xmtp_proto::xmtp::mls_validation::v1::validate_inbox_id_key_packages_request::KeyPackage as KeyPackageProtoWrapper;
 
     use super::*;
 
@@ -248,7 +343,7 @@ mod tests {
         }
     }
 
-    async fn generate_inbox_id_credential() -> (String, SigningKey) {
+    fn generate_inbox_id_credential() -> (String, SigningKey) {
         let signing_key = SigningKey::generate(&mut rand::thread_rng());
 
         let wallet = LocalWallet::new(&mut rand::thread_rng());
@@ -330,7 +425,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_inbox_id_key_package_happy_path() {
-        let (inbox_id, keypair) = generate_inbox_id_credential().await;
+        let (inbox_id, keypair) = generate_inbox_id_credential();
         let keypair = to_signature_keypair(keypair);
 
         let credential: OpenMlsCredential = InboxIdMlsCredential {
@@ -345,7 +440,7 @@ mod tests {
         };
 
         let key_package_bytes = build_key_package_bytes(&keypair, &credential_with_key, None);
-        let request = ValidateInboxIdKeyPackagesRequest {
+        let request = ValidateKeyPackagesRequest {
             key_packages: vec![KeyPackageProtoWrapper {
                 key_package_bytes_tls_serialized: key_package_bytes,
                 is_inbox_id_credential: false,
@@ -368,8 +463,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_inbox_id_key_package_failure() {
-        let (inbox_id, keypair) = generate_inbox_id_credential().await;
-        let (_, other_keypair) = generate_inbox_id_credential().await;
+        let (inbox_id, keypair) = generate_inbox_id_credential();
+        let (_, other_keypair) = generate_inbox_id_credential();
 
         let keypair = to_signature_keypair(keypair);
         let other_keypair = to_signature_keypair(other_keypair);
@@ -386,7 +481,7 @@ mod tests {
         };
 
         let key_package_bytes = build_key_package_bytes(&keypair, &credential_with_key, None);
-        let request = ValidateInboxIdKeyPackagesRequest {
+        let request = ValidateKeyPackagesRequest {
             key_packages: vec![KeyPackageProtoWrapper {
                 key_package_bytes_tls_serialized: key_package_bytes,
                 is_inbox_id_credential: false,

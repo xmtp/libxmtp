@@ -17,12 +17,14 @@ rand.workspace = true
 regex.workspace = true
 rustc-hex.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros"] }
-url.workspace = true
+url = { workspace = true, features = ["serde"] }
 xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
+dyn-clone = "1"
 
 [dev-dependencies]
 ctor = "0.2.5"

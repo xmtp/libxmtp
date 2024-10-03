@@ -2,7 +2,7 @@ use thiserror::Error;
 use tracing::debug;
 
 use xmtp_cryptography::signature::AddressValidationError;
-use xmtp_id::scw_verifier::{RpcSmartContractWalletVerifier, SmartContractSignatureVerifier};
+use xmtp_id::scw_verifier::{MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier};
 
 use crate::{
     api::ApiClientWrapper,
@@ -96,7 +96,7 @@ where
         self
     }
 
-    pub fn scw_signatuer_verifier(mut self, verifier: impl SmartContractSignatureVerifier) -> Self {
+    pub fn scw_signature_verifier(mut self, verifier: impl SmartContractSignatureVerifier) -> Self {
         self.scw_verifier = Some(Box::new(verifier));
         self
     }
@@ -115,9 +115,8 @@ where
         }
 
         let scw_verifier = self.scw_verifier.take().unwrap_or_else(|| {
-            // TODO:nm Enforce that everyone provides this
-            Box::new(RpcSmartContractWalletVerifier::new(
-                "https://fixme.com".to_string(),
+            Box::new(MultiSmartContractSignatureVerifier::new_from_file(
+                "chain_urls.json",
             ))
         });
 
@@ -141,10 +140,16 @@ where
         .await?;
 
         #[cfg(feature = "message-history")]
-        let client = Client::new(api_client_wrapper, identity, store, self.history_sync_url);
+        let client = Client::new(
+            api_client_wrapper,
+            identity,
+            store,
+            scw_verifier,
+            self.history_sync_url,
+        );
 
         #[cfg(not(feature = "message-history"))]
-        let client = Client::new(api_client_wrapper, identity, store);
+        let client = Client::new(api_client_wrapper, identity, store, scw_verifier);
 
         Ok(client)
     }
