@@ -46,7 +46,7 @@ jobs:
             --skip xmtp_mls::storage::encrypted_store::group::tests::test_installations_last_checked_is_updated
         working-directory: ./
         env:
-          CHROMEDRIVER: "$CHROMEWEBDRIVER"
+          CHROMEDRIVER: "/usr/local/share/chromedriver-linux64"
       - name: test with firefox
         run: |
           cargo test --release --target=wasm32-unknown-unknown -p xmtp_mls -p xmtp_id -p xmtp_api_http -- \
@@ -57,4 +57,4 @@ jobs:
             --skip xmtp_mls::storage::encrypted_store::group::tests::test_installations_last_checked_is_updated
         working-directory: ./
         env:
-          GECKODRIVER: "$GECKOWEBDRIVER"
+          GECKODRIVER: "/usr/local/share/gecko_driver"
