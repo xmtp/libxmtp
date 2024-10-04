@@ -43,7 +43,7 @@ pub mod id {
     }
 }
 
-#[cfg(any(target_arch = "wasm32", all(test, target_arch = "wasm32")))]
+#[cfg(any(all(target_arch = "wasm32", feature = "test-utils"), all(test, target_arch = "wasm32")))]
 pub mod wasm {
     use tokio::sync::OnceCell;
     static INIT: OnceCell<()> = OnceCell::const_new();

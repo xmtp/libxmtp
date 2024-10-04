@@ -10,10 +10,10 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown", "aarch64-apple-
 
 [features]
 default = []
-test-utils = ["dep:xmtp_api_grpc", "xmtp_id/test-utils", "tracing-subscriber"]
+test-utils = ["dep:xmtp_api_grpc", "xmtp_id/test-utils", "tracing-subscriber", "dep:xmtp_api_http", "dep:tracing-wasm", "dep:console_error_panic_hook"]
 bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "tracing-flame", "once_cell", "dep:xmtp_api_grpc", "criterion"]
 update-schema = ["toml"]
-http-api = ["xmtp_api_http"]
+http-api = ["dep:xmtp_api_http"]
 message-history = ["dep:reqwest"]
 
 [dependencies]
@@ -48,9 +48,10 @@ xmtp_proto = { workspace = true, features = ["convert"] }
 
 # Optional/Features
 toml = { version = "0.8.4", optional = true }
-# for tests outside of the wasm environment
+tracing-wasm = { version = "0.2", optional = true }
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }
 reqwest = { version = "0.12.4", features = ["stream"], optional = true }
+console_error_panic_hook = { version = "0.1", optional = true }
 
 # Test/Bench Utils
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "ansi"], optional = true }
