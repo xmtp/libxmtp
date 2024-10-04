@@ -1,7 +1,7 @@
 mod chain_rpc_verifier;
+mod remote_signature_verifier;
 
-use std::{collections::HashMap, fs, path::Path, str::FromStr};
-
+use crate::associations::AccountId;
 use async_trait::async_trait;
 use dyn_clone::DynClone;
 use ethers::{
@@ -9,10 +9,9 @@ use ethers::{
     providers::{Http, Provider, ProviderError},
     types::{BlockNumber, Bytes, U64},
 };
+use std::{collections::HashMap, fs, path::Path, str::FromStr};
 use thiserror::Error;
 use url::Url;
-
-use crate::associations::AccountId;
 
 pub use self::chain_rpc_verifier::*;
 

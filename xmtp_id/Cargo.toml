@@ -6,11 +6,11 @@ version.workspace = true
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true
+dyn-clone = "1"
 ed25519-dalek = { workspace = true, features = ["digest"] }
 ethers.workspace = true
 futures.workspace = true
 hex.workspace = true
-tracing.workspace = true
 openmls_traits.workspace = true
 prost.workspace = true
 rand.workspace = true
@@ -21,10 +21,11 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros"] }
+tonic.workspace = true
+tracing.workspace = true
 url = { workspace = true, features = ["serde"] }
 xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
-dyn-clone = "1"
 
 [dev-dependencies]
 ctor = "0.2.5"

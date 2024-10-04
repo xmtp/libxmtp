@@ -61,7 +61,7 @@ impl UnverifiedIdentityUpdate {
         let actions: Vec<Action> = try_join_all(
             self.actions
                 .iter()
-                .map(|action| async { action.to_verified(&signature_text, scw_verifier).await }),
+                .map(|action| action.to_verified(&signature_text, scw_verifier)),
         )
         .await?;
 
