@@ -38,7 +38,7 @@ jobs:
         run: cargo build --tests --release --target wasm32-unknown-unknown -p xmtp_id -p xmtp_mls -p xmtp_api_http
       - name: test with chrome
         run: |
-          cargo test --release -p xmtp_mls -p xmtp_id -p xmtp_api_http -- \
+          cargo test --release --target wasm32-unknown-unknown -p xmtp_mls -p xmtp_id -p xmtp_api_http -- \
             --skip xmtp_mls::subscriptions --skip xmtp_mls::groups::subscriptions \
             --skip xmtp_mls::storage::encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
             --skip xmtp_mls::groups::tests::process_messages_abort_on_retryable_error \
@@ -49,7 +49,7 @@ jobs:
           CHROMEDRIVER: "$CHROMEWEBDRIVER"
       - name: test with firefox
         run: |
-          cargo test --release -p xmtp_mls -p xmtp_id -p xmtp_api_http -- \
+          cargo test --release --target=wasm32-unknown-unknown -p xmtp_mls -p xmtp_id -p xmtp_api_http -- \
             --skip xmtp_mls::subscriptions --skip xmtp_mls::groups::subscriptions \
             --skip xmtp_mls::storage::encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
             --skip xmtp_mls::groups::tests::process_messages_abort_on_retryable_error \
