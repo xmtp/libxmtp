@@ -3364,4 +3364,61 @@ mod tests {
         // group consent state should be allowed if user publishes a message to the group
         assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Allowed);
     }
+
+    // TODO(rich): Generalize the test once fixed - test messages that are 0, 1, 2, 3, 4, 5 epochs behind
+    #[tokio::test]
+    async fn test_max_past_epochs() {
+        // Create group with two members
+        let bo_wallet = generate_local_wallet();
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
+        let alix_group = alix
+            .create_group_with_members(
+                vec![bo_wallet.get_address()],
+                None,
+                GroupMetadataOptions::default(),
+            )
+            .await
+            .unwrap();
+        bo.sync_welcomes().await.unwrap();
+        let bo_groups = bo.find_groups(None, None, None, None).unwrap();
+        let bo_group = bo_groups.first().unwrap();
+
+        // Both members see the same amount of messages to start
+        alix_group
+            .send_message("alix 1".as_bytes(), &alix)
+            .await
+            .unwrap();
+        bo_group.send_message("bo 1".as_bytes(), &bo).await.unwrap();
+        alix_group.sync(&alix).await.unwrap();
+        bo_group.sync(&bo).await.unwrap();
+        let alix_messages = alix_group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap();
+        let bo_messages = bo_group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap();
+        assert_eq!(alix_messages.len(), 2);
+        assert_eq!(bo_messages.len(), 2);
+
+        // Alix moves the group forward by 1 epoch
+        alix_group
+            .update_group_name(&alix, "new name".to_string())
+            .await
+            .unwrap();
+        // Bo sends a message while 1 epoch behind
+        bo_group.send_message("bo 2".as_bytes(), &bo).await.unwrap();
+
+        // If max_past_epochs is working, Alix should be able to decrypt Bo's message
+        alix_group.sync(&alix).await.unwrap();
+        bo_group.sync(&bo).await.unwrap();
+        let alix_messages = alix_group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap();
+        let bo_messages = bo_group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap();
+        assert_eq!(bo_messages.len(), 3);
+        assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3
+    }
 }
