@@ -481,7 +481,6 @@ async fn extract_expected_diff<'diff, ApiClient: XmtpApi>(
         .map(|inbox_id| build_inbox(inbox_id, immutable_metadata, mutable_metadata))
         .collect::<Vec<Inbox>>();
 
-    tracing::debug!("\n\n------------------------GETTING INSTALLATION DIFF ------------------------------------\n\n");
     let expected_installation_diff = client
         .get_installation_diff(
             conn,

@@ -957,6 +957,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_mls_error() {
+        tracing::debug!("Test MLS Error");
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let result = client
             .api_client

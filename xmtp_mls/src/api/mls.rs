@@ -305,6 +305,7 @@ pub mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     async fn test_upload_key_package() {
+        tracing::debug!("test_upload_key_package");
         let mut mock_api = MockApiClient::new();
         let key_package = vec![1, 2, 3];
         // key_package gets moved below but needs to be used for assertions later
@@ -327,6 +328,7 @@ pub mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_fetch_key_packages() {
+        tracing::debug!("test_fetch_key_packages");
         let mut mock_api = MockApiClient::new();
         let installation_keys: Vec<Vec<u8>> = vec![vec![1, 2, 3], vec![4, 5, 6]];
         mock_api.expect_fetch_key_packages().returning(move |_| {

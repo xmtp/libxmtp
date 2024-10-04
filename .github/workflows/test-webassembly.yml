@@ -13,19 +13,20 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain"
+env:
+  CARGO_TERM_COLOR: always
+  WASM_BINDGEN_TEST_TIMEOUT: 120
+  WASM_BINDGEN_TEST_ONLY_WEB: 1
 jobs:
   test:
     name: Test
     # running with macos since it contains the safari driver
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: warp-macos-14-arm64-6x
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Update rust toolchains
-        run: rustup update
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Install wasm-bindgen-test-runner
+        run: cargo install wasm-bindgen-cli
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -35,18 +36,38 @@ jobs:
         run: |
           dev/build_validation_service_local
           dev/docker/up
-      - name: test `xmtp_mls`
+      - name: Build WebAssembly Packages
+        run: cargo build --tests --release --target wasm32-unknown-unknown -p xmtp_id -p xmtp_mls -p xmtp_api_http --tests
+      - name: test with chrome
         run: |
-          wasm-pack test --chrome --headless --release -- --manifest-path ./Cargo.toml -- \
+          cargo test --release -p xmtp_mls -p xmtp_id -p xmtp_api_http -- \
             --skip xmtp_mls::subscriptions --skip xmtp_mls::groups::subscriptions \
             --skip xmtp_mls::storage::encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
             --skip xmtp_mls::groups::tests::process_messages_abort_on_retryable_error \
             --skip  xmtp_mls::storage::encrypted_store::group::tests::test_find_groups \
             --skip xmtp_mls::storage::encrypted_store::group::tests::test_installations_last_checked_is_updated
-        working-directory: ./xmtp_mls
-      - name: test `xmtp_id`
-        run: wasm-pack test --headless --chrome -- --manifest-path ./Cargo.toml
-        working-directory: ./xmtp_id
-      - name: test `xmtp_api_http`
-        run: wasm-pack test --headless --chrome -- --manifest-path ./Cargo.toml
-        working-directory: ./xmtp_api_http
+        working-directory: ./
+        env:
+          CHROMEDRIVER: "$CHROMEWEBDRIVER"
+      - name: test with firefox
+        run: |
+          cargo test --release -p xmtp_mls -p xmtp_id -p xmtp_api_http -- \
+            --skip xmtp_mls::subscriptions --skip xmtp_mls::groups::subscriptions \
+            --skip xmtp_mls::storage::encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
+            --skip xmtp_mls::groups::tests::process_messages_abort_on_retryable_error \
+            --skip  xmtp_mls::storage::encrypted_store::group::tests::test_find_groups \
+            --skip xmtp_mls::storage::encrypted_store::group::tests::test_installations_last_checked_is_updated
+        working-directory: ./
+        env:
+          GECKODRIVER: "$GECKOWEBDRIVER"
+      - name: test with safari
+        run: |
+          cargo test --release -p xmtp_mls -p xmtp_id -p xmtp_api_http -- \
+            --skip xmtp_mls::subscriptions --skip xmtp_mls::groups::subscriptions \
+            --skip xmtp_mls::storage::encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
+            --skip xmtp_mls::groups::tests::process_messages_abort_on_retryable_error \
+            --skip  xmtp_mls::storage::encrypted_store::group::tests::test_find_groups \
+            --skip xmtp_mls::storage::encrypted_store::group::tests::test_installations_last_checked_is_updated
+        working-directory: ./
+        env:
+          SAFARIWEBDRIVER: "$SAFARIWEBDRIVER"

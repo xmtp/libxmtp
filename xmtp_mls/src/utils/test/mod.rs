@@ -132,6 +132,7 @@ impl ClientBuilder<TestClient> {
     }
 
     pub async fn new_test_client(owner: &impl InboxOwner) -> Client<TestClient> {
+        // crate::utils::wasm::init().await;
         let nonce = 1;
         let inbox_id = generate_inbox_id(&owner.get_address(), &nonce);
 
