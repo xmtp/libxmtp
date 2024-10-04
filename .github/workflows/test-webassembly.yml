@@ -20,8 +20,7 @@ env:
 jobs:
   test:
     name: Test
-    # running with macos since it contains the safari driver
-    runs-on: warp-macos-14-arm64-6x
+    runs-on: warp-ubuntu-latest-x64-8x
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,9 +32,7 @@ jobs:
           workspaces: |
             .
       - name: Start Docker containers
-        run: |
-          dev/build_validation_service_local
-          dev/docker/up
+        run: dev/up
       - name: Build WebAssembly Packages
         run: cargo build --tests --release --target wasm32-unknown-unknown -p xmtp_id -p xmtp_mls -p xmtp_api_http --tests
       - name: test with chrome
@@ -60,14 +57,3 @@ jobs:
         working-directory: ./
         env:
           GECKODRIVER: "$GECKOWEBDRIVER"
-      - name: test with safari
-        run: |
-          cargo test --release -p xmtp_mls -p xmtp_id -p xmtp_api_http -- \
-            --skip xmtp_mls::subscriptions --skip xmtp_mls::groups::subscriptions \
-            --skip xmtp_mls::storage::encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
-            --skip xmtp_mls::groups::tests::process_messages_abort_on_retryable_error \
-            --skip  xmtp_mls::storage::encrypted_store::group::tests::test_find_groups \
-            --skip xmtp_mls::storage::encrypted_store::group::tests::test_installations_last_checked_is_updated
-        working-directory: ./
-        env:
-          SAFARIWEBDRIVER: "$SAFARIWEBDRIVER"
