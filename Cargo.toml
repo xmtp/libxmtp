@@ -26,7 +26,6 @@ version = "0.0.1"
 anyhow = "1.0"
 async-stream = "0.3"
 async-trait = "0.1.77"
-trait-variant = "0.1.2"
 chrono = "0.4.38"
 ctor = "0.2"
 ed25519 = "2.2.3"
@@ -36,10 +35,10 @@ futures = "0.3.30"
 futures-core = "0.3.30"
 getrandom = { version = "0.2", default-features = false }
 hex = "0.4.3"
-openmls = { git = "https://github.com/xmtp/openmls", rev = "87e7e257d8eb15d6662b104518becfc75ef6db76", default-features = false }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "87e7e257d8eb15d6662b104518becfc75ef6db76" }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "87e7e257d8eb15d6662b104518becfc75ef6db76" }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "87e7e257d8eb15d6662b104518becfc75ef6db76" }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "1f01177afdf2fe4dbdd55e0caa7c29f5528043ce", default-features = false }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "1f01177afdf2fe4dbdd55e0caa7c29f5528043ce" }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "1f01177afdf2fe4dbdd55e0caa7c29f5528043ce" }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "1f01177afdf2fe4dbdd55e0caa7c29f5528043ce" }
 pbjson = "0.7.0"
 pbjson-types = "0.7.0"
 prost = "^0.13"
@@ -56,6 +55,7 @@ tokio = { version = "1.35.1", default-features = false }
 tonic = "^0.12"
 tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = "0.3"
+trait-variant = "0.1.2"
 url = "2.5.0"
 
 # Internal Crate Dependencies
