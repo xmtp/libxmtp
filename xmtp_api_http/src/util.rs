@@ -1,10 +1,10 @@
 use futures::{
     stream::{self, StreamExt},
-    Stream,
+    Stream, TryStreamExt,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Deserializer;
-use std::io::Read;
+use std::io::{Bytes, Read};
 use xmtp_proto::api_client::{Error, ErrorKind};
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -56,7 +56,7 @@ pub fn create_grpc_stream<
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn create_grpc_stream<
+pub async fn create_grpc_stream<
     T: Serialize + Send + 'static,
     R: DeserializeOwned + Send + std::fmt::Debug + 'static,
 >(
@@ -64,54 +64,86 @@ pub fn create_grpc_stream<
     endpoint: String,
     http_client: reqwest::Client,
 ) -> stream::BoxStream<'static, Result<R, Error>> {
-    create_grpc_stream_inner(request, endpoint, http_client).boxed()
+    create_grpc_stream_inner(request, endpoint, http_client)
+        .await
+        .boxed()
 }
 
-pub fn create_grpc_stream_inner<
+struct MessageStream<R>
+where
+    R: DeserializeOwned + Send + std::fmt::Debug + 'static,
+{
+    response: reqwest::Response,
+    stream: stream::BoxStream<'static, Result<R, Error>>,
+    bytes: Vec<u8>,
+}
+
+impl<R> futures::Stream for MessageStream<R>
+where
+    R: DeserializeOwned + Send + std::fmt::Debug + 'static,
+{
+    type Item = R;
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let a = self.stream.poll_next_unpin(cx);
+        
+
+        while let Some(bytes) = self.stream.next().await {
+            let mut bytes = bytes.unwrap();
+            self.bytes.append(&mut bytes);
+        }
+        let bytes = self.stream.next().await
+    }
+}
+
+pub async fn create_grpc_stream_inner<
     T: Serialize + Send + 'static,
     R: DeserializeOwned + Send + std::fmt::Debug + 'static,
 >(
     request: T,
     endpoint: String,
     http_client: reqwest::Client,
-) -> impl Stream<Item = Result<R, Error>> {
-    async_stream::stream! {
-        tracing::info!("Spawning grpc http stream");
-        let request = http_client
-                .post(endpoint)
-                .json(&request)
-                .send()
-                .await
-                .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+) {
+    // ) -> impl Stream<Item = Result<R, Error>> {
+    tracing::info!("Spawning grpc http stream");
+    let response = http_client
+        .post(endpoint)
+        .json(&request)
+        .send()
+        .await
+        .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+    let stream = response.bytes_stream().boxed();
+    let message_stream = MessageStream { response };
 
-        let mut remaining = vec![];
-        for await bytes in request.bytes_stream() {
-            let bytes = bytes
-                .map_err(|e| Error::new(ErrorKind::SubscriptionUpdateError).with(e.to_string()))?;
-            let bytes = &[remaining.as_ref(), bytes.as_ref()].concat();
-            let de = Deserializer::from_slice(bytes);
-            let mut stream = de.into_iter::<GrpcResponse<R>>();
-            'messages: loop {
-                let response = stream.next();
-                let res = match response {
-                    Some(Ok(GrpcResponse::Ok(response))) => Ok(response),
-                    Some(Ok(GrpcResponse::SubscriptionItem(item))) => Ok(item.result),
-                    Some(Ok(GrpcResponse::Err(e))) => {
-                        Err(Error::new(ErrorKind::MlsError).with(e.message))
+    let mut remaining = vec![];
+    for await bytes in request.bytes_stream() {
+        let bytes = bytes
+            .map_err(|e| Error::new(ErrorKind::SubscriptionUpdateError).with(e.to_string()))?;
+        let bytes = &[remaining.as_ref(), bytes.as_ref()].concat();
+        let de = Deserializer::from_slice(bytes);
+        let mut stream = de.into_iter::<GrpcResponse<R>>();
+        'messages: loop {
+            let response = stream.next();
+            let res = match response {
+                Some(Ok(GrpcResponse::Ok(response))) => Ok(response),
+                Some(Ok(GrpcResponse::SubscriptionItem(item))) => Ok(item.result),
+                Some(Ok(GrpcResponse::Err(e))) => {
+                    Err(Error::new(ErrorKind::MlsError).with(e.message))
+                }
+                Some(Err(e)) => {
+                    if e.is_eof() {
+                        remaining = (&**bytes)[stream.byte_offset()..].to_vec();
+                        break 'messages;
+                    } else {
+                        Err(Error::new(ErrorKind::MlsError).with(e.to_string()))
                     }
-                    Some(Err(e)) => {
-                        if e.is_eof() {
-                            remaining = (&**bytes)[stream.byte_offset()..].to_vec();
-                            break 'messages;
-                        } else {
-                            Err(Error::new(ErrorKind::MlsError).with(e.to_string()))
-                        }
-                    }
-                    Some(Ok(GrpcResponse::Empty {})) => continue 'messages,
-                    None => break 'messages,
-                };
-                yield res;
-            }
+                }
+                Some(Ok(GrpcResponse::Empty {})) => continue 'messages,
+                None => break 'messages,
+            };
+            yield res;
         }
     }
 }
