@@ -7,6 +7,7 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use tokio::{sync::Mutex, task::AbortHandle};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_id::associations::unverified::NewUnverifiedSmartContractWalletSignature;
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::AccountId;
 use xmtp_id::associations::AssociationState;
@@ -211,25 +212,19 @@ impl FfiSignatureRequest {
         let mut inner = self.inner.lock().await;
         let account_id = AccountId::new_evm(chain_id, address);
 
-        let block_number = match block_number {
-            Some(bn) => bn,
-            None => {
-                self.scw_verifier
-                    .current_block_number(&chain_id.to_string())
-                    .await
-                    .map_err(GenericError::Verifier)?
-                    .0[0]
-            }
-        };
-
-        let signature = UnverifiedSignature::new_smart_contract_wallet(
+        let new_signature = NewUnverifiedSmartContractWalletSignature::new(
             signature_bytes,
             account_id,
             block_number,
         );
+
         inner
-            .add_signature(signature, self.scw_verifier.clone().as_ref())
+            .add_new_unverified_smart_contract_signature(
+                new_signature,
+                self.scw_verifier.clone().as_ref(),
+            )
             .await?;
+
         Ok(())
     }
 

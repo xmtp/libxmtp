@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use crate::scw_verifier::SmartContractSignatureVerifier;
+use crate::scw_verifier::{self, SmartContractSignatureVerifier};
 
 use super::{
     unsigned_actions::{
@@ -11,6 +11,7 @@ use super::{
     AccountId, Action, AddAssociation, CreateInbox, IdentityUpdate, RevokeAssociation,
     SignatureError,
 };
+use ethers::providers::ProviderError;
 use futures::future::try_join_all;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
@@ -267,7 +268,7 @@ impl UnverifiedSignature {
                     scw_verifier,
                     &sig.signature_bytes,
                     sig.account_id.clone(),
-                    Some(sig.block_number),
+                    &mut Some(sig.block_number),
                 )
                 .await
             }
@@ -344,6 +345,23 @@ pub struct UnverifiedSmartContractWalletSignature {
     pub(crate) signature_bytes: Vec<u8>,
     pub(crate) account_id: AccountId,
     pub(crate) block_number: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewUnverifiedSmartContractWalletSignature {
+    pub(crate) signature_bytes: Vec<u8>,
+    pub(crate) account_id: AccountId,
+    pub(crate) block_number: Option<u64>,
+}
+
+impl NewUnverifiedSmartContractWalletSignature {
+    pub fn new(signature_bytes: Vec<u8>, account_id: AccountId, block_number: Option<u64>) -> Self {
+        Self {
+            account_id,
+            block_number,
+            signature_bytes,
+        }
+    }
 }
 
 impl UnverifiedSmartContractWalletSignature {

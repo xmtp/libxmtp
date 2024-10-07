@@ -1,24 +1,27 @@
-use super::{SmartContractSignatureVerifier, VerifierError};
+use super::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
 use crate::associations::AccountId;
 use async_trait::async_trait;
-use ethers::providers::{Http, Middleware, Provider};
-use ethers::types::{BlockNumber, Bytes, U64};
+use ethers::types::{BlockNumber, Bytes};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
 
-use xmtp_proto::xmtp::identity::{
-    api::v1::{
-        identity_api_client::IdentityApiClient, UnverifiedSmartContractWalletSignature,
-        VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
-    },
-    associations::SmartContractWalletSignature,
+use xmtp_proto::xmtp::identity::api::v1::{
+    identity_api_client::IdentityApiClient, VerifySmartContractWalletSignatureRequestSignature,
+    VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
 
 #[derive(Clone)]
-struct RemoteSignatureVerifier {
+pub struct RemoteSignatureVerifier {
     identity_client: Arc<Mutex<IdentityApiClient<Channel>>>,
-    provider: Arc<Provider<Http>>,
+}
+
+impl RemoteSignatureVerifier {
+    pub fn new(identity_client: IdentityApiClient<Channel>) -> Self {
+        Self {
+            identity_client: Arc::new(Mutex::new(identity_client)),
+        }
+    }
 }
 
 #[async_trait]
@@ -29,23 +32,18 @@ impl SmartContractSignatureVerifier for RemoteSignatureVerifier {
         hash: [u8; 32],
         signature: Bytes,
         block_number: Option<BlockNumber>,
-    ) -> Result<bool, VerifierError> {
-        let block_number = match block_number {
-            Some(BlockNumber::Number(block_number)) => block_number,
-            _ => self.current_block_number(&account_id.chain_id).await?,
-        };
+    ) -> Result<ValidationResponse, VerifierError> {
+        let block_number = block_number.and_then(|bn| bn.as_number()).map(|bn| bn.0[0]);
 
         let result = self
             .identity_client
             .lock()
             .await
             .verify_smart_contract_wallet_signatures(VerifySmartContractWalletSignaturesRequest {
-                signatures: vec![UnverifiedSmartContractWalletSignature {
-                    scw_signature: Some(SmartContractWalletSignature {
-                        account_id: account_id.into(),
-                        block_number: block_number.0[0],
-                        signature: signature.to_vec(),
-                    }),
+                signatures: vec![VerifySmartContractWalletSignatureRequestSignature {
+                    account_id: account_id.into(),
+                    block_number: block_number,
+                    signature: signature.to_vec(),
                     hash: hash.to_vec(),
                 }],
             })
@@ -54,12 +52,6 @@ impl SmartContractSignatureVerifier for RemoteSignatureVerifier {
 
         let VerifySmartContractWalletSignaturesResponse { responses } = result.into_inner();
 
-        Ok(responses[0].is_valid)
-    }
-    async fn current_block_number(&self, _chain_id: &str) -> Result<U64, VerifierError> {
-        self.provider
-            .get_block_number()
-            .await
-            .map_err(VerifierError::Provider)
+        Ok((&responses[0]).into())
     }
 }

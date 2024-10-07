@@ -9,7 +9,7 @@ use xmtp_id::{
         self, try_map_vec, unverified::UnverifiedIdentityUpdate, AssociationError,
         DeserializationError, SignatureError,
     },
-    scw_verifier::SmartContractSignatureVerifier,
+    scw_verifier::{SmartContractSignatureVerifier, ValidationResponse},
 };
 use xmtp_mls::{
     utils::id::serialize_group_id,
@@ -18,8 +18,9 @@ use xmtp_mls::{
 use xmtp_proto::xmtp::{
     identity::{
         api::v1::{
-            verify_smart_contract_wallet_signatures_response::ValidationResponse as VerifySmartContractWalletSignaturesResponseValidationResponse,
-            UnverifiedSmartContractWalletSignature, VerifySmartContractWalletSignaturesRequest,
+            verify_smart_contract_wallet_signatures_response::ValidationResponse as VerifySmartContractWalletSignaturesValidationResponse,
+            VerifySmartContractWalletSignatureRequestSignature,
+            VerifySmartContractWalletSignaturesRequest,
             VerifySmartContractWalletSignaturesResponse,
         },
         associations::IdentityUpdate as IdentityUpdateProto,
@@ -199,33 +200,31 @@ async fn validate_inbox_id_key_package(
 }
 
 async fn verify_smart_contract_wallet_signatures(
-    signatures: Vec<UnverifiedSmartContractWalletSignature>,
+    signatures: Vec<VerifySmartContractWalletSignatureRequestSignature>,
     scw_verifier: &dyn SmartContractSignatureVerifier,
 ) -> Result<Response<VerifySmartContractWalletSignaturesResponse>, Status> {
     let mut responses = vec![];
-    for request in signatures {
+    for signature in signatures {
         let handle = async move {
-            let Some(signature) = request.scw_signature else {
-                return Ok::<bool, GrpcServerError>(false);
-            };
-
             let account_id = signature.account_id.try_into().map_err(|_e| {
                 GrpcServerError::Deserialization(DeserializationError::InvalidAccountId)
             })?;
 
-            let valid = scw_verifier
+            let response = scw_verifier
                 .is_valid_signature(
                     account_id,
-                    request.hash.try_into().map_err(|_| {
+                    signature.hash.try_into().map_err(|_| {
                         GrpcServerError::Deserialization(DeserializationError::InvalidHash)
                     })?,
                     signature.signature.into(),
-                    Some(BlockNumber::Number(U64::from(signature.block_number))),
+                    signature
+                        .block_number
+                        .map(|bn| BlockNumber::Number(U64::from(bn))),
                 )
                 .await
                 .map_err(|e| GrpcServerError::Signature(SignatureError::VerifierError(e)))?;
 
-            Ok(valid)
+            Ok::<ValidationResponse, GrpcServerError>(response)
         };
 
         responses.push(handle);
@@ -235,12 +234,14 @@ async fn verify_smart_contract_wallet_signatures(
         .await
         .into_iter()
         .map(|result| match result {
-            Err(err) => VerifySmartContractWalletSignaturesResponseValidationResponse {
+            Err(err) => VerifySmartContractWalletSignaturesValidationResponse {
                 is_valid: false,
+                block_number: None,
                 error: Some(format!("{err:?}")),
             },
-            Ok(is_valid) => VerifySmartContractWalletSignaturesResponseValidationResponse {
-                is_valid,
+            Ok(response) => VerifySmartContractWalletSignaturesValidationResponse {
+                is_valid: response.is_valid,
+                block_number: response.block_number,
                 error: None,
             },
         })
