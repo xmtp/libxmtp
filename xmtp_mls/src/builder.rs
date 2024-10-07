@@ -2,7 +2,7 @@ use thiserror::Error;
 use tracing::debug;
 
 use xmtp_cryptography::signature::AddressValidationError;
-use xmtp_id::scw_verifier::{MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier};
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 use crate::{
     api::ApiClientWrapper,
