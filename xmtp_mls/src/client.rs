@@ -174,7 +174,7 @@ pub enum MessageProcessingError {
     #[error("epoch increment not allowed")]
     EpochIncrementNotAllowed,
     #[error("Welcome processing error: {0}")]
-    WelcomeProcessing(String),
+    WelcomeProcessing(Box<GroupError>),
     #[error("wrong credential type")]
     WrongCredentialType(#[from] BasicCredentialError),
     #[error("proto decode error: {0}")]
@@ -754,12 +754,17 @@ where
                                 match result {
                                     Ok(mls_group) => Ok(Some(mls_group)),
                                     Err(err) => {
-                                        tracing::error!(
-                                            "failed to create group from welcome: {}",
-                                            err
-                                        );
+                                        use crate::StorageError::*;
+                                        use crate::DuplicateItem::*;
+
+                                        if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
+                                            tracing::warn!("failed to create group from welcome due to duplicate welcome ID: {}", err);
+                                        } else {
+                                            tracing::error!("failed to create group from welcome: {}", err);
+                                        }
+
                                         Err(MessageProcessingError::WelcomeProcessing(
-                                            err.to_string(),
+                                            Box::new(err)
                                         ))
                                     }
                                 }

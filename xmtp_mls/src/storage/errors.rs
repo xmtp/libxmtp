@@ -31,8 +31,6 @@ pub enum StorageError {
     Lock(String),
     #[error("Pool needs to  reconnect before use")]
     PoolNeedsConnection,
-    #[error("Conflict")]
-    Conflict(String),
     #[error(transparent)]
     Intent(#[from] IntentError),
     #[error("The SQLCipher Sqlite extension is not present, but an encryption key is given")]
@@ -43,6 +41,23 @@ pub enum StorageError {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     FromHex(#[from] hex::FromHexError),
+    #[error(transparent)]
+    Duplicate(DuplicateItem),
+}
+
+#[derive(Error, Debug)]
+pub enum DuplicateItem {
+    #[error("the welcome id {0:?} already exists")]
+    WelcomeId(Option<i64>),
+}
+
+impl RetryableError for DuplicateItem {
+    fn is_retryable(&self) -> bool {
+        use DuplicateItem::*;
+        match self {
+            WelcomeId(_) => false,
+        }
+    }
 }
 
 impl<T> From<PoisonError<T>> for StorageError {
@@ -53,10 +68,13 @@ impl<T> From<PoisonError<T>> for StorageError {
 
 impl RetryableError for diesel::result::Error {
     fn is_retryable(&self) -> bool {
+        use diesel::result::Error::*;
+        use DatabaseErrorKind::*;
+
         match self {
-            Self::DatabaseError(DatabaseErrorKind::UniqueViolation, _) => false,
-            Self::DatabaseError(DatabaseErrorKind::CheckViolation, _) => false,
-            Self::DatabaseError(DatabaseErrorKind::NotNullViolation, _) => false,
+            DatabaseError(UniqueViolation, _) => false,
+            DatabaseError(CheckViolation, _) => false,
+            DatabaseError(NotNullViolation, _) => false,
             // TODO: Figure out the full list of non-retryable errors.
             // The diesel code has a comment that "this type is not meant to be exhaustively matched"
             // so best is probably to return true here and map known errors to something else
@@ -76,6 +94,7 @@ impl RetryableError for StorageError {
             Self::SqlCipherNotLoaded => true,
             Self::PoolNeedsConnection => true,
             Self::SqlCipherKeyIncorrect => false,
+            Self::Duplicate(d) => retryable!(d),
             _ => false,
         }
     }

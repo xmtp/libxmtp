@@ -424,6 +424,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::client::FindGroupParams;
     use crate::utils::test::{Delivery, TestClient};
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions,
@@ -801,6 +802,15 @@ mod tests {
         {
             let grps = groups.lock();
             assert_eq!(grps.len(), 2);
+        }
+
+        // Verify syncing welcomes while streaming causes no issues
+        alix.sync_welcomes().await.unwrap();
+        let find_groups_results = alix.find_groups(FindGroupParams::default()).unwrap();
+
+        {
+            let grps = groups.lock();
+            assert_eq!(grps.len(), find_groups_results.len());
         }
 
         closer.handle.abort();
