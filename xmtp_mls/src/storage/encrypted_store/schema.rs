@@ -9,6 +9,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    consent_records (entity_type, entity) {
+        entity_type -> Integer,
+        state -> Integer,
+        entity -> Text,
+    }
+}
+
+diesel::table! {
     group_intents (id) {
         id -> Integer,
         kind -> Integer,
@@ -45,6 +53,7 @@ diesel::table! {
         purpose -> Integer,
         added_by_inbox_id -> Text,
         welcome_id -> Nullable<BigInt>,
+        dm_inbox_id -> Nullable<Text>,
     }
 }
 
@@ -63,6 +72,14 @@ diesel::table! {
         sequence_id -> BigInt,
         server_timestamp_ns -> BigInt,
         payload -> Binary,
+    }
+}
+
+diesel::table! {
+    key_package_history (id) {
+        id -> Integer,
+        key_package_hash_ref -> Binary,
+        created_at_ns -> BigInt,
     }
 }
 
@@ -94,11 +111,13 @@ diesel::joinable!(group_messages -> groups (group_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     association_state,
+    consent_records,
     group_intents,
     group_messages,
     groups,
     identity,
     identity_updates,
+    key_package_history,
     openmls_key_store,
     openmls_key_value,
     refresh_state,

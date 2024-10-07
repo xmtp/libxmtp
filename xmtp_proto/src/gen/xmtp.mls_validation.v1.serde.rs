@@ -626,6 +626,212 @@ impl<'de> serde::Deserialize<'de> for validate_group_messages_response::Validati
         deserializer.deserialize_struct("xmtp.mls_validation.v1.ValidateGroupMessagesResponse.ValidationResponse", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for ValidateInboxIdKeyPackagesRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.key_packages.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls_validation.v1.ValidateInboxIdKeyPackagesRequest", len)?;
+        if !self.key_packages.is_empty() {
+            struct_ser.serialize_field("keyPackages", &self.key_packages)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ValidateInboxIdKeyPackagesRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "key_packages",
+            "keyPackages",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            KeyPackages,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "keyPackages" | "key_packages" => Ok(GeneratedField::KeyPackages),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ValidateInboxIdKeyPackagesRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls_validation.v1.ValidateInboxIdKeyPackagesRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ValidateInboxIdKeyPackagesRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut key_packages__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::KeyPackages => {
+                            if key_packages__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("keyPackages"));
+                            }
+                            key_packages__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(ValidateInboxIdKeyPackagesRequest {
+                    key_packages: key_packages__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls_validation.v1.ValidateInboxIdKeyPackagesRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for validate_inbox_id_key_packages_request::KeyPackage {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.key_package_bytes_tls_serialized.is_empty() {
+            len += 1;
+        }
+        if self.is_inbox_id_credential {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls_validation.v1.ValidateInboxIdKeyPackagesRequest.KeyPackage", len)?;
+        if !self.key_package_bytes_tls_serialized.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("keyPackageBytesTlsSerialized", pbjson::private::base64::encode(&self.key_package_bytes_tls_serialized).as_str())?;
+        }
+        if self.is_inbox_id_credential {
+            struct_ser.serialize_field("isInboxIdCredential", &self.is_inbox_id_credential)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for validate_inbox_id_key_packages_request::KeyPackage {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "key_package_bytes_tls_serialized",
+            "keyPackageBytesTlsSerialized",
+            "is_inbox_id_credential",
+            "isInboxIdCredential",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            KeyPackageBytesTlsSerialized,
+            IsInboxIdCredential,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "keyPackageBytesTlsSerialized" | "key_package_bytes_tls_serialized" => Ok(GeneratedField::KeyPackageBytesTlsSerialized),
+                            "isInboxIdCredential" | "is_inbox_id_credential" => Ok(GeneratedField::IsInboxIdCredential),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = validate_inbox_id_key_packages_request::KeyPackage;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls_validation.v1.ValidateInboxIdKeyPackagesRequest.KeyPackage")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<validate_inbox_id_key_packages_request::KeyPackage, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut key_package_bytes_tls_serialized__ = None;
+                let mut is_inbox_id_credential__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::KeyPackageBytesTlsSerialized => {
+                            if key_package_bytes_tls_serialized__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("keyPackageBytesTlsSerialized"));
+                            }
+                            key_package_bytes_tls_serialized__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::IsInboxIdCredential => {
+                            if is_inbox_id_credential__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("isInboxIdCredential"));
+                            }
+                            is_inbox_id_credential__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(validate_inbox_id_key_packages_request::KeyPackage {
+                    key_package_bytes_tls_serialized: key_package_bytes_tls_serialized__.unwrap_or_default(),
+                    is_inbox_id_credential: is_inbox_id_credential__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls_validation.v1.ValidateInboxIdKeyPackagesRequest.KeyPackage", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for ValidateInboxIdKeyPackagesResponse {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>

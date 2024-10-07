@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 # Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
 futures = "0.3.30"
 hex = "0.4.3"
-log = { version = "0.4", features = ["release_max_level_debug"] }
+tracing = { version = "0.1", features = ["release_max_level_debug"] }
 napi = { version = "2.12.2", default-features = false, features = [
   "napi4",
   "napi6",
@@ -24,7 +24,7 @@ tonic = { version = "^0.12", features = ["tls"] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
-xmtp_mls = { path = "../xmtp_mls", features = ["native"] }
+xmtp_mls = { path = "../xmtp_mls", features = ["native", "message-history"] }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 
 [build-dependencies]

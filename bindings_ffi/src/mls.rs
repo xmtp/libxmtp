@@ -7,14 +7,16 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use tokio::{sync::Mutex, task::AbortHandle};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_id::associations::unverified::UnverifiedSignature;
+use xmtp_id::associations::AccountId;
 use xmtp_id::associations::AssociationState;
+use xmtp_id::associations::MemberIdentifier;
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
-    associations::{
-        builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id,
-        RecoverableEcdsaSignature, SmartContractWalletSignature,
-    },
+    associations::{builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id},
     InboxId,
 };
+use xmtp_mls::client::FindGroupParams;
 use xmtp_mls::groups::group_mutable_metadata::MetadataField;
 use xmtp_mls::groups::group_permissions::BasePolicies;
 use xmtp_mls::groups::group_permissions::GroupMutablePermissionsError;
@@ -27,6 +29,9 @@ use xmtp_mls::groups::group_permissions::PolicySet;
 use xmtp_mls::groups::intents::PermissionPolicyOption;
 use xmtp_mls::groups::intents::PermissionUpdateType;
 use xmtp_mls::groups::GroupMetadataOptions;
+use xmtp_mls::storage::consent_record::ConsentState;
+use xmtp_mls::storage::consent_record::ConsentType;
+use xmtp_mls::storage::consent_record::StoredConsentRecord;
 use xmtp_mls::{
     api::ApiClientWrapper,
     builder::ClientBuilder,
@@ -177,6 +182,7 @@ pub fn generate_inbox_id(account_address: String, nonce: u64) -> String {
 #[derive(uniffi::Object)]
 pub struct FfiSignatureRequest {
     inner: Arc<Mutex<SignatureRequest>>,
+    scw_verifier: Box<dyn SmartContractSignatureVerifier>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -184,12 +190,11 @@ impl FfiSignatureRequest {
     // Signature that's signed by EOA wallet
     pub async fn add_ecdsa_signature(&self, signature_bytes: Vec<u8>) -> Result<(), GenericError> {
         let mut inner = self.inner.lock().await;
-        let signature_text = inner.signature_text();
         inner
-            .add_signature(Box::new(RecoverableEcdsaSignature::new(
-                signature_text,
-                signature_bytes,
-            )))
+            .add_signature(
+                UnverifiedSignature::new_recoverable_ecdsa(signature_bytes),
+                self.scw_verifier.clone().as_ref(),
+            )
             .await?;
 
         Ok(())
@@ -200,17 +205,31 @@ impl FfiSignatureRequest {
         &self,
         signature_bytes: Vec<u8>,
         address: String,
-        chain_rpc_url: String,
+        chain_id: u64,
+        block_number: Option<u64>,
     ) -> Result<(), GenericError> {
         let mut inner = self.inner.lock().await;
-        let signature = SmartContractWalletSignature::new_with_rpc(
-            inner.signature_text(),
+        let account_id = AccountId::new_evm(chain_id, address);
+
+        let block_number = match block_number {
+            Some(bn) => bn,
+            None => {
+                self.scw_verifier
+                    .current_block_number(&chain_id.to_string())
+                    .await
+                    .map_err(GenericError::Verifier)?
+                    .0[0]
+            }
+        };
+
+        let signature = UnverifiedSignature::new_smart_contract_wallet(
             signature_bytes,
-            address,
-            chain_rpc_url,
-        )
-        .await?;
-        inner.add_signature(Box::new(signature)).await?;
+            account_id,
+            block_number,
+        );
+        inner
+            .add_signature(signature, self.scw_verifier.clone().as_ref())
+            .await?;
         Ok(())
     }
 
@@ -320,17 +339,39 @@ impl FfiXmtpClient {
             .await?;
         Ok(state.into())
     }
+
+    pub async fn set_consent_states(&self, records: Vec<FfiConsent>) -> Result<(), GenericError> {
+        let inner = self.inner_client.as_ref();
+        let stored_records: Vec<StoredConsentRecord> =
+            records.into_iter().map(StoredConsentRecord::from).collect();
+
+        inner.set_consent_states(stored_records).await?;
+        Ok(())
+    }
+
+    pub async fn get_consent_state(
+        &self,
+        entity_type: FfiConsentEntityType,
+        entity: String,
+    ) -> Result<FfiConsentState, GenericError> {
+        let inner = self.inner_client.as_ref();
+        let result = inner.get_consent_state(entity_type.into(), entity).await?;
+
+        Ok(result.into())
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
     pub fn signature_request(&self) -> Option<Arc<FfiSignatureRequest>> {
+        let scw_verifier = self.inner_client.context().scw_verifier.clone();
         self.inner_client
             .identity()
             .signature_request()
             .map(|request| {
                 Arc::new(FfiSignatureRequest {
                     inner: Arc::new(Mutex::new(request)),
+                    scw_verifier,
                 })
             })
     }
@@ -367,6 +408,7 @@ impl FfiXmtpClient {
 
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+            scw_verifier: self.inner_client.context().scw_verifier.clone(),
         });
 
         Ok(request)
@@ -396,6 +438,7 @@ impl FfiXmtpClient {
 
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+            scw_verifier: self.inner_client.context().scw_verifier.clone(),
         });
 
         Ok(request)
@@ -422,6 +465,7 @@ impl FfiXmtpClient {
 
         Ok(Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+            scw_verifier: self.inner_client.context().scw_verifier.clone(),
         }))
     }
 }
@@ -430,8 +474,14 @@ impl FfiXmtpClient {
 pub struct FfiInboxState {
     pub inbox_id: String,
     pub recovery_address: String,
-    pub installation_ids: Vec<Vec<u8>>,
+    pub installations: Vec<FfiInstallation>,
     pub account_addresses: Vec<String>,
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiInstallation {
+    pub id: Vec<u8>,
+    pub client_timestamp_ns: Option<u64>,
 }
 
 impl From<AssociationState> for FfiInboxState {
@@ -439,7 +489,17 @@ impl From<AssociationState> for FfiInboxState {
         Self {
             inbox_id: state.inbox_id().to_string(),
             recovery_address: state.recovery_address().to_string(),
-            installation_ids: state.installation_ids(),
+            installations: state
+                .members()
+                .into_iter()
+                .filter_map(|m| match m.identifier {
+                    MemberIdentifier::Address(_) => None,
+                    MemberIdentifier::Installation(inst) => Some(FfiInstallation {
+                        id: inst,
+                        client_timestamp_ns: m.client_timestamp_ns,
+                    }),
+                })
+                .collect(),
             account_addresses: state.account_addresses(),
         }
     }
@@ -732,6 +792,20 @@ impl FfiConversations {
         Ok(out)
     }
 
+    pub async fn create_dm(&self, account_address: String) -> Result<Arc<FfiGroup>, GenericError> {
+        log::info!("creating dm with target address: {}", account_address);
+
+        let convo = self.inner_client.create_dm(account_address).await?;
+
+        let out = Arc::new(FfiGroup {
+            inner_client: self.inner_client.clone(),
+            group_id: convo.group_id,
+            created_at_ns: convo.created_at_ns,
+        });
+
+        Ok(out)
+    }
+
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
@@ -756,7 +830,16 @@ impl FfiConversations {
 
     pub async fn sync_all_groups(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
-        let groups = inner.find_groups(None, None, None, None)?;
+        let groups = inner.find_groups(FindGroupParams {
+            include_dm_groups: true,
+            ..FindGroupParams::default()
+        })?;
+
+        log::info!(
+            "groups for client inbox id {:?}: {:?}",
+            self.inner_client.inbox_id(),
+            groups.len()
+        );
 
         let num_groups_synced: usize = inner.sync_all_groups(groups).await?;
         // Uniffi does not work with usize, so we need to convert to u32
@@ -776,12 +859,13 @@ impl FfiConversations {
     ) -> Result<Vec<Arc<FfiGroup>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiGroup>> = inner
-            .find_groups(
-                None,
-                opts.created_after_ns,
-                opts.created_before_ns,
-                opts.limit,
-            )?
+            .find_groups(FindGroupParams {
+                allowed_states: None,
+                created_after_ns: opts.created_after_ns,
+                created_before_ns: opts.created_before_ns,
+                limit: opts.limit,
+                include_dm_groups: false,
+            })?
             .into_iter()
             .map(|group| {
                 Arc::new(FfiGroup {
@@ -797,14 +881,17 @@ impl FfiConversations {
 
     pub async fn stream(&self, callback: Box<dyn FfiConversationCallback>) -> FfiStreamCloser {
         let client = self.inner_client.clone();
-        let handle =
-            RustXmtpClient::stream_conversations_with_callback(client.clone(), move |convo| {
+        let handle = RustXmtpClient::stream_conversations_with_callback(
+            client.clone(),
+            move |convo| {
                 callback.on_conversation(Arc::new(FfiGroup {
                     inner_client: client.clone(),
                     group_id: convo.group_id,
                     created_at_ns: convo.created_at_ns,
                 }))
-            });
+            },
+            false,
+        );
 
         FfiStreamCloser::new(handle)
     }
@@ -835,6 +922,7 @@ pub struct FfiGroupMember {
     pub account_addresses: Vec<String>,
     pub installation_ids: Vec<Vec<u8>>,
     pub permission_level: FfiPermissionLevel,
+    pub consent_state: FfiConsentState,
 }
 
 #[derive(uniffi::Enum)]
@@ -842,6 +930,50 @@ pub enum FfiPermissionLevel {
     Member,
     Admin,
     SuperAdmin,
+}
+
+#[derive(uniffi::Enum, PartialEq, Debug)]
+pub enum FfiConsentState {
+    Unknown,
+    Allowed,
+    Denied,
+}
+
+impl From<ConsentState> for FfiConsentState {
+    fn from(state: ConsentState) -> Self {
+        match state {
+            ConsentState::Unknown => FfiConsentState::Unknown,
+            ConsentState::Allowed => FfiConsentState::Allowed,
+            ConsentState::Denied => FfiConsentState::Denied,
+        }
+    }
+}
+
+impl From<FfiConsentState> for ConsentState {
+    fn from(state: FfiConsentState) -> Self {
+        match state {
+            FfiConsentState::Unknown => ConsentState::Unknown,
+            FfiConsentState::Allowed => ConsentState::Allowed,
+            FfiConsentState::Denied => ConsentState::Denied,
+        }
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum FfiConsentEntityType {
+    GroupId,
+    InboxId,
+    Address,
+}
+
+impl From<FfiConsentEntityType> for ConsentType {
+    fn from(entity_type: FfiConsentEntityType) -> Self {
+        match entity_type {
+            FfiConsentEntityType::GroupId => ConsentType::GroupId,
+            FfiConsentEntityType::InboxId => ConsentType::InboxId,
+            FfiConsentEntityType::Address => ConsentType::Address,
+        }
+    }
 }
 
 #[derive(uniffi::Record, Clone, Default)]
@@ -961,14 +1093,14 @@ impl FfiGroup {
             self.created_at_ns,
         );
         let message = group
-            .process_streamed_group_message(envelope_bytes, self.inner_client.clone())
+            .process_streamed_group_message(envelope_bytes, &self.inner_client)
             .await?;
         let ffi_message = message.into();
 
         Ok(ffi_message)
     }
 
-    pub fn list_members(&self) -> Result<Vec<FfiGroupMember>, GenericError> {
+    pub async fn list_members(&self) -> Result<Vec<FfiGroupMember>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
             self.group_id.clone(),
@@ -976,7 +1108,8 @@ impl FfiGroup {
         );
 
         let members: Vec<FfiGroupMember> = group
-            .members()?
+            .members(&self.inner_client)
+            .await?
             .into_iter()
             .map(|member| FfiGroupMember {
                 inbox_id: member.inbox_id,
@@ -987,6 +1120,7 @@ impl FfiGroup {
                     PermissionLevel::Admin => FfiPermissionLevel::Admin,
                     PermissionLevel::SuperAdmin => FfiPermissionLevel::SuperAdmin,
                 },
+                consent_state: member.consent_state.into(),
             })
             .collect();
 
@@ -1325,6 +1459,30 @@ impl FfiGroup {
         Ok(group.is_active(group.mls_provider()?)?)
     }
 
+    pub fn consent_state(&self) -> Result<FfiConsentState, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let state = group.consent_state()?;
+
+        Ok(state.into())
+    }
+
+    pub fn update_consent_state(&self, state: FfiConsentState) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.context().clone(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        group.update_consent_state(state.into())?;
+
+        Ok(())
+    }
+
     pub fn added_by_inbox_id(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
@@ -1419,6 +1577,23 @@ impl From<StoredGroupMessage> for FfiMessage {
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
             delivery_status: msg.delivery_status.into(),
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiConsent {
+    pub entity_type: FfiConsentEntityType,
+    pub state: FfiConsentState,
+    pub entity: String,
+}
+
+impl From<FfiConsent> for StoredConsentRecord {
+    fn from(consent: FfiConsent) -> Self {
+        Self {
+            entity_type: consent.entity_type.into(),
+            state: consent.state.into(),
+            entity: consent.entity,
         }
     }
 }
@@ -1560,13 +1735,16 @@ impl FfiGroupPermissions {
 
 #[cfg(test)]
 mod tests {
+    use super::{create_client, FfiMessage, FfiMessageCallback, FfiXmtpClient};
     use crate::{
-        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger,
-        FfiConversationCallback, FfiCreateGroupOptions, FfiGroup, FfiGroupMessageKind,
-        FfiGroupPermissionsOptions, FfiInboxOwner, FfiListConversationsOptions,
-        FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy, FfiPermissionPolicySet,
-        FfiPermissionUpdateType,
+        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConsent,
+        FfiConsentEntityType, FfiConsentState, FfiConversationCallback, FfiCreateGroupOptions,
+        FfiGroup, FfiGroupMessageKind, FfiGroupPermissionsOptions, FfiInboxOwner,
+        FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy,
+        FfiPermissionPolicySet, FfiPermissionUpdateType,
     };
+    use ethers::utils::hex;
+    use rand::distributions::{Alphanumeric, DistString};
     use std::{
         env,
         sync::{
@@ -1574,16 +1752,12 @@ mod tests {
             Arc, Mutex,
         },
     };
-
-    use super::{create_client, FfiMessage, FfiMessageCallback, FfiXmtpClient};
-    use ethers::utils::hex;
-    use ethers_core::rand::{
-        self,
-        distributions::{Alphanumeric, DistString},
-    };
     use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
-    use xmtp_id::associations::generate_inbox_id;
+    use xmtp_id::associations::{
+        generate_inbox_id,
+        unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
+    };
     use xmtp_mls::{
         groups::{GroupError, MlsGroup},
         storage::EncryptionKey,
@@ -1713,7 +1887,7 @@ mod tests {
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(tmp_path()),
-            None,
+            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
             ffi_inbox_owner.get_address(),
             nonce,
@@ -1762,13 +1936,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(real_inbox_id, from_network);
-    }
-
-    // Try a query on a test topic, and make sure we get a response
-    #[tokio::test]
-    async fn test_client_creation() {
-        let client = new_test_client().await;
-        assert!(client.signature_request().is_some());
     }
 
     #[tokio::test]
@@ -1901,6 +2068,7 @@ mod tests {
         wallet: &xmtp_cryptography::utils::LocalWallet,
         signature_request: &FfiSignatureRequest,
     ) {
+        let scw_verifier = signature_request.scw_verifier.clone();
         let signature_text = signature_request.inner.lock().await.signature_text();
         let wallet_signature: Vec<u8> = wallet.sign(&signature_text.clone()).unwrap().into();
 
@@ -1908,12 +2076,12 @@ mod tests {
             .inner
             .lock()
             .await
-            .add_signature(Box::new(
-                xmtp_id::associations::RecoverableEcdsaSignature::new(
-                    signature_text,
+            .add_signature(
+                UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(
                     wallet_signature,
-                ),
-            ))
+                )),
+                scw_verifier.clone().as_ref(),
+            )
             .await
             .unwrap();
     }
@@ -1944,9 +2112,8 @@ mod tests {
         .await
         .unwrap();
 
-        register_client(&ffi_inbox_owner, &client).await;
-
         let signature_request = client.signature_request().unwrap().clone();
+        register_client(&ffi_inbox_owner, &client).await;
 
         sign_with_wallet(&ffi_inbox_owner.wallet, &signature_request).await;
 
@@ -2011,9 +2178,8 @@ mod tests {
         .await
         .unwrap();
 
-        register_client(&ffi_inbox_owner, &client).await;
-
         let signature_request = client.signature_request().unwrap().clone();
+        register_client(&ffi_inbox_owner, &client).await;
 
         sign_with_wallet(&ffi_inbox_owner.wallet, &signature_request).await;
 
@@ -2181,7 +2347,7 @@ mod tests {
             .await
             .unwrap();
 
-        let members = group.list_members().unwrap();
+        let members = group.list_members().await.unwrap();
         assert_eq!(members.len(), 2);
     }
 
@@ -2206,7 +2372,7 @@ mod tests {
             .await
             .unwrap();
 
-        let members = group.list_members().unwrap();
+        let members = group.list_members().await.unwrap();
         assert_eq!(members.len(), 2);
         assert_eq!(group.group_name().unwrap(), "Group Name");
         assert_eq!(group.group_image_url_square().unwrap(), "url");
@@ -2470,10 +2636,10 @@ mod tests {
         client2_group.sync().await.unwrap();
 
         // Assert both clients see 2 members
-        let client1_members = client1_group.list_members().unwrap();
+        let client1_members = client1_group.list_members().await.unwrap();
         assert_eq!(client1_members.len(), 2);
 
-        let client2_members = client2_group.list_members().unwrap();
+        let client2_members = client2_group.list_members().await.unwrap();
         assert_eq!(client2_members.len(), 2);
 
         // Drop and delete local database for client2
@@ -2491,12 +2657,12 @@ mod tests {
             .unwrap();
 
         // Assert client1 still sees 2 members
-        let client1_members = client1_group.list_members().unwrap();
+        let client1_members = client1_group.list_members().await.unwrap();
         assert_eq!(client1_members.len(), 2);
 
         client2.conversations().sync().await.unwrap();
         let client2_group = client2.group(group.id()).unwrap();
-        let client2_members = client2_group.list_members().unwrap();
+        let client2_members = client2_group.list_members().await.unwrap();
         assert_eq!(client2_members.len(), 2);
     }
 
@@ -2744,11 +2910,11 @@ mod tests {
             .unwrap();
 
         bo_group.sync().await.unwrap();
-        let bo_members = bo_group.list_members().unwrap();
+        let bo_members = bo_group.list_members().await.unwrap();
         assert_eq!(bo_members.len(), 4);
 
         alix_group.sync().await.unwrap();
-        let alix_members = alix_group.list_members().unwrap();
+        let alix_members = alix_group.list_members().await.unwrap();
         assert_eq!(alix_members.len(), 4);
     }
 
@@ -2770,11 +2936,11 @@ mod tests {
         let bo_group = bo.group(alix_group.id()).unwrap();
 
         alix_group.sync().await.unwrap();
-        let alix_members = alix_group.list_members().unwrap();
+        let alix_members = alix_group.list_members().await.unwrap();
         assert_eq!(alix_members.len(), 2);
 
         bo_group.sync().await.unwrap();
-        let bo_members = bo_group.list_members().unwrap();
+        let bo_members = bo_group.list_members().await.unwrap();
         assert_eq!(bo_members.len(), 2);
 
         let bo_messages = bo_group
@@ -2798,11 +2964,11 @@ mod tests {
         assert!(bo_messages.first().unwrap().kind == FfiGroupMessageKind::MembershipChange);
         assert_eq!(bo_messages.len(), 1);
 
-        let bo_members = bo_group.list_members().unwrap();
+        let bo_members = bo_group.list_members().await.unwrap();
         assert_eq!(bo_members.len(), 1);
 
         alix_group.sync().await.unwrap();
-        let alix_members = alix_group.list_members().unwrap();
+        let alix_members = alix_group.list_members().await.unwrap();
         assert_eq!(alix_members.len(), 1);
     }
 
@@ -3542,8 +3708,8 @@ mod tests {
 
         let client_1_state = client_1.inbox_state(true).await.unwrap();
         let client_2_state = client_2.inbox_state(true).await.unwrap();
-        assert_eq!(client_1_state.installation_ids.len(), 2);
-        assert_eq!(client_2_state.installation_ids.len(), 2);
+        assert_eq!(client_1_state.installations.len(), 2);
+        assert_eq!(client_2_state.installations.len(), 2);
 
         let signature_request = client_1.revoke_all_other_installations().await.unwrap();
         sign_with_wallet(&wallet, &signature_request).await;
@@ -3554,23 +3720,132 @@ mod tests {
 
         let client_1_state_after_revoke = client_1.inbox_state(true).await.unwrap();
         let client_2_state_after_revoke = client_2.inbox_state(true).await.unwrap();
-        assert_eq!(client_1_state_after_revoke.installation_ids.len(), 1);
-        assert_eq!(client_2_state_after_revoke.installation_ids.len(), 1);
+        assert_eq!(client_1_state_after_revoke.installations.len(), 1);
+        assert_eq!(client_2_state_after_revoke.installations.len(), 1);
         assert_eq!(
             client_1_state_after_revoke
-                .installation_ids
+                .installations
                 .first()
                 .unwrap()
-                .clone(),
+                .id,
             client_1.installation_id()
         );
         assert_eq!(
             client_2_state_after_revoke
-                .installation_ids
+                .installations
                 .first()
                 .unwrap()
-                .clone(),
+                .id,
             client_1.installation_id()
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_dms_sync_but_do_not_list() {
+        let alix = new_test_client().await;
+        let bola = new_test_client().await;
+
+        let alix_conversations = alix.conversations();
+        let bola_conversations = bola.conversations();
+
+        let _alix_group = alix_conversations
+            .create_dm(bola.account_address.clone())
+            .await
+            .unwrap();
+        let alix_num_sync = alix_conversations.sync_all_groups().await.unwrap();
+        bola_conversations.sync().await.unwrap();
+        let bola_num_sync = bola_conversations.sync_all_groups().await.unwrap();
+        assert_eq!(alix_num_sync, 1);
+        assert_eq!(bola_num_sync, 1);
+
+        let alix_groups = alix_conversations
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(alix_groups.len(), 0);
+
+        let bola_groups = bola_conversations
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(bola_groups.len(), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_set_and_get_group_consent() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        let alix_initial_consent = alix_group.consent_state().unwrap();
+        assert_eq!(alix_initial_consent, FfiConsentState::Allowed);
+
+        bo.conversations().sync().await.unwrap();
+        let bo_group = bo.group(alix_group.id()).unwrap();
+
+        let bo_initial_consent = bo_group.consent_state().unwrap();
+        assert_eq!(bo_initial_consent, FfiConsentState::Unknown);
+
+        alix_group
+            .update_consent_state(FfiConsentState::Denied)
+            .unwrap();
+        let alix_updated_consent = alix_group.consent_state().unwrap();
+        assert_eq!(alix_updated_consent, FfiConsentState::Denied);
+        bo.set_consent_states(vec![FfiConsent {
+            state: FfiConsentState::Allowed,
+            entity_type: FfiConsentEntityType::GroupId,
+            entity: hex::encode(bo_group.id()),
+        }])
+        .await
+        .unwrap();
+        let bo_updated_consent = bo_group.consent_state().unwrap();
+        assert_eq!(bo_updated_consent, FfiConsentState::Allowed);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_set_and_get_member_consent() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+        alix.set_consent_states(vec![FfiConsent {
+            state: FfiConsentState::Allowed,
+            entity_type: FfiConsentEntityType::Address,
+            entity: bo.account_address.clone(),
+        }])
+        .await
+        .unwrap();
+        let bo_consent = alix
+            .get_consent_state(FfiConsentEntityType::Address, bo.account_address.clone())
+            .await
+            .unwrap();
+        assert_eq!(bo_consent, FfiConsentState::Allowed);
+
+        if let Some(member) = alix_group
+            .list_members()
+            .await
+            .unwrap()
+            .iter()
+            .find(|&m| m.inbox_id == bo.inbox_id())
+        {
+            assert_eq!(member.consent_state, FfiConsentState::Allowed);
+        } else {
+            panic!("Error: No member found with the given inbox_id.");
+        }
     }
 }

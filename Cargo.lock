@@ -1198,6 +1198,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
+name = "dyn-clone"
+version = "1.0.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d6ef0072f8a535281e4876be788938b528e9a1d43900b82c2569af7da799125"
+
+[[package]]
 name = "ecdsa"
 version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1337,29 +1343,6 @@ dependencies = [
  "serde",
  "sha3",
  "zeroize",
-]
-
-[[package]]
-name = "env_filter"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f2c92ceda6ceec50f43169f9ee8424fe2db276791afde7b2cd8bc084cb376ab"
-dependencies = [
- "log",
- "regex",
-]
-
-[[package]]
-name = "env_logger"
-version = "0.11.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13fa619b91fb2381732789fc5de83b45675e882f66623b7d8cb4f643017018d"
-dependencies = [
- "anstream",
- "anstyle",
- "env_filter",
- "humantime",
- "log",
 ]
 
 [[package]]
@@ -1797,18 +1780,6 @@ checksum = "7f211bbe8e69bbd0cfdea405084f128ae8b4aaa6b0b522fc8f2b009084797920"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
-]
-
-[[package]]
-name = "flume"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55ac459de2512911e4b674ce33cf20befaba382d05b62b008afc1c8b57cbf181"
-dependencies = [
- "futures-core",
- "futures-sink",
- "nanorand",
- "spin 0.9.8",
 ]
 
 [[package]]
@@ -2332,12 +2303,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
-name = "humantime"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
-
-[[package]]
 name = "hyper"
 version = "0.14.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2642,15 +2607,6 @@ name = "itertools"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1c173a5686ce8bfa551b3563d0c2170bf24ca44da99c7ca4bfdab5418c3fe57"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
 dependencies = [
  "either",
 ]
@@ -2988,11 +2944,9 @@ dependencies = [
  "anyhow",
  "clap",
  "ed25519-dalek",
- "env_logger",
  "ethers",
  "futures",
  "hex",
- "log",
  "openmls",
  "openmls_basic_credential",
  "openmls_rust_crypto",
@@ -3004,7 +2958,10 @@ dependencies = [
  "thiserror",
  "tokio",
  "tonic",
+ "tracing",
+ "tracing-subscriber",
  "warp",
+ "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",
  "xmtp_proto",
@@ -3083,15 +3040,6 @@ name = "multimap"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5ce46fe64a9d73be07dcbe690a38ce1b293be448fd8ce1e6c1b8062c9f72c6a"
-
-[[package]]
-name = "nanorand"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a51313c5820b0b02bd422f4b44776fbf47961755c74ce64afc73bfad10226c3"
-dependencies = [
- "getrandom",
-]
 
 [[package]]
 name = "native-tls"
@@ -3902,7 +3850,7 @@ checksum = "5bb182580f71dd070f88d01ce3de9f4da5021db7115d2e1c3605a754153b77c1"
 dependencies = [
  "bytes",
  "heck",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "log",
  "multimap",
  "once_cell",
@@ -3922,7 +3870,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "18bec9b0adc4eba778b33684b7ba3e7137789434769ee3ce3930463ef904cfca"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.72",
@@ -4765,17 +4713,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 
 [[package]]
-name = "smart-default"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0eb01866308440fc64d6c44d9e86c5cc17adfe33c4d6eed55da9145044d0ffc1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.72",
-]
-
-[[package]]
 name = "socket2"
 version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4810,9 +4747,6 @@ name = "spin"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
-dependencies = [
- "lock_api",
-]
 
 [[package]]
 name = "spki"
@@ -5511,22 +5445,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-test"
-version = "0.2.5"
+name = "trait-variant"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "557b891436fe0d5e0e363427fc7f217abf9ccd510d5136549847bdcbcd011d68"
+checksum = "70977707304198400eb4835a78f6a9f928bf41bba420deb8fdb175cd965d77a7"
 dependencies = [
- "tracing-core",
- "tracing-subscriber",
- "tracing-test-macro",
-]
-
-[[package]]
-name = "tracing-test-macro"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04659ddb06c87d233c566112c1c9c5b9e98256d9af50ec3bc9c8327f873a7568"
-dependencies = [
+ "proc-macro2",
  "quote",
  "syn 2.0.72",
 ]
@@ -5679,6 +5603,7 @@ dependencies = [
  "form_urlencoded",
  "idna",
  "percent-encoding",
+ "serde",
 ]
 
 [[package]]
@@ -6225,9 +6150,6 @@ dependencies = [
  "base64 0.22.1",
  "futures",
  "hex",
- "log",
- "pbjson",
- "pbjson-types",
  "prost",
  "serde",
  "tokio",
@@ -6243,16 +6165,12 @@ name = "xmtp_api_http"
 version = "0.0.1"
 dependencies = [
  "async-stream",
- "async-trait",
- "bytes",
  "futures",
- "log",
  "reqwest 0.12.5",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
- "tokio-stream",
  "tracing",
  "xmtp_proto",
 ]
@@ -6263,7 +6181,6 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "ethers",
- "ethers-core",
  "femme",
  "futures",
  "hex",
@@ -6275,8 +6192,6 @@ dependencies = [
  "thiserror",
  "timeago",
  "tokio",
- "tokio-stream",
- "url",
  "xmtp_api_grpc",
  "xmtp_cryptography",
  "xmtp_id",
@@ -6291,11 +6206,9 @@ dependencies = [
  "curve25519-dalek",
  "ecdsa 0.16.9",
  "ethers",
- "ethers-core",
  "getrandom",
  "hex",
  "k256 0.13.3",
- "log",
  "rand",
  "rand_chacha",
  "rustc-hex",
@@ -6304,6 +6217,7 @@ dependencies = [
  "sha3",
  "thiserror",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -6313,22 +6227,18 @@ dependencies = [
  "async-trait",
  "chrono",
  "ctor",
- "ed25519",
+ "dyn-clone",
  "ed25519-dalek",
  "ethers",
- "ethers-core",
  "futures",
  "hex",
- "log",
- "openmls",
- "openmls_basic_credential",
- "openmls_rust_crypto",
  "openmls_traits",
  "prost",
  "rand",
  "regex",
  "rustc-hex",
  "serde",
+ "serde_json",
  "sha2 0.10.8",
  "thiserror",
  "tokio",
@@ -6347,22 +6257,17 @@ dependencies = [
  "anyhow",
  "async-barrier",
  "async-stream",
- "async-trait",
  "bincode",
- "chrono",
  "criterion",
  "ctor",
  "diesel",
  "diesel_migrations",
  "ed25519-dalek",
  "ethers",
- "ethers-core",
- "flume",
  "futures",
  "hex",
  "indicatif",
  "libsqlite3-sys",
- "log",
  "mockall",
  "mockito",
  "once_cell",
@@ -6377,7 +6282,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.8",
- "smart-default",
  "tempfile",
  "thiserror",
  "tls_codec",
@@ -6386,41 +6290,36 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-flame",
- "tracing-log",
  "tracing-subscriber",
- "tracing-test",
+ "trait-variant",
  "xmtp_api_grpc",
  "xmtp_api_http",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_proto",
- "xmtp_v2",
 ]
 
 [[package]]
 name = "xmtp_proto"
 version = "0.0.1"
 dependencies = [
- "async-trait",
  "futures",
- "futures-core",
  "openmls",
- "openmls_basic_credential",
  "pbjson",
  "pbjson-types",
  "prost",
  "prost-types",
  "serde",
  "tonic",
+ "trait-variant",
 ]
 
 [[package]]
 name = "xmtp_user_preferences"
 version = "0.0.1"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "libsecp256k1",
- "once_cell",
  "prost",
  "rand",
  "xmtp_proto",

@@ -1,6 +1,6 @@
 use curve25519_dalek::{edwards::CompressedEdwardsY, traits::IsIdentity};
+use ethers::core::types::{self as ethers_types, H160};
 use ethers::types::Address;
-use ethers_core::types::{self as ethers_types, H160};
 pub use k256::ecdsa::{RecoveryId, SigningKey, VerifyingKey};
 use k256::Secp256k1;
 use serde::{Deserialize, Serialize};
@@ -98,8 +98,8 @@ impl From<(ecdsa::Signature<Secp256k1>, RecoveryId)> for RecoverableSignature {
     }
 }
 
-impl From<ethers_core::types::Signature> for RecoverableSignature {
-    fn from(value: ethers_core::types::Signature) -> Self {
+impl From<ethers::core::types::Signature> for RecoverableSignature {
+    fn from(value: ethers::core::types::Signature) -> Self {
         RecoverableSignature::Eip191Signature(value.to_vec())
     }
 }
@@ -168,7 +168,7 @@ pub fn is_valid_ed25519_public_key<Bytes: AsRef<[u8]>>(public_key: Bytes) -> boo
     let compressed = match CompressedEdwardsY::from_slice(public_key) {
         Ok(v) => v,
         Err(_) => {
-            log::debug!("Invalid ed22519 public key. Does not have length of 32");
+            tracing::debug!("Invalid ed22519 public key. Does not have length of 32");
             return false;
         }
     };
@@ -176,14 +176,14 @@ pub fn is_valid_ed25519_public_key<Bytes: AsRef<[u8]>>(public_key: Bytes) -> boo
     match compressed.decompress() {
         Some(point) => {
             if point.is_small_order() || point.is_identity() {
-                log::debug!(
+                tracing::debug!(
                     "Invalid public key, not a point on the curve or is the identity element."
                 );
                 return false;
             }
         }
         None => {
-            log::debug!("Not a valid ed25519 public key: Decompression failure");
+            tracing::debug!("Not a valid ed25519 public key: Decompression failure");
             return false;
         }
     }

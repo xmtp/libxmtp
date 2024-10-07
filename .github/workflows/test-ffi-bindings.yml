@@ -1,10 +1,8 @@
 name: Test FFI Bindings
-
 on:
   push:
     branches:
       - main
-
   pull_request:
     # only run tests when related changes are made
     paths:
@@ -21,7 +19,8 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain"
-
+env:
+  CARGO_TERM_COLOR: always
 jobs:
   test:
     name: Test
@@ -29,19 +28,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Update rust toolchains
         run: rustup update
-
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             .
             bindings_ffi
-
       - name: Start Docker containers
         run: dev/up
-
       - name: Setup Kotlin
         run: |
           sudo apt update -q
@@ -50,8 +45,9 @@ jobs:
           cd bindings_ffi
           make install-jar
           echo "$(make echo-jar | tail -n 1 | sed -e 's/\.*export //')" >> "$GITHUB_ENV"
-
-      - name: Run cargo test on FFI bindings
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+      - name: Run cargo nextest on FFI bindings
         run: |
           export CLASSPATH="${{ env.CLASSPATH }}"
-          cargo test --manifest-path bindings_ffi/Cargo.toml -- --test-threads=2
+          cargo nextest run --manifest-path bindings_ffi/Cargo.toml --test-threads 2

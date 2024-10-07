@@ -3,11 +3,9 @@
 //! using `RUST_LOG=trace` will additionally output a `tracing.folded` file, which
 //! may be used to generate a flamegraph of execution from tracing logs.
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
-use ethers::signers::LocalWallet;
 use std::{collections::HashMap, sync::Arc};
 use tokio::runtime::{Builder, Handle, Runtime};
 use tracing::{trace_span, Instrument};
-use xmtp_cryptography::utils::rng;
 use xmtp_mls::{
     builder::ClientBuilder,
     groups::GroupMetadataOptions,
@@ -33,13 +31,13 @@ fn setup() -> (Arc<BenchClient>, Vec<Identity>, Runtime) {
         .unwrap();
 
     let (client, identities) = runtime.block_on(async {
-        let wallet = LocalWallet::new(&mut rng());
+        let wallet = xmtp_cryptography::utils::generate_local_wallet();
 
         // use dev network if `DEV_GRPC` is set
         let dev = std::env::var("DEV_GRPC");
         let is_dev_network = matches!(dev, Ok(d) if d == "true" || d == "1");
         let client = if is_dev_network {
-            log::info!("Using Dev GRPC");
+            tracing::info!("Using Dev GRPC");
             Arc::new(ClientBuilder::new_dev_client(&wallet).await)
         } else {
             Arc::new(ClientBuilder::new_test_client(&wallet).await)

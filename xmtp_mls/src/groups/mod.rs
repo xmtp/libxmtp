@@ -5,6 +5,7 @@ pub mod group_permissions;
 pub mod intents;
 pub mod members;
 #[allow(dead_code)]
+#[cfg(feature = "message-history")]
 pub mod message_history;
 mod subscriptions;
 mod sync;
@@ -35,9 +36,11 @@ use tokio::sync::Mutex;
 
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
+#[cfg(feature = "message-history")]
+use self::message_history::MessageHistoryError;
 use self::{
     group_membership::GroupMembership,
-    group_metadata::extract_group_metadata,
+    group_metadata::{extract_group_metadata, DmMembers},
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
     group_permissions::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
@@ -51,7 +54,6 @@ use self::{
 use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
     group_permissions::PolicySet,
-    message_history::MessageHistoryError,
     validated_commit::CommitValidationError,
 };
 use std::{collections::HashSet, sync::Arc};
@@ -77,10 +79,11 @@ use crate::{
         SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
     hpke::{decrypt_welcome, HpkeError},
-    identity::{parse_credential, Identity, IdentityError},
+    identity::{parse_credential, IdentityError},
     identity_updates::{load_identity_updates, InstallationDiffError},
     retry::RetryableError,
     storage::{
+        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
         group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
@@ -168,6 +171,7 @@ pub enum GroupError {
     CredentialError(#[from] BasicCredentialError),
     #[error("LeafNode error")]
     LeafNodeError(#[from] LibraryError),
+    #[cfg(feature = "message-history")]
     #[error("Message History error: {0}")]
     MessageHistory(#[from] Box<MessageHistoryError>),
     #[error("Installation diff error: {0}")]
@@ -180,6 +184,8 @@ pub enum GroupError {
     PublishCancelled,
     #[error("the publish failed to complete due to panic")]
     PublishPanicked,
+    #[error("dm requires target inbox_id")]
+    InvalidDmMissingInboxId,
     #[error("Missing metadata field {name}")]
     MissingMetadataField { name: String },
     #[error("Message was processed but is missing")]
@@ -213,7 +219,6 @@ impl RetryableError for GroupError {
     }
 }
 
-#[derive(Debug)]
 pub struct MlsGroup {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
@@ -289,9 +294,10 @@ impl MlsGroup {
     ) -> Result<Self, GroupError> {
         let conn = context.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
+        let creator_inbox_id = context.inbox_id();
         let protected_metadata =
-            build_protected_metadata_extension(&context.identity, Purpose::Conversation)?;
-        let mutable_metadata = build_mutable_metadata_extension_default(&context.identity, opts)?;
+            build_protected_metadata_extension(creator_inbox_id.clone(), Purpose::Conversation)?;
+        let mutable_metadata = build_mutable_metadata_extension_default(creator_inbox_id, opts)?;
         let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
         let mutable_permissions = build_mutable_permissions_extension(permissions_policy_set)?;
         let group_config = build_group_config(
@@ -317,6 +323,57 @@ impl MlsGroup {
             now_ns(),
             membership_state,
             context.inbox_id(),
+            None,
+        );
+
+        stored_group.store(provider.conn_ref())?;
+        let new_group = Self::new(context.clone(), group_id, stored_group.created_at_ns);
+
+        // Consent state defaults to allowed when the user creates the group
+        new_group.update_consent_state(ConsentState::Allowed)?;
+        Ok(new_group)
+    }
+
+    // Create a new DM and save it to the DB
+    pub fn create_dm_and_insert(
+        context: Arc<XmtpMlsLocalContext>,
+        membership_state: GroupMembershipState,
+        dm_target_inbox_id: InboxId,
+    ) -> Result<Self, GroupError> {
+        let conn = context.store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(conn);
+        let protected_metadata =
+            build_dm_protected_metadata_extension(context.inbox_id(), dm_target_inbox_id.clone())?;
+        let mutable_metadata =
+            build_dm_mutable_metadata_extension_default(context.inbox_id(), &dm_target_inbox_id)?;
+        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
+        let mutable_permissions = PolicySet::new_dm();
+        let mutable_permission_extension =
+            build_mutable_permissions_extension(mutable_permissions)?;
+        let group_config = build_group_config(
+            protected_metadata,
+            mutable_metadata,
+            group_membership,
+            mutable_permission_extension,
+        )?;
+
+        let mls_group = OpenMlsGroup::new(
+            &provider,
+            &context.identity.installation_keys,
+            &group_config,
+            CredentialWithKey {
+                credential: context.identity.credential(),
+                signature_key: context.identity.installation_keys.to_public_vec().into(),
+            },
+        )?;
+
+        let group_id = mls_group.group_id().to_vec();
+        let stored_group = StoredGroup::new(
+            group_id.clone(),
+            now_ns(),
+            membership_state,
+            context.inbox_id(),
+            Some(dm_target_inbox_id),
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -336,23 +393,47 @@ impl MlsGroup {
         added_by_inbox: String,
         welcome_id: i64,
     ) -> Result<Self, GroupError> {
+        tracing::info!("Creating from welcome");
         let mls_welcome =
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
 
         let mls_group = mls_welcome.into_group(provider)?;
         let group_id = mls_group.group_id().to_vec();
         let metadata = extract_group_metadata(&mls_group)?;
+        let dm_members = metadata.dm_members;
+        let dm_inbox_id = if let Some(dm_members) = &dm_members {
+            if dm_members.member_one_inbox_id == client.inbox_id() {
+                Some(dm_members.member_two_inbox_id.clone())
+            } else {
+                Some(dm_members.member_one_inbox_id.clone())
+            }
+        } else {
+            None
+        };
         let group_type = metadata.conversation_type;
 
         let to_store = match group_type {
-            ConversationType::Group | ConversationType::Dm => StoredGroup::new_from_welcome(
+            ConversationType::Group => StoredGroup::new_from_welcome(
                 group_id.clone(),
                 now_ns(),
                 GroupMembershipState::Pending,
                 added_by_inbox,
                 welcome_id,
                 Purpose::Conversation,
+                dm_inbox_id,
             ),
+            ConversationType::Dm => {
+                validate_dm_group(client, &mls_group, &added_by_inbox)?;
+                StoredGroup::new_from_welcome(
+                    group_id.clone(),
+                    now_ns(),
+                    GroupMembershipState::Pending,
+                    added_by_inbox,
+                    welcome_id,
+                    Purpose::Conversation,
+                    dm_inbox_id,
+                )
+            }
             ConversationType::Sync => StoredGroup::new_from_welcome(
                 group_id.clone(),
                 now_ns(),
@@ -360,6 +441,7 @@ impl MlsGroup {
                 added_by_inbox,
                 welcome_id,
                 Purpose::Sync,
+                dm_inbox_id,
             ),
         };
 
@@ -382,6 +464,7 @@ impl MlsGroup {
         encrypted_welcome_bytes: Vec<u8>,
         welcome_id: i64,
     ) -> Result<Self, GroupError> {
+        tracing::info!("Trying to decrypt welcome");
         let welcome_bytes = decrypt_welcome(provider, hpke_public_key, &encrypted_welcome_bytes)?;
 
         let welcome = deserialize_welcome(&welcome_bytes)?;
@@ -392,6 +475,7 @@ impl MlsGroup {
             ProcessedWelcome::new_from_welcome(provider, &join_config, welcome.clone())?;
         let psks = processed_welcome.psks();
         if !psks.is_empty() {
+            tracing::error!("No PSK support for welcome");
             return Err(GroupError::NoPSKSupport);
         }
         let staged_welcome = processed_welcome.into_staged_welcome(provider, None)?;
@@ -404,16 +488,18 @@ impl MlsGroup {
         Self::create_from_welcome(client, provider, welcome, inbox_id, welcome_id).await
     }
 
+    #[cfg(feature = "message-history")]
     pub(crate) fn create_and_insert_sync_group(
         context: Arc<XmtpMlsLocalContext>,
     ) -> Result<MlsGroup, GroupError> {
         let conn = context.store.conn()?;
         // let my_sequence_id = context.inbox_sequence_id(&conn)?;
+        let creator_inbox_id = context.inbox_id().to_string();
         let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata =
-            build_protected_metadata_extension(&context.identity, Purpose::Sync)?;
+            build_protected_metadata_extension(creator_inbox_id.clone(), Purpose::Sync)?;
         let mutable_metadata = build_mutable_metadata_extension_default(
-            &context.identity,
+            creator_inbox_id,
             GroupMetadataOptions::default(),
         )?;
         let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
@@ -470,6 +556,9 @@ impl MlsGroup {
         self.sync_until_last_intent_resolved(&provider, client)
             .await?;
 
+        // implicitly set group consent state to allowed
+        self.update_consent_state(ConsentState::Allowed)?;
+
         message_id
     }
 
@@ -488,6 +577,10 @@ impl MlsGroup {
             .await?;
         self.sync_until_last_intent_resolved(&provider, client)
             .await?;
+
+        // implicitly set group consent state to allowed
+        self.update_consent_state(ConsentState::Allowed)?;
+
         Ok(())
     }
 
@@ -612,7 +705,7 @@ impl MlsGroup {
             .get_inbox_ids(account_addresses.clone())
             .await?;
         // get current number of users in group
-        let member_count = self.members()?.len();
+        let member_count = self.members(client).await?.len();
         if member_count + inbox_id_map.len() > MAX_GROUP_SIZE as usize {
             return Err(GroupError::UserLimitExceeded);
         }
@@ -645,7 +738,7 @@ impl MlsGroup {
         // If some existing group member has an update, this will return an intent with changes
         // when we really should return an error
         if intent_data.is_empty() {
-            log::warn!("Member already added");
+            tracing::warn!("Member already added");
             return Ok(());
         }
 
@@ -942,6 +1035,29 @@ impl MlsGroup {
             })
     }
 
+    /// Find the `consent_state` of the group
+    pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
+        let conn = self.context.store.conn()?;
+        let record =
+            conn.get_consent_record(hex::encode(self.group_id.clone()), ConsentType::GroupId)?;
+
+        match record {
+            Some(rec) => Ok(rec.state),
+            None => Ok(ConsentState::Unknown),
+        }
+    }
+
+    pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
+        let conn = self.context.store.conn()?;
+        conn.insert_or_replace_consent_records(vec![StoredConsentRecord::new(
+            ConsentType::GroupId,
+            state,
+            hex::encode(self.group_id.clone()),
+        )])?;
+
+        Ok(())
+    }
+
     // Update this installation's leaf key in the group by creating a key update commit
     pub async fn key_update<ApiClient>(&self, client: &Client<ApiClient>) -> Result<(), GroupError>
     where
@@ -984,6 +1100,68 @@ impl MlsGroup {
 
         Ok(extract_group_permissions(&mls_group)?)
     }
+    /// Used for testing that dm group validation works as expected.
+    ///
+    /// See the `test_validate_dm_group` test function for more details.
+    #[cfg(test)]
+    pub fn create_test_dm_group(
+        context: Arc<XmtpMlsLocalContext>,
+        dm_target_inbox_id: InboxId,
+        custom_protected_metadata: Option<Extension>,
+        custom_mutable_metadata: Option<Extension>,
+        custom_group_membership: Option<Extension>,
+        custom_mutable_permissions: Option<PolicySet>,
+    ) -> Result<Self, GroupError> {
+        let conn = context.store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(conn);
+
+        let protected_metadata = custom_protected_metadata.unwrap_or_else(|| {
+            build_dm_protected_metadata_extension(context.inbox_id(), dm_target_inbox_id.clone())
+                .unwrap()
+        });
+        let mutable_metadata = custom_mutable_metadata.unwrap_or_else(|| {
+            build_dm_mutable_metadata_extension_default(context.inbox_id(), &dm_target_inbox_id)
+                .unwrap()
+        });
+        let group_membership = custom_group_membership
+            .unwrap_or_else(|| build_starting_group_membership_extension(context.inbox_id(), 0));
+        let mutable_permissions = custom_mutable_permissions.unwrap_or_else(PolicySet::new_dm);
+        let mutable_permission_extension =
+            build_mutable_permissions_extension(mutable_permissions)?;
+
+        let group_config = build_group_config(
+            protected_metadata,
+            mutable_metadata,
+            group_membership,
+            mutable_permission_extension,
+        )?;
+
+        let mls_group = OpenMlsGroup::new(
+            &provider,
+            &context.identity.installation_keys,
+            &group_config,
+            CredentialWithKey {
+                credential: context.identity.credential(),
+                signature_key: context.identity.installation_keys.to_public_vec().into(),
+            },
+        )?;
+
+        let group_id = mls_group.group_id().to_vec();
+        let stored_group = StoredGroup::new(
+            group_id.clone(),
+            now_ns(),
+            GroupMembershipState::Allowed, // Use Allowed as default for tests
+            context.inbox_id(),
+            Some(dm_target_inbox_id),
+        );
+
+        stored_group.store(provider.conn_ref())?;
+        Ok(Self::new(
+            context.clone(),
+            group_id,
+            stored_group.created_at_ns,
+        ))
+    }
 }
 
 fn extract_message_v1(message: GroupMessage) -> Result<GroupMessageV1, MessageProcessingError> {
@@ -1001,14 +1179,30 @@ pub fn extract_group_id(message: &GroupMessage) -> Result<Vec<u8>, MessageProces
 }
 
 fn build_protected_metadata_extension(
-    identity: &Identity,
+    creator_inbox_id: String,
     group_purpose: Purpose,
 ) -> Result<Extension, GroupError> {
     let group_type = match group_purpose {
         Purpose::Conversation => ConversationType::Group,
         Purpose::Sync => ConversationType::Sync,
     };
-    let metadata = GroupMetadata::new(group_type, identity.inbox_id().clone());
+
+    let metadata = GroupMetadata::new(group_type, creator_inbox_id, None);
+    let protected_metadata = Metadata::new(metadata.try_into()?);
+
+    Ok(Extension::ImmutableMetadata(protected_metadata))
+}
+
+fn build_dm_protected_metadata_extension(
+    creator_inbox_id: String,
+    dm_inbox_id: InboxId,
+) -> Result<Extension, GroupError> {
+    let dm_members = Some(DmMembers {
+        member_one_inbox_id: creator_inbox_id.clone(),
+        member_two_inbox_id: dm_inbox_id,
+    });
+
+    let metadata = GroupMetadata::new(ConversationType::Dm, creator_inbox_id, dm_members);
     let protected_metadata = Metadata::new(metadata.try_into()?);
 
     Ok(Extension::ImmutableMetadata(protected_metadata))
@@ -1025,11 +1219,25 @@ fn build_mutable_permissions_extension(policies: PolicySet) -> Result<Extension,
 }
 
 pub fn build_mutable_metadata_extension_default(
-    identity: &Identity,
+    creator_inbox_id: String,
     opts: GroupMetadataOptions,
 ) -> Result<Extension, GroupError> {
     let mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new_default(identity.inbox_id.clone(), opts).try_into()?;
+        GroupMutableMetadata::new_default(creator_inbox_id, opts).try_into()?;
+    let unknown_gc_extension = UnknownExtension(mutable_metadata);
+
+    Ok(Extension::Unknown(
+        MUTABLE_METADATA_EXTENSION_ID,
+        unknown_gc_extension,
+    ))
+}
+
+pub fn build_dm_mutable_metadata_extension_default(
+    creator_inbox_id: String,
+    dm_target_inbox_id: &str,
+) -> Result<Extension, GroupError> {
+    let mutable_metadata: Vec<u8> =
+        GroupMutableMetadata::new_dm_default(creator_inbox_id, dm_target_inbox_id).try_into()?;
     let unknown_gc_extension = UnknownExtension(mutable_metadata);
 
     Ok(Extension::Unknown(
@@ -1230,6 +1438,7 @@ async fn validate_initial_group_membership<ApiClient: XmtpApi>(
     conn: &DbConnection,
     mls_group: &OpenMlsGroup,
 ) -> Result<(), GroupError> {
+    tracing::info!("Validating initial group membership");
     let membership = extract_group_membership(mls_group.extensions())?;
     let needs_update = client.filter_inbox_ids_needing_updates(conn, membership.to_filters())?;
     if !needs_update.is_empty() {
@@ -1261,6 +1470,60 @@ async fn validate_initial_group_membership<ApiClient: XmtpApi>(
         return Err(GroupError::InvalidGroupMembership);
     }
 
+    tracing::info!("Group membership validated");
+    Ok(())
+}
+
+fn validate_dm_group<ApiClient: XmtpApi>(
+    client: &Client<ApiClient>,
+    mls_group: &OpenMlsGroup,
+    added_by_inbox: &str,
+) -> Result<(), GroupError> {
+    let metadata = extract_group_metadata(mls_group)?;
+
+    // Check if the conversation type is DM
+    if metadata.conversation_type != ConversationType::Dm {
+        return Err(GroupError::Generic(
+            "Invalid conversation type for DM group".to_string(),
+        ));
+    }
+
+    // Check if DmMembers are set and validate their contents
+    if let Some(dm_members) = metadata.dm_members {
+        let our_inbox_id = client.context.identity.inbox_id().clone();
+        if !((dm_members.member_one_inbox_id == added_by_inbox
+            && dm_members.member_two_inbox_id == our_inbox_id)
+            || (dm_members.member_one_inbox_id == our_inbox_id
+                && dm_members.member_two_inbox_id == added_by_inbox))
+        {
+            return Err(GroupError::Generic(
+                "DM members do not match expected inboxes".to_string(),
+            ));
+        }
+    } else {
+        return Err(GroupError::Generic(
+            "DM group must have DmMembers set".to_string(),
+        ));
+    }
+
+    // Validate mutable metadata
+    let mutable_metadata: GroupMutableMetadata = mls_group.try_into()?;
+
+    // Check if the admin list and super admin list are empty
+    if !mutable_metadata.admin_list.is_empty() || !mutable_metadata.super_admin_list.is_empty() {
+        return Err(GroupError::Generic(
+            "DM group must have empty admin and super admin lists".to_string(),
+        ));
+    }
+
+    // Validate permissions
+    let permissions = extract_group_permissions(mls_group)?;
+    if permissions != GroupMutablePermissions::new(PolicySet::new_dm()) {
+        return Err(GroupError::Generic(
+            "Invalid permissions for DM group".to_string(),
+        ));
+    }
+
     Ok(())
 }
 
@@ -1279,25 +1542,28 @@ mod tests {
     use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
     use prost::Message;
     use std::sync::Arc;
-    use tracing_test::traced_test;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     use crate::{
         assert_err, assert_logged,
         builder::ClientBuilder,
-        client::MessageProcessingError,
+        client::{FindGroupParams, MessageProcessingError},
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
-            build_group_membership_extension,
+            build_dm_protected_metadata_extension, build_group_membership_extension,
+            build_mutable_metadata_extension_default, build_protected_metadata_extension,
             group_membership::GroupMembership,
             group_metadata::{ConversationType, GroupMetadata},
             group_mutable_metadata::MetadataField,
             intents::{PermissionPolicyOption, PermissionUpdateType},
             members::{GroupMember, PermissionLevel},
-            DeliveryStatus, GroupMetadataOptions, PreconfiguredPolicies, UpdateAdminListType,
+            validate_dm_group, DeliveryStatus, GroupMetadataOptions, PreconfiguredPolicies,
+            UpdateAdminListType,
         },
         storage::{
+            consent_record::ConsentState,
+            group::Purpose,
             group_intent::{IntentKind, IntentState, NewGroupIntent},
             group_message::{GroupMessageKind, StoredGroupMessage},
         },
@@ -1306,6 +1572,7 @@ mod tests {
     };
 
     use super::{
+        group_permissions::PolicySet,
         intents::{Installation, SendWelcomesAction},
         GroupError, MlsGroup,
     };
@@ -1315,7 +1582,7 @@ mod tests {
         ApiClient: XmtpApi,
     {
         client.sync_welcomes().await.unwrap();
-        let mut groups = client.find_groups(None, None, None, None).unwrap();
+        let mut groups = client.find_groups(FindGroupParams::default()).unwrap();
 
         groups.remove(0)
     }
@@ -1478,8 +1745,8 @@ mod tests {
         assert_eq!(bola_group_name, "");
 
         // Check if both clients can see the members correctly
-        let amal_members: Vec<GroupMember> = amal_group.members().unwrap();
-        let bola_members: Vec<GroupMember> = bola_group.members().unwrap();
+        let amal_members: Vec<GroupMember> = amal_group.members(&amal).await.unwrap();
+        let bola_members: Vec<GroupMember> = bola_group.members(&bola).await.unwrap();
 
         assert_eq!(amal_members.len(), 2);
         assert_eq!(bola_members.len(), 2);
@@ -1523,13 +1790,13 @@ mod tests {
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
 
-        log::info!("Adding charlie from amal");
+        tracing::info!("Adding charlie from amal");
         // Have amal and bola both invite charlie.
         amal_group
             .add_members_by_inbox_id(&amal, vec![charlie.inbox_id()])
             .await
             .expect("failed to add charlie");
-        log::info!("Adding charlie from bola");
+        tracing::info!("Adding charlie from bola");
         bola_group
             .add_members_by_inbox_id(&bola, vec![charlie.inbox_id()])
             .await
@@ -1593,43 +1860,44 @@ mod tests {
         let matching_message = bola_messages
             .iter()
             .find(|m| m.decrypted_message_bytes == "hello from amal".as_bytes());
-        log::info!("found message: {:?}", bola_messages);
+        tracing::info!("found message: {:?}", bola_messages);
         assert!(matching_message.is_some());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    #[traced_test]
-    async fn test_create_from_welcome_validation() {
-        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    #[test]
+    fn test_create_from_welcome_validation() {
+        crate::traced_test(|| async {
+            let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+            let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alix_group: MlsGroup = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        let provider = alix.mls_provider().unwrap();
-        // Doctor the group membership
-        let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
-        let mut existing_extensions = mls_group.extensions().clone();
-        let mut group_membership = GroupMembership::new();
-        group_membership.add("foo".to_string(), 1);
-        existing_extensions.add_or_replace(build_group_membership_extension(&group_membership));
-        mls_group
-            .update_group_context_extensions(
-                &provider,
-                existing_extensions.clone(),
-                &alix.identity().installation_keys,
-            )
-            .unwrap();
-        mls_group.merge_pending_commit(&provider).unwrap();
+            let alix_group: MlsGroup = alix
+                .create_group(None, GroupMetadataOptions::default())
+                .unwrap();
+            let provider = alix.mls_provider().unwrap();
+            // Doctor the group membership
+            let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
+            let mut existing_extensions = mls_group.extensions().clone();
+            let mut group_membership = GroupMembership::new();
+            group_membership.add("foo".to_string(), 1);
+            existing_extensions.add_or_replace(build_group_membership_extension(&group_membership));
+            mls_group
+                .update_group_context_extensions(
+                    &provider,
+                    existing_extensions.clone(),
+                    &alix.identity().installation_keys,
+                )
+                .unwrap();
+            mls_group.merge_pending_commit(&provider).unwrap();
 
-        // Now add bo to the group
-        force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
+            // Now add bo to the group
+            force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
 
-        // Bo should not be able to actually read this group
-        bo.sync_welcomes().await.unwrap();
-        let groups = bo.find_groups(None, None, None, None).unwrap();
-        assert_eq!(groups.len(), 0);
-        assert_logged!("failed to create group from welcome", 1);
+            // Bo should not be able to actually read this group
+            bo.sync_welcomes().await.unwrap();
+            let groups = bo.find_groups(FindGroupParams::default()).unwrap();
+            assert_eq!(groups.len(), 0);
+            assert_logged!("failed to create group from welcome", 1);
+        });
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1755,7 +2023,7 @@ mod tests {
             .expect("send message");
 
         bola_client.sync_welcomes().await.unwrap();
-        let bola_groups = bola_client.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola_client.find_groups(FindGroupParams::default()).unwrap();
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola_client).await.unwrap();
         let bola_messages = bola_group
@@ -1805,8 +2073,8 @@ mod tests {
             )
             .await
             .unwrap();
-        log::info!("created the group with 2 additional members");
-        assert_eq!(group.members().unwrap().len(), 3);
+        tracing::info!("created the group with 2 additional members");
+        assert_eq!(group.members(&bola).await.unwrap().len(), 3);
         let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].kind, GroupMessageKind::MembershipChange);
@@ -1820,8 +2088,8 @@ mod tests {
             .remove_members(&amal, vec![bola_wallet.get_address()])
             .await
             .unwrap();
-        assert_eq!(group.members().unwrap().len(), 2);
-        log::info!("removed bola");
+        assert_eq!(group.members(&bola).await.unwrap().len(), 2);
+        tracing::info!("removed bola");
         let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[1].kind, GroupMessageKind::MembershipChange);
@@ -1856,20 +2124,22 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(group.members().unwrap().len(), 3);
+        assert_eq!(group.members(&bola).await.unwrap().len(), 3);
 
         group
             .remove_members(&amal, vec![bola_wallet.get_address()])
             .await
             .unwrap();
-        assert_eq!(group.members().unwrap().len(), 2);
+        assert_eq!(group.members(&bola).await.unwrap().len(), 2);
         assert!(group
-            .members()
+            .members(&bola)
+            .await
             .unwrap()
             .iter()
             .all(|m| m.inbox_id != bola.inbox_id()));
         assert!(group
-            .members()
+            .members(&bola)
+            .await
             .unwrap()
             .iter()
             .any(|m| m.inbox_id == charlie.inbox_id()));
@@ -1915,7 +2185,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(group.members().unwrap().len(), 2);
+        assert_eq!(group.members(&amal).await.unwrap().len(), 2);
 
         let provider: XmtpOpenMlsProvider = amal.context.store.conn().unwrap().into();
         // Finished with setup
@@ -2106,7 +2376,7 @@ mod tests {
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
@@ -2274,7 +2544,7 @@ mod tests {
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
@@ -2353,7 +2623,7 @@ mod tests {
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
@@ -2369,7 +2639,7 @@ mod tests {
 
         // Verify that bola can not add caro because they are not an admin
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group: &MlsGroup = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
@@ -2433,7 +2703,7 @@ mod tests {
 
         // Verify that bola can not add charlie because they are not an admin
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group: &MlsGroup = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
@@ -2461,7 +2731,7 @@ mod tests {
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
@@ -2477,7 +2747,7 @@ mod tests {
 
         // Verify that bola can not add caro as an admin because they are not a super admin
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group: &MlsGroup = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
@@ -2562,7 +2832,7 @@ mod tests {
         amal_group.sync(&amal).await.unwrap();
 
         // Initial checks for group members
-        let initial_members = amal_group.members().unwrap();
+        let initial_members = amal_group.members(&amal).await.unwrap();
         let mut count_member = 0;
         let mut count_admin = 0;
         let mut count_super_admin = 0;
@@ -2590,7 +2860,7 @@ mod tests {
         amal_group.sync(&amal).await.unwrap();
 
         // Check after adding Bola as an admin
-        let members = amal_group.members().unwrap();
+        let members = amal_group.members(&amal).await.unwrap();
         let mut count_member = 0;
         let mut count_admin = 0;
         let mut count_super_admin = 0;
@@ -2618,7 +2888,7 @@ mod tests {
         amal_group.sync(&amal).await.unwrap();
 
         // Check after adding Caro as a super admin
-        let members = amal_group.members().unwrap();
+        let members = amal_group.members(&amal).await.unwrap();
         let mut count_member = 0;
         let mut count_admin = 0;
         let mut count_super_admin = 0;
@@ -2724,7 +2994,7 @@ mod tests {
 
         // Step 3: Verify that Bola can update the group name, and amal sees the update
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         let bola_group: &MlsGroup = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
         bola_group
@@ -2789,7 +3059,7 @@ mod tests {
         // Step 3: Bola attemps to add Caro, but fails because group is admin only
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         let bola_group: &MlsGroup = bola_groups.first().unwrap();
         bola_group.sync(&bola).await.unwrap();
         let result = bola_group
@@ -2833,7 +3103,7 @@ mod tests {
             .await
             .unwrap();
         bola_group.sync(&bola).await.unwrap();
-        let members = bola_group.members().unwrap();
+        let members = bola_group.members(&bola).await.unwrap();
         assert_eq!(members.len(), 3);
     }
 
@@ -2924,6 +3194,78 @@ mod tests {
                 DeliveryStatus::Published,
             ]
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_dm_creation() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Amal creates a dm group targetting bola
+        let amal_dm: MlsGroup = amal.create_dm_by_inbox_id(bola.inbox_id()).await.unwrap();
+
+        // Amal can not add caro to the dm group
+        let result = amal_dm
+            .add_members_by_inbox_id(&amal, vec![caro.inbox_id()])
+            .await;
+        assert!(result.is_err());
+
+        // Bola is already a member
+        let result = amal_dm
+            .add_members_by_inbox_id(&amal, vec![bola.inbox_id(), caro.inbox_id()])
+            .await;
+        assert!(result.is_err());
+        amal_dm.sync(&amal).await.unwrap();
+        let members = amal_dm.members(&amal).await.unwrap();
+        assert_eq!(members.len(), 2);
+
+        // Bola can message amal
+        let _ = bola.sync_welcomes().await;
+        let bola_groups = bola
+            .find_groups(FindGroupParams {
+                include_dm_groups: true,
+                ..FindGroupParams::default()
+            })
+            .unwrap();
+        let bola_dm: &MlsGroup = bola_groups.first().unwrap();
+        bola_dm.send_message(b"test one", &bola).await.unwrap();
+
+        // Amal sync and reads message
+        amal_dm.sync(&amal).await.unwrap();
+        let messages = amal_dm.find_messages(None, None, None, None, None).unwrap();
+        assert_eq!(messages.len(), 2);
+        let message = messages.last().unwrap();
+        assert_eq!(message.decrypted_message_bytes, b"test one");
+
+        // Amal can not remove bola
+        let result = amal_dm
+            .remove_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .await;
+        assert!(result.is_err());
+        amal_dm.sync(&amal).await.unwrap();
+        let members = amal_dm.members(&amal).await.unwrap();
+        assert_eq!(members.len(), 2);
+
+        // Neither Amal nor Bola is an admin or super admin
+        amal_dm.sync(&amal).await.unwrap();
+        bola_dm.sync(&bola).await.unwrap();
+        let is_amal_admin = amal_dm
+            .is_admin(amal.inbox_id(), amal.mls_provider().unwrap())
+            .unwrap();
+        let is_bola_admin = amal_dm
+            .is_admin(bola.inbox_id(), bola.mls_provider().unwrap())
+            .unwrap();
+        let is_amal_super_admin = amal_dm
+            .is_super_admin(amal.inbox_id(), amal.mls_provider().unwrap())
+            .unwrap();
+        let is_bola_super_admin = amal_dm
+            .is_super_admin(bola.inbox_id(), bola.mls_provider().unwrap())
+            .unwrap();
+        assert!(!is_amal_admin);
+        assert!(!is_bola_admin);
+        assert!(!is_amal_super_admin);
+        assert!(!is_bola_super_admin);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -3217,5 +3559,171 @@ mod tests {
             process_result,
             MessageProcessingError::EpochIncrementNotAllowed
         );
+    }
+
+    #[tokio::test]
+    async fn test_get_and_set_consent() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        // group consent state should be allowed if user created it
+        assert_eq!(alix_group.consent_state().unwrap(), ConsentState::Allowed);
+
+        alix_group
+            .update_consent_state(ConsentState::Denied)
+            .unwrap();
+        assert_eq!(alix_group.consent_state().unwrap(), ConsentState::Denied);
+
+        alix_group
+            .add_members_by_inbox_id(&alix, vec![bola.inbox_id()])
+            .await
+            .unwrap();
+
+        bola.sync_welcomes().await.unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_group = bola_groups.first().unwrap();
+        // group consent state should default to unknown for users who did not create the group
+        assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Unknown);
+
+        bola_group
+            .send_message("hi from bola".as_bytes(), &bola)
+            .await
+            .unwrap();
+
+        // group consent state should be allowed if user sends a message to the group
+        assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Allowed);
+
+        alix_group
+            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+            .await
+            .unwrap();
+
+        caro.sync_welcomes().await.unwrap();
+        let caro_groups = caro.find_groups(FindGroupParams::default()).unwrap();
+        let caro_group = caro_groups.first().unwrap();
+
+        caro_group
+            .send_message_optimistic("hi from caro".as_bytes())
+            .unwrap();
+
+        caro_group.publish_messages(&caro).await.unwrap();
+
+        // group consent state should be allowed if user publishes a message to the group
+        assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Allowed);
+    }
+
+    #[tokio::test]
+    async fn test_validate_dm_group() {
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let added_by_inbox = "added_by_inbox_id";
+        let creator_inbox_id = client.context.identity.inbox_id().clone();
+        let dm_target_inbox_id = added_by_inbox.to_string();
+
+        // Test case 1: Valid DM group
+        let valid_dm_group = MlsGroup::create_test_dm_group(
+            client.context.clone(),
+            dm_target_inbox_id.clone(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(validate_dm_group(
+            &client,
+            &valid_dm_group
+                .load_mls_group(client.mls_provider().unwrap())
+                .unwrap(),
+            added_by_inbox
+        )
+        .is_ok());
+
+        // Test case 2: Invalid conversation type
+        let invalid_protected_metadata =
+            build_protected_metadata_extension(creator_inbox_id.clone(), Purpose::Conversation)
+                .unwrap();
+        let invalid_type_group = MlsGroup::create_test_dm_group(
+            client.context.clone(),
+            dm_target_inbox_id.clone(),
+            Some(invalid_protected_metadata),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(matches!(
+            validate_dm_group(&client, &invalid_type_group.load_mls_group(client.mls_provider().unwrap()).unwrap(), added_by_inbox),
+            Err(GroupError::Generic(msg)) if msg.contains("Invalid conversation type")
+        ));
+
+        // Test case 3: Missing DmMembers
+        // This case is not easily testable with the current structure, as DmMembers are set in the protected metadata
+
+        // Test case 4: Mismatched DM members
+        let mismatched_dm_members = build_dm_protected_metadata_extension(
+            creator_inbox_id.clone(),
+            "wrong_inbox_id".to_string(),
+        )
+        .unwrap();
+        let mismatched_dm_members_group = MlsGroup::create_test_dm_group(
+            client.context.clone(),
+            dm_target_inbox_id.clone(),
+            Some(mismatched_dm_members),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(matches!(
+            validate_dm_group(&client, &mismatched_dm_members_group.load_mls_group(client.mls_provider().unwrap()).unwrap(), added_by_inbox),
+            Err(GroupError::Generic(msg)) if msg.contains("DM members do not match expected inboxes")
+        ));
+
+        // Test case 5: Non-empty admin list
+        let non_empty_admin_list = build_mutable_metadata_extension_default(
+            creator_inbox_id.clone(),
+            GroupMetadataOptions::default(),
+        )
+        .unwrap();
+        let non_empty_admin_list_group = MlsGroup::create_test_dm_group(
+            client.context.clone(),
+            dm_target_inbox_id.clone(),
+            None,
+            Some(non_empty_admin_list),
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(matches!(
+            validate_dm_group(&client, &non_empty_admin_list_group.load_mls_group(client.mls_provider().unwrap()).unwrap(), added_by_inbox),
+            Err(GroupError::Generic(msg)) if msg.contains("DM group must have empty admin and super admin lists")
+        ));
+
+        // Test case 6: Non-empty super admin list
+        // Similar to test case 5, but with super_admin_list
+
+        // Test case 7: Invalid permissions
+        let invalid_permissions = PolicySet::default();
+        let invalid_permissions_group = MlsGroup::create_test_dm_group(
+            client.context.clone(),
+            dm_target_inbox_id.clone(),
+            None,
+            None,
+            None,
+            Some(invalid_permissions),
+        )
+        .unwrap();
+        assert!(matches!(
+                validate_dm_group(
+                    &client,
+                    &invalid_permissions_group.load_mls_group(client.mls_provider().unwrap()).unwrap(),
+                    added_by_inbox
+                ),
+            Err(GroupError::Generic(msg)) if msg.contains("Invalid permissions for DM group")
+        ));
     }
 }

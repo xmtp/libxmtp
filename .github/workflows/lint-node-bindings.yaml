@@ -6,7 +6,8 @@ on:
       - "bindings_node/**"
       - ".github/workflows/lint-node-bindings.yaml"
       - "rustfmt.toml"
-
+env:
+  CARGO_TERM_COLOR: always
 jobs:
   lint:
     name: Lint

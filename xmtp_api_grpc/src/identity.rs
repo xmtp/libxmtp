@@ -1,4 +1,3 @@
-use tonic::async_trait;
 use xmtp_proto::{
     api_client::{Error, ErrorKind, XmtpIdentityClient},
     xmtp::identity::api::v1::{
@@ -10,7 +9,6 @@ use xmtp_proto::{
 
 use crate::Client;
 
-#[async_trait]
 impl XmtpIdentityClient for Client {
     #[tracing::instrument(level = "trace", skip_all)]
     async fn publish_identity_update(

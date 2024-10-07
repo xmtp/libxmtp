@@ -18,6 +18,8 @@ on:
       - "Cargo.lock"
       - "rust-toolchain"
       - "rustfmt.toml"
+env:
+  CARGO_TERM_COLOR: always
 jobs:
   lint:
     name: Lint

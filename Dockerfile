@@ -8,6 +8,7 @@ COPY --chown=xmtp:xmtp rust-toolchain .
 ENV RUSTUP_PERMIT_COPY_RENAME "yes"
 
 RUN rustup update
+RUN curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
 
 LABEL org.label-schema.build-date=$BUILD_DATE \
     org.label-schema.name="rustdev" \

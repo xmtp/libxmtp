@@ -13,7 +13,7 @@ impl serde::Serialize for AuthenticatedData {
         if !self.target_topic.is_empty() {
             len += 1;
         }
-        if !self.last_originator_sids.is_empty() {
+        if self.last_seen.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.AuthenticatedData", len)?;
@@ -25,8 +25,8 @@ impl serde::Serialize for AuthenticatedData {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("targetTopic", pbjson::private::base64::encode(&self.target_topic).as_str())?;
         }
-        if !self.last_originator_sids.is_empty() {
-            struct_ser.serialize_field("lastOriginatorSids", &self.last_originator_sids.iter().map(ToString::to_string).collect::<Vec<_>>())?;
+        if let Some(v) = self.last_seen.as_ref() {
+            struct_ser.serialize_field("lastSeen", v)?;
         }
         struct_ser.end()
     }
@@ -42,15 +42,15 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
             "targetOriginator",
             "target_topic",
             "targetTopic",
-            "last_originator_sids",
-            "lastOriginatorSids",
+            "last_seen",
+            "lastSeen",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             TargetOriginator,
             TargetTopic,
-            LastOriginatorSids,
+            LastSeen,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -74,7 +74,7 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
                         match value {
                             "targetOriginator" | "target_originator" => Ok(GeneratedField::TargetOriginator),
                             "targetTopic" | "target_topic" => Ok(GeneratedField::TargetTopic),
-                            "lastOriginatorSids" | "last_originator_sids" => Ok(GeneratedField::LastOriginatorSids),
+                            "lastSeen" | "last_seen" => Ok(GeneratedField::LastSeen),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -96,7 +96,7 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
             {
                 let mut target_originator__ = None;
                 let mut target_topic__ = None;
-                let mut last_originator_sids__ = None;
+                let mut last_seen__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::TargetOriginator => {
@@ -115,21 +115,18 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::LastOriginatorSids => {
-                            if last_originator_sids__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("lastOriginatorSids"));
+                        GeneratedField::LastSeen => {
+                            if last_seen__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("lastSeen"));
                             }
-                            last_originator_sids__ = 
-                                Some(map_.next_value::<Vec<::pbjson::private::NumberDeserialize<_>>>()?
-                                    .into_iter().map(|x| x.0).collect())
-                            ;
+                            last_seen__ = map_.next_value()?;
                         }
                     }
                 }
                 Ok(AuthenticatedData {
                     target_originator: target_originator__.unwrap_or_default(),
                     target_topic: target_topic__.unwrap_or_default(),
-                    last_originator_sids: last_originator_sids__.unwrap_or_default(),
+                    last_seen: last_seen__,
                 })
             }
         }
@@ -420,7 +417,7 @@ impl serde::Serialize for BlockchainProof {
         if self.block_number != 0 {
             len += 1;
         }
-        if self.publisher_id != 0 {
+        if self.publisher_node_id != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.BlockchainProof", len)?;
@@ -429,8 +426,8 @@ impl serde::Serialize for BlockchainProof {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("blockNumber", ToString::to_string(&self.block_number).as_str())?;
         }
-        if self.publisher_id != 0 {
-            struct_ser.serialize_field("publisherId", &self.publisher_id)?;
+        if self.publisher_node_id != 0 {
+            struct_ser.serialize_field("publisherNodeId", &self.publisher_node_id)?;
         }
         struct_ser.end()
     }
@@ -444,14 +441,14 @@ impl<'de> serde::Deserialize<'de> for BlockchainProof {
         const FIELDS: &[&str] = &[
             "block_number",
             "blockNumber",
-            "publisher_id",
-            "publisherId",
+            "publisher_node_id",
+            "publisherNodeId",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             BlockNumber,
-            PublisherId,
+            PublisherNodeId,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -474,7 +471,7 @@ impl<'de> serde::Deserialize<'de> for BlockchainProof {
                     {
                         match value {
                             "blockNumber" | "block_number" => Ok(GeneratedField::BlockNumber),
-                            "publisherId" | "publisher_id" => Ok(GeneratedField::PublisherId),
+                            "publisherNodeId" | "publisher_node_id" => Ok(GeneratedField::PublisherNodeId),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -495,7 +492,7 @@ impl<'de> serde::Deserialize<'de> for BlockchainProof {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut block_number__ = None;
-                let mut publisher_id__ = None;
+                let mut publisher_node_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::BlockNumber => {
@@ -506,11 +503,11 @@ impl<'de> serde::Deserialize<'de> for BlockchainProof {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::PublisherId => {
-                            if publisher_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("publisherId"));
+                        GeneratedField::PublisherNodeId => {
+                            if publisher_node_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("publisherNodeId"));
                             }
-                            publisher_id__ = 
+                            publisher_node_id__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -518,7 +515,7 @@ impl<'de> serde::Deserialize<'de> for BlockchainProof {
                 }
                 Ok(BlockchainProof {
                     block_number: block_number__.unwrap_or_default(),
-                    publisher_id: publisher_id__.unwrap_or_default(),
+                    publisher_node_id: publisher_node_id__.unwrap_or_default(),
                 })
             }
         }
@@ -703,13 +700,16 @@ impl serde::Serialize for EnvelopesQuery {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.filter.is_some() {
-            len += 1;
-        }
         if self.last_seen.is_some() {
             len += 1;
         }
+        if self.filter.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.EnvelopesQuery", len)?;
+        if let Some(v) = self.last_seen.as_ref() {
+            struct_ser.serialize_field("lastSeen", v)?;
+        }
         if let Some(v) = self.filter.as_ref() {
             match v {
                 envelopes_query::Filter::Topic(v) => {
@@ -717,22 +717,8 @@ impl serde::Serialize for EnvelopesQuery {
                     #[allow(clippy::needless_borrows_for_generic_args)]
                     struct_ser.serialize_field("topic", pbjson::private::base64::encode(&v).as_str())?;
                 }
-                envelopes_query::Filter::OriginatorId(v) => {
-                    struct_ser.serialize_field("originatorId", v)?;
-                }
-            }
-        }
-        if let Some(v) = self.last_seen.as_ref() {
-            match v {
-                envelopes_query::LastSeen::OriginatorSid(v) => {
-                    #[allow(clippy::needless_borrow)]
-                    #[allow(clippy::needless_borrows_for_generic_args)]
-                    struct_ser.serialize_field("originatorSid", ToString::to_string(&v).as_str())?;
-                }
-                envelopes_query::LastSeen::GatewaySid(v) => {
-                    #[allow(clippy::needless_borrow)]
-                    #[allow(clippy::needless_borrows_for_generic_args)]
-                    struct_ser.serialize_field("gatewaySid", ToString::to_string(&v).as_str())?;
+                envelopes_query::Filter::OriginatorNodeId(v) => {
+                    struct_ser.serialize_field("originatorNodeId", v)?;
                 }
             }
         }
@@ -746,21 +732,18 @@ impl<'de> serde::Deserialize<'de> for EnvelopesQuery {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "last_seen",
+            "lastSeen",
             "topic",
-            "originator_id",
-            "originatorId",
-            "originator_sid",
-            "originatorSid",
-            "gateway_sid",
-            "gatewaySid",
+            "originator_node_id",
+            "originatorNodeId",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            LastSeen,
             Topic,
-            OriginatorId,
-            OriginatorSid,
-            GatewaySid,
+            OriginatorNodeId,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -782,10 +765,9 @@ impl<'de> serde::Deserialize<'de> for EnvelopesQuery {
                         E: serde::de::Error,
                     {
                         match value {
+                            "lastSeen" | "last_seen" => Ok(GeneratedField::LastSeen),
                             "topic" => Ok(GeneratedField::Topic),
-                            "originatorId" | "originator_id" => Ok(GeneratedField::OriginatorId),
-                            "originatorSid" | "originator_sid" => Ok(GeneratedField::OriginatorSid),
-                            "gatewaySid" | "gateway_sid" => Ok(GeneratedField::GatewaySid),
+                            "originatorNodeId" | "originator_node_id" => Ok(GeneratedField::OriginatorNodeId),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -805,46 +787,40 @@ impl<'de> serde::Deserialize<'de> for EnvelopesQuery {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut filter__ = None;
                 let mut last_seen__ = None;
+                let mut filter__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
+                        GeneratedField::LastSeen => {
+                            if last_seen__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("lastSeen"));
+                            }
+                            last_seen__ = map_.next_value()?;
+                        }
                         GeneratedField::Topic => {
                             if filter__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("topic"));
                             }
                             filter__ = map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| envelopes_query::Filter::Topic(x.0));
                         }
-                        GeneratedField::OriginatorId => {
+                        GeneratedField::OriginatorNodeId => {
                             if filter__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("originatorId"));
+                                return Err(serde::de::Error::duplicate_field("originatorNodeId"));
                             }
-                            filter__ = map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| envelopes_query::Filter::OriginatorId(x.0));
-                        }
-                        GeneratedField::OriginatorSid => {
-                            if last_seen__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("originatorSid"));
-                            }
-                            last_seen__ = map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| envelopes_query::LastSeen::OriginatorSid(x.0));
-                        }
-                        GeneratedField::GatewaySid => {
-                            if last_seen__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("gatewaySid"));
-                            }
-                            last_seen__ = map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| envelopes_query::LastSeen::GatewaySid(x.0));
+                            filter__ = map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| envelopes_query::Filter::OriginatorNodeId(x.0));
                         }
                     }
                 }
                 Ok(EnvelopesQuery {
-                    filter: filter__,
                     last_seen: last_seen__,
+                    filter: filter__,
                 })
             }
         }
         deserializer.deserialize_struct("xmtp.xmtpv4.EnvelopesQuery", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for GatewayEnvelope {
+impl serde::Serialize for GetInboxIdsRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -852,41 +828,29 @@ impl serde::Serialize for GatewayEnvelope {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.gateway_sid != 0 {
+        if !self.requests.is_empty() {
             len += 1;
         }
-        if self.originator_envelope.is_some() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.GatewayEnvelope", len)?;
-        if self.gateway_sid != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("gatewaySid", ToString::to_string(&self.gateway_sid).as_str())?;
-        }
-        if let Some(v) = self.originator_envelope.as_ref() {
-            struct_ser.serialize_field("originatorEnvelope", v)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.GetInboxIdsRequest", len)?;
+        if !self.requests.is_empty() {
+            struct_ser.serialize_field("requests", &self.requests)?;
         }
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for GatewayEnvelope {
+impl<'de> serde::Deserialize<'de> for GetInboxIdsRequest {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "gateway_sid",
-            "gatewaySid",
-            "originator_envelope",
-            "originatorEnvelope",
+            "requests",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            GatewaySid,
-            OriginatorEnvelope,
+            Requests,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -908,8 +872,7 @@ impl<'de> serde::Deserialize<'de> for GatewayEnvelope {
                         E: serde::de::Error,
                     {
                         match value {
-                            "gatewaySid" | "gateway_sid" => Ok(GeneratedField::GatewaySid),
-                            "originatorEnvelope" | "originator_envelope" => Ok(GeneratedField::OriginatorEnvelope),
+                            "requests" => Ok(GeneratedField::Requests),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -919,43 +882,324 @@ impl<'de> serde::Deserialize<'de> for GatewayEnvelope {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = GatewayEnvelope;
+            type Value = GetInboxIdsRequest;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.xmtpv4.GatewayEnvelope")
+                formatter.write_str("struct xmtp.xmtpv4.GetInboxIdsRequest")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GatewayEnvelope, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GetInboxIdsRequest, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut gateway_sid__ = None;
-                let mut originator_envelope__ = None;
+                let mut requests__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::GatewaySid => {
-                            if gateway_sid__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("gatewaySid"));
+                        GeneratedField::Requests => {
+                            if requests__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("requests"));
                             }
-                            gateway_sid__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::OriginatorEnvelope => {
-                            if originator_envelope__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("originatorEnvelope"));
-                            }
-                            originator_envelope__ = map_.next_value()?;
+                            requests__ = Some(map_.next_value()?);
                         }
                     }
                 }
-                Ok(GatewayEnvelope {
-                    gateway_sid: gateway_sid__.unwrap_or_default(),
-                    originator_envelope: originator_envelope__,
+                Ok(GetInboxIdsRequest {
+                    requests: requests__.unwrap_or_default(),
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.xmtpv4.GatewayEnvelope", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.xmtpv4.GetInboxIdsRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for get_inbox_ids_request::Request {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.address.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.GetInboxIdsRequest.Request", len)?;
+        if !self.address.is_empty() {
+            struct_ser.serialize_field("address", &self.address)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for get_inbox_ids_request::Request {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "address",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Address,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "address" => Ok(GeneratedField::Address),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = get_inbox_ids_request::Request;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.xmtpv4.GetInboxIdsRequest.Request")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<get_inbox_ids_request::Request, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut address__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Address => {
+                            if address__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("address"));
+                            }
+                            address__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(get_inbox_ids_request::Request {
+                    address: address__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.xmtpv4.GetInboxIdsRequest.Request", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for GetInboxIdsResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.responses.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.GetInboxIdsResponse", len)?;
+        if !self.responses.is_empty() {
+            struct_ser.serialize_field("responses", &self.responses)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for GetInboxIdsResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "responses",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Responses,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "responses" => Ok(GeneratedField::Responses),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = GetInboxIdsResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.xmtpv4.GetInboxIdsResponse")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GetInboxIdsResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut responses__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Responses => {
+                            if responses__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("responses"));
+                            }
+                            responses__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(GetInboxIdsResponse {
+                    responses: responses__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.xmtpv4.GetInboxIdsResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for get_inbox_ids_response::Response {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.address.is_empty() {
+            len += 1;
+        }
+        if self.inbox_id.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.GetInboxIdsResponse.Response", len)?;
+        if !self.address.is_empty() {
+            struct_ser.serialize_field("address", &self.address)?;
+        }
+        if let Some(v) = self.inbox_id.as_ref() {
+            struct_ser.serialize_field("inboxId", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for get_inbox_ids_response::Response {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "address",
+            "inbox_id",
+            "inboxId",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Address,
+            InboxId,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "address" => Ok(GeneratedField::Address),
+                            "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = get_inbox_ids_response::Response;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.xmtpv4.GetInboxIdsResponse.Response")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<get_inbox_ids_response::Response, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut address__ = None;
+                let mut inbox_id__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Address => {
+                            if address__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("address"));
+                            }
+                            address__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::InboxId => {
+                            if inbox_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("inboxId"));
+                            }
+                            inbox_id__ = map_.next_value()?;
+                        }
+                    }
+                }
+                Ok(get_inbox_ids_response::Response {
+                    address: address__.unwrap_or_default(),
+                    inbox_id: inbox_id__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.xmtpv4.GetInboxIdsResponse.Response", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for Misbehavior {
@@ -1788,7 +2032,10 @@ impl serde::Serialize for UnsignedOriginatorEnvelope {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.originator_sid != 0 {
+        if self.originator_node_id != 0 {
+            len += 1;
+        }
+        if self.originator_sequence_id != 0 {
             len += 1;
         }
         if self.originator_ns != 0 {
@@ -1798,10 +2045,13 @@ impl serde::Serialize for UnsignedOriginatorEnvelope {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.UnsignedOriginatorEnvelope", len)?;
-        if self.originator_sid != 0 {
+        if self.originator_node_id != 0 {
+            struct_ser.serialize_field("originatorNodeId", &self.originator_node_id)?;
+        }
+        if self.originator_sequence_id != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("originatorSid", ToString::to_string(&self.originator_sid).as_str())?;
+            struct_ser.serialize_field("originatorSequenceId", ToString::to_string(&self.originator_sequence_id).as_str())?;
         }
         if self.originator_ns != 0 {
             #[allow(clippy::needless_borrow)]
@@ -1821,8 +2071,10 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "originator_sid",
-            "originatorSid",
+            "originator_node_id",
+            "originatorNodeId",
+            "originator_sequence_id",
+            "originatorSequenceId",
             "originator_ns",
             "originatorNs",
             "payer_envelope",
@@ -1831,7 +2083,8 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            OriginatorSid,
+            OriginatorNodeId,
+            OriginatorSequenceId,
             OriginatorNs,
             PayerEnvelope,
         }
@@ -1855,7 +2108,8 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
                         E: serde::de::Error,
                     {
                         match value {
-                            "originatorSid" | "originator_sid" => Ok(GeneratedField::OriginatorSid),
+                            "originatorNodeId" | "originator_node_id" => Ok(GeneratedField::OriginatorNodeId),
+                            "originatorSequenceId" | "originator_sequence_id" => Ok(GeneratedField::OriginatorSequenceId),
                             "originatorNs" | "originator_ns" => Ok(GeneratedField::OriginatorNs),
                             "payerEnvelope" | "payer_envelope" => Ok(GeneratedField::PayerEnvelope),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
@@ -1877,16 +2131,25 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut originator_sid__ = None;
+                let mut originator_node_id__ = None;
+                let mut originator_sequence_id__ = None;
                 let mut originator_ns__ = None;
                 let mut payer_envelope__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::OriginatorSid => {
-                            if originator_sid__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("originatorSid"));
+                        GeneratedField::OriginatorNodeId => {
+                            if originator_node_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("originatorNodeId"));
                             }
-                            originator_sid__ = 
+                            originator_node_id__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::OriginatorSequenceId => {
+                            if originator_sequence_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("originatorSequenceId"));
+                            }
+                            originator_sequence_id__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -1907,12 +2170,110 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
                     }
                 }
                 Ok(UnsignedOriginatorEnvelope {
-                    originator_sid: originator_sid__.unwrap_or_default(),
+                    originator_node_id: originator_node_id__.unwrap_or_default(),
+                    originator_sequence_id: originator_sequence_id__.unwrap_or_default(),
                     originator_ns: originator_ns__.unwrap_or_default(),
                     payer_envelope: payer_envelope__,
                 })
             }
         }
         deserializer.deserialize_struct("xmtp.xmtpv4.UnsignedOriginatorEnvelope", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for VectorClock {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.node_id_to_sequence_id.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.VectorClock", len)?;
+        if !self.node_id_to_sequence_id.is_empty() {
+            let v: std::collections::HashMap<_, _> = self.node_id_to_sequence_id.iter()
+                .map(|(k, v)| (k, v.to_string())).collect();
+            struct_ser.serialize_field("nodeIdToSequenceId", &v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for VectorClock {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "node_id_to_sequence_id",
+            "nodeIdToSequenceId",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            NodeIdToSequenceId,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "nodeIdToSequenceId" | "node_id_to_sequence_id" => Ok(GeneratedField::NodeIdToSequenceId),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = VectorClock;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.xmtpv4.VectorClock")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<VectorClock, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut node_id_to_sequence_id__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::NodeIdToSequenceId => {
+                            if node_id_to_sequence_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("nodeIdToSequenceId"));
+                            }
+                            node_id_to_sequence_id__ = Some(
+                                map_.next_value::<std::collections::HashMap<::pbjson::private::NumberDeserialize<u32>, ::pbjson::private::NumberDeserialize<u64>>>()?
+                                    .into_iter().map(|(k,v)| (k.0, v.0)).collect()
+                            );
+                        }
+                    }
+                }
+                Ok(VectorClock {
+                    node_id_to_sequence_id: node_id_to_sequence_id__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.xmtpv4.VectorClock", FIELDS, GeneratedVisitor)
     }
 }

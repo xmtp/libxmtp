@@ -15,9 +15,11 @@ use std::{fs, path::PathBuf, time::Duration};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder};
+use futures::future::join_all;
 use kv_log_macro::{error, info};
 use prost::Message;
-use xmtp_id::associations::RecoverableEcdsaSignature;
+use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature};
+use xmtp_mls::client::FindGroupParams;
 use xmtp_mls::groups::message_history::MessageHistoryContent;
 use xmtp_mls::storage::group_message::GroupMessageKind;
 
@@ -208,15 +210,17 @@ async fn main() {
 
             // recv(&client).await.unwrap();
             let group_list = client
-                .find_groups(None, None, None, None)
+                .find_groups(FindGroupParams::default())
                 .expect("failed to list groups");
             for group in group_list.iter() {
                 group.sync(&client).await.expect("error syncing group");
             }
+
             let serializable_group_list = group_list
                 .iter()
-                .map(Into::into)
-                .collect::<Vec<SerializableGroup>>();
+                .map(|g| SerializableGroup::from(g, &client))
+                .collect::<Vec<_>>();
+            let serializable_group_list = join_all(serializable_group_list).await;
 
             info!(
                 "group members",
@@ -337,7 +341,7 @@ async fn main() {
                 .group(hex::decode(group_id).expect("bad group id"))
                 .expect("group not found");
             group.sync(&client).await.unwrap();
-            let serializable: SerializableGroup = group.into();
+            let serializable = SerializableGroup::from(group, &client).await;
             info!("Group {}", group_id, { command_output: true, group_id: group_id, group_info: make_value(&serializable) })
         }
         Commands::RequestHistorySync {} => {
@@ -457,14 +461,17 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
     )
     .await?;
     let mut signature_request = client.identity().signature_request().unwrap();
-    let signature = RecoverableEcdsaSignature::new(
-        signature_request.signature_text(),
-        w.sign(signature_request.signature_text().as_str())
-            .unwrap()
-            .into(),
-    );
+    let sig_bytes: Vec<u8> = w
+        .sign(signature_request.signature_text().as_str())
+        .unwrap()
+        .into();
+    let signature =
+        UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(sig_bytes));
     signature_request
-        .add_signature(Box::new(signature))
+        .add_signature(
+            signature,
+            client.smart_contract_signature_verifier().as_ref(),
+        )
         .await
         .unwrap();
 
@@ -509,7 +516,7 @@ fn format_messages(
         if text.is_none() {
             continue;
         }
-        // TODO:nm use inbox ID
+
         let sender = if msg.sender_inbox_id == my_account_address {
             "Me".to_string()
         } else {

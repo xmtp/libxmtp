@@ -13,6 +13,12 @@ pub struct AssociationStateDiff {
     pub removed_members: Vec<MemberIdentifier>,
 }
 
+#[derive(Debug)]
+pub struct Installation {
+    pub id: Vec<u8>,
+    pub client_timestamp_ns: Option<u64>,
+}
+
 impl AssociationStateDiff {
     pub fn new_installations(&self) -> Vec<Vec<u8>> {
         self.new_members
@@ -128,6 +134,19 @@ impl AssociationState {
             .collect()
     }
 
+    pub fn installations(&self) -> Vec<Installation> {
+        self.members()
+            .into_iter()
+            .filter_map(|member| match member.identifier {
+                MemberIdentifier::Address(_) => None,
+                MemberIdentifier::Installation(id) => Some(Installation {
+                    id,
+                    client_timestamp_ns: member.client_timestamp_ns,
+                }),
+            })
+            .collect()
+    }
+
     pub fn diff(&self, new_state: &Self) -> AssociationStateDiff {
         let new_members: Vec<MemberIdentifier> = new_state
             .members
@@ -163,13 +182,9 @@ impl AssociationState {
     pub fn new(account_address: String, nonce: u64) -> Self {
         let inbox_id = generate_inbox_id(&account_address, &nonce);
         let identifier = MemberIdentifier::Address(account_address.clone());
-        let new_member = Member::new(identifier.clone(), None);
+        let new_member = Member::new(identifier.clone(), None, None);
         Self {
-            members: {
-                let mut members = HashMap::new();
-                members.insert(identifier, new_member);
-                members
-            },
+            members: HashMap::from_iter([(identifier, new_member)]),
             seen_signatures: HashSet::new(),
             recovery_address: account_address.to_lowercase(),
             inbox_id,

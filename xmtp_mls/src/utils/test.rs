@@ -3,17 +3,21 @@ use std::env;
 
 use rand::{
     distributions::{Alphanumeric, DistString},
-    Rng,
+    Rng, RngCore,
 };
 use std::sync::Arc;
 use tokio::{sync::Notify, time::error::Elapsed};
 use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
-use xmtp_id::associations::{generate_inbox_id, RecoverableEcdsaSignature};
+use xmtp_id::associations::{
+    generate_inbox_id,
+    test_utils::MockSmartContractSignatureVerifier,
+    unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
+};
 
 use crate::{
     builder::ClientBuilder,
     identity::IdentityStrategy,
-    storage::{EncryptedMessageStore, StorageOption},
+    storage::{EncryptedConnection, EncryptedMessageStore, EncryptionKey, StorageOption},
     types::Address,
     Client, InboxOwner, XmtpApi, XmtpTestClient,
 };
@@ -49,7 +53,6 @@ pub fn rand_time() -> i64 {
     rng.gen_range(0..1_000_000_000)
 }
 
-#[async_trait::async_trait]
 #[cfg(feature = "http-api")]
 impl XmtpTestClient for XmtpHttpApiClient {
     async fn create_local() -> Self {
@@ -61,7 +64,6 @@ impl XmtpTestClient for XmtpHttpApiClient {
     }
 }
 
-#[async_trait::async_trait]
 impl XmtpTestClient for GrpcClient {
     async fn create_local() -> Self {
         GrpcClient::create("http://localhost:5556".into(), false)
@@ -76,11 +78,29 @@ impl XmtpTestClient for GrpcClient {
     }
 }
 
+impl EncryptedMessageStore {
+    pub fn generate_enc_key() -> EncryptionKey {
+        let mut key = [0u8; 32];
+        xmtp_cryptography::utils::rng().fill_bytes(&mut key[..]);
+        key
+    }
+
+    pub fn remove_db_files<P: AsRef<str>>(path: P) {
+        let path = path.as_ref();
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(EncryptedConnection::salt_file(path).unwrap()).unwrap();
+    }
+}
+
 impl ClientBuilder<TestClient> {
     pub fn temp_store(self) -> Self {
         let tmpdb = tmp_path();
         self.store(
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap(),
+            EncryptedMessageStore::new(
+                StorageOption::Persistent(tmpdb),
+                EncryptedMessageStore::generate_enc_key(),
+            )
+            .unwrap(),
         )
     }
 
@@ -100,6 +120,7 @@ impl ClientBuilder<TestClient> {
             nonce,
             None,
         ))
+        .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
         .temp_store()
         .local_client()
         .await
@@ -174,11 +195,14 @@ impl Client<TestClient> {
 pub async fn register_client<T: XmtpApi>(client: &Client<T>, owner: &impl InboxOwner) {
     let mut signature_request = client.context.signature_request().unwrap();
     let signature_text = signature_request.signature_text();
+    let unverified_signature = UnverifiedSignature::RecoverableEcdsa(
+        UnverifiedRecoverableEcdsaSignature::new(owner.sign(&signature_text).unwrap().into()),
+    );
     signature_request
-        .add_signature(Box::new(RecoverableEcdsaSignature::new(
-            signature_text.clone(),
-            owner.sign(&signature_text).unwrap().into(),
-        )))
+        .add_signature(
+            unverified_signature,
+            client.smart_contract_signature_verifier().as_ref(),
+        )
         .await
         .unwrap();
 
