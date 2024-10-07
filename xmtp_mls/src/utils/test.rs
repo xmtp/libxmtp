@@ -8,10 +8,13 @@ use rand::{
 use std::sync::Arc;
 use tokio::{sync::Notify, time::error::Elapsed};
 use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
-use xmtp_id::associations::{
-    generate_inbox_id,
-    test_utils::MockSmartContractSignatureVerifier,
-    unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
+use xmtp_id::{
+    associations::{
+        generate_inbox_id,
+        test_utils::MockSmartContractSignatureVerifier,
+        unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
+    },
+    scw_verifier::MultiSmartContractSignatureVerifier,
 };
 
 use crate::{
@@ -106,7 +109,9 @@ impl ClientBuilder<TestClient> {
 
     pub async fn local_client(mut self) -> Self {
         let local_client = <TestClient as XmtpTestClient>::create_local().await;
-        self = self.api_client(local_client);
+        self = self.api_client(local_client).scw_signature_verifier(
+            MultiSmartContractSignatureVerifier::new_from_file("chain_urls.json"),
+        );
         self
     }
 
