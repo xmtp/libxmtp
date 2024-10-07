@@ -571,15 +571,13 @@ impl WasmGroup {
       self.created_at_ns,
     );
 
-    Ok(
-      group
-        .is_active(
-          group
-            .mls_provider()
-            .map_err(|e| JsError::new(&format!("{e}")))?,
-        )
-        .map_err(|e| JsError::new(&format!("{e}")))?,
-    )
+    group
+      .is_active(
+        group
+          .mls_provider()
+          .map_err(|e| JsError::new(&format!("{e}")))?,
+      )
+      .map_err(|e| JsError::new(&format!("{e}")))
   }
 
   #[wasm_bindgen]
@@ -590,11 +588,9 @@ impl WasmGroup {
       self.created_at_ns,
     );
 
-    Ok(
-      group
-        .added_by_inbox_id()
-        .map_err(|e| JsError::new(&format!("{e}")))?,
-    )
+    group
+      .added_by_inbox_id()
+      .map_err(|e| JsError::new(&format!("{e}")))
   }
 
   #[wasm_bindgen]
