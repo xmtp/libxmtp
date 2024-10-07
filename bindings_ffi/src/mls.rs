@@ -193,10 +193,21 @@ impl FfiSignatureRequest {
         signature_bytes: Vec<u8>,
         address: String,
         chain_id: u64,
-        block_number: u64,
+        block_number: Option<u64>,
     ) -> Result<(), GenericError> {
         let mut inner = self.inner.lock().await;
         let account_id = AccountId::new_evm(chain_id, address);
+
+        let block_number = match block_number {
+            Some(bn) => bn,
+            None => {
+                self.scw_verifier
+                    .current_block_number(&chain_id.to_string())
+                    .await
+                    .map_err(GenericError::Verifier)?
+                    .0[0]
+            }
+        };
 
         let signature = UnverifiedSignature::new_smart_contract_wallet(
             signature_bytes,

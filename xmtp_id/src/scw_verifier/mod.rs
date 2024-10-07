@@ -4,8 +4,9 @@ use std::{collections::HashMap, fs, path::Path, str::FromStr};
 
 use dyn_clone::DynClone;
 use ethers::{
-    providers::{Http, Provider},
-    types::{BlockNumber, Bytes},
+    contract::ContractError,
+    providers::{Http, Provider, ProviderError},
+    types::{BlockNumber, Bytes, U64},
 };
 use thiserror::Error;
 use url::Url;
@@ -33,6 +34,7 @@ pub enum VerifierError {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait SmartContractSignatureVerifier: Send + Sync + DynClone + 'static {
+    async fn current_block_number(&self, chain_id: &str) -> Result<U64, VerifierError>;
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
@@ -57,6 +59,10 @@ impl<S: SmartContractSignatureVerifier + Clone> SmartContractSignatureVerifier f
         (**self)
             .is_valid_signature(account_id, hash, signature, block_number)
             .await
+    }
+
+    async fn current_block_number(&self, chain_id: &str) -> Result<U64, VerifierError> {
+        (**self).current_block_number(chain_id).await
     }
 }
 
@@ -118,16 +124,36 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
         account_id: AccountId,
         hash: [u8; 32],
         signature: Bytes,
-        _block_number: Option<BlockNumber>,
+        block_number: Option<BlockNumber>,
     ) -> Result<bool, VerifierError> {
-        let id: u64 = account_id.chain_id.parse().unwrap();
+        let id: u64 = account_id.chain_id.parse().map_err(|e| {
+            VerifierError::Contract(ContractError::DecodingError(
+                ethers::core::abi::Error::ParseInt(e),
+            ))
+        })?;
         if let Some(verifier) = self.verifiers.get(&id) {
-            return Ok(verifier
-                .is_valid_signature(account_id, hash, signature, None)
-                .await
-                .unwrap());
+            return verifier
+                .is_valid_signature(account_id, hash, signature, block_number)
+                .await;
         }
 
-        todo!()
+        Err(VerifierError::Provider(ProviderError::CustomError(
+            "Verifier not present".to_string(),
+        )))
+    }
+
+    async fn current_block_number(&self, chain_id: &str) -> Result<U64, VerifierError> {
+        let id: u64 = chain_id.parse().map_err(|e| {
+            VerifierError::Contract(ContractError::DecodingError(
+                ethers::core::abi::Error::ParseInt(e),
+            ))
+        })?;
+        if let Some(verifier) = self.verifiers.get(&id) {
+            return verifier.current_block_number(chain_id).await;
+        }
+
+        Err(VerifierError::Provider(ProviderError::CustomError(
+            "Verifier not present".to_string(),
+        )))
     }
 }
