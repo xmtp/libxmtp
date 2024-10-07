@@ -7,15 +7,21 @@ version.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+hex.workspace = true
 js-sys.workspace = true
+prost.workspace = true
 serde-wasm-bindgen = "0.6.5"
-wasm-bindgen.workspace = true
+serde.workspace = true
 wasm-bindgen-futures.workspace = true
+wasm-bindgen.workspace = true
 xmtp_api_http = { path = "../xmtp_api_http" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
-xmtp_mls = { path = "../xmtp_mls", features = ["message-history"] }
+xmtp_mls = { path = "../xmtp_mls", features = [
+  "message-history",
+  "test-utils",
+] }
+xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 
 [dev-dependencies]
 wasm-bindgen-test.workspace = true
-

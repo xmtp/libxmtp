@@ -452,7 +452,10 @@ dependencies = [
 name = "bindings_wasm"
 version = "0.0.1"
 dependencies = [
+ "hex",
  "js-sys",
+ "prost",
+ "serde",
  "serde-wasm-bindgen",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -461,6 +464,7 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",
+ "xmtp_proto",
 ]
 
 [[package]]
