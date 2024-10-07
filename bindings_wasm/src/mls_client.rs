@@ -1,6 +1,7 @@
 use js_sys::Uint8Array;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
@@ -136,9 +137,7 @@ impl WasmClient {
       ));
     }
 
-    let mut signature_requests = self.signature_requests.lock().map_err(|e| {
-      JsError::new(format!("Failed to lock signature requests mutex: {}", e).as_str())
-    })?;
+    let mut signature_requests = self.signature_requests.lock().await;
 
     let signature_request = signature_requests
       .get(&WasmSignatureRequestType::CreateInbox)
@@ -163,9 +162,7 @@ impl WasmClient {
       None => return Err(JsError::new("No signature request found")),
     };
     let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests.lock().map_err(|e| {
-      JsError::new(format!("Failed to lock signature requests mutex: {}", e).as_str())
-    })?;
+    let mut signature_requests = self.signature_requests.lock().await;
 
     signature_requests.insert(WasmSignatureRequestType::CreateInbox, signature_request);
 
@@ -186,9 +183,7 @@ impl WasmClient {
       )
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests.lock().map_err(|e| {
-      JsError::new(format!("Failed to lock signature requests mutex: {}", e).as_str())
-    })?;
+    let mut signature_requests = self.signature_requests.lock().await;
 
     signature_requests.insert(WasmSignatureRequestType::AddWallet, signature_request);
 
@@ -206,9 +201,7 @@ impl WasmClient {
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests.lock().map_err(|e| {
-      JsError::new(format!("Failed to lock signature requests mutex: {}", e).as_str())
-    })?;
+    let mut signature_requests = self.signature_requests.lock().await;
 
     signature_requests.insert(WasmSignatureRequestType::RevokeWallet, signature_request);
 
@@ -234,9 +227,7 @@ impl WasmClient {
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests.lock().map_err(|e| {
-      JsError::new(format!("Failed to lock signature requests mutex: {}", e).as_str())
-    })?;
+    let mut signature_requests = self.signature_requests.lock().await;
 
     signature_requests.insert(
       WasmSignatureRequestType::RevokeInstallations,
@@ -252,9 +243,7 @@ impl WasmClient {
     signature_type: WasmSignatureRequestType,
     signature_bytes: Uint8Array,
   ) -> Result<(), JsError> {
-    let mut signature_requests = self.signature_requests.lock().map_err(|e| {
-      JsError::new(format!("Failed to lock signature requests mutex: {}", e).as_str())
-    })?;
+    let mut signature_requests = self.signature_requests.lock().await;
 
     if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
       let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.to_vec());
@@ -278,9 +267,7 @@ impl WasmClient {
 
   #[wasm_bindgen(js_name = applySignatureRequests)]
   pub async fn apply_signature_requests(&self) -> Result<(), JsError> {
-    let mut signature_requests = self.signature_requests.lock().map_err(|e| {
-      JsError::new(format!("Failed to lock signature requests mutex: {}", e).as_str())
-    })?;
+    let mut signature_requests = self.signature_requests.lock().await;
 
     let request_types: Vec<WasmSignatureRequestType> = signature_requests.keys().cloned().collect();
     for signature_request_type in request_types {
