@@ -21,7 +21,7 @@ use crate::{
 /// Wrapper around a [`tokio::task::JoinHandle`] but with a oneshot receiver
 /// which allows waiting for a `with_callback` stream fn to be ready for stream items.
 pub struct StreamHandle<T> {
-    pub handle: JoinHandle<T>,
+    handle: JoinHandle<T>,
     start: Option<oneshot::Receiver<()>>,
 }
 
@@ -81,7 +81,7 @@ where
                 tracing::info!("Trying to process streamed welcome");
                 let welcome_v1 = welcome_v1.clone();
                 self.context
-                    .store
+                    .store()
                     .transaction_async(|provider| async move {
                         MlsGroup::create_from_encrypted_welcome(
                             self,
@@ -97,7 +97,7 @@ where
         );
 
         if let Some(err) = creation_result.as_ref().err() {
-            let conn = self.context.store.conn()?;
+            let conn = self.context.store().conn()?;
             let result = conn.find_group_by_welcome_id(welcome_v1.id as i64);
             match result {
                 Ok(Some(group)) => {
@@ -204,7 +204,7 @@ where
         Ok(futures::stream::select(stream, event_queue))
     }
 
-    #[tracing::instrument(skip(self, group_id_to_info))]
+    // #[tracing::instrument(skip(self, group_id_to_info))]
     pub(crate) async fn stream_messages(
         &self,
         group_id_to_info: Arc<HashMap<Vec<u8>, MessagesStreamInfo>>,
@@ -269,10 +269,10 @@ where
         client: Arc<Client<ApiClient>>,
         mut convo_callback: impl FnMut(MlsGroup) + Send + 'static,
         include_dm: bool,
-    ) -> StreamHandle<Result<(), ClientError>> {
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
-        let handle = tokio::spawn(async move {
+        crate::spawn(Some(rx), async move {
             let stream = client.stream_conversations(include_dm).await?;
             futures::pin_mut!(stream);
             let _ = tx.send(());
@@ -281,38 +281,29 @@ where
                 convo_callback(convo)
             }
             tracing::debug!("`stream_conversations` stream ended, dropping stream");
-            Ok(())
-        });
-
-        StreamHandle {
-            start: Some(rx),
-            handle,
-        }
+            Ok::<_, ClientError>(())
+        })
     }
 
     pub(crate) fn stream_messages_with_callback(
         client: Arc<Client<ApiClient>>,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
-    ) -> StreamHandle<Result<(), ClientError>> {
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
         let client = client.clone();
-        let handle = tokio::spawn(async move {
-            let stream = Self::stream_messages(&client, group_id_to_info.into()).await?;
-            let _ = tx.send(());
+
+        crate::spawn(Some(rx), async move {
+            let stream = Self::stream_messages(&client, Arc::new(group_id_to_info)).await?;
             futures::pin_mut!(stream);
+            let _ = tx.send(());
             while let Some(message) = stream.next().await {
                 callback(message)
             }
             tracing::debug!("`stream_messages` stream ended, dropping stream");
-            Ok(())
-        });
-
-        StreamHandle {
-            start: Some(rx),
-            handle,
-        }
+            Ok::<_, ClientError>(())
+        })
     }
 
     pub async fn stream_all_messages(
@@ -398,13 +389,13 @@ where
     pub fn stream_all_messages_with_callback(
         client: Arc<Client<ApiClient>>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
-    ) -> StreamHandle<Result<(), ClientError>> {
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
-        let handle = tokio::spawn(async move {
+        crate::spawn(Some(rx), async move {
             let stream = Self::stream_all_messages(&client).await?;
-            let _ = tx.send(());
             futures::pin_mut!(stream);
+            let _ = tx.send(());
             while let Some(message) = stream.next().await {
                 match message {
                     Ok(m) => callback(m),
@@ -412,22 +403,23 @@ where
                 }
             }
             tracing::debug!("`stream_all_messages` stream ended, dropping stream");
-            Ok(())
-        });
-
-        StreamHandle {
-            start: Some(rx),
-            handle,
-        }
+            Ok::<_, ClientError>(())
+        })
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::utils::test::{Delivery, TestClient};
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions,
         storage::group_message::StoredGroupMessage, Client,
+    };
+    use crate::{
+        utils::test::{Delivery, TestClient},
+        StreamHandle,
     };
     use futures::StreamExt;
     use parking_lot::Mutex;
@@ -437,7 +429,8 @@ mod tests {
     };
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    #[tokio::test(flavor = "current_thread")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_stream_welcomes() {
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bob = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -454,7 +447,7 @@ mod tests {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
         let bob_ptr = bob.clone();
-        tokio::spawn(async move {
+        crate::spawn(None, async move {
             let bob_stream = bob_ptr.stream_conversations(true).await.unwrap();
             futures::pin_mut!(bob_stream);
             while let Some(item) = bob_stream.next().await {
@@ -472,7 +465,11 @@ mod tests {
         assert_eq!(bob_received_groups.group_id, group_id);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_stream_messages() {
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -481,7 +478,7 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
-        // let mut bob_stream = bob.stream_conversations().await.unwrap();
+        // let mut bob_stream = bob.stream_conversations().await.unwrap()warning: unused implementer of `futures::Future` that must be used;
         alice_group
             .add_members_by_inbox_id(&alice, vec![bob.inbox_id()])
             .await
@@ -492,7 +489,7 @@ mod tests {
         let notify = Delivery::new(None);
         let notify_ptr = notify.clone();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        tokio::spawn(async move {
+        crate::spawn(None, async move {
             let stream = alice_group.stream(&alice).await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
@@ -515,7 +512,11 @@ mod tests {
         // assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_stream_all_messages_unchanging_group_list() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -536,7 +537,7 @@ mod tests {
             .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        crate::sleep(core::time::Duration::from_millis(100)).await;
 
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let messages_clone = messages.clone();
@@ -583,7 +584,11 @@ mod tests {
         assert_eq!(messages[3].decrypted_message_bytes, b"fourth");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_stream_all_messages_changing_group_list() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -674,23 +679,27 @@ mod tests {
             assert_eq!(messages.len(), 5);
         }
 
-        let a = handle.handle.abort_handle();
-        a.abort();
-        let _ = handle.handle.await;
+        let a = handle.abort_handle();
+        a.end();
+        let _ = handle.join().await;
         assert!(a.is_finished());
 
         alix_group
             .send_message("should not show up".as_bytes(), &alix)
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        crate::sleep(core::time::Duration::from_millis(100)).await;
 
         let messages = messages.lock();
         assert_eq!(messages.len(), 5);
     }
 
     #[ignore]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_stream_all_messages_does_not_lose_messages() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let caro = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -718,13 +727,13 @@ mod tests {
 
         let alix_group_pointer = alix_group.clone();
         let alix_pointer = alix.clone();
-        tokio::spawn(async move {
+        crate::spawn(None, async move {
             for _ in 0..50 {
                 alix_group_pointer
                     .send_message(b"spam", &alix_pointer)
                     .await
                     .unwrap();
-                tokio::time::sleep(std::time::Duration::from_micros(200)).await;
+                crate::sleep(core::time::Duration::from_micros(200)).await;
             }
         });
 
@@ -742,7 +751,7 @@ mod tests {
                 .unwrap();
         }
 
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        let _ = tokio::time::timeout(core::time::Duration::from_secs(120), async {
             while blocked.load(Ordering::SeqCst) > 0 {
                 tokio::task::yield_now().await;
             }
@@ -756,7 +765,8 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     async fn test_self_group_creation() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -803,10 +813,11 @@ mod tests {
             assert_eq!(grps.len(), 2);
         }
 
-        closer.handle.abort();
+        closer.end();
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     async fn test_dm_streaming() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -832,7 +843,7 @@ mod tests {
         let result = notify.wait_for_delivery().await;
         assert!(result.is_err(), "Stream unexpectedly received a DM group");
 
-        closer.handle.abort();
+        closer.end();
 
         // Start a stream with enableDm set to true
         let groups = Arc::new(Mutex::new(Vec::new()));
@@ -866,6 +877,6 @@ mod tests {
             assert_eq!(grps.len(), 2);
         }
 
-        closer.handle.abort();
+        closer.end();
     }
 }

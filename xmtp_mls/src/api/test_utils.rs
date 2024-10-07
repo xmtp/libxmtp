@@ -18,7 +18,7 @@ use xmtp_proto::{
     },
 };
 
-#[cfg(feature = "http-api")]
+#[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
 use crate::XmtpTestClient;
@@ -40,6 +40,7 @@ pub fn build_group_messages(num_messages: usize, group_id: Vec<u8>) -> Vec<Group
 }
 
 // Create a mock XmtpClient for testing the client wrapper
+// need separate defs for wasm and not wasm, b/c `cfg_attr` not supportd in macro! block
 mock! {
     pub ApiClient {}
 
@@ -61,15 +62,20 @@ mock! {
     }
 
     impl XmtpMlsStreams for ApiClient {
-        #[cfg(not(feature = "http-api"))]
+        #[cfg(all(not(feature = "http-api"), not(target_arch = "wasm32")))]
         type GroupMessageStream<'a> = xmtp_api_grpc::GroupMessageStream;
-        #[cfg(not(feature = "http-api"))]
+        #[cfg(all(not(feature = "http-api"), not(target_arch = "wasm32")))]
         type WelcomeMessageStream<'a> = xmtp_api_grpc::WelcomeMessageStream;
 
-        #[cfg(feature = "http-api")]
+        #[cfg(all(feature = "http-api", not(target_arch = "wasm32")))]
         type GroupMessageStream<'a> = futures::stream::BoxStream<'static, Result<GroupMessage, Error>>;
-        #[cfg(feature = "http-api")]
+        #[cfg(all(feature = "http-api", not(target_arch = "wasm32")))]
         type WelcomeMessageStream<'a> = futures::stream::BoxStream<'static, Result<WelcomeMessage, Error>>;
+
+        #[cfg(target_arch = "wasm32")]
+        type GroupMessageStream<'a> = futures::stream::LocalBoxStream<'static, Result<GroupMessage, Error>>;
+        #[cfg(target_arch = "wasm32")]
+        type WelcomeMessageStream<'a> = futures::stream::LocalBoxStream<'static, Result<WelcomeMessage, Error>>;
 
 
         async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<<Self as XmtpMlsStreams>::GroupMessageStream<'static>, Error>;

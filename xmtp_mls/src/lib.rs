@@ -13,6 +13,7 @@ mod identity_updates;
 mod mutex_registry;
 pub mod retry;
 pub mod storage;
+mod stream_handles;
 pub mod subscriptions;
 pub mod types;
 pub mod utils;
@@ -21,7 +22,6 @@ mod xmtp_openmls_provider;
 
 pub use client::{Client, Network};
 use storage::StorageError;
-
 pub use trait_impls::*;
 
 /// XMTP Api Super Trait
@@ -30,7 +30,7 @@ mod trait_impls {
     pub use inner::*;
 
     // native, release
-    #[cfg(not(test))]
+    #[cfg(all(not(test), not(target_arch = "wasm32")))]
     mod inner {
         use xmtp_proto::api_client::{
             ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
@@ -58,8 +58,33 @@ mod trait_impls {
         }
     }
 
+    // wasm32, release
+    #[cfg(all(not(test), target_arch = "wasm32"))]
+    mod inner {
+        use xmtp_proto::api_client::{
+            ClientWithMetadata, LocalXmtpIdentityClient, LocalXmtpMlsClient, LocalXmtpMlsStreams,
+        };
+        pub trait XmtpApi
+        where
+            Self: LocalXmtpMlsClient
+                + LocalXmtpMlsStreams
+                + LocalXmtpIdentityClient
+                + ClientWithMetadata,
+        {
+        }
+
+        impl<T> XmtpApi for T where
+            T: LocalXmtpMlsClient
+                + LocalXmtpMlsStreams
+                + LocalXmtpIdentityClient
+                + ClientWithMetadata
+                + ?Sized
+        {
+        }
+    }
+
     // test, native
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     mod inner {
         use xmtp_proto::api_client::{
             ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
@@ -81,6 +106,36 @@ mod trait_impls {
                 + XmtpMlsStreams
                 + XmtpIdentityClient
                 + crate::XmtpTestClient
+                + ClientWithMetadata
+                + Send
+                + Sync
+                + ?Sized
+        {
+        }
+    }
+
+    // test, wasm32
+    #[cfg(all(test, target_arch = "wasm32"))]
+    mod inner {
+        use xmtp_proto::api_client::{
+            ClientWithMetadata, LocalXmtpIdentityClient, LocalXmtpMlsClient, LocalXmtpMlsStreams,
+        };
+
+        pub trait XmtpApi
+        where
+            Self: LocalXmtpMlsClient
+                + LocalXmtpMlsStreams
+                + LocalXmtpIdentityClient
+                + crate::LocalXmtpTestClient
+                + ClientWithMetadata,
+        {
+        }
+
+        impl<T> XmtpApi for T where
+            T: LocalXmtpMlsClient
+                + LocalXmtpMlsStreams
+                + LocalXmtpIdentityClient
+                + crate::LocalXmtpTestClient
                 + ClientWithMetadata
                 + Send
                 + Sync
@@ -121,22 +176,30 @@ pub trait Delete<Model> {
     fn delete(&self, key: Self::Key) -> Result<usize, StorageError>;
 }
 
-#[cfg(test)]
-pub use self::tests::traced_test;
+pub use stream_handles::{
+    spawn, AbortHandle, GenericStreamHandle, StreamHandle, StreamHandleError,
+};
+
+#[cfg(target_arch = "wasm32")]
+#[doc(hidden)]
+pub async fn sleep(duration: core::time::Duration) {
+    gloo_timers::future::TimeoutFuture::new(duration.as_millis() as u32).await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[doc(hidden)]
+pub async fn sleep(duration: core::time::Duration) {
+    tokio::time::sleep(duration).await
+}
 
 #[cfg(test)]
-mod tests {
-    use parking_lot::Mutex;
-    use std::{io, sync::Arc};
-    use tracing_subscriber::{
-        filter::EnvFilter,
-        fmt::{self, MakeWriter},
-        prelude::*,
-    };
-
+pub(crate) mod tests {
     // Execute once before any tests are run
-    #[ctor::ctor]
-    fn setup() {
+    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn _setup() {
+        use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
         let filter = EnvFilter::builder()
             .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
             .from_env_lossy();
@@ -145,113 +208,6 @@ mod tests {
             .with(fmt::layer())
             .with(filter)
             .init();
-    }
-
-    thread_local! {
-        pub static LOG_BUFFER: TestWriter = TestWriter::new();
-    }
-
-    /// Thread local writer which stores logs in memory
-    pub struct TestWriter(Arc<Mutex<Vec<u8>>>);
-    impl TestWriter {
-        pub fn new() -> Self {
-            Self(Arc::new(Mutex::new(vec![])))
-        }
-
-        pub fn as_string(&self) -> String {
-            let buf = self.0.lock();
-            String::from_utf8(buf.clone()).expect("Not valid UTF-8")
-        }
-
-        pub fn clear(&self) {
-            let mut buf = self.0.lock();
-            buf.clear();
-        }
-        pub fn flush(&self) {
-            let mut buf = self.0.lock();
-            std::io::Write::flush(&mut *buf).unwrap();
-        }
-    }
-
-    impl io::Write for TestWriter {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            let mut this = self.0.lock();
-            // still print logs for tests
-            print!("{}", String::from_utf8_lossy(buf));
-            Vec::<u8>::write(&mut this, buf)
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            let mut this = self.0.lock();
-            Vec::<u8>::flush(&mut this)
-        }
-    }
-
-    impl Clone for TestWriter {
-        fn clone(&self) -> Self {
-            Self(self.0.clone())
-        }
-    }
-
-    impl MakeWriter<'_> for TestWriter {
-        type Writer = TestWriter;
-
-        fn make_writer(&self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
-    /// Only works with current-thread
-    pub fn traced_test<Fut>(f: impl Fn() -> Fut)
-    where
-        Fut: futures::Future<Output = ()>,
-    {
-        LOG_BUFFER.with(|buf| {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .thread_name("tracing-test")
-                .enable_time()
-                .enable_io()
-                .build()
-                .unwrap();
-            buf.clear();
-
-            let subscriber = fmt::Subscriber::builder()
-                .with_env_filter(format!("{}=debug", env!("CARGO_PKG_NAME")))
-                .with_writer(buf.clone())
-                .with_level(true)
-                .with_ansi(false)
-                .finish();
-
-            let dispatch = tracing::Dispatch::new(subscriber);
-            tracing::dispatcher::with_default(&dispatch, || {
-                rt.block_on(f());
-            });
-
-            buf.clear();
-        });
-    }
-
-    /// macro that can assert logs in tests.
-    /// Note: tests that use this must be used in `traced_test` function
-    /// and only with tokio's `current` runtime.
-    #[macro_export]
-    macro_rules! assert_logged {
-        ( $search:expr , $occurrences:expr ) => {
-            $crate::tests::LOG_BUFFER.with(|buf| {
-                let lines = {
-                    buf.flush();
-                    buf.as_string()
-                };
-                let lines = lines.lines();
-                let actual = lines.filter(|line| line.contains($search)).count();
-                if actual != $occurrences {
-                    panic!(
-                        "Expected '{}' to be logged {} times, but was logged {} times instead",
-                        $search, $occurrences, actual
-                    );
-                }
-            })
-        };
     }
 
     /// wrapper over assert!(matches!()) for Errors

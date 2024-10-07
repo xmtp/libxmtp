@@ -2,7 +2,6 @@ mod chain_rpc_verifier;
 
 use std::{collections::HashMap, fs, path::Path, str::FromStr};
 
-use async_trait::async_trait;
 use dyn_clone::DynClone;
 use ethers::{
     contract::ContractError,
@@ -32,7 +31,8 @@ pub enum VerifierError {
     Provider(#[from] ethers::providers::ProviderError),
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait SmartContractSignatureVerifier: Send + Sync + DynClone + 'static {
     async fn current_block_number(&self, chain_id: &str) -> Result<U64, VerifierError>;
     async fn is_valid_signature(
@@ -46,7 +46,8 @@ pub trait SmartContractSignatureVerifier: Send + Sync + DynClone + 'static {
 
 dyn_clone::clone_trait_object!(SmartContractSignatureVerifier);
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<S: SmartContractSignatureVerifier + Clone> SmartContractSignatureVerifier for Box<S> {
     async fn is_valid_signature(
         &self,
@@ -115,7 +116,8 @@ impl MultiSmartContractSignatureVerifier {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
     async fn is_valid_signature(
         &self,

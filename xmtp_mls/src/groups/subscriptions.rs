@@ -7,7 +7,7 @@ use super::{extract_message_v1, GroupError, MlsGroup};
 use crate::storage::group_message::StoredGroupMessage;
 use crate::storage::refresh_state::EntityKind;
 use crate::storage::StorageError;
-use crate::subscriptions::{MessagesStreamInfo, StreamHandle};
+use crate::subscriptions::MessagesStreamInfo;
 use crate::XmtpApi;
 use crate::{retry::Retry, retry_async, Client};
 use prost::Message;
@@ -39,7 +39,7 @@ impl MlsGroup {
                     let client_id = client_id.clone();
                     let msgv1 = msgv1.clone();
                     self.context
-                        .store
+                        .store()
                         .transaction_async(|provider| async move {
                             let mut openmls_group = self.load_mls_group(&provider)?;
 
@@ -85,7 +85,7 @@ impl MlsGroup {
         // another thread
         let new_message = self
             .context
-            .store
+            .store()
             .conn()?
             .get_group_message_by_timestamp(&self.group_id, created_ns as i64)?;
 
@@ -95,7 +95,7 @@ impl MlsGroup {
     // Checks if a message has already been processed through a sync
     async fn has_already_synced(&self, id: u64) -> Result<bool, GroupError> {
         let check_for_last_cursor = || -> Result<i64, StorageError> {
-            let conn = self.context.store.conn()?;
+            let conn = self.context.store().conn()?;
             conn.get_last_cursor_for_id(&self.group_id, EntityKind::Group)
         };
 
@@ -141,7 +141,7 @@ impl MlsGroup {
         group_id: Vec<u8>,
         created_at_ns: i64,
         callback: impl FnMut(StoredGroupMessage) + Send + 'static,
-    ) -> StreamHandle<Result<(), crate::groups::ClientError>>
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), crate::groups::ClientError>>
     where
         ApiClient: crate::XmtpApi + 'static,
     {
@@ -160,9 +160,12 @@ impl MlsGroup {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use super::*;
-    use std::time::Duration;
+    use core::time::Duration;
     use tokio_stream::wrappers::UnboundedReceiverStream;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -172,7 +175,11 @@ mod tests {
     };
     use futures::StreamExt;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 1)
+    )]
     async fn test_decode_group_message_bytes() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -209,7 +216,11 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_subscribe_messages() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -233,7 +244,7 @@ mod tests {
         let notify_ptr = notify.clone();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let mut stream = UnboundedReceiverStream::new(rx);
-        tokio::spawn(async move {
+        crate::spawn(None, async move {
             let stream = bola_group_ptr.stream(&bola_ptr).await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
@@ -266,7 +277,11 @@ mod tests {
         assert_eq!(second_val.decrypted_message_bytes, "goodbye".as_bytes());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_subscribe_multiple() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let group = Arc::new(
@@ -278,7 +293,7 @@ mod tests {
         let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
         let amal_ptr = amal.clone();
         let group_ptr = group.clone();
-        tokio::spawn(async move {
+        crate::spawn(None, async move {
             let stream = group_ptr.stream(&amal_ptr).await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
@@ -304,7 +319,11 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 5)
+    )]
     async fn test_subscribe_membership_changes() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -321,10 +340,10 @@ mod tests {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let (start_tx, start_rx) = tokio::sync::oneshot::channel();
         let mut stream = UnboundedReceiverStream::new(rx);
-        tokio::spawn(async move {
+        crate::spawn(None, async move {
             let stream = amal_group_ptr.stream(&amal_ptr).await.unwrap();
-            futures::pin_mut!(stream);
             let _ = start_tx.send(());
+            futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
                 let _ = tx.send(item);
                 notify_ptr.notify_one();
@@ -333,7 +352,7 @@ mod tests {
         // just to make sure stream is started
         let _ = start_rx.await;
         // Adding in a sleep, since the HTTP API client may acknowledge requests before they are ready
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        crate::sleep(core::time::Duration::from_millis(100)).await;
 
         amal_group
             .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])

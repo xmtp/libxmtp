@@ -1,0 +1,270 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 61590654..12392f80 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -72,7 +72,7 @@ js-sys = "0.3"
+ # for i686-linux-android targets. https://github.com/sfackler/rust-openssl/issues/2163
+ openssl-sys = "=0.9.92"
+ openssl = "=0.10.57"
+-libsqlite3-sys = { version = "0.29", features = ["bundled-sqlcipher-vendored-openssl" ] }
++libsqlite3-sys = { version = "0.29", features = ["bundled-sqlcipher-vendored-openssl"] }
+ 
+ # Internal Crate Dependencies
+ xmtp_cryptography = { path = "xmtp_cryptography" }
+diff --git a/bindings_ffi/Cargo.toml b/bindings_ffi/Cargo.toml
+index aefb3e62..2d591e95 100644
+--- a/bindings_ffi/Cargo.toml
++++ b/bindings_ffi/Cargo.toml
+@@ -13,12 +13,12 @@ parking_lot.workspace = true
+ thiserror.workspace = true
+ thread-id = "4.2.1"
+ tokio = { workspace = true, features = ["macros"] }
+-uniffi = { version = "0.28.0", features = ["tokio", "cli"] }
++uniffi = { version = "0.28.0", features = ["cli", "tokio"] }
+ xmtp_api_grpc = { path = "../xmtp_api_grpc" }
+ xmtp_cryptography = { path = "../xmtp_cryptography" }
+ xmtp_id = { path = "../xmtp_id" }
+-xmtp_mls = { path = "../xmtp_mls", features = ["message-history"] }
+-xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
++xmtp_mls = { path = "../xmtp_mls", version = "*", features = ["message-history"] }
++xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"], version = "*" }
+ xmtp_user_preferences = { path = "../xmtp_user_preferences" }
+ xmtp_v2 = { path = "../xmtp_v2" }
+ 
+@@ -36,5 +36,5 @@ rand = "0.8.5"
+ tokio = { version = "1.28.1", features = ["full"] }
+ tokio-test = "0.4"
+ uniffi = { version = "0.28.0", features = ["bindgen-tests"] }
+-uuid = { version = "1.9", features = ["v4", "fast-rng"] }
+-xmtp_mls = { path = "../xmtp_mls", features = ["test-utils"] }
++uuid = { version = "1.9", features = ["fast-rng", "v4"] }
++xmtp_mls = { path = "../xmtp_mls", version = "*", features = ["test-utils"] }
+diff --git a/bindings_node/Cargo.toml b/bindings_node/Cargo.toml
+index cb3617ea..df2b130e 100644
+--- a/bindings_node/Cargo.toml
++++ b/bindings_node/Cargo.toml
+@@ -10,19 +10,15 @@ crate-type = ["cdylib"]
+ # Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
+ hex.workspace = true
+ tracing.workspace = true
+-napi = { version = "2.12.2", default-features = false, features = [
+-  "napi4",
+-  "napi6",
+-  "async",
+-] }
++napi = { version = "2.12.2", default-features = false, features = ["napi6", "tokio_rt"] }
+ napi-derive = "2.12.2"
+ prost.workspace = true
+-tokio = { workspace = true, features = ["full"]}
++tokio = { workspace = true, features = ["full"] }
+ xmtp_api_grpc = { path = "../xmtp_api_grpc" }
+ xmtp_cryptography = { path = "../xmtp_cryptography" }
+ xmtp_id = { path = "../xmtp_id" }
+-xmtp_mls = { path = "../xmtp_mls", features = ["message-history"]}
+-xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
++xmtp_mls = { path = "../xmtp_mls", version = "*", features = ["message-history"] }
++xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"], version = "*" }
+ 
+ [build-dependencies]
+ napi-build = "2.0.1"
+diff --git a/bindings_wasm/Cargo.toml b/bindings_wasm/Cargo.toml
+index 31ef2be4..336f42a5 100644
+--- a/bindings_wasm/Cargo.toml
++++ b/bindings_wasm/Cargo.toml
+@@ -14,7 +14,7 @@ wasm-bindgen-futures.workspace = true
+ xmtp_api_http = { path = "../xmtp_api_http" }
+ xmtp_cryptography = { path = "../xmtp_cryptography" }
+ xmtp_id = { path = "../xmtp_id" }
+-xmtp_mls = { path = "../xmtp_mls", features = ["message-history"] }
++xmtp_mls = { path = "../xmtp_mls", version = "*", features = ["message-history"] }
+ 
+ [dev-dependencies]
+ wasm-bindgen-test.workspace = true
+diff --git a/examples/cli/Cargo.toml b/examples/cli/Cargo.toml
+index 5779b189..7644a4aa 100644
+--- a/examples/cli/Cargo.toml
++++ b/examples/cli/Cargo.toml
+@@ -19,11 +19,7 @@ femme = "2.2.1"
+ futures.workspace = true
+ hex = "0.4.3"
+ kv-log-macro = "1.0.7"
+-log = { version = "0.4", features = [
+-    "kv_unstable",
+-    "std",
+-    "kv_unstable_serde",
+-] }
++log = { version = "0.4", features = ["kv_unstable_serde"] }
+ prost.workspace = true
+ serde = { workspace = true, features = ["derive"] }
+ serde_json.workspace = true
+@@ -33,5 +29,5 @@ tokio = "1.28.1"
+ xmtp_api_grpc = { path = "../../xmtp_api_grpc" }
+ xmtp_cryptography = { path = "../../xmtp_cryptography" }
+ xmtp_id = { path = "../../xmtp_id" }
+-xmtp_mls = { path = "../../xmtp_mls", features = ["message-history"]}
+-xmtp_proto = { path = "../../xmtp_proto", features = ["proto_full"] }
++xmtp_mls = { path = "../../xmtp_mls", version = "*", features = ["message-history"] }
++xmtp_proto = { path = "../../xmtp_proto", features = ["proto_full"], version = "*" }
+diff --git a/mls_validation_service/Cargo.toml b/mls_validation_service/Cargo.toml
+index 11d5cf2b..398af90d 100644
+--- a/mls_validation_service/Cargo.toml
++++ b/mls_validation_service/Cargo.toml
+@@ -20,10 +20,7 @@ tonic = { workspace = true }
+ warp = "0.3.6"
+ xmtp_id.workspace = true
+ xmtp_mls.workspace = true
+-xmtp_proto = { path = "../xmtp_proto", features = [
+-    "proto_full",
+-    "convert",
+-] }
++xmtp_proto = { path = "../xmtp_proto", features = ["convert"], version = "*" }
+ tracing.workspace = true
+ tracing-subscriber = { workspace = true, features = ["env-filter"] }
+ 
+diff --git a/xmtp_api_grpc/Cargo.toml b/xmtp_api_grpc/Cargo.toml
+index 017de33b..3bcf93a1 100644
+--- a/xmtp_api_grpc/Cargo.toml
++++ b/xmtp_api_grpc/Cargo.toml
+@@ -10,13 +10,9 @@ futures.workspace = true
+ hex.workspace = true
+ prost = { workspace = true, features = ["prost-derive"] }
+ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+-tonic = { workspace = true, features = [
+-    "tls",
+-    "tls-native-roots",
+-    "tls-webpki-roots",
+-] }
++tonic = { workspace = true, features = ["tls-native-roots", "tls-webpki-roots"] }
+ tracing.workspace = true
+-xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
++xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"], version = "*" }
+ xmtp_v2 = { path = "../xmtp_v2" }
+ 
+ [dev-dependencies]
+diff --git a/xmtp_api_http/Cargo.toml b/xmtp_api_http/Cargo.toml
+index 66a6b272..ffe448f7 100644
+--- a/xmtp_api_http/Cargo.toml
++++ b/xmtp_api_http/Cargo.toml
+@@ -14,8 +14,8 @@ reqwest = { version = "0.12.5", features = ["json", "stream"] }
+ serde = { workspace = true }
+ serde_json = { workspace = true }
+ thiserror = "1.0"
+-tokio = { workspace = true, features = ["sync", "rt", "macros"] }
+-xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
++tokio = { workspace = true, features = ["macros", "rt", "sync"] }
++xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"], version = "*" }
+ 
+ [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+diff --git a/xmtp_cryptography/Cargo.toml b/xmtp_cryptography/Cargo.toml
+index 14c5e3a0..e5e29843 100644
+--- a/xmtp_cryptography/Cargo.toml
++++ b/xmtp_cryptography/Cargo.toml
+@@ -26,4 +26,4 @@ getrandom = { workspace = true, features = ["js"] }
+ ws = ["ethers/ws"]
+ 
+ [dev-dependencies]
+-tokio = { version = "1.28.1", features = ["rt", "macros"] }
++tokio = { version = "1.28.1", features = ["macros", "rt"] }
+diff --git a/xmtp_mls/Cargo.toml b/xmtp_mls/Cargo.toml
+index 1cb6c6b1..6ce1d90e 100644
+--- a/xmtp_mls/Cargo.toml
++++ b/xmtp_mls/Cargo.toml
+@@ -35,7 +35,7 @@ rand = { workspace = true }
+ serde = { workspace = true }
+ serde_json.workspace = true
+ thiserror = { workspace = true }
+-tokio-stream = { version = "0.1", features = ["sync"]  }
++tokio-stream = { version = "0.1", features = ["sync"] }
+ async-trait.workspace = true
+ futures.workspace = true
+ reqwest = { version = "0.12.4", features = ["stream"] }
+@@ -45,7 +45,7 @@ wasm-timer.workspace = true
+ # XMTP/Local
+ xmtp_cryptography = { workspace = true }
+ xmtp_id = { path = "../xmtp_id" }
+-xmtp_proto = { workspace = true, features = ["proto_full", "convert"] }
++xmtp_proto = { workspace = true, features = ["convert"] }
+ 
+ # Optional/Features
+ toml = { version = "0.8.4", optional = true }
+@@ -58,7 +58,7 @@ indicatif = { version = "0.17", optional = true }
+ anyhow = { workspace = true, optional = true }
+ tracing-flame = { version = "0.2", optional = true }
+ once_cell = { version = "1.19", optional = true }
+-criterion = { version = "0.5", features = ["html_reports", "async_tokio"], optional = true }
++criterion = { version = "0.5", features = ["async_tokio", "html_reports"], optional = true }
+ 
+ 
+ [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+@@ -66,29 +66,22 @@ criterion = { version = "0.5", features = ["html_reports", "async_tokio"], optio
+ libsqlite3-sys = { workspace = true }
+ openssl-sys.workspace = true
+ openssl.workspace = true
+-diesel = { workspace = true, features = [
+-    "r2d2",
+-    "returning_clauses_for_sqlite_3_35",
+-    "sqlite",
+-] }
++diesel = { workspace = true, features = ["r2d2", "returning_clauses_for_sqlite_3_35", "sqlite"] }
+ xmtp_api_grpc = { path = "../xmtp_api_grpc", optional = true }
+ chrono = { workspace = true, features = ["clock"] }
+-tokio = { workspace = true, features = ["macros", "tracing", "rt", "rt-multi-thread"] }
++tokio = { workspace = true, features = ["macros", "rt-multi-thread", "tracing"] }
+ diesel_migrations = { workspace = true, features = ["sqlite"] }
+ openmls = { workspace = true, features = ["test-utils"] }
+ 
+ 
+ [target.'cfg(target_arch = "wasm32")'.dependencies]
+ diesel-wasm-sqlite = { workspace = true, features = ["r2d2"] }
+-diesel = { workspace = true, features = [
+-    "r2d2",
+-    "returning_clauses_for_sqlite_3_35",
+-] }
++diesel = { workspace = true, features = ["r2d2", "returning_clauses_for_sqlite_3_35"] }
+ diesel_migrations.workspace = true
+ getrandom = { workspace = true, features = ["js"] }
+ chrono = { workspace = true, features = ["wasmbind"] }
+ tokio = { workspace = true, features = ["macros", "rt"] }
+-openmls = { workspace = true, features = ["test-utils", "js"] }
++openmls = { workspace = true, features = ["js", "test-utils"] }
+ gloo-timers = { workspace = true, features = ["futures"] }
+ wasm-bindgen-futures.workspace = true
+ web-sys.workspace = true
+@@ -96,7 +89,7 @@ web-sys.workspace = true
+ [dev-dependencies]
+ ethers.workspace = true
+ mockall = "0.13.0"
+-xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
++xmtp_id = { path = "../xmtp_id", version = "*", features = ["test-utils"] }
+ anyhow.workspace = true
+ tracing-subscriber = { workspace = true, features = ["env-filter"] }
+ 
+@@ -110,7 +103,7 @@ ctor.workspace = true
+ [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+ xmtp_api_http = { path = "../xmtp_api_http" }
+ tracing-wasm = { version = "0.2" }
+-diesel-wasm-sqlite = { workspace = true, features = ["unsafe-debug-query", "r2d2"] }
++diesel-wasm-sqlite = { workspace = true, features = ["r2d2", "unsafe-debug-query"] }
+ console_error_panic_hook = { version = "0.1"}
+ wasm-bindgen-test.workspace = true
+ tracing-subscriber = { workspace = true, features = ["env-filter"] }
+diff --git a/xmtp_user_preferences/Cargo.toml b/xmtp_user_preferences/Cargo.toml
+index 7f7ba0f2..f3e6a659 100644
+--- a/xmtp_user_preferences/Cargo.toml
++++ b/xmtp_user_preferences/Cargo.toml
+@@ -7,12 +7,9 @@ version.workspace = true
+ base64 = "0.22.1"
+ # Need to include this as a dep or compile will fail because of a version mismatch
+ prost = { workspace = true, features = ["prost-derive"] }
+-xmtp_proto = { path = "../xmtp_proto", features = ["xmtp-message_contents"] }
++xmtp_proto = { path = "../xmtp_proto", version = "*", features = ["xmtp-message_contents"] }
+ xmtp_v2 = { path = "../xmtp_v2" }
+ 
+ [dev-dependencies]
+-libsecp256k1 = { version = "0.7.1", default-features = false, features = [
+-    "hmac",
+-    "static-context",
+-] }
++libsecp256k1 = { version = "0.7.1", default-features = false, features = ["hmac", "static-context"] }
+ rand = "0.8.5"

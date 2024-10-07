@@ -7,8 +7,8 @@ pub mod members;
 #[allow(dead_code)]
 #[cfg(feature = "message-history")]
 pub mod message_history;
-mod subscriptions;
-mod sync;
+pub(super) mod subscriptions;
+pub(super) mod sync;
 pub mod validated_commit;
 
 use intents::SendMessageIntentData;
@@ -268,7 +268,7 @@ impl MlsGroup {
     /// Instantiate a new [`XmtpOpenMlsProvider`] pulling a connection from the database.
     /// prefer to use an already-instantiated mls provider if possible.
     pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, GroupError> {
-        Ok(self.context.store.conn()?.into())
+        Ok(self.context.mls_provider()?)
     }
 
     // Load the stored MLS group from the OpenMLS provider's keystore
@@ -292,7 +292,7 @@ impl MlsGroup {
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
     ) -> Result<Self, GroupError> {
-        let conn = context.store.conn()?;
+        let conn = context.store().conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let creator_inbox_id = context.inbox_id();
         let protected_metadata =
@@ -340,7 +340,7 @@ impl MlsGroup {
         membership_state: GroupMembershipState,
         dm_target_inbox_id: InboxId,
     ) -> Result<Self, GroupError> {
-        let conn = context.store.conn()?;
+        let conn = context.store().conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata =
             build_dm_protected_metadata_extension(context.inbox_id(), dm_target_inbox_id.clone())?;
@@ -492,7 +492,7 @@ impl MlsGroup {
     pub(crate) fn create_and_insert_sync_group(
         context: Arc<XmtpMlsLocalContext>,
     ) -> Result<MlsGroup, GroupError> {
-        let conn = context.store.conn()?;
+        let conn = context.store().conn()?;
         // let my_sequence_id = context.inbox_sequence_id(&conn)?;
         let creator_inbox_id = context.inbox_id().to_string();
         let provider = XmtpOpenMlsProvider::new(conn);
@@ -544,7 +544,7 @@ impl MlsGroup {
         ApiClient: XmtpApi,
     {
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        let conn = self.context.store.conn()?;
+        let conn = self.context.store().conn()?;
         let provider = XmtpOpenMlsProvider::from(conn);
         self.maybe_update_installations(&provider, update_interval_ns, client)
             .await?;
@@ -570,7 +570,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
+        let conn = self.context.store().conn()?;
         let provider = XmtpOpenMlsProvider::from(conn);
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(&provider, update_interval_ns, client)
@@ -592,7 +592,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
+        let conn = self.context.store().conn()?;
         let provider = XmtpOpenMlsProvider::from(conn);
         self.maybe_update_installations(&provider, Some(0), client)
             .await?;
@@ -601,7 +601,7 @@ impl MlsGroup {
 
     /// Send a message, optimistically returning the ID of the message before the result of a message publish.
     pub fn send_message_optimistic(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.context.store().conn()?;
         let message_id =
             self.prepare_message(message, &conn, |now| Self::into_envelope(message, now))?;
         Ok(message_id)
@@ -671,7 +671,7 @@ impl MlsGroup {
         delivery_status: Option<DeliveryStatus>,
         limit: Option<i64>,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.context.store().conn()?;
         let messages = conn.get_group_messages(
             &self.group_id,
             sent_after_ns,
@@ -797,7 +797,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
+        let conn = self.context.store().conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
@@ -863,7 +863,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
+        let conn = self.context.store().conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_description(group_description).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
@@ -897,7 +897,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
+        let conn = self.context.store().conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_image_url_square(group_image_url_square)
                 .into();
@@ -935,7 +935,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
+        let conn = self.context.store().conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_pinned_frame_url(pinned_frame_url).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
@@ -1004,7 +1004,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
+        let conn = self.context.store().conn()?;
         let intent_action_type = match action_type {
             UpdateAdminListType::Add => AdminListActionType::Add,
             UpdateAdminListType::Remove => AdminListActionType::Remove,
@@ -1025,7 +1025,7 @@ impl MlsGroup {
 
     /// Find the `inbox_id` of the group member who added the member to the group
     pub fn added_by_inbox_id(&self) -> Result<String, GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.context.store().conn()?;
         conn.find_group(self.group_id.clone())
             .map_err(GroupError::from)
             .and_then(|fetch_result| {
@@ -1037,7 +1037,7 @@ impl MlsGroup {
 
     /// Find the `consent_state` of the group
     pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.context.store().conn()?;
         let record =
             conn.get_consent_record(hex::encode(self.group_id.clone()), ConsentType::GroupId)?;
 
@@ -1048,7 +1048,7 @@ impl MlsGroup {
     }
 
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.context.store().conn()?;
         conn.insert_or_replace_consent_records(vec![StoredConsentRecord::new(
             ConsentType::GroupId,
             state,
@@ -1063,7 +1063,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
+        let conn = self.context.store().conn()?;
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::KeyUpdate,
             self.group_id.clone(),
@@ -1094,7 +1094,7 @@ impl MlsGroup {
     }
 
     pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.context.store().conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let mls_group = self.load_mls_group(&provider)?;
 
@@ -1112,7 +1112,7 @@ impl MlsGroup {
         custom_group_membership: Option<Extension>,
         custom_mutable_permissions: Option<PolicySet>,
     ) -> Result<Self, GroupError> {
-        let conn = context.store.conn()?;
+        let conn = context.store().conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
 
         let protected_metadata = custom_protected_metadata.unwrap_or_else(|| {
@@ -1536,30 +1536,32 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use diesel::connection::SimpleConnection;
     use futures::future::join_all;
-    use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
+    use openmls::prelude::Member;
     use prost::Message;
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     use crate::{
-        assert_err, assert_logged,
+        assert_err,
         builder::ClientBuilder,
         client::{FindGroupParams, MessageProcessingError},
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
-            build_dm_protected_metadata_extension, build_group_membership_extension,
-            build_mutable_metadata_extension_default, build_protected_metadata_extension,
-            group_membership::GroupMembership,
+            build_dm_protected_metadata_extension, build_mutable_metadata_extension_default,
+            build_protected_metadata_extension,
             group_metadata::{ConversationType, GroupMetadata},
             group_mutable_metadata::MetadataField,
             intents::{PermissionPolicyOption, PermissionUpdateType},
             members::{GroupMember, PermissionLevel},
-            validate_dm_group, DeliveryStatus, GroupMetadataOptions, PreconfiguredPolicies,
-            UpdateAdminListType,
+            validate_dm_group, DeliveryStatus, GroupError, GroupMetadataOptions,
+            PreconfiguredPolicies, UpdateAdminListType,
         },
         storage::{
             consent_record::ConsentState,
@@ -1568,14 +1570,10 @@ mod tests {
             group_message::{GroupMessageKind, StoredGroupMessage},
         },
         xmtp_openmls_provider::XmtpOpenMlsProvider,
-        Client, InboxOwner, XmtpApi,
+        Client, InboxOwner, StreamHandle as _, XmtpApi,
     };
 
-    use super::{
-        group_permissions::PolicySet,
-        intents::{Installation, SendWelcomesAction},
-        GroupError, MlsGroup,
-    };
+    use super::{group_permissions::PolicySet, MlsGroup};
 
     async fn receive_group_invite<ApiClient>(client: &Client<ApiClient>) -> MlsGroup
     where
@@ -1601,13 +1599,16 @@ mod tests {
 
     // Adds a member to the group without the usual validations on group membership
     // Used for testing adversarial scenarios
+    #[cfg(not(target_arch = "wasm32"))]
     async fn force_add_member<ApiClient: XmtpApi>(
         sender_client: &Client<ApiClient>,
         new_member_client: &Client<ApiClient>,
         sender_group: &MlsGroup,
-        sender_mls_group: &mut OpenMlsGroup,
+        sender_mls_group: &mut openmls::prelude::MlsGroup,
         sender_provider: &XmtpOpenMlsProvider,
     ) {
+        use super::intents::{Installation, SendWelcomesAction};
+        use openmls::prelude::tls_codec::Serialize;
         let new_member_provider = new_member_client.mls_provider().unwrap();
 
         let key_package = new_member_client
@@ -1642,7 +1643,8 @@ mod tests {
             .unwrap();
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_send_message() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -1662,7 +1664,8 @@ mod tests {
         assert_eq!(messages.len(), 2);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_receive_self_message() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -1685,7 +1688,8 @@ mod tests {
         assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_receive_message_from_other() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1717,7 +1721,8 @@ mod tests {
     }
 
     // Test members function from non group creator
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_members_func_from_non_creator() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1770,7 +1775,8 @@ mod tests {
 
     // Amal and Bola will both try and add Charlie from the same epoch.
     // The group should resolve to a consistent state
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_add_member_conflict() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1808,13 +1814,13 @@ mod tests {
             .expect_err("expected error");
 
         // Check Amal's MLS group state.
-        let amal_db = XmtpOpenMlsProvider::from(amal.context.store.conn().unwrap());
+        let amal_db = XmtpOpenMlsProvider::from(amal.context.store().conn().unwrap());
         let amal_mls_group = amal_group.load_mls_group(&amal_db).unwrap();
         let amal_members: Vec<Member> = amal_mls_group.members().collect();
         assert_eq!(amal_members.len(), 3);
 
         // Check Bola's MLS group state.
-        let bola_db = XmtpOpenMlsProvider::from(bola.context.store.conn().unwrap());
+        let bola_db = XmtpOpenMlsProvider::from(bola.context.store().conn().unwrap());
         let bola_mls_group = bola_group.load_mls_group(&bola_db).unwrap();
         let bola_members: Vec<Member> = bola_mls_group.members().collect();
         assert_eq!(bola_members.len(), 3);
@@ -1864,9 +1870,12 @@ mod tests {
         assert!(matching_message.is_some());
     }
 
-    #[test]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg(not(target_arch = "wasm32"))]
     fn test_create_from_welcome_validation() {
-        crate::traced_test(|| async {
+        use crate::groups::{build_group_membership_extension, group_membership::GroupMembership};
+        use crate::{assert_logged, utils::test::traced_test};
+        traced_test(|| async {
             let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
             let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
@@ -1900,7 +1909,8 @@ mod tests {
         });
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_add_inbox() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1924,7 +1934,8 @@ mod tests {
         assert_eq!(messages.len(), 1);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_add_invalid_member() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let group = client
@@ -1938,7 +1949,8 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_add_unregistered_member() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let unconnected_wallet_address = generate_local_wallet().get_address();
@@ -1952,7 +1964,8 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_remove_inbox() {
         let client_1 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         // Add another client onto the network
@@ -1990,7 +2003,8 @@ mod tests {
         assert_eq!(messages.len(), 2);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_key_update() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2012,7 +2026,7 @@ mod tests {
             .unwrap();
         assert_eq!(messages.len(), 2);
 
-        let provider: XmtpOpenMlsProvider = client.context.store.conn().unwrap().into();
+        let provider: XmtpOpenMlsProvider = client.context.store().conn().unwrap().into();
         let mls_group = group.load_mls_group(&provider).unwrap();
         let pending_commit = mls_group.pending_commit();
         assert!(pending_commit.is_none());
@@ -2032,7 +2046,8 @@ mod tests {
         assert_eq!(bola_messages.len(), 1);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_post_commit() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2055,7 +2070,8 @@ mod tests {
         assert_eq!(welcome_messages.len(), 1);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_remove_by_account_address() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = &generate_local_wallet();
@@ -2106,7 +2122,8 @@ mod tests {
             .unwrap())
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_removed_members_cannot_send_message_to_others() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = &generate_local_wallet();
@@ -2168,9 +2185,8 @@ mod tests {
         assert_eq!(amal_messages.len(), 1);
     }
 
-    // TODO:nm add more tests for filling in missing installations
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_add_missing_installations() {
         // Setup for test
         let amal_wallet = generate_local_wallet();
@@ -2187,7 +2203,7 @@ mod tests {
 
         assert_eq!(group.members(&amal).await.unwrap().len(), 2);
 
-        let provider: XmtpOpenMlsProvider = amal.context.store.conn().unwrap().into();
+        let provider: XmtpOpenMlsProvider = amal.context.store().conn().unwrap().into();
         // Finished with setup
 
         // add a second installation for amal using the same wallet
@@ -2203,7 +2219,11 @@ mod tests {
         assert_eq!(num_members, 3);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_self_resolve_epoch_mismatch() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2253,7 +2273,8 @@ mod tests {
         assert!(expected_latest_message.eq(&dave_latest_message.decrypted_message_bytes));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_group_permissions() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2279,7 +2300,8 @@ mod tests {
             .is_err(),);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_group_options() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
@@ -2321,9 +2343,8 @@ mod tests {
         assert_eq!(amal_group_pinned_frame_url, "pinned frame");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    // TODO: Need to enforce limits on max wallets on `add_members_by_inbox_id` and break up
-    // requests into multiple transactions
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     #[ignore]
     async fn test_max_limit_add() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2348,7 +2369,8 @@ mod tests {
             .is_err(),);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_group_mutable_data() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2440,7 +2462,8 @@ mod tests {
         assert_eq!(bola_group_name, "New Group Name 1");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_update_group_image_url_square() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
@@ -2478,7 +2501,8 @@ mod tests {
         assert_eq!(amal_group_image_url, "a url");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_update_group_pinned_frame_url() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
@@ -2516,7 +2540,8 @@ mod tests {
         assert_eq!(amal_group_pinned_frame_url, "a frame url");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_group_mutable_data_group_permissions() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
@@ -2603,7 +2628,8 @@ mod tests {
         assert_eq!(amal_group_name, "New Group Name 2");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_group_admin_list_update() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
@@ -2713,7 +2739,8 @@ mod tests {
             .expect_err("expected err");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_group_super_admin_list_update() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2812,7 +2839,8 @@ mod tests {
             .expect_err("expected err");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_group_members_permission_level_update() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2909,7 +2937,8 @@ mod tests {
         assert_eq!(count_member, 0, "no members have no admin status");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_staged_welcome() {
         // Create Clients
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2949,7 +2978,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_can_read_group_creator_inbox_id() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let policy_set = Some(PreconfiguredPolicies::AllMembers.to_policy_set());
@@ -2975,7 +3005,8 @@ mod tests {
         assert_eq!(protected_metadata.creator_inbox_id, amal.inbox_id());
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_can_update_gce_after_failed_commit() {
         // Step 1: Amal creates a group
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3041,7 +3072,8 @@ mod tests {
         assert_eq!(bola_group_name, "Name Update 2");
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_can_update_permissions_after_group_creation() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
@@ -3107,7 +3139,8 @@ mod tests {
         assert_eq!(members.len(), 3);
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     async fn test_optimistic_send() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola_wallet = generate_local_wallet();
@@ -3196,7 +3229,8 @@ mod tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     async fn test_dm_creation() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3268,7 +3302,8 @@ mod tests {
         assert!(!is_bola_super_admin);
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     async fn process_messages_abort_on_retryable_error() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3301,10 +3336,14 @@ mod tests {
             .unwrap();
 
         let conn_1: XmtpOpenMlsProvider = bo.store().conn().unwrap().into();
-        let mut conn_2 = bo.store().raw_conn().unwrap();
+        let conn_2 = bo.store().conn().unwrap();
+        conn_2
+            .raw_query(|c| {
+                c.batch_execute("BEGIN EXCLUSIVE").unwrap();
+                Ok::<_, diesel::result::Error>(())
+            })
+            .unwrap();
 
-        // Begin an exclusive transaction on a second connection to lock the database
-        conn_2.batch_execute("BEGIN EXCLUSIVE").unwrap();
         let process_result = bo_group.process_messages(bo_messages, &conn_1, &bo).await;
         if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
             assert_eq!(errors.len(), 1);
@@ -3318,8 +3357,12 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    async fn test_paralell_syncs() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 5)
+    )]
+    async fn test_parallel_syncs() {
         let wallet = generate_local_wallet();
         let alix1 = Arc::new(ClientBuilder::new_test_client(&wallet).await);
         let alix1_group = alix1
@@ -3334,7 +3377,7 @@ mod tests {
                 let client_clone = alix1.clone();
                 // Each of these syncs is going to trigger the client to invite alix2 to the group
                 // because of the race
-                tokio::spawn(async move { group_clone.sync(&client_clone).await })
+                crate::spawn(None, async move { group_clone.sync(&client_clone).await }).join()
             })
             .collect();
 
@@ -3428,7 +3471,11 @@ mod tests {
      * We need to be safe even in situations where there are multiple
      * intents that do the same thing, leading to conflicts
      */
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 5)
+    )]
     async fn add_missing_installs_reentrancy() {
         let wallet = generate_local_wallet();
         let alix1 = ClientBuilder::new_test_client(&wallet).await;
@@ -3515,7 +3562,11 @@ mod tests {
             .any(|m| m.decrypted_message_bytes == "hi from alix1".as_bytes()));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 5)
+    )]
     async fn respect_allow_epoch_increment() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -3561,7 +3612,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_get_and_set_consent() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3616,7 +3668,8 @@ mod tests {
         assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Allowed);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_validate_dm_group() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let added_by_inbox = "added_by_inbox_id";

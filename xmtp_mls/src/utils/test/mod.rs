@@ -1,5 +1,4 @@
 #![allow(clippy::unwrap_used)]
-use std::env;
 
 use rand::{
     distributions::{Alphanumeric, DistString},
@@ -7,7 +6,6 @@ use rand::{
 };
 use std::sync::Arc;
 use tokio::{sync::Notify, time::error::Elapsed};
-use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
 use xmtp_id::associations::{
     generate_inbox_id,
     test_utils::MockSmartContractSignatureVerifier,
@@ -17,18 +15,25 @@ use xmtp_id::associations::{
 use crate::{
     builder::ClientBuilder,
     identity::IdentityStrategy,
-    storage::{EncryptedConnection, EncryptedMessageStore, EncryptionKey, StorageOption},
+    storage::{EncryptedMessageStore, StorageOption},
     types::Address,
     Client, InboxOwner, XmtpApi, XmtpTestClient,
 };
 
-#[cfg(feature = "http-api")]
-use xmtp_api_http::XmtpHttpApiClient;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod traced_test;
 
-#[cfg(not(feature = "http-api"))]
+#[cfg(not(target_arch = "wasm32"))]
+pub use traced_test::traced_test;
+
+#[cfg(not(target_arch = "wasm32"))]
+use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
+#[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
 pub type TestClient = GrpcClient;
 
-#[cfg(feature = "http-api")]
+#[cfg(any(feature = "http-api", target_arch = "wasm32"))]
+use xmtp_api_http::XmtpHttpApiClient;
+#[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 pub type TestClient = XmtpHttpApiClient;
 
 pub fn rand_string() -> String {
@@ -43,9 +48,16 @@ pub fn rand_vec() -> Vec<u8> {
     rand::thread_rng().gen::<[u8; 24]>().to_vec()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn tmp_path() -> String {
     let db_name = rand_string();
-    format!("{}/{}.db3", env::temp_dir().to_str().unwrap(), db_name)
+    format!("{}/{}.db3", std::env::temp_dir().to_str().unwrap(), db_name)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn tmp_path() -> String {
+    let db_name = rand_string();
+    format!("{}/{}.db3", "test_db", db_name)
 }
 
 pub fn rand_time() -> i64 {
@@ -53,7 +65,7 @@ pub fn rand_time() -> i64 {
     rng.gen_range(0..1_000_000_000)
 }
 
-#[cfg(feature = "http-api")]
+#[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 impl XmtpTestClient for XmtpHttpApiClient {
     async fn create_local() -> Self {
         XmtpHttpApiClient::new("http://localhost:5555".into()).unwrap()
@@ -64,6 +76,7 @@ impl XmtpTestClient for XmtpHttpApiClient {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl XmtpTestClient for GrpcClient {
     async fn create_local() -> Self {
         GrpcClient::create("http://localhost:5556".into(), false)
@@ -79,27 +92,35 @@ impl XmtpTestClient for GrpcClient {
 }
 
 impl EncryptedMessageStore {
-    pub fn generate_enc_key() -> EncryptionKey {
+    pub fn generate_enc_key() -> [u8; 32] {
         let mut key = [0u8; 32];
         xmtp_cryptography::utils::rng().fill_bytes(&mut key[..]);
         key
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn remove_db_files<P: AsRef<str>>(path: P) {
+        use crate::storage::EncryptedConnection;
+
         let path = path.as_ref();
         std::fs::remove_file(path).unwrap();
         std::fs::remove_file(EncryptedConnection::salt_file(path).unwrap()).unwrap();
     }
+
+    /// just a no-op on wasm32
+    #[cfg(target_arch = "wasm32")]
+    pub fn remove_db_files<P: AsRef<str>>(_path: P) {}
 }
 
 impl ClientBuilder<TestClient> {
-    pub fn temp_store(self) -> Self {
+    pub async fn temp_store(self) -> Self {
         let tmpdb = tmp_path();
         self.store(
             EncryptedMessageStore::new(
                 StorageOption::Persistent(tmpdb),
                 EncryptedMessageStore::generate_enc_key(),
             )
+            .await
             .unwrap(),
         )
     }
@@ -111,6 +132,7 @@ impl ClientBuilder<TestClient> {
     }
 
     pub async fn new_test_client(owner: &impl InboxOwner) -> Client<TestClient> {
+        // crate::utils::wasm::init().await;
         let nonce = 1;
         let inbox_id = generate_inbox_id(&owner.get_address(), &nonce);
 
@@ -122,6 +144,7 @@ impl ClientBuilder<TestClient> {
         ))
         .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
         .temp_store()
+        .await
         .local_client()
         .await
         .build()
@@ -145,6 +168,7 @@ impl ClientBuilder<TestClient> {
             None,
         ))
         .temp_store()
+        .await
         .api_client(dev_client)
         .build()
         .await
@@ -160,12 +184,12 @@ impl ClientBuilder<TestClient> {
 #[derive(Clone, Default)]
 pub struct Delivery {
     notify: Arc<Notify>,
-    timeout: std::time::Duration,
+    timeout: core::time::Duration,
 }
 
 impl Delivery {
-    pub fn new(timeout: Option<std::time::Duration>) -> Self {
-        let timeout = timeout.unwrap_or(std::time::Duration::from_secs(60));
+    pub fn new(timeout: Option<core::time::Duration>) -> Self {
+        let timeout = timeout.unwrap_or(core::time::Duration::from_secs(60));
         Self {
             notify: Arc::new(Notify::new()),
             timeout,

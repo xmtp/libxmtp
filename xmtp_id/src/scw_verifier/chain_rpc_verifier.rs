@@ -1,6 +1,5 @@
 //! Interaction with [ERC-1271](https://eips.ethereum.org/EIPS/eip-1271) smart contracts.
 use crate::scw_verifier::SmartContractSignatureVerifier;
-use async_trait::async_trait;
 use ethers::abi::{Constructor, Param, ParamType, Token};
 use ethers::contract::abigen;
 use ethers::providers::{Http, Middleware, Provider};
@@ -39,7 +38,8 @@ impl RpcSmartContractWalletVerifier {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
     /// Verifies an ERC-6492<https://eips.ethereum.org/EIPS/eip-6492> signature.
     ///
@@ -103,8 +103,10 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
     }
 }
 
-#[cfg(test)]
-pub mod tests {
+// Anvil does not work with WASM
+// because its a wrapper over the system-binary
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) mod tests {
     use crate::is_smart_contract;
 
     use super::*;

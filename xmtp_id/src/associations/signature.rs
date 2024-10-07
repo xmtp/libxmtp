@@ -61,6 +61,7 @@ impl std::fmt::Display for SignatureKind {
         }
     }
 }
+
 // CAIP-10[https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-10.md]
 #[derive(Debug, Clone, PartialEq)]
 pub struct AccountId {

@@ -138,12 +138,16 @@ fn pretty_timestamp(ns_date: u64) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use crate::associations::hashes::generate_inbox_id;
 
     use super::*;
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn create_signatures() {
         let account_address = "0x123".to_string();
         let client_timestamp_ns: u64 = 12;

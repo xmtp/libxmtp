@@ -389,7 +389,7 @@ impl Identity {
 
     pub(crate) fn new_key_package(
         &self,
-        provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore>,
+        provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore<crate::storage::RawDbConnection>>,
     ) -> Result<KeyPackage, IdentityError> {
         let last_resort = Extension::LastResort(LastResortExtension::default());
         let key_package_extensions = Extensions::single(last_resort);
@@ -497,7 +497,7 @@ impl Identity {
 
 pub(crate) fn serialize_key_package_hash_ref(
     kp: &KeyPackage,
-    provider: &impl OpenMlsProvider<StorageProvider = SqlKeyStore>,
+    provider: &impl OpenMlsProvider<StorageProvider = SqlKeyStore<crate::storage::RawDbConnection>>,
 ) -> Result<Vec<u8>, IdentityError> {
     let key_package_hash_ref = kp
         .hash_ref(provider.crypto())

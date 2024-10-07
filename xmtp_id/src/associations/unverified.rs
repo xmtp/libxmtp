@@ -376,6 +376,9 @@ impl UnverifiedLegacyDelegatedSignature {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use crate::associations::{
         generate_inbox_id, test_utils::rand_string, unsigned_actions::UnsignedCreateInbox,
     };
@@ -385,7 +388,8 @@ mod tests {
         UnverifiedRecoverableEcdsaSignature, UnverifiedSignature,
     };
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn create_identity_update() {
         let account_address = rand_string();
         let nonce = 1;

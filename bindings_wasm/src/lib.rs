@@ -1,1 +1,9 @@
+pub mod consent_state;
+pub mod conversations;
+pub mod encoded_content;
+pub mod groups;
+pub mod inbox_id;
+pub mod inbox_state;
+pub mod messages;
 pub mod mls_client;
+pub mod permissions;

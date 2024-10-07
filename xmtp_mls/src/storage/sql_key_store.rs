@@ -1,6 +1,6 @@
 use crate::{retry::RetryableError, retryable};
 
-use super::encrypted_store::db_connection::DbConnection;
+use super::encrypted_store::db_connection::DbConnectionPrivate;
 use bincode;
 use diesel::{
     prelude::*,
@@ -26,20 +26,25 @@ struct StorageData {
 }
 
 #[derive(Debug)]
-pub struct SqlKeyStore {
+pub struct SqlKeyStore<C> {
     // Directly wrap the DbConnection which is a SqliteConnection in this case
-    conn: DbConnection,
+    conn: DbConnectionPrivate<C>,
 }
 
-impl SqlKeyStore {
-    pub fn new(conn: DbConnection) -> Self {
+impl<C> SqlKeyStore<C> {
+    pub fn new(conn: DbConnectionPrivate<C>) -> Self {
         Self { conn }
     }
 
-    pub fn conn_ref(&self) -> &DbConnection {
+    pub fn conn_ref(&self) -> &DbConnectionPrivate<C> {
         &self.conn
     }
+}
 
+impl<C> SqlKeyStore<C>
+where
+    C: diesel::Connection<Backend = crate::storage::Sqlite> + diesel::connection::LoadConnection,
+{
     fn select_query<const VERSION: u16>(
         &self,
         storage_key: &Vec<u8>,
@@ -278,7 +283,10 @@ const QUEUED_PROPOSAL_LABEL: &[u8] = b"QueuedProposal";
 const PROPOSAL_QUEUE_REFS_LABEL: &[u8] = b"ProposalQueueRefs";
 const RESUMPTION_PSK_STORE_LABEL: &[u8] = b"ResumptionPskStore";
 
-impl StorageProvider<CURRENT_VERSION> for SqlKeyStore {
+impl<C> StorageProvider<CURRENT_VERSION> for SqlKeyStore<C>
+where
+    C: diesel::Connection<Backend = crate::storage::Sqlite> + diesel::connection::LoadConnection,
+{
     type Error = SqlKeyStoreError;
 
     fn queue_proposal<
@@ -1013,7 +1021,10 @@ impl From<bincode::Error> for SqlKeyStoreError {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use openmls::group::GroupId;
     use openmls_basic_credential::{SignatureKeyPair, StorageId};
     use openmls_traits::{
@@ -1033,13 +1044,15 @@ mod tests {
         xmtp_openmls_provider::XmtpOpenMlsProvider,
     };
 
-    #[test]
-    fn store_read_delete() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn store_read_delete() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
             StorageOption::Persistent(db_path),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
 
         let conn = store.conn().unwrap();
@@ -1082,13 +1095,15 @@ mod tests {
     impl Key<CURRENT_VERSION> for ProposalRef {}
     impl Entity<CURRENT_VERSION> for ProposalRef {}
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn list_append_remove() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
             StorageOption::Persistent(db_path),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let conn = store.conn().unwrap();
         let provider = XmtpOpenMlsProvider::new(conn);
@@ -1164,13 +1179,15 @@ mod tests {
         assert!(proposals_read.unwrap().is_empty());
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn group_state() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
             StorageOption::Persistent(db_path),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let conn = store.conn().unwrap();
         let provider = XmtpOpenMlsProvider::new(conn);

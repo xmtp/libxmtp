@@ -90,7 +90,7 @@ impl MlsGroup {
     where
         ApiClient: XmtpApi,
     {
-        let conn = self.context.store.conn()?;
+        let conn = self.context.store().conn()?;
         let mls_provider = XmtpOpenMlsProvider::from(conn);
 
         tracing::info!("[{}] syncing group", client.inbox_id());
@@ -1308,14 +1308,18 @@ fn decode_staged_commit(data: Vec<u8>) -> Result<StagedCommit, MessageProcessing
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use super::*;
     use crate::builder::ClientBuilder;
     use futures::future;
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     async fn publish_intents_worst_case_scenario() {
         let wallet = generate_local_wallet();
         let amal = Arc::new(ClientBuilder::new_test_client(&wallet).await);
@@ -1329,7 +1333,7 @@ mod tests {
         amal_group.send_message_optimistic(b"5").unwrap();
         amal_group.send_message_optimistic(b"6").unwrap();
 
-        let conn = amal.context().store.conn().unwrap();
+        let conn = amal.context().store().conn().unwrap();
         let provider: XmtpOpenMlsProvider = conn.into();
 
         let mut futures = vec![];

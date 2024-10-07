@@ -6,6 +6,7 @@ mod util;
 use futures::stream;
 use reqwest::header;
 use util::{create_grpc_stream, handle_error};
+// use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::api_client::{ClientWithMetadata, Error, ErrorKind, XmtpIdentityClient};
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
@@ -333,14 +334,17 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
 
 // tests
 #[cfg(test)]
-mod tests {
+pub mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use xmtp_proto::xmtp::mls::api::v1::KeyPackageUpload;
 
     use crate::constants::ApiUrls;
 
     use super::*;
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_upload_key_package() {
         let client = XmtpHttpApiClient::new(ApiUrls::LOCAL_ADDRESS.to_string()).unwrap();
         let result = client

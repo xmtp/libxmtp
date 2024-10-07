@@ -375,7 +375,9 @@ fn get_signature_text(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use ethers::signers::{LocalWallet, Signer};
 
     use crate::{
@@ -403,7 +405,8 @@ mod tests {
             .expect("should be valid")
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_inbox() {
         let wallet = LocalWallet::new(&mut rand::thread_rng());
         let account_address = wallet.get_address();
@@ -423,7 +426,8 @@ mod tests {
         get_state(vec![convert_to_verified(&identity_update).await]).expect("should be valid");
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_and_add_identity() {
         let wallet = LocalWallet::new(&mut rand::thread_rng());
         let installation_key = Ed25519SigningKey::generate(&mut rand::thread_rng());
@@ -451,7 +455,8 @@ mod tests {
         assert_eq!(state.members().len(), 2);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_and_revoke() {
         let wallet = LocalWallet::new(&mut rand::thread_rng());
         let account_address = wallet.get_address();
@@ -476,7 +481,8 @@ mod tests {
         assert_eq!(state.members().len(), 0);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn attempt_adding_unknown_signer() {
         let account_address = "account_address".to_string();
         let nonce = 0;

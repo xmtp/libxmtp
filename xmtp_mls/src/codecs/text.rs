@@ -54,10 +54,14 @@ impl ContentCodec<String> for TextCodec {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use crate::codecs::{text::TextCodec, ContentCodec};
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn can_encode_and_decode_text() {
         let text = "Hello, world!";
         let encoded_content =

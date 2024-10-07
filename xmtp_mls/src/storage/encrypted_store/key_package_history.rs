@@ -79,9 +79,12 @@ impl DbConnection {
 #[cfg(test)]
 mod tests {
     use crate::{storage::encrypted_store::tests::with_connection, utils::test::rand_vec};
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    #[test]
-    fn test_store_key_package_history_entry() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_store_key_package_history_entry() {
         with_connection(|conn| {
             let hash_ref = rand_vec();
             let new_entry = conn
@@ -90,10 +93,12 @@ mod tests {
             assert_eq!(new_entry.key_package_hash_ref, hash_ref);
             assert_eq!(new_entry.id, 1);
         })
+        .await
     }
 
-    #[test]
-    fn test_store_multiple() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_store_multiple() {
         with_connection(|conn| {
             let hash_ref1 = rand_vec();
             let hash_ref2 = rand_vec();
@@ -118,5 +123,6 @@ mod tests {
                 .unwrap();
             assert_eq!(earlier_entries.len(), 2);
         })
+        .await
     }
 }

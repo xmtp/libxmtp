@@ -1,31 +1,36 @@
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 
-use crate::storage::{db_connection::DbConnection, sql_key_store::SqlKeyStore};
+use crate::storage::{db_connection::DbConnectionPrivate, sql_key_store::SqlKeyStore};
+
+pub type XmtpOpenMlsProvider = XmtpOpenMlsProviderPrivate<crate::storage::RawDbConnection>;
 
 #[derive(Debug)]
-pub struct XmtpOpenMlsProvider {
+pub struct XmtpOpenMlsProviderPrivate<C> {
     crypto: RustCrypto,
-    key_store: SqlKeyStore,
+    key_store: SqlKeyStore<C>,
 }
 
-impl XmtpOpenMlsProvider {
-    pub fn new(conn: DbConnection) -> Self {
+impl<C> XmtpOpenMlsProviderPrivate<C> {
+    pub fn new(conn: DbConnectionPrivate<C>) -> Self {
         Self {
             crypto: RustCrypto::default(),
             key_store: SqlKeyStore::new(conn),
         }
     }
 
-    pub(crate) fn conn_ref(&self) -> &DbConnection {
+    pub(crate) fn conn_ref(&self) -> &DbConnectionPrivate<C> {
         self.key_store.conn_ref()
     }
 }
 
-impl OpenMlsProvider for XmtpOpenMlsProvider {
+impl<C> OpenMlsProvider for XmtpOpenMlsProviderPrivate<C>
+where
+    C: diesel::Connection<Backend = crate::storage::Sqlite> + diesel::connection::LoadConnection,
+{
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
-    type StorageProvider = SqlKeyStore;
+    type StorageProvider = SqlKeyStore<C>;
 
     fn crypto(&self) -> &Self::CryptoProvider {
         &self.crypto
@@ -40,10 +45,13 @@ impl OpenMlsProvider for XmtpOpenMlsProvider {
     }
 }
 
-impl<'a> OpenMlsProvider for &'a XmtpOpenMlsProvider {
+impl<'a, C> OpenMlsProvider for &'a XmtpOpenMlsProviderPrivate<C>
+where
+    C: diesel::Connection<Backend = crate::storage::Sqlite> + diesel::connection::LoadConnection,
+{
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
-    type StorageProvider = SqlKeyStore;
+    type StorageProvider = SqlKeyStore<C>;
 
     fn crypto(&self) -> &Self::CryptoProvider {
         &self.crypto

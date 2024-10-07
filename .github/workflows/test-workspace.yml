@@ -37,8 +37,12 @@ jobs:
           workspaces: |
             .
       - name: Start Docker containers
-        run: dev/up
+        run: |
+          dev/build_validation_service_local
+          dev/docker/up
       - name: Install nextest
         uses: taiki-e/install-action@nextest
-      - name: Run cargo nextest on main workspace
-        run: cargo nextest run --test-threads 2
+      - name: build tests
+        run: cargo nextest run --no-run --workspace --tests --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
+      - name: cargo test
+        run: cargo nextest run --workspace --test-threads 2 --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm

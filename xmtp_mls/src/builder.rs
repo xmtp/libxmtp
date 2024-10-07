@@ -156,7 +156,9 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use std::sync::atomic::AtomicBool;
 
     use crate::api::ApiClientWrapper;
@@ -256,7 +258,8 @@ mod tests {
         (buf, address.to_lowercase())
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn builder_test() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -264,7 +267,8 @@ mod tests {
     }
 
     // Test client creation using various identity strategies that creates new inboxes
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_client_creation() {
         struct IdentityStrategyTestCase {
             strategy: IdentityStrategy,
@@ -353,6 +357,7 @@ mod tests {
         for test_case in identity_strategies_test_cases {
             let result = ClientBuilder::new(test_case.strategy)
                 .temp_store()
+                .await
                 .local_client()
                 .await
                 .build()
@@ -374,7 +379,8 @@ mod tests {
     // - create client2 from same db with [IdentityStrategy::CachedOnly]
     // - create client3 from same db with [IdentityStrategy::CreateIfNotFound]
     // - create client4 with different db.
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_2nd_time_client_creation() {
         let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
         let identity_strategy = IdentityStrategy::CreateIfNotFound(
@@ -387,6 +393,7 @@ mod tests {
             StorageOption::Persistent(tmp_path()),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
 
         let client1 = ClientBuilder::new(identity_strategy.clone())
@@ -432,6 +439,7 @@ mod tests {
             Some(legacy_key),
         ))
         .temp_store()
+        .await
         .local_client()
         .await
         .build()
@@ -443,7 +451,8 @@ mod tests {
     }
 
     // Should return error if inbox associated with given account_address doesn't match the provided one.
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn api_identity_mismatch() {
         let mut mock_api = MockApiClient::new();
         let tmpdb = tmp_path();
@@ -453,6 +462,7 @@ mod tests {
             StorageOption::Persistent(tmpdb),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let nonce = 0;
         let address = generate_local_wallet().get_address();
@@ -483,7 +493,8 @@ mod tests {
     }
 
     // Use the account_address associated inbox
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn api_identity_happy_path() {
         let mut mock_api = MockApiClient::new();
         let tmpdb = tmp_path();
@@ -493,6 +504,7 @@ mod tests {
             StorageOption::Persistent(tmpdb),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let nonce = 0;
         let address = generate_local_wallet().get_address();
@@ -521,7 +533,8 @@ mod tests {
     }
 
     // Use a stored identity as long as the inbox_id matches the one provided.
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn stored_identity_happy_path() {
         let mock_api = MockApiClient::new();
         let tmpdb = tmp_path();
@@ -531,6 +544,7 @@ mod tests {
             StorageOption::Persistent(tmpdb),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let nonce = 0;
         let address = generate_local_wallet().get_address();
@@ -555,7 +569,8 @@ mod tests {
             .is_ok());
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn stored_identity_mismatch() {
         let mock_api = MockApiClient::new();
         let scw_verifier = MockSmartContractSignatureVerifier::new(true);
@@ -569,6 +584,7 @@ mod tests {
             StorageOption::Persistent(tmpdb),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
 
         let stored: StoredIdentity = (&Identity {
@@ -598,15 +614,17 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn identity_persistence_test() {
         let tmpdb = tmp_path();
         let wallet = &generate_local_wallet();
         let db_key = EncryptedMessageStore::generate_enc_key();
 
         // Generate a new Wallet + Store
-        let store_a =
-            EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key).unwrap();
+        let store_a = EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key)
+            .await
+            .unwrap();
 
         let nonce = 1;
         let inbox_id = generate_inbox_id(&wallet.get_address(), &nonce);
@@ -630,8 +648,9 @@ mod tests {
         drop(client_a);
 
         // Reload the existing store and wallet
-        let store_b =
-            EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key).unwrap();
+        let store_b = EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key)
+            .await
+            .unwrap();
 
         let client_b = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
             inbox_id,
@@ -669,8 +688,9 @@ mod tests {
         // .expect_err("Testing expected mismatch error");
 
         // Use cached only strategy
-        let store_d =
-            EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key).unwrap();
+        let store_d = EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key)
+            .await
+            .unwrap();
         let client_d = ClientBuilder::new(IdentityStrategy::CachedOnly)
             .local_client()
             .await

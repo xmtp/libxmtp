@@ -1,4 +1,4 @@
-use bindings_wasm::mls_client::{create_client, get_inbox_id_for_address};
+use bindings_wasm::{inbox_id::get_inbox_id_for_address, mls_client::create_client};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 use xmtp_api_http::constants::ApiUrls;
@@ -21,11 +21,12 @@ pub async fn test_create_client() {
   let host = ApiUrls::LOCAL_ADDRESS.to_string();
   let inbox_id = get_inbox_id_for_address(host.clone(), account_address.clone())
     .await
-    .unwrap_or_else(|e| panic!("Error getting inbox ID"));
+    .unwrap_or_else(|_| panic!("Error getting inbox ID"));
   let client = create_client(
     host.clone(),
     inbox_id.unwrap(),
     account_address.clone(),
+    "test".to_string(),
     None,
     None,
   )

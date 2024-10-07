@@ -1,30 +1,29 @@
 use napi::bindgen_prelude::Error;
 use std::sync::Arc;
-use tokio::{sync::Mutex, task::AbortHandle};
-use xmtp_mls::{client::ClientError, subscriptions::StreamHandle};
+use tokio::sync::Mutex;
+use xmtp_mls::{
+  client::ClientError, AbortHandle, GenericStreamHandle, StreamHandle, StreamHandleError,
+};
 
 use napi_derive::napi;
 
+type NapiHandle = Box<GenericStreamHandle<Result<(), ClientError>>>;
+
 #[napi]
 pub struct NapiStreamCloser {
-  #[allow(clippy::type_complexity)]
-  handle: Arc<Mutex<Option<StreamHandle<Result<(), ClientError>>>>>,
-  // for convenience, does not require locking mutex.
-  abort_handle: Arc<AbortHandle>,
+  handle: Arc<Mutex<Option<NapiHandle>>>,
+  abort: Arc<Box<dyn AbortHandle>>,
 }
 
 impl NapiStreamCloser {
-  pub fn new(handle: StreamHandle<Result<(), ClientError>>) -> Self {
+  pub fn new(
+    handle: impl StreamHandle<StreamOutput = Result<(), ClientError>> + Send + Sync + 'static,
+  ) -> Self {
+    let abort = handle.abort_handle();
     Self {
-      abort_handle: Arc::new(handle.handle.abort_handle()),
-      handle: Arc::new(Mutex::new(Some(handle))),
+      handle: Arc::new(Mutex::new(Some(Box::new(handle)))),
+      abort: Arc::new(abort),
     }
-  }
-}
-
-impl From<StreamHandle<Result<(), ClientError>>> for NapiStreamCloser {
-  fn from(handle: StreamHandle<Result<(), ClientError>>) -> Self {
-    NapiStreamCloser::new(handle)
   }
 }
 
@@ -34,28 +33,26 @@ impl NapiStreamCloser {
   /// Does not wait for the stream to end.
   #[napi]
   pub fn end(&self) {
-    self.abort_handle.abort();
+    self.abort.end();
   }
 
   /// End the stream and `await` for it to shutdown
   /// Returns the `Result` of the task.
-  #[napi]
   /// End the stream and asyncronously wait for it to shutdown
+  #[napi]
   pub async fn end_and_wait(&self) -> Result<(), Error> {
-    if self.abort_handle.is_finished() {
+    use StreamHandleError::*;
+    if self.abort.is_finished() {
       return Ok(());
     }
 
     let mut stream_handle = self.handle.lock().await;
     let stream_handle = stream_handle.take();
-    if let Some(h) = stream_handle {
-      h.handle.abort();
-      match h.handle.await {
-        Err(e) if !e.is_cancelled() => Err(Error::from_reason(format!(
-          "subscription event loop join error {}",
-          e
-        ))),
-        Err(e) if e.is_cancelled() => Ok(()),
+
+    if let Some(mut h) = stream_handle {
+      match h.end_and_wait().await {
+        Err(Cancelled) => Ok(()),
+        Err(Panicked(msg)) => Err(Error::from_reason(msg)),
         Ok(t) => t.map_err(|e| Error::from_reason(e.to_string())),
         Err(e) => Err(Error::from_reason(format!("error joining task {}", e))),
       }
@@ -68,6 +65,6 @@ impl NapiStreamCloser {
   /// Checks if this stream is closed
   #[napi]
   pub fn is_closed(&self) -> bool {
-    self.abort_handle.is_finished()
+    self.abort.is_finished()
   }
 }
