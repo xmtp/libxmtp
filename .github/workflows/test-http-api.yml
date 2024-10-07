@@ -6,7 +6,7 @@ on:
   pull_request:
     # only run tests when related changes are made
     paths:
-      - ".github/workflows/test-workspace.yml"
+      - ".github/workflows/test-http-api.yml"
       - "dev/**"
       - "mls_validation_service/**"
       - "xmtp_api_http/**"
@@ -40,5 +40,7 @@ jobs:
         run: dev/up
       - name: Install nextest
         uses: taiki-e/install-action@nextest
-      - name: Run cargo nextest on main workspace
+      - name: build tests
+        run: cargo build --tests --workspace --exclude xmtp_api_grpc --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --features http-api
+      - name: cargo test
         run: cargo nextest run --workspace --exclude xmtp_api_grpc --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --features http-api --test-threads 2
