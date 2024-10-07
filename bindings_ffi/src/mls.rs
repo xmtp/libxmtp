@@ -12,6 +12,7 @@ use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::AccountId;
 use xmtp_id::associations::AssociationState;
 use xmtp_id::associations::MemberIdentifier;
+use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     associations::{builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id},
@@ -125,12 +126,15 @@ pub async fn create_client(
         legacy_signed_private_key_proto,
     );
 
+    let scw_verifier = RemoteSignatureVerifier::new(api_client.identity_client().clone());
+
     let xmtp_client: RustXmtpClient = match history_sync_url {
         Some(url) => {
             ClientBuilder::new(identity_strategy)
                 .api_client(api_client)
                 .store(store)
                 .history_sync_url(&url)
+                .scw_signature_verifier(scw_verifier)
                 .build()
                 .await?
         }
@@ -138,6 +142,7 @@ pub async fn create_client(
             ClientBuilder::new(identity_strategy)
                 .api_client(api_client)
                 .store(store)
+                .scw_signature_verifier(scw_verifier)
                 .build()
                 .await?
         }
