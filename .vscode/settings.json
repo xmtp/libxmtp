@@ -1,11 +1,6 @@
 {
   "rust-analyzer.cargo.sysroot": "discover",
-  "rust-analyzer.linkedProjects": [
-    "bindings_ffi/Cargo.toml",
-    "bindings_node/Cargo.toml",
-    "bindings_wasm/Cargo.toml",
-    "examples/cli/Cargo.toml"
-  ],
+  "rust-analyzer.linkedProjects": ["Cargo.toml"],
   "rust-analyzer.procMacro.enable": true,
   "rust-analyzer.procMacro.attributes.enable": true,
   "rust-analyzer.procMacro.ignored": {
