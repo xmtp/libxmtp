@@ -170,7 +170,7 @@ pub enum MessageProcessingError {
     #[error("epoch increment not allowed")]
     EpochIncrementNotAllowed,
     #[error("Welcome processing error: {0}")]
-    WelcomeProcessing(String),
+    WelcomeProcessing(Box<GroupError>),
     #[error("wrong credential type")]
     WrongCredentialType(#[from] BasicCredentialError),
     #[error("proto decode error: {0}")]
@@ -607,22 +607,17 @@ where
                                 match result {
                                     Ok(mls_group) => Ok(Some(mls_group)),
                                     Err(err) => {
-                                        if let GroupError::Storage(StorageError::DieselResult(diesel::result::Error::DatabaseError(
-                                            diesel::result::DatabaseErrorKind::UniqueViolation,
-                                            ref error_info,
-                                        ))) = err
-                                        {
-                                            // Only log warning if we are erroring because welcome id already exists
-                                            if error_info.message() == "welcome id already exists" {
-                                                log::warn!("failed to create group from welcome due to duplicate welcome ID: {}", err);
-                                            } else {
-                                                log::error!("failed to create group from welcome (database error): {}", err);
-                                            }
+                                        use crate::StorageError::*;
+                                        use crate::DuplicateItem::*;
+
+                                        if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
+                                            log::warn!("failed to create group from welcome due to duplicate welcome ID: {}", err);
                                         } else {
-                                            log::error!("failed to create group from welcome (other error): {}", err);
+                                            log::error!("failed to create group from welcome: {}", err);
                                         }
+
                                         Err(MessageProcessingError::WelcomeProcessing(
-                                            err.to_string(),
+                                            Box::new(err)
                                         ))
                                     }
                                 }
