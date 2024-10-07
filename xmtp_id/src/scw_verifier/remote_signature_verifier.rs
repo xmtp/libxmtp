@@ -42,7 +42,7 @@ impl SmartContractSignatureVerifier for RemoteSignatureVerifier {
             .verify_smart_contract_wallet_signatures(VerifySmartContractWalletSignaturesRequest {
                 signatures: vec![VerifySmartContractWalletSignatureRequestSignature {
                     account_id: account_id.into(),
-                    block_number: block_number,
+                    block_number,
                     signature: signature.to_vec(),
                     hash: hash.to_vec(),
                 }],

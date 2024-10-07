@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use crate::scw_verifier::{self, SmartContractSignatureVerifier};
+use crate::scw_verifier::SmartContractSignatureVerifier;
 
 use super::{
     unsigned_actions::{
@@ -11,7 +11,6 @@ use super::{
     AccountId, Action, AddAssociation, CreateInbox, IdentityUpdate, RevokeAssociation,
     SignatureError,
 };
-use ethers::providers::ProviderError;
 use futures::future::try_join_all;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 

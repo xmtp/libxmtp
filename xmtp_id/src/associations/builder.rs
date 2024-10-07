@@ -223,6 +223,9 @@ impl SignatureRequest {
             .collect()
     }
 
+    /// Often the front-end doesn't know the current block number when adding a smart contract.
+    /// This is for when you want to add a smart-contract wallet,
+    /// and need the verifier to populate the latest block number for you.
     pub async fn add_new_unverified_smart_contract_signature(
         &mut self,
         mut signature: NewUnverifiedSmartContractWalletSignature,
