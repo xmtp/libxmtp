@@ -30,7 +30,7 @@ use crate::{
     retry_async,
     storage::{
         db_connection::DbConnection,
-        group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent, ID},
+        group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         refresh_state::EntityKind,
         serialization::{db_deserialize, db_serialize},
@@ -537,6 +537,10 @@ impl MlsGroup {
         let intent = provider
             .conn_ref()
             .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
+        tracing::info!(
+            "Processing envelope with hash {:?}",
+            hex::encode(sha256(envelope.data.as_slice()))
+        );
 
         match intent {
             // Intent with the payload hash matches
@@ -1007,10 +1011,10 @@ impl MlsGroup {
 
     /**
      * Checks each member of the group for `IdentityUpdates` after their current sequence_id. If updates
-     * are found the method will construct an [`UpdateGroupMembershipIntentData`] and publish a change
+     * are found the method will construct an [`UpdateGroupMembershipIntentData`] and create a change
      * to the [`GroupMembership`] that will add any missing installations.
      *
-     * This is designed to handle cases where existing members have added a new installation to their inbox
+     * This is designed to handle cases where existing members have added a new installation to their inbox or revoked an installation
      * and the group has not been updated to include it.
      */
     pub(super) async fn add_missing_installations<ApiClient>(
@@ -1032,12 +1036,11 @@ impl MlsGroup {
 
         debug!("Adding missing installations {:?}", intent_data);
 
-        let conn = provider.conn_ref();
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
+        let intent = self.queue_intent_with_conn(
+            provider.conn_ref(),
             IntentKind::UpdateGroupMembership,
-            self.group_id.clone(),
             intent_data.into(),
-        ))?;
+        )?;
 
         self.sync_until_intent_resolved(provider, intent.id, client)
             .await
@@ -1108,6 +1111,11 @@ impl MlsGroup {
         ))
     }
 
+    /**
+     * Sends welcome messages to the installations specified in the action
+     *
+     * Internally, this breaks the request into chunks to avoid exceeding the GRPC max message size limits
+     */
     #[tracing::instrument(level = "trace", skip_all)]
     pub(super) async fn send_welcomes<ApiClient>(
         &self,

@@ -24,6 +24,7 @@ pub enum KeyPackageVerificationError {
     Decode(#[from] DecodeError),
 }
 
+/// A wrapper around the MLS key package struct with some additional fields
 pub struct VerifiedKeyPackageV2 {
     pub inner: KeyPackage,
     pub credential: MlsCredential,

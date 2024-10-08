@@ -2552,6 +2552,9 @@ mod tests {
         let bo_group = bo.group(alix_group.id()).unwrap();
 
         bo_group.send("bo1".as_bytes().to_vec()).await.unwrap();
+        // Temporary workaround for OpenMLS issue - make sure Alix's epoch is up-to-date
+        // https://github.com/xmtp/libxmtp/issues/1116
+        alix_group.sync().await.unwrap();
         alix_group.send("alix1".as_bytes().to_vec()).await.unwrap();
 
         // Move the group forward by 3 epochs (as Alix's max_past_epochs is
@@ -2755,6 +2758,9 @@ mod tests {
         log::info!("Caro sending fifth message");
         // Caro sends a message in the group
         caro_group.update_installations().await.unwrap();
+        // Temporary workaround for OpenMLS issue - make sure Caro's epoch is up-to-date
+        // https://github.com/xmtp/libxmtp/issues/1116
+        caro_group.sync().await.unwrap();
         caro_group
             .send("Fifth message".as_bytes().to_vec())
             .await

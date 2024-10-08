@@ -63,7 +63,7 @@ use crate::{
     Fetch, XmtpApi,
 };
 
-/// Which network the Client is connected to
+/// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
 pub enum Network {
     Local(&'static str),
@@ -130,7 +130,7 @@ impl crate::retry::RetryableError for ClientError {
     }
 }
 
-/// An enum of errors that can occur when reading and processing a message off the network
+/// Errors that can occur when reading and processing a message off the network
 #[derive(Debug, Error)]
 pub enum MessageProcessingError {
     #[error("[{0}] already processed")]
@@ -305,11 +305,11 @@ where
             local_events: tx,
         }
     }
-
+    /// Retrieves the client's installation public key, sometimes also called `installation_id`
     pub fn installation_public_key(&self) -> Vec<u8> {
         self.context.installation_public_key()
     }
-
+    /// Retrieves the client's inbox ID
     pub fn inbox_id(&self) -> String {
         self.context.inbox_id()
     }
@@ -319,6 +319,7 @@ where
         self.context.mls_provider()
     }
 
+    /// Calls the server to look up the `inbox_id` associated with a given address
     pub async fn find_inbox_id_from_address(
         &self,
         address: String,
@@ -333,6 +334,8 @@ where
         }
     }
 
+    /// Calls the server to look up the `inbox_id`s` associated with a list of addresses.
+    /// If no `inbox_id` is found, returns None.
     pub async fn find_inbox_ids_from_addresses(
         &self,
         addresses: Vec<String>,
@@ -350,11 +353,13 @@ where
         Ok(inbox_ids)
     }
 
-    /// Get sequence id, may not be consistent with the backend
+    /// Get the highest `sequence_id` from the local database for the client's `inbox_id`.
+    /// This may not be consistent with the latest state on the backend.
     pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
         self.context.inbox_sequence_id(conn)
     }
 
+    /// Get the [`AssociationState`] for the client's `inbox_id`
     pub async fn inbox_state(
         &self,
         refresh_from_network: bool,
@@ -368,8 +373,8 @@ where
         Ok(state)
     }
 
-    // set the consent record in the database
-    // if the consent record is an address also set the inboxId
+    /// Set a consent record in the local database.
+    /// If the consent record is an address set the consent state for both the address and `inbox_id`
     pub async fn set_consent_states(
         &self,
         mut records: Vec<StoredConsentRecord>,
@@ -408,8 +413,7 @@ where
         Ok(())
     }
 
-    // get the consent record from the database
-    // if the consent record is an address also get the inboxId instead
+    /// Get the consent state for a given entity
     pub async fn get_consent_state(
         &self,
         entity_type: ConsentType,
@@ -432,25 +436,29 @@ where
         }
     }
 
+    /// Gets a reference to the client's store
     pub fn store(&self) -> &EncryptedMessageStore {
         &self.context.store
     }
 
+    /// Release the client's database connection
     pub fn release_db_connection(&self) -> Result<(), ClientError> {
         let store = &self.context.store;
         store.release_connection()?;
         Ok(())
     }
 
+    /// Reconnect to the client's database if it has previously been released
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
         self.context.store.reconnect()?;
         Ok(())
     }
-
+    /// Get a reference to the client's identity struct
     pub fn identity(&self) -> &Identity {
         &self.context.identity
     }
 
+    /// Get a reference (in an Arc) to the client's local context
     pub fn context(&self) -> &Arc<XmtpMlsLocalContext> {
         &self.context
     }
@@ -460,6 +468,7 @@ where
     }
 
     /// Create a new group with the default settings
+    /// Applies a custom [`PolicySet`] to the group if one is specified
     pub fn create_group(
         &self,
         permissions_policy_set: Option<PolicySet>,
@@ -480,6 +489,7 @@ where
         Ok(group)
     }
 
+    /// Create a group with an initial set of members added
     pub async fn create_group_with_members(
         &self,
         account_addresses: Vec<String>,
@@ -648,6 +658,8 @@ where
         Ok(())
     }
 
+    /// Query for group messages that have a `sequence_id` > than the highest cursor
+    /// found in the local database
     pub(crate) async fn query_group_messages(
         &self,
         group_id: &Vec<u8>,
@@ -663,6 +675,8 @@ where
         Ok(welcomes)
     }
 
+    /// Query for welcome messages that have a `sequence_id` > than the highest cursor
+    /// found in the local database
     pub(crate) async fn query_welcome_messages(
         &self,
         conn: &DbConnection,
@@ -678,6 +692,7 @@ where
         Ok(welcomes)
     }
 
+    /// Fetches the current key package from the network for each of the `installation_id`s specified
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn get_key_packages_for_installation_ids(
         &self,
@@ -692,6 +707,8 @@ where
             .collect::<Result<_, _>>()?)
     }
 
+    /// In a database transaction, increment the cursor for a given entity and
+    /// apply the update after the provided `ProcessingFn` has completed successfully.
     pub(crate) async fn process_for_id<Fut, ProcessingFn, ReturnValue>(
         &self,
         entity_id: &Vec<u8>,
@@ -717,7 +734,7 @@ where
             .await
     }
 
-    /// Download all unread welcome messages and convert to groups.
+    /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
     /// Returns any new groups created in the operation
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup>, ClientError> {
         let envelopes = self.query_welcome_messages(&self.store().conn()?).await?;
@@ -787,7 +804,7 @@ where
         Ok(groups)
     }
 
-    /// Sync all groups for the current user and return the number of groups that were synced.
+    /// Sync all groups for the current installation and return the number of groups that were synced.
     /// Only active groups will be synced.
     pub async fn sync_all_groups(&self, groups: Vec<MlsGroup>) -> Result<usize, GroupError> {
         // Acquire a single connection to be reused
