@@ -21,6 +21,8 @@ thiserror = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["js"] }
+wasm-bindgen-test.workspace = true
+wasm-bindgen-futures.workspace = true
 
 [features]
 ws = ["ethers/ws"]

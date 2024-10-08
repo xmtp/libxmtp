@@ -101,7 +101,7 @@ enum SyncableTables {
     StoredGroupMessage(StoredGroupMessage),
 }
 
-impl<ApiClient> Client<ApiClient>
+impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi,
 {

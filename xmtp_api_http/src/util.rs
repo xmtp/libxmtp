@@ -116,6 +116,17 @@ pub fn create_grpc_stream_inner<
     }
 }
 
+#[cfg(feature = "test-utils")]
+impl XmtpTestClient for XmtpHttpApiClient {
+    async fn create_local() -> Self {
+        XmtpHttpApiClient::new("http://localhost:5555".into()).unwrap()
+    }
+
+    async fn create_dev() -> Self {
+        XmtpHttpApiClient::new("https://grpc.dev.xmtp.network:443".into()).unwrap()
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     #[cfg(target_arch = "wasm32")]

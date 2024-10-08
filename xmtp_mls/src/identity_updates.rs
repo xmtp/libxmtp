@@ -147,11 +147,7 @@ where
             .into_iter()
             .map(UnverifiedIdentityUpdate::try_from)
             .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
-        let updates = verify_updates(
-            unverified_updates,
-            self.smart_contract_signature_verifier().as_ref(),
-        )
-        .await?;
+        let updates = verify_updates(unverified_updates, &self.scw_verifier).await?;
 
         let association_state = get_state(updates)?;
 
@@ -210,11 +206,8 @@ where
             .map(|update| update.try_into())
             .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
 
-        let incremental_updates = verify_updates(
-            unverified_incremental_updates,
-            self.smart_contract_signature_verifier().as_ref(),
-        )
-        .await?;
+        let incremental_updates =
+            verify_updates(unverified_incremental_updates, &self.scw_verifier).await?;
         let mut final_state = initial_state.clone();
         for update in incremental_updates {
             final_state = apply_update(final_state, update)?;
@@ -260,7 +253,7 @@ where
                     sig_bytes,
                     installation_public_key.to_vec(),
                 )),
-                self.smart_contract_signature_verifier().as_ref(),
+                &self.scw_verifier,
             )
             .await?;
 
@@ -488,12 +481,12 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
 
 async fn verify_updates(
     updates: Vec<UnverifiedIdentityUpdate>,
-    scw_verifier: &dyn SmartContractSignatureVerifier,
+    scw_verifier: impl SmartContractSignatureVerifier,
 ) -> Result<Vec<IdentityUpdate>, SignatureError> {
     try_join_all(
         updates
             .iter()
-            .map(|update| update.to_verified(scw_verifier)),
+            .map(|update| update.to_verified(&scw_verifier)),
     )
     .await
 }

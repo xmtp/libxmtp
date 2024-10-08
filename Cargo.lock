@@ -6826,6 +6826,8 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
 ]
 
 [[package]]
@@ -6834,7 +6836,6 @@ version = "0.0.1"
 dependencies = [
  "async-trait",
  "chrono",
- "dyn-clone",
  "ed25519-dalek",
  "ethers",
  "futures",

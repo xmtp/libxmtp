@@ -10,7 +10,7 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown", "aarch64-apple-
 
 [features]
 default = []
-test-utils = ["dep:xmtp_api_grpc", "xmtp_id/test-utils", "tracing-subscriber", "dep:xmtp_api_http", "dep:tracing-wasm", "dep:console_error_panic_hook"]
+test-utils = ["xmtp_id/test-utils", "tracing-subscriber", "dep:xmtp_api_http", "dep:tracing-wasm", "dep:console_error_panic_hook"]
 bench = ["test-utils", "indicatif", "tracing-subscriber", "anyhow", "tracing-flame", "once_cell", "dep:xmtp_api_grpc", "criterion"]
 update-schema = ["toml"]
 http-api = ["dep:xmtp_api_http"]
@@ -97,11 +97,12 @@ web-sys.workspace = true
 [dev-dependencies]
 mockall = "0.13.0"
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
+xmtp_proto = { workspace = true, features = ["test-utils" ]}
 anyhow.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ethers  = { workspace = true, features = ["openssl"] }
-xmtp_api_grpc = { path = "../xmtp_api_grpc" }
+xmtp_api_grpc = { path = "../xmtp_api_grpc", features = ["test-utils"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "ansi"] }
 tempfile = "3.5.0"
 mockito = "1.4.0"
@@ -109,7 +110,7 @@ ctor.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 ethers  = { workspace = true, features = ["rustls"] }
-xmtp_api_http = { path = "../xmtp_api_http" }
+xmtp_api_http = { path = "../xmtp_api_http", features = ["test-utils"] }
 tracing-wasm = { version = "0.2" }
 diesel-wasm-sqlite = { workspace = true, features = ["unsafe-debug-query", "r2d2"] }
 console_error_panic_hook = { version = "0.1"}
@@ -129,5 +130,3 @@ harness = false
 [[bench]]
 name = "crypto"
 harness = false
-
-

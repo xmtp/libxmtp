@@ -6,6 +6,8 @@ use xmtp_proto::{
             GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
             GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
             GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
+            VerifySmartContractWalletSignaturesRequest,
+            VerifySmartContractWalletSignaturesResponse,
         },
         mls::api::v1::{
             group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
@@ -86,6 +88,8 @@ mock! {
         async fn publish_identity_update(&self, request: PublishIdentityUpdateRequest) -> Result<PublishIdentityUpdateResponse, Error>;
         async fn get_identity_updates_v2(&self, request: GetIdentityUpdatesV2Request) -> Result<GetIdentityUpdatesV2Response, Error>;
         async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, Error>;
+        async fn verify_smart_contract_wallet_signatures(&self, request: VerifySmartContractWalletSignaturesRequest)
+        -> Result<VerifySmartContractWalletSignaturesResponse, Error>;
     }
 
     impl XmtpTestClient for ApiClient {

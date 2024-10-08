@@ -64,7 +64,7 @@ impl IdentityStrategy {
         self,
         api_client: &ApiClientWrapper<ApiClient>,
         store: &EncryptedMessageStore,
-        scw_signature_verifier: &dyn SmartContractSignatureVerifier,
+        scw_signature_verifier: &impl SmartContractSignatureVerifier,
     ) -> Result<Identity, IdentityError> {
         info!("Initializing identity");
         let conn = store.conn()?;
@@ -217,7 +217,7 @@ impl Identity {
         legacy_signed_private_key: Option<Vec<u8>>,
         api_client: &ApiClientWrapper<ApiClient>,
         provider: &XmtpOpenMlsProvider,
-        scw_signature_verifier: &dyn SmartContractSignatureVerifier,
+        scw_signature_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Self, IdentityError> {
         // check if address is already associated with an inbox_id
         let address = address.to_lowercase();
@@ -286,7 +286,7 @@ impl Identity {
                         )
                         .await?,
                     ),
-                    scw_signature_verifier,
+                    &scw_signature_verifier,
                 )
                 .await?;
             signature_request

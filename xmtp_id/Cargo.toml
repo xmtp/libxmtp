@@ -10,7 +10,6 @@ chrono.workspace = true
 ed25519-dalek = { workspace = true, features = ["digest"] }
 futures.workspace = true
 hex.workspace = true
-tracing.workspace = true
 openmls_traits.workspace = true
 prost.workspace = true
 rand.workspace = true
@@ -21,9 +20,9 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros"] }
+tracing.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
-dyn-clone.workspace = true
 wasm-timer.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

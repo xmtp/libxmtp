@@ -16,7 +16,7 @@ use super::{
     schema::{groups, groups::dsl},
     Sqlite,
 };
-use crate::{impl_fetch, impl_store, StorageError};
+use crate::{impl_fetch, impl_store, DuplicateItem, StorageError};
 
 /// The Group ID type.
 pub type ID = Vec<u8>;
@@ -203,7 +203,7 @@ impl DbConnection {
                 .select(dsl::installations_last_checked)
                 .first(conn)
                 .optional()?;
-            Ok::<_, diesel::result::Error>(ts)
+            Ok::<_, StorageError>(ts)
         })?;
 
         last_ts.ok_or(StorageError::NotFound(format!(
@@ -238,10 +238,9 @@ impl DbConnection {
                 if existing_group.welcome_id == group.welcome_id {
                     tracing::info!("Group welcome id already exists");
                     // Error so OpenMLS db transaction are rolled back on duplicate welcomes
-                    return Err(diesel::result::Error::DatabaseError(
-                        diesel::result::DatabaseErrorKind::UniqueViolation,
-                        Box::new("welcome id already exists".to_string()),
-                    ));
+                    return Err(StorageError::Duplicate(DuplicateItem::WelcomeId(
+                        existing_group.welcome_id,
+                    )));
                 } else {
                     tracing::info!("Group already exists");
                     return Ok(existing_group);
@@ -252,7 +251,7 @@ impl DbConnection {
 
             match maybe_inserted_group {
                 Some(group) => Ok(group),
-                None => dsl::groups.find(group.id).first(conn),
+                None => Ok(dsl::groups.find(group.id).first(conn)?),
             }
         })?;
 

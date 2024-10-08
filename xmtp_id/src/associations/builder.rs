@@ -14,10 +14,11 @@ use super::{
         UnsignedRevokeAssociation,
     },
     unverified::{
-        UnverifiedAction, UnverifiedAddAssociation, UnverifiedChangeRecoveryAddress,
-        UnverifiedCreateInbox, UnverifiedIdentityUpdate, UnverifiedRevokeAssociation,
-        UnverifiedSignature,
+        NewUnverifiedSmartContractWalletSignature, UnverifiedAction, UnverifiedAddAssociation,
+        UnverifiedChangeRecoveryAddress, UnverifiedCreateInbox, UnverifiedIdentityUpdate,
+        UnverifiedRevokeAssociation, UnverifiedSignature, UnverifiedSmartContractWalletSignature,
     },
+    verified_signature::VerifiedSignature,
     MemberIdentifier, MemberKind, SignatureError,
 };
 
@@ -163,6 +164,8 @@ pub enum SignatureRequestError {
     MissingSigner,
     #[error("Signature error {0}")]
     Signature(#[from] SignatureError),
+    #[error("Unable to get block number")]
+    BlockNumber,
 }
 
 /// A signature request is meant to be sent over the FFI barrier (wrapped in a mutex) to platform SDKs.
@@ -220,15 +223,55 @@ impl SignatureRequest {
             .collect()
     }
 
+    /// Often the front-end doesn't know the current block number when adding a smart contract.
+    /// This is for when you want to add a smart-contract wallet,
+    /// and need the verifier to populate the latest block number for you.
+    pub async fn add_new_unverified_smart_contract_signature(
+        &mut self,
+        mut signature: NewUnverifiedSmartContractWalletSignature,
+        scw_verifier: impl SmartContractSignatureVerifier,
+    ) -> Result<(), SignatureRequestError> {
+        let verified_signature = VerifiedSignature::from_smart_contract_wallet(
+            &self.signature_text,
+            scw_verifier,
+            &signature.signature_bytes,
+            signature.account_id.clone(),
+            &mut signature.block_number,
+        )
+        .await?;
+
+        let Some(block_number) = signature.block_number else {
+            return Err(SignatureRequestError::BlockNumber);
+        };
+
+        self.add_verified_signature(
+            UnverifiedSignature::SmartContractWallet(UnverifiedSmartContractWalletSignature {
+                account_id: signature.account_id,
+                block_number,
+                signature_bytes: signature.signature_bytes,
+            }),
+            verified_signature,
+        )
+    }
+
     pub async fn add_signature(
         &mut self,
         signature: UnverifiedSignature,
-        scw_verifier: &dyn SmartContractSignatureVerifier,
+        scw_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<(), SignatureRequestError> {
-        let verified_sig = signature
+        let verified_signature = signature
             .to_verified(self.signature_text.clone(), scw_verifier)
             .await?;
-        let signer_identity = &verified_sig.signer;
+
+        self.add_verified_signature(signature, verified_signature)
+    }
+
+    fn add_verified_signature(
+        &mut self,
+        signature: UnverifiedSignature,
+        verified_signature: VerifiedSignature,
+    ) -> Result<(), SignatureRequestError> {
+        let signer_identity = &verified_signature.signer;
 
         let missing_signatures = self.missing_signatures();
         tracing::info!("Provided Signer: {}", signer_identity);
@@ -239,7 +282,7 @@ impl SignatureRequest {
             return Err(SignatureRequestError::UnknownSigner);
         }
 
-        self.signatures.insert(verified_sig.signer, signature);
+        self.signatures.insert(verified_signature.signer, signature);
 
         Ok(())
     }

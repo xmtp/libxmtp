@@ -54,14 +54,14 @@ impl UnverifiedIdentityUpdate {
 
     pub async fn to_verified(
         &self,
-        scw_verifier: &dyn SmartContractSignatureVerifier,
+        scw_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<IdentityUpdate, SignatureError> {
         let signature_text = self.signature_text();
 
         let actions: Vec<Action> = try_join_all(
             self.actions
                 .iter()
-                .map(|action| async { action.to_verified(&signature_text, scw_verifier).await }),
+                .map(|action| action.to_verified(&signature_text, &scw_verifier)),
         )
         .await?;
 
@@ -118,7 +118,7 @@ impl UnverifiedAction {
     pub async fn to_verified<Text: AsRef<str>>(
         &self,
         signature_text: Text,
-        scw_verifier: &dyn SmartContractSignatureVerifier,
+        scw_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Action, SignatureError> {
         let action = match self {
             UnverifiedAction::CreateInbox(action) => Action::CreateInbox(CreateInbox {
@@ -126,25 +126,25 @@ impl UnverifiedAction {
                 account_address: action.unsigned_action.account_address.clone(),
                 initial_address_signature: action
                     .initial_address_signature
-                    .to_verified(signature_text.as_ref(), scw_verifier)
+                    .to_verified(signature_text.as_ref(), &scw_verifier)
                     .await?,
             }),
             UnverifiedAction::AddAssociation(action) => Action::AddAssociation(AddAssociation {
                 new_member_signature: action
                     .new_member_signature
-                    .to_verified(signature_text.as_ref(), scw_verifier)
+                    .to_verified(signature_text.as_ref(), &scw_verifier)
                     .await?,
                 new_member_identifier: action.unsigned_action.new_member_identifier.clone(),
                 existing_member_signature: action
                     .existing_member_signature
-                    .to_verified(signature_text.as_ref(), scw_verifier)
+                    .to_verified(signature_text.as_ref(), &scw_verifier)
                     .await?,
             }),
             UnverifiedAction::RevokeAssociation(action) => {
                 Action::RevokeAssociation(RevokeAssociation {
                     recovery_address_signature: action
                         .recovery_address_signature
-                        .to_verified(signature_text.as_ref(), scw_verifier)
+                        .to_verified(signature_text.as_ref(), &scw_verifier)
                         .await?,
                     revoked_member: action.unsigned_action.revoked_member.clone(),
                 })
@@ -153,7 +153,7 @@ impl UnverifiedAction {
                 Action::ChangeRecoveryAddress(super::ChangeRecoveryAddress {
                     recovery_address_signature: action
                         .recovery_address_signature
-                        .to_verified(signature_text.as_ref(), scw_verifier)
+                        .to_verified(signature_text.as_ref(), &scw_verifier)
                         .await?,
                     new_recovery_address: action.unsigned_action.new_recovery_address.clone(),
                 })
@@ -250,7 +250,7 @@ impl UnverifiedSignature {
     pub async fn to_verified<Text: AsRef<str>>(
         &self,
         signature_text: Text,
-        scw_verifier: &dyn SmartContractSignatureVerifier,
+        scw_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<VerifiedSignature, SignatureError> {
         match self {
             UnverifiedSignature::InstallationKey(sig) => VerifiedSignature::from_installation_key(
@@ -267,7 +267,7 @@ impl UnverifiedSignature {
                     scw_verifier,
                     &sig.signature_bytes,
                     sig.account_id.clone(),
-                    Some(sig.block_number),
+                    &mut Some(sig.block_number),
                 )
                 .await
             }
@@ -344,6 +344,23 @@ pub struct UnverifiedSmartContractWalletSignature {
     pub(crate) signature_bytes: Vec<u8>,
     pub(crate) account_id: AccountId,
     pub(crate) block_number: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewUnverifiedSmartContractWalletSignature {
+    pub(crate) signature_bytes: Vec<u8>,
+    pub(crate) account_id: AccountId,
+    pub(crate) block_number: Option<u64>,
+}
+
+impl NewUnverifiedSmartContractWalletSignature {
+    pub fn new(signature_bytes: Vec<u8>, account_id: AccountId, block_number: Option<u64>) -> Self {
+        Self {
+            account_id,
+            block_number,
+            signature_bytes,
+        }
+    }
 }
 
 impl UnverifiedSmartContractWalletSignature {

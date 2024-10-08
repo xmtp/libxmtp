@@ -4,13 +4,13 @@ use ethers::abi::{Constructor, Param, ParamType, Token};
 use ethers::contract::abigen;
 use ethers::providers::{Http, Middleware, Provider};
 use ethers::types::transaction::eip2718::TypedTransaction;
-use ethers::types::{Address, BlockNumber, Bytes, TransactionRequest, U64};
+use ethers::types::{Address, BlockNumber, Bytes, TransactionRequest};
 use hex::{FromHex, FromHexError};
 use std::sync::Arc;
 
 use crate::associations::AccountId;
 
-use super::VerifierError;
+use super::{ValidationResponse, VerifierError};
 
 // https://github.com/AmbireTech/signature-validator/blob/7706bda/index.ts#L13
 // Contract from AmbireTech that is also used by Viem.
@@ -54,7 +54,7 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
         hash: [u8; 32],
         signature: Bytes,
         block_number: Option<BlockNumber>,
-    ) -> Result<bool, VerifierError> {
+    ) -> Result<ValidationResponse, VerifierError> {
         let code = hex::decode(VALIDATE_SIG_OFFCHAIN_BYTECODE).unwrap();
         let account_address: Address = signer
             .account_address
@@ -89,17 +89,23 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
         let tx: TypedTransaction = TransactionRequest::new().data(data).into();
         let block_number = match block_number {
             Some(bn) => bn,
-            None => BlockNumber::Number(self.current_block_number(&signer.chain_id).await?),
+            None => {
+                let block_number = self
+                    .provider
+                    .get_block_number()
+                    .await
+                    .map_err(VerifierError::Provider)?;
+                BlockNumber::Number(block_number)
+            }
         };
         let res = self.provider.call(&tx, Some(block_number.into())).await?;
-        Ok(res == Bytes::from_hex("0x01").expect("Hardcoded hex will not fail."))
-    }
 
-    async fn current_block_number(&self, _chain_id: &str) -> Result<U64, VerifierError> {
-        self.provider
-            .get_block_number()
-            .await
-            .map_err(VerifierError::Provider)
+        let is_valid = res == Bytes::from_hex("0x01").expect("Hardcoded hex will not fail.");
+
+        Ok(ValidationResponse {
+            is_valid,
+            block_number: block_number.as_number().map(|n| n.0[0]),
+        })
     }
 }
 
@@ -240,7 +246,7 @@ pub(crate) mod tests {
                     )
                     .await
                     .unwrap();
-                assert!(res);
+                assert!(res.is_valid);
                 // verify owner1 is a valid owner
                 let sig1 = owner1.sign_hash(replay_safe_hash.into()).unwrap();
                 let res = verifier
@@ -256,7 +262,7 @@ pub(crate) mod tests {
                     )
                     .await
                     .unwrap();
-                assert!(res);
+                assert!(res.is_valid);
                 // owner0 siganture must not be used to verify owner1
                 let res = verifier
                     .is_valid_signature(
@@ -271,7 +277,7 @@ pub(crate) mod tests {
                     )
                     .await
                     .unwrap();
-                assert!(!res);
+                assert!(!res.is_valid);
 
                 // Testing time travel
                 // get block number before removing the owner.
@@ -310,7 +316,7 @@ pub(crate) mod tests {
                     )
                     .await
                     .unwrap();
-                assert!(res);
+                assert!(res.is_valid);
             }
         })
         .await;
@@ -359,39 +365,51 @@ pub(crate) mod tests {
                 AccountId::new_evm(anvil.chain_id(), format!("{:?}", smart_wallet_address));
 
             // Testing ERC-6492 signatures with deployed ERC-1271.
-            assert!(verifier
-                .is_valid_signature(account_id.clone(), hash, signature.clone(), None)
-                .await
-                .unwrap());
+            assert!(
+                verifier
+                    .is_valid_signature(account_id.clone(), hash, signature.clone(), None)
+                    .await
+                    .unwrap()
+                    .is_valid
+            );
 
-            assert!(!verifier
-                .is_valid_signature(account_id.clone(), H256::random().into(), signature, None)
-                .await
-                .unwrap());
+            assert!(
+                !verifier
+                    .is_valid_signature(account_id.clone(), H256::random().into(), signature, None)
+                    .await
+                    .unwrap()
+                    .is_valid
+            );
 
             // Testing if EOA wallet signature is valid on ERC-6492
             let signature = owner.sign_hash(hash.into()).unwrap();
             let owner_account_id =
                 AccountId::new_evm(anvil.chain_id(), format!("{:?}", owner.address()));
-            assert!(verifier
-                .is_valid_signature(
-                    owner_account_id.clone(),
-                    hash,
-                    signature.to_vec().into(),
-                    None
-                )
-                .await
-                .unwrap());
+            assert!(
+                verifier
+                    .is_valid_signature(
+                        owner_account_id.clone(),
+                        hash,
+                        signature.to_vec().into(),
+                        None
+                    )
+                    .await
+                    .unwrap()
+                    .is_valid
+            );
 
-            assert!(!verifier
-                .is_valid_signature(
-                    owner_account_id,
-                    H256::random().into(),
-                    signature.to_vec().into(),
-                    None
-                )
-                .await
-                .unwrap());
+            assert!(
+                !verifier
+                    .is_valid_signature(
+                        owner_account_id,
+                        H256::random().into(),
+                        signature.to_vec().into(),
+                        None
+                    )
+                    .await
+                    .unwrap()
+                    .is_valid
+            );
         })
         .await;
     }
@@ -408,9 +426,12 @@ pub(crate) mod tests {
         let signature = Bytes::from_hex("0x000000000000000000000000bf07a0df119ca234634588fbdb5625594e2a5bca00000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000420000000000000000000000000000000000000000000000000000000000000038449c81579000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000010000000000000000000000004836a472ab1dd406ecb8d0f933a985541ee3921f0000000000000000000000000000000000000000000000000000000000000120000000000000000000000000000000000000000000000000000000000000007a7f00000000000000000000000000000000000000000000000000000000000000017f7f0f292b79d9ce101861526459da50f62368077ae24affe97b792bf4bdd2e171553d602d80604d3d3981f3363d3d373d3d3d363d732a2b85eb1054d6f0c6c2e37da05ed3e5fea684ef5af43d82803e903d91602b57fd5bf300000000000000000000000000000000000000000000000000000000000000000000000002246171d1c9000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000001a00000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000004836a472ab1dd406ecb8d0f933a985541ee3921f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000942f9ce5d9a33a82f88d233aeb3292e6802303480000000000000000000000000000000000000000000000000014c3c6ef1cdc01000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000042f2eaaebf45fc0340eb55f11c52a30e2ca7f48539d0a1f1cdc240482210326494545def903e8ed4441bd5438109abe950f1f79baf032f184728ba2d4161dea32e1b0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000042c0f8db6019888d87a0afc1299e81ef45d3abce64f63072c8d7a6ef00f5f82c1522958ff110afa98b8c0d23b558376db1d2fbab4944e708f8bf6dc7b977ee07201b000000000000000000000000000000000000000000000000000000000000006492649264926492649264926492649264926492649264926492649264926492").unwrap();
 
         let verifier = RpcSmartContractWalletVerifier::new("https://polygon-rpc.com".to_string());
-        assert!(verifier
-            .is_valid_signature(AccountId::new_evm(1, signer), hash.into(), signature, None)
-            .await
-            .unwrap());
+        assert!(
+            verifier
+                .is_valid_signature(AccountId::new_evm(1, signer), hash.into(), signature, None)
+                .await
+                .unwrap()
+                .is_valid
+        );
     }
 }

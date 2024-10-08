@@ -1764,7 +1764,8 @@ pub(crate) mod tests {
         assert!(permissions.evaluate_commit(&non_existing_field_updated_commit));
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_dm_group_permissions() {
         // Simulate a group with DM Permissions
         let permissions = PolicySet::new_dm();

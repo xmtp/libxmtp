@@ -20,3 +20,6 @@ xmtp_v2 = { path = "../xmtp_v2" }
 
 [dev-dependencies]
 uuid = { workspace = true, features = ["v4"] }
+
+[features]
+test-utils = []

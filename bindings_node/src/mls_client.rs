@@ -86,6 +86,7 @@ pub async fn create_client(
       .build()
       .await
       .map_err(ErrorWrapper::from)?,
+
     None => ClientBuilder::new(identity_strategy)
       .api_client(api_client)
       .store(store)
@@ -334,13 +335,7 @@ impl NapiClient {
       let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.deref().to_vec());
 
       signature_request
-        .add_signature(
-          signature,
-          self
-            .inner_client
-            .smart_contract_signature_verifier()
-            .as_ref(),
-        )
+        .add_signature(signature, &self.inner_client.scw_verifier())
         .await
         .map_err(ErrorWrapper::from)?;
     } else {

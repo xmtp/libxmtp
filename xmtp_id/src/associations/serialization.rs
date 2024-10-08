@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::scw_verifier::ValidationResponse;
+
 use super::{
     member::Member,
     signature::{AccountId, ValidatedLegacySignedPublicKey},
@@ -22,20 +24,23 @@ use regex::Regex;
 use thiserror::Error;
 use xmtp_cryptography::signature::sanitize_evm_addresses;
 use xmtp_proto::xmtp::{
-    identity::associations::{
-        identity_action::Kind as IdentityActionKindProto,
-        member_identifier::Kind as MemberIdentifierKindProto,
-        signature::Signature as SignatureKindProto, AddAssociation as AddAssociationProto,
-        AssociationState as AssociationStateProto,
-        AssociationStateDiff as AssociationStateDiffProto,
-        ChangeRecoveryAddress as ChangeRecoveryAddressProto, CreateInbox as CreateInboxProto,
-        IdentityAction as IdentityActionProto, IdentityUpdate as IdentityUpdateProto,
-        LegacyDelegatedSignature as LegacyDelegatedSignatureProto, Member as MemberProto,
-        MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
-        RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
-        RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
-        RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
-        SmartContractWalletSignature as SmartContractWalletSignatureProto,
+    identity::{
+        api::v1::verify_smart_contract_wallet_signatures_response::ValidationResponse as SmartContractWalletValidationResponseProto,
+        associations::{
+            identity_action::Kind as IdentityActionKindProto,
+            member_identifier::Kind as MemberIdentifierKindProto,
+            signature::Signature as SignatureKindProto, AddAssociation as AddAssociationProto,
+            AssociationState as AssociationStateProto,
+            AssociationStateDiff as AssociationStateDiffProto,
+            ChangeRecoveryAddress as ChangeRecoveryAddressProto, CreateInbox as CreateInboxProto,
+            IdentityAction as IdentityActionProto, IdentityUpdate as IdentityUpdateProto,
+            LegacyDelegatedSignature as LegacyDelegatedSignatureProto, Member as MemberProto,
+            MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
+            RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
+            RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
+            RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
+            SmartContractWalletSignature as SmartContractWalletSignatureProto,
+        },
     },
     message_contents::{
         signature::{Union, WalletEcdsaCompact},
@@ -301,6 +306,15 @@ impl From<UnverifiedIdentityUpdate> for Vec<u8> {
     fn from(value: UnverifiedIdentityUpdate) -> Self {
         let proto: IdentityUpdateProto = value.into();
         proto.encode_to_vec()
+    }
+}
+
+impl From<&SmartContractWalletValidationResponseProto> for ValidationResponse {
+    fn from(value: &SmartContractWalletValidationResponseProto) -> Self {
+        Self {
+            is_valid: value.is_valid,
+            block_number: value.block_number,
+        }
     }
 }
 
@@ -734,7 +748,8 @@ pub(crate) mod tests {
         ));
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_account_id_create() {
         let address = "0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb".to_string();
         let chain_id = 12;

@@ -122,12 +122,12 @@ impl VerifiedSignature {
 
     pub async fn from_smart_contract_wallet<Text: AsRef<str>>(
         signature_text: Text,
-        signature_verifier: &dyn SmartContractSignatureVerifier,
+        signature_verifier: impl SmartContractSignatureVerifier,
         signature_bytes: &[u8],
         account_id: AccountId,
-        block_number: Option<u64>,
+        block_number: &mut Option<u64>,
     ) -> Result<Self, SignatureError> {
-        let is_valid = signature_verifier
+        let response = signature_verifier
             .is_valid_signature(
                 account_id.clone(),
                 hash_message(signature_text.as_ref()).into(),
@@ -136,7 +136,10 @@ impl VerifiedSignature {
             )
             .await?;
 
-        if is_valid {
+        if response.is_valid {
+            // set the block the signature was validated on
+            *block_number = response.block_number;
+
             Ok(Self::new(
                 MemberIdentifier::Address(account_id.into()),
                 SignatureKind::Erc1271,

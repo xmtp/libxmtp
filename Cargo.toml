@@ -13,7 +13,7 @@ members = [
   "xmtp_id",
   "bindings_wasm",
   "bindings_node",
-  "bindings_ffi"
+  "bindings_ffi",
 ]
 
 # Make the feature resolver explicit.
@@ -27,7 +27,6 @@ version = "0.0.1"
 anyhow = "1.0"
 async-stream = "0.3"
 async-trait = "0.1.77"
-trait-variant = "0.1.2"
 chrono = "0.4.38"
 wasm-timer = "0.2"
 ctor = "0.2"
@@ -76,6 +75,8 @@ openssl-sys = "=0.9.92"
 openssl = "=0.10.57"
 libsqlite3-sys = { version = "0.29", features = ["bundled-sqlcipher-vendored-openssl" ] }
 dyn-clone = "1"
+trait-variant = "0.1.2"
+url = "2.5.0"
 
 # Internal Crate Dependencies
 xmtp_cryptography = { path = "xmtp_cryptography" }

@@ -1,15 +1,19 @@
 #![allow(clippy::unwrap_used)]
 
+use crate::XmtpTestClient;
 use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
 };
 use std::sync::Arc;
 use tokio::{sync::Notify, time::error::Elapsed};
-use xmtp_id::associations::{
-    generate_inbox_id,
-    test_utils::MockSmartContractSignatureVerifier,
-    unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
+use xmtp_id::{
+    associations::{
+        generate_inbox_id,
+        test_utils::MockSmartContractSignatureVerifier,
+        unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
+    },
+    scw_verifier::MultiSmartContractSignatureVerifier,
 };
 
 use crate::{
@@ -17,7 +21,7 @@ use crate::{
     identity::IdentityStrategy,
     storage::{EncryptedMessageStore, StorageOption},
     types::Address,
-    Client, InboxOwner, XmtpApi, XmtpTestClient,
+    Client, InboxOwner, XmtpApi,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -28,6 +32,7 @@ pub use traced_test::traced_test;
 
 #[cfg(not(target_arch = "wasm32"))]
 use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
+
 #[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
 pub type TestClient = GrpcClient;
 
@@ -65,32 +70,6 @@ pub fn rand_time() -> i64 {
     rng.gen_range(0..1_000_000_000)
 }
 
-#[cfg(any(feature = "http-api", target_arch = "wasm32"))]
-impl XmtpTestClient for XmtpHttpApiClient {
-    async fn create_local() -> Self {
-        XmtpHttpApiClient::new("http://localhost:5555".into()).unwrap()
-    }
-
-    async fn create_dev() -> Self {
-        XmtpHttpApiClient::new("https://grpc.dev.xmtp.network:443".into()).unwrap()
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl XmtpTestClient for GrpcClient {
-    async fn create_local() -> Self {
-        GrpcClient::create("http://localhost:5556".into(), false)
-            .await
-            .unwrap()
-    }
-
-    async fn create_dev() -> Self {
-        GrpcClient::create("https://grpc.dev.xmtp.network:443".into(), false)
-            .await
-            .unwrap()
-    }
-}
-
 impl EncryptedMessageStore {
     pub fn generate_enc_key() -> [u8; 32] {
         let mut key = [0u8; 32];
@@ -112,7 +91,7 @@ impl EncryptedMessageStore {
     pub fn remove_db_files<P: AsRef<str>>(_path: P) {}
 }
 
-impl ClientBuilder<TestClient> {
+impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
     pub async fn temp_store(self) -> Self {
         let tmpdb = tmp_path();
         self.store(
@@ -125,13 +104,13 @@ impl ClientBuilder<TestClient> {
         )
     }
 
-    pub async fn local_client(mut self) -> Self {
-        let local_client = <TestClient as XmtpTestClient>::create_local().await;
-        self = self.api_client(local_client);
-        self
+    pub async fn local_client(self) -> Self {
+        self.api_client(<TestClient as XmtpTestClient>::create_local().await)
     }
 
-    pub async fn new_test_client(owner: &impl InboxOwner) -> Client<TestClient> {
+    pub async fn new_test_client(
+        owner: &impl InboxOwner,
+    ) -> Client<TestClient, MockSmartContractSignatureVerifier> {
         // crate::utils::wasm::init().await;
         let nonce = 1;
         let inbox_id = generate_inbox_id(&owner.get_address(), &nonce);
@@ -147,7 +126,7 @@ impl ClientBuilder<TestClient> {
         .await
         .local_client()
         .await
-        .build()
+        .build_with_verifier()
         .await
         .unwrap();
 
@@ -156,7 +135,9 @@ impl ClientBuilder<TestClient> {
         client
     }
 
-    pub async fn new_dev_client(owner: &impl InboxOwner) -> Client<TestClient> {
+    pub async fn new_dev_client(
+        owner: &impl InboxOwner,
+    ) -> Client<TestClient, MockSmartContractSignatureVerifier> {
         let nonce = 1;
         let inbox_id = generate_inbox_id(&owner.get_address(), &nonce);
         let dev_client = <TestClient as XmtpTestClient>::create_dev().await;
@@ -167,10 +148,11 @@ impl ClientBuilder<TestClient> {
             nonce,
             None,
         ))
+        .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
         .temp_store()
         .await
         .api_client(dev_client)
-        .build()
+        .build_with_verifier()
         .await
         .unwrap();
 

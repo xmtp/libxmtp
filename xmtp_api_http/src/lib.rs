@@ -12,6 +12,7 @@ use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
     GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
+    VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
@@ -328,6 +329,25 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
             .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
 
         tracing::debug!("get_inbox_ids");
+        handle_error(&*res)
+    }
+
+    async fn verify_smart_contract_wallet_signatures(
+        &self,
+        request: VerifySmartContractWalletSignaturesRequest,
+    ) -> Result<VerifySmartContractWalletSignaturesResponse, Error> {
+        let res = self
+            .http_client
+            .post(self.endpoint(ApiEndpoints::VERIFY_SMART_CONTRACT_WALLET_SIGNATURES))
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?
+            .bytes()
+            .await
+            .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
+
+        tracing::debug!("verify_smart_contract_wallet_signatures");
         handle_error(&*res)
     }
 }

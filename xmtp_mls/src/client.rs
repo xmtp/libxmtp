@@ -29,7 +29,7 @@ use xmtp_id::{
         builder::{SignatureRequest, SignatureRequestError},
         AssociationError, AssociationState, SignatureError,
     },
-    scw_verifier::SmartContractSignatureVerifier,
+    scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
     InboxId,
 };
 
@@ -174,7 +174,7 @@ pub enum MessageProcessingError {
     #[error("epoch increment not allowed")]
     EpochIncrementNotAllowed,
     #[error("Welcome processing error: {0}")]
-    WelcomeProcessing(String),
+    WelcomeProcessing(Box<GroupError>),
     #[error("wrong credential type")]
     WrongCredentialType(#[from] BasicCredentialError),
     #[error("proto decode error: {0}")]
@@ -228,12 +228,14 @@ pub struct FindGroupParams {
 }
 
 /// Clients manage access to the network, identity, and data store
-pub struct Client<ApiClient> {
+pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
     #[cfg(feature = "message-history")]
     pub(crate) history_sync_url: Option<String>,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
+    /// The method of verifying smart contract wallet signatures for this Client
+    pub(crate) scw_verifier: V,
 }
 
 /// The local context a XMTP MLS needs to function:
@@ -245,7 +247,6 @@ pub struct XmtpMlsLocalContext {
     /// XMTP Local Storage
     store: EncryptedMessageStore,
     pub(crate) mutexes: MutexRegistry,
-    pub scw_verifier: Box<dyn SmartContractSignatureVerifier + 'static>,
 }
 
 impl XmtpMlsLocalContext {
@@ -280,9 +281,10 @@ impl XmtpMlsLocalContext {
     }
 }
 
-impl<ApiClient> Client<ApiClient>
+impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi,
+    ApiClient: XmtpApi + 'static,
+    V: 'static,
 {
     /// Create a new client with the given network, identity, and store.
     /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating
@@ -291,14 +293,16 @@ where
         api_client: ApiClientWrapper<ApiClient>,
         identity: Identity,
         store: EncryptedMessageStore,
-        scw_verifier: Box<dyn SmartContractSignatureVerifier>,
+        scw_verifier: V,
         #[cfg(feature = "message-history")] history_sync_url: Option<String>,
-    ) -> Self {
+    ) -> Self
+    where
+        V: SmartContractSignatureVerifier,
+    {
         let context = XmtpMlsLocalContext {
             identity,
             store,
             mutexes: MutexRegistry::new(),
-            scw_verifier,
         };
         let (tx, _) = broadcast::channel(10);
         Self {
@@ -307,9 +311,19 @@ where
             #[cfg(feature = "message-history")]
             history_sync_url,
             local_events: tx,
+            scw_verifier,
         }
     }
 
+    pub fn scw_verifier(&self) -> &V {
+        &self.scw_verifier
+    }
+}
+
+impl<ApiClient, V> Client<ApiClient, V>
+where
+    ApiClient: XmtpApi,
+{
     pub fn installation_public_key(&self) -> Vec<u8> {
         self.context.installation_public_key()
     }
@@ -457,10 +471,6 @@ where
 
     pub fn context(&self) -> &Arc<XmtpMlsLocalContext> {
         &self.context
-    }
-
-    pub fn smart_contract_signature_verifier(&self) -> Box<dyn SmartContractSignatureVerifier> {
-        self.context.scw_verifier.clone()
     }
 
     /// Create a new group with the default settings
@@ -758,12 +768,17 @@ where
                                 match result {
                                     Ok(mls_group) => Ok(Some(mls_group)),
                                     Err(err) => {
-                                        tracing::error!(
-                                            "failed to create group from welcome: {}",
-                                            err
-                                        );
+                                        use crate::StorageError::*;
+                                        use crate::DuplicateItem::*;
+
+                                        if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
+                                            tracing::warn!("failed to create group from welcome due to duplicate welcome ID: {}", err);
+                                        } else {
+                                            tracing::error!("failed to create group from welcome: {}", err);
+                                        }
+
                                         Err(MessageProcessingError::WelcomeProcessing(
-                                            err.to_string(),
+                                            Box::new(err)
                                         ))
                                     }
                                 }
@@ -1224,7 +1239,8 @@ pub(crate) mod tests {
         )
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_get_and_set_consent() {
         let bo_wallet = generate_local_wallet();
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1261,7 +1277,8 @@ pub(crate) mod tests {
         serialize_key_package_hash_ref(&kp.inner, &client.mls_provider().unwrap()).unwrap()
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_key_package_rotation() {
         let alix_wallet = generate_local_wallet();
         let bo_wallet = generate_local_wallet();

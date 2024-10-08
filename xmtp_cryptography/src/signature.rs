@@ -215,7 +215,8 @@ pub mod tests {
         v[index] ^= 1;
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn oracle_signature() {
         let msg = "hello";
 
@@ -235,7 +236,8 @@ pub mod tests {
         assert!(sig.verify_signature(&other_addr, msg).is_err());
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn known_test_vector() {
         // This test was generated using Etherscans Signature tool: https://etherscan.io/verifySig/18959
         let addr = "0x1B2a516d691aBb8f08a75B2C73c95c62A1632431";
@@ -257,7 +259,8 @@ pub mod tests {
         assert!(sig.verify_signature(addr, msg_bad).is_err());
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_eth_address() {
         assert!(is_valid_ethereum_address(
             "0x7e57Aed10441c8879ce08E45805EC01Ee9689c9f"
@@ -265,7 +268,8 @@ pub mod tests {
         assert!(!is_valid_ethereum_address("123"));
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_ed25519_public_key_validation() {
         let public_key =
             hex::decode("5E7F70A437963A8B3D0683F949FA0508970ACB87A28139B8BD67D5B01D3B0214")

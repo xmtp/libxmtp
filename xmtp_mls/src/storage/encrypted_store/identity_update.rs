@@ -81,13 +81,13 @@ impl DbConnection {
         &self,
         updates: &[StoredIdentityUpdate],
     ) -> Result<(), StorageError> {
-        Ok(self.raw_query(|conn| {
+        self.raw_query(|conn| {
             diesel::insert_or_ignore_into(dsl::identity_updates)
                 .values(updates)
                 .execute(conn)?;
 
-            Ok::<_, diesel::result::Error>(())
-        })?)
+            Ok::<_, StorageError>(())
+        })
     }
 
     pub fn get_latest_sequence_id_for_inbox(&self, inbox_id: &str) -> Result<i64, StorageError> {

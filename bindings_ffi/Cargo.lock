@@ -5687,6 +5687,7 @@ dependencies = [
  "sha2",
  "thiserror",
  "tokio",
+ "tonic",
  "tracing",
  "url",
  "xmtp_cryptography",

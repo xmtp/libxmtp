@@ -66,7 +66,7 @@ impl From<StoredGroup> for (Vec<u8>, MessagesStreamInfo) {
     }
 }
 
-impl<ApiClient> Client<ApiClient>
+impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi + 'static,
 {
@@ -261,7 +261,7 @@ where
     }
 }
 
-impl<ApiClient> Client<ApiClient>
+impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi + 'static,
 {
@@ -414,12 +414,12 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use crate::{
-        builder::ClientBuilder, groups::GroupMetadataOptions,
-        storage::group_message::StoredGroupMessage, Client,
-    };
-    use crate::{
+        builder::ClientBuilder,
+        client::FindGroupParams,
+        groups::GroupMetadataOptions,
+        storage::group_message::StoredGroupMessage,
         utils::test::{Delivery, TestClient},
-        StreamHandle,
+        Client, StreamHandle,
     };
     use futures::StreamExt;
     use parking_lot::Mutex;
@@ -811,6 +811,15 @@ pub(crate) mod tests {
         {
             let grps = groups.lock();
             assert_eq!(grps.len(), 2);
+        }
+
+        // Verify syncing welcomes while streaming causes no issues
+        alix.sync_welcomes().await.unwrap();
+        let find_groups_results = alix.find_groups(FindGroupParams::default()).unwrap();
+
+        {
+            let grps = groups.lock();
+            assert_eq!(grps.len(), find_groups_results.len());
         }
 
         closer.end();

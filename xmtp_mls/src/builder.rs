@@ -2,7 +2,7 @@ use thiserror::Error;
 use tracing::debug;
 
 use xmtp_cryptography::signature::AddressValidationError;
-use xmtp_id::scw_verifier::{MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier};
+use xmtp_id::scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier};
 
 use crate::{
     api::ApiClientWrapper,
@@ -45,20 +45,17 @@ pub enum ClientBuilderError {
     ApiError(#[from] xmtp_proto::api_client::Error),
 }
 
-pub struct ClientBuilder<ApiClient> {
+pub struct ClientBuilder<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     api_client: Option<ApiClient>,
     identity: Option<Identity>,
     store: Option<EncryptedMessageStore>,
     identity_strategy: IdentityStrategy,
     history_sync_url: Option<String>,
     app_version: Option<String>,
-    scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
+    scw_verifier: Option<V>,
 }
 
-impl<ApiClient> ClientBuilder<ApiClient>
-where
-    ApiClient: XmtpApi,
-{
+impl<ApiClient, V> ClientBuilder<ApiClient, V> {
     pub fn new(strategy: IdentityStrategy) -> Self {
         Self {
             api_client: None,
@@ -96,63 +93,98 @@ where
         self
     }
 
-    pub fn scw_signature_verifier(mut self, verifier: impl SmartContractSignatureVerifier) -> Self {
-        self.scw_verifier = Some(Box::new(verifier));
+    pub fn scw_signature_verifier(mut self, verifier: V) -> Self {
+        self.scw_verifier = Some(verifier);
         self
     }
+}
 
-    pub async fn build(mut self) -> Result<Client<ApiClient>, ClientBuilderError> {
-        debug!("Building client");
-        let mut api_client =
-            self.api_client
-                .take()
-                .ok_or(ClientBuilderError::MissingParameter {
-                    parameter: "api_client",
-                })?;
-        api_client.set_libxmtp_version(env!("CARGO_PKG_VERSION").to_string())?;
-        if let Some(app_version) = self.app_version {
-            api_client.set_app_version(app_version)?;
-        }
+impl<ApiClient, V> ClientBuilder<ApiClient, V>
+where
+    ApiClient: XmtpApi + 'static,
+    V: SmartContractSignatureVerifier + 'static,
+{
+    /// Build with a custom smart contract wallet verifier
+    pub async fn build_with_verifier(self) -> Result<Client<ApiClient, V>, ClientBuilderError> {
+        inner_build(self).await
+    }
+}
 
-        let scw_verifier = self.scw_verifier.take().unwrap_or_else(|| {
-            Box::new(MultiSmartContractSignatureVerifier::new_from_file(
-                "chain_urls.json",
-            ))
-        });
+impl<ApiClient> ClientBuilder<ApiClient, RemoteSignatureVerifier<ApiClient>>
+where
+    ApiClient: XmtpApi + 'static,
+{
+    /// Build with the default [`RemoteSignatureVerifier`]
+    pub async fn build(self) -> Result<Client<ApiClient>, ClientBuilderError> {
+        inner_build::<ApiClient, RemoteSignatureVerifier<ApiClient>>(self).await
+    }
+}
 
-        let api_client_wrapper = ApiClientWrapper::new(api_client, Retry::default());
-        let store = self
-            .store
-            .take()
-            .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
-        debug!("Initializing identity");
-        let identity = self
-            .identity_strategy
-            .initialize_identity(&api_client_wrapper, &store, scw_verifier.as_ref())
-            .await?;
+async fn inner_build<C, V>(client: ClientBuilder<C, V>) -> Result<Client<C, V>, ClientBuilderError>
+where
+    C: XmtpApi + 'static,
+    V: SmartContractSignatureVerifier + 'static,
+{
+    let ClientBuilder {
+        mut api_client,
+        mut store,
+        identity_strategy,
+        #[cfg(feature = "message-history")]
+        history_sync_url,
+        app_version,
+        mut scw_verifier,
+        ..
+    } = client;
 
-        // get sequence_id from identity updates and loaded into the DB
-        load_identity_updates(
-            &api_client_wrapper,
-            &store.conn()?,
-            vec![identity.clone().inbox_id],
-        )
+    debug!("Building client");
+    let mut api_client = api_client
+        .take()
+        .ok_or(ClientBuilderError::MissingParameter {
+            parameter: "api_client",
+        })?;
+
+    api_client.set_libxmtp_version(env!("CARGO_PKG_VERSION").to_string())?;
+    if let Some(app_version) = app_version {
+        api_client.set_app_version(app_version)?;
+    }
+
+    let scw_verifier = scw_verifier
+        .take()
+        .ok_or(ClientBuilderError::MissingParameter {
+            parameter: "scw_verifier",
+        })?;
+
+    let api_client_wrapper = ApiClientWrapper::new(api_client, Retry::default());
+    let store = store
+        .take()
+        .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
+    debug!("Initializing identity");
+
+    let identity = identity_strategy
+        .initialize_identity(&api_client_wrapper, &store, &scw_verifier)
         .await?;
 
-        #[cfg(feature = "message-history")]
-        let client = Client::new(
-            api_client_wrapper,
-            identity,
-            store,
-            scw_verifier,
-            self.history_sync_url,
-        );
+    // get sequence_id from identity updates and loaded into the DB
+    load_identity_updates(
+        &api_client_wrapper,
+        &store.conn()?,
+        vec![identity.clone().inbox_id],
+    )
+    .await?;
 
-        #[cfg(not(feature = "message-history"))]
-        let client = Client::new(api_client_wrapper, identity, store, scw_verifier);
+    #[cfg(feature = "message-history")]
+    let client = Client::new(
+        api_client_wrapper,
+        identity,
+        store,
+        scw_verifier,
+        history_sync_url,
+    );
 
-        Ok(client)
-    }
+    #[cfg(not(feature = "message-history"))]
+    let client = Client::new(api_client_wrapper, identity, store, scw_verifier);
+
+    Ok(client)
 }
 
 #[cfg(test)]

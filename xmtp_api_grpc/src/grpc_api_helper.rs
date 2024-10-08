@@ -65,7 +65,7 @@ async fn create_tls_channel(address: String) -> Result<Channel, Error> {
     Ok(channel)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Client {
     pub(crate) client: MessageApiClient<Channel>,
     pub(crate) mls_client: ProtoMlsApiClient<Channel>,
@@ -112,6 +112,10 @@ impl Client {
             .insert("x-libxmtp-version", self.libxmtp_version.clone());
 
         req
+    }
+
+    pub fn identity_client(&self) -> &ProtoIdentityApiClient<Channel> {
+        &self.identity_client
     }
 }
 

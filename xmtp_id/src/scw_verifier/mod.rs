@@ -1,19 +1,18 @@
 mod chain_rpc_verifier;
+mod remote_signature_verifier;
 
 use std::{collections::HashMap, fs, path::Path, str::FromStr};
 
-use dyn_clone::DynClone;
+use crate::associations::AccountId;
 use ethers::{
-    contract::ContractError,
     providers::{Http, Provider, ProviderError},
-    types::{BlockNumber, Bytes, U64},
+    types::{BlockNumber, Bytes},
 };
 use thiserror::Error;
 use url::Url;
 
-use crate::associations::AccountId;
-
-pub use self::chain_rpc_verifier::*;
+pub use chain_rpc_verifier::*;
+pub use remote_signature_verifier::*;
 
 static DEFAULT_CHAIN_URLS: &str = include_str!("chain_urls_default.json");
 
@@ -29,57 +28,90 @@ pub enum VerifierError {
     Abi(#[from] ethers::abi::Error),
     #[error(transparent)]
     Provider(#[from] ethers::providers::ProviderError),
+    #[error(transparent)]
+    ApiClient(#[from] xmtp_proto::api_client::Error),
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg(not(target_arch = "wasm32"))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-pub trait SmartContractSignatureVerifier: Send + Sync + DynClone + 'static {
-    async fn current_block_number(&self, chain_id: &str) -> Result<U64, VerifierError>;
+pub trait SmartContractSignatureVerifier: Send + Sync {
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
         hash: [u8; 32],
         signature: Bytes,
         block_number: Option<BlockNumber>,
-    ) -> Result<bool, VerifierError>;
+    ) -> Result<ValidationResponse, VerifierError>;
 }
 
-dyn_clone::clone_trait_object!(SmartContractSignatureVerifier);
-
+#[cfg(target_arch = "wasm32")]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl<S: SmartContractSignatureVerifier + Clone> SmartContractSignatureVerifier for Box<S> {
+pub trait SmartContractSignatureVerifier {
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
         hash: [u8; 32],
         signature: Bytes,
         block_number: Option<BlockNumber>,
-    ) -> Result<bool, VerifierError> {
+    ) -> Result<ValidationResponse, VerifierError>;
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl<T> SmartContractSignatureVerifier for &T
+where
+    T: SmartContractSignatureVerifier,
+{
+    async fn is_valid_signature(
+        &self,
+        account_id: AccountId,
+        hash: [u8; 32],
+        signature: Bytes,
+        block_number: Option<BlockNumber>,
+    ) -> Result<ValidationResponse, VerifierError> {
+        (*self)
+            .is_valid_signature(account_id, hash, signature, block_number)
+            .await
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl<T> SmartContractSignatureVerifier for Box<T>
+where
+    T: SmartContractSignatureVerifier + ?Sized,
+{
+    async fn is_valid_signature(
+        &self,
+        account_id: AccountId,
+        hash: [u8; 32],
+        signature: Bytes,
+        block_number: Option<BlockNumber>,
+    ) -> Result<ValidationResponse, VerifierError> {
         (**self)
             .is_valid_signature(account_id, hash, signature, block_number)
             .await
     }
-
-    async fn current_block_number(&self, chain_id: &str) -> Result<U64, VerifierError> {
-        (**self).current_block_number(chain_id).await
-    }
 }
 
-#[derive(Clone)]
+pub struct ValidationResponse {
+    pub is_valid: bool,
+    pub block_number: Option<u64>,
+}
+
 pub struct MultiSmartContractSignatureVerifier {
-    verifiers: HashMap<u64, Box<dyn SmartContractSignatureVerifier>>,
+    verifiers: HashMap<String, Box<dyn SmartContractSignatureVerifier + Send + Sync>>,
 }
 
 impl MultiSmartContractSignatureVerifier {
-    pub fn new(urls: HashMap<u64, url::Url>) -> Self {
-        let verifiers: HashMap<u64, Box<dyn SmartContractSignatureVerifier>> = urls
+    pub fn new(urls: HashMap<String, url::Url>) -> Self {
+        let verifiers = urls
             .into_iter()
             .map(|(chain_id, url)| {
                 (
                     chain_id,
                     Box::new(RpcSmartContractWalletVerifier::new(url.to_string()))
-                        as Box<dyn SmartContractSignatureVerifier>,
+                        as Box<dyn SmartContractSignatureVerifier + Send + Sync>,
                 )
             })
             .collect();
@@ -98,7 +130,7 @@ impl MultiSmartContractSignatureVerifier {
             DEFAULT_CHAIN_URLS
         };
 
-        let json: HashMap<u64, String> =
+        let json: HashMap<String, String> =
             serde_json::from_str(json).unwrap_or_else(|_| panic!("{path:?} is malformatted"));
 
         let urls = json
@@ -125,31 +157,11 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
         hash: [u8; 32],
         signature: Bytes,
         block_number: Option<BlockNumber>,
-    ) -> Result<bool, VerifierError> {
-        let id: u64 = account_id.chain_id.parse().map_err(|e| {
-            VerifierError::Contract(ContractError::DecodingError(
-                ethers::core::abi::Error::ParseInt(e),
-            ))
-        })?;
-        if let Some(verifier) = self.verifiers.get(&id) {
+    ) -> Result<ValidationResponse, VerifierError> {
+        if let Some(verifier) = self.verifiers.get(&account_id.chain_id) {
             return verifier
                 .is_valid_signature(account_id, hash, signature, block_number)
                 .await;
-        }
-
-        Err(VerifierError::Provider(ProviderError::CustomError(
-            "Verifier not present".to_string(),
-        )))
-    }
-
-    async fn current_block_number(&self, chain_id: &str) -> Result<U64, VerifierError> {
-        let id: u64 = chain_id.parse().map_err(|e| {
-            VerifierError::Contract(ContractError::DecodingError(
-                ethers::core::abi::Error::ParseInt(e),
-            ))
-        })?;
-        if let Some(verifier) = self.verifiers.get(&id) {
-            return verifier.current_block_number(chain_id).await;
         }
 
         Err(VerifierError::Provider(ProviderError::CustomError(

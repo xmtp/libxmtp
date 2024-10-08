@@ -5,12 +5,14 @@ use crate::GenericError;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::{
     associations::{
-        builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id,
-        unverified::UnverifiedSignature, AccountId, AssociationState, MemberIdentifier,
+        builder::SignatureRequest,
+        generate_inbox_id as xmtp_id_generate_inbox_id,
+        unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
+        AccountId, AssociationState, MemberIdentifier,
     },
-    scw_verifier::SmartContractSignatureVerifier,
     InboxId,
 };
 use xmtp_mls::{
@@ -169,7 +171,7 @@ pub fn generate_inbox_id(account_address: String, nonce: u64) -> String {
 #[derive(uniffi::Object)]
 pub struct FfiSignatureRequest {
     inner: Arc<Mutex<SignatureRequest>>,
-    scw_verifier: Box<dyn SmartContractSignatureVerifier>,
+    scw_verifier: RemoteSignatureVerifier<TonicApiClient>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -180,7 +182,7 @@ impl FfiSignatureRequest {
         inner
             .add_signature(
                 UnverifiedSignature::new_recoverable_ecdsa(signature_bytes),
-                self.scw_verifier.clone().as_ref(),
+                &self.scw_verifier,
             )
             .await?;
 
@@ -198,25 +200,16 @@ impl FfiSignatureRequest {
         let mut inner = self.inner.lock().await;
         let account_id = AccountId::new_evm(chain_id, address);
 
-        let block_number = match block_number {
-            Some(bn) => bn,
-            None => {
-                self.scw_verifier
-                    .current_block_number(&chain_id.to_string())
-                    .await
-                    .map_err(GenericError::Verifier)?
-                    .0[0]
-            }
-        };
-
-        let signature = UnverifiedSignature::new_smart_contract_wallet(
+        let new_signature = NewUnverifiedSmartContractWalletSignature::new(
             signature_bytes,
             account_id,
             block_number,
         );
+
         inner
-            .add_signature(signature, self.scw_verifier.clone().as_ref())
+            .add_new_unverified_smart_contract_signature(new_signature, &self.scw_verifier)
             .await?;
+
         Ok(())
     }
 
@@ -351,14 +344,14 @@ impl FfiXmtpClient {
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
     pub fn signature_request(&self) -> Option<Arc<FfiSignatureRequest>> {
-        let scw_verifier = self.inner_client.context().scw_verifier.clone();
+        let scw_verifier = self.inner_client.scw_verifier().clone();
         self.inner_client
             .identity()
             .signature_request()
-            .map(|request| {
+            .map(move |request| {
                 Arc::new(FfiSignatureRequest {
                     inner: Arc::new(Mutex::new(request)),
-                    scw_verifier,
+                    scw_verifier: scw_verifier.clone(),
                 })
             })
     }
@@ -392,10 +385,10 @@ impl FfiXmtpClient {
         let signature_request = self
             .inner_client
             .associate_wallet(existing_wallet_address.into(), new_wallet_address.into())?;
-
+        let scw_verifier = self.inner_client.scw_verifier().clone();
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: self.inner_client.context().scw_verifier.clone(),
+            scw_verifier: scw_verifier.clone(),
         });
 
         Ok(request)
@@ -418,14 +411,17 @@ impl FfiXmtpClient {
         &self,
         wallet_address: &str,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
-        let signature_request = self
-            .inner_client
+        let Self {
+            ref inner_client, ..
+        } = self;
+
+        let signature_request = inner_client
             .revoke_wallets(vec![wallet_address.into()])
             .await?;
-
+        let scw_verifier = inner_client.clone().scw_verifier().clone();
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: self.inner_client.context().scw_verifier.clone(),
+            scw_verifier,
         });
 
         Ok(request)
@@ -452,7 +448,7 @@ impl FfiXmtpClient {
 
         Ok(Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: self.inner_client.context().scw_verifier.clone(),
+            scw_verifier: self.inner_client.scw_verifier().clone().clone(),
         }))
     }
 }
@@ -2069,7 +2065,7 @@ mod tests {
                 UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(
                     wallet_signature,
                 )),
-                scw_verifier.clone().as_ref(),
+                scw_verifier,
             )
             .await
             .unwrap();
