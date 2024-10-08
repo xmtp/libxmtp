@@ -1108,7 +1108,7 @@ internal interface UniffiLib : Library {
         `signatureBytes`: RustBuffer.ByValue,
         `address`: RustBuffer.ByValue,
         `chainId`: Long,
-        `blockNumber`: Long,
+        `blockNumber`: RustBuffer.ByValue,
     ): Long
 
     fun uniffi_xmtpv3_fn_method_ffisignaturerequest_is_ready(
@@ -2155,7 +2155,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_ecdsa_signature() != 8706.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_scw_signature() != 23994.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_scw_signature() != 52793.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_is_ready() != 65051.toShort()) {
@@ -4862,7 +4862,7 @@ public interface FfiSignatureRequestInterface {
         `signatureBytes`: kotlin.ByteArray,
         `address`: kotlin.String,
         `chainId`: kotlin.ULong,
-        `blockNumber`: kotlin.ULong,
+        `blockNumber`: kotlin.ULong?,
     )
 
     suspend fun `isReady`(): kotlin.Boolean
@@ -4998,7 +4998,7 @@ open class FfiSignatureRequest : Disposable, AutoCloseable, FfiSignatureRequestI
         `signatureBytes`: kotlin.ByteArray,
         `address`: kotlin.String,
         `chainId`: kotlin.ULong,
-        `blockNumber`: kotlin.ULong,
+        `blockNumber`: kotlin.ULong?,
     ) {
         return uniffiRustCallAsync(
             callWithPointer { thisPtr ->
@@ -5007,7 +5007,7 @@ open class FfiSignatureRequest : Disposable, AutoCloseable, FfiSignatureRequestI
                     FfiConverterByteArray.lower(`signatureBytes`),
                     FfiConverterString.lower(`address`),
                     FfiConverterULong.lower(`chainId`),
-                    FfiConverterULong.lower(`blockNumber`),
+                    FfiConverterOptionalULong.lower(`blockNumber`),
                 )
             },
             { future, callback, continuation ->
@@ -7846,6 +7846,8 @@ sealed class GenericException(message: String) : kotlin.Exception(message) {
 
     class Erc1271SignatureException(message: String) : GenericException(message)
 
+    class Verifier(message: String) : GenericException(message)
+
 
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<GenericException> {
         override fun lift(error_buf: RustBuffer.ByValue): GenericException =
@@ -7868,6 +7870,7 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
             9 -> GenericException.Generic(FfiConverterString.read(buf))
             10 -> GenericException.SignatureRequestException(FfiConverterString.read(buf))
             11 -> GenericException.Erc1271SignatureException(FfiConverterString.read(buf))
+            12 -> GenericException.Verifier(FfiConverterString.read(buf))
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
 
@@ -7931,6 +7934,11 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
 
             is GenericException.Erc1271SignatureException -> {
                 buf.putInt(11)
+                Unit
+            }
+
+            is GenericException.Verifier -> {
+                buf.putInt(12)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
