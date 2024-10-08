@@ -6767,6 +6767,7 @@ name = "xmtp_api_http"
 version = "0.0.1"
 dependencies = [
  "async-stream",
+ "bytes",
  "futures",
  "reqwest 0.12.8",
  "serde",
