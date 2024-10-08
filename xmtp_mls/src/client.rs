@@ -174,7 +174,7 @@ pub enum MessageProcessingError {
     #[error("epoch increment not allowed")]
     EpochIncrementNotAllowed,
     #[error("Welcome processing error: {0}")]
-    WelcomeProcessing(String),
+    WelcomeProcessing(Box<GroupError>),
     #[error("wrong credential type")]
     WrongCredentialType(#[from] BasicCredentialError),
     #[error("proto decode error: {0}")]
@@ -218,8 +218,16 @@ impl From<&str> for ClientError {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct FindGroupParams {
+    pub allowed_states: Option<Vec<GroupMembershipState>>,
+    pub created_after_ns: Option<i64>,
+    pub created_before_ns: Option<i64>,
+    pub limit: Option<i64>,
+    pub include_dm_groups: bool,
+}
+
 /// Clients manage access to the network, identity, and data store
-#[derive(Debug)]
 pub struct Client<ApiClient> {
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
@@ -232,13 +240,13 @@ pub struct Client<ApiClient> {
 /// The local context a XMTP MLS needs to function:
 /// - Sqlite Database
 /// - Identity for the User
-#[derive(Debug)]
 pub struct XmtpMlsLocalContext {
     /// XMTP Identity
     pub(crate) identity: Identity,
     /// XMTP Local Storage
     pub(crate) store: EncryptedMessageStore,
     pub(crate) mutexes: MutexRegistry,
+    pub scw_verifier: Box<dyn SmartContractSignatureVerifier + 'static>,
 }
 
 impl XmtpMlsLocalContext {
@@ -280,6 +288,7 @@ where
         api_client: ApiClientWrapper<ApiClient>,
         identity: Identity,
         store: EncryptedMessageStore,
+        scw_verifier: Box<dyn SmartContractSignatureVerifier>,
         #[cfg(feature = "message-history")] history_sync_url: Option<String>,
         scw_verifier: Box<dyn SmartContractSignatureVerifier>,
     ) -> Self {
@@ -287,6 +296,7 @@ where
             identity,
             store,
             mutexes: MutexRegistry::new(),
+            scw_verifier,
         };
         let (tx, _) = broadcast::channel(10);
         Self {
@@ -456,9 +466,8 @@ where
         &self.context
     }
 
-    #[allow(clippy::borrowed_box)]
-    pub fn smart_contract_signature_verifier(&self) -> &Box<dyn SmartContractSignatureVerifier> {
-        &self.scw_verifier
+    pub fn smart_contract_signature_verifier(&self) -> Box<dyn SmartContractSignatureVerifier> {
+        self.context.scw_verifier.clone()
     }
 
     /// Create a new group with the default settings
@@ -500,6 +509,49 @@ where
         )?;
 
         group.add_members(self, account_addresses).await?;
+
+        // notify any streams of the new group
+        let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
+
+        Ok(group)
+    }
+
+    /// Create a new Direct Message with the default settings
+    pub async fn create_dm(&self, account_address: String) -> Result<MlsGroup, ClientError> {
+        tracing::info!("creating dm with address: {}", account_address);
+
+        let inbox_id = match self
+            .find_inbox_id_from_address(account_address.clone())
+            .await?
+        {
+            Some(id) => id,
+            None => {
+                return Err(ClientError::Storage(StorageError::NotFound(format!(
+                    "inbox id for address {} not found",
+                    account_address
+                ))))
+            }
+        };
+
+        self.create_dm_by_inbox_id(inbox_id).await
+    }
+
+    /// Create a new Direct Message with the default settings
+    pub async fn create_dm_by_inbox_id(
+        &self,
+        dm_target_inbox_id: InboxId,
+    ) -> Result<MlsGroup, ClientError> {
+        tracing::info!("creating dm with {}", dm_target_inbox_id);
+
+        let group = MlsGroup::create_dm_and_insert(
+            self.context.clone(),
+            GroupMembershipState::Allowed,
+            dm_target_inbox_id.clone(),
+        )?;
+
+        group
+            .add_members_by_inbox_id(self, vec![dm_target_inbox_id])
+            .await?;
 
         // notify any streams of the new group
         let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
@@ -554,17 +606,17 @@ where
     /// - created_after_ns: only return groups created after the given timestamp (in nanoseconds)
     /// - created_before_ns: only return groups created before the given timestamp (in nanoseconds)
     /// - limit: only return the first `limit` groups
-    pub fn find_groups(
-        &self,
-        allowed_states: Option<Vec<GroupMembershipState>>,
-        created_after_ns: Option<i64>,
-        created_before_ns: Option<i64>,
-        limit: Option<i64>,
-    ) -> Result<Vec<MlsGroup>, ClientError> {
+    pub fn find_groups(&self, params: FindGroupParams) -> Result<Vec<MlsGroup>, ClientError> {
         Ok(self
             .store()
             .conn()?
-            .find_groups(allowed_states, created_after_ns, created_before_ns, limit)?
+            .find_groups(
+                params.allowed_states,
+                params.created_after_ns,
+                params.created_before_ns,
+                params.limit,
+                params.include_dm_groups,
+            )?
             .into_iter()
             .map(|stored_group| {
                 MlsGroup::new(
@@ -722,12 +774,17 @@ where
                                 match result {
                                     Ok(mls_group) => Ok(Some(mls_group)),
                                     Err(err) => {
-                                        tracing::error!(
-                                            "failed to create group from welcome: {}",
-                                            err
-                                        );
+                                        use crate::StorageError::*;
+                                        use crate::DuplicateItem::*;
+
+                                        if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
+                                            tracing::warn!("failed to create group from welcome due to duplicate welcome ID: {}", err);
+                                        } else {
+                                            tracing::error!("failed to create group from welcome: {}", err);
+                                        }
+
                                         Err(MessageProcessingError::WelcomeProcessing(
-                                            err.to_string(),
+                                            Box::new(err)
                                         ))
                                     }
                                 }
@@ -876,6 +933,7 @@ mod tests {
 
     use crate::{
         builder::ClientBuilder,
+        client::FindGroupParams,
         groups::GroupMetadataOptions,
         hpke::{decrypt_welcome, encrypt_welcome},
         identity::serialize_key_package_hash_ref,
@@ -977,7 +1035,7 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
-        let groups = client.find_groups(None, None, None, None).unwrap();
+        let groups = client.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].group_id, group_1.group_id);
         assert_eq!(groups[1].group_id, group_2.group_id);
@@ -1043,7 +1101,7 @@ mod tests {
         let bob_received_groups = bo.sync_welcomes().await.unwrap();
         assert_eq!(bob_received_groups.len(), 2);
 
-        let bo_groups = bo.find_groups(None, None, None, None).unwrap();
+        let bo_groups = bo.find_groups(FindGroupParams::default()).unwrap();
         let bo_group1 = bo.group(alix_bo_group1.clone().group_id).unwrap();
         let bo_messages1 = bo_group1
             .find_messages(None, None, None, None, None)
@@ -1148,7 +1206,7 @@ mod tests {
         tracing::info!("Syncing bolas welcomes");
         // See if Bola can see that they were added to the group
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         tracing::info!("Syncing bolas messages");
@@ -1281,7 +1339,7 @@ mod tests {
         bo.sync_welcomes().await.unwrap();
 
         // Bo should have two groups now
-        let bo_groups = bo.find_groups(None, None, None, None).unwrap();
+        let bo_groups = bo.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bo_groups.len(), 2);
 
         // Bo's original key should be deleted

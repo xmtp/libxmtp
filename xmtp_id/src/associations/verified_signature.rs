@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey as Ed25519VerifyingKey};
-use ethers::types::{BlockNumber, Signature as EthersSignature, U64};
+use ethers::types::Signature as EthersSignature;
 use ethers::utils::hash_message;
 use ethers::{core::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey, utils::public_key_to_address};
 use sha2::{Digest, Sha512};
@@ -132,18 +132,21 @@ impl VerifiedSignature {
         signature_verifier: &dyn SmartContractSignatureVerifier,
         signature_bytes: &[u8],
         account_id: AccountId,
-        block_number: u64,
+        block_number: &mut Option<u64>,
     ) -> Result<Self, SignatureError> {
-        let is_valid = signature_verifier
+        let response = signature_verifier
             .is_valid_signature(
                 account_id.clone(),
                 hash_message(signature_text.as_ref()).into(),
-                &signature_bytes.to_vec().into(),
-                Some(BlockNumber::Number(U64::from(block_number))),
+                signature_bytes.to_vec().into(),
+                block_number.map(|n| n.into()),
             )
             .await?;
 
-        if is_valid {
+        if response.is_valid {
+            // set the block the signature was validated on
+            *block_number = response.block_number;
+
             Ok(Self::new(
                 MemberIdentifier::Address(account_id.into()),
                 SignatureKind::Erc1271,

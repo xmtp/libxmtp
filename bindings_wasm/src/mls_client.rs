@@ -164,8 +164,6 @@ impl WasmClient {
     signature_bytes: Uint8Array,
     chain_id: u64,
     account_address: String,
-    // TODO:nm Remove this
-    _chain_rpc_url: String,
     block_number: u64,
   ) -> Result<(), JsError> {
     if self.is_registered() {

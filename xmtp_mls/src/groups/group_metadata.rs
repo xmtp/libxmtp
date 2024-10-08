@@ -3,7 +3,8 @@ use prost::Message;
 use thiserror::Error;
 
 use xmtp_proto::xmtp::mls::message_contents::{
-    ConversationType as ConversationTypeProto, GroupMetadataV1 as GroupMetadataProto,
+    ConversationType as ConversationTypeProto, DmMembers as DmMembersProto,
+    GroupMetadataV1 as GroupMetadataProto, Inbox as InboxProto,
 };
 
 #[derive(Debug, Error)]
@@ -16,6 +17,10 @@ pub enum GroupMetadataError {
     InvalidConversationType,
     #[error("missing extension")]
     MissingExtension,
+    #[error("invalid dm members")]
+    InvalidDmMembers,
+    #[error("missing a dm member")]
+    MissingDmMember,
 }
 
 /// `GroupMetadata` is immutable and created at the time of group creation.
@@ -24,31 +29,20 @@ pub struct GroupMetadata {
     pub conversation_type: ConversationType,
     // TODO: Remove this once transition is completed
     pub creator_inbox_id: String,
+    pub dm_members: Option<DmMembers>,
 }
 
 impl GroupMetadata {
-    pub fn new(conversation_type: ConversationType, creator_inbox_id: String) -> Self {
+    pub fn new(
+        conversation_type: ConversationType,
+        creator_inbox_id: String,
+        dm_members: Option<DmMembers>,
+    ) -> Self {
         Self {
             conversation_type,
             creator_inbox_id,
+            dm_members,
         }
-    }
-
-    pub(crate) fn from_proto(proto: GroupMetadataProto) -> Result<Self, GroupMetadataError> {
-        Ok(Self::new(
-            proto.conversation_type.try_into()?,
-            proto.creator_inbox_id.clone(),
-        ))
-    }
-
-    pub(crate) fn to_proto(&self) -> Result<GroupMetadataProto, GroupMetadataError> {
-        let conversation_type: ConversationTypeProto = self.conversation_type.clone().into();
-        Ok(GroupMetadataProto {
-            conversation_type: conversation_type as i32,
-            creator_inbox_id: self.creator_inbox_id.clone(),
-            creator_account_address: "".to_string(), // TODO: remove from proto
-            dm_members: None,
-        })
     }
 }
 
@@ -56,8 +50,14 @@ impl TryFrom<GroupMetadata> for Vec<u8> {
     type Error = GroupMetadataError;
 
     fn try_from(value: GroupMetadata) -> Result<Self, Self::Error> {
-        let mut buf = Vec::new();
-        let proto_val = value.to_proto()?;
+        let conversation_type: ConversationTypeProto = value.conversation_type.clone().into();
+        let proto_val = GroupMetadataProto {
+            conversation_type: conversation_type as i32,
+            creator_inbox_id: value.creator_inbox_id.clone(),
+            creator_account_address: "".to_string(), // TODO: remove from proto
+            dm_members: value.dm_members.clone().map(|dm| dm.into()),
+        };
+        let mut buf: Vec<u8> = Vec::new();
         proto_val.encode(&mut buf)?;
 
         Ok(buf)
@@ -69,7 +69,7 @@ impl TryFrom<&Vec<u8>> for GroupMetadata {
 
     fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
         let proto_val = GroupMetadataProto::decode(value.as_slice())?;
-        Self::from_proto(proto_val)
+        proto_val.try_into()
     }
 }
 
@@ -77,7 +77,12 @@ impl TryFrom<GroupMetadataProto> for GroupMetadata {
     type Error = GroupMetadataError;
 
     fn try_from(value: GroupMetadataProto) -> Result<Self, Self::Error> {
-        Self::from_proto(value)
+        let dm_members = value.dm_members.map(DmMembers::try_from).transpose()?;
+        Ok(Self::new(
+            value.conversation_type.try_into()?,
+            value.creator_inbox_id,
+            dm_members,
+        ))
     }
 }
 
@@ -125,6 +130,42 @@ impl TryFrom<i32> for ConversationType {
             2 => Self::Dm,
             3 => Self::Sync,
             _ => return Err(GroupMetadataError::InvalidConversationType),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DmMembers {
+    pub member_one_inbox_id: String,
+    pub member_two_inbox_id: String,
+}
+
+impl From<DmMembers> for DmMembersProto {
+    fn from(value: DmMembers) -> Self {
+        DmMembersProto {
+            dm_member_one: Some(InboxProto {
+                inbox_id: value.member_one_inbox_id.clone(),
+            }),
+            dm_member_two: Some(InboxProto {
+                inbox_id: value.member_two_inbox_id.clone(),
+            }),
+        }
+    }
+}
+
+impl TryFrom<DmMembersProto> for DmMembers {
+    type Error = GroupMetadataError;
+
+    fn try_from(value: DmMembersProto) -> Result<Self, Self::Error> {
+        Ok(Self {
+            member_one_inbox_id: value
+                .dm_member_one
+                .ok_or(GroupMetadataError::MissingDmMember)?
+                .inbox_id,
+            member_two_inbox_id: value
+                .dm_member_two
+                .ok_or(GroupMetadataError::MissingDmMember)?
+                .inbox_id,
         })
     }
 }

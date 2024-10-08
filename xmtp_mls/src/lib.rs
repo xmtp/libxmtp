@@ -20,7 +20,7 @@ pub mod verified_key_package_v2;
 mod xmtp_openmls_provider;
 
 pub use client::{Client, Network};
-use storage::StorageError;
+use storage::{DuplicateItem, StorageError};
 
 pub use trait_impls::*;
 

@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::scw_verifier::ValidationResponse;
+
 use super::{
     member::Member,
     signature::{AccountId, ValidatedLegacySignedPublicKey},
@@ -22,20 +24,23 @@ use regex::Regex;
 use thiserror::Error;
 use xmtp_cryptography::signature::sanitize_evm_addresses;
 use xmtp_proto::xmtp::{
-    identity::associations::{
-        identity_action::Kind as IdentityActionKindProto,
-        member_identifier::Kind as MemberIdentifierKindProto,
-        signature::Signature as SignatureKindProto, AddAssociation as AddAssociationProto,
-        AssociationState as AssociationStateProto,
-        AssociationStateDiff as AssociationStateDiffProto,
-        ChangeRecoveryAddress as ChangeRecoveryAddressProto, CreateInbox as CreateInboxProto,
-        IdentityAction as IdentityActionProto, IdentityUpdate as IdentityUpdateProto,
-        LegacyDelegatedSignature as LegacyDelegatedSignatureProto, Member as MemberProto,
-        MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
-        RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
-        RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
-        RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
-        SmartContractWalletSignature as SmartContractWalletSignatureProto,
+    identity::{
+        api::v1::verify_smart_contract_wallet_signatures_response::ValidationResponse as SmartContractWalletValidationResponseProto,
+        associations::{
+            identity_action::Kind as IdentityActionKindProto,
+            member_identifier::Kind as MemberIdentifierKindProto,
+            signature::Signature as SignatureKindProto, AddAssociation as AddAssociationProto,
+            AssociationState as AssociationStateProto,
+            AssociationStateDiff as AssociationStateDiffProto,
+            ChangeRecoveryAddress as ChangeRecoveryAddressProto, CreateInbox as CreateInboxProto,
+            IdentityAction as IdentityActionProto, IdentityUpdate as IdentityUpdateProto,
+            LegacyDelegatedSignature as LegacyDelegatedSignatureProto, Member as MemberProto,
+            MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
+            RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
+            RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
+            RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
+            SmartContractWalletSignature as SmartContractWalletSignatureProto,
+        },
     },
     message_contents::{
         signature::{Union, WalletEcdsaCompact},
@@ -63,6 +68,8 @@ pub enum DeserializationError {
     Decode(#[from] DecodeError),
     #[error("Invalid account id")]
     InvalidAccountId,
+    #[error("Invalid hash (needs to be 32 bytes)")]
+    InvalidHash,
 }
 
 impl TryFrom<IdentityUpdateProto> for UnverifiedIdentityUpdate {
@@ -257,8 +264,6 @@ impl From<UnverifiedSignature> for SignatureWrapperProto {
                     account_id: sig.account_id.into(),
                     block_number: sig.block_number,
                     signature: sig.signature_bytes,
-                    // TOOD:nm Remove this field altogether
-                    chain_rpc_url: "".to_string(),
                 })
             }
             UnverifiedSignature::InstallationKey(sig) => {
@@ -301,6 +306,15 @@ impl From<UnverifiedIdentityUpdate> for Vec<u8> {
     fn from(value: UnverifiedIdentityUpdate) -> Self {
         let proto: IdentityUpdateProto = value.into();
         proto.encode_to_vec()
+    }
+}
+
+impl From<&SmartContractWalletValidationResponseProto> for ValidationResponse {
+    fn from(value: &SmartContractWalletValidationResponseProto) -> Self {
+        Self {
+            is_valid: value.is_valid,
+            block_number: value.block_number,
+        }
     }
 }
 
@@ -519,9 +533,11 @@ impl TryFrom<String> for AccountId {
             return Err(DeserializationError::InvalidAccountId);
         }
         let chain_id = format!("{}:{}", parts[0], parts[1]);
-        let chain_id_regex = Regex::new(r"^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$").unwrap();
+        let chain_id_regex = Regex::new(r"^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$")
+            .expect("Static regex should always compile");
         let account_address = parts[2];
-        let account_address_regex = Regex::new(r"^[-.%a-zA-Z0-9]{1,128}$").unwrap();
+        let account_address_regex =
+            Regex::new(r"^[-.%a-zA-Z0-9]{1,128}$").expect("static regex should always compile");
         if !chain_id_regex.is_match(&chain_id) || !account_address_regex.is_match(account_address) {
             return Err(DeserializationError::InvalidAccountId);
         }

@@ -1,7 +1,7 @@
 use std::{ops::Deref, sync::Arc};
 
 use napi::{
-  bindgen_prelude::{Error, Result, Uint8Array},
+  bindgen_prelude::{Result, Uint8Array},
   threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode},
   JsFunction,
 };
@@ -14,6 +14,7 @@ use xmtp_mls::groups::{
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 use crate::{
+  consent_state::NapiConsentState,
   encoded_content::NapiEncodedContent,
   messages::{NapiListMessagesOptions, NapiMessage},
   mls_client::RustXmtpClient,
@@ -61,9 +62,9 @@ pub struct NapiGroupMember {
   pub account_addresses: Vec<String>,
   pub installation_ids: Vec<String>,
   pub permission_level: NapiPermissionLevel,
+  pub consent_state: NapiConsentState,
 }
 
-#[derive(Debug)]
 #[napi]
 pub struct NapiGroup {
   inner_client: Arc<RustXmtpClient>,
@@ -107,7 +108,7 @@ impl NapiGroup {
 
   /// send a message without immediately publishing to the delivery service.
   #[napi]
-  pub fn send_optimistic(&self, encoded_content: NapiEncodedContent) -> Result<Vec<u8>> {
+  pub fn send_optimistic(&self, encoded_content: NapiEncodedContent) -> Result<String> {
     let encoded_content: EncodedContent = encoded_content.into();
     let group = MlsGroup::new(
       self.inner_client.context().clone(),
@@ -119,7 +120,7 @@ impl NapiGroup {
       .send_message_optimistic(encoded_content.encode_to_vec().as_slice())
       .map_err(ErrorWrapper::from)?;
 
-    Ok(id)
+    Ok(hex::encode(id.clone()))
   }
 
   /// Publish all unpublished messages
@@ -234,6 +235,7 @@ impl NapiGroup {
           PermissionLevel::Admin => NapiPermissionLevel::Admin,
           PermissionLevel::SuperAdmin => NapiPermissionLevel::SuperAdmin,
         },
+        consent_state: member.consent_state.into(),
       })
       .collect();
 
@@ -542,7 +544,7 @@ impl NapiGroup {
 
     let group_pinned_frame_url = group
       .group_pinned_frame_url(group.mls_provider().map_err(ErrorWrapper::from)?)
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(group_pinned_frame_url)
   }
@@ -607,5 +609,33 @@ impl NapiGroup {
       .map_err(ErrorWrapper::from)?;
 
     Ok(NapiGroupMetadata { inner: metadata })
+  }
+
+  #[napi]
+  pub fn consent_state(&self) -> Result<NapiConsentState> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    let state = group.consent_state().map_err(ErrorWrapper::from)?;
+
+    Ok(state.into())
+  }
+
+  #[napi]
+  pub fn update_consent_state(&self, state: NapiConsentState) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.context().clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    group
+      .update_consent_state(state.into())
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
   }
 }

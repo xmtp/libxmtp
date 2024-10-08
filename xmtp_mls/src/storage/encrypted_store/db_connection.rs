@@ -31,9 +31,9 @@ impl DbConnection {
 
     // Note: F is a synchronous fn. If it ever becomes async, we need to use
     // tokio::sync::mutex instead of std::sync::Mutex
-    pub(crate) fn raw_query<T, F>(&self, fun: F) -> Result<T, diesel::result::Error>
+    pub(crate) fn raw_query<T, E, F>(&self, fun: F) -> Result<T, E>
     where
-        F: FnOnce(&mut RawDbConnection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut RawDbConnection) -> Result<T, E>,
     {
         let mut lock = self.wrapped_conn.lock();
         fun(&mut lock)

@@ -8,10 +8,13 @@ use rand::{
 use std::sync::Arc;
 use tokio::{sync::Notify, time::error::Elapsed};
 use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
-use xmtp_id::associations::{
-    generate_inbox_id,
-    test_utils::MockSmartContractSignatureVerifier,
-    unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
+use xmtp_id::{
+    associations::{
+        generate_inbox_id,
+        test_utils::MockSmartContractSignatureVerifier,
+        unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
+    },
+    scw_verifier::MultiSmartContractSignatureVerifier,
 };
 
 use crate::{
@@ -104,10 +107,11 @@ impl ClientBuilder<TestClient> {
         )
     }
 
-    pub async fn local_client(mut self) -> Self {
-        let local_client = <TestClient as XmtpTestClient>::create_local().await;
-        self = self.api_client(local_client);
-        self
+    pub async fn local_client(self) -> Self {
+        self.api_client(<TestClient as XmtpTestClient>::create_local().await)
+            .scw_signature_verifier(MultiSmartContractSignatureVerifier::new_from_file(
+                "chain_urls.json",
+            ))
     }
 
     pub async fn new_test_client(owner: &impl InboxOwner) -> Client<TestClient> {
@@ -120,7 +124,7 @@ impl ClientBuilder<TestClient> {
             nonce,
             None,
         ))
-        .scw_signatuer_verifier(MockSmartContractSignatureVerifier::new(true))
+        .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
         .temp_store()
         .local_client()
         .await

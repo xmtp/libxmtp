@@ -26,7 +26,6 @@ version = "0.0.1"
 anyhow = "1.0"
 async-stream = "0.3"
 async-trait = "0.1.77"
-trait-variant = "0.1.2"
 chrono = "0.4.38"
 ctor = "0.2"
 ed25519 = "2.2.3"
@@ -56,6 +55,7 @@ tokio = { version = "1.35.1", default-features = false }
 tonic = "^0.12"
 tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = "0.3"
+trait-variant = "0.1.2"
 url = "2.5.0"
 
 # Internal Crate Dependencies

@@ -5,7 +5,12 @@ import {
   createUser,
   encodeTextMessage,
 } from '@test/helpers'
-import { NapiGroup, NapiGroupPermissionsOptions, NapiMessage } from '../dist'
+import {
+  NapiConsentState,
+  NapiGroup,
+  NapiGroupPermissionsOptions,
+  NapiMessage,
+} from '../dist'
 
 describe('Conversations', () => {
   it('should not have initial conversations', async () => {
@@ -50,6 +55,8 @@ describe('Conversations', () => {
     expect(memberInboxIds).toContain(client2.inboxId())
     expect(group.groupMetadata().conversationType()).toBe('group')
     expect(group.groupMetadata().creatorInboxId()).toBe(client1.inboxId())
+
+    expect(group.consentState()).toBe(NapiConsentState.Allowed)
 
     const group1 = await client1.conversations().list()
     expect(group1.length).toBe(1)
@@ -277,5 +284,23 @@ describe('Conversations', () => {
     }
     asyncStream.stop()
     stream.end()
+  })
+
+  it('should manage group consent state', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+    const group = await client1
+      .conversations()
+      .createGroup([user2.account.address])
+    expect(group).toBeDefined()
+
+    await client2.conversations().sync()
+    const group2 = client2.conversations().findGroupById(group.id())
+    expect(group2).toBeDefined()
+    expect(group2.consentState()).toBe(NapiConsentState.Unknown)
+    await group2.send(encodeTextMessage('gm!'))
+    expect(group2.consentState()).toBe(NapiConsentState.Allowed)
   })
 })

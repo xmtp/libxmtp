@@ -1,4 +1,7 @@
+use crate::consent_state::{NapiConsent, NapiConsentEntityType, NapiConsentState};
 use crate::conversations::NapiConversations;
+use crate::inbox_state::NapiInboxState;
+use crate::ErrorWrapper;
 use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::collections::HashMap;
@@ -8,12 +11,14 @@ use tokio::sync::Mutex;
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
+use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 use xmtp_id::associations::unverified::UnverifiedSignature;
-use xmtp_id::associations::{generate_inbox_id as xmtp_id_generate_inbox_id, AssociationState};
+use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::retry::Retry;
+use xmtp_mls::storage::consent_record::StoredConsentRecord;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
 
@@ -26,29 +31,6 @@ pub enum NapiSignatureRequestType {
   CreateInbox,
   RevokeWallet,
   RevokeInstallations,
-}
-
-#[napi(object)]
-pub struct NapiInboxState {
-  pub inbox_id: String,
-  pub recovery_address: String,
-  pub installation_ids: Vec<String>,
-  pub account_addresses: Vec<String>,
-}
-
-impl From<AssociationState> for NapiInboxState {
-  fn from(state: AssociationState) -> Self {
-    Self {
-      inbox_id: state.inbox_id().to_string(),
-      recovery_address: state.recovery_address().to_string(),
-      installation_ids: state
-        .installation_ids()
-        .into_iter()
-        .map(|id| ed25519_public_key_to_address(id.as_slice()))
-        .collect(),
-      account_addresses: state.account_addresses(),
-    }
-  }
 }
 
 #[napi]
@@ -71,6 +53,8 @@ pub async fn create_client(
   let api_client = TonicApiClient::create(host.clone(), is_secure)
     .await
     .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
+
+  let scw_verifier = RemoteSignatureVerifier::new(api_client.identity_client().clone());
 
   let storage_option = StorageOption::Persistent(db_path);
 
@@ -100,15 +84,17 @@ pub async fn create_client(
       .api_client(api_client)
       .store(store)
       .history_sync_url(&url)
+      .scw_signature_verifier(scw_verifier)
       .build()
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?,
+      .map_err(ErrorWrapper::from)?,
     None => ClientBuilder::new(identity_strategy)
       .api_client(api_client)
       .store(store)
+      .scw_signature_verifier(scw_verifier)
       .build()
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?,
+      .map_err(ErrorWrapper::from)?,
   };
 
   Ok(NapiClient {
@@ -128,14 +114,14 @@ pub async fn get_inbox_id_for_address(
   let api_client = ApiClientWrapper::new(
     TonicApiClient::create(host.clone(), is_secure)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?,
+      .map_err(ErrorWrapper::from)?,
     Retry::default(),
   );
 
   let results = api_client
     .get_inbox_ids(vec![account_address.clone()])
     .await
-    .map_err(|e| Error::from_reason(format!("{}", e)))?;
+    .map_err(ErrorWrapper::from)?;
 
   Ok(results.get(&account_address).cloned())
 }
@@ -157,7 +143,7 @@ impl NapiClient {
 
   #[napi]
   pub fn is_registered(&self) -> bool {
-    self.inner_client.identity().signature_request().is_none()
+    self.inner_client.identity().is_ready()
   }
 
   #[napi]
@@ -171,7 +157,7 @@ impl NapiClient {
       .inner_client
       .can_message(account_addresses)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(results)
   }
@@ -194,7 +180,7 @@ impl NapiClient {
       .inner_client
       .register_identity(signature_request.clone())
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     signature_requests.remove(&NapiSignatureRequestType::CreateInbox);
 
@@ -227,7 +213,7 @@ impl NapiClient {
       .inner_client
       .send_history_request()
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)));
+      .map_err(ErrorWrapper::from);
 
     Ok(())
   }
@@ -238,7 +224,7 @@ impl NapiClient {
       .inner_client
       .find_inbox_id_from_address(address)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(inbox_id)
   }
@@ -255,7 +241,22 @@ impl NapiClient {
       .inner_client
       .inbox_state(refresh_from_network)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
+    Ok(state.into())
+  }
+
+  #[napi]
+  pub async fn get_latest_inbox_state(&self, inbox_id: String) -> Result<NapiInboxState> {
+    let conn = self
+      .inner_client
+      .store()
+      .conn()
+      .map_err(ErrorWrapper::from)?;
+    let state = self
+      .inner_client
+      .get_latest_association_state(&conn, &inbox_id)
+      .await
+      .map_err(ErrorWrapper::from)?;
     Ok(state.into())
   }
 
@@ -271,7 +272,7 @@ impl NapiClient {
         existing_wallet_address.to_lowercase(),
         new_wallet_address.to_lowercase(),
       )
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
     let signature_text = signature_request.signature_text();
     let mut signature_requests = self.signature_requests.lock().await;
 
@@ -286,7 +287,7 @@ impl NapiClient {
       .inner_client
       .revoke_wallets(vec![wallet_address.to_lowercase()])
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
     let signature_text = signature_request.signature_text();
     let mut signature_requests = self.signature_requests.lock().await;
 
@@ -302,7 +303,7 @@ impl NapiClient {
       .inner_client
       .inbox_state(true)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
     let other_installation_ids = inbox_state
       .installation_ids()
       .into_iter()
@@ -312,7 +313,7 @@ impl NapiClient {
       .inner_client
       .revoke_installations(other_installation_ids)
       .await
-      .map_err(|e| Error::from_reason(format!("{}", e)))?;
+      .map_err(ErrorWrapper::from)?;
     let signature_text = signature_request.signature_text();
     let mut signature_requests = self.signature_requests.lock().await;
 
@@ -344,7 +345,7 @@ impl NapiClient {
             .as_ref(),
         )
         .await
-        .map_err(|e| Error::from_reason(format!("{}", e)))?;
+        .map_err(ErrorWrapper::from)?;
     } else {
       return Err(Error::from_reason("Signature request not found"));
     }
@@ -368,7 +369,7 @@ impl NapiClient {
           .inner_client
           .apply_signature_request(signature_request.clone())
           .await
-          .map_err(|e| Error::from_reason(format!("{}", e)))?;
+          .map_err(ErrorWrapper::from)?;
 
         // remove the signature request after applying it
         signature_requests.remove(&signature_request_type);
@@ -376,5 +377,33 @@ impl NapiClient {
     }
 
     Ok(())
+  }
+
+  #[napi]
+  pub async fn set_consent_states(&self, records: Vec<NapiConsent>) -> Result<()> {
+    let inner = self.inner_client.as_ref();
+    let stored_records: Vec<StoredConsentRecord> =
+      records.into_iter().map(StoredConsentRecord::from).collect();
+
+    inner
+      .set_consent_states(stored_records)
+      .await
+      .map_err(ErrorWrapper::from)?;
+    Ok(())
+  }
+
+  #[napi]
+  pub async fn get_consent_state(
+    &self,
+    entity_type: NapiConsentEntityType,
+    entity: String,
+  ) -> Result<NapiConsentState> {
+    let inner = self.inner_client.as_ref();
+    let result = inner
+      .get_consent_state(entity_type.into(), entity)
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(result.into())
   }
 }

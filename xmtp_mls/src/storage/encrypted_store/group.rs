@@ -15,7 +15,7 @@ use super::{
     db_connection::DbConnection,
     schema::{groups, groups::dsl},
 };
-use crate::{impl_fetch, impl_store, StorageError};
+use crate::{impl_fetch, impl_store, DuplicateItem, StorageError};
 
 /// The Group ID type.
 pub type ID = Vec<u8>;
@@ -41,6 +41,8 @@ pub struct StoredGroup {
     pub welcome_id: Option<i64>,
     /// The last time the leaf node encryption key was rotated
     pub rotated_at_ns: i64,
+    /// The inbox_id of the DM target
+    pub dm_inbox_id: Option<String>,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -55,6 +57,7 @@ impl StoredGroup {
         added_by_inbox_id: String,
         welcome_id: i64,
         purpose: Purpose,
+        dm_inbox_id: Option<String>,
     ) -> Self {
         Self {
             id,
@@ -65,6 +68,7 @@ impl StoredGroup {
             added_by_inbox_id,
             welcome_id: Some(welcome_id),
             rotated_at_ns: 0,
+            dm_inbox_id,
         }
     }
 
@@ -74,6 +78,7 @@ impl StoredGroup {
         created_at_ns: i64,
         membership_state: GroupMembershipState,
         added_by_inbox_id: String,
+        dm_inbox_id: Option<String>,
     ) -> Self {
         Self {
             id,
@@ -84,6 +89,7 @@ impl StoredGroup {
             added_by_inbox_id,
             welcome_id: None,
             rotated_at_ns: 0,
+            dm_inbox_id,
         }
     }
 
@@ -103,6 +109,7 @@ impl StoredGroup {
             added_by_inbox_id: "".into(),
             welcome_id: None,
             rotated_at_ns: 0,
+            dm_inbox_id: None,
         }
     }
 }
@@ -115,6 +122,7 @@ impl DbConnection {
         created_after_ns: Option<i64>,
         created_before_ns: Option<i64>,
         limit: Option<i64>,
+        include_dm_groups: bool,
     ) -> Result<Vec<StoredGroup>, StorageError> {
         let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
 
@@ -132,6 +140,10 @@ impl DbConnection {
 
         if let Some(limit) = limit {
             query = query.limit(limit);
+        }
+
+        if !include_dm_groups {
+            query = query.filter(dsl::dm_inbox_id.is_null());
         }
 
         query = query.filter(dsl::purpose.eq(Purpose::Conversation));
@@ -223,7 +235,7 @@ impl DbConnection {
                 .select(dsl::installations_last_checked)
                 .first(conn)
                 .optional()?;
-            Ok(ts)
+            Ok::<_, StorageError>(ts)
         })?;
 
         last_ts.ok_or(StorageError::NotFound(format!(
@@ -258,10 +270,9 @@ impl DbConnection {
                 if existing_group.welcome_id == group.welcome_id {
                     tracing::info!("Group welcome id already exists");
                     // Error so OpenMLS db transaction are rolled back on duplicate welcomes
-                    return Err(diesel::result::Error::DatabaseError(
-                        diesel::result::DatabaseErrorKind::UniqueViolation,
-                        Box::new("welcome id already exists".to_string()),
-                    ));
+                    return Err(StorageError::Duplicate(DuplicateItem::WelcomeId(
+                        existing_group.welcome_id,
+                    )));
                 } else {
                     tracing::info!("Group already exists");
                     return Ok(existing_group);
@@ -272,7 +283,7 @@ impl DbConnection {
 
             match maybe_inserted_group {
                 Some(group) => Ok(group),
-                None => dsl::groups.find(group.id).first(conn),
+                None => Ok(dsl::groups.find(group.id).first(conn)?),
             }
         })?;
 
@@ -369,6 +380,22 @@ pub(crate) mod tests {
             created_at_ns,
             membership_state,
             "placeholder_address".to_string(),
+            None,
+        )
+    }
+
+    /// Generate a test dm group
+    pub fn generate_dm(state: Option<GroupMembershipState>) -> StoredGroup {
+        let id = rand_vec();
+        let created_at_ns = now_ns();
+        let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
+        let dm_inbox_id = Some("placeholder_inbox_id".to_string());
+        StoredGroup::new(
+            id,
+            created_at_ns,
+            membership_state,
+            "placeholder_address".to_string(),
+            dm_inbox_id,
         )
     }
 
@@ -430,23 +457,31 @@ pub(crate) mod tests {
             test_group_1.store(conn).unwrap();
             let test_group_2 = generate_group(Some(GroupMembershipState::Allowed));
             test_group_2.store(conn).unwrap();
+            let test_group_3 = generate_dm(Some(GroupMembershipState::Allowed));
+            test_group_3.store(conn).unwrap();
 
-            let all_results = conn.find_groups(None, None, None, None).unwrap();
+            let all_results = conn.find_groups(None, None, None, None, false).unwrap();
             assert_eq!(all_results.len(), 2);
 
             let pending_results = conn
-                .find_groups(Some(vec![GroupMembershipState::Pending]), None, None, None)
+                .find_groups(
+                    Some(vec![GroupMembershipState::Pending]),
+                    None,
+                    None,
+                    None,
+                    false,
+                )
                 .unwrap();
             assert_eq!(pending_results[0].id, test_group_1.id);
             assert_eq!(pending_results.len(), 1);
 
             // Offset and limit
-            let results_with_limit = conn.find_groups(None, None, None, Some(1)).unwrap();
+            let results_with_limit = conn.find_groups(None, None, None, Some(1), false).unwrap();
             assert_eq!(results_with_limit.len(), 1);
             assert_eq!(results_with_limit[0].id, test_group_1.id);
 
             let results_with_created_at_ns_after = conn
-                .find_groups(None, Some(test_group_1.created_at_ns), None, Some(1))
+                .find_groups(None, Some(test_group_1.created_at_ns), None, Some(1), false)
                 .unwrap();
             assert_eq!(results_with_created_at_ns_after.len(), 1);
             assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
@@ -455,7 +490,10 @@ pub(crate) mod tests {
             let synced_groups = conn.find_sync_groups().unwrap();
             assert_eq!(synced_groups.len(), 0);
 
-            // test that ONLY normal groups show up.
+            // test that dm groups are included
+            let dm_results = conn.find_groups(None, None, None, None, true).unwrap();
+            assert_eq!(dm_results.len(), 3);
+            assert_eq!(dm_results[2].id, test_group_3.id);
         })
     }
 

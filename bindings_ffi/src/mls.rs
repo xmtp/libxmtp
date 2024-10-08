@@ -7,16 +7,18 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use tokio::{sync::Mutex, task::AbortHandle};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_id::associations::unverified::NewUnverifiedSmartContractWalletSignature;
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::AccountId;
 use xmtp_id::associations::AssociationState;
 use xmtp_id::associations::MemberIdentifier;
-use xmtp_id::scw_verifier::RpcSmartContractWalletVerifier;
+use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     associations::{builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id},
     InboxId,
 };
+use xmtp_mls::client::FindGroupParams;
 use xmtp_mls::groups::group_mutable_metadata::MetadataField;
 use xmtp_mls::groups::group_permissions::BasePolicies;
 use xmtp_mls::groups::group_permissions::GroupMutablePermissionsError;
@@ -124,12 +126,15 @@ pub async fn create_client(
         legacy_signed_private_key_proto,
     );
 
+    let scw_verifier = RemoteSignatureVerifier::new(api_client.identity_client().clone());
+
     let xmtp_client: RustXmtpClient = match history_sync_url {
         Some(url) => {
             ClientBuilder::new(identity_strategy)
                 .api_client(api_client)
                 .store(store)
                 .history_sync_url(&url)
+                .scw_signature_verifier(scw_verifier)
                 .build()
                 .await?
         }
@@ -137,6 +142,7 @@ pub async fn create_client(
             ClientBuilder::new(identity_strategy)
                 .api_client(api_client)
                 .store(store)
+                .scw_signature_verifier(scw_verifier)
                 .build()
                 .await?
         }
@@ -182,11 +188,7 @@ pub fn generate_inbox_id(account_address: String, nonce: u64) -> String {
 #[derive(uniffi::Object)]
 pub struct FfiSignatureRequest {
     inner: Arc<Mutex<SignatureRequest>>,
-}
-
-// TODO:nm store the verifier on the request from the client
-fn signature_verifier() -> impl SmartContractSignatureVerifier {
-    RpcSmartContractWalletVerifier::new("http://www.fake.com".to_string())
+    scw_verifier: Box<dyn SmartContractSignatureVerifier>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -197,7 +199,7 @@ impl FfiSignatureRequest {
         inner
             .add_signature(
                 UnverifiedSignature::new_recoverable_ecdsa(signature_bytes),
-                &signature_verifier(),
+                self.scw_verifier.clone().as_ref(),
             )
             .await?;
 
@@ -210,19 +212,24 @@ impl FfiSignatureRequest {
         signature_bytes: Vec<u8>,
         address: String,
         chain_id: u64,
-        block_number: u64,
+        block_number: Option<u64>,
     ) -> Result<(), GenericError> {
         let mut inner = self.inner.lock().await;
         let account_id = AccountId::new_evm(chain_id, address);
 
-        let signature = UnverifiedSignature::new_smart_contract_wallet(
+        let new_signature = NewUnverifiedSmartContractWalletSignature::new(
             signature_bytes,
             account_id,
             block_number,
         );
+
         inner
-            .add_signature(signature, &signature_verifier())
+            .add_new_unverified_smart_contract_signature(
+                new_signature,
+                self.scw_verifier.clone().as_ref(),
+            )
             .await?;
+
         Ok(())
     }
 
@@ -357,12 +364,14 @@ impl FfiXmtpClient {
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
     pub fn signature_request(&self) -> Option<Arc<FfiSignatureRequest>> {
+        let scw_verifier = self.inner_client.context().scw_verifier.clone();
         self.inner_client
             .identity()
             .signature_request()
             .map(|request| {
                 Arc::new(FfiSignatureRequest {
                     inner: Arc::new(Mutex::new(request)),
+                    scw_verifier,
                 })
             })
     }
@@ -399,6 +408,7 @@ impl FfiXmtpClient {
 
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+            scw_verifier: self.inner_client.context().scw_verifier.clone(),
         });
 
         Ok(request)
@@ -428,6 +438,7 @@ impl FfiXmtpClient {
 
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+            scw_verifier: self.inner_client.context().scw_verifier.clone(),
         });
 
         Ok(request)
@@ -454,6 +465,7 @@ impl FfiXmtpClient {
 
         Ok(Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+            scw_verifier: self.inner_client.context().scw_verifier.clone(),
         }))
     }
 }
@@ -780,6 +792,20 @@ impl FfiConversations {
         Ok(out)
     }
 
+    pub async fn create_dm(&self, account_address: String) -> Result<Arc<FfiGroup>, GenericError> {
+        log::info!("creating dm with target address: {}", account_address);
+
+        let convo = self.inner_client.create_dm(account_address).await?;
+
+        let out = Arc::new(FfiGroup {
+            inner_client: self.inner_client.clone(),
+            group_id: convo.group_id,
+            created_at_ns: convo.created_at_ns,
+        });
+
+        Ok(out)
+    }
+
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
@@ -804,7 +830,16 @@ impl FfiConversations {
 
     pub async fn sync_all_groups(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
-        let groups = inner.find_groups(None, None, None, None)?;
+        let groups = inner.find_groups(FindGroupParams {
+            include_dm_groups: true,
+            ..FindGroupParams::default()
+        })?;
+
+        log::info!(
+            "groups for client inbox id {:?}: {:?}",
+            self.inner_client.inbox_id(),
+            groups.len()
+        );
 
         let num_groups_synced: usize = inner.sync_all_groups(groups).await?;
         // Uniffi does not work with usize, so we need to convert to u32
@@ -824,12 +859,13 @@ impl FfiConversations {
     ) -> Result<Vec<Arc<FfiGroup>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiGroup>> = inner
-            .find_groups(
-                None,
-                opts.created_after_ns,
-                opts.created_before_ns,
-                opts.limit,
-            )?
+            .find_groups(FindGroupParams {
+                allowed_states: None,
+                created_after_ns: opts.created_after_ns,
+                created_before_ns: opts.created_before_ns,
+                limit: opts.limit,
+                include_dm_groups: false,
+            })?
             .into_iter()
             .map(|group| {
                 Arc::new(FfiGroup {
@@ -845,14 +881,17 @@ impl FfiConversations {
 
     pub async fn stream(&self, callback: Box<dyn FfiConversationCallback>) -> FfiStreamCloser {
         let client = self.inner_client.clone();
-        let handle =
-            RustXmtpClient::stream_conversations_with_callback(client.clone(), move |convo| {
+        let handle = RustXmtpClient::stream_conversations_with_callback(
+            client.clone(),
+            move |convo| {
                 callback.on_conversation(Arc::new(FfiGroup {
                     inner_client: client.clone(),
                     group_id: convo.group_id,
                     created_at_ns: convo.created_at_ns,
                 }))
-            });
+            },
+            false,
+        );
 
         FfiStreamCloser::new(handle)
     }
@@ -1696,7 +1735,7 @@ impl FfiGroupPermissions {
 
 #[cfg(test)]
 mod tests {
-    use super::{create_client, signature_verifier, FfiMessage, FfiMessageCallback, FfiXmtpClient};
+    use super::{create_client, FfiMessage, FfiMessageCallback, FfiXmtpClient};
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConsent,
         FfiConsentEntityType, FfiConsentState, FfiConversationCallback, FfiCreateGroupOptions,
@@ -2029,6 +2068,7 @@ mod tests {
         wallet: &xmtp_cryptography::utils::LocalWallet,
         signature_request: &FfiSignatureRequest,
     ) {
+        let scw_verifier = signature_request.scw_verifier.clone();
         let signature_text = signature_request.inner.lock().await.signature_text();
         let wallet_signature: Vec<u8> = wallet.sign(&signature_text.clone()).unwrap().into();
 
@@ -2040,7 +2080,7 @@ mod tests {
                 UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(
                     wallet_signature,
                 )),
-                &signature_verifier(),
+                scw_verifier.clone().as_ref(),
             )
             .await
             .unwrap();
@@ -3704,6 +3744,37 @@ mod tests {
                 .id,
             client_1.installation_id()
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_dms_sync_but_do_not_list() {
+        let alix = new_test_client().await;
+        let bola = new_test_client().await;
+
+        let alix_conversations = alix.conversations();
+        let bola_conversations = bola.conversations();
+
+        let _alix_group = alix_conversations
+            .create_dm(bola.account_address.clone())
+            .await
+            .unwrap();
+        let alix_num_sync = alix_conversations.sync_all_groups().await.unwrap();
+        bola_conversations.sync().await.unwrap();
+        let bola_num_sync = bola_conversations.sync_all_groups().await.unwrap();
+        assert_eq!(alix_num_sync, 1);
+        assert_eq!(bola_num_sync, 1);
+
+        let alix_groups = alix_conversations
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(alix_groups.len(), 0);
+
+        let bola_groups = bola_conversations
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(bola_groups.len(), 0);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
