@@ -2,7 +2,7 @@ use thiserror::Error;
 use tracing::debug;
 
 use xmtp_cryptography::signature::AddressValidationError;
-use xmtp_id::scw_verifier::{MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier};
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 use crate::{
     api::ApiClientWrapper,
@@ -114,11 +114,12 @@ where
             api_client.set_app_version(app_version)?;
         }
 
-        let scw_verifier = self.scw_verifier.take().unwrap_or_else(|| {
-            Box::new(MultiSmartContractSignatureVerifier::new_from_file(
-                "chain_urls.json",
-            ))
-        });
+        let scw_verifier =
+            self.scw_verifier
+                .take()
+                .ok_or(ClientBuilderError::MissingParameter {
+                    parameter: "scw_verifier",
+                })?;
 
         let api_client_wrapper = ApiClientWrapper::new(api_client, Retry::default());
         let store = self

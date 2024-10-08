@@ -1084,7 +1084,7 @@ impl<'de> serde::Deserialize<'de> for PublishIdentityUpdateResponse {
         deserializer.deserialize_struct("xmtp.identity.api.v1.PublishIdentityUpdateResponse", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for UnverifiedSmartContractWalletSignature {
+impl serde::Serialize for VerifySmartContractWalletSignatureRequestSignature {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -1092,15 +1092,31 @@ impl serde::Serialize for UnverifiedSmartContractWalletSignature {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.scw_signature.is_some() {
+        if !self.account_id.is_empty() {
+            len += 1;
+        }
+        if self.block_number.is_some() {
+            len += 1;
+        }
+        if !self.signature.is_empty() {
             len += 1;
         }
         if !self.hash.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.UnverifiedSmartContractWalletSignature", len)?;
-        if let Some(v) = self.scw_signature.as_ref() {
-            struct_ser.serialize_field("scwSignature", v)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.VerifySmartContractWalletSignatureRequestSignature", len)?;
+        if !self.account_id.is_empty() {
+            struct_ser.serialize_field("accountId", &self.account_id)?;
+        }
+        if let Some(v) = self.block_number.as_ref() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("blockNumber", ToString::to_string(&v).as_str())?;
+        }
+        if !self.signature.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("signature", pbjson::private::base64::encode(&self.signature).as_str())?;
         }
         if !self.hash.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -1110,21 +1126,26 @@ impl serde::Serialize for UnverifiedSmartContractWalletSignature {
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for UnverifiedSmartContractWalletSignature {
+impl<'de> serde::Deserialize<'de> for VerifySmartContractWalletSignatureRequestSignature {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "scw_signature",
-            "scwSignature",
+            "account_id",
+            "accountId",
+            "block_number",
+            "blockNumber",
+            "signature",
             "hash",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            ScwSignature,
+            AccountId,
+            BlockNumber,
+            Signature,
             Hash,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1147,7 +1168,9 @@ impl<'de> serde::Deserialize<'de> for UnverifiedSmartContractWalletSignature {
                         E: serde::de::Error,
                     {
                         match value {
-                            "scwSignature" | "scw_signature" => Ok(GeneratedField::ScwSignature),
+                            "accountId" | "account_id" => Ok(GeneratedField::AccountId),
+                            "blockNumber" | "block_number" => Ok(GeneratedField::BlockNumber),
+                            "signature" => Ok(GeneratedField::Signature),
                             "hash" => Ok(GeneratedField::Hash),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -1158,25 +1181,43 @@ impl<'de> serde::Deserialize<'de> for UnverifiedSmartContractWalletSignature {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = UnverifiedSmartContractWalletSignature;
+            type Value = VerifySmartContractWalletSignatureRequestSignature;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.identity.api.v1.UnverifiedSmartContractWalletSignature")
+                formatter.write_str("struct xmtp.identity.api.v1.VerifySmartContractWalletSignatureRequestSignature")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<UnverifiedSmartContractWalletSignature, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<VerifySmartContractWalletSignatureRequestSignature, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut scw_signature__ = None;
+                let mut account_id__ = None;
+                let mut block_number__ = None;
+                let mut signature__ = None;
                 let mut hash__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::ScwSignature => {
-                            if scw_signature__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("scwSignature"));
+                        GeneratedField::AccountId => {
+                            if account_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("accountId"));
                             }
-                            scw_signature__ = map_.next_value()?;
+                            account_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::BlockNumber => {
+                            if block_number__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("blockNumber"));
+                            }
+                            block_number__ = 
+                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
+                            ;
+                        }
+                        GeneratedField::Signature => {
+                            if signature__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("signature"));
+                            }
+                            signature__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
                         }
                         GeneratedField::Hash => {
                             if hash__.is_some() {
@@ -1188,13 +1229,15 @@ impl<'de> serde::Deserialize<'de> for UnverifiedSmartContractWalletSignature {
                         }
                     }
                 }
-                Ok(UnverifiedSmartContractWalletSignature {
-                    scw_signature: scw_signature__,
+                Ok(VerifySmartContractWalletSignatureRequestSignature {
+                    account_id: account_id__.unwrap_or_default(),
+                    block_number: block_number__,
+                    signature: signature__.unwrap_or_default(),
                     hash: hash__.unwrap_or_default(),
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.identity.api.v1.UnverifiedSmartContractWalletSignature", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.identity.api.v1.VerifySmartContractWalletSignatureRequestSignature", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for VerifySmartContractWalletSignaturesRequest {
@@ -1390,12 +1433,20 @@ impl serde::Serialize for verify_smart_contract_wallet_signatures_response::Vali
         if self.is_valid {
             len += 1;
         }
+        if self.block_number.is_some() {
+            len += 1;
+        }
         if self.error.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.VerifySmartContractWalletSignaturesResponse.ValidationResponse", len)?;
         if self.is_valid {
             struct_ser.serialize_field("isValid", &self.is_valid)?;
+        }
+        if let Some(v) = self.block_number.as_ref() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("blockNumber", ToString::to_string(&v).as_str())?;
         }
         if let Some(v) = self.error.as_ref() {
             struct_ser.serialize_field("error", v)?;
@@ -1412,12 +1463,15 @@ impl<'de> serde::Deserialize<'de> for verify_smart_contract_wallet_signatures_re
         const FIELDS: &[&str] = &[
             "is_valid",
             "isValid",
+            "block_number",
+            "blockNumber",
             "error",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             IsValid,
+            BlockNumber,
             Error,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1441,6 +1495,7 @@ impl<'de> serde::Deserialize<'de> for verify_smart_contract_wallet_signatures_re
                     {
                         match value {
                             "isValid" | "is_valid" => Ok(GeneratedField::IsValid),
+                            "blockNumber" | "block_number" => Ok(GeneratedField::BlockNumber),
                             "error" => Ok(GeneratedField::Error),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -1462,6 +1517,7 @@ impl<'de> serde::Deserialize<'de> for verify_smart_contract_wallet_signatures_re
                     V: serde::de::MapAccess<'de>,
             {
                 let mut is_valid__ = None;
+                let mut block_number__ = None;
                 let mut error__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -1470,6 +1526,14 @@ impl<'de> serde::Deserialize<'de> for verify_smart_contract_wallet_signatures_re
                                 return Err(serde::de::Error::duplicate_field("isValid"));
                             }
                             is_valid__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::BlockNumber => {
+                            if block_number__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("blockNumber"));
+                            }
+                            block_number__ = 
+                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
+                            ;
                         }
                         GeneratedField::Error => {
                             if error__.is_some() {
@@ -1481,6 +1545,7 @@ impl<'de> serde::Deserialize<'de> for verify_smart_contract_wallet_signatures_re
                 }
                 Ok(verify_smart_contract_wallet_signatures_response::ValidationResponse {
                     is_valid: is_valid__.unwrap_or_default(),
+                    block_number: block_number__,
                     error: error__,
                 })
             }

@@ -10,7 +10,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use tonic::transport::Server;
 
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt as _, EnvFilter};
-use xmtp_id::scw_verifier::RpcSmartContractWalletVerifier;
+use xmtp_id::scw_verifier::MultiSmartContractSignatureVerifier;
 use xmtp_proto::xmtp::mls_validation::v1::validation_api_server::ValidationApiServer;
 
 #[macro_use]
@@ -30,8 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let health_server = health_check_server(args.health_check_port as u16);
 
-    // TODO:nm replace with real verifier
-    let scw_verifier = RpcSmartContractWalletVerifier::new("http://fixme.com".to_string());
+    let scw_verifier = MultiSmartContractSignatureVerifier::new_from_file("chain_urls.json");
 
     let grpc_server = Server::builder()
         .add_service(ValidationApiServer::new(ValidationService::new(

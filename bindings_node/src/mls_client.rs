@@ -13,6 +13,7 @@ use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 use xmtp_id::associations::unverified::UnverifiedSignature;
+use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::identity::IdentityStrategy;
@@ -53,6 +54,8 @@ pub async fn create_client(
     .await
     .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
 
+  let scw_verifier = RemoteSignatureVerifier::new(api_client.identity_client().clone());
+
   let storage_option = StorageOption::Persistent(db_path);
 
   let store = match encryption_key {
@@ -81,12 +84,14 @@ pub async fn create_client(
       .api_client(api_client)
       .store(store)
       .history_sync_url(&url)
+      .scw_signature_verifier(scw_verifier)
       .build()
       .await
       .map_err(ErrorWrapper::from)?,
     None => ClientBuilder::new(identity_strategy)
       .api_client(api_client)
       .store(store)
+      .scw_signature_verifier(scw_verifier)
       .build()
       .await
       .map_err(ErrorWrapper::from)?,

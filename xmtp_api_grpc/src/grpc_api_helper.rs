@@ -113,6 +113,10 @@ impl Client {
 
         req
     }
+
+    pub fn identity_client(&self) -> &ProtoIdentityApiClient<Channel> {
+        &self.identity_client
+    }
 }
 
 impl ClientWithMetadata for Client {

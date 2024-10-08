@@ -61,7 +61,7 @@ impl UnverifiedIdentityUpdate {
         let actions: Vec<Action> = try_join_all(
             self.actions
                 .iter()
-                .map(|action| async { action.to_verified(&signature_text, scw_verifier).await }),
+                .map(|action| action.to_verified(&signature_text, scw_verifier)),
         )
         .await?;
 
@@ -267,7 +267,7 @@ impl UnverifiedSignature {
                     scw_verifier,
                     &sig.signature_bytes,
                     sig.account_id.clone(),
-                    Some(sig.block_number),
+                    &mut Some(sig.block_number),
                 )
                 .await
             }
@@ -344,6 +344,23 @@ pub struct UnverifiedSmartContractWalletSignature {
     pub(crate) signature_bytes: Vec<u8>,
     pub(crate) account_id: AccountId,
     pub(crate) block_number: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewUnverifiedSmartContractWalletSignature {
+    pub(crate) signature_bytes: Vec<u8>,
+    pub(crate) account_id: AccountId,
+    pub(crate) block_number: Option<u64>,
+}
+
+impl NewUnverifiedSmartContractWalletSignature {
+    pub fn new(signature_bytes: Vec<u8>, account_id: AccountId, block_number: Option<u64>) -> Self {
+        Self {
+            account_id,
+            block_number,
+            signature_bytes,
+        }
+    }
 }
 
 impl UnverifiedSmartContractWalletSignature {
