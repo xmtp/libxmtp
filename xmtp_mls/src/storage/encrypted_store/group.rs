@@ -201,13 +201,13 @@ impl DbConnection {
     }
 
     pub fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
-        let last_ts = self.raw_query(|conn| {
+        let last_ts: Option<i64> = self.raw_query(|conn| {
             let ts = dsl::groups
                 .find(&group_id)
                 .select(dsl::rotated_at_ns)
                 .first(conn)
                 .optional()?;
-            Ok(ts)
+            Ok::<Option<i64>, StorageError>(ts)
         })?;
 
         last_ts.ok_or(StorageError::NotFound(format!(

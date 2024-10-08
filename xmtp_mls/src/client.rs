@@ -234,7 +234,6 @@ pub struct Client<ApiClient> {
     #[cfg(feature = "message-history")]
     pub(crate) history_sync_url: Option<String>,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
-    pub(crate) scw_verifier: Box<dyn SmartContractSignatureVerifier>,
 }
 
 /// The local context a XMTP MLS needs to function:
@@ -290,7 +289,6 @@ where
         store: EncryptedMessageStore,
         scw_verifier: Box<dyn SmartContractSignatureVerifier>,
         #[cfg(feature = "message-history")] history_sync_url: Option<String>,
-        scw_verifier: Box<dyn SmartContractSignatureVerifier>,
     ) -> Self {
         let context = XmtpMlsLocalContext {
             identity,
@@ -305,7 +303,6 @@ where
             #[cfg(feature = "message-history")]
             history_sync_url,
             local_events: tx,
-            scw_verifier,
         }
     }
     /// Retrieves the client's installation public key, sometimes also called `installation_id`
