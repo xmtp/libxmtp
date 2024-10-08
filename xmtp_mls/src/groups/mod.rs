@@ -1569,7 +1569,7 @@ mod tests {
         storage::{
             consent_record::ConsentState,
             group::Purpose,
-            group_intent::{IntentKind, IntentState, NewGroupIntent},
+            group_intent::{IntentKind, IntentState},
             group_message::{GroupMessageKind, StoredGroupMessage},
         },
         xmtp_openmls_provider::XmtpOpenMlsProvider,
