@@ -29,6 +29,8 @@ pub enum VerifierError {
     Abi(#[from] ethers::abi::Error),
     #[error(transparent)]
     Provider(#[from] ethers::providers::ProviderError),
+    #[error(transparent)]
+    Tonic(tonic::Status),
 }
 
 #[async_trait]
