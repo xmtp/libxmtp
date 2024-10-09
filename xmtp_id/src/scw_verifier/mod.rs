@@ -8,7 +8,13 @@ use ethers::{
     providers::{Http, Provider, ProviderError},
     types::{BlockNumber, Bytes},
 };
-use std::{collections::HashMap, fs, path::Path, str::FromStr};
+use std::{
+    collections::HashMap,
+    env,
+    fs::{self},
+    io,
+    path::Path,
+};
 use thiserror::Error;
 use url::Url;
 
@@ -71,6 +77,14 @@ pub struct MultiSmartContractSignatureVerifier {
     verifiers: HashMap<String, Box<dyn SmartContractSignatureVerifier>>,
 }
 
+impl Default for MultiSmartContractSignatureVerifier {
+    fn default() -> Self {
+        let urls: HashMap<String, Url> =
+            serde_json::from_str(DEFAULT_CHAIN_URLS).expect("DEFAULT_CHAIN_URLS is malformatted");
+        Self::new(urls).upgrade()
+    }
+}
+
 impl MultiSmartContractSignatureVerifier {
     pub fn new(urls: HashMap<String, url::Url>) -> Self {
         let verifiers: HashMap<String, Box<dyn SmartContractSignatureVerifier>> = urls
@@ -87,32 +101,26 @@ impl MultiSmartContractSignatureVerifier {
         Self { verifiers }
     }
 
-    pub fn new_from_file(path: impl AsRef<Path>) -> Self {
-        let path = path.as_ref();
+    pub fn new_from_file(path: impl AsRef<Path>) -> Result<Self, io::Error> {
+        let json = fs::read_to_string(path.as_ref())?;
+        let urls: HashMap<String, Url> = serde_json::from_str(&json).map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Unable to deserialize json: {err:?}"),
+            )
+        })?;
 
-        let file_str;
-        let json = if path.exists() {
-            file_str = fs::read_to_string(path).unwrap_or_else(|_| panic!("{path:?} is missing"));
-            &file_str
-        } else {
-            DEFAULT_CHAIN_URLS
-        };
+        Ok(Self::new(urls))
+    }
 
-        let json: HashMap<String, String> =
-            serde_json::from_str(json).unwrap_or_else(|_| panic!("{path:?} is malformatted"));
-
-        let urls = json
-            .into_iter()
-            .map(|(id, url)| {
-                (
-                    id,
-                    Url::from_str(&url)
-                        .unwrap_or_else(|_| panic!("unable to parse url in {path:?} ({url})")),
-                )
-            })
-            .collect();
-
-        Self::new(urls)
+    /// Upgrade the default urls to paid/private urls if the env vars are present.
+    pub fn upgrade(mut self) -> Self {
+        self.verifiers.iter_mut().for_each(|(id, verif)| {
+            if let Ok(url) = env::var(format!("CHAIN_RPC_{id}")) {
+                *verif = Box::new(RpcSmartContractWalletVerifier::new(url));
+            };
+        });
+        self
     }
 }
 

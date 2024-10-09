@@ -109,9 +109,7 @@ impl ClientBuilder<TestClient> {
 
     pub async fn local_client(self) -> Self {
         self.api_client(<TestClient as XmtpTestClient>::create_local().await)
-            .scw_signature_verifier(MultiSmartContractSignatureVerifier::new_from_file(
-                "chain_urls.json",
-            ))
+            .scw_signature_verifier(MultiSmartContractSignatureVerifier::default())
     }
 
     pub async fn new_test_client(owner: &impl InboxOwner) -> Client<TestClient> {
