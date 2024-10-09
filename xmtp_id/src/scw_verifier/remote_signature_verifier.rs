@@ -10,7 +10,7 @@ use xmtp_proto::{
     },
 };
 
-pub struct RemoteSignatureVerifier<C: 'static> {
+pub struct RemoteSignatureVerifier<C> {
     identity_client: C,
 }
 

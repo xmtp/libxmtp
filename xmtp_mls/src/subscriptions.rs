@@ -5,12 +5,15 @@ use futures::{FutureExt, Stream, StreamExt};
 use prost::Message;
 use tokio::{sync::oneshot, task::JoinHandle};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
 use crate::{
     api::GroupFilter,
     client::{extract_welcome_message, ClientError},
-    groups::{extract_group_id, group_metadata::ConversationType, GroupError, MlsGroup},
+    groups::{
+        extract_group_id, group_metadata::ConversationType, subscriptions, GroupError, MlsGroup,
+    },
     retry::Retry,
     retry_async,
     storage::{group::StoredGroup, group_message::StoredGroupMessage},
@@ -27,10 +30,18 @@ pub struct StreamHandle<T> {
 
 /// Events local to this client
 /// are broadcast across all senders/receivers of streams
-#[derive(Clone)]
-pub(crate) enum LocalEvents {
+pub(crate) enum LocalEvents<C> {
     // a new group was created
-    NewGroup(MlsGroup),
+    NewGroup(MlsGroup<C>),
+}
+
+impl<ScopedClient: Clone> Clone for LocalEvents<ScopedClient> {
+    fn clone(&self) -> LocalEvents<ScopedClient> {
+        use LocalEvents::*;
+        match self {
+            NewGroup(c) => NewGroup(c.clone()),
+        }
+    }
 }
 
 impl<T> StreamHandle<T> {
@@ -68,12 +79,13 @@ impl From<StoredGroup> for (Vec<u8>, MessagesStreamInfo) {
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + 'static,
+    ApiClient: XmtpApi + Clone + 'static,
+    V: SmartContractSignatureVerifier + Clone + 'static,
 {
     async fn process_streamed_welcome(
         &self,
         welcome: WelcomeMessage,
-    ) -> Result<MlsGroup, ClientError> {
+    ) -> Result<MlsGroup<Self>, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
         let creation_result = retry_async!(
             Retry::default(),
@@ -84,7 +96,7 @@ where
                     .store()
                     .transaction_async(|provider| async move {
                         MlsGroup::create_from_encrypted_welcome(
-                            self,
+                            Arc::new(self.clone()),
                             &provider,
                             welcome_v1.hpke_public_key.as_slice(),
                             welcome_v1.data,
@@ -105,11 +117,7 @@ where
                         "Loading existing group for welcome_id: {:?}",
                         group.welcome_id
                     );
-                    return Ok(MlsGroup::new(
-                        self.context.clone(),
-                        group.id,
-                        group.created_at_ns,
-                    ));
+                    return Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns));
                 }
                 Ok(None) => return Err(ClientError::Generic(err.to_string())),
                 Err(e) => return Err(ClientError::Generic(e.to_string())),
@@ -122,7 +130,7 @@ where
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<MlsGroup, ClientError> {
+    ) -> Result<MlsGroup<Self>, ClientError> {
         let envelope = WelcomeMessage::decode(envelope_bytes.as_slice())
             .map_err(|e| ClientError::Generic(e.to_string()))?;
 
@@ -133,15 +141,20 @@ where
     pub async fn stream_conversations(
         &self,
         include_dm: bool,
-    ) -> Result<impl Stream<Item = MlsGroup> + '_, ClientError> {
-        let provider = Arc::new(self.context.mls_provider()?);
-
+    ) -> Result<impl Stream<Item = MlsGroup<Self>> + '_, ClientError> {
         let event_queue =
             tokio_stream::wrappers::BroadcastStream::new(self.local_events.subscribe());
 
         // Helper function for filtering Dm groups
-        let filter_group = move |group: MlsGroup, provider: Arc<XmtpOpenMlsProvider>| async move {
-            match group.metadata(provider.as_ref()) {
+        let filter_group = move |group: MlsGroup<Self>| async move {
+            let provider = match group.client.context().mls_provider() {
+                Ok(p) => Some(p),
+                Err(e) => {
+                    tracing::error!("{}", e);
+                    None
+                }
+            }?;
+            match group.metadata(provider) {
                 Ok(metadata) => {
                     if include_dm || metadata.conversation_type != ConversationType::Dm {
                         Some(group)
@@ -156,16 +169,12 @@ where
             }
         };
 
-        let event_provider = Arc::clone(&provider);
-        let event_queue = event_queue.filter_map(move |event| {
-            let provider = Arc::clone(&event_provider);
-            async move {
-                match event {
-                    Ok(LocalEvents::NewGroup(group)) => filter_group(group, provider).await,
-                    Err(BroadcastStreamRecvError::Lagged(missed)) => {
-                        tracing::warn!("Missed {missed} messages due to local event queue lagging");
-                        None
-                    }
+        let event_queue = event_queue.filter_map(|event| async move {
+            match event {
+                Ok(LocalEvents::NewGroup(g)) => Some(g),
+                Err(BroadcastStreamRecvError::Lagged(missed)) => {
+                    tracing::warn!("Missed {missed} messages due to local event queue lagging");
+                    None
                 }
             }
         });
@@ -179,95 +188,36 @@ where
             .subscribe_welcome_messages(installation_key, Some(id_cursor))
             .await?;
 
-        let stream_provider = Arc::clone(&provider);
         let stream = subscription
             .map(|welcome| async {
                 tracing::info!("Received conversation streaming payload");
                 self.process_streamed_welcome(welcome?).await
             })
-            .filter_map(move |res| {
-                let provider = Arc::clone(&stream_provider);
-                async move {
-                    match res.await {
-                        Ok(group) => filter_group(group, provider).await,
-                        Err(err) => {
-                            tracing::error!(
-                                "Error processing stream entry for conversation: {:?}",
-                                err
-                            );
-                            None
-                        }
-                    }
-                }
-            });
-
-        Ok(futures::stream::select(stream, event_queue))
-    }
-
-    // #[tracing::instrument(skip(self, group_id_to_info))]
-    pub(crate) async fn stream_messages(
-        &self,
-        group_id_to_info: Arc<HashMap<Vec<u8>, MessagesStreamInfo>>,
-    ) -> Result<impl Stream<Item = StoredGroupMessage> + '_, ClientError>
-    where
-        ApiClient: 'static,
-    {
-        let filters: Vec<GroupFilter> = group_id_to_info
-            .iter()
-            .map(|(group_id, info)| GroupFilter::new(group_id.clone(), Some(info.cursor)))
-            .collect();
-
-        let messages_subscription = self.api_client.subscribe_group_messages(filters).await?;
-
-        let stream = messages_subscription
-            .map(move |res| {
-                let group_info = group_id_to_info.clone();
-                async move {
-                    match res {
-                        Ok(envelope) => {
-                            tracing::info!("Received message streaming payload");
-                            let group_id = extract_group_id(&envelope)?;
-                            tracing::info!("Extracted group id {}", hex::encode(&group_id));
-                            let stream_info = group_info.get(&group_id).ok_or(
-                                ClientError::StreamInconsistency(
-                                    "Received message for a non-subscribed group".to_string(),
-                                ),
-                            )?;
-                            let mls_group = MlsGroup::new(
-                                self.context.clone(),
-                                group_id,
-                                stream_info.convo_created_at_ns,
-                            );
-                            mls_group.process_stream_entry(envelope, self).await
-                        }
-                        Err(err) => Err(GroupError::Api(err)),
-                    }
-                }
-            })
-            .filter_map(|res| async {
+            .filter_map(move |res| async {
                 match res.await {
-                    Ok(Some(message)) => Some(message),
-                    Ok(None) => {
-                        tracing::info!("Skipped message streaming payload");
-                        None
-                    }
+                    Ok(group) => Some(group),
                     Err(err) => {
-                        tracing::error!("Error processing stream entry: {:?}", err);
+                        tracing::error!(
+                            "Error processing stream entry for conversation: {:?}",
+                            err
+                        );
                         None
                     }
                 }
             });
-        Ok(stream)
+
+        Ok(futures::stream::select(stream, event_queue).filter_map(filter_group))
     }
 }
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + 'static,
+    ApiClient: XmtpApi + Clone + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Send + Sync + Clone + 'static,
 {
     pub fn stream_conversations_with_callback(
-        client: Arc<Client<ApiClient>>,
-        mut convo_callback: impl FnMut(MlsGroup) + Send + 'static,
+        client: Arc<Client<ApiClient, V>>,
+        mut convo_callback: impl FnMut(MlsGroup<Self>) + Send + 'static,
         include_dm: bool,
     ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
@@ -281,27 +231,6 @@ where
                 convo_callback(convo)
             }
             tracing::debug!("`stream_conversations` stream ended, dropping stream");
-            Ok::<_, ClientError>(())
-        })
-    }
-
-    pub(crate) fn stream_messages_with_callback(
-        client: Arc<Client<ApiClient>>,
-        group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
-        mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
-    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
-        let (tx, rx) = oneshot::channel();
-
-        let client = client.clone();
-
-        crate::spawn(Some(rx), async move {
-            let stream = Self::stream_messages(&client, Arc::new(group_id_to_info)).await?;
-            futures::pin_mut!(stream);
-            let _ = tx.send(());
-            while let Some(message) = stream.next().await {
-                callback(message)
-            }
-            tracing::debug!("`stream_messages` stream ended, dropping stream");
             Ok::<_, ClientError>(())
         })
     }
@@ -320,9 +249,11 @@ where
             .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
 
         let stream = async_stream::stream! {
-            let messages_stream = self
-                .stream_messages(Arc::new(group_id_to_info.clone()))
-                .await?;
+            let messages_stream = subscriptions::stream_messages(
+                self,
+                Arc::new(group_id_to_info.clone())
+            )
+            .await?;
             futures::pin_mut!(messages_stream);
 
             tracing::info!("Setting up conversation stream in stream_all_messages");
@@ -364,7 +295,10 @@ where
                                 cursor: 1, // For the new group, stream all messages since the group was created
                             },
                         );
-                        let new_messages_stream = match self.stream_messages(Arc::new(group_id_to_info.clone())).await {
+                        let new_messages_stream = match subscriptions::stream_messages(
+                            self,
+                            Arc::new(group_id_to_info.clone())
+                        ).await {
                             Ok(stream) => stream,
                             Err(e) => {
                                 tracing::error!("{}", e);
@@ -387,13 +321,14 @@ where
     }
 
     pub fn stream_all_messages_with_callback(
-        client: Arc<Client<ApiClient>>,
+        client: Arc<Self>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
     ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
         crate::spawn(Some(rx), async move {
-            let stream = Self::stream_all_messages(&client).await?;
+            let client = client.clone();
+            let stream = client.stream_all_messages().await?;
             futures::pin_mut!(stream);
             let _ = tx.send(());
             while let Some(message) = stream.next().await {

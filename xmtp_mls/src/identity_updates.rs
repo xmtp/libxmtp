@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
+    groups::scoped_client::ScopedGroupClient,
     retry::{Retry, RetryableError},
     retry_async, retryable,
     storage::association_state::StoredAssociationState,
@@ -55,18 +56,14 @@ impl RetryableError for InstallationDiffError {
     }
 }
 
-impl<'a, ApiClient> Client<ApiClient>
-where
-    ApiClient: XmtpApi,
-{
+impl DbConnection {
     /// Take a list of inbox_id/sequence_id tuples and determine which `inbox_id`s have missing entries
     /// in the local DB
     pub(crate) fn filter_inbox_ids_needing_updates<InboxId: AsRef<str> + ToString>(
         &self,
-        conn: &DbConnection,
         filters: Vec<(InboxId, i64)>,
     ) -> Result<Vec<String>, ClientError> {
-        let existing_sequence_ids = conn.get_latest_sequence_id(
+        let existing_sequence_ids = self.get_latest_sequence_id(
             &filters
                 .iter()
                 .map(|f| f.0.to_string())
@@ -89,7 +86,13 @@ where
 
         Ok(needs_update)
     }
+}
 
+impl<'a, ApiClient, V> Client<ApiClient, V>
+where
+    ApiClient: XmtpApi + Clone,
+    V: SmartContractSignatureVerifier + Clone,
+{
     pub async fn batch_get_association_state<InboxId: AsRef<str>>(
         &self,
         conn: &DbConnection,
@@ -388,7 +391,7 @@ where
         load_identity_updates(
             &self.api_client,
             conn,
-            self.filter_inbox_ids_needing_updates(conn, filters)?,
+            conn.filter_inbox_ids_needing_updates(filters)?,
         )
         .await?;
 

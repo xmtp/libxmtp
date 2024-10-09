@@ -233,9 +233,27 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) context: Arc<XmtpMlsLocalContext>,
     #[cfg(feature = "message-history")]
     pub(crate) history_sync_url: Option<String>,
-    pub(crate) local_events: broadcast::Sender<LocalEvents>,
+    pub(crate) local_events: broadcast::Sender<LocalEvents<Self>>,
     /// The method of verifying smart contract wallet signatures for this Client
     pub(crate) scw_verifier: V,
+}
+
+// most of these things are `Arc`'s
+impl<ApiClient, V> Clone for Client<ApiClient, V>
+where
+    ApiClient: Clone,
+    V: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            api_client: self.api_client.clone(),
+            context: self.context.clone(),
+            #[cfg(feature = "message-history")]
+            history_sync_url: self.history_sync_url.clone(),
+            local_events: self.local_events.clone(),
+            scw_verifier: self.scw_verifier.clone(),
+        }
+    }
 }
 
 /// The local context a XMTP MLS needs to function:
@@ -283,8 +301,8 @@ impl XmtpMlsLocalContext {
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + 'static,
-    V: 'static,
+    ApiClient: XmtpApi + Clone + 'static,
+    V: SmartContractSignatureVerifier + Clone + 'static,
 {
     /// Create a new client with the given network, identity, and store.
     /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating
@@ -322,7 +340,8 @@ where
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi,
+    ApiClient: XmtpApi + Clone,
+    V: SmartContractSignatureVerifier + Clone,
 {
     pub fn installation_public_key(&self) -> Vec<u8> {
         self.context.installation_public_key()
@@ -478,17 +497,17 @@ where
         &self,
         permissions_policy_set: Option<PolicySet>,
         opts: GroupMetadataOptions,
-    ) -> Result<MlsGroup, ClientError> {
+    ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating group");
 
-        let group = MlsGroup::create_and_insert(
-            self.context.clone(),
+        let group: MlsGroup<Client<ApiClient, V>> = MlsGroup::create_and_insert(
+            Arc::new(self.clone()),
             GroupMembershipState::Allowed,
             permissions_policy_set.unwrap_or_default(),
             opts,
         )?;
 
-        // notify any streams of the new group
+        // notify streams of our new group
         let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
 
         Ok(group)
@@ -499,26 +518,17 @@ where
         account_addresses: Vec<String>,
         permissions_policy_set: Option<PolicySet>,
         opts: GroupMetadataOptions,
-    ) -> Result<MlsGroup, ClientError> {
+    ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating group");
+        let group = self.create_group(permissions_policy_set, opts)?;
 
-        let group = MlsGroup::create_and_insert(
-            self.context.clone(),
-            GroupMembershipState::Allowed,
-            permissions_policy_set.unwrap_or_default(),
-            opts,
-        )?;
-
-        group.add_members(self, account_addresses).await?;
-
-        // notify any streams of the new group
-        let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
+        group.add_members(account_addresses).await?;
 
         Ok(group)
     }
 
     /// Create a new Direct Message with the default settings
-    pub async fn create_dm(&self, account_address: String) -> Result<MlsGroup, ClientError> {
+    pub async fn create_dm(&self, account_address: String) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating dm with address: {}", account_address);
 
         let inbox_id = match self
@@ -541,17 +551,17 @@ where
     pub async fn create_dm_by_inbox_id(
         &self,
         dm_target_inbox_id: InboxId,
-    ) -> Result<MlsGroup, ClientError> {
+    ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating dm with {}", dm_target_inbox_id);
 
-        let group = MlsGroup::create_dm_and_insert(
-            self.context.clone(),
+        let group: MlsGroup<Client<ApiClient, V>> = MlsGroup::create_dm_and_insert(
+            Arc::new(self.clone()),
             GroupMembershipState::Allowed,
             dm_target_inbox_id.clone(),
         )?;
 
         group
-            .add_members_by_inbox_id(self, vec![dm_target_inbox_id])
+            .add_members_by_inbox_id(vec![dm_target_inbox_id])
             .await?;
 
         // notify any streams of the new group
@@ -570,15 +580,11 @@ where
 
     /// Look up a group by its ID
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
-    pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup, ClientError> {
+    pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
         let conn = &mut self.store().conn()?;
         let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
         match stored_group {
-            Some(group) => Ok(MlsGroup::new(
-                self.context.clone(),
-                group.id,
-                group.created_at_ns,
-            )),
+            Some(group) => Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns)),
             None => Err(ClientError::Storage(StorageError::NotFound(format!(
                 "group {}",
                 hex::encode(group_id)
@@ -607,7 +613,7 @@ where
     /// - created_after_ns: only return groups created after the given timestamp (in nanoseconds)
     /// - created_before_ns: only return groups created before the given timestamp (in nanoseconds)
     /// - limit: only return the first `limit` groups
-    pub fn find_groups(&self, params: FindGroupParams) -> Result<Vec<MlsGroup>, ClientError> {
+    pub fn find_groups(&self, params: FindGroupParams) -> Result<Vec<MlsGroup<Self>>, ClientError> {
         Ok(self
             .store()
             .conn()?
@@ -620,11 +626,7 @@ where
             )?
             .into_iter()
             .map(|stored_group| {
-                MlsGroup::new(
-                    self.context.clone(),
-                    stored_group.id,
-                    stored_group.created_at_ns,
-                )
+                MlsGroup::new(self.clone(), stored_group.id, stored_group.created_at_ns)
             })
             .collect())
     }
@@ -706,16 +708,15 @@ where
             .collect::<Result<_, _>>()?)
     }
 
-    pub(crate) async fn process_for_id<Fut, ProcessingFn, ReturnValue>(
+    pub(crate) async fn process_for_id<Fut, ReturnValue>(
         &self,
         entity_id: &Vec<u8>,
         entity_kind: EntityKind,
         cursor: u64,
-        process_envelope: ProcessingFn,
+        process_envelope: impl FnOnce(XmtpOpenMlsProvider) -> Fut,
     ) -> Result<ReturnValue, MessageProcessingError>
     where
         Fut: Future<Output = Result<ReturnValue, MessageProcessingError>>,
-        ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Fut,
     {
         self.store()
             .transaction_async(|provider| async move {
@@ -733,12 +734,12 @@ where
 
     /// Download all unread welcome messages and convert to groups.
     /// Returns any new groups created in the operation
-    pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup>, ClientError> {
+    pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Self>>, ClientError> {
         let envelopes = self.query_welcome_messages(&self.store().conn()?).await?;
         let num_envelopes = envelopes.len();
         let id = self.installation_public_key();
 
-        let groups: Vec<MlsGroup> = stream::iter(envelopes.into_iter())
+        let groups: Vec<MlsGroup<Self>> = stream::iter(envelopes.into_iter())
             .filter_map(|envelope: WelcomeMessage| async {
                 let welcome_v1 = match extract_welcome_message(envelope) {
                     Ok(inner) => inner,
@@ -757,7 +758,7 @@ where
                             welcome_v1.id,
                             |provider| async move {
                                 let result = MlsGroup::create_from_encrypted_welcome(
-                                    self,
+                                    Arc::new(self.clone()),
                                     &provider,
                                     welcome_v1.hpke_public_key.as_slice(),
                                     welcome_v1.data,
@@ -803,7 +804,7 @@ where
 
     /// Sync all groups for the current user and return the number of groups that were synced.
     /// Only active groups will be synced.
-    pub async fn sync_all_groups(&self, groups: Vec<MlsGroup>) -> Result<usize, GroupError> {
+    pub async fn sync_all_groups(&self, groups: Vec<MlsGroup<Self>>) -> Result<usize, GroupError> {
         // Acquire a single connection to be reused
         let provider: XmtpOpenMlsProvider = self.mls_provider()?;
 
@@ -825,11 +826,9 @@ where
                         mls_group.epoch()
                     );
                     if mls_group.is_active() {
-                        group
-                            .maybe_update_installations(provider_ref, None, self)
-                            .await?;
+                        group.maybe_update_installations(provider_ref, None).await?;
 
-                        group.sync_with_conn(provider_ref, self).await?;
+                        group.sync_with_conn(provider_ref).await?;
                         active_group_count.fetch_add(1, Ordering::SeqCst);
                     }
 

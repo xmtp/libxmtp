@@ -43,6 +43,7 @@ fn reqwest_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder().connection_verbose(true)
 }
 
+#[derive(Clone)]
 pub struct XmtpHttpApiClient {
     http_client: reqwest::Client,
     host_url: String,

@@ -31,14 +31,22 @@ mod wasm;
 
 pub use self::db_connection::DbConnection;
 #[cfg(not(target_arch = "wasm32"))]
-pub use self::native::SqliteConnection;
+pub use diesel::sqlite::{Sqlite, SqliteConnection};
+#[cfg(not(target_arch = "wasm32"))]
+pub use native::RawDbConnection;
+#[cfg(not(target_arch = "wasm32"))]
+pub use sqlcipher_connection::EncryptedConnection;
+
 #[cfg(target_arch = "wasm32")]
 pub use self::wasm::SqliteConnection;
+#[cfg(target_arch = "wasm32")]
+pub use diesel_wasm_sqlite::{
+    connection::WasmSqliteConnection as RawDbConnection, WasmSqlite as Sqlite,
+};
+
 use super::StorageError;
 use crate::{xmtp_openmls_provider::XmtpOpenMlsProviderPrivate, Store};
 use db_connection::DbConnectionPrivate;
-#[cfg(not(target_arch = "wasm32"))]
-pub use diesel::sqlite::Sqlite;
 use diesel::{
     connection::{LoadConnection, TransactionManager},
     migration::MigrationConnection,
@@ -47,18 +55,9 @@ use diesel::{
     sql_query,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-#[cfg(target_arch = "wasm32")]
-pub use diesel_wasm_sqlite::WasmSqlite as Sqlite;
-#[cfg(not(target_arch = "wasm32"))]
-pub use sqlcipher_connection::EncryptedConnection;
 use std::sync::Arc;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
-
-#[cfg(target_arch = "wasm32")]
-pub use diesel_wasm_sqlite::connection::WasmSqliteConnection as RawDbConnection;
-#[cfg(not(target_arch = "wasm32"))]
-pub use native::RawDbConnection;
 
 pub type EncryptionKey = [u8; 32];
 
@@ -75,12 +74,6 @@ pub enum StorageOption {
     Ephemeral,
     Persistent(String),
 }
-
-/// Global Marker trait for WebAssembly
-#[cfg(target_arch = "wasm32")]
-pub trait Wasm {}
-#[cfg(target_arch = "wasm32")]
-impl<T> Wasm for T {}
 
 #[allow(async_fn_in_trait)]
 pub trait XmtpDb {

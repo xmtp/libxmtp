@@ -1,7 +1,7 @@
 /// Native SQLite connection using SqlCipher
 use crate::storage::encrypted_store::DbConnectionPrivate;
 use crate::storage::StorageError;
-pub use diesel::sqlite::SqliteConnection;
+use diesel::sqlite::SqliteConnection;
 use diesel::{
     connection::{AnsiTransactionManager, SimpleConnection},
     r2d2::{self, CustomizeConnection, PoolTransactionManager, PooledConnection},

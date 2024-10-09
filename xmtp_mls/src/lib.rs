@@ -26,6 +26,12 @@ use storage::{DuplicateItem, StorageError};
 pub use xmtp_id::InboxOwner;
 pub use xmtp_proto::api_client::trait_impls::*;
 
+/// Global Marker trait for WebAssembly
+#[cfg(target_arch = "wasm32")]
+pub trait Wasm {}
+#[cfg(target_arch = "wasm32")]
+impl<T> Wasm for T {}
+
 /// Inserts a model to the underlying data store, erroring if it already exists
 pub trait Store<StorageConnection> {
     fn store(&self, into: &StorageConnection) -> Result<(), StorageError>;

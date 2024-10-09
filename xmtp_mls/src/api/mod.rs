@@ -28,7 +28,7 @@ impl RetryableError for WrappedApiError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ApiClientWrapper<ApiClient> {
     api_client: ApiClient,
     retry_strategy: Retry,
