@@ -11,6 +11,7 @@ crate-type = ["cdylib"]
 futures = "0.3.30"
 hex = "0.4.3"
 tracing = { version = "0.1", features = ["release_max_level_debug"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 napi = { version = "2.12.2", default-features = false, features = [
   "napi4",
   "napi6",
