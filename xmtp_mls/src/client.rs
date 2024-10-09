@@ -708,15 +708,16 @@ where
             .collect::<Result<_, _>>()?)
     }
 
-    pub(crate) async fn process_for_id<Fut, ReturnValue>(
+    pub(crate) async fn process_for_id<Fut, ProcessingFn, ReturnValue>(
         &self,
         entity_id: &Vec<u8>,
         entity_kind: EntityKind,
         cursor: u64,
-        process_envelope: impl FnOnce(XmtpOpenMlsProvider) -> Fut,
+        process_envelope: ProcessingFn,
     ) -> Result<ReturnValue, MessageProcessingError>
     where
         Fut: Future<Output = Result<ReturnValue, MessageProcessingError>>,
+        ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Fut,
     {
         self.store()
             .transaction_async(|provider| async move {

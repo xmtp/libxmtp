@@ -18,7 +18,7 @@ use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
 impl<ScopedClient> MlsGroup<ScopedClient>
 where
-    ScopedClient: ScopedGroupClient + Clone + Send + Sync,
+    ScopedClient: ScopedGroupClient + Clone + Send,
 {
     pub(crate) async fn process_stream_entry(
         &self,
@@ -154,7 +154,7 @@ pub(crate) async fn stream_messages<'s, ScopedClient>(
     group_id_to_info: Arc<HashMap<Vec<u8>, MessagesStreamInfo>>,
 ) -> Result<impl Stream<Item = StoredGroupMessage> + 's, ClientError>
 where
-    ScopedClient: ScopedGroupClient + Clone + Sync + Send + 'static,
+    ScopedClient: ScopedGroupClient + Clone + Send + 'static,
     <ScopedClient as ScopedGroupClient>::ApiClient: XmtpApi + 'static,
 {
     let filters: Vec<GroupFilter> = group_id_to_info
@@ -213,14 +213,15 @@ pub(crate) fn stream_messages_with_callback<ScopedClient>(
     mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
 ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>>
 where
-    ScopedClient: ScopedGroupClient + Send + Sync + Clone + 'static,
+    ScopedClient: ScopedGroupClient + Send + Clone + 'static,
     <ScopedClient as ScopedGroupClient>::ApiClient: XmtpApi + 'static,
 {
     let (tx, rx) = oneshot::channel();
 
-    let client = client.clone();
+    let client: Arc<ScopedClient> = client.clone();
     crate::spawn(Some(rx), async move {
-        let client = Arc::clone(&client);
+        let _ = &client;
+        let client: Arc<ScopedClient> = Arc::clone(&client);
         let stream = stream_messages(&client, Arc::new(group_id_to_info)).await?;
         futures::pin_mut!(stream);
         let _ = tx.send(());

@@ -40,6 +40,7 @@ async-trait.workspace = true
 futures.workspace = true
 dyn-clone = "1"
 wasm-timer.workspace = true
+send-future = "0.1"
 
 # XMTP/Local
 xmtp_cryptography = { workspace = true }

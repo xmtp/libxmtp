@@ -256,10 +256,7 @@ pub enum UpdateAdminListType {
     RemoveSuper,
 }
 
-impl<ScopedClient> MlsGroup<ScopedClient>
-where
-    ScopedClient: ScopedGroupClient,
-{
+impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     // Creates a new group instance. Does not validate that the group exists in the DB
     pub fn new(client: ScopedClient, group_id: Vec<u8>, created_at_ns: i64) -> Self {
         Self::new_from_arc(Arc::new(client), group_id, created_at_ns)
@@ -685,10 +682,10 @@ where
      * will be added as part of this process as well.
      */
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn add_members(
-        &self,
-        account_addresses_to_add: Vec<String>,
-    ) -> Result<(), GroupError> {
+    pub async fn add_members(&self, account_addresses_to_add: Vec<String>) -> Result<(), GroupError>
+    where
+        ScopedClient: Send + Sync,
+    {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_add)?;
         let inbox_id_map = self
             .client
