@@ -16,6 +16,7 @@ use std::{
     path::Path,
 };
 use thiserror::Error;
+use tracing::info;
 use url::Url;
 
 pub use chain_rpc_verifier::*;
@@ -87,7 +88,7 @@ impl Default for MultiSmartContractSignatureVerifier {
 
 impl MultiSmartContractSignatureVerifier {
     pub fn new(urls: HashMap<String, url::Url>) -> Self {
-        let verifiers: HashMap<String, Box<dyn SmartContractSignatureVerifier>> = urls
+        let verifiers = urls
             .into_iter()
             .map(|(chain_id, url)| {
                 (
@@ -113,11 +114,13 @@ impl MultiSmartContractSignatureVerifier {
         Ok(Self::new(urls))
     }
 
-    /// Upgrade the default urls to paid/private urls if the env vars are present.
+    /// Upgrade the default urls to paid/private/alternative urls if the env vars are present.
     pub fn upgrade(mut self) -> Self {
         self.verifiers.iter_mut().for_each(|(id, verif)| {
             if let Ok(url) = env::var(format!("CHAIN_RPC_{id}")) {
                 *verif = Box::new(RpcSmartContractWalletVerifier::new(url));
+            } else {
+                info!("No upgraded chain url for chain {id}, using default.");
             };
         });
         self
