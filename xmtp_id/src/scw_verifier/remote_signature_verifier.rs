@@ -48,7 +48,7 @@ impl SmartContractSignatureVerifier for RemoteSignatureVerifier {
                 }],
             })
             .await
-            .unwrap();
+            .map_err(VerifierError::Tonic)?;
 
         let VerifySmartContractWalletSignaturesResponse { responses } = result.into_inner();
 
