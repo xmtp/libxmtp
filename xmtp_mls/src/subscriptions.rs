@@ -1,6 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use futures::{FutureExt, Stream, StreamExt};
 use prost::Message;
 use tokio::{sync::oneshot, task::JoinHandle};
@@ -9,11 +8,8 @@ use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
 use crate::{
-    api::GroupFilter,
     client::{extract_welcome_message, ClientError},
-    groups::{
-        extract_group_id, group_metadata::ConversationType, subscriptions, GroupError, MlsGroup,
-    },
+    groups::{group_metadata::ConversationType, subscriptions, MlsGroup},
     retry::Retry,
     retry_async,
     storage::{group::StoredGroup, group_message::StoredGroupMessage},

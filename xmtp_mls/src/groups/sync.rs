@@ -85,10 +85,7 @@ struct PublishIntentData {
     payload_to_publish: Vec<u8>,
 }
 
-impl<ScopedClient> MlsGroup<ScopedClient>
-where
-    ScopedClient: ScopedGroupClient,
-{
+impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub async fn sync(&self) -> Result<(), GroupError> {
         let conn = self.context().store().conn()?;
         let mls_provider = XmtpOpenMlsProvider::from(conn);

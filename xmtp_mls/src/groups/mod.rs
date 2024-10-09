@@ -682,10 +682,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
      * will be added as part of this process as well.
      */
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn add_members(&self, account_addresses_to_add: Vec<String>) -> Result<(), GroupError>
-    where
-        ScopedClient: Send + Sync,
-    {
+    pub async fn add_members(
+        &self,
+        account_addresses_to_add: Vec<String>,
+    ) -> Result<(), GroupError> {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_add)?;
         let inbox_id_map = self
             .client

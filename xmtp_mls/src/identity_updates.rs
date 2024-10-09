@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    groups::scoped_client::ScopedGroupClient,
     retry::{Retry, RetryableError},
     retry_async, retryable,
     storage::association_state::StoredAssociationState,

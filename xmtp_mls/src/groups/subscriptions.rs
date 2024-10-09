@@ -16,10 +16,7 @@ use crate::{retry::Retry, retry_async};
 use prost::Message;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
-impl<ScopedClient> MlsGroup<ScopedClient>
-where
-    ScopedClient: ScopedGroupClient + Clone + Send,
-{
+impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub(crate) async fn process_stream_entry(
         &self,
         envelope: GroupMessage,
@@ -154,7 +151,7 @@ pub(crate) async fn stream_messages<'s, ScopedClient>(
     group_id_to_info: Arc<HashMap<Vec<u8>, MessagesStreamInfo>>,
 ) -> Result<impl Stream<Item = StoredGroupMessage> + 's, ClientError>
 where
-    ScopedClient: ScopedGroupClient + Clone + Send + 'static,
+    ScopedClient: ScopedGroupClient + 'static,
     <ScopedClient as ScopedGroupClient>::ApiClient: XmtpApi + 'static,
 {
     let filters: Vec<GroupFilter> = group_id_to_info
@@ -178,11 +175,8 @@ where
                                 "Received message for a non-subscribed group".to_string(),
                             ),
                         )?;
-                        let mls_group = MlsGroup::new(
-                            client.clone(),
-                            group_id,
-                            stream_info.convo_created_at_ns,
-                        );
+                        let mls_group =
+                            MlsGroup::new(client, group_id, stream_info.convo_created_at_ns);
                         mls_group.process_stream_entry(envelope).await
                     }
                     Err(err) => Err(GroupError::Api(err)),
@@ -213,7 +207,7 @@ pub(crate) fn stream_messages_with_callback<ScopedClient>(
     mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
 ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>>
 where
-    ScopedClient: ScopedGroupClient + Send + Clone + 'static,
+    ScopedClient: ScopedGroupClient + 'static,
     <ScopedClient as ScopedGroupClient>::ApiClient: XmtpApi + 'static,
 {
     let (tx, rx) = oneshot::channel();
