@@ -8,6 +8,7 @@ use ethers::types::transaction::eip2718::TypedTransaction;
 use ethers::types::{Address, BlockNumber, Bytes, TransactionRequest};
 use hex::{FromHex, FromHexError};
 use std::sync::Arc;
+use tracing::info;
 
 use crate::associations::AccountId;
 
