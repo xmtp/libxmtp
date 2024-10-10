@@ -4,7 +4,6 @@ pub mod group_mutable_metadata;
 pub mod group_permissions;
 pub mod intents;
 pub mod members;
-pub mod scoped_client;
 
 #[allow(dead_code)]
 #[cfg(feature = "message-history")]
@@ -40,7 +39,6 @@ pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
 #[cfg(feature = "message-history")]
 use self::message_history::MessageHistoryError;
-pub(self) use self::scoped_client::ScopedGroupClient;
 use self::{
     group_membership::GroupMembership,
     group_metadata::{extract_group_metadata, DmMembers},
@@ -61,15 +59,18 @@ use self::{
 };
 use std::{collections::HashSet, sync::Arc};
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
-use xmtp_id::InboxId;
-use xmtp_proto::xmtp::mls::{
-    api::v1::{
-        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        GroupMessage,
-    },
-    message_contents::{
-        plaintext_envelope::{Content, V1},
-        PlaintextEnvelope,
+use xmtp_id::{scw_verifier::SmartContractSignatureVerifier, InboxId};
+use xmtp_proto::{
+    api_client::trait_impls::XmtpApi,
+    xmtp::mls::{
+        api::v1::{
+            group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
+            GroupMessage,
+        },
+        message_contents::{
+            plaintext_envelope::{Content, V1},
+            PlaintextEnvelope,
+        },
     },
 };
 
@@ -95,7 +96,7 @@ use crate::{
     },
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Store,
+    Client, Store,
 };
 
 #[derive(Debug, Error)]
@@ -221,11 +222,11 @@ impl RetryableError for GroupError {
         }
     }
 }
-
-pub struct MlsGroup<C> {
+#[derive(Clone)]
+pub struct MlsGroup<ApiClient, Verifier> {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
-    pub(crate) client: Arc<C>,
+    pub(crate) client: Arc<Client<ApiClient, Verifier>>,
     mutex: Arc<Mutex<()>>,
 }
 
@@ -237,17 +238,6 @@ pub struct GroupMetadataOptions {
     pub pinned_frame_url: Option<String>,
 }
 
-impl<C> Clone for MlsGroup<C> {
-    fn clone(&self) -> Self {
-        Self {
-            group_id: self.group_id.clone(),
-            created_at_ns: self.created_at_ns,
-            client: self.client.clone(),
-            mutex: self.mutex.clone(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum UpdateAdminListType {
     Add,
@@ -256,13 +246,21 @@ pub enum UpdateAdminListType {
     RemoveSuper,
 }
 
-impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
+impl<ApiClient, Verifier> MlsGroup<ApiClient, Verifier>
+where
+    ApiClient: XmtpApi + Clone,
+    Verifier: SmartContractSignatureVerifier + Clone,
+{
     // Creates a new group instance. Does not validate that the group exists in the DB
-    pub fn new(client: ScopedClient, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+    pub fn new(client: Client<ApiClient, Verifier>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
         Self::new_from_arc(Arc::new(client), group_id, created_at_ns)
     }
 
-    pub fn new_from_arc(client: Arc<ScopedClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+    pub fn new_from_arc(
+        client: Arc<Client<ApiClient, Verifier>>,
+        group_id: Vec<u8>,
+        created_at_ns: i64,
+    ) -> Self {
         let mut mutexes = client.context().mutexes.clone();
         Self {
             group_id: group_id.clone(),
@@ -298,7 +296,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     // Create a new group and save it to the DB
     pub fn create_and_insert(
-        client: Arc<ScopedClient>,
+        client: Arc<Client<ApiClient, Verifier>>,
         membership_state: GroupMembershipState,
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
@@ -348,7 +346,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     // Create a new DM and save it to the DB
     pub fn create_dm_and_insert(
-        client: Arc<ScopedClient>,
+        client: Arc<Client<ApiClient, Verifier>>,
         membership_state: GroupMembershipState,
         dm_target_inbox_id: InboxId,
     ) -> Result<Self, GroupError> {
@@ -400,7 +398,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     // Create a group from a decrypted and decoded welcome message
     // If the group already exists in the store, overwrite the MLS state and do not update the group entry
     async fn create_from_welcome(
-        client: Arc<ScopedClient>,
+        client: Arc<Client<ApiClient, Verifier>>,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
         added_by_inbox: String,
@@ -471,7 +469,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     // Decrypt a welcome message using HPKE and then create and save a group from the stored message
     pub async fn create_from_encrypted_welcome(
-        client: Arc<ScopedClient>,
+        client: Arc<Client<ApiClient, Verifier>>,
         provider: &XmtpOpenMlsProvider,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: Vec<u8>,
@@ -689,7 +687,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_add)?;
         let inbox_id_map = self
             .client
-            .api()
+            .api_client
             .get_inbox_ids(account_addresses.clone())
             .await?;
         // get current number of users in group
@@ -739,11 +737,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     pub async fn remove_members(
         &self,
-        client: ScopedClient,
+        client: Client<ApiClient, Verifier>,
         account_addresses_to_remove: Vec<InboxId>,
     ) -> Result<(), GroupError> {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_remove)?;
-        let inbox_id_map = client.api().get_inbox_ids(account_addresses).await?;
+        let inbox_id_map = client.api_client.get_inbox_ids(account_addresses).await?;
 
         self.remove_members_by_inbox_id(client, inbox_id_map.into_values().collect())
             .await
@@ -751,7 +749,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     pub async fn remove_members_by_inbox_id(
         &self,
-        client: ScopedClient,
+        client: Client<ApiClient, Verifier>,
         inbox_ids: Vec<InboxId>,
     ) -> Result<(), GroupError> {
         let provider = client.store().conn()?.into();
@@ -829,7 +827,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
     }
 
-    pub async fn update_group_description<ApiClient>(
+    pub async fn update_group_description(
         &self,
         group_description: String,
     ) -> Result<(), GroupError> {
@@ -1388,16 +1386,20 @@ fn build_group_config(
         .build())
 }
 
-async fn validate_initial_group_membership(
-    client: impl ScopedGroupClient,
+async fn validate_initial_group_membership<ApiClient, Verifier>(
+    client: &Client<ApiClient, Verifier>,
     conn: &DbConnection,
     mls_group: &OpenMlsGroup,
-) -> Result<(), GroupError> {
+) -> Result<(), GroupError>
+where
+    ApiClient: XmtpApi + Clone,
+    Verifier: SmartContractSignatureVerifier + Clone,
+{
     tracing::info!("Validating initial group membership");
     let membership = extract_group_membership(mls_group.extensions())?;
     let needs_update = conn.filter_inbox_ids_needing_updates(membership.to_filters())?;
     if !needs_update.is_empty() {
-        load_identity_updates(&client.api(), conn, needs_update).await?;
+        load_identity_updates(&client.api_client, conn, needs_update).await?;
     }
 
     let mut expected_installation_ids = HashSet::<Vec<u8>>::new();
@@ -1429,8 +1431,8 @@ async fn validate_initial_group_membership(
     Ok(())
 }
 
-fn validate_dm_group(
-    client: impl ScopedGroupClient,
+fn validate_dm_group<ApiClient, Verifier>(
+    client: &Client<ApiClient, Verifier>,
     mls_group: &OpenMlsGroup,
     added_by_inbox: &str,
 ) -> Result<(), GroupError> {
@@ -1528,9 +1530,9 @@ pub(crate) mod tests {
         Client, InboxOwner, StreamHandle as _, XmtpApi,
     };
 
-    use super::{group_permissions::PolicySet, MlsGroup, ScopedGroupClient};
+    use super::{group_permissions::PolicySet, MlsGroup};
 
-    async fn receive_group_invite(client: impl ScopedGroupClient) -> MlsGroup
+    async fn receive_group_invite(client: &Client<ApiClient, Verifier>) -> MlsGroup
     where
         ApiClient: XmtpApi,
     {
@@ -1540,11 +1542,8 @@ pub(crate) mod tests {
         groups.remove(0)
     }
 
-    async fn get_latest_message(
-        group: &MlsGroup,
-        client: impl ScopedGroupClient,
-    ) -> StoredGroupMessage {
-        group.sync(client).await.unwrap();
+    async fn get_latest_message(group: &MlsGroup) -> StoredGroupMessage {
+        group.sync().await.unwrap();
         let mut messages = group.find_messages(None, None, None, None, None).unwrap();
         messages.pop().unwrap()
     }
@@ -1552,9 +1551,9 @@ pub(crate) mod tests {
     // Adds a member to the group without the usual validations on group membership
     // Used for testing adversarial scenarios
     #[cfg(not(target_arch = "wasm32"))]
-    async fn force_add_member(
-        sender_client: impl ScopedGroupClient,
-        new_member_client: impl ScopedGroupClient,
+    async fn force_add_member<ApiClient, Verifier>(
+        sender_client: Client<ApiClient, Verifier>,
+        new_member_client: Client<ApiClient, Verifier>,
         sender_group: &MlsGroup,
         sender_mls_group: &mut openmls::prelude::MlsGroup,
         sender_provider: &XmtpOpenMlsProvider,
@@ -3394,7 +3393,7 @@ pub(crate) mod tests {
     async fn create_membership_update_no_sync(
         group: &MlsGroup,
         provider: &XmtpOpenMlsProvider,
-        client: impl ScopedGroupClient,
+        client: &crate::utils::test::TestClient,
     ) {
         let intent_data = group
             .get_membership_update_intent(provider, vec![], vec![])

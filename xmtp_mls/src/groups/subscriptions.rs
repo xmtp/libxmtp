@@ -1,22 +1,25 @@
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::oneshot;
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 
-use super::{extract_message_v1, GroupError, MlsGroup, ScopedGroupClient};
-use crate::api::GroupFilter;
+use super::{extract_message_v1, GroupError, MlsGroup};
 use crate::client::ClientError;
-use crate::groups::extract_group_id;
 use crate::storage::group_message::StoredGroupMessage;
 use crate::storage::refresh_state::EntityKind;
 use crate::storage::StorageError;
 use crate::subscriptions::MessagesStreamInfo;
+use crate::Client;
 use crate::{retry::Retry, retry_async};
 use prost::Message;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
-impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
+impl<ApiClient, Verifier> MlsGroup<ApiClient, Verifier>
+where
+    ApiClient: XmtpApi + Clone,
+    Verifier: SmartContractSignatureVerifier + Clone,
+{
     pub(crate) async fn process_stream_entry(
         &self,
         envelope: GroupMessage,
@@ -111,8 +114,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &'a self,
     ) -> Result<impl Stream<Item = StoredGroupMessage> + '_, GroupError>
     where
-        ScopedClient: 'static,
-        <ScopedClient as ScopedGroupClient>::ApiClient: 'static,
+        ApiClient: 'static,
+        Verifier: 'static,
     {
         let group_list = HashMap::from([(
             self.group_id.clone(),
@@ -121,18 +124,18 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 cursor: 0,
             },
         )]);
-        Ok(stream_messages(&*self.client, Arc::new(group_list)).await?)
+        Ok(self.client.stream_messages(Arc::new(group_list)).await?)
     }
 
     pub fn stream_with_callback(
-        client: ScopedClient,
+        client: Client<ApiClient, Verifier>,
         group_id: Vec<u8>,
         created_at_ns: i64,
         callback: impl FnMut(StoredGroupMessage) + Send + 'static,
-    ) -> impl crate::StreamHandle<StreamOutput = Result<(), crate::groups::ClientError>>
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>>
     where
-        ScopedClient: 'static,
-        <ScopedClient as ScopedGroupClient>::ApiClient: 'static,
+        ApiClient: 'static,
+        Verifier: 'static,
     {
         let group_list = HashMap::from([(
             group_id,
@@ -141,90 +144,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 cursor: 0,
             },
         )]);
-        stream_messages_with_callback(Arc::new(client), group_list, callback)
+        Arc::new(client).stream_messages_with_callback(group_list, callback)
     }
-}
-
-/// Stream messages from groups in `group_id_to_info`
-pub(crate) async fn stream_messages<'s, ScopedClient>(
-    client: &'s ScopedClient,
-    group_id_to_info: Arc<HashMap<Vec<u8>, MessagesStreamInfo>>,
-) -> Result<impl Stream<Item = StoredGroupMessage> + 's, ClientError>
-where
-    ScopedClient: ScopedGroupClient + 'static,
-    <ScopedClient as ScopedGroupClient>::ApiClient: XmtpApi + 'static,
-{
-    let filters: Vec<GroupFilter> = group_id_to_info
-        .iter()
-        .map(|(group_id, info)| GroupFilter::new(group_id.clone(), Some(info.cursor)))
-        .collect();
-
-    let messages_subscription = client.api().subscribe_group_messages(filters).await?;
-
-    let stream = messages_subscription
-        .map(move |res| {
-            let group_id_to_info = group_id_to_info.clone();
-            async move {
-                match res {
-                    Ok(envelope) => {
-                        tracing::info!("Received message streaming payload");
-                        let group_id = extract_group_id(&envelope)?;
-                        tracing::info!("Extracted group id {}", hex::encode(&group_id));
-                        let stream_info = group_id_to_info.get(&group_id).ok_or(
-                            ClientError::StreamInconsistency(
-                                "Received message for a non-subscribed group".to_string(),
-                            ),
-                        )?;
-                        let mls_group =
-                            MlsGroup::new(client, group_id, stream_info.convo_created_at_ns);
-                        mls_group.process_stream_entry(envelope).await
-                    }
-                    Err(err) => Err(GroupError::Api(err)),
-                }
-            }
-        })
-        .filter_map(|res| async {
-            match res.await {
-                Ok(Some(message)) => Some(message),
-                Ok(None) => {
-                    tracing::info!("Skipped message streaming payload");
-                    None
-                }
-                Err(err) => {
-                    tracing::error!("Error processing stream entry: {:?}", err);
-                    None
-                }
-            }
-        });
-    Ok(stream)
-}
-
-/// Stream messages from groups in `group_id_to_info`, passing
-/// messages along to a callback.
-pub(crate) fn stream_messages_with_callback<ScopedClient>(
-    client: Arc<ScopedClient>,
-    group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
-    mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
-) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>>
-where
-    ScopedClient: ScopedGroupClient + 'static,
-    <ScopedClient as ScopedGroupClient>::ApiClient: XmtpApi + 'static,
-{
-    let (tx, rx) = oneshot::channel();
-
-    let client: Arc<ScopedClient> = client.clone();
-    crate::spawn(Some(rx), async move {
-        let _ = &client;
-        let client: Arc<ScopedClient> = Arc::clone(&client);
-        let stream = stream_messages(&client, Arc::new(group_id_to_info)).await?;
-        futures::pin_mut!(stream);
-        let _ = tx.send(());
-        while let Some(message) = stream.next().await {
-            callback(message)
-        }
-        tracing::debug!("`stream_messages` stream ended, dropping stream");
-        Ok::<_, ClientError>(())
-    })
 }
 
 #[cfg(test)]

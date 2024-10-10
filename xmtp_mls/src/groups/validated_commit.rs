@@ -12,12 +12,15 @@ use prost::Message;
 use thiserror::Error;
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
-use xmtp_id::InboxId;
-use xmtp_proto::xmtp::{
-    identity::MlsCredential,
-    mls::message_contents::{
-        group_updated::{Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto},
-        GroupMembershipChanges, GroupUpdated as GroupUpdatedProto,
+use xmtp_id::{scw_verifier::SmartContractSignatureVerifier, InboxId};
+use xmtp_proto::{
+    api_client::trait_impls::XmtpApi,
+    xmtp::{
+        identity::MlsCredential,
+        mls::message_contents::{
+            group_updated::{Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto},
+            GroupMembershipChanges, GroupUpdated as GroupUpdatedProto,
+        },
     },
 };
 
@@ -27,6 +30,7 @@ use crate::{
     retry::RetryableError,
     retryable,
     storage::db_connection::DbConnection,
+    Client,
 };
 
 use super::{
@@ -38,7 +42,6 @@ use super::{
     group_permissions::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
-    ScopedGroupClient,
 };
 
 #[derive(Debug, Error)]
@@ -214,12 +217,16 @@ pub struct ValidatedCommit {
 }
 
 impl ValidatedCommit {
-    pub async fn from_staged_commit(
-        client: impl ScopedGroupClient,
+    pub async fn from_staged_commit<ApiClient, Verifier>(
+        client: &Client<ApiClient, Verifier>,
         conn: &DbConnection,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
-    ) -> Result<Self, CommitValidationError> {
+    ) -> Result<Self, CommitValidationError>
+    where
+        ApiClient: XmtpApi + Clone,
+        Verifier: SmartContractSignatureVerifier + Clone,
+    {
         // Get the immutable and mutable metadata
         let extensions = openmls_group.extensions();
         let immutable_metadata: GroupMetadata = extensions.try_into()?;
@@ -451,14 +458,18 @@ struct ExpectedDiff {
 /// [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`].
 /// This requires loading the Inbox state from the network.
 /// Satisfies Rule 2
-async fn extract_expected_diff<'diff>(
+async fn extract_expected_diff<'diff, ApiClient, Verifier>(
     conn: &DbConnection,
-    client: impl ScopedGroupClient,
+    client: &Client<ApiClient, Verifier>,
     staged_commit: &StagedCommit,
     existing_group_context: &GroupContext,
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
-) -> Result<ExpectedDiff, CommitValidationError> {
+) -> Result<ExpectedDiff, CommitValidationError>
+where
+    ApiClient: XmtpApi + Clone,
+    Verifier: Clone + SmartContractSignatureVerifier,
+{
     let old_group_membership = extract_group_membership(existing_group_context.extensions())?;
     let new_group_membership = get_latest_group_membership(staged_commit)?;
     let membership_diff = old_group_membership.diff(&new_group_membership);

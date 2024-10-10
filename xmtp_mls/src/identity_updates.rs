@@ -440,11 +440,14 @@ where
 
 /// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id`, write them in the db, and return the updates
 #[tracing::instrument(level = "trace", skip_all)]
-pub async fn load_identity_updates<ApiClient: XmtpApi>(
+pub async fn load_identity_updates<ApiClient>(
     api_client: &ApiClientWrapper<ApiClient>,
     conn: &DbConnection,
     inbox_ids: Vec<String>,
-) -> Result<HashMap<String, Vec<InboxUpdate>>, ClientError> {
+) -> Result<HashMap<String, Vec<InboxUpdate>>, ClientError>
+where
+    ApiClient: XmtpApi + Clone,
+{
     if inbox_ids.is_empty() {
         return Ok(HashMap::new());
     }

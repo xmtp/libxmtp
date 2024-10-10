@@ -1,6 +1,7 @@
-use xmtp_id::InboxId;
+use xmtp_id::{scw_verifier::SmartContractSignatureVerifier, InboxId};
+use xmtp_proto::api_client::trait_impls::XmtpApi;
 
-use super::{validated_commit::extract_group_membership, GroupError, MlsGroup, ScopedGroupClient};
+use super::{validated_commit::extract_group_membership, GroupError, MlsGroup};
 
 use crate::{
     storage::{
@@ -26,9 +27,10 @@ pub enum PermissionLevel {
     SuperAdmin,
 }
 
-impl<ScopedClient> MlsGroup<ScopedClient>
+impl<ApiClient, Verifier> MlsGroup<ApiClient, Verifier>
 where
-    ScopedClient: ScopedGroupClient,
+    ApiClient: XmtpApi + Clone,
+    Verifier: SmartContractSignatureVerifier + Clone,
 {
     // Load the member list for the group from the DB, merging together multiple installations into a single entry
     pub async fn members(&self) -> Result<Vec<GroupMember>, GroupError> {

@@ -11,7 +11,7 @@ use super::{
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
     validated_commit::extract_group_membership,
-    GroupError, MlsGroup, ScopedGroupClient,
+    GroupError, MlsGroup,
 };
 #[cfg(feature = "message-history")]
 use crate::groups::message_history::MessageHistoryContent;
@@ -37,7 +37,7 @@ use crate::{
     },
     utils::{hash::sha256, id::calculate_message_id},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Delete, Fetch, StoreOrIgnore,
+    Client, Delete, Fetch, StoreOrIgnore,
 };
 use futures::future::try_join_all;
 use openmls::{
@@ -58,18 +58,21 @@ use openmls_traits::OpenMlsProvider;
 use prost::bytes::Bytes;
 use prost::Message;
 use tracing::debug;
-use xmtp_id::InboxId;
-use xmtp_proto::xmtp::mls::{
-    api::v1::{
-        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        welcome_message_input::{
-            Version as WelcomeMessageInputVersion, V1 as WelcomeMessageInputV1,
+use xmtp_id::{scw_verifier::SmartContractSignatureVerifier, InboxId};
+use xmtp_proto::{
+    api_client::trait_impls::XmtpApi,
+    xmtp::mls::{
+        api::v1::{
+            group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
+            welcome_message_input::{
+                Version as WelcomeMessageInputVersion, V1 as WelcomeMessageInputV1,
+            },
+            GroupMessage, WelcomeMessageInput,
         },
-        GroupMessage, WelcomeMessageInput,
-    },
-    message_contents::{
-        plaintext_envelope::{Content, V1, V2},
-        GroupUpdated, PlaintextEnvelope,
+        message_contents::{
+            plaintext_envelope::{Content, V1, V2},
+            GroupUpdated, PlaintextEnvelope,
+        },
     },
 };
 
@@ -85,7 +88,11 @@ struct PublishIntentData {
     payload_to_publish: Vec<u8>,
 }
 
-impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
+impl<ApiClient, Verifier> MlsGroup<ApiClient, Verifier>
+where
+    ApiClient: XmtpApi + Clone,
+    Verifier: SmartContractSignatureVerifier + Clone,
+{
     pub async fn sync(&self) -> Result<(), GroupError> {
         let conn = self.context().store().conn()?;
         let mls_provider = XmtpOpenMlsProvider::from(conn);
@@ -753,7 +760,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     );
 
                     self.client
-                        .api()
+                        .api_client
                         .send_group_messages(vec![payload_slice])
                         .await?;
 
@@ -1000,7 +1007,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         inbox_ids.extend(inbox_ids_to_add);
         let conn = provider.conn_ref();
         // Load any missing updates from the network
-        load_identity_updates(&self.client.api(), conn, inbox_ids.clone()).await?;
+        load_identity_updates(&self.client.api_client, conn, inbox_ids.clone()).await?;
 
         let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids)?;
 
@@ -1082,7 +1089,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 .unwrap_or(GRPC_DATA_LIMIT / usize::from(MAX_GROUP_SIZE));
 
         tracing::debug!("welcome chunk_size={chunk_size}");
-        let api = self.client.api();
+        let api = &self.client.api_client;
         let mut futures = vec![];
         for welcomes in welcomes.chunks(chunk_size) {
             futures.push(api.send_welcome_messages(welcomes));
@@ -1119,13 +1126,17 @@ fn extract_message_sender(
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
 // returning the commit and post_commit_action
 #[tracing::instrument(level = "trace", skip_all)]
-async fn apply_update_group_membership_intent(
-    client: impl ScopedGroupClient,
+async fn apply_update_group_membership_intent<ApiClient, Verifier>(
+    client: &Client<ApiClient, Verifier>,
     provider: &XmtpOpenMlsProvider,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateGroupMembershipIntentData,
     signer: &SignatureKeyPair,
-) -> Result<Option<PublishIntentData>, GroupError> {
+) -> Result<Option<PublishIntentData>, GroupError>
+where
+    ApiClient: XmtpApi + Clone,
+    Verifier: SmartContractSignatureVerifier + Clone,
+{
     let extensions: Extensions = openmls_group.extensions().clone();
 
     let old_group_membership = extract_group_membership(&extensions)?;
