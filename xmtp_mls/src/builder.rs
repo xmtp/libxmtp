@@ -190,7 +190,7 @@ mod tests {
     use xmtp_id::associations::{AccountId, ValidatedLegacySignedPublicKey};
     use xmtp_id::is_smart_contract;
     use xmtp_id::scw_verifier::tests::{with_smart_contracts, CoinbaseSmartWallet};
-    use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+    use xmtp_id::scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier};
     use xmtp_proto::xmtp::identity::api::v1::{
         get_inbox_ids_response::Response as GetInboxIdsResponseItem, GetInboxIdsResponse,
     };
@@ -695,7 +695,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_remote_is_valid_signature() {
-        with_smart_contracts(|anvil, provider, client, smart_contracts| async move {
+        with_smart_contracts(|anvil, _provider, client, smart_contracts| async move {
             let key = anvil.keys()[0].clone();
             let wallet: LocalWallet = key.clone().into();
 
@@ -736,8 +736,6 @@ mod tests {
                 .await
                 .unwrap();
 
-            let rsv = ClientBuilder::new_remote_signature_verifier(&api_client);
-
             let hash = H256::random().into();
             let smart_wallet = CoinbaseSmartWallet::new(
                 scw_addr,
@@ -749,7 +747,8 @@ mod tests {
             info!("Anvil chain id {}", anvil.chain_id());
             info!("{account_id:?}");
 
-            let valid_response = rsv
+            let valid_response = api_client
+                .smart_contract_signature_verifier()
                 .is_valid_signature(
                     account_id,
                     hash,

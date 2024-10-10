@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use std::env;
 
+use futures::future::Remote;
 use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
@@ -75,7 +76,7 @@ impl XmtpTestClient for GrpcClient {
     }
 
     async fn create_dev() -> Self {
-        GrpcClient::create("https://grpc.dev.xmtp.network:443".into(), false)
+        GrpcClient::create("https://grpc.dev.xmtp.network:443".into(), true)
             .await
             .unwrap()
     }
@@ -108,8 +109,11 @@ impl ClientBuilder<TestClient> {
     }
 
     pub async fn local_client(self) -> Self {
-        self.api_client(<TestClient as XmtpTestClient>::create_local().await)
-            .scw_signature_verifier(MultiSmartContractSignatureVerifier::default())
+        let api_client = <TestClient as XmtpTestClient>::create_local().await;
+        let scw_signature_verifier =
+            RemoteSignatureVerifier::new(api_client.identity_client().clone());
+        self.api_client(api_client)
+            .scw_signature_verifier(scw_signature_verifier)
     }
 
     pub async fn new_test_client(owner: &impl InboxOwner) -> Client<TestClient> {
@@ -133,10 +137,6 @@ impl ClientBuilder<TestClient> {
         register_client(&client, owner).await;
 
         client
-    }
-
-    pub fn new_remote_signature_verifier(client: &Client<TestClient>) -> RemoteSignatureVerifier {
-        RemoteSignatureVerifier::new(client.api_client.api_client.identity_client().clone())
     }
 
     pub async fn new_dev_client(owner: &impl InboxOwner) -> Client<TestClient> {
