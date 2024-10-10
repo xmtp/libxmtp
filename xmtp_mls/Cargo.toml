@@ -77,7 +77,6 @@ chrono = { workspace = true, features = ["clock"] }
 tokio = { workspace = true, features = ["macros", "tracing", "rt", "rt-multi-thread"] }
 diesel_migrations = { workspace = true, features = ["sqlite"] }
 openmls = { workspace = true, features = ["test-utils"] }
-send-future = "0.1"
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

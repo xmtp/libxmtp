@@ -64,7 +64,7 @@ impl IdentityStrategy {
         self,
         api_client: &ApiClientWrapper<ApiClient>,
         store: &EncryptedMessageStore,
-        scw_signature_verifier: &impl SmartContractSignatureVerifier,
+        scw_signature_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Identity, IdentityError> {
         info!("Initializing identity");
         let conn = store.conn()?;

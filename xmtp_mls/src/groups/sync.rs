@@ -85,7 +85,10 @@ struct PublishIntentData {
     payload_to_publish: Vec<u8>,
 }
 
-impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
+impl<ScopedClient> MlsGroup<ScopedClient>
+where
+    ScopedClient: ScopedGroupClient,
+{
     pub async fn sync(&self) -> Result<(), GroupError> {
         let conn = self.context().store().conn()?;
         let mls_provider = XmtpOpenMlsProvider::from(conn);
@@ -300,7 +303,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 );
 
                 let maybe_validated_commit = ValidatedCommit::from_staged_commit(
-                    &self.client,
+                    self.client.as_ref(),
                     conn,
                     &pending_commit,
                     openmls_group,
@@ -475,7 +478,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
                 // Validate the commit
                 let validated_commit = ValidatedCommit::from_staged_commit(
-                    &self.client,
+                    self.client.as_ref(),
                     provider.conn_ref(),
                     &sc,
                     openmls_group,
@@ -584,6 +587,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         };
 
         self.client
+            .intents()
             .process_for_id(
                 &msgv1.group_id,
                 EntityKind::Group,
@@ -794,7 +798,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 let intent_data = UpdateGroupMembershipIntentData::try_from(&intent.data)?;
                 let signer = &self.context().identity.installation_keys;
                 apply_update_group_membership_intent(
-                    &self.client,
+                    self.client.as_ref(),
                     provider,
                     openmls_group,
                     intent_data,
@@ -1120,7 +1124,7 @@ fn extract_message_sender(
 // returning the commit and post_commit_action
 #[tracing::instrument(level = "trace", skip_all)]
 async fn apply_update_group_membership_intent(
-    client: &impl ScopedGroupClient,
+    client: impl ScopedGroupClient,
     provider: &XmtpOpenMlsProvider,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateGroupMembershipIntentData,

@@ -436,7 +436,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 dm_inbox_id,
             ),
             ConversationType::Dm => {
-                validate_dm_group(&client, &mls_group, &added_by_inbox)?;
+                validate_dm_group(client.as_ref(), &mls_group, &added_by_inbox)?;
                 StoredGroup::new_from_welcome(
                     group_id.clone(),
                     now_ns(),
@@ -458,7 +458,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             ),
         };
 
-        validate_initial_group_membership(&client, provider.conn_ref(), &mls_group).await?;
+        validate_initial_group_membership(client.as_ref(), provider.conn_ref(), &mls_group).await?;
 
         let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
 
@@ -1389,7 +1389,7 @@ fn build_group_config(
 }
 
 async fn validate_initial_group_membership(
-    client: &impl ScopedGroupClient,
+    client: impl ScopedGroupClient,
     conn: &DbConnection,
     mls_group: &OpenMlsGroup,
 ) -> Result<(), GroupError> {
@@ -1430,7 +1430,7 @@ async fn validate_initial_group_membership(
 }
 
 fn validate_dm_group(
-    client: &impl ScopedGroupClient,
+    client: impl ScopedGroupClient,
     mls_group: &OpenMlsGroup,
     added_by_inbox: &str,
 ) -> Result<(), GroupError> {

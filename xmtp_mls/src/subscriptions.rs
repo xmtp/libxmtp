@@ -75,8 +75,8 @@ impl From<StoredGroup> for (Vec<u8>, MessagesStreamInfo) {
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + Clone + Send + 'static,
-    V: SmartContractSignatureVerifier + Clone + Send + 'static,
+    ApiClient: XmtpApi + Clone + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Clone + Send + Sync + 'static,
 {
     async fn process_streamed_welcome(
         &self,
@@ -208,8 +208,8 @@ where
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + Clone + Send + 'static,
-    V: SmartContractSignatureVerifier + Send + Clone + 'static,
+    ApiClient: XmtpApi + Clone + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Send + Sync + Clone + 'static,
 {
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient, V>>,

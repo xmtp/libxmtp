@@ -215,7 +215,7 @@ pub struct ValidatedCommit {
 
 impl ValidatedCommit {
     pub async fn from_staged_commit(
-        client: &impl ScopedGroupClient,
+        client: impl ScopedGroupClient,
         conn: &DbConnection,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
@@ -275,7 +275,7 @@ impl ValidatedCommit {
             removed_inboxes,
         } = extract_expected_diff(
             conn,
-            client,
+            &client,
             staged_commit,
             existing_group_context,
             &immutable_metadata,
@@ -453,7 +453,7 @@ struct ExpectedDiff {
 /// Satisfies Rule 2
 async fn extract_expected_diff<'diff>(
     conn: &DbConnection,
-    client: &impl ScopedGroupClient,
+    client: impl ScopedGroupClient,
     staged_commit: &StagedCommit,
     existing_group_context: &GroupContext,
     immutable_metadata: &GroupMetadata,

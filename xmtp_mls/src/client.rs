@@ -7,10 +7,7 @@ use std::{
     },
 };
 
-use futures::{
-    stream::{self, FuturesUnordered, StreamExt},
-    Future,
-};
+use futures::stream::{self, FuturesUnordered, StreamExt};
 use openmls::{
     credentials::errors::BasicCredentialError,
     framing::{MlsMessageBodyIn, MlsMessageIn},
@@ -46,6 +43,7 @@ use crate::{
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
+    intents::Intents,
     mutex_registry::MutexRegistry,
     retry::Retry,
     retry_async, retryable,
@@ -230,6 +228,7 @@ pub struct FindGroupParams {
 /// Clients manage access to the network, identity, and data store
 pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
+    pub(crate) intents: Arc<Intents>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
     #[cfg(feature = "message-history")]
     pub(crate) history_sync_url: Option<String>,
@@ -252,6 +251,7 @@ where
             history_sync_url: self.history_sync_url.clone(),
             local_events: self.local_events.clone(),
             scw_verifier: self.scw_verifier.clone(),
+            intents: self.intents.clone(),
         }
     }
 }
@@ -317,19 +317,23 @@ where
     where
         V: SmartContractSignatureVerifier,
     {
-        let context = XmtpMlsLocalContext {
+        let context = Arc::new(XmtpMlsLocalContext {
             identity,
             store,
             mutexes: MutexRegistry::new(),
-        };
+        });
+        let intents = Arc::new(Intents {
+            context: context.clone(),
+        });
         let (tx, _) = broadcast::channel(10);
         Self {
             api_client,
-            context: Arc::new(context),
+            context,
             #[cfg(feature = "message-history")]
             history_sync_url,
             local_events: tx,
             scw_verifier,
+            intents,
         }
     }
 
@@ -349,6 +353,10 @@ where
 
     pub fn inbox_id(&self) -> String {
         self.context.inbox_id()
+    }
+
+    pub fn intents(&self) -> &Arc<Intents> {
+        &self.intents
     }
 
     /// Pulls a connection and creates a new MLS Provider
@@ -708,31 +716,6 @@ where
             .collect::<Result<_, _>>()?)
     }
 
-    pub(crate) async fn process_for_id<Fut, ProcessingFn, ReturnValue>(
-        &self,
-        entity_id: &Vec<u8>,
-        entity_kind: EntityKind,
-        cursor: u64,
-        process_envelope: ProcessingFn,
-    ) -> Result<ReturnValue, MessageProcessingError>
-    where
-        Fut: Future<Output = Result<ReturnValue, MessageProcessingError>>,
-        ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Fut,
-    {
-        self.store()
-            .transaction_async(|provider| async move {
-                let is_updated =
-                    provider
-                        .conn_ref()
-                        .update_cursor(entity_id, entity_kind, cursor as i64)?;
-                if !is_updated {
-                    return Err(MessageProcessingError::AlreadyProcessed(cursor));
-                }
-                process_envelope(provider).await
-            })
-            .await
-    }
-
     /// Download all unread welcome messages and convert to groups.
     /// Returns any new groups created in the operation
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Self>>, ClientError> {
@@ -753,7 +736,7 @@ where
                     Retry::default(),
                     (async {
                         let welcome_v1 = welcome_v1.clone();
-                        self.process_for_id(
+                        self.intents.process_for_id(
                             &id,
                             EntityKind::Welcome,
                             welcome_v1.id,
