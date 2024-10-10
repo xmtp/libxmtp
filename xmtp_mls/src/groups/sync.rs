@@ -1120,7 +1120,7 @@ fn extract_message_sender(
 // returning the commit and post_commit_action
 #[tracing::instrument(level = "trace", skip_all)]
 async fn apply_update_group_membership_intent(
-    client: impl ScopedGroupClient,
+    client: &impl ScopedGroupClient,
     provider: &XmtpOpenMlsProvider,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateGroupMembershipIntentData,

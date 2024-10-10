@@ -1,6 +1,5 @@
 use std::{future::Future, sync::Arc};
 
-use openmls_traits::OpenMlsProvider;
 use xmtp_id::{associations::AssociationState, scw_verifier::SmartContractSignatureVerifier};
 use xmtp_proto::{
     api_client::{trait_impls::XmtpApi, Error},
@@ -20,7 +19,7 @@ use crate::{
 use super::group_membership::{GroupMembership, MembershipDiff};
 
 #[trait_variant::make(ScopedGroupClient: Send)]
-pub trait LocalScopedGroupClient: Send + Sync {
+pub trait LocalScopedGroupClient: Send + Sync + Sized {
     type ApiClient: XmtpApi;
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient>;
@@ -176,7 +175,7 @@ where
         crate::Client::process_for_id(self, entity_id, entity_kind, cursor, process_envelope).await
     }
 }
-
+/*
 impl<T> ScopedGroupClient for &T
 where
     T: ScopedGroupClient,
@@ -274,10 +273,10 @@ where
             .await
     }
 }
-
+*/
 impl<T> ScopedGroupClient for Arc<T>
 where
-    T: ScopedGroupClient,
+    T: ScopedGroupClient + Send,
 {
     type ApiClient = <T as ScopedGroupClient>::ApiClient;
 

@@ -1389,7 +1389,7 @@ fn build_group_config(
 }
 
 async fn validate_initial_group_membership(
-    client: impl ScopedGroupClient,
+    client: &impl ScopedGroupClient,
     conn: &DbConnection,
     mls_group: &OpenMlsGroup,
 ) -> Result<(), GroupError> {
@@ -1430,7 +1430,7 @@ async fn validate_initial_group_membership(
 }
 
 fn validate_dm_group(
-    client: impl ScopedGroupClient,
+    client: &impl ScopedGroupClient,
     mls_group: &OpenMlsGroup,
     added_by_inbox: &str,
 ) -> Result<(), GroupError> {

@@ -111,8 +111,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &'a self,
     ) -> Result<impl Stream<Item = StoredGroupMessage> + '_, GroupError>
     where
-        ScopedClient: 'static,
-        <ScopedClient as ScopedGroupClient>::ApiClient: 'static,
+        ScopedClient: Clone + 'static,
+        <ScopedClient as ScopedGroupClient>::ApiClient: Clone + 'static,
     {
         let group_list = HashMap::from([(
             self.group_id.clone(),
@@ -131,8 +131,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         callback: impl FnMut(StoredGroupMessage) + Send + 'static,
     ) -> impl crate::StreamHandle<StreamOutput = Result<(), crate::groups::ClientError>>
     where
-        ScopedClient: 'static,
-        <ScopedClient as ScopedGroupClient>::ApiClient: 'static,
+        ScopedClient: Clone + 'static,
+        <ScopedClient as ScopedGroupClient>::ApiClient: Clone + 'static,
     {
         let group_list = HashMap::from([(
             group_id,
@@ -146,14 +146,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 }
 
 /// Stream messages from groups in `group_id_to_info`
-pub(crate) async fn stream_messages<'s, ScopedClient>(
-    client: &'s ScopedClient,
+pub(crate) async fn stream_messages<ScopedClient>(
+    client: &ScopedClient,
     group_id_to_info: Arc<HashMap<Vec<u8>, MessagesStreamInfo>>,
-) -> Result<impl Stream<Item = StoredGroupMessage> + 's, ClientError>
+) -> Result<impl Stream<Item = StoredGroupMessage> + '_, ClientError>
 where
-    ScopedClient: ScopedGroupClient + 'static,
-    <ScopedClient as ScopedGroupClient>::ApiClient: XmtpApi + 'static,
+    ScopedClient: ScopedGroupClient + Clone + 'static,
+    <ScopedClient as ScopedGroupClient>::ApiClient: XmtpApi + Clone + 'static,
 {
+    use send_future::SendFuture;
     let filters: Vec<GroupFilter> = group_id_to_info
         .iter()
         .map(|(group_id, info)| GroupFilter::new(group_id.clone(), Some(info.cursor)))
@@ -175,8 +176,11 @@ where
                                 "Received message for a non-subscribed group".to_string(),
                             ),
                         )?;
-                        let mls_group =
-                            MlsGroup::new(client, group_id, stream_info.convo_created_at_ns);
+                        let mls_group = MlsGroup::new(
+                            client.clone(),
+                            group_id,
+                            stream_info.convo_created_at_ns,
+                        );
                         mls_group.process_stream_entry(envelope).await
                     }
                     Err(err) => Err(GroupError::Api(err)),
@@ -207,14 +211,14 @@ pub(crate) fn stream_messages_with_callback<ScopedClient>(
     mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
 ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>>
 where
-    ScopedClient: ScopedGroupClient + 'static,
-    <ScopedClient as ScopedGroupClient>::ApiClient: XmtpApi + 'static,
+    ScopedClient: ScopedGroupClient + Clone + 'static,
+    <ScopedClient as ScopedGroupClient>::ApiClient: XmtpApi + Clone + 'static,
 {
+    use send_future::SendFuture;
     let (tx, rx) = oneshot::channel();
 
     let client: Arc<ScopedClient> = client.clone();
     crate::spawn(Some(rx), async move {
-        let _ = &client;
         let client: Arc<ScopedClient> = Arc::clone(&client);
         let stream = stream_messages(&client, Arc::new(group_id_to_info)).await?;
         futures::pin_mut!(stream);

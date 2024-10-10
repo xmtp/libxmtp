@@ -317,12 +317,11 @@ where
     }
 
     pub fn stream_all_messages_with_callback(
-        client: Arc<Self>,
+        client: Arc<Client<ApiClient, V>>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
-    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> + 'static {
         let (tx, rx) = oneshot::channel();
 
-        let client: Arc<Client<ApiClient, V>> = client.clone();
         crate::spawn(Some(rx), async move {
             let stream = client.stream_all_messages().await?;
             futures::pin_mut!(stream);
