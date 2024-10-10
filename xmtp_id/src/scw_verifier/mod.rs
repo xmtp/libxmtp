@@ -117,7 +117,12 @@ impl MultiSmartContractSignatureVerifier {
     /// Upgrade the default urls to paid/private/alternative urls if the env vars are present.
     pub fn upgrade(mut self) -> Self {
         self.verifiers.iter_mut().for_each(|(id, verif)| {
-            if let Ok(url) = env::var(format!("CHAIN_RPC_{id}")) {
+            // TODO: coda - update the chain id env var ids to preceeded with "EIP155_"
+            let eip_id = id
+                .split(":")
+                .nth(1)
+                .expect("All chain ids are preceeded with 'eip155:' for now.");
+            if let Ok(url) = env::var(format!("CHAIN_RPC_{eip_id}")) {
                 *verif = Box::new(RpcSmartContractWalletVerifier::new(url));
             } else {
                 info!("No upgraded chain url for chain {id}, using default.");
