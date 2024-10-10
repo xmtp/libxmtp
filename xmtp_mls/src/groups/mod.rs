@@ -272,7 +272,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
     }
 
-    pub(self) fn context(&self) -> &Arc<XmtpMlsLocalContext> {
+    pub(self) fn context(&self) -> Arc<XmtpMlsLocalContext> {
         self.client.context()
     }
 
