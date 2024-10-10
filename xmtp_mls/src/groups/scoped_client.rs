@@ -18,7 +18,8 @@ use super::group_membership::{GroupMembership, MembershipDiff};
 
 #[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(ScopedGroupClient: Send ))]
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) trait LocalScopedGroupClient: Send + Sync + Sized {
+#[allow(unused)]
+pub trait LocalScopedGroupClient: Send + Sync + Sized {
     type ApiClient: XmtpApi;
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient>;
@@ -77,7 +78,8 @@ pub(crate) trait LocalScopedGroupClient: Send + Sync + Sized {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(crate) trait ScopedGroupClient: Sized {
+#[allow(async_fn_in_trait)]
+pub trait ScopedGroupClient: Sized {
     type ApiClient: XmtpApi;
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient>;
@@ -301,7 +303,6 @@ where
     }
 }
 
-/*
 impl<T> ScopedGroupClient for Arc<T>
 where
     T: ScopedGroupClient,
@@ -387,4 +388,3 @@ where
         (**self).query_group_messages(group_id, conn).await
     }
 }
-*/

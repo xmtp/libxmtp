@@ -209,7 +209,7 @@ where
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi + Clone + Send + Sync + 'static,
-    V: SmartContractSignatureVerifier + Send + Sync + Clone + 'static,
+    V: SmartContractSignatureVerifier + Clone + Send + Sync + 'static,
 {
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient, V>>,
