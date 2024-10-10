@@ -45,7 +45,7 @@ impl SmartContractSignatureVerifier for RemoteSignatureVerifier {
                     block_number,
                     signature: signature.to_vec(),
                     hash: hash.to_vec(),
-                }],
+                }], 
             })
             .await
             .map_err(VerifierError::Tonic)?;
