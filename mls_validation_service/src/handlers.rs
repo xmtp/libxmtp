@@ -575,7 +575,15 @@ mod tests {
 
             let VerifySmartContractWalletSignaturesResponse { responses } = resp.into_inner();
 
-            assert!(responses[0].is_valid);
+            assert_eq!(responses.len(), 1);
+            assert_eq!(
+                responses[0],
+                VerifySmartContractWalletSignaturesValidationResponse {
+                    is_valid: true,
+                    block_number: Some(1),
+                    error: None
+                }
+            );
         })
         .await;
     }
