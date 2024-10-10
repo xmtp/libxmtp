@@ -265,6 +265,20 @@ impl NapiClient {
   }
 
   #[napi]
+  pub async fn addresses_from_inbox_id(
+    &self,
+    refresh_from_network: bool,
+    inbox_ids: Vec<String>,
+  ) -> Result<Vec<NapiInboxState>> {
+    let state = self
+      .inner_client
+      .inbox_addresses(refresh_from_network, inbox_ids)
+      .await
+      .map_err(ErrorWrapper::from)?;
+    Ok(state.into_iter().map(Into::into).collect())
+  }
+
+  #[napi]
   pub async fn get_latest_inbox_state(&self, inbox_id: String) -> Result<NapiInboxState> {
     let conn = self
       .inner_client
