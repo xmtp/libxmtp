@@ -373,6 +373,30 @@ where
         Ok(state)
     }
 
+    /// Get the [`AssociationState`] for each `inbox_id`
+    pub async fn inbox_addresses<InboxId: AsRef<str>>(
+        &self,
+        refresh_from_network: bool,
+        inbox_ids: Vec<InboxId>,
+    ) -> Result<Vec<AssociationState>, ClientError> {
+        let conn = self.store().conn()?;
+        if refresh_from_network {
+            load_identity_updates(
+                &self.api_client,
+                &conn,
+                inbox_ids.iter().map(|s| String::from(s.as_ref())).collect(),
+            )
+            .await?;
+        }
+        let state = self
+            .batch_get_association_state(
+                &conn,
+                &inbox_ids.into_iter().map(|i| (i, None)).collect::<Vec<_>>(),
+            )
+            .await?;
+        Ok(state)
+    }
+
     /// Set a consent record in the local database.
     /// If the consent record is an address set the consent state for both the address and `inbox_id`
     pub async fn set_consent_states(
