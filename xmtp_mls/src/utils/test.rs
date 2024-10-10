@@ -14,7 +14,7 @@ use xmtp_id::{
         test_utils::MockSmartContractSignatureVerifier,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     },
-    scw_verifier::MultiSmartContractSignatureVerifier,
+    scw_verifier::{MultiSmartContractSignatureVerifier, RemoteSignatureVerifier},
 };
 
 use crate::{
@@ -133,6 +133,10 @@ impl ClientBuilder<TestClient> {
         register_client(&client, owner).await;
 
         client
+    }
+
+    pub fn new_remote_signature_verifier(client: &Client<TestClient>) -> RemoteSignatureVerifier {
+        RemoteSignatureVerifier::new(client.api_client.api_client.identity_client().clone())
     }
 
     pub async fn new_dev_client(owner: &impl InboxOwner) -> Client<TestClient> {

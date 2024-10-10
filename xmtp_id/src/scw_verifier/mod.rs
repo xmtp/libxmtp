@@ -136,7 +136,7 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
         signature: Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<ValidationResponse, VerifierError> {
-        if let Some(verifier) = self.verifiers.get(&account_id.chain_id) {
+        if let Some(verifier) = self.verifiers.get(&account_id.chain_id.to_uppercase()) {
             return verifier
                 .is_valid_signature(account_id, hash, signature, block_number)
                 .await;

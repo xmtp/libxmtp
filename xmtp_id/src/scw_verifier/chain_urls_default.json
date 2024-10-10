@@ -1,9 +1,10 @@
 {
-  "1": "https://eth.llamarpc.com",
-  "10": "https://rpc.ankr.com/optimism",
-  "137": "https://polygon.llamarpc.com",
-  "324": "https://mainnet.era.zksync.io",
-  "8453": "https://base.llamarpc.com",
-  "42161": "https://arbitrum.llamarpc.com",
-  "59144": "https://linea-rpc.publicnode.com"
+  "EIP155:1": "https://eth.llamarpc.com",
+  "EIP155:10": "https://rpc.ankr.com/optimism",
+  "EIP155:137": "https://polygon.llamarpc.com",
+  "EIP155:324": "https://mainnet.era.zksync.io",
+  "EIP155:8453": "https://base.llamarpc.com",
+  "EIP155:42161": "https://arbitrum.llamarpc.com",
+  "EIP155:59144": "https://linea-rpc.publicnode.com",
+  "EIP155:31337": "https://testnet-rpc.gochain.io"
 }
