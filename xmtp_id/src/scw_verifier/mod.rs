@@ -117,7 +117,7 @@ impl MultiSmartContractSignatureVerifier {
     /// Upgrade the default urls to paid/private/alternative urls if the env vars are present.
     pub fn upgrade(mut self) -> Self {
         self.verifiers.iter_mut().for_each(|(id, verif)| {
-            // TODO: coda - upadte the chain id env var ids to preceeded with "EIP155_"
+            // TODO: coda - update the chain id env var ids to preceeded with "EIP155_"
             let eip_id = id
                 .split(":")
                 .nth(1)
