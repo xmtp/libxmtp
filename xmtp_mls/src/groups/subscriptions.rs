@@ -111,7 +111,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &'a self,
     ) -> Result<impl Stream<Item = StoredGroupMessage> + '_, GroupError>
     where
-        ScopedClient: Clone + 'static,
+        ScopedClient: Clone,
         <ScopedClient as ScopedGroupClient>::ApiClient: Clone + 'static,
     {
         let group_list = HashMap::from([(
@@ -151,7 +151,7 @@ pub(crate) async fn stream_messages<ScopedClient>(
     group_id_to_info: Arc<HashMap<Vec<u8>, MessagesStreamInfo>>,
 ) -> Result<impl Stream<Item = StoredGroupMessage> + '_, ClientError>
 where
-    ScopedClient: ScopedGroupClient + Clone + 'static,
+    ScopedClient: ScopedGroupClient + Clone,
     <ScopedClient as ScopedGroupClient>::ApiClient: XmtpApi + Clone + 'static,
 {
     use send_future::SendFuture;

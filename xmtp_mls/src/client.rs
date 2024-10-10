@@ -301,8 +301,8 @@ impl XmtpMlsLocalContext {
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + Clone + 'static,
-    V: SmartContractSignatureVerifier + Clone + 'static,
+    ApiClient: XmtpApi + Clone,
+    V: SmartContractSignatureVerifier + Clone,
 {
     /// Create a new client with the given network, identity, and store.
     /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating

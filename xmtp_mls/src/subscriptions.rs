@@ -318,8 +318,8 @@ where
 
     pub fn stream_all_messages_with_callback(
         client: Arc<Client<ApiClient, V>>,
-        mut callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
-    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> + 'static {
+        mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
         crate::spawn(Some(rx), async move {

@@ -101,8 +101,8 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
 
 impl<ApiClient, V> ClientBuilder<ApiClient, V>
 where
-    ApiClient: XmtpApi + Clone + 'static,
-    V: SmartContractSignatureVerifier + Clone + 'static,
+    ApiClient: XmtpApi + Clone,
+    V: SmartContractSignatureVerifier + Clone,
 {
     /// Build with a custom smart contract wallet verifier
     pub async fn build_with_verifier(self) -> Result<Client<ApiClient, V>, ClientBuilderError> {
@@ -112,7 +112,7 @@ where
 
 impl<ApiClient> ClientBuilder<ApiClient, RemoteSignatureVerifier<ApiClient>>
 where
-    ApiClient: XmtpApi + Clone + 'static,
+    ApiClient: XmtpApi + Clone,
 {
     /// Build with the default [`RemoteSignatureVerifier`]
     pub async fn build(self) -> Result<Client<ApiClient>, ClientBuilderError> {
@@ -122,8 +122,8 @@ where
 
 async fn inner_build<C, V>(client: ClientBuilder<C, V>) -> Result<Client<C, V>, ClientBuilderError>
 where
-    C: XmtpApi + Clone + 'static,
-    V: SmartContractSignatureVerifier + Clone + 'static,
+    C: XmtpApi + Clone,
+    V: SmartContractSignatureVerifier + Clone,
 {
     let ClientBuilder {
         mut api_client,
