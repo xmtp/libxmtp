@@ -1185,7 +1185,7 @@ dependencies = [
 [[package]]
 name = "diesel-wasm-sqlite"
 version = "0.0.1"
-source = "git+https://github.com/xmtp/diesel-wasm-sqlite?branch=main#77b1e2ebff3dc0aeb645aa130175745aedc3346e"
+source = "git+https://github.com/xmtp/diesel-wasm-sqlite?branch=main#eac6c9064f346b32e226379d60c624d9424e08bb"
 dependencies = [
  "diesel",
  "diesel_derives",
