@@ -1,6 +1,5 @@
 #![allow(clippy::unwrap_used)]
 
-use crate::XmtpTestClient;
 use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
@@ -13,8 +12,9 @@ use xmtp_id::{
         test_utils::MockSmartContractSignatureVerifier,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     },
-    scw_verifier::SmartContractSignatureVerifier,
+    scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
 };
+use xmtp_proto::api_client::XmtpTestClient;
 
 use crate::{
     builder::ClientBuilder,
@@ -90,7 +90,7 @@ impl EncryptedMessageStore {
     pub fn remove_db_files<P: AsRef<str>>(_path: P) {}
 }
 
-impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
+impl<A, V> ClientBuilder<A, V> {
     pub async fn temp_store(self) -> Self {
         let tmpdb = tmp_path();
         self.store(
@@ -102,65 +102,82 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             .unwrap(),
         )
     }
+}
 
-    pub async fn local_client(self) -> Self {
-        self.api_client(<TestClient as XmtpTestClient>::create_local().await)
-    }
-
+impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
     pub async fn new_test_client(owner: &impl InboxOwner) -> FullXmtpClient {
-        // crate::utils::wasm::init().await;
-        let nonce = 1;
-        let inbox_id = generate_inbox_id(&owner.get_address(), &nonce);
-
-        let client = Self::new(IdentityStrategy::CreateIfNotFound(
-            inbox_id,
-            owner.get_address(),
-            nonce,
-            None,
-        ))
-        .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
-        .temp_store()
+        let api_client = <TestClient as XmtpTestClient>::create_local().await;
+        inner_build(
+            owner,
+            &api_client,
+            MockSmartContractSignatureVerifier::new(true),
+        )
         .await
-        .local_client()
-        .await
-        .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
-        .build_with_verifier()
-        .await
-        .unwrap();
-
-        register_client(&client, owner).await;
-
-        client
     }
 
-    pub async fn new_dev_client(
-        owner: &impl InboxOwner,
+    /// A client pointed at the dev network with a Mock verifier (never fail to verify)
+    pub async fn new_mock_dev_client(
+        owner: impl InboxOwner,
     ) -> Client<TestClient, MockSmartContractSignatureVerifier> {
-        let nonce = 1;
-        let inbox_id = generate_inbox_id(&owner.get_address(), &nonce);
-        let dev_client = <TestClient as XmtpTestClient>::create_dev().await;
-
-        let client = Self::new(IdentityStrategy::CreateIfNotFound(
-            inbox_id,
-            owner.get_address(),
-            nonce,
-            None,
-        ))
-        .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
-        .temp_store()
+        let api_client = <TestClient as XmtpTestClient>::create_dev().await;
+        inner_build(
+            owner,
+            &api_client,
+            MockSmartContractSignatureVerifier::new(true),
+        )
         .await
-        .api_client(dev_client)
-        .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
-        .build_with_verifier()
-        .await
-        .unwrap();
-
-        register_client(&client, owner).await;
-
-        client
     }
 }
 
+impl ClientBuilder<TestClient> {
+    /// Createa client pointed at the local containe with the default remote verifier
+    pub async fn new_local_client(owner: &impl InboxOwner) -> Client<TestClient> {
+        let api_client = <TestClient as XmtpTestClient>::create_local().await;
+        inner_build(
+            owner,
+            &api_client,
+            RemoteSignatureVerifier::new(api_client.clone()),
+        )
+        .await
+    }
+
+    pub async fn new_dev_client(owner: &impl InboxOwner) -> Client<TestClient> {
+        let api_client = <TestClient as XmtpTestClient>::create_dev().await;
+        inner_build(
+            owner,
+            &api_client,
+            RemoteSignatureVerifier::new(api_client.clone()),
+        )
+        .await
+    }
+}
+
+async fn inner_build<A, V>(owner: impl InboxOwner, api_client: &A, scw_verifier: V) -> Client<A, V>
+where
+    A: XmtpApi + Clone,
+    V: SmartContractSignatureVerifier + Clone,
+{
+    let nonce = 1;
+    let inbox_id = generate_inbox_id(&owner.get_address(), &nonce);
+
+    let client = Client::<A, V>::builder(IdentityStrategy::CreateIfNotFound(
+        inbox_id,
+        owner.get_address(),
+        nonce,
+        None,
+    ))
+    .temp_store()
+    .await
+    .api_client(api_client.clone())
+    .scw_signature_verifier(scw_verifier)
+    .build_with_verifier()
+    .await
+    .unwrap();
+
+    register_client(&client, owner).await;
+
+    client
+}
 /// wrapper over a `Notify` with a 60-scond timeout for waiting
 #[derive(Clone, Default)]
 pub struct Delivery {
@@ -186,7 +203,11 @@ impl Delivery {
     }
 }
 
-impl FullXmtpClient {
+impl<ApiClient, V> Client<ApiClient, V>
+where
+    ApiClient: XmtpApi + Clone,
+    V: SmartContractSignatureVerifier + Clone,
+{
     pub async fn is_registered(&self, address: &String) -> bool {
         let ids = self
             .api_client
@@ -199,7 +220,7 @@ impl FullXmtpClient {
 
 pub async fn register_client<T: XmtpApi + Clone, V: SmartContractSignatureVerifier + Clone>(
     client: &Client<T, V>,
-    owner: &impl InboxOwner,
+    owner: impl InboxOwner,
 ) {
     let mut signature_request = client.context.signature_request().unwrap();
     let signature_text = signature_request.signature_text();

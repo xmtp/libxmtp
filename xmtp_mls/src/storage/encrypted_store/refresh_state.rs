@@ -54,7 +54,7 @@ impl_store!(RefreshState, refresh_state);
 impl_store_or_ignore!(RefreshState, refresh_state);
 
 impl DbConnection {
-    pub fn get_refresh_state<EntityId: AsRef<Vec<u8>>>(
+    pub fn get_refresh_state<EntityId: AsRef<[u8]>>(
         &self,
         entity_id: EntityId,
         entity_kind: EntityKind,
@@ -70,7 +70,7 @@ impl DbConnection {
         Ok(res)
     }
 
-    pub fn get_last_cursor_for_id<IdType: AsRef<Vec<u8>>>(
+    pub fn get_last_cursor_for_id<IdType: AsRef<[u8]>>(
         &self,
         id: IdType,
         entity_kind: EntityKind,
@@ -80,7 +80,7 @@ impl DbConnection {
             Some(state) => Ok(state.cursor),
             None => {
                 let new_state = RefreshState {
-                    entity_id: id.as_ref().clone(),
+                    entity_id: id.as_ref().to_vec(),
                     entity_kind,
                     cursor: 0,
                 };

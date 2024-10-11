@@ -10,7 +10,7 @@ pub use grpc_api_helper::{Client, GroupMessageStream, WelcomeMessageStream};
 mod utils {
     #[cfg(feature = "test-utils")]
     mod test {
-        use xmtp_proto::api_client::trait_impls::XmtpTestClient;
+        use xmtp_proto::api_client::XmtpTestClient;
 
         impl XmtpTestClient for crate::Client {
             async fn create_local() -> Self {

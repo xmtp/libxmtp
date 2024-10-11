@@ -62,7 +62,7 @@ pub struct ValidationService {
 }
 
 impl ValidationService {
-    pub fn new(scw_verifier: impl SmartContractSignatureVerifier) -> Self {
+    pub fn new(scw_verifier: impl SmartContractSignatureVerifier + 'static) -> Self {
         Self {
             scw_verifier: Box::new(scw_verifier),
         }
@@ -125,7 +125,7 @@ impl ValidationApi for ValidationService {
             new_updates,
         } = request.into_inner();
 
-        get_association_state(old_updates, new_updates, self.scw_verifier.as_ref())
+        get_association_state(old_updates, new_updates, &self.scw_verifier)
             .await
             .map(Response::new)
             .map_err(Into::into)
@@ -137,7 +137,7 @@ impl ValidationApi for ValidationService {
     ) -> Result<Response<VerifySmartContractWalletSignaturesResponse>, Status> {
         let VerifySmartContractWalletSignaturesRequest { signatures } = request.into_inner();
 
-        verify_smart_contract_wallet_signatures(signatures, self.scw_verifier.as_ref()).await
+        verify_smart_contract_wallet_signatures(signatures, &self.scw_verifier).await
     }
 
     async fn validate_inbox_id_key_packages(
@@ -201,16 +201,17 @@ async fn validate_inbox_id_key_package(
 
 async fn verify_smart_contract_wallet_signatures(
     signatures: Vec<VerifySmartContractWalletSignatureRequestSignature>,
-    scw_verifier: &dyn SmartContractSignatureVerifier,
+    scw_verifier: impl SmartContractSignatureVerifier,
 ) -> Result<Response<VerifySmartContractWalletSignaturesResponse>, Status> {
     let mut responses = vec![];
     for signature in signatures {
+        let verifier = &scw_verifier;
         let handle = async move {
             let account_id = signature.account_id.try_into().map_err(|_e| {
                 GrpcServerError::Deserialization(DeserializationError::InvalidAccountId)
             })?;
 
-            let response = scw_verifier
+            let response = verifier
                 .is_valid_signature(
                     account_id,
                     signature.hash.try_into().map_err(|_| {
@@ -255,7 +256,7 @@ async fn verify_smart_contract_wallet_signatures(
 async fn get_association_state(
     old_updates: Vec<IdentityUpdateProto>,
     new_updates: Vec<IdentityUpdateProto>,
-    scw_verifier: &dyn SmartContractSignatureVerifier,
+    scw_verifier: impl SmartContractSignatureVerifier,
 ) -> Result<GetAssociationStateResponse, GrpcServerError> {
     let old_unverified_updates: Vec<UnverifiedIdentityUpdate> = try_map_vec(old_updates)?;
     let new_unverified_updates: Vec<UnverifiedIdentityUpdate> = try_map_vec(new_updates)?;
@@ -263,13 +264,13 @@ async fn get_association_state(
     let old_updates = try_join_all(
         old_unverified_updates
             .iter()
-            .map(|u| u.to_verified(scw_verifier)),
+            .map(|u| u.to_verified(&scw_verifier)),
     )
     .await?;
     let new_updates = try_join_all(
         new_unverified_updates
             .iter()
-            .map(|u| u.to_verified(scw_verifier)),
+            .map(|u| u.to_verified(&scw_verifier)),
     )
     .await?;
     if old_updates.is_empty() {

@@ -60,8 +60,23 @@ impl InboxOwner for LocalWallet {
     }
 }
 
+impl<T> InboxOwner for &T
+where
+    T: InboxOwner,
+{
+    fn get_address(&self) -> String {
+        (**self).get_address()
+    }
+
+    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
+        (**self).sign(text)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use ethers::contract::abigen;
 
     #[cfg(target_arch = "wasm32")]

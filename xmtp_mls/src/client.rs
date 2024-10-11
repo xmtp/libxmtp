@@ -674,14 +674,14 @@ where
 
     pub(crate) async fn query_group_messages(
         &self,
-        group_id: &Vec<u8>,
+        group_id: &[u8],
         conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError> {
         let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
 
         let welcomes = self
             .api_client
-            .query_group_messages(group_id.clone(), Some(id_cursor as u64))
+            .query_group_messages(group_id.to_vec(), Some(id_cursor as u64))
             .await?;
 
         Ok(welcomes)

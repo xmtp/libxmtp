@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let health_server = health_check_server(args.health_check_port as u16);
 
-    let scw_verifier = MultiSmartContractSignatureVerifier::new_from_file("chain_urls.json");
+    let scw_verifier = MultiSmartContractSignatureVerifier::new_from_file("chain_urls.json")?;
 
     let grpc_server = Server::builder()
         .add_service(ValidationApiServer::new(ValidationService::new(

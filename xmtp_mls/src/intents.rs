@@ -1,10 +1,12 @@
-//! an "Intent" can be thought of as a commitment by a user to try and accomplish something
-//! in a group chat. Examples of an Intent:
-//! - Sending a message
-//! - Adding a member
-//! - Removing a member
-//! Intents are written to local storage, before being published to the delivery service. An
-//! intent is fully processed (success or failure) once it
+//! an "Intent" can be thought of as a commitment by an individual 'user', which drives
+//! the state of a group chat forward.
+//! Examples of an Intent:
+//!     - Sending a message
+//!     - Adding a member
+//!     - Removing a member
+//!
+//! Intents are written to local storage (SQLite), before being published to the delivery service via gRPC. An
+//! intent is fully resolved (success or failure) once it
 
 use std::{future::Future, sync::Arc};
 

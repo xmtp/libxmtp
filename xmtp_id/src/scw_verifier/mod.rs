@@ -30,6 +30,12 @@ pub enum VerifierError {
     Provider(#[from] ethers::providers::ProviderError),
     #[error(transparent)]
     ApiClient(#[from] xmtp_proto::api_client::Error),
+    #[error(transparent)]
+    Url(#[from] url::ParseError),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Serde(#[from] serde_json::Error),
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -104,45 +110,38 @@ pub struct MultiSmartContractSignatureVerifier {
 }
 
 impl MultiSmartContractSignatureVerifier {
-    pub fn new(urls: HashMap<String, url::Url>) -> Self {
+    pub fn new(urls: HashMap<String, url::Url>) -> Result<Self, VerifierError> {
         let verifiers = urls
             .into_iter()
             .map(|(chain_id, url)| {
-                (
+                Ok::<_, VerifierError>((
                     chain_id,
-                    Box::new(RpcSmartContractWalletVerifier::new(url.to_string()))
+                    Box::new(RpcSmartContractWalletVerifier::new(url.to_string())?)
                         as Box<dyn SmartContractSignatureVerifier + Send + Sync>,
-                )
+                ))
             })
-            .collect();
+            .collect::<Result<HashMap<_, _>, _>>()?;
 
-        Self { verifiers }
+        Ok(Self { verifiers })
     }
 
-    pub fn new_from_file(path: impl AsRef<Path>) -> Self {
+    pub fn new_from_file(path: impl AsRef<Path>) -> Result<Self, VerifierError> {
         let path = path.as_ref();
 
         let file_str;
         let json = if path.exists() {
-            file_str = fs::read_to_string(path).unwrap_or_else(|_| panic!("{path:?} is missing"));
+            file_str = fs::read_to_string(path)?;
             &file_str
         } else {
             DEFAULT_CHAIN_URLS
         };
 
-        let json: HashMap<String, String> =
-            serde_json::from_str(json).unwrap_or_else(|_| panic!("{path:?} is malformatted"));
+        let json: HashMap<String, String> = serde_json::from_str(json)?;
 
         let urls = json
             .into_iter()
-            .map(|(id, url)| {
-                (
-                    id,
-                    Url::from_str(&url)
-                        .unwrap_or_else(|_| panic!("unable to parse url in {path:?} ({url})")),
-                )
-            })
-            .collect();
+            .map(|(id, url)| Ok::<_, VerifierError>((id, Url::from_str(&url)?)))
+            .collect::<Result<_, _>>()?;
 
         Self::new(urls)
     }

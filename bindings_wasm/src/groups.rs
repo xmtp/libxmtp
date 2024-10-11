@@ -84,16 +84,13 @@ impl WasmGroup {
   pub async fn send(&self, encoded_content: WasmEncodedContent) -> Result<String, JsError> {
     let encoded_content: EncodedContent = encoded_content.into();
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     let message_id = group
-      .send_message(
-        encoded_content.encode_to_vec().as_slice(),
-        &self.inner_client,
-      )
+      .send_message(encoded_content.encode_to_vec().as_slice())
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
     Ok(hex::encode(message_id.clone()))
@@ -104,7 +101,7 @@ impl WasmGroup {
   pub fn send_optimistic(&self, encoded_content: WasmEncodedContent) -> Result<String, JsError> {
     let encoded_content: EncodedContent = encoded_content.into();
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -120,12 +117,12 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub async fn publish_messages(&self) -> Result<(), JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
     group
-      .publish_messages(&self.inner_client)
+      .publish_messages()
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
     Ok(())
@@ -134,13 +131,13 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub async fn sync(&self) -> Result<(), JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     group
-      .sync(&self.inner_client)
+      .sync()
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -163,7 +160,7 @@ impl WasmGroup {
     };
 
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -189,13 +186,13 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub async fn list_members(&self) -> Result<JsValue, JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     let members: Vec<WasmGroupMember> = group
-      .members(&self.inner_client)
+      .members()
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?
       .into_iter()
@@ -222,7 +219,7 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub fn admin_list(&self) -> Result<Vec<String>, JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -241,7 +238,7 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub fn super_admin_list(&self) -> Result<Vec<String>, JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -272,13 +269,13 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub async fn add_members(&self, account_addresses: Vec<String>) -> Result<(), JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     group
-      .add_members(&self.inner_client, account_addresses)
+      .add_members(account_addresses)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -288,12 +285,12 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub async fn add_admin(&self, inbox_id: String) -> Result<(), JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
     group
-      .update_admin_list(&self.inner_client, UpdateAdminListType::Add, inbox_id)
+      .update_admin_list(UpdateAdminListType::Add, inbox_id)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -303,12 +300,12 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub async fn remove_admin(&self, inbox_id: String) -> Result<(), JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
     group
-      .update_admin_list(&self.inner_client, UpdateAdminListType::Remove, inbox_id)
+      .update_admin_list(UpdateAdminListType::Remove, inbox_id)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -318,12 +315,12 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub async fn add_super_admin(&self, inbox_id: String) -> Result<(), JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
     group
-      .update_admin_list(&self.inner_client, UpdateAdminListType::AddSuper, inbox_id)
+      .update_admin_list(UpdateAdminListType::AddSuper, inbox_id)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -333,16 +330,12 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub async fn remove_super_admin(&self, inbox_id: String) -> Result<(), JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
     group
-      .update_admin_list(
-        &self.inner_client,
-        UpdateAdminListType::RemoveSuper,
-        inbox_id,
-      )
+      .update_admin_list(UpdateAdminListType::RemoveSuper, inbox_id)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -352,7 +345,7 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub fn group_permissions(&self) -> Result<WasmGroupPermissions, JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -367,13 +360,13 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub async fn add_members_by_inbox_id(&self, inbox_ids: Vec<String>) -> Result<(), JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     group
-      .add_members_by_inbox_id(&self.inner_client, inbox_ids)
+      .add_members_by_inbox_id(inbox_ids)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -383,13 +376,13 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     group
-      .remove_members(&self.inner_client, account_addresses)
+      .remove_members(account_addresses)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -399,13 +392,13 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub async fn remove_members_by_inbox_id(&self, inbox_ids: Vec<String>) -> Result<(), JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     group
-      .remove_members_by_inbox_id(&self.inner_client, inbox_ids)
+      .remove_members_by_inbox_id(inbox_ids)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -415,13 +408,13 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub async fn update_group_name(&self, group_name: String) -> Result<(), JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     group
-      .update_group_name(&self.inner_client, group_name)
+      .update_group_name(group_name)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -431,7 +424,7 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub fn group_name(&self) -> Result<String, JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -453,13 +446,13 @@ impl WasmGroup {
     group_image_url_square: String,
   ) -> Result<(), JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     group
-      .update_group_image_url_square(&self.inner_client, group_image_url_square)
+      .update_group_image_url_square(group_image_url_square)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -469,7 +462,7 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub fn group_image_url_square(&self) -> Result<String, JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -488,13 +481,13 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub async fn update_group_description(&self, group_description: String) -> Result<(), JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     group
-      .update_group_description(&self.inner_client, group_description)
+      .update_group_description(group_description)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -504,7 +497,7 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub fn group_description(&self) -> Result<String, JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -526,13 +519,13 @@ impl WasmGroup {
     pinned_frame_url: String,
   ) -> Result<(), JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     group
-      .update_group_pinned_frame_url(&self.inner_client, pinned_frame_url)
+      .update_group_pinned_frame_url(pinned_frame_url)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -542,7 +535,7 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub fn group_pinned_frame_url(&self) -> Result<String, JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -566,7 +559,7 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub fn is_active(&self) -> Result<bool, JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -583,7 +576,7 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub fn added_by_inbox_id(&self) -> Result<String, JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -596,7 +589,7 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub fn group_metadata(&self) -> Result<WasmGroupMetadata, JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -615,7 +608,7 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub fn consent_state(&self) -> Result<WasmConsentState, JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -630,7 +623,7 @@ impl WasmGroup {
   #[wasm_bindgen]
   pub fn update_consent_state(&self, state: WasmConsentState) -> Result<(), JsError> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );

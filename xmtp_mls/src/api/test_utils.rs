@@ -23,7 +23,7 @@ use xmtp_proto::{
 #[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
-use crate::XmtpTestClient;
+use xmtp_proto::api_client::XmtpTestClient;
 
 pub fn build_group_messages(num_messages: usize, group_id: Vec<u8>) -> Vec<GroupMessage> {
     let mut out: Vec<GroupMessage> = vec![];

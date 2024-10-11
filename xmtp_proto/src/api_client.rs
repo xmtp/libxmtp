@@ -19,17 +19,20 @@ use crate::xmtp::mls::api::v1::{
     SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage,
 };
 
+#[cfg(any(test, feature = "test-utils"))]
+#[trait_variant::make(XmtpTestClient: Send)]
+pub trait LocalXmtpTestClient {
+    async fn create_local() -> Self;
+    async fn create_dev() -> Self;
+}
+
 /// XMTP Api Super Trait
 /// Implements all Trait Network APIs for convenience.
 pub mod trait_impls {
-    pub use inner::*;
-
+    #[allow(unused)]
     #[cfg(any(test, feature = "test-utils"))]
-    #[trait_variant::make(XmtpTestClient: Send)]
-    pub trait LocalXmtpTestClient {
-        async fn create_local() -> Self;
-        async fn create_dev() -> Self;
-    }
+    use super::{LocalXmtpTestClient, XmtpTestClient};
+    pub use inner::*;
 
     // native, release
     #[cfg(all(not(feature = "test-utils"), not(target_arch = "wasm32")))]
@@ -129,7 +132,7 @@ pub mod trait_impls {
             Self: LocalXmtpMlsClient
                 + LocalXmtpMlsStreams
                 + LocalXmtpIdentityClient
-                + crate::LocalXmtpTestClient
+                + super::LocalXmtpTestClient
                 + ClientWithMetadata,
         {
         }
@@ -138,7 +141,7 @@ pub mod trait_impls {
             T: LocalXmtpMlsClient
                 + LocalXmtpMlsStreams
                 + LocalXmtpIdentityClient
-                + crate::LocalXmtpTestClient
+                + super::LocalXmtpTestClient
                 + ClientWithMetadata
                 + Send
                 + Sync

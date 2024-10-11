@@ -55,7 +55,7 @@ where
 
 impl<T> Clone for RemoteSignatureVerifier<T>
 where
-    T: Clone + ?Sized,
+    T: Clone,
 {
     fn clone(&self) -> Self {
         Self {

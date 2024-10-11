@@ -107,9 +107,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         message.ok_or(GroupError::MissingMessage)
     }
 
-    pub async fn stream<'a>(
-        &'a self,
-    ) -> Result<impl Stream<Item = StoredGroupMessage> + '_, GroupError>
+    pub async fn stream(&self) -> Result<impl Stream<Item = StoredGroupMessage> + '_, GroupError>
     where
         ScopedClient: Clone,
         <ScopedClient as ScopedGroupClient>::ApiClient: Clone + 'static,

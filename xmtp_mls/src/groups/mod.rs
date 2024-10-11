@@ -40,7 +40,7 @@ pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
 #[cfg(feature = "message-history")]
 use self::message_history::MessageHistoryError;
-pub(self) use self::scoped_client::ScopedGroupClient;
+use self::scoped_client::ScopedGroupClient;
 use self::{
     group_membership::GroupMembership,
     group_metadata::{extract_group_metadata, DmMembers},
@@ -1398,7 +1398,7 @@ async fn validate_initial_group_membership(
     let membership = extract_group_membership(mls_group.extensions())?;
     let needs_update = conn.filter_inbox_ids_needing_updates(membership.to_filters())?;
     if !needs_update.is_empty() {
-        load_identity_updates(&client.api(), conn, needs_update).await?;
+        load_identity_updates(client.api(), conn, needs_update).await?;
     }
 
     let mut expected_installation_ids = HashSet::<Vec<u8>>::new();

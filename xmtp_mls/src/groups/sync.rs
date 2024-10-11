@@ -1004,7 +1004,7 @@ where
         inbox_ids.extend(inbox_ids_to_add);
         let conn = provider.conn_ref();
         // Load any missing updates from the network
-        load_identity_updates(&self.client.api(), conn, inbox_ids.clone()).await?;
+        load_identity_updates(self.client.api(), conn, inbox_ids.clone()).await?;
 
         let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids)?;
 

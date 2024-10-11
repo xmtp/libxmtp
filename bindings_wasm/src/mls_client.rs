@@ -249,13 +249,7 @@ impl WasmClient {
       let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.to_vec());
 
       signature_request
-        .add_signature(
-          signature,
-          self
-            .inner_client
-            .smart_contract_signature_verifier()
-            .as_ref(),
-        )
+        .add_signature(signature, self.inner_client.scw_verifier())
         .await
         .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     } else {

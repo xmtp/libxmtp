@@ -72,7 +72,7 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
 
     async fn query_group_messages(
         &self,
-        group_id: &Vec<u8>,
+        group_id: &[u8],
         conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError>;
 }
@@ -132,7 +132,7 @@ pub trait ScopedGroupClient: Sized {
 
     async fn query_group_messages(
         &self,
-        group_id: &Vec<u8>,
+        group_id: &[u8],
         conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError>;
 }
@@ -210,7 +210,7 @@ where
 
     async fn query_group_messages(
         &self,
-        group_id: &Vec<u8>,
+        group_id: &[u8],
         conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError> {
         crate::Client::<ApiClient, Verifier>::query_group_messages(self, group_id, conn).await
@@ -296,7 +296,7 @@ where
 
     async fn query_group_messages(
         &self,
-        group_id: &Vec<u8>,
+        group_id: &[u8],
         conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError> {
         (**self).query_group_messages(group_id, conn).await
@@ -382,7 +382,7 @@ where
 
     async fn query_group_messages(
         &self,
-        group_id: &Vec<u8>,
+        group_id: &[u8],
         conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError> {
         (**self).query_group_messages(group_id, conn).await
