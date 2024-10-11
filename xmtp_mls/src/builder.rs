@@ -695,6 +695,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(feature = "http-api"))]
     async fn test_remote_is_valid_signature() {
         with_smart_contracts(|anvil, _provider, client, smart_contracts| async move {
             let key = anvil.keys()[0].clone();
