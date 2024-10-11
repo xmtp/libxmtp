@@ -1503,9 +1503,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@xmtp/mls-client-bindings-node@workspace:.":
+"@xmtp/node-bindings@workspace:.":
   version: 0.0.0-use.local
-  resolution: "@xmtp/mls-client-bindings-node@workspace:."
+  resolution: "@xmtp/node-bindings@workspace:."
   dependencies:
     "@ianvs/prettier-plugin-sort-imports": "npm:^4.2.1"
     "@napi-rs/cli": "npm:^3.0.0-alpha.55"
