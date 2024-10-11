@@ -190,7 +190,9 @@ mod tests {
     use xmtp_id::associations::{AccountId, ValidatedLegacySignedPublicKey};
     use xmtp_id::is_smart_contract;
     use xmtp_id::scw_verifier::tests::{with_smart_contracts, CoinbaseSmartWallet};
-    use xmtp_id::scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier};
+    use xmtp_id::scw_verifier::{
+        MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier,
+    };
     use xmtp_proto::xmtp::identity::api::v1::{
         get_inbox_ids_response::Response as GetInboxIdsResponseItem, GetInboxIdsResponse,
     };
@@ -744,25 +746,33 @@ mod tests {
             let replay_safe_hash = smart_wallet.replay_safe_hash(hash).call().await.unwrap();
             let account_id = AccountId::new_evm(anvil.chain_id(), format!("{scw_addr:?}"));
 
-            info!("Anvil chain id {}", anvil.chain_id());
-            info!("{account_id:?}");
+            let signature: Bytes = ethers::abi::encode(&[Token::Tuple(vec![
+                Token::Uint(U256::from(0)),
+                Token::Bytes(wallet.sign_hash(replay_safe_hash.into()).unwrap().to_vec()),
+            ])])
+            .into();
 
             let valid_response = api_client
                 .smart_contract_signature_verifier()
-                .is_valid_signature(
-                    account_id,
-                    hash,
-                    ethers::abi::encode(&[Token::Tuple(vec![
-                        Token::Uint(U256::from(0)),
-                        Token::Bytes(wallet.sign_hash(replay_safe_hash.into()).unwrap().to_vec()),
-                    ])])
-                    .into(),
-                    None,
-                )
+                .is_valid_signature(account_id.clone(), hash, signature.clone(), None)
                 .await
                 .unwrap();
 
-            assert!(valid_response.is_valid);
+            // The mls validation service can't connect to our anvil instance, so it'll return false
+            // This is to make sure the communication at least works.
+            assert!(!valid_response.is_valid);
+            assert_eq!(valid_response.block_number, None);
+
+            // So let's immitate more or less what the mls validation is doing locally, and validate there.
+            let mut verifier = MultiSmartContractSignatureVerifier::default();
+            verifier.add_verifier(account_id.get_chain_id().to_string(), anvil.endpoint());
+            let response = verifier
+                .is_valid_signature(account_id, hash, signature, None)
+                .await
+                .unwrap();
+
+            assert!(response.is_valid);
+            assert!(response.block_number.is_some());
         })
         .await;
     }
