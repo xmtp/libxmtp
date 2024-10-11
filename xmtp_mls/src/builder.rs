@@ -159,23 +159,18 @@ where
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicBool;
-    use std::sync::Arc;
 
     use crate::api::ApiClientWrapper;
     use crate::builder::ClientBuilderError;
     use crate::identity::IdentityError;
     use crate::retry::Retry;
-    use crate::utils::test::TestClient;
+
     use crate::XmtpApi;
     use crate::{
         api::test_utils::*, identity::Identity, storage::identity::StoredIdentity,
         utils::test::rand_vec, Store,
     };
-    use ethers::{
-        abi::Token,
-        signers::{LocalWallet, Signer as _},
-        types::{Bytes, H256, U256},
-    };
+
     use openmls::credentials::{Credential, CredentialType};
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_traits::types::SignatureScheme;
@@ -185,13 +180,8 @@ mod tests {
     use xmtp_id::associations::unverified::{
         UnverifiedRecoverableEcdsaSignature, UnverifiedSignature,
     };
+    use xmtp_id::associations::ValidatedLegacySignedPublicKey;
     use xmtp_id::associations::{generate_inbox_id, test_utils::rand_u64};
-    use xmtp_id::associations::{AccountId, ValidatedLegacySignedPublicKey};
-    use xmtp_id::is_smart_contract;
-    use xmtp_id::scw_verifier::tests::{with_smart_contracts, CoinbaseSmartWallet};
-    use xmtp_id::scw_verifier::{
-        MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier,
-    };
     use xmtp_proto::xmtp::identity::api::v1::{
         get_inbox_ids_response::Response as GetInboxIdsResponseItem, GetInboxIdsResponse,
     };
@@ -697,6 +687,20 @@ mod tests {
     #[tokio::test]
     #[cfg(not(feature = "http-api"))]
     async fn test_remote_is_valid_signature() {
+        use crate::utils::test::TestClient;
+        use ethers::{
+            abi::Token,
+            signers::{LocalWallet, Signer as _},
+            types::{Bytes, H256, U256},
+        };
+        use std::sync::Arc;
+        use xmtp_id::associations::AccountId;
+        use xmtp_id::is_smart_contract;
+        use xmtp_id::scw_verifier::tests::{with_smart_contracts, CoinbaseSmartWallet};
+        use xmtp_id::scw_verifier::{
+            MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier,
+        };
+
         with_smart_contracts(|anvil, _provider, client, smart_contracts| async move {
             let key = anvil.keys()[0].clone();
             let wallet: LocalWallet = key.clone().into();
