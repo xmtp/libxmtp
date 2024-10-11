@@ -338,14 +338,7 @@ mod tests {
         is_smart_contract,
         scw_verifier::tests::{with_smart_contracts, CoinbaseSmartWallet},
     };
-    use xmtp_mls::{
-        builder::ClientBuilder,
-        configuration::CIPHERSUITE,
-        identity::IdentityStrategy,
-        storage::{EncryptedMessageStore, StorageOption},
-        utils::test::{tmp_path, TestClient},
-        Client,
-    };
+    use xmtp_mls::configuration::CIPHERSUITE;
     use xmtp_proto::xmtp::{
         identity::{
             associations::IdentityUpdate as IdentityUpdateProto,
@@ -556,8 +549,7 @@ mod tests {
             let signature = ethers::abi::encode(&[Token::Tuple(vec![
                 Token::Uint(U256::from(0)),
                 Token::Bytes(wallet.sign_hash(replay_safe_hash.into()).unwrap().to_vec()),
-            ])])
-            .into();
+            ])]);
 
             let resp = ValidationService::default()
                 .verify_smart_contract_wallet_signatures(Request::new(
