@@ -329,6 +329,24 @@ impl FfiXmtpClient {
         Ok(state.into())
     }
 
+    /**
+     * Get the inbox state for each `inbox_id`.
+     *
+     * If `refresh_from_network` is true, the client will go to the network first to refresh the state.
+     * Otherwise, the state will be read from the local database.
+     */
+    pub async fn addresses_from_inbox_id(
+        &self,
+        refresh_from_network: bool,
+        inbox_ids: Vec<String>,
+    ) -> Result<Vec<FfiInboxState>, GenericError> {
+        let state = self
+            .inner_client
+            .inbox_addresses(refresh_from_network, inbox_ids)
+            .await?;
+        Ok(state.into_iter().map(Into::into).collect())
+    }
+
     pub async fn get_latest_inbox_state(
         &self,
         inbox_id: String,
