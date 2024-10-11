@@ -33,8 +33,6 @@ ed25519-dalek = { workspace = true, features = ["digest"] }
 futures = "0.3"
 regex = "1.10"
 tokio = { workspace = true, features = ["macros", "time"] }
-xmtp_api_grpc = { path = "../xmtp_api_grpc" }
-xmtp_mls = { path = "../xmtp_mls", features = ["test-utils"] }
 xmtp_v2 = { path = "../xmtp_v2" }
 
 [features]

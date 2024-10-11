@@ -6245,9 +6245,7 @@ dependencies = [
  "tonic",
  "tracing",
  "url",
- "xmtp_api_grpc",
  "xmtp_cryptography",
- "xmtp_mls",
  "xmtp_proto",
  "xmtp_v2",
 ]
