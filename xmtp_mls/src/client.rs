@@ -322,11 +322,9 @@ where
     /// Calls the server to look up the `inbox_id` associated with a given address
     pub async fn find_inbox_id_from_address(
         &self,
-        address: impl ToString,
+        address: String,
     ) -> Result<Option<String>, ClientError> {
-        let results = self
-            .find_inbox_ids_from_addresses(vec![address.to_string()])
-            .await?;
+        let results = self.find_inbox_ids_from_addresses(vec![address]).await?;
         if let Some(first_result) = results.into_iter().next() {
             Ok(first_result)
         } else {
@@ -625,7 +623,9 @@ where
         &self,
         dm_target_address: String,
     ) -> Result<MlsGroup, ClientError> {
-        let Some(target_inbox_id) = self.find_inbox_id_from_address(&dm_target_address).await?
+        let Some(target_inbox_id) = self
+            .find_inbox_id_from_address(dm_target_address.clone())
+            .await?
         else {
             return Err(ClientError::Identity(IdentityError::NoAssociatedInboxId(
                 dm_target_address,
