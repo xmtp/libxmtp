@@ -13,14 +13,12 @@ pub fn now_ns() -> i64 {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test {
     #![allow(clippy::unwrap_used)]
-    use std::sync::Arc;
 
     use ethers::{
         contract::abigen,
         middleware::SignerMiddleware,
         providers::{Http, Provider},
-        signers::{LocalWallet, Signer},
-        utils::{Anvil, AnvilInstance},
+        signers::LocalWallet,
     };
     abigen!(
         CoinbaseSmartWallet,
@@ -40,6 +38,7 @@ pub mod test {
     }
 
     impl SmartContracts {
+        #[cfg(not(target_arch = "wasm32"))]
         fn new(
             coinbase_smart_wallet_factory: CoinbaseSmartWalletFactory<
                 SignerMiddleware<Provider<Http>, LocalWallet>,
@@ -57,17 +56,22 @@ pub mod test {
         }
     }
 
+    // anvil can't be used in wasm because it is a system binary
     /// Test harness that loads a local anvil node with deployed smart contracts.
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn with_smart_contracts<Func, Fut>(fun: Func)
     where
         Func: FnOnce(
-            AnvilInstance,
+            ethers::utils::AnvilInstance,
             Provider<Http>,
             SignerMiddleware<Provider<Http>, LocalWallet>,
             SmartContracts,
         ) -> Fut,
         Fut: futures::Future<Output = ()>,
     {
+        use ethers::signers::Signer;
+        use ethers::utils::Anvil;
+        use std::sync::Arc;
         let anvil = Anvil::new().args(vec!["--base-fee", "100"]).spawn();
         let contract_deployer: LocalWallet = anvil.keys()[9].clone().into();
         let provider = Provider::<Http>::try_from(anvil.endpoint()).unwrap();

@@ -1445,8 +1445,16 @@ pub(crate) mod tests {
 
         // try to join amal's sync group
         let sync_group_id = amal_sync_groups[0].id.clone();
-        let group = amal.group(sync_group_id).expect("get group");
-        let result = group.add_members(vec![external_wallet.get_address()]).await;
+        let created_at_ns = amal_sync_groups[0].created_at_ns;
+
+        let external_client_group = MlsGroup::new(
+            external_client.clone(),
+            sync_group_id.clone(),
+            created_at_ns,
+        );
+        let result = external_client_group
+            .add_members(vec![external_wallet.get_address()])
+            .await;
         assert!(result.is_err());
     }
 
