@@ -314,8 +314,15 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use associations::AccountId;
     use ed25519_dalek::SigningKey;
-    use ethers::signers::{LocalWallet, Signer as _};
+    use ethers::{
+        abi::Token,
+        signers::{LocalWallet, Signer as _},
+        types::{Bytes, H256, U256},
+    };
     use openmls::{
         extensions::{ApplicationIdExtension, Extension, Extensions},
         prelude::{tls_codec::Serialize, Credential as OpenMlsCredential, CredentialWithKey},
@@ -323,10 +330,14 @@ mod tests {
     };
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_rust_crypto::OpenMlsRustCrypto;
-    use xmtp_id::associations::{
-        generate_inbox_id,
-        test_utils::{rand_string, rand_u64, MockSmartContractSignatureVerifier},
-        unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
+    use xmtp_id::{
+        associations::{
+            generate_inbox_id,
+            test_utils::{rand_string, rand_u64, MockSmartContractSignatureVerifier},
+            unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
+        },
+        is_smart_contract,
+        utils::test::{with_smart_contracts, CoinbaseSmartWallet},
     };
     use xmtp_mls::configuration::CIPHERSUITE;
     use xmtp_proto::xmtp::{
@@ -503,5 +514,70 @@ mod tests {
         );
         assert_eq!(first_response.credential, None);
         assert_eq!(first_response.installation_public_key, Vec::<u8>::new());
+    }
+
+    #[tokio::test]
+    async fn test_validate_scw() {
+        with_smart_contracts(|anvil, _provider, client, smart_contracts| async move {
+            let key = anvil.keys()[0].clone();
+            let wallet: LocalWallet = key.clone().into();
+
+            let owners = vec![Bytes::from(H256::from(wallet.address()).0.to_vec())];
+
+            let scw_factory = smart_contracts.coinbase_smart_wallet_factory();
+            let nonce = U256::from(0);
+
+            let scw_addr = scw_factory
+                .get_address(owners.clone(), nonce)
+                .await
+                .unwrap();
+
+            let contract_call = scw_factory.create_account(owners.clone(), nonce);
+            contract_call.send().await.unwrap().await.unwrap();
+
+            assert!(is_smart_contract(scw_addr, anvil.endpoint(), None)
+                .await
+                .unwrap());
+
+            let hash = H256::random().into();
+            let smart_wallet = CoinbaseSmartWallet::new(
+                scw_addr,
+                Arc::new(client.with_signer(wallet.clone().with_chain_id(anvil.chain_id()))),
+            );
+            let replay_safe_hash = smart_wallet.replay_safe_hash(hash).call().await.unwrap();
+            let account_id = AccountId::new_evm(anvil.chain_id(), format!("{scw_addr:?}"));
+
+            let signature = ethers::abi::encode(&[Token::Tuple(vec![
+                Token::Uint(U256::from(0)),
+                Token::Bytes(wallet.sign_hash(replay_safe_hash.into()).unwrap().to_vec()),
+            ])]);
+
+            let resp = ValidationService::default()
+                .verify_smart_contract_wallet_signatures(Request::new(
+                    VerifySmartContractWalletSignaturesRequest {
+                        signatures: vec![VerifySmartContractWalletSignatureRequestSignature {
+                            account_id: account_id.into(),
+                            block_number: None,
+                            hash: hash.to_vec(),
+                            signature,
+                        }],
+                    },
+                ))
+                .await
+                .unwrap();
+
+            let VerifySmartContractWalletSignaturesResponse { responses } = resp.into_inner();
+
+            assert_eq!(responses.len(), 1);
+            assert_eq!(
+                responses[0],
+                VerifySmartContractWalletSignaturesValidationResponse {
+                    is_valid: true,
+                    block_number: Some(1),
+                    error: None
+                }
+            );
+        })
+        .await;
     }
 }

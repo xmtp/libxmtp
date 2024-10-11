@@ -221,4 +221,28 @@ describe('Client', () => {
       await client2.getConsentState(NapiConsentEntityType.GroupId, group2.id())
     ).toBe(NapiConsentState.Denied)
   })
+
+  it('should get inbox addresses', async () => {
+    const user = createUser()
+    const user2 = createUser()
+    const client = await createRegisteredClient(user)
+    const client2 = await createRegisteredClient(user2)
+    const inboxAddresses = await client.addressesFromInboxId(true, [
+      client.inboxId(),
+    ])
+    expect(inboxAddresses.length).toBe(1)
+    expect(inboxAddresses[0].inboxId).toBe(client.inboxId())
+    expect(inboxAddresses[0].accountAddresses).toEqual([
+      user.account.address.toLowerCase(),
+    ])
+
+    const inboxAddresses2 = await client2.addressesFromInboxId(true, [
+      client2.inboxId(),
+    ])
+    expect(inboxAddresses2.length).toBe(1)
+    expect(inboxAddresses2[0].inboxId).toBe(client2.inboxId())
+    expect(inboxAddresses2[0].accountAddresses).toEqual([
+      user2.account.address.toLowerCase(),
+    ])
+  })
 })

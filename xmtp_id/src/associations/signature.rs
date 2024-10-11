@@ -88,6 +88,10 @@ impl AccountId {
     pub fn get_account_address(&self) -> &str {
         &self.account_address
     }
+
+    pub fn get_chain_id(&self) -> &str {
+        &self.chain_id
+    }
 }
 
 /// Decode the `legacy_signed_private_key` to legacy private / public key pairs & sign the `signature_text` with the private key.

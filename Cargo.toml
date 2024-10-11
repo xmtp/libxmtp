@@ -63,9 +63,9 @@ diesel = { version = "2.2", default-features = false }
 diesel-wasm-sqlite = "0.0.1"
 diesel_migrations = { version = "2.2", default-features = false }
 parking_lot = "0.12.3"
-wasm-bindgen-test = "0.3.42"
 wasm-bindgen-futures = "0.4"
-wasm-bindgen = "=0.2.93"
+wasm-bindgen = "=0.2.95"
+wasm-bindgen-test = "0.3.45"
 gloo-timers = "0.3"
 web-sys = "0.3"
 js-sys = "0.3"

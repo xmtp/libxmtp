@@ -98,7 +98,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_is_smart_contract() {
         use super::*;
-        use scw_verifier::tests::with_smart_contracts;
+        use crate::utils::test::with_smart_contracts;
 
         with_smart_contracts(|anvil, _provider, _client, smart_contracts| async move {
             let deployer: LocalWallet = anvil.keys()[0].clone().into();

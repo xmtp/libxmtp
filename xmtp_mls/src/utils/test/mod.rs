@@ -130,7 +130,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
 }
 
 impl ClientBuilder<TestClient> {
-    /// Createa client pointed at the local containe with the default remote verifier
+    /// Create a client pointed at the local container with the default remote verifier
     pub async fn new_local_client(owner: &impl InboxOwner) -> Client<TestClient> {
         let api_client = <TestClient as XmtpTestClient>::create_local().await;
         inner_build(

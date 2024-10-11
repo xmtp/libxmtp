@@ -153,6 +153,12 @@ impl MultiSmartContractSignatureVerifier {
         }
         Ok(self)
     }
+
+    pub fn add_verifier(&mut self, id: String, url: String) -> Result<(), VerifierError> {
+        self.verifiers
+            .insert(id, Box::new(RpcSmartContractWalletVerifier::new(url)?));
+        Ok(())
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
