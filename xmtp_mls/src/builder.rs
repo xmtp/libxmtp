@@ -768,9 +768,9 @@ mod tests {
             assert_eq!(valid_response.block_number, None);
 
             // So let's immitate more or less what the mls validation is doing locally, and validate there.
-            let mut verifier = MultiSmartContractSignatureVerifier::default();
-            verifier.add_provider(account_id.get_chain_id().to_string(), anvil.endpoint());
-            let response = verifier
+            let mut multi_verifier = MultiSmartContractSignatureVerifier::default();
+            multi_verifier.add_verifier(account_id.get_chain_id().to_string(), anvil.endpoint());
+            let response = multi_verifier
                 .is_valid_signature(account_id, hash, signature, None)
                 .await
                 .unwrap();
