@@ -49,6 +49,10 @@ impl VerifiedSignature {
         ))
     }
 
+    /**
+     * Verifies an ECDSA signature against the provided signature text and ensures that the recovered
+     * address matches the expected address.
+     */
     pub fn from_recoverable_ecdsa_with_expected_address<Text: AsRef<str>>(
         signature_text: Text,
         signature_bytes: &[u8],
@@ -95,6 +99,8 @@ impl VerifiedSignature {
         ))
     }
 
+    /// Verifies a legacy delegated signature and recovers the wallet address responsible
+    /// associated with the signer.
     pub fn from_legacy_delegated<Text: AsRef<str>>(
         signature_text: Text,
         signature_bytes: &[u8],
@@ -120,6 +126,7 @@ impl VerifiedSignature {
         ))
     }
 
+    /// Verifies a smart contract wallet signature using the provided signature verifier.
     pub async fn from_smart_contract_wallet<Text: AsRef<str>>(
         signature_text: Text,
         signature_verifier: impl SmartContractSignatureVerifier,

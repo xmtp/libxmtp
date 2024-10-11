@@ -1,7 +1,7 @@
 mod chain_rpc_verifier;
 mod remote_signature_verifier;
 
-use std::{collections::HashMap, fs, path::Path, str::FromStr};
+use std::{collections::HashMap, fs, path::Path};
 
 use crate::associations::AccountId;
 use ethers::{
@@ -9,6 +9,7 @@ use ethers::{
     types::{BlockNumber, Bytes},
 };
 use thiserror::Error;
+use tracing::info;
 use url::Url;
 
 pub use chain_rpc_verifier::*;
@@ -36,6 +37,8 @@ pub enum VerifierError {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Serde(#[from] serde_json::Error),
+    #[error("URLs must be preceeded with eip144:")]
+    MalformedEipUrl,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -125,25 +128,30 @@ impl MultiSmartContractSignatureVerifier {
         Ok(Self { verifiers })
     }
 
+    pub fn new_from_env() -> Result<Self, VerifierError> {
+        let urls: HashMap<String, Url> = serde_json::from_str(DEFAULT_CHAIN_URLS)?;
+        Self::new(urls)?.upgrade()
+    }
+
     pub fn new_from_file(path: impl AsRef<Path>) -> Result<Self, VerifierError> {
-        let path = path.as_ref();
-
-        let file_str;
-        let json = if path.exists() {
-            file_str = fs::read_to_string(path)?;
-            &file_str
-        } else {
-            DEFAULT_CHAIN_URLS
-        };
-
-        let json: HashMap<String, String> = serde_json::from_str(json)?;
-
-        let urls = json
-            .into_iter()
-            .map(|(id, url)| Ok::<_, VerifierError>((id, Url::from_str(&url)?)))
-            .collect::<Result<_, _>>()?;
+        let json = fs::read_to_string(path.as_ref())?;
+        let urls: HashMap<String, Url> = serde_json::from_str(&json)?;
 
         Self::new(urls)
+    }
+
+    /// Upgrade the default urls to paid/private/alternative urls if the env vars are present.
+    pub fn upgrade(mut self) -> Result<Self, VerifierError> {
+        for (id, verifier) in self.verifiers.iter_mut() {
+            // TODO: coda - update the chain id env var ids to preceeded with "EIP155_"
+            let eip_id = id.split(":").nth(1).ok_or(VerifierError::MalformedEipUrl)?;
+            if let Ok(url) = std::env::var(format!("CHAIN_RPC_{eip_id}")) {
+                *verifier = Box::new(RpcSmartContractWalletVerifier::new(url)?);
+            } else {
+                info!("No upgraded chain url for chain {id}, using default.");
+            };
+        }
+        Ok(self)
     }
 }
 

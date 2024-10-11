@@ -9,9 +9,10 @@ crate-type = ["cdylib"]
 [dependencies]
 # Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
 hex.workspace = true
-tracing.workspace = true
 napi = { version = "2.12.2", default-features = false, features = ["napi6", "async"] }
 napi-derive = "2.12.2"
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 prost.workspace = true
 tokio = { workspace = true, features = ["sync"]}
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }

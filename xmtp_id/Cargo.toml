@@ -4,7 +4,7 @@ name = "xmtp_id"
 version.workspace = true
 
 [dependencies]
-url = "2.5.2"
+url = { workspace = true, features = ["serde"] }
 async-trait.workspace = true
 chrono.workspace = true
 ed25519-dalek = { workspace = true, features = ["digest"] }

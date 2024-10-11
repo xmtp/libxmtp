@@ -30,6 +30,7 @@ impl GroupMembership {
         self.members.keys().cloned().collect()
     }
 
+    // Convert the mapping to a vector of `inbox_id`/`sequence_id` tuples
     pub fn to_filters(&self) -> Vec<(String, i64)> {
         self.members
             .iter()

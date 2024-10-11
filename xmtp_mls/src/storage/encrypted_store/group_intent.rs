@@ -124,6 +124,9 @@ impl Delete<StoredGroupIntent> for DbConnection {
     }
 }
 
+/// NewGroupIntent is the data needed to create a new group intent.
+/// Do not use this struct directly outside of the storage module.
+/// Use the `queue_intent` method on `MlsGroup` instead.
 #[derive(Insertable, Debug, PartialEq, Clone)]
 #[diesel(table_name = group_intents)]
 pub struct NewGroupIntent {

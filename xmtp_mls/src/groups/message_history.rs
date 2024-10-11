@@ -267,7 +267,7 @@ where
             })?;
 
         // publish the intent
-        if let Err(err) = sync_group.publish_intents(&conn.into()).await {
+        if let Err(err) = sync_group.publish_messages().await {
             tracing::error!("error publishing sync group intents: {:?}", err);
         }
         Ok(())

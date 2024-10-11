@@ -18,7 +18,7 @@ pub use self::serialization::{map_vec, try_map_vec, DeserializationError};
 pub use self::signature::*;
 pub use self::state::{AssociationState, AssociationStateDiff};
 
-// Apply a single IdentityUpdate to an existing AssociationState
+/// Apply a single [`IdentityUpdate`] to an existing [`AssociationState`] and return a new [`AssociationState`]
 pub fn apply_update(
     initial_state: AssociationState,
     update: IdentityUpdate,
@@ -26,7 +26,7 @@ pub fn apply_update(
     update.update_state(Some(initial_state), update.client_timestamp_ns)
 }
 
-// Get the current state from an array of `IdentityUpdate`s. Entire operation fails if any operation fails
+/// Get the current state from an array of `IdentityUpdate`s. Entire operation fails if any operation fails
 pub fn get_state<Updates: AsRef<[IdentityUpdate]>>(
     updates: Updates,
 ) -> Result<AssociationState, AssociationError> {

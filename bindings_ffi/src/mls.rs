@@ -309,6 +309,24 @@ impl FfiXmtpClient {
         Ok(state.into())
     }
 
+    /**
+     * Get the inbox state for each `inbox_id`.
+     *
+     * If `refresh_from_network` is true, the client will go to the network first to refresh the state.
+     * Otherwise, the state will be read from the local database.
+     */
+    pub async fn addresses_from_inbox_id(
+        &self,
+        refresh_from_network: bool,
+        inbox_ids: Vec<String>,
+    ) -> Result<Vec<FfiInboxState>, GenericError> {
+        let state = self
+            .inner_client
+            .inbox_addresses(refresh_from_network, inbox_ids)
+            .await?;
+        Ok(state.into_iter().map(Into::into).collect())
+    }
+
     pub async fn get_latest_inbox_state(
         &self,
         inbox_id: String,
@@ -2516,6 +2534,9 @@ mod tests {
         let bo_group = bo.group(alix_group.id()).unwrap();
 
         bo_group.send("bo1".as_bytes().to_vec()).await.unwrap();
+        // Temporary workaround for OpenMLS issue - make sure Alix's epoch is up-to-date
+        // https://github.com/xmtp/libxmtp/issues/1116
+        alix_group.sync().await.unwrap();
         alix_group.send("alix1".as_bytes().to_vec()).await.unwrap();
 
         // Move the group forward by 3 epochs (as Alix's max_past_epochs is
@@ -2719,6 +2740,9 @@ mod tests {
         log::info!("Caro sending fifth message");
         // Caro sends a message in the group
         caro_group.update_installations().await.unwrap();
+        // Temporary workaround for OpenMLS issue - make sure Caro's epoch is up-to-date
+        // https://github.com/xmtp/libxmtp/issues/1116
+        caro_group.sync().await.unwrap();
         caro_group
             .send("Fifth message".as_bytes().to_vec())
             .await

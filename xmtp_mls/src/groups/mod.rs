@@ -89,7 +89,7 @@ use crate::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
         group::{GroupMembershipState, Purpose, StoredGroup},
-        group_intent::{IntentKind, NewGroupIntent},
+        group_intent::IntentKind,
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         sql_key_store,
     },
@@ -256,6 +256,10 @@ pub enum UpdateAdminListType {
     RemoveSuper,
 }
 
+/// Represents a group, which can contain anywhere from 1 to MAX_GROUP_SIZE inboxes.
+///
+/// This is a wrapper around OpenMLS's `MlsGroup` that handles our application-level configuration
+/// and validations.
 impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     // Creates a new group instance. Does not validate that the group exists in the DB
     pub fn new(client: ScopedClient, group_id: Vec<u8>, created_at_ns: i64) -> Self {
@@ -282,7 +286,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(self.context().mls_provider()?)
     }
 
-    // Load the stored MLS group from the OpenMLS provider's keystore
+    // Load the stored OpenMLS group from the OpenMLS provider's keystore
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn load_mls_group(
         &self,
@@ -458,8 +462,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             ),
         };
 
+        // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
+        // in the `GroupMembership` extension.
         validate_initial_group_membership(client.as_ref(), provider.conn_ref(), &mls_group).await?;
 
+        // Insert or replace the group in the database.
+        // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
         let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
 
         Ok(Self::new_from_arc(
@@ -469,7 +477,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         ))
     }
 
-    // Decrypt a welcome message using HPKE and then create and save a group from the stored message
+    /// Decrypt a welcome message using HPKE and then create and save a group from the stored message
     pub async fn create_from_encrypted_welcome(
         client: Arc<ScopedClient>,
         provider: &XmtpOpenMlsProvider,
@@ -568,7 +576,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         message_id
     }
 
-    /// Publish all unpublished messages
+    /// Publish all unpublished messages. This happens by calling `sync_until_last_intent_resolved`
+    /// which publishes all pending intents and reads them back from the network.
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
         let conn = self.context().store().conn()?;
         let provider = XmtpOpenMlsProvider::from(conn);
@@ -583,7 +592,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(())
     }
 
-    /// Update group installations
+    /// Checks the network to see if any group members have identity updates that would cause installations
+    /// to be added or removed from the group.
+    ///
+    /// If so, adds/removes those group members
     pub async fn update_installations(&self) -> Result<(), GroupError> {
         let conn = self.context().store().conn()?;
         let provider = XmtpOpenMlsProvider::from(conn);
@@ -623,9 +635,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .map_err(GroupError::EncodeError)?;
 
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        let intent =
-            NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
-        intent.store(conn)?;
+        self.queue_intent_with_conn(conn, IntentKind::SendMessage, intent_data)?;
 
         // store this unpublished message locally before sending
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
@@ -653,8 +663,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
     }
 
-    // Query the database for stored messages. Optionally filtered by time, kind, delivery_status
-    // and limit
+    /// Query the database for stored messages. Optionally filtered by time, kind, delivery_status
+    /// and limit
     pub fn find_messages(
         &self,
         kind: Option<GroupMessageKind>,
@@ -679,8 +689,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /**
      * Add members to the group by account address
      *
-     * If any existing members have new installations that have not been added, the missing installations
-     * will be added as part of this process as well.
+     * If any existing members have new installations that have not been added or removed, the
+     * group membership will be updated to include those changes as well.
      */
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members(
@@ -727,17 +737,23 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             return Ok(());
         }
 
-        let intent = provider
-            .conn_ref()
-            .insert_group_intent(NewGroupIntent::new(
-                IntentKind::UpdateGroupMembership,
-                self.group_id.clone(),
-                intent_data.into(),
-            ))?;
+        let intent = self.queue_intent_with_conn(
+            provider.conn_ref(),
+            IntentKind::UpdateGroupMembership,
+            intent_data.into(),
+        )?;
 
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
+    /// Removes members from the group by their account addresses.
+    ///
+    /// # Arguments
+    /// * `client` - The XMTP client.
+    /// * `account_addresses_to_remove` - A vector of account addresses to remove from the group.
+    ///
+    /// # Returns
+    /// A `Result` indicating success or failure of the operation.
     pub async fn remove_members(
         &self,
         account_addresses_to_remove: Vec<InboxId>,
@@ -749,6 +765,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .await
     }
 
+    /// Removes members from the group by their inbox IDs.
+    ///
+    /// # Arguments
+    /// * `client` - The XMTP client.
+    /// * `inbox_ids` - A vector of inbox IDs to remove from the group.
+    ///
+    /// # Returns
+    /// A `Result` indicating success or failure of the operation.
     pub async fn remove_members_by_inbox_id(
         &self,
         inbox_ids: Vec<InboxId>,
@@ -759,39 +783,33 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .get_membership_update_intent(&provider, vec![], inbox_ids)
             .await?;
 
-        let intent = provider
-            .conn_ref()
-            .insert_group_intent(NewGroupIntent::new(
-                IntentKind::UpdateGroupMembership,
-                self.group_id.clone(),
-                intent_data.into(),
-            ))?;
+        let intent = self.queue_intent_with_conn(
+            provider.conn_ref(),
+            IntentKind::UpdateGroupMembership,
+            intent_data.into(),
+        )?;
 
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
+    /// Updates the name of the group. Will error if the user does not have the appropriate permissions
+    /// to perform these updates.
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
-        let conn = self.context().store().conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::MetadataUpdate,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&conn.into(), intent.id)
+        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
             .await
     }
 
+    /// Updates the permission policy of the group. This requires super admin permissions.
     pub async fn update_permission_policy(
         &self,
         permission_update_type: PermissionUpdateType,
         permission_policy: PermissionPolicyOption,
         metadata_field: Option<MetadataField>,
     ) -> Result<(), GroupError> {
-        let conn = self.client.store().conn()?;
-
         if permission_update_type == PermissionUpdateType::UpdateMetadata
             && metadata_field.is_none()
         {
@@ -805,16 +823,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )
         .into();
 
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::UpdatePermission,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = self.queue_intent(IntentKind::UpdatePermission, intent_data)?;
 
-        self.sync_until_intent_resolved(&conn.into(), intent.id)
+        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
             .await
     }
 
+    /// Retrieves the group name from the group's mutable metadata extension.
     pub fn group_name(&self, provider: impl OpenMlsProvider) -> Result<String, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
         match mutable_metadata
@@ -828,20 +843,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
     }
 
+    /// Updates the description of the group.
     pub async fn update_group_description(
         &self,
         group_description: String,
     ) -> Result<(), GroupError> {
-        let conn = self.context().store().conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_description(group_description).into();
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::MetadataUpdate,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&conn.into(), intent.id)
+        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
             .await
     }
 
@@ -858,24 +869,21 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
     }
 
+    /// Updates the image URL (square) of the group.
     pub async fn update_group_image_url_square(
         &self,
         group_image_url_square: String,
     ) -> Result<(), GroupError> {
-        let conn = self.context().store().conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_image_url_square(group_image_url_square)
                 .into();
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::MetadataUpdate,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&conn.into(), intent.id)
+        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
             .await
     }
 
+    /// Retrieves the image URL (square) of the group from the group's mutable metadata extension.
     pub fn group_image_url_square(
         &self,
         provider: impl OpenMlsProvider,
@@ -896,16 +904,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         pinned_frame_url: String,
     ) -> Result<(), GroupError> {
-        let conn = self.context().store().conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_pinned_frame_url(pinned_frame_url).into();
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::MetadataUpdate,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&conn.into(), intent.id)
+        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
             .await
     }
 
@@ -925,11 +928,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
     }
 
+    /// Retrieves the admin list of the group from the group's mutable metadata extension.
     pub fn admin_list(&self, provider: impl OpenMlsProvider) -> Result<Vec<String>, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
         Ok(mutable_metadata.admin_list)
     }
 
+    /// Retrieves the super admin list of the group from the group's mutable metadata extension.
     pub fn super_admin_list(
         &self,
         provider: impl OpenMlsProvider,
@@ -938,6 +943,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(mutable_metadata.super_admin_list)
     }
 
+    /// Checks if the given inbox ID is an admin of the group at the most recently synced epoch.
     pub fn is_admin(
         &self,
         inbox_id: String,
@@ -947,6 +953,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(mutable_metadata.admin_list.contains(&inbox_id))
     }
 
+    /// Checks if the given inbox ID is a super admin of the group at the most recently synced epoch.
     pub fn is_super_admin(
         &self,
         inbox_id: String,
@@ -956,12 +963,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
     }
 
+    /// Updates the admin list of the group and syncs the changes to the network.
     pub async fn update_admin_list(
         &self,
         action_type: UpdateAdminListType,
         inbox_id: String,
     ) -> Result<(), GroupError> {
-        let conn = self.context().store().conn()?;
         let intent_action_type = match action_type {
             UpdateAdminListType::Add => AdminListActionType::Add,
             UpdateAdminListType::Remove => AdminListActionType::Remove,
@@ -970,13 +977,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         };
         let intent_data: Vec<u8> =
             UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::UpdateAdminList,
-            self.group_id.clone(),
-            intent_data,
-        ))?;
+        let intent = self.queue_intent(IntentKind::UpdateAdminList, intent_data)?;
 
-        self.sync_until_intent_resolved(&conn.into(), intent.id)
+        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
             .await
     }
 
@@ -1015,29 +1018,28 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(())
     }
 
-    // Update this installation's leaf key in the group by creating a key update commit
+    /// Update this installation's leaf key in the group by creating a key update commit
     pub async fn key_update(&self) -> Result<(), GroupError> {
-        let conn = self.context().store().conn()?;
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::KeyUpdate,
-            self.group_id.clone(),
-            vec![],
-        ))?;
-
-        self.sync_until_intent_resolved(&conn.into(), intent.id)
+        let intent = self.queue_intent(IntentKind::KeyUpdate, vec![])?;
+        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
             .await
     }
 
+    /// Checks if the the current user is active in the group.
+    ///
+    /// If the current user has been kicked out of the group, `is_active` will return `false`
     pub fn is_active(&self, provider: impl OpenMlsProvider) -> Result<bool, GroupError> {
         let mls_group = self.load_mls_group(provider)?;
         Ok(mls_group.is_active())
     }
 
+    /// Get the `GroupMetadata` of the group.
     pub fn metadata(&self, provider: impl OpenMlsProvider) -> Result<GroupMetadata, GroupError> {
         let mls_group = self.load_mls_group(provider)?;
         Ok(extract_group_metadata(&mls_group)?)
     }
 
+    /// Get the `GroupMutableMetadata` of the group.
     pub fn mutable_metadata(
         &self,
         provider: impl OpenMlsProvider,
@@ -1389,6 +1391,9 @@ fn build_group_config(
         .build())
 }
 
+/**
+ * Ensures that the membership in the MLS tree matches the inboxes specified in the `GroupMembership` extension.
+ */
 async fn validate_initial_group_membership(
     client: impl ScopedGroupClient,
     conn: &DbConnection,
@@ -1522,7 +1527,7 @@ pub(crate) mod tests {
         storage::{
             consent_record::ConsentState,
             group::Purpose,
-            group_intent::{IntentKind, IntentState, NewGroupIntent},
+            group_intent::{IntentKind, IntentState},
             group_message::{GroupMessageKind, StoredGroupMessage},
         },
         utils::test::FullXmtpClient,
@@ -3384,13 +3389,9 @@ pub(crate) mod tests {
             return;
         }
 
-        let conn = provider.conn_ref();
-        conn.insert_group_intent(NewGroupIntent::new(
-            IntentKind::UpdateGroupMembership,
-            group.group_id.clone(),
-            intent_data.into(),
-        ))
-        .unwrap();
+        group
+            .queue_intent(IntentKind::UpdateGroupMembership, intent_data.into())
+            .unwrap();
     }
 
     /**
@@ -3586,7 +3587,66 @@ pub(crate) mod tests {
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    // TODO(rich): Generalize the test once fixed - test messages that are 0, 1, 2, 3, 4, 5 epochs behind
+    async fn test_max_past_epochs() {
+        // Create group with two members
+        let bo_wallet = generate_local_wallet();
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
+        let alix_group = alix
+            .create_group_with_members(
+                vec![bo_wallet.get_address()],
+                None,
+                GroupMetadataOptions::default(),
+            )
+            .await
+            .unwrap();
+        bo.sync_welcomes().await.unwrap();
+        let bo_groups = bo.find_groups(FindGroupParams::default()).unwrap();
+        let bo_group = bo_groups.first().unwrap();
+
+        // Both members see the same amount of messages to start
+        alix_group.send_message("alix 1".as_bytes()).await.unwrap();
+        bo_group.send_message("bo 1".as_bytes()).await.unwrap();
+        alix_group.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
+
+        let alix_messages = alix_group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap();
+        let bo_messages = bo_group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap();
+
+        assert_eq!(alix_messages.len(), 2);
+        assert_eq!(bo_messages.len(), 2);
+
+        // Alix moves the group forward by 1 epoch
+        alix_group
+            .update_group_name("new name".to_string())
+            .await
+            .unwrap();
+
+        // Bo sends a message while 1 epoch behind
+        bo_group.send_message("bo 2".as_bytes()).await.unwrap();
+
+        // If max_past_epochs is working, Alix should be able to decrypt Bo's message
+        alix_group.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
+
+        let alix_messages = alix_group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap();
+        let bo_messages = bo_group
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .unwrap();
+        assert_eq!(bo_messages.len(), 3);
+        assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_validate_dm_group() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let added_by_inbox = "added_by_inbox_id";

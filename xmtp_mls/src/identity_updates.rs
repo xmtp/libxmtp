@@ -92,6 +92,9 @@ where
     ApiClient: XmtpApi + Clone,
     V: SmartContractSignatureVerifier + Clone,
 {
+    /// Get the association state for all provided `inbox_id`/optional `sequence_id` tuples, using the cache when available
+    /// If the association state is not available in the cache, this falls back to reconstructing the association state
+    /// from Identity Updates in the network.
     pub async fn batch_get_association_state<InboxId: AsRef<str>>(
         &self,
         conn: &DbConnection,
@@ -110,6 +113,7 @@ where
         Ok(association_states)
     }
 
+    /// Get the latest association state available on the network for the given `inbox_id`
     pub async fn get_latest_association_state<InboxId: AsRef<str>>(
         &self,
         conn: &DbConnection,
@@ -120,6 +124,8 @@ where
         self.get_association_state(conn, inbox_id, None).await
     }
 
+    /// Get the association state for a given inbox_id up to the (and inclusive of) the `to_sequence_id`
+    /// If no `to_sequence_id` is provided, use the latest value in the database
     pub async fn get_association_state<InboxId: AsRef<str>>(
         &self,
         conn: &DbConnection,
@@ -127,7 +133,6 @@ where
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
         let inbox_id = inbox_id.as_ref();
-        // TODO: Refactor this so that we don't have to fetch all the identity updates if the value is in the cache
         let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
         let last_sequence_id = updates
             .last()
@@ -163,6 +168,8 @@ where
         Ok(association_state)
     }
 
+    /// Calculate the changes between the `starting_sequence_id` and `ending_sequence_id` for the
+    /// provided `inbox_id`
     pub(crate) async fn get_association_state_diff<InboxId: AsRef<str>>(
         &self,
         conn: &DbConnection,
@@ -176,6 +183,7 @@ where
             starting_sequence_id,
             ending_sequence_id
         );
+        // If no starting sequence ID, get all updates from the beginning of the inbox's history up to the ending sequence ID
         if starting_sequence_id.is_none() {
             return Ok(self
                 .get_association_state(conn, inbox_id.as_ref(), ending_sequence_id)
@@ -183,10 +191,12 @@ where
                 .as_diff());
         }
 
+        // Get the initial state to compare against
         let initial_state = self
             .get_association_state(conn, inbox_id.as_ref(), starting_sequence_id)
             .await?;
 
+        // Get any identity updates that need to be applied
         let incremental_updates =
             conn.get_identity_updates(inbox_id.as_ref(), starting_sequence_id, ending_sequence_id)?;
 
@@ -211,6 +221,7 @@ where
         let incremental_updates =
             verify_updates(unverified_incremental_updates, &self.scw_verifier).await?;
         let mut final_state = initial_state.clone();
+        // Apply each update sequentially, aborting in the case of error
         for update in incremental_updates {
             final_state = apply_update(final_state, update)?;
         }
@@ -228,6 +239,8 @@ where
         Ok(initial_state.diff(&final_state))
     }
 
+    /// Generate a `CreateInbox` signature request for the given wallet address.
+    /// If no nonce is provided, use 0
     pub async fn create_inbox(
         &self,
         wallet_address: String,
@@ -262,6 +275,7 @@ where
         Ok(signature_request)
     }
 
+    /// Generate a `AssociateWallet` signature request using an existing wallet and a new wallet address
     pub fn associate_wallet(
         &self,
         existing_wallet_address: String,
@@ -276,6 +290,7 @@ where
             .build())
     }
 
+    /// Revoke the given wallets from the association state for the client's inbox
     pub async fn revoke_wallets(
         &self,
         wallets_to_revoke: Vec<String>,
@@ -300,6 +315,7 @@ where
         Ok(builder.build())
     }
 
+    /// Revoke the given installations from the association state for the client's inbox
     pub async fn revoke_installations(
         &self,
         installation_ids: Vec<Vec<u8>>,
@@ -326,6 +342,12 @@ where
         Ok(builder.build())
     }
 
+    /**
+     * Apply a signature request to the client's inbox by publishing the identity update to the network.
+     *
+     * This will error if the signature request is missing signatures, if the signatures are invalid,
+     * if the update fails other verifications, or if the update fails to be published to the network.
+     **/
     pub async fn apply_signature_request(
         &self,
         signature_request: SignatureRequest,
@@ -335,6 +357,8 @@ where
         let identity_update = signature_request
             .build_identity_update()
             .map_err(IdentityUpdateError::from)?;
+
+        identity_update.to_verified(self.scw_verifier()).await?;
 
         // We don't need to validate the update, since the server will do this for us
         self.api_client
@@ -438,7 +462,8 @@ where
     }
 }
 
-/// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id`, write them in the db, and return the updates
+/// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id`,
+/// write them in the db, and return the updates
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn load_identity_updates<ApiClient: XmtpApi>(
     api_client: &ApiClientWrapper<ApiClient>,
@@ -481,6 +506,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
     Ok(updates)
 }
 
+/// Convert a list of unverified updates to verified updates using the given smart contract verifier
 async fn verify_updates(
     updates: Vec<UnverifiedIdentityUpdate>,
     scw_verifier: impl SmartContractSignatureVerifier,

@@ -39,6 +39,7 @@ impl RetryableError for HpkeError {
     }
 }
 
+/// Encrypt a welcome message using the provided HPKE private key
 #[tracing::instrument(level = "trace", skip_all)]
 pub fn encrypt_welcome(welcome_payload: &[u8], hpke_key: &[u8]) -> Result<Vec<u8>, HpkeError> {
     let crypto = RustCrypto::default();
@@ -56,6 +57,7 @@ pub fn encrypt_welcome(welcome_payload: &[u8], hpke_key: &[u8]) -> Result<Vec<u8
     Ok(serialized_ciphertext)
 }
 
+/// Decrypt a welcome message using the private key associated with the provided public key
 pub fn decrypt_welcome(
     provider: &XmtpOpenMlsProvider,
     hpke_public_key: &[u8],

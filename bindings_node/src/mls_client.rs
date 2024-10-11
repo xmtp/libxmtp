@@ -6,8 +6,9 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 use tokio::sync::Mutex;
+use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
@@ -22,6 +23,7 @@ use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
+static LOGGER_INIT: Once = Once::new();
 
 #[napi]
 #[derive(Eq, Hash, PartialEq)]
@@ -39,6 +41,11 @@ pub struct NapiClient {
   pub account_address: String,
 }
 
+/// Create an MLS client
+/// Optionally specify a filter for the log level as a string.
+/// It can be one of: `debug`, `info`, `warn`, `error` or 'off'.
+/// By default, logging is set to `info`. `off` completely disables logging.
+#[allow(clippy::too_many_arguments)]
 #[napi]
 pub async fn create_client(
   host: String,
@@ -48,7 +55,19 @@ pub async fn create_client(
   account_address: String,
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
+  env_filter: Option<String>,
 ) -> Result<NapiClient> {
+  LOGGER_INIT.call_once(|| {
+    let filter = EnvFilter::builder()
+      .with_regex(false)
+      .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
+      .parse_lossy(env_filter.unwrap_or_default());
+
+    tracing_subscriber::registry()
+      .with(fmt::layer())
+      .with(filter)
+      .init();
+  });
   let api_client = TonicApiClient::create(host.clone(), is_secure)
     .await
     .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
@@ -241,6 +260,20 @@ impl NapiClient {
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(state.into())
+  }
+
+  #[napi]
+  pub async fn addresses_from_inbox_id(
+    &self,
+    refresh_from_network: bool,
+    inbox_ids: Vec<String>,
+  ) -> Result<Vec<NapiInboxState>> {
+    let state = self
+      .inner_client
+      .inbox_addresses(refresh_from_network, inbox_ids)
+      .await
+      .map_err(ErrorWrapper::from)?;
+    Ok(state.into_iter().map(Into::into).collect())
   }
 
   #[napi]

@@ -441,6 +441,7 @@ dependencies = [
  "prost",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "xmtp_api_grpc",
  "xmtp_cryptography",
  "xmtp_id",
@@ -3480,8 +3481,8 @@ dependencies = [
 
 [[package]]
 name = "openmls"
-version = "0.6.0-pre.2"
-source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
+version = "0.6.0"
+source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
 dependencies = [
  "backtrace",
  "fluvio-wasm-timer",
@@ -3505,8 +3506,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_basic_credential"
-version = "0.3.0-pre.1"
-source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
+version = "0.3.0"
+source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
 dependencies = [
  "ed25519-dalek",
  "openmls_traits",
@@ -3518,8 +3519,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_memory_storage"
-version = "0.3.0-pre.2"
-source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
+version = "0.3.0"
+source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
 dependencies = [
  "hex",
  "log",
@@ -3531,8 +3532,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_rust_crypto"
-version = "0.3.0-pre.1"
-source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
+version = "0.3.0"
+source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -3555,8 +3556,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_test"
-version = "0.1.0-pre.1"
-source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
+version = "0.1.0"
+source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
 dependencies = [
  "ansi_term",
  "openmls_rust_crypto",
@@ -3570,8 +3571,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_traits"
-version = "0.3.0-pre.2"
-source = "git+https://github.com/xmtp/openmls?rev=87e7e257d8eb15d6662b104518becfc75ef6db76#87e7e257d8eb15d6662b104518becfc75ef6db76"
+version = "0.3.0"
+source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
 dependencies = [
  "serde",
  "tls_codec",
@@ -6180,6 +6181,7 @@ dependencies = [
  "form_urlencoded",
  "idna",
  "percent-encoding",
+ "serde",
 ]
 
 [[package]]

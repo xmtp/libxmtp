@@ -10,4 +10,8 @@ pub(crate) struct Args {
 
     #[arg(long, default_value_t = 50052)]
     pub(crate) health_check_port: u32,
+
+    // A path to a json file in the same format as chain_urls_default.json in the codebase.
+    #[arg(long)]
+    pub(crate) chain_urls: Option<String>,
 }

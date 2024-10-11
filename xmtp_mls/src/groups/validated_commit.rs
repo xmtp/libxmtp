@@ -202,6 +202,7 @@ impl MetadataFieldChange {
  *      new [`GroupMembership`].
  * 5. All proposals in a commit must come from the same installation
  * 6. No PSK proposals will be allowed
+ * 7. New installations may be missing from the commit but still be present in the expected diff.
  */
 #[derive(Debug, Clone)]
 pub struct ValidatedCommit {
@@ -370,6 +371,10 @@ struct ProposalChanges {
     credentials_to_verify: Vec<CommitParticipant>,
 }
 
+/**
+ * Extracts the installations added and removed via proposals in the commit.
+ * Also returns a list of credentials from existing members that need verification (caused by update proposals)
+ */
 fn get_proposal_changes(
     staged_commit: &StagedCommit,
     openmls_group: &OpenMlsGroup,
@@ -419,6 +424,11 @@ fn get_proposal_changes(
     })
 }
 
+/**
+ * Extracts the latest `GroupMembership` from the staged commit.
+ *
+ * Returns an error if the extension is not found.
+ */
 fn get_latest_group_membership(
     staged_commit: &StagedCommit,
 ) -> Result<GroupMembership, CommitValidationError> {
@@ -500,7 +510,7 @@ async fn extract_expected_diff<'diff>(
 
 /// Compare the list of installations added and removed in the commit to the expected diff based on the changes
 /// to the inbox state.
-/// Satisfies Rule 3
+/// Satisfies Rule 3 and Rule 7
 fn expected_diff_matches_commit(
     expected_diff: &InstallationDiff,
     added_installations: HashSet<Vec<u8>>,
@@ -511,7 +521,6 @@ fn expected_diff_matches_commit(
     // 1. In the expected diff
     // 2. Already a member of the group (for example, the group creator is already a member on the first commit)
 
-    // TODO: Replace this logic with something else
     let unknown_adds = added_installations
         .into_iter()
         .filter(|installation_id| {
@@ -608,6 +617,11 @@ pub fn extract_group_membership(
     Err(CommitValidationError::MissingGroupMembership)
 }
 
+/**
+ * Extracts the changes to the mutable metadata in the commit.
+ *
+ * Returns an error if the extension is not found in either the old or new group context.
+ */
 fn extract_metadata_changes(
     immutable_metadata: &GroupMetadata,
     // We already have the old mutable metadata, so save parsing it a second time
@@ -671,6 +685,9 @@ fn extract_permissions_changed(
     Ok(!old_group_permissions.eq(&new_group_permissions))
 }
 
+/**
+ * Gets the list of inboxes present in the new group membership that are not present in the old group membership.
+ */
 fn get_added_members(
     old: &[String],
     new: &[String],
@@ -683,6 +700,9 @@ fn get_added_members(
         .collect()
 }
 
+/**
+ * Gets the list of inboxes present in the old group membership that are not present in the new group membership.
+ */
 fn get_removed_members(
     old: &[String],
     new: &[String],
@@ -708,6 +728,9 @@ fn build_inbox(
     }
 }
 
+/**
+ * Extracts the changes to the mutable metadata in the commit.
+ */
 fn mutable_metadata_field_changes(
     old_metadata: &GroupMutableMetadata,
     new_metadata: &GroupMutableMetadata,
@@ -739,6 +762,7 @@ fn mutable_metadata_field_changes(
         .collect()
 }
 
+/// Extracts the inbox ID from a credential.
 fn inbox_id_from_credential(
     credential: &OpenMlsCredential,
 ) -> Result<String, CommitValidationError> {

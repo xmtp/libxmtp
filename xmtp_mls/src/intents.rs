@@ -26,6 +26,9 @@ impl Intents {
         self.context.store()
     }
 
+    /// Download all unread welcome messages and convert to groups.
+    /// In a database transaction, increment the cursor for a given entity and
+    /// apply the update after the provided `ProcessingFn` has completed successfully.
     pub(crate) async fn process_for_id<Fut, ProcessingFn, ReturnValue>(
         &self,
         entity_id: &Vec<u8>,
