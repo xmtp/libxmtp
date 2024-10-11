@@ -131,7 +131,7 @@ impl MultiSmartContractSignatureVerifier {
         self
     }
 
-    pub fn add_verifier(&mut self, id: String, url: String) {
+    pub fn add_provider(&mut self, id: String, url: String) {
         self.verifiers
             .insert(id, Box::new(RpcSmartContractWalletVerifier::new(url)));
     }

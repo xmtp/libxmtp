@@ -769,7 +769,7 @@ mod tests {
 
             // So let's immitate more or less what the mls validation is doing locally, and validate there.
             let mut verifier = MultiSmartContractSignatureVerifier::default();
-            verifier.add_verifier(account_id.get_chain_id().to_string(), anvil.endpoint());
+            verifier.add_provider(account_id.get_chain_id().to_string(), anvil.endpoint());
             let response = verifier
                 .is_valid_signature(account_id, hash, signature, None)
                 .await
