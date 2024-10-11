@@ -257,14 +257,11 @@ pub(crate) mod tests {
             .unwrap();
         // Add bola
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
 
-        amal_group
-            .send_message("hello".as_bytes(), &amal)
-            .await
-            .unwrap();
+        amal_group.send_message("hello".as_bytes()).await.unwrap();
         let messages = amal
             .api_client
             .query_group_messages(amal_group.clone().group_id, None)
@@ -274,7 +271,7 @@ pub(crate) mod tests {
         let mut message_bytes: Vec<u8> = Vec::new();
         message.encode(&mut message_bytes).unwrap();
         let message_again = amal_group
-            .process_streamed_group_message(message_bytes, &amal)
+            .process_streamed_group_message(message_bytes)
             .await;
 
         if let Ok(message) = message_again {
@@ -298,7 +295,7 @@ pub(crate) mod tests {
             .unwrap();
         // Add bola
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
 
@@ -306,14 +303,13 @@ pub(crate) mod tests {
         let bola_groups = bola.sync_welcomes().await.unwrap();
         let bola_group = Arc::new(bola_groups.first().unwrap().clone());
 
-        let bola_ptr = bola.clone();
         let bola_group_ptr = bola_group.clone();
         let notify = Delivery::new(Some(Duration::from_secs(10)));
         let notify_ptr = notify.clone();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let mut stream = UnboundedReceiverStream::new(rx);
         crate::spawn(None, async move {
-            let stream = bola_group_ptr.stream(&bola_ptr).await.unwrap();
+            let stream = bola_group_ptr.stream().await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
                 let _ = tx.send(item);
@@ -321,10 +317,7 @@ pub(crate) mod tests {
             }
         });
 
-        amal_group
-            .send_message("hello".as_bytes(), &amal)
-            .await
-            .unwrap();
+        amal_group.send_message("hello".as_bytes()).await.unwrap();
         notify
             .wait_for_delivery()
             .await
@@ -332,10 +325,7 @@ pub(crate) mod tests {
         let first_val = stream.next().await.unwrap();
         assert_eq!(first_val.decrypted_message_bytes, "hello".as_bytes());
 
-        amal_group
-            .send_message("goodbye".as_bytes(), &amal)
-            .await
-            .unwrap();
+        amal_group.send_message("goodbye".as_bytes()).await.unwrap();
 
         notify
             .wait_for_delivery()
@@ -359,10 +349,9 @@ pub(crate) mod tests {
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-        let amal_ptr = amal.clone();
         let group_ptr = group.clone();
         crate::spawn(None, async move {
-            let stream = group_ptr.stream(&amal_ptr).await.unwrap();
+            let stream = group_ptr.stream().await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
                 let _ = tx.send(item);
@@ -371,7 +360,7 @@ pub(crate) mod tests {
 
         for i in 0..10 {
             group
-                .send_message(format!("hello {}", i).as_bytes(), &amal)
+                .send_message(format!("hello {}", i).as_bytes())
                 .await
                 .unwrap();
         }
@@ -400,7 +389,6 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
-        let amal_ptr = amal.clone();
         let amal_group_ptr = amal_group.clone();
         let notify = Delivery::new(Some(Duration::from_secs(20)));
         let notify_ptr = notify.clone();
@@ -409,7 +397,7 @@ pub(crate) mod tests {
         let (start_tx, start_rx) = tokio::sync::oneshot::channel();
         let mut stream = UnboundedReceiverStream::new(rx);
         crate::spawn(None, async move {
-            let stream = amal_group_ptr.stream(&amal_ptr).await.unwrap();
+            let stream = amal_group_ptr.stream().await.unwrap();
             let _ = start_tx.send(());
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
@@ -423,7 +411,7 @@ pub(crate) mod tests {
         crate::sleep(core::time::Duration::from_millis(100)).await;
 
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
         notify
@@ -433,10 +421,7 @@ pub(crate) mod tests {
         let first_val = stream.next().await.unwrap();
         assert_eq!(first_val.kind, GroupMessageKind::MembershipChange);
 
-        amal_group
-            .send_message("hello".as_bytes(), &amal)
-            .await
-            .unwrap();
+        amal_group.send_message("hello".as_bytes()).await.unwrap();
         notify
             .wait_for_delivery()
             .await

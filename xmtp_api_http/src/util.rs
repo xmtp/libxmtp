@@ -5,7 +5,7 @@ use futures::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Deserializer;
 use std::io::Read;
-use xmtp_proto::api_client::{Error, ErrorKind};
+use xmtp_proto::api_client::{trait_impls::XmtpTestClient, Error, ErrorKind};
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(untagged)]
@@ -117,13 +117,13 @@ pub fn create_grpc_stream_inner<
 }
 
 #[cfg(feature = "test-utils")]
-impl XmtpTestClient for XmtpHttpApiClient {
+impl XmtpTestClient for crate::XmtpHttpApiClient {
     async fn create_local() -> Self {
-        XmtpHttpApiClient::new("http://localhost:5555".into()).unwrap()
+        crate::XmtpHttpApiClient::new("http://localhost:5555".into()).unwrap()
     }
 
     async fn create_dev() -> Self {
-        XmtpHttpApiClient::new("https://grpc.dev.xmtp.network:443".into()).unwrap()
+        crate::XmtpHttpApiClient::new("https://grpc.dev.xmtp.network:443".into()).unwrap()
     }
 }
 

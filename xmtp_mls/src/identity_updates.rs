@@ -503,6 +503,7 @@ pub(crate) mod tests {
             builder::SignatureRequest, test_utils::add_wallet_signature, AssociationState,
             MemberIdentifier,
         },
+        scw_verifier::SmartContractSignatureVerifier,
         InboxOwner,
     };
 
@@ -510,18 +511,19 @@ pub(crate) mod tests {
         builder::ClientBuilder,
         groups::group_membership::GroupMembership,
         storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
-        utils::test::rand_vec,
+        utils::test::{rand_vec, FullXmtpClient},
         Client, XmtpApi,
     };
 
     use super::load_identity_updates;
 
-    async fn get_association_state<ApiClient>(
-        client: &Client<ApiClient>,
+    async fn get_association_state<ApiClient, Verifier>(
+        client: &Client<ApiClient, Verifier>,
         inbox_id: String,
     ) -> AssociationState
     where
-        ApiClient: XmtpApi,
+        ApiClient: XmtpApi + Clone,
+        Verifier: SmartContractSignatureVerifier + Clone,
     {
         let conn = client.store().conn().unwrap();
         load_identity_updates(&client.api_client, &conn, vec![inbox_id.clone()])
@@ -674,7 +676,7 @@ pub(crate) mod tests {
         let filtered =
             // Inbox 1 is requesting an inbox ID higher than what is in the DB. Inbox 2 is requesting one that matches the DB.
             // Inbox 3 is requesting one lower than what is in the DB
-            client.filter_inbox_ids_needing_updates(&conn, vec![("inbox_1", 3), ("inbox_2", 2), ("inbox_3", 2)]);
+            conn.filter_inbox_ids_needing_updates(vec![("inbox_1", 3), ("inbox_2", 2), ("inbox_3", 2)]);
         assert_eq!(filtered.unwrap(), vec!["inbox_1"]);
     }
 
@@ -848,8 +850,8 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     pub async fn revoke_installation() {
         let wallet = generate_local_wallet();
-        let client1 = ClientBuilder::new_test_client(&wallet).await;
-        let client2 = ClientBuilder::new_test_client(&wallet).await;
+        let client1: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
+        let client2: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
 
         let association_state = get_association_state(&client1, client1.inbox_id()).await;
         // Ensure there are two installations on the inbox

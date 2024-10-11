@@ -348,7 +348,7 @@ pub(crate) mod tests {
         client::FindGroupParams,
         groups::GroupMetadataOptions,
         storage::group_message::StoredGroupMessage,
-        utils::test::{Delivery, TestClient},
+        utils::test::{Delivery, FullXmtpClient, TestClient},
         Client, StreamHandle,
     };
     use futures::StreamExt;
@@ -387,7 +387,7 @@ pub(crate) mod tests {
 
         let group_id = alice_bob_group.group_id.clone();
         alice_bob_group
-            .add_members_by_inbox_id(&alice, vec![bob.inbox_id()])
+            .add_members_by_inbox_id(vec![bob.inbox_id()])
             .await
             .unwrap();
 
@@ -410,7 +410,7 @@ pub(crate) mod tests {
 
         // let mut bob_stream = bob.stream_conversations().await.unwrap()warning: unused implementer of `futures::Future` that must be used;
         alice_group
-            .add_members_by_inbox_id(&alice, vec![bob.inbox_id()])
+            .add_members_by_inbox_id(vec![bob.inbox_id()])
             .await
             .unwrap();
         let bob_group = bob.sync_welcomes().await.unwrap();
@@ -420,7 +420,7 @@ pub(crate) mod tests {
         let notify_ptr = notify.clone();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         crate::spawn(None, async move {
-            let stream = alice_group.stream(&alice).await.unwrap();
+            let stream = alice_group.stream().await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
                 let _ = tx.send(item);
@@ -429,12 +429,12 @@ pub(crate) mod tests {
         });
         let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
 
-        bob_group.send_message(b"hello", &bob).await.unwrap();
+        bob_group.send_message(b"hello").await.unwrap();
         notify.wait_for_delivery().await.unwrap();
         let message = stream.next().await.unwrap();
         assert_eq!(message.decrypted_message_bytes, b"hello");
 
-        bob_group.send_message(b"hello2", &bob).await.unwrap();
+        bob_group.send_message(b"hello2").await.unwrap();
         notify.wait_for_delivery().await.unwrap();
         let message = stream.next().await.unwrap();
         assert_eq!(message.decrypted_message_bytes, b"hello2");
@@ -456,7 +456,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group
-            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
             .await
             .unwrap();
 
@@ -464,7 +464,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         bo_group
-            .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
             .await
             .unwrap();
         crate::sleep(core::time::Duration::from_millis(100)).await;
@@ -474,7 +474,7 @@ pub(crate) mod tests {
 
         let notify = Delivery::new(None);
         let notify_pointer = notify.clone();
-        let mut handle = Client::<TestClient>::stream_all_messages_with_callback(
+        let mut handle = Client::<TestClient, _>::stream_all_messages_with_callback(
             Arc::new(caro),
             move |message| {
                 (*messages_clone.lock()).push(message);
@@ -483,28 +483,16 @@ pub(crate) mod tests {
         );
         handle.wait_for_ready().await;
 
-        alix_group
-            .send_message("first".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_group.send_message("first".as_bytes()).await.unwrap();
         notify
             .wait_for_delivery()
             .await
             .expect("didn't get `first`");
-        bo_group
-            .send_message("second".as_bytes(), &bo)
-            .await
-            .unwrap();
+        bo_group.send_message("second".as_bytes()).await.unwrap();
         notify.wait_for_delivery().await.unwrap();
-        alix_group
-            .send_message("third".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_group.send_message("third".as_bytes()).await.unwrap();
         notify.wait_for_delivery().await.unwrap();
-        bo_group
-            .send_message("fourth".as_bytes(), &bo)
-            .await
-            .unwrap();
+        bo_group.send_message("fourth".as_bytes()).await.unwrap();
         notify.wait_for_delivery().await.unwrap();
 
         let messages = messages.lock();
@@ -528,7 +516,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group
-            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
             .await
             .unwrap();
 
@@ -536,17 +524,16 @@ pub(crate) mod tests {
         let messages_clone = messages.clone();
         let delivery = Delivery::new(None);
         let delivery_pointer = delivery.clone();
-        let mut handle =
-            Client::<TestClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
+        let mut handle = Client::<TestClient, _>::stream_all_messages_with_callback(
+            caro.clone(),
+            move |message| {
                 delivery_pointer.notify_one();
                 (*messages_clone.lock()).push(message);
-            });
+            },
+        );
         handle.wait_for_ready().await;
 
-        alix_group
-            .send_message("first".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_group.send_message("first".as_bytes()).await.unwrap();
         delivery
             .wait_for_delivery()
             .await
@@ -556,23 +543,17 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         bo_group
-            .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
             .await
             .unwrap();
 
-        bo_group
-            .send_message("second".as_bytes(), &bo)
-            .await
-            .unwrap();
+        bo_group.send_message("second".as_bytes()).await.unwrap();
         delivery
             .wait_for_delivery()
             .await
             .expect("timed out waiting for `second`");
 
-        alix_group
-            .send_message("third".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_group.send_message("third".as_bytes()).await.unwrap();
         delivery
             .wait_for_delivery()
             .await
@@ -582,23 +563,17 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group_2
-            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
             .await
             .unwrap();
 
-        alix_group
-            .send_message("fourth".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_group.send_message("fourth".as_bytes()).await.unwrap();
         delivery
             .wait_for_delivery()
             .await
             .expect("timed out waiting for `fourth`");
 
-        alix_group_2
-            .send_message("fifth".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_group_2.send_message("fifth".as_bytes()).await.unwrap();
         delivery
             .wait_for_delivery()
             .await
@@ -615,7 +590,7 @@ pub(crate) mod tests {
         assert!(a.is_finished());
 
         alix_group
-            .send_message("should not show up".as_bytes(), &alix)
+            .send_message("should not show up".as_bytes())
             .await
             .unwrap();
         crate::sleep(core::time::Duration::from_millis(100)).await;
@@ -638,7 +613,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group
-            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
             .await
             .unwrap();
 
@@ -648,21 +623,19 @@ pub(crate) mod tests {
         let blocked = Arc::new(AtomicU64::new(55));
 
         let blocked_pointer = blocked.clone();
-        let mut handle =
-            Client::<TestClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
+        let mut handle = Client::<TestClient, _>::stream_all_messages_with_callback(
+            caro.clone(),
+            move |message| {
                 (*messages_clone.lock()).push(message);
                 blocked_pointer.fetch_sub(1, Ordering::SeqCst);
-            });
+            },
+        );
         handle.wait_for_ready().await;
 
         let alix_group_pointer = alix_group.clone();
-        let alix_pointer = alix.clone();
         crate::spawn(None, async move {
             for _ in 0..50 {
-                alix_group_pointer
-                    .send_message(b"spam", &alix_pointer)
-                    .await
-                    .unwrap();
+                alix_group_pointer.send_message(b"spam").await.unwrap();
                 crate::sleep(core::time::Duration::from_micros(200)).await;
             }
         });
@@ -672,11 +645,11 @@ pub(crate) mod tests {
                 .create_group(None, GroupMetadataOptions::default())
                 .unwrap();
             new_group
-                .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+                .add_members_by_inbox_id(vec![caro.inbox_id()])
                 .await
                 .unwrap();
             new_group
-                .send_message(b"spam from new group", &alix)
+                .send_message(b"spam from new group")
                 .await
                 .unwrap();
         }
@@ -705,7 +678,7 @@ pub(crate) mod tests {
         let notify = Delivery::new(None);
         let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
 
-        let closer = Client::<TestClient>::stream_conversations_with_callback(
+        let closer = Client::<TestClient, _>::stream_conversations_with_callback(
             alix.clone(),
             move |g| {
                 let mut groups = groups_pointer.lock();
@@ -732,7 +705,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members_by_inbox_id(&bo, vec![alix.inbox_id()])
+            .add_members_by_inbox_id(vec![alix.inbox_id()])
             .await
             .unwrap();
 
@@ -767,7 +740,7 @@ pub(crate) mod tests {
         let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
 
         // Start a stream with enableDm set to false
-        let closer = Client::<TestClient>::stream_conversations_with_callback(
+        let closer = Client::<TestClient, _>::stream_conversations_with_callback(
             alix.clone(),
             move |g| {
                 let mut groups = groups_pointer.lock();
@@ -789,7 +762,7 @@ pub(crate) mod tests {
         // Wait for 2 seconds for the group creation to be streamed
         let notify = Delivery::new(Some(std::time::Duration::from_secs(60)));
         let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
-        let closer = Client::<TestClient>::stream_conversations_with_callback(
+        let closer = FullXmtpClient::stream_conversations_with_callback(
             alix.clone(),
             move |g| {
                 let mut groups = groups_pointer.lock();
@@ -807,7 +780,7 @@ pub(crate) mod tests {
         }
 
         let dm = bo.create_dm_by_inbox_id(alix.inbox_id()).await.unwrap();
-        dm.add_members_by_inbox_id(&bo, vec![alix.inbox_id()])
+        dm.add_members_by_inbox_id(vec![alix.inbox_id()])
             .await
             .unwrap();
         notify.wait_for_delivery().await.unwrap();

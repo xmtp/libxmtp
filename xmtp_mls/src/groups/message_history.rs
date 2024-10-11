@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use xmtp_cryptography::utils as crypto_utils;
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{
     xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{Reply, Request},
     xmtp::mls::message_contents::plaintext_envelope::{Content, V2},
@@ -104,8 +105,9 @@ enum SyncableTables {
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi,
+    V: SmartContractSignatureVerifier,
 {
-    pub fn get_sync_group(&self) -> Result<MlsGroup, GroupError> {
+    pub fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
         let conn = self.store().conn()?;
         let sync_group_id = conn
             .find_sync_groups()?

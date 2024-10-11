@@ -1256,7 +1256,7 @@ pub(crate) mod tests {
     async fn publish_intents_worst_case_scenario() {
         let wallet = generate_local_wallet();
         let amal = Arc::new(ClientBuilder::new_test_client(&wallet).await);
-        let amal_group: Arc<MlsGroup> =
+        let amal_group: Arc<MlsGroup<_>> =
             Arc::new(amal.create_group(None, Default::default()).unwrap());
 
         amal_group.send_message_optimistic(b"1").unwrap();
@@ -1271,7 +1271,7 @@ pub(crate) mod tests {
 
         let mut futures = vec![];
         for _ in 0..10 {
-            futures.push(amal_group.publish_intents(&provider, &amal))
+            futures.push(amal_group.publish_intents(&provider))
         }
         future::join_all(futures).await;
     }

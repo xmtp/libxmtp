@@ -13,7 +13,7 @@ use xmtp_id::{
         test_utils::MockSmartContractSignatureVerifier,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     },
-    scw_verifier::MultiSmartContractSignatureVerifier,
+    scw_verifier::SmartContractSignatureVerifier,
 };
 
 use crate::{
@@ -30,11 +30,10 @@ pub mod traced_test;
 #[cfg(not(target_arch = "wasm32"))]
 pub use traced_test::traced_test;
 
-#[cfg(not(target_arch = "wasm32"))]
-use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
+pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
 
 #[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
-pub type TestClient = GrpcClient;
+pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
 
 #[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 use xmtp_api_http::XmtpHttpApiClient;
@@ -108,9 +107,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
         self.api_client(<TestClient as XmtpTestClient>::create_local().await)
     }
 
-    pub async fn new_test_client(
-        owner: &impl InboxOwner,
-    ) -> Client<TestClient, MockSmartContractSignatureVerifier> {
+    pub async fn new_test_client(owner: &impl InboxOwner) -> FullXmtpClient {
         // crate::utils::wasm::init().await;
         let nonce = 1;
         let inbox_id = generate_inbox_id(&owner.get_address(), &nonce);
@@ -126,6 +123,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
         .await
         .local_client()
         .await
+        .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
         .build_with_verifier()
         .await
         .unwrap();
@@ -152,6 +150,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
         .temp_store()
         .await
         .api_client(dev_client)
+        .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
         .build_with_verifier()
         .await
         .unwrap();
@@ -187,7 +186,7 @@ impl Delivery {
     }
 }
 
-impl Client<TestClient> {
+impl FullXmtpClient {
     pub async fn is_registered(&self, address: &String) -> bool {
         let ids = self
             .api_client
@@ -198,17 +197,17 @@ impl Client<TestClient> {
     }
 }
 
-pub async fn register_client<T: XmtpApi>(client: &Client<T>, owner: &impl InboxOwner) {
+pub async fn register_client<T: XmtpApi + Clone, V: SmartContractSignatureVerifier + Clone>(
+    client: &Client<T, V>,
+    owner: &impl InboxOwner,
+) {
     let mut signature_request = client.context.signature_request().unwrap();
     let signature_text = signature_request.signature_text();
     let unverified_signature = UnverifiedSignature::RecoverableEcdsa(
         UnverifiedRecoverableEcdsaSignature::new(owner.sign(&signature_text).unwrap().into()),
     );
     signature_request
-        .add_signature(
-            unverified_signature,
-            client.smart_contract_signature_verifier().as_ref(),
-        )
+        .add_signature(unverified_signature, client.scw_verifier())
         .await
         .unwrap();
 

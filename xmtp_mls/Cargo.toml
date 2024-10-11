@@ -103,6 +103,7 @@ anyhow.workspace = true
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ethers  = { workspace = true, features = ["openssl"] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc", features = ["test-utils"] }
+xmtp_api_http = { path = "../xmtp_api_http", features = ["test-utils"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "ansi"] }
 tempfile = "3.5.0"
 mockito = "1.4.0"

@@ -579,9 +579,9 @@ where
     }
 
     #[cfg(feature = "message-history")]
-    pub(crate) fn create_sync_group(&self) -> Result<MlsGroup, ClientError> {
+    pub(crate) fn create_sync_group(&self) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating sync group");
-        let sync_group = MlsGroup::create_and_insert_sync_group(self.context.clone())?;
+        let sync_group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()))?;
 
         Ok(sync_group)
     }
@@ -910,7 +910,7 @@ pub(crate) mod tests {
     use super::Client;
     use diesel::RunQueryDsl;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::InboxOwner;
+    use xmtp_id::{scw_verifier::SmartContractSignatureVerifier, InboxOwner};
 
     use crate::{
         builder::ClientBuilder,
@@ -939,7 +939,7 @@ pub(crate) mod tests {
 
         // Add both of Bola's installations to the group
         group
-            .add_members_by_inbox_id(&amal, vec![bola_a.inbox_id(), bola_b.inbox_id()])
+            .add_members_by_inbox_id(vec![bola_a.inbox_id(), bola_b.inbox_id()])
             .await
             .unwrap();
 
@@ -947,7 +947,7 @@ pub(crate) mod tests {
         conn.raw_query(|conn| diesel::delete(identity_updates::table).execute(conn))
             .unwrap();
 
-        let members = group.members(&amal).await.unwrap();
+        let members = group.members().await.unwrap();
         // // The three installations should count as two members
         assert_eq!(members.len(), 2);
     }
@@ -1056,7 +1056,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alice_bob_group
-            .add_members_by_inbox_id(&alice, vec![bob.inbox_id()])
+            .add_members_by_inbox_id(vec![bob.inbox_id()])
             .await
             .unwrap();
 
@@ -1087,11 +1087,11 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_bo_group1
-            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .add_members_by_inbox_id(vec![bo.inbox_id()])
             .await
             .unwrap();
         alix_bo_group2
-            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .add_members_by_inbox_id(vec![bo.inbox_id()])
             .await
             .unwrap();
 
@@ -1110,11 +1110,11 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(bo_messages2.len(), 0);
         alix_bo_group1
-            .send_message(vec![1, 2, 3].as_slice(), &alix)
+            .send_message(vec![1, 2, 3].as_slice())
             .await
             .unwrap();
         alix_bo_group2
-            .send_message(vec![1, 2, 3].as_slice(), &alix)
+            .send_message(vec![1, 2, 3].as_slice())
             .await
             .unwrap();
 
@@ -1166,17 +1166,17 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
-        assert_eq!(amal_group.members(&amal).await.unwrap().len(), 2);
+        assert_eq!(amal_group.members().await.unwrap().len(), 2);
 
         // Now remove bola
         amal_group
-            .remove_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .remove_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
-        assert_eq!(amal_group.members(&amal).await.unwrap().len(), 1);
+        assert_eq!(amal_group.members().await.unwrap().len(), 1);
         tracing::info!("Syncing bolas welcomes");
         // See if Bola can see that they were added to the group
         bola.sync_welcomes().await.unwrap();
@@ -1184,7 +1184,7 @@ pub(crate) mod tests {
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         tracing::info!("Syncing bolas messages");
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
         // TODO: figure out why Bola's status is not updating to be inactive
         // assert!(!bola_group.is_active().unwrap());
 
@@ -1197,19 +1197,19 @@ pub(crate) mod tests {
 
         // Add Bola back to the group
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
 
         // Send a message from Amal, now that Bola is back in the group
         amal_group
-            .send_message(vec![1, 2, 3].as_slice(), &amal)
+            .send_message(vec![1, 2, 3].as_slice())
             .await
             .unwrap();
 
         // Sync Bola's state to get the latest
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
         // Find Bola's updated list of messages
         bola_messages = bola_group
             .find_messages(None, None, None, None, None)
@@ -1247,8 +1247,11 @@ pub(crate) mod tests {
         assert_eq!(address_consent, ConsentState::Denied);
     }
 
-    async fn get_key_package_init_key<ApiClient: XmtpApi>(
-        client: &Client<ApiClient>,
+    async fn get_key_package_init_key<
+        ApiClient: XmtpApi + Clone,
+        Verifier: SmartContractSignatureVerifier + Clone,
+    >(
+        client: &Client<ApiClient, Verifier>,
         installation_id: &[u8],
     ) -> Vec<u8> {
         let kps = client

@@ -55,6 +55,13 @@ pub struct ClientBuilder<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     scw_verifier: Option<V>,
 }
 
+impl<ApiClient, V> Client<ApiClient, V> {
+    /// Ge tthe builder for this [`Client`]
+    pub fn builder(strategy: IdentityStrategy) -> ClientBuilder<ApiClient, V> {
+        ClientBuilder::<ApiClient, V>::new(strategy)
+    }
+}
+
 impl<ApiClient, V> ClientBuilder<ApiClient, V> {
     pub fn new(strategy: IdentityStrategy) -> Self {
         Self {
@@ -213,6 +220,7 @@ pub(crate) mod tests {
     };
     use xmtp_id::associations::ValidatedLegacySignedPublicKey;
     use xmtp_id::associations::{generate_inbox_id, test_utils::rand_u64};
+    use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
     use xmtp_proto::xmtp::identity::api::v1::{
         get_inbox_ids_response::Response as GetInboxIdsResponseItem, GetInboxIdsResponse,
     };
@@ -230,7 +238,10 @@ pub(crate) mod tests {
         Client, InboxOwner,
     };
 
-    async fn register_client<T: XmtpApi>(client: &Client<T>, owner: &impl InboxOwner) {
+    async fn register_client<C: XmtpApi + Clone, V: SmartContractSignatureVerifier + Clone>(
+        client: &Client<C, V>,
+        owner: &impl InboxOwner,
+    ) {
         let mut signature_request = client.context.signature_request().unwrap();
         let signature_text = signature_request.signature_text();
         let scw_verifier = MockSmartContractSignatureVerifier::new(true);
@@ -392,7 +403,8 @@ pub(crate) mod tests {
                 .await
                 .local_client()
                 .await
-                .build()
+                .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
+                .build_with_verifier()
                 .await;
 
             if let Some(err_string) = test_case.err {
@@ -432,7 +444,8 @@ pub(crate) mod tests {
             .store(store.clone())
             .local_client()
             .await
-            .build()
+            .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
+            .build_with_verifier()
             .await
             .unwrap();
         assert!(client1.context.signature_request().is_none());
@@ -441,7 +454,8 @@ pub(crate) mod tests {
             .store(store.clone())
             .local_client()
             .await
-            .build()
+            .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
+            .build_with_verifier()
             .await
             .unwrap();
         assert!(client2.context.signature_request().is_none());
@@ -457,7 +471,8 @@ pub(crate) mod tests {
         .store(store.clone())
         .local_client()
         .await
-        .build()
+        .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
+        .build_with_verifier()
         .await
         .unwrap();
         assert!(client3.context.signature_request().is_none());
@@ -474,7 +489,8 @@ pub(crate) mod tests {
         .await
         .local_client()
         .await
-        .build()
+        .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
+        .build_with_verifier()
         .await
         .unwrap();
         assert!(client4.context.signature_request().is_some());
@@ -660,7 +676,7 @@ pub(crate) mod tests {
 
         let nonce = 1;
         let inbox_id = generate_inbox_id(&wallet.get_address(), &nonce);
-        let client_a = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
+        let client_a = Client::builder(IdentityStrategy::CreateIfNotFound(
             inbox_id.clone(),
             wallet.get_address(),
             nonce,
@@ -669,7 +685,8 @@ pub(crate) mod tests {
         .local_client()
         .await
         .store(store_a)
-        .build()
+        .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
+        .build_with_verifier()
         .await
         .unwrap();
 
@@ -684,7 +701,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let client_b = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
+        let client_b = Client::builder(IdentityStrategy::CreateIfNotFound(
             inbox_id,
             wallet.get_address(),
             nonce,
@@ -693,7 +710,8 @@ pub(crate) mod tests {
         .local_client()
         .await
         .store(store_b)
-        .build()
+        .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
+        .build_with_verifier()
         .await
         .unwrap();
         let keybytes_b = client_b.installation_public_key();
@@ -723,11 +741,12 @@ pub(crate) mod tests {
         let store_d = EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key)
             .await
             .unwrap();
-        let client_d = ClientBuilder::new(IdentityStrategy::CachedOnly)
+        let client_d = Client::builder(IdentityStrategy::CachedOnly)
             .local_client()
             .await
             .store(store_d)
-            .build()
+            .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
+            .build_with_verifier()
             .await
             .unwrap();
         assert_eq!(client_d.installation_public_key(), keybytes_a);
