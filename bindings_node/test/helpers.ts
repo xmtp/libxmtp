@@ -36,7 +36,16 @@ export const createClient = async (user: User) => {
   const inboxId =
     (await getInboxIdForAddress(TEST_API_URL, false, user.account.address)) ||
     generateInboxId(user.account.address)
-  return create(TEST_API_URL, false, dbPath, inboxId, user.account.address)
+  return create(
+    TEST_API_URL,
+    false,
+    dbPath,
+    inboxId,
+    user.account.address,
+    undefined,
+    undefined,
+    'off'
+  )
 }
 
 export const createRegisteredClient = async (user: User) => {
