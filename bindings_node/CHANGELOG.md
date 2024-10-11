@@ -1,4 +1,9 @@
-# @xmtp/mls-client-bindings-node
+# @xmtp/node-bindings
+
+## 0.0.13
+
+- Added logging option when creating a client
+- Added `inboxAddresses` to client
 
 ## 0.0.12
 
