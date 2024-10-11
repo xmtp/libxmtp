@@ -180,7 +180,6 @@ mod tests {
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_traits::types::SignatureScheme;
     use prost::Message;
-    use tracing::info;
     use xmtp_cryptography::utils::{generate_local_wallet, rng};
     use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
     use xmtp_id::associations::unverified::{
