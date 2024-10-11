@@ -347,6 +347,12 @@ impl FfiXmtpClient {
         Ok(state.into_iter().map(Into::into).collect())
     }
 
+    pub async fn get_dm_from_address(&self, address: String) -> Result<FfiGroup, GenericError> {
+        Err(GenericError::Generic {
+            err: "Not found changeme".to_string(),
+        })
+    }
+
     pub async fn get_latest_inbox_state(
         &self,
         inbox_id: String,

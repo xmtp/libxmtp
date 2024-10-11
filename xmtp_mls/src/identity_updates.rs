@@ -486,10 +486,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
     let filters: Vec<GetIdentityUpdatesV2Filter> = inbox_ids
         .into_iter()
         .map(|inbox_id| GetIdentityUpdatesV2Filter {
-            sequence_id: existing_sequence_ids
-                .get(&inbox_id)
-                .copied()
-                .map(|i| i as u64),
+            sequence_id: existing_sequence_ids.get(&inbox_id).map(|i| *i as u64),
             inbox_id,
         })
         .collect();
@@ -497,14 +494,13 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
     let updates = api_client.get_identity_updates_v2(filters).await?;
 
     let to_store = updates
-        .clone()
-        .into_iter()
+        .iter()
         .flat_map(|(inbox_id, updates)| {
-            updates.into_iter().map(move |update| StoredIdentityUpdate {
+            updates.into_iter().map(|update| StoredIdentityUpdate {
                 inbox_id: inbox_id.clone(),
                 sequence_id: update.sequence_id as i64,
                 server_timestamp_ns: update.server_timestamp_ns as i64,
-                payload: update.update.into(),
+                payload: update.update.clone().into(),
             })
         })
         .collect::<Vec<StoredIdentityUpdate>>();

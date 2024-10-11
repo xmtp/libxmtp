@@ -322,10 +322,10 @@ where
     /// Calls the server to look up the `inbox_id` associated with a given address
     pub async fn find_inbox_id_from_address(
         &self,
-        address: String,
+        address: impl ToString,
     ) -> Result<Option<String>, ClientError> {
         let results = self
-            .find_inbox_ids_from_addresses(vec![address.clone()])
+            .find_inbox_ids_from_addresses(vec![address.to_string()])
             .await?;
         if let Some(first_result) = results.into_iter().next() {
             Ok(first_result)
@@ -604,6 +604,35 @@ where
                 hex::encode(group_id)
             )))),
         }
+    }
+
+    pub fn dm_group_inbox(&self, dm_target_inbox_id: String) -> Result<MlsGroup, ClientError> {
+        let conn = self.store().conn()?;
+        match conn.find_dm_group(&dm_target_inbox_id)? {
+            Some(dm_group) => Ok(MlsGroup::new(
+                self.context.clone(),
+                dm_group.id,
+                dm_group.created_at_ns,
+            )),
+            None => Err(ClientError::Storage(StorageError::NotFound(format!(
+                "dm_target_inbox_id {}",
+                hex::encode(dm_target_inbox_id)
+            )))),
+        }
+    }
+
+    pub async fn dm_group_from_address(
+        &self,
+        dm_target_address: String,
+    ) -> Result<MlsGroup, ClientError> {
+        let Some(target_inbox_id) = self.find_inbox_id_from_address(&dm_target_address).await?
+        else {
+            return Err(ClientError::Identity(IdentityError::NoAssociatedInboxId(
+                dm_target_address,
+            )));
+        };
+
+        self.dm_group_inbox(target_inbox_id)
     }
 
     /// Look up a message by its ID
