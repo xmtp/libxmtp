@@ -122,7 +122,15 @@ where
     ApiClient: XmtpApi + Clone,
 {
     /// Build with the default [`RemoteSignatureVerifier`]
-    pub async fn build(self) -> Result<Client<ApiClient>, ClientBuilderError> {
+    pub async fn build(mut self) -> Result<Client<ApiClient>, ClientBuilderError> {
+        let api_client =
+            self.api_client
+                .clone()
+                .take()
+                .ok_or(ClientBuilderError::MissingParameter {
+                    parameter: "api_client",
+                })?;
+        self = self.scw_signature_verifier(RemoteSignatureVerifier::new(api_client));
         inner_build::<ApiClient, RemoteSignatureVerifier<ApiClient>>(self).await
     }
 }

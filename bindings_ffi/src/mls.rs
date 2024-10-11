@@ -992,21 +992,19 @@ impl FfiCreateGroupOptions {
 impl FfiGroup {
     pub async fn send(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        let message_id = group
-            .send_message(content_bytes.as_slice(), &self.inner_client)
-            .await?;
+        let message_id = group.send_message(content_bytes.as_slice()).await?;
         Ok(message_id)
     }
 
     /// send a message without immediately publishing to the delivery service.
     pub fn send_optimistic(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -1019,22 +1017,22 @@ impl FfiGroup {
     /// Publish all unpublished messages
     pub async fn publish_messages(&self) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
-        group.publish_messages(&self.inner_client).await?;
+        group.publish_messages().await?;
         Ok(())
     }
 
     pub async fn sync(&self) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group.sync(&self.inner_client).await?;
+        group.sync().await?;
 
         Ok(())
     }
@@ -1044,7 +1042,7 @@ impl FfiGroup {
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<FfiMessage>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -1071,13 +1069,11 @@ impl FfiGroup {
         envelope_bytes: Vec<u8>,
     ) -> Result<FfiMessage, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
-        let message = group
-            .process_streamed_group_message(envelope_bytes, &self.inner_client)
-            .await?;
+        let message = group.process_streamed_group_message(envelope_bytes).await?;
         let ffi_message = message.into();
 
         Ok(ffi_message)
@@ -1085,13 +1081,13 @@ impl FfiGroup {
 
     pub async fn list_members(&self) -> Result<Vec<FfiGroupMember>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
         let members: Vec<FfiGroupMember> = group
-            .members(&self.inner_client)
+            .members()
             .await?
             .into_iter()
             .map(|member| FfiGroupMember {
@@ -1114,14 +1110,12 @@ impl FfiGroup {
         log::info!("adding members: {}", account_addresses.join(","));
 
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group
-            .add_members(&self.inner_client, account_addresses)
-            .await?;
+        group.add_members(account_addresses).await?;
 
         Ok(())
     }
@@ -1133,28 +1127,24 @@ impl FfiGroup {
         log::info!("adding members by inbox id: {}", inbox_ids.join(","));
 
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group
-            .add_members_by_inbox_id(&self.inner_client, inbox_ids)
-            .await?;
+        group.add_members_by_inbox_id(inbox_ids).await?;
 
         Ok(())
     }
 
     pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group
-            .remove_members(&self.inner_client, account_addresses)
-            .await?;
+        group.remove_members(account_addresses).await?;
 
         Ok(())
     }
@@ -1164,35 +1154,31 @@ impl FfiGroup {
         inbox_ids: Vec<String>,
     ) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group
-            .remove_members_by_inbox_id(&self.inner_client, inbox_ids)
-            .await?;
+        group.remove_members_by_inbox_id(inbox_ids).await?;
 
         Ok(())
     }
 
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group
-            .update_group_name(&self.inner_client, group_name)
-            .await?;
+        group.update_group_name(group_name).await?;
 
         Ok(())
     }
 
     pub fn group_name(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -1208,13 +1194,13 @@ impl FfiGroup {
         group_image_url_square: String,
     ) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
         group
-            .update_group_image_url_square(&self.inner_client, group_image_url_square)
+            .update_group_image_url_square(group_image_url_square)
             .await?;
 
         Ok(())
@@ -1222,7 +1208,7 @@ impl FfiGroup {
 
     pub fn group_image_url_square(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -1237,21 +1223,19 @@ impl FfiGroup {
         group_description: String,
     ) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group
-            .update_group_description(&self.inner_client, group_description)
-            .await?;
+        group.update_group_description(group_description).await?;
 
         Ok(())
     }
 
     pub fn group_description(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -1266,13 +1250,13 @@ impl FfiGroup {
         pinned_frame_url: String,
     ) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
         group
-            .update_group_pinned_frame_url(&self.inner_client, pinned_frame_url)
+            .update_group_pinned_frame_url(pinned_frame_url)
             .await?;
 
         Ok(())
@@ -1280,7 +1264,7 @@ impl FfiGroup {
 
     pub fn group_pinned_frame_url(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -1292,7 +1276,7 @@ impl FfiGroup {
 
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -1304,7 +1288,7 @@ impl FfiGroup {
 
     pub fn super_admin_list(&self) -> Result<Vec<String>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -1326,12 +1310,12 @@ impl FfiGroup {
 
     pub async fn add_admin(&self, inbox_id: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
         group
-            .update_admin_list(&self.inner_client, UpdateAdminListType::Add, inbox_id)
+            .update_admin_list(UpdateAdminListType::Add, inbox_id)
             .await?;
 
         Ok(())
@@ -1339,12 +1323,12 @@ impl FfiGroup {
 
     pub async fn remove_admin(&self, inbox_id: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
         group
-            .update_admin_list(&self.inner_client, UpdateAdminListType::Remove, inbox_id)
+            .update_admin_list(UpdateAdminListType::Remove, inbox_id)
             .await?;
 
         Ok(())
@@ -1352,12 +1336,12 @@ impl FfiGroup {
 
     pub async fn add_super_admin(&self, inbox_id: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
         group
-            .update_admin_list(&self.inner_client, UpdateAdminListType::AddSuper, inbox_id)
+            .update_admin_list(UpdateAdminListType::AddSuper, inbox_id)
             .await?;
 
         Ok(())
@@ -1365,16 +1349,12 @@ impl FfiGroup {
 
     pub async fn remove_super_admin(&self, inbox_id: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
         group
-            .update_admin_list(
-                &self.inner_client,
-                UpdateAdminListType::RemoveSuper,
-                inbox_id,
-            )
+            .update_admin_list(UpdateAdminListType::RemoveSuper, inbox_id)
             .await?;
 
         Ok(())
@@ -1382,7 +1362,7 @@ impl FfiGroup {
 
     pub fn group_permissions(&self) -> Result<Arc<FfiGroupPermissions>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -1400,13 +1380,12 @@ impl FfiGroup {
         metadata_field: Option<FfiMetadataField>,
     ) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
         group
             .update_permission_policy(
-                &self.inner_client,
                 PermissionUpdateType::from(&permission_update_type),
                 permission_policy_option.try_into()?,
                 metadata_field.map(|field| MetadataField::from(&field)),
@@ -1434,7 +1413,7 @@ impl FfiGroup {
 
     pub fn is_active(&self) -> Result<bool, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -1444,7 +1423,7 @@ impl FfiGroup {
 
     pub fn consent_state(&self) -> Result<FfiConsentState, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -1456,7 +1435,7 @@ impl FfiGroup {
 
     pub fn update_consent_state(&self, state: FfiConsentState) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -1468,7 +1447,7 @@ impl FfiGroup {
 
     pub fn added_by_inbox_id(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -1478,7 +1457,7 @@ impl FfiGroup {
 
     pub fn group_metadata(&self) -> Result<Arc<FfiGroupMetadata>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
@@ -1895,12 +1874,12 @@ mod tests {
         #[cfg(test)]
         async fn update_installations(&self) -> Result<(), GroupError> {
             let group = MlsGroup::new(
-                self.inner_client.context().clone(),
+                self.inner_client.clone(),
                 self.group_id.clone(),
                 self.created_at_ns,
             );
 
-            group.update_installations(&self.inner_client).await?;
+            group.update_installations().await?;
             Ok(())
         }
     }

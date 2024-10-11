@@ -104,8 +104,8 @@ enum SyncableTables {
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi,
-    V: SmartContractSignatureVerifier,
+    ApiClient: XmtpApi + Clone,
+    V: SmartContractSignatureVerifier + Clone,
 {
     pub fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
         let conn = self.store().conn()?;
@@ -130,7 +130,7 @@ where
         };
 
         // sync the group
-        sync_group.sync(self).await?;
+        sync_group.sync().await?;
 
         Ok(())
     }
@@ -140,7 +140,7 @@ where
         let groups = conn.find_groups(None, None, None, None, false)?;
         for group in groups {
             let group = self.group(group.id)?;
-            Box::pin(group.add_members_by_inbox_id(self, vec![inbox_id.clone()])).await?;
+            Box::pin(group.add_members_by_inbox_id(vec![inbox_id.clone()])).await?;
         }
 
         Ok(())
@@ -153,7 +153,7 @@ where
         let sync_group = self.get_sync_group()?;
 
         // sync the group
-        sync_group.sync(self).await?;
+        sync_group.sync().await?;
 
         let messages = sync_group.find_messages(
             Some(GroupMessageKind::Application),
@@ -195,7 +195,7 @@ where
             })?;
 
         // publish the intent
-        if let Err(err) = sync_group.publish_intents(&conn.into(), self).await {
+        if let Err(err) = sync_group.publish_intents(&conn.into()).await {
             tracing::error!("error publishing sync group intents: {:?}", err);
         }
 
@@ -211,7 +211,7 @@ where
         let sync_group = self.get_sync_group()?;
 
         // sync the group
-        Box::pin(sync_group.sync(self)).await?;
+        Box::pin(sync_group.sync()).await?;
 
         let messages = sync_group.find_messages(
             Some(GroupMessageKind::Application),
@@ -267,7 +267,7 @@ where
             })?;
 
         // publish the intent
-        if let Err(err) = sync_group.publish_intents(&conn.into(), self).await {
+        if let Err(err) = sync_group.publish_intents(&conn.into()).await {
             tracing::error!("error publishing sync group intents: {:?}", err);
         }
         Ok(())
@@ -279,7 +279,7 @@ where
         let sync_group = self.get_sync_group()?;
 
         // sync the group
-        sync_group.sync(self).await?;
+        sync_group.sync().await?;
 
         let messages = sync_group.find_messages(
             Some(GroupMessageKind::Application),
@@ -327,7 +327,7 @@ where
         let sync_group = self.get_sync_group()?;
 
         // sync the group
-        sync_group.sync(self).await?;
+        sync_group.sync().await?;
 
         let messages = sync_group.find_messages(
             Some(GroupMessageKind::Application),
@@ -389,7 +389,7 @@ where
             let groups = conn.find_groups(None, None, None, None, false)?;
             for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {
                 let group = self.group(id)?;
-                Box::pin(group.sync(self)).await?;
+                Box::pin(group.sync()).await?;
             }
 
             return Ok(());

@@ -37,3 +37,6 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 uniffi = { version = "0.28.0", features = ["bindgen-tests"] }
 uuid = { workspace = true, features = ["v4", "fast-rng"] }
 xmtp_mls = { path = "../xmtp_mls", features = ["test-utils"] }
+xmtp_proto = { path = "../xmtp_proto", features = ["test-utils"] }
+xmtp_api_grpc = { path = "../xmtp_api_grpc", features = ["test-utils"] }
+

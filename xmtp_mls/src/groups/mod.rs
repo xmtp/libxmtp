@@ -828,7 +828,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
     }
 
-    pub async fn update_group_description<ApiClient>(
+    pub async fn update_group_description(
         &self,
         group_description: String,
     ) -> Result<(), GroupError> {
