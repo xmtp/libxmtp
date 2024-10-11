@@ -8,7 +8,6 @@ use ethers::types::transaction::eip2718::TypedTransaction;
 use ethers::types::{Address, BlockNumber, Bytes, TransactionRequest};
 use hex::{FromHex, FromHexError};
 use std::sync::Arc;
-use tracing::info;
 
 use crate::associations::AccountId;
 
@@ -111,6 +110,7 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+#[allow(unused_imports)]
 pub mod tests {
     use crate::is_smart_contract;
 

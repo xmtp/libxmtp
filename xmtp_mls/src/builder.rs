@@ -695,7 +695,7 @@ mod tests {
         assert_eq!(client_d.installation_public_key(), keybytes_a);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn test_remote_is_valid_signature() {
         with_smart_contracts(|anvil, _provider, client, smart_contracts| async move {
             let key = anvil.keys()[0].clone();

@@ -1,7 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use std::env;
 
-use futures::future::Remote;
 use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
@@ -15,7 +14,7 @@ use xmtp_id::{
         test_utils::MockSmartContractSignatureVerifier,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     },
-    scw_verifier::{MultiSmartContractSignatureVerifier, RemoteSignatureVerifier},
+    scw_verifier::RemoteSignatureVerifier,
 };
 
 use crate::{
