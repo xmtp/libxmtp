@@ -8,13 +8,10 @@ use rand::{
 use std::sync::Arc;
 use tokio::{sync::Notify, time::error::Elapsed};
 use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
-use xmtp_id::{
-    associations::{
-        generate_inbox_id,
-        test_utils::MockSmartContractSignatureVerifier,
-        unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
-    },
-    scw_verifier::MultiSmartContractSignatureVerifier,
+use xmtp_id::associations::{
+    generate_inbox_id,
+    test_utils::MockSmartContractSignatureVerifier,
+    unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
 };
 
 use crate::{
@@ -24,6 +21,12 @@ use crate::{
     types::Address,
     Client, InboxOwner, XmtpApi, XmtpTestClient,
 };
+
+#[cfg(feature = "http-api")]
+use xmtp_id::scw_verifier::MultiSmartContractSignatureVerifier;
+
+#[cfg(not(feature = "http-api"))]
+use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 
 #[cfg(feature = "http-api")]
 use xmtp_api_http::XmtpHttpApiClient;
@@ -75,7 +78,7 @@ impl XmtpTestClient for GrpcClient {
     }
 
     async fn create_dev() -> Self {
-        GrpcClient::create("https://grpc.dev.xmtp.network:443".into(), false)
+        GrpcClient::create("https://grpc.dev.xmtp.network:443".into(), true)
             .await
             .unwrap()
     }
@@ -108,8 +111,15 @@ impl ClientBuilder<TestClient> {
     }
 
     pub async fn local_client(self) -> Self {
-        self.api_client(<TestClient as XmtpTestClient>::create_local().await)
-            .scw_signature_verifier(MultiSmartContractSignatureVerifier::default())
+        let api_client = <TestClient as XmtpTestClient>::create_local().await;
+        #[cfg(not(feature = "http-api"))]
+        let scw_signature_verifier =
+            RemoteSignatureVerifier::new(api_client.identity_client().clone());
+        #[cfg(feature = "http-api")]
+        let scw_signature_verifier = MultiSmartContractSignatureVerifier::default();
+
+        self.api_client(api_client)
+            .scw_signature_verifier(scw_signature_verifier)
     }
 
     pub async fn new_test_client(owner: &impl InboxOwner) -> Client<TestClient> {

@@ -109,7 +109,8 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
+#[allow(unused_imports)]
 pub mod tests {
     use crate::is_smart_contract;
 

@@ -164,11 +164,13 @@ mod tests {
     use crate::builder::ClientBuilderError;
     use crate::identity::IdentityError;
     use crate::retry::Retry;
+
     use crate::XmtpApi;
     use crate::{
         api::test_utils::*, identity::Identity, storage::identity::StoredIdentity,
         utils::test::rand_vec, Store,
     };
+
     use openmls::credentials::{Credential, CredentialType};
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_traits::types::SignatureScheme;
@@ -380,7 +382,7 @@ mod tests {
         let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
         let identity_strategy = IdentityStrategy::CreateIfNotFound(
             generate_inbox_id(&legacy_account_address, &0),
-            legacy_account_address.to_string(),
+            legacy_account_address.clone(),
             0,
             Some(legacy_key.clone()),
         );
@@ -680,5 +682,102 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(client_d.installation_public_key(), keybytes_a);
+    }
+
+    #[tokio::test]
+    #[cfg(not(feature = "http-api"))]
+    async fn test_remote_is_valid_signature() {
+        use crate::utils::test::TestClient;
+        use ethers::{
+            abi::Token,
+            signers::{LocalWallet, Signer as _},
+            types::{Bytes, H256, U256},
+        };
+        use std::sync::Arc;
+        use xmtp_id::associations::AccountId;
+        use xmtp_id::is_smart_contract;
+        use xmtp_id::scw_verifier::tests::{with_smart_contracts, CoinbaseSmartWallet};
+        use xmtp_id::scw_verifier::{
+            MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier,
+        };
+
+        with_smart_contracts(|anvil, _provider, client, smart_contracts| async move {
+            let key = anvil.keys()[0].clone();
+            let wallet: LocalWallet = key.clone().into();
+
+            let owners = vec![Bytes::from(H256::from(wallet.address()).0.to_vec())];
+
+            let scw_factory = smart_contracts.coinbase_smart_wallet_factory();
+            let nonce = U256::from(0);
+
+            let scw_addr = scw_factory
+                .get_address(owners.clone(), nonce)
+                .await
+                .unwrap();
+
+            let contract_call = scw_factory.create_account(owners.clone(), nonce);
+
+            contract_call.send().await.unwrap().await.unwrap();
+
+            assert!(is_smart_contract(scw_addr, anvil.endpoint(), None)
+                .await
+                .unwrap());
+
+            let identity_strategy = IdentityStrategy::CreateIfNotFound(
+                generate_inbox_id(&wallet.address().to_string(), &0),
+                wallet.address().to_string(),
+                0,
+                None,
+            );
+            let store = EncryptedMessageStore::new(
+                StorageOption::Persistent(tmp_path()),
+                EncryptedMessageStore::generate_enc_key(),
+            )
+            .unwrap();
+            let api_client: Client<TestClient> = ClientBuilder::new(identity_strategy)
+                .store(store)
+                .local_client()
+                .await
+                .build()
+                .await
+                .unwrap();
+
+            let hash = H256::random().into();
+            let smart_wallet = CoinbaseSmartWallet::new(
+                scw_addr,
+                Arc::new(client.with_signer(wallet.clone().with_chain_id(anvil.chain_id()))),
+            );
+            let replay_safe_hash = smart_wallet.replay_safe_hash(hash).call().await.unwrap();
+            let account_id = AccountId::new_evm(anvil.chain_id(), format!("{scw_addr:?}"));
+
+            let signature: Bytes = ethers::abi::encode(&[Token::Tuple(vec![
+                Token::Uint(U256::from(0)),
+                Token::Bytes(wallet.sign_hash(replay_safe_hash.into()).unwrap().to_vec()),
+            ])])
+            .into();
+
+            let valid_response = api_client
+                .smart_contract_signature_verifier()
+                .is_valid_signature(account_id.clone(), hash, signature.clone(), None)
+                .await
+                .unwrap();
+
+            // The mls validation service can't connect to our anvil instance, so it'll return false
+            // This is to make sure the communication at least works.
+            assert!(!valid_response.is_valid);
+            assert_eq!(valid_response.block_number, None);
+
+            // So let's immitate more or less what the mls validation is doing locally, and validate there.
+            let mut multi_verifier = MultiSmartContractSignatureVerifier::default();
+            multi_verifier.add_verifier(account_id.get_chain_id().to_string(), anvil.endpoint());
+            let response = multi_verifier
+                .is_valid_signature(account_id, hash, signature, None)
+                .await
+                .unwrap();
+
+            assert!(response.is_valid);
+            assert!(response.block_number.is_some());
+        })
+        .await;
     }
 }

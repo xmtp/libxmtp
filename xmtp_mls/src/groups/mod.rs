@@ -973,7 +973,7 @@ impl MlsGroup {
         Ok(mutable_metadata.admin_list)
     }
 
-    /// Retrieves the super admin list of the group from the group's mutable metadata extension.    
+    /// Retrieves the super admin list of the group from the group's mutable metadata extension.
     pub fn super_admin_list(
         &self,
         provider: impl OpenMlsProvider,
