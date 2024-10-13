@@ -271,11 +271,21 @@ impl FfiXmtpClient {
         })
     }
 
-    pub fn group(&self, group_id: Vec<u8>) -> Result<FfiGroup, GenericError> {
+    // deprecated use conversation instead
+    pub fn group(&self, group_id: Vec<u8>) -> Result<FfiConversation, GenericError> {
         let convo = self.inner_client.group(group_id)?;
-        Ok(FfiGroup {
+        Ok(FfiConversation {
             inner_client: self.inner_client.clone(),
-            group_id: convo.group_id,
+            conversation_id: convo.group_id,
+            created_at_ns: convo.created_at_ns,
+        })
+    }
+
+    pub fn conversation(&self, conversation_id: Vec<u8>) -> Result<FfiConversation, GenericError> {
+        let convo = self.inner_client.group(conversation_id)?;
+        Ok(FfiConversation {
+            inner_client: self.inner_client.clone(),
+            conversation_id: convo.group_id,
             created_at_ns: convo.created_at_ns,
         })
     }
@@ -755,7 +765,7 @@ impl FfiConversations {
         &self,
         account_addresses: Vec<String>,
         opts: FfiCreateGroupOptions,
-    ) -> Result<Arc<FfiGroup>, GenericError> {
+    ) -> Result<Arc<FfiConversation>, GenericError> {
         log::info!(
             "creating group with account addresses: {}",
             account_addresses.join(", ")
@@ -801,23 +811,23 @@ impl FfiConversations {
                 .await?
         };
 
-        let out = Arc::new(FfiGroup {
+        let out = Arc::new(FfiConversation {
             inner_client: self.inner_client.clone(),
-            group_id: convo.group_id,
+            conversation_id: convo.group_id,
             created_at_ns: convo.created_at_ns,
         });
 
         Ok(out)
     }
 
-    pub async fn create_dm(&self, account_address: String) -> Result<Arc<FfiGroup>, GenericError> {
+    pub async fn create_dm(&self, account_address: String) -> Result<Arc<FfiConversation>, GenericError> {
         log::info!("creating dm with target address: {}", account_address);
 
         let convo = self.inner_client.create_dm(account_address).await?;
 
-        let out = Arc::new(FfiGroup {
+        let out = Arc::new(FfiConversation {
             inner_client: self.inner_client.clone(),
-            group_id: convo.group_id,
+            conversation_id: convo.group_id,
             created_at_ns: convo.created_at_ns,
         });
 
@@ -827,14 +837,14 @@ impl FfiConversations {
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<Arc<FfiGroup>, GenericError> {
+    ) -> Result<Arc<FfiConversation>, GenericError> {
         let inner = self.inner_client.as_ref();
         let group = inner
             .process_streamed_welcome_message(envelope_bytes)
             .await?;
-        let out = Arc::new(FfiGroup {
+        let out = Arc::new(FfiConversation {
             inner_client: self.inner_client.clone(),
-            group_id: group.group_id,
+            conversation_id: group.group_id,
             created_at_ns: group.created_at_ns,
         });
         Ok(out)
@@ -874,9 +884,9 @@ impl FfiConversations {
     pub async fn list(
         &self,
         opts: FfiListConversationsOptions,
-    ) -> Result<Vec<Arc<FfiGroup>>, GenericError> {
+    ) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
         let inner = self.inner_client.as_ref();
-        let convo_list: Vec<Arc<FfiGroup>> = inner
+        let convo_list: Vec<Arc<FfiConversation>> = inner
             .find_groups(FindGroupParams {
                 allowed_states: None,
                 created_after_ns: opts.created_after_ns,
@@ -886,9 +896,9 @@ impl FfiConversations {
             })?
             .into_iter()
             .map(|group| {
-                Arc::new(FfiGroup {
+                Arc::new(FfiConversation {
                     inner_client: self.inner_client.clone(),
-                    group_id: group.group_id,
+                    conversation_id: group.group_id,
                     created_at_ns: group.created_at_ns,
                 })
             })
@@ -902,9 +912,9 @@ impl FfiConversations {
         let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
             move |convo| {
-                callback.on_conversation(Arc::new(FfiGroup {
+                callback.on_conversation(Arc::new(FfiConversation {
                     inner_client: client.clone(),
-                    group_id: convo.group_id,
+                    conversation_id: convo.group_id,
                     created_at_ns: convo.created_at_ns,
                 }))
             },
@@ -928,14 +938,14 @@ impl FfiConversations {
 }
 
 #[derive(uniffi::Object)]
-pub struct FfiGroup {
+pub struct FfiConversation {
     inner_client: Arc<RustXmtpClient>,
-    group_id: Vec<u8>,
+    conversation_id: Vec<u8>,
     created_at_ns: i64,
 }
 
 #[derive(uniffi::Record)]
-pub struct FfiGroupMember {
+pub struct FfiConversationMember {
     pub inbox_id: String,
     pub account_addresses: Vec<String>,
     pub installation_ids: Vec<Vec<u8>>,
@@ -979,7 +989,7 @@ impl From<FfiConsentState> for ConsentState {
 
 #[derive(uniffi::Enum)]
 pub enum FfiConsentEntityType {
-    GroupId,
+    ConversationId,
     InboxId,
     Address,
 }
@@ -987,7 +997,7 @@ pub enum FfiConsentEntityType {
 impl From<FfiConsentEntityType> for ConsentType {
     fn from(entity_type: FfiConsentEntityType) -> Self {
         match entity_type {
-            FfiConsentEntityType::GroupId => ConsentType::GroupId,
+            FfiConsentEntityType::ConversationId => ConsentType::ConversationId,
             FfiConsentEntityType::InboxId => ConsentType::InboxId,
             FfiConsentEntityType::Address => ConsentType::Address,
         }
@@ -1024,7 +1034,7 @@ impl FfiCreateGroupOptions {
 }
 
 #[uniffi::export(async_runtime = "tokio")]
-impl FfiGroup {
+impl FfiConversation {
     pub async fn send(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
@@ -1101,7 +1111,7 @@ impl FfiGroup {
         Ok(messages)
     }
 
-    pub async fn process_streamed_group_message(
+    pub async fn process_streamed_conversation_message(
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<FfiMessage, GenericError> {
@@ -1118,18 +1128,18 @@ impl FfiGroup {
         Ok(ffi_message)
     }
 
-    pub async fn list_members(&self) -> Result<Vec<FfiGroupMember>, GenericError> {
+    pub async fn list_members(&self) -> Result<Vec<FfiConversationMember>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        let members: Vec<FfiGroupMember> = group
+        let members: Vec<FfiConversationMember> = group
             .members(&self.inner_client)
             .await?
             .into_iter()
-            .map(|member| FfiGroupMember {
+            .map(|member| FfiConversationMember {
                 inbox_id: member.inbox_id,
                 account_addresses: member.account_addresses,
                 installation_ids: member.installation_ids,
@@ -1511,7 +1521,7 @@ impl FfiGroup {
         Ok(group.added_by_inbox_id()?)
     }
 
-    pub fn group_metadata(&self) -> Result<Arc<FfiGroupMetadata>, GenericError> {
+    pub fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
             self.group_id.clone(),
@@ -1519,30 +1529,30 @@ impl FfiGroup {
         );
 
         let metadata = group.metadata(group.mls_provider()?)?;
-        Ok(Arc::new(FfiGroupMetadata {
+        Ok(Arc::new(FfiConversationMetadata {
             inner: Arc::new(metadata),
         }))
     }
 }
 
 #[uniffi::export]
-impl FfiGroup {
+impl FfiConversation {
     pub fn id(&self) -> Vec<u8> {
         self.group_id.clone()
     }
 }
 
 #[derive(uniffi::Enum, PartialEq)]
-pub enum FfiGroupMessageKind {
+pub enum FfiConversationMessageKind {
     Application,
     MembershipChange,
 }
 
-impl From<GroupMessageKind> for FfiGroupMessageKind {
+impl From<GroupMessageKind> for FfiConversationMessageKind {
     fn from(kind: GroupMessageKind) -> Self {
         match kind {
-            GroupMessageKind::Application => FfiGroupMessageKind::Application,
-            GroupMessageKind::MembershipChange => FfiGroupMessageKind::MembershipChange,
+            GroupMessageKind::Application => FfiConversationMessageKind::Application,
+            GroupMessageKind::MembershipChange => FfiConversationMessageKind::MembershipChange,
         }
     }
 }
@@ -1581,7 +1591,7 @@ pub struct FfiMessage {
     pub convo_id: Vec<u8>,
     pub sender_inbox_id: String,
     pub content: Vec<u8>,
-    pub kind: FfiGroupMessageKind,
+    pub kind: FfiConversationMessageKind,
     pub delivery_status: FfiDeliveryStatus,
 }
 
@@ -1687,16 +1697,16 @@ pub trait FfiMessageCallback: Send + Sync {
 
 #[uniffi::export(callback_interface)]
 pub trait FfiConversationCallback: Send + Sync {
-    fn on_conversation(&self, conversation: Arc<FfiGroup>);
+    fn on_conversation(&self, conversation: Arc<FfiConversation>);
 }
 
 #[derive(uniffi::Object)]
-pub struct FfiGroupMetadata {
+pub struct FfiConversationMetadata {
     inner: Arc<GroupMetadata>,
 }
 
 #[uniffi::export]
-impl FfiGroupMetadata {
+impl FfiConversationMetadata {
     pub fn creator_inbox_id(&self) -> String {
         self.inner.creator_inbox_id.clone()
     }
@@ -1757,7 +1767,7 @@ mod tests {
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConsent,
         FfiConsentEntityType, FfiConsentState, FfiConversationCallback, FfiCreateGroupOptions,
-        FfiGroup, FfiGroupMessageKind, FfiGroupPermissionsOptions, FfiInboxOwner,
+        FfiConversation, FfiConversationMessageKind, FfiGroupPermissionsOptions, FfiInboxOwner,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy,
         FfiPermissionPolicySet, FfiPermissionUpdateType,
     };
@@ -1825,7 +1835,7 @@ mod tests {
     struct RustStreamCallback {
         num_messages: Arc<AtomicU32>,
         messages: Arc<Mutex<Vec<FfiMessage>>>,
-        conversations: Arc<Mutex<Vec<Arc<FfiGroup>>>>,
+        conversations: Arc<Mutex<Vec<Arc<FfiConversation>>>>,
         notify: Arc<Notify>,
     }
 
@@ -1857,7 +1867,7 @@ mod tests {
     }
 
     impl FfiConversationCallback for RustStreamCallback {
-        fn on_conversation(&self, group: Arc<super::FfiGroup>) {
+        fn on_conversation(&self, group: Arc<super::FfiConversation>) {
             log::debug!("received conversation");
             let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
             let mut convos = self.conversations.lock().unwrap();
@@ -1924,7 +1934,7 @@ mod tests {
         new_test_client_with_wallet(wallet).await
     }
 
-    impl FfiGroup {
+    impl FfiConversation {
         #[cfg(test)]
         async fn update_installations(&self) -> Result<(), GroupError> {
             let group = MlsGroup::new(
@@ -2985,7 +2995,7 @@ mod tests {
         let bo_messages = bo_group
             .find_messages(FfiListMessagesOptions::default())
             .unwrap();
-        assert!(bo_messages.first().unwrap().kind == FfiGroupMessageKind::MembershipChange);
+        assert!(bo_messages.first().unwrap().kind == FfiConversationMessageKind::MembershipChange);
         assert_eq!(bo_messages.len(), 1);
 
         let bo_members = bo_group.list_members().await.unwrap();
@@ -3164,7 +3174,7 @@ mod tests {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
 
-        let amal_group: Arc<FfiGroup> = amal
+        let amal_group: Arc<FfiConversation> = amal
             .conversations()
             .create_group(
                 vec![bola.account_address.clone()],
