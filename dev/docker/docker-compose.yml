@@ -26,6 +26,8 @@ services:
     build:
       context: ../..
       dockerfile: ./dev/validation_service/local.Dockerfile
+    environment:
+      FOUNDRY_URL: "https://foundry"
 
   foundry:
     image: ghcr.io/foundry-rs/foundry
