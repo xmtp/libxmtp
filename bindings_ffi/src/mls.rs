@@ -347,10 +347,27 @@ impl FfiXmtpClient {
         Ok(state.into_iter().map(Into::into).collect())
     }
 
-    pub async fn dm_from_address(&self, address: String) -> Result<FfiGroup, GenericError> {
-        Err(GenericError::Generic {
-            err: "Not found changeme".to_string(),
-        })
+    /**
+     * Get the inbox_id for each address.
+     */
+    pub async fn inbox_ids_from_addresses(
+        &self,
+        addresses: Vec<String>,
+    ) -> Result<Vec<String>, GenericError> {
+        let inbox_ids = self
+            .inner_client
+            .find_inbox_ids_from_addresses(addresses)
+            .await?;
+
+        Ok(inbox_ids)
+    }
+
+    pub fn dm_group(&self, target_inbox_id: String) -> Result<FfiGroup, GenericError> {
+        let group = self
+            .inner_client
+            .dm_group_from_target_inbox(target_inbox_id)?;
+
+        Ok(group)
     }
 
     pub async fn get_latest_inbox_state(

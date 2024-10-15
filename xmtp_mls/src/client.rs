@@ -612,9 +612,12 @@ where
      *
      * Returns a [`MlsGroup`] if the group exists, or an error if it does not
      */
-    pub fn dm_group_inbox(&self, dm_target_inbox_id: String) -> Result<MlsGroup, ClientError> {
+    pub fn dm_group_from_target_inbox(
+        &self,
+        target_inbox_id: String,
+    ) -> Result<MlsGroup, ClientError> {
         let conn = self.store().conn()?;
-        match conn.find_dm_group(&dm_target_inbox_id)? {
+        match conn.find_dm_group(&target_inbox_id)? {
             Some(dm_group) => Ok(MlsGroup::new(
                 self.context.clone(),
                 dm_group.id,
@@ -622,33 +625,9 @@ where
             )),
             None => Err(ClientError::Storage(StorageError::NotFound(format!(
                 "dm_target_inbox_id {}",
-                hex::encode(dm_target_inbox_id)
+                hex::encode(target_inbox_id)
             )))),
         }
-    }
-
-    /**
-     * Look up a DM group by the target's address.
-     *
-     * Returns a [`MlsGroup`] if the group exists, or an error if it does not
-     *
-     * You should prefer use of dm_group_inbox if you have the inbox_id
-     * as it's more performant. This function invokes an inbox_id lookup.
-     */
-    pub async fn dm_group_address(
-        &self,
-        dm_target_address: String,
-    ) -> Result<MlsGroup, ClientError> {
-        let Some(target_inbox_id) = self
-            .find_inbox_id_from_address(dm_target_address.clone())
-            .await?
-        else {
-            return Err(ClientError::Identity(IdentityError::NoAssociatedInboxId(
-                dm_target_address,
-            )));
-        };
-
-        self.dm_group_inbox(target_inbox_id)
     }
 
     /// Look up a message by its ID
