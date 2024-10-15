@@ -172,7 +172,7 @@ pub mod tests {
         let key = hex::decode("2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6")
             .unwrap();
         let contract_deployer = LocalWallet::from_bytes(&key).unwrap();
-        let provider = Provider::<Http>::try_from("https://foundry:8545").unwrap();
+        let provider = Provider::<Http>::try_from("http://localhost:8545").unwrap();
         let client = SignerMiddleware::new(
             provider.clone(),
             contract_deployer.clone().with_chain_id(31337u64),
