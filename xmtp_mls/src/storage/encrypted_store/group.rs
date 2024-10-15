@@ -536,6 +536,10 @@ pub(crate) mod tests {
             assert_eq!(dm_results.len(), 3);
             assert_eq!(dm_results[2].id, test_group_3.id);
 
+            // test find_dm_group
+            let dm_result = conn.find_dm_group("placeholder_inbox_id").unwrap();
+            assert!(dm_result.is_some());
+
             // test only dms are returned
             let dm_results = conn
                 .find_groups(None, None, None, None, Some(ConversationType::Dm))
