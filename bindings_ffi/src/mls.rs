@@ -959,7 +959,7 @@ impl FfiConversations {
         Ok(convo_list)
     }
 
-    pub async fn stream(&self, callback: Box<dyn FfiConversationCallback>) -> FfiStreamCloser {
+    pub async fn stream_groups(&self, callback: Box<dyn FfiConversationCallback>) -> FfiStreamCloser {
         let client = self.inner_client.clone();
         let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
@@ -971,6 +971,23 @@ impl FfiConversations {
                 }))
             },
             false,
+        );
+
+        FfiStreamCloser::new(handle)
+    }
+
+    pub async fn stream_conversations(&self, callback: Box<dyn FfiConversationCallback>) -> FfiStreamCloser {
+        let client = self.inner_client.clone();
+        let handle = RustXmtpClient::stream_conversations_with_callback(
+            client.clone(),
+            move |convo| {
+                callback.on_conversation(Arc::new(FfiConversation {
+                    inner_client: client.clone(),
+                    conversation_id: convo.group_id,
+                    created_at_ns: convo.created_at_ns,
+                }))
+            },
+            true,
         );
 
         FfiStreamCloser::new(handle)
