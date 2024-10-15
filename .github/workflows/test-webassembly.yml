@@ -17,6 +17,7 @@ env:
   CARGO_TERM_COLOR: always
   WASM_BINDGEN_TEST_TIMEOUT: 120
   WASM_BINDGEN_TEST_ONLY_WEB: 1
+  WASM_BINDGEN_SPLIT_LINKED_MODULES: 1
 jobs:
   test:
     name: Test
@@ -24,9 +25,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - uses: jetli/wasm-bindgen-action@v0.2.0
-        with:
-          version: 'latest'
+      - uses: taiki-e/install-action@wasm-bindgen
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:

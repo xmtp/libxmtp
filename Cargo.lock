@@ -638,9 +638,9 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
 name = "cc"
-version = "1.1.29"
+version = "1.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58e804ac3194a48bb129643eb1d62fcc20d18c6b8c181704489353d13120bcd1"
+checksum = "b16803a61b81d9eabb7eae2588776c4c1e584b738ede45fdbb4c972cec1e9945"
 dependencies = [
  "jobserver",
  "libc",
@@ -1173,7 +1173,7 @@ dependencies = [
 [[package]]
 name = "diesel"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#9ed7de24c0b9a0afce8dbae845316d74fb795258"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#a3ea5242567b1a44f3b606d9b552bdd23065e001"
 dependencies = [
  "diesel_derives",
  "downcast-rs",
@@ -1185,7 +1185,6 @@ dependencies = [
 [[package]]
 name = "diesel-wasm-sqlite"
 version = "0.0.1"
-source = "git+https://github.com/xmtp/diesel-wasm-sqlite?branch=main#eac6c9064f346b32e226379d60c624d9424e08bb"
 dependencies = [
  "diesel",
  "diesel_derives",
@@ -1203,7 +1202,7 @@ dependencies = [
 [[package]]
 name = "diesel_derives"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#9ed7de24c0b9a0afce8dbae845316d74fb795258"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#a3ea5242567b1a44f3b606d9b552bdd23065e001"
 dependencies = [
  "diesel_table_macro_syntax",
  "dsl_auto_type",
@@ -1215,7 +1214,7 @@ dependencies = [
 [[package]]
 name = "diesel_migrations"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#9ed7de24c0b9a0afce8dbae845316d74fb795258"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#a3ea5242567b1a44f3b606d9b552bdd23065e001"
 dependencies = [
  "diesel",
  "migrations_internals",
@@ -1225,7 +1224,7 @@ dependencies = [
 [[package]]
 name = "diesel_table_macro_syntax"
 version = "0.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#9ed7de24c0b9a0afce8dbae845316d74fb795258"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#a3ea5242567b1a44f3b606d9b552bdd23065e001"
 dependencies = [
  "syn 2.0.79",
 ]
@@ -1308,7 +1307,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "dsl_auto_type"
 version = "0.1.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#9ed7de24c0b9a0afce8dbae845316d74fb795258"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#a3ea5242567b1a44f3b606d9b552bdd23065e001"
 dependencies = [
  "darling",
  "either",
@@ -2942,7 +2941,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -3081,7 +3080,7 @@ checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 [[package]]
 name = "migrations_internals"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#9ed7de24c0b9a0afce8dbae845316d74fb795258"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#a3ea5242567b1a44f3b606d9b552bdd23065e001"
 dependencies = [
  "serde",
  "toml 0.8.19",
@@ -3090,7 +3089,7 @@ dependencies = [
 [[package]]
 name = "migrations_macros"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#9ed7de24c0b9a0afce8dbae845316d74fb795258"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#a3ea5242567b1a44f3b606d9b552bdd23065e001"
 dependencies = [
  "migrations_internals",
  "proc-macro2",
@@ -3253,9 +3252,9 @@ checksum = "defc4c55412d89136f966bbb339008b474350e5e6e78d2714439c386b3137a03"
 
 [[package]]
 name = "napi"
-version = "2.16.11"
+version = "2.16.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53575dfa17f208dd1ce3a2da2da4659aae393b256a472f2738a8586a6c4107fd"
+checksum = "3a84fdaf64da2b2d86b1be5db1b81963353bf00f7bef4b9e2668bbe6f72e8eb3"
 dependencies = [
  "bitflags 2.6.0",
  "ctor",
@@ -4663,9 +4662,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-pki-types"
-version = "1.9.0"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e696e35370c65c9c541198af4543ccd580cf17fc25d8e05c5a242b202488c55"
+checksum = "16f1201b3c9a7ee8039bcadc17b7e605e2945b27eee7631788c1bd2b0643674b"
 
 [[package]]
 name = "rustls-webpki"
@@ -4690,9 +4689,9 @@ dependencies = [
 
 [[package]]
 name = "rustversion"
-version = "1.0.17"
+version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "955d28af4278de8121b7ebeb796b6a45735dc01436d898801014aced2773a3d6"
+checksum = "0e819f2bc632f285be6d7cd36e25940d45b2391dd6d9b939e79de557f7014248"
 
 [[package]]
 name = "ryu"
