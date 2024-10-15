@@ -896,7 +896,11 @@ mod tests {
         let closer = Client::<TestClient>::stream_conversations_with_callback(
             alix.clone(),
             move |g| {
-                let mut groups: parking_lot::lock_api::MutexGuard<'_, parking_lot::RawMutex, Vec<crate::groups::MlsGroup>> = groups_pointer.lock();
+                let mut groups: parking_lot::lock_api::MutexGuard<
+                    '_,
+                    parking_lot::RawMutex,
+                    Vec<crate::groups::MlsGroup>,
+                > = groups_pointer.lock();
                 groups.push(g);
                 notify_pointer.notify_one();
             },
@@ -920,7 +924,6 @@ mod tests {
             let grps = groups.lock();
             assert_eq!(grps.len(), 1);
         }
-
 
         closer.handle.abort();
 
@@ -998,7 +1001,11 @@ mod tests {
         let mut closer = Client::<TestClient>::stream_all_messages_with_callback(
             bo.clone(),
             move |message| {
-                let mut messages: parking_lot::lock_api::MutexGuard<'_, parking_lot::RawMutex, Vec<StoredGroupMessage>> = messages_pointer.lock();
+                let mut messages: parking_lot::lock_api::MutexGuard<
+                    '_,
+                    parking_lot::RawMutex,
+                    Vec<StoredGroupMessage>,
+                > = messages_pointer.lock();
                 messages.push(message);
                 notify_pointer.notify_one();
             },
@@ -1036,7 +1043,11 @@ mod tests {
         let mut closer = Client::<TestClient>::stream_all_messages_with_callback(
             bo.clone(),
             move |message| {
-                let mut messages: parking_lot::lock_api::MutexGuard<'_, parking_lot::RawMutex, Vec<StoredGroupMessage>> = messages_pointer.lock();
+                let mut messages: parking_lot::lock_api::MutexGuard<
+                    '_,
+                    parking_lot::RawMutex,
+                    Vec<StoredGroupMessage>,
+                > = messages_pointer.lock();
                 messages.push(message);
                 notify_pointer.notify_one();
             },
@@ -1050,7 +1061,10 @@ mod tests {
             .unwrap();
 
         let result = notify.wait_for_delivery().await;
-        assert!(result.is_err(), "Stream unexpectedly received a Group message");
+        assert!(
+            result.is_err(),
+            "Stream unexpectedly received a Group message"
+        );
 
         alix_dm
             .send_message("second".as_bytes(), &alix)
@@ -1065,7 +1079,6 @@ mod tests {
 
         closer.handle.abort();
 
-
         // Start a stream with all conversations
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         // Wait for 2 seconds for the group creation to be streamed
@@ -1075,7 +1088,11 @@ mod tests {
         let mut closer = Client::<TestClient>::stream_all_messages_with_callback(
             bo.clone(),
             move |message| {
-                let mut messages: parking_lot::lock_api::MutexGuard<'_, parking_lot::RawMutex, Vec<StoredGroupMessage>> = messages_pointer.lock();
+                let mut messages: parking_lot::lock_api::MutexGuard<
+                    '_,
+                    parking_lot::RawMutex,
+                    Vec<StoredGroupMessage>,
+                > = messages_pointer.lock();
                 messages.push(message);
                 notify_pointer.notify_one();
             },
