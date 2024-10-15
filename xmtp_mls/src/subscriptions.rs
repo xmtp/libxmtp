@@ -854,7 +854,7 @@ mod tests {
         let notify = Delivery::new(Some(std::time::Duration::from_secs(1)));
         let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
 
-        // Start a stream with enableDm set to false
+        // Start a stream with conversation_type Group
         let closer = Client::<TestClient>::stream_conversations_with_callback(
             alix.clone(),
             move |g| {
@@ -870,13 +870,66 @@ mod tests {
         let result = notify.wait_for_delivery().await;
         assert!(result.is_err(), "Stream unexpectedly received a DM group");
 
+        let group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        group
+            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .await
+            .unwrap();
+
+        notify.wait_for_delivery().await.unwrap();
+        {
+            let grps = groups.lock();
+            assert_eq!(grps.len(), 1);
+        }
+
         closer.handle.abort();
 
-        // Start a stream with enableDm set to true
+        // Start a stream with only dms
+        let groups = Arc::new(Mutex::new(Vec::new()));
+        // Wait for 2 seconds for the group creation to be streamed
+        let notify = Delivery::new(Some(std::time::Duration::from_secs(1)));
+        let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
+
+        // Start a stream with conversation_type DM
+        let closer = Client::<TestClient>::stream_conversations_with_callback(
+            alix.clone(),
+            move |g| {
+                let mut groups: parking_lot::lock_api::MutexGuard<'_, parking_lot::RawMutex, Vec<crate::groups::MlsGroup>> = groups_pointer.lock();
+                groups.push(g);
+                notify_pointer.notify_one();
+            },
+            Some(ConversationType::Dm),
+        );
+
+        let group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        group
+            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .await
+            .unwrap();
+
+        let result = notify.wait_for_delivery().await;
+        assert!(result.is_err(), "Stream unexpectedly received a Group");
+
+        alix.create_dm_by_inbox_id(bo.inbox_id()).await.unwrap();
+        notify.wait_for_delivery().await.unwrap();
+        {
+            let grps = groups.lock();
+            assert_eq!(grps.len(), 1);
+        }
+
+
+        closer.handle.abort();
+
+        // Start a stream with all conversations
         let groups = Arc::new(Mutex::new(Vec::new()));
         // Wait for 2 seconds for the group creation to be streamed
         let notify = Delivery::new(Some(std::time::Duration::from_secs(60)));
         let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
+        // Start a stream with conversation_type None
         let closer = Client::<TestClient>::stream_conversations_with_callback(
             alix.clone(),
             move |g| {
@@ -902,6 +955,154 @@ mod tests {
         {
             let grps = groups.lock();
             assert_eq!(grps.len(), 2);
+        }
+
+        let group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        group
+            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .await
+            .unwrap();
+
+        notify.wait_for_delivery().await.unwrap();
+        {
+            let grps = groups.lock();
+            assert_eq!(grps.len(), 3);
+        }
+
+        closer.handle.abort();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_dm_stream_all_messages() {
+        let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        alix_group
+            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .await
+            .unwrap();
+
+        let alix_dm = alix.create_dm_by_inbox_id(bo.inbox_id()).await.unwrap();
+
+        // Start a stream with only groups
+        let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
+        // Wait for 2 seconds for the group creation to be streamed
+        let notify = Delivery::new(Some(std::time::Duration::from_secs(1)));
+        let (notify_pointer, messages_pointer) = (notify.clone(), messages.clone());
+
+        let mut closer = Client::<TestClient>::stream_all_messages_with_callback(
+            bo.clone(),
+            move |message| {
+                let mut messages: parking_lot::lock_api::MutexGuard<'_, parking_lot::RawMutex, Vec<StoredGroupMessage>> = messages_pointer.lock();
+                messages.push(message);
+                notify_pointer.notify_one();
+            },
+            Some(ConversationType::Group),
+        );
+        closer.wait_for_ready().await;
+
+        alix_dm
+            .send_message("first".as_bytes(), &alix)
+            .await
+            .unwrap();
+
+        let result = notify.wait_for_delivery().await;
+        assert!(result.is_err(), "Stream unexpectedly received a DM message");
+
+        alix_group
+            .send_message("second".as_bytes(), &alix)
+            .await
+            .unwrap();
+
+        notify.wait_for_delivery().await.unwrap();
+        {
+            let msgs = messages.lock();
+            assert_eq!(msgs.len(), 1);
+        }
+
+        closer.handle.abort();
+
+        // Start a stream with only dms
+        let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
+        // Wait for 2 seconds for the group creation to be streamed
+        let notify = Delivery::new(Some(std::time::Duration::from_secs(1)));
+        let (notify_pointer, messages_pointer) = (notify.clone(), messages.clone());
+
+        let mut closer = Client::<TestClient>::stream_all_messages_with_callback(
+            bo.clone(),
+            move |message| {
+                let mut messages: parking_lot::lock_api::MutexGuard<'_, parking_lot::RawMutex, Vec<StoredGroupMessage>> = messages_pointer.lock();
+                messages.push(message);
+                notify_pointer.notify_one();
+            },
+            Some(ConversationType::Dm),
+        );
+        closer.wait_for_ready().await;
+
+        alix_group
+            .send_message("first".as_bytes(), &alix)
+            .await
+            .unwrap();
+
+        let result = notify.wait_for_delivery().await;
+        assert!(result.is_err(), "Stream unexpectedly received a Group message");
+
+        alix_dm
+            .send_message("second".as_bytes(), &alix)
+            .await
+            .unwrap();
+
+        notify.wait_for_delivery().await.unwrap();
+        {
+            let msgs = messages.lock();
+            assert_eq!(msgs.len(), 1);
+        }
+
+        closer.handle.abort();
+
+
+        // Start a stream with all conversations
+        let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
+        // Wait for 2 seconds for the group creation to be streamed
+        let notify = Delivery::new(Some(std::time::Duration::from_secs(1)));
+        let (notify_pointer, messages_pointer) = (notify.clone(), messages.clone());
+
+        let mut closer = Client::<TestClient>::stream_all_messages_with_callback(
+            bo.clone(),
+            move |message| {
+                let mut messages: parking_lot::lock_api::MutexGuard<'_, parking_lot::RawMutex, Vec<StoredGroupMessage>> = messages_pointer.lock();
+                messages.push(message);
+                notify_pointer.notify_one();
+            },
+            None,
+        );
+        closer.wait_for_ready().await;
+
+        alix_group
+            .send_message("first".as_bytes(), &alix)
+            .await
+            .unwrap();
+
+        notify.wait_for_delivery().await.unwrap();
+        {
+            let msgs = messages.lock();
+            assert_eq!(msgs.len(), 1);
+        }
+
+        alix_dm
+            .send_message("second".as_bytes(), &alix)
+            .await
+            .unwrap();
+
+        notify.wait_for_delivery().await.unwrap();
+        {
+            let msgs = messages.lock();
+            assert_eq!(msgs.len(), 2);
         }
 
         closer.handle.abort();
