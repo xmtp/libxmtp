@@ -1953,10 +1953,11 @@ mod tests {
             self.num_messages.load(Ordering::SeqCst)
         }
 
-        pub async fn wait_for_delivery(&self) -> Result<(), Elapsed> {
-            tokio::time::timeout(std::time::Duration::from_secs(60), async {
-                self.notify.notified().await
-            })
+        pub async fn wait_for_delivery(&self, timeout_secs: Option<u64>) -> Result<(), Elapsed> {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(timeout_secs.unwrap_or(60)),
+                async { self.notify.notified().await },
+            )
             .await?;
             Ok(())
         }
@@ -2546,7 +2547,7 @@ mod tests {
             .update_group_name("Old Name".to_string())
             .await
             .unwrap();
-        message_callbacks.wait_for_delivery().await.unwrap();
+        message_callbacks.wait_for_delivery(None).await.unwrap();
 
         let bo_groups = bo
             .conversations()
@@ -2559,14 +2560,14 @@ mod tests {
             .update_group_name("Old Name2".to_string())
             .await
             .unwrap();
-        message_callbacks.wait_for_delivery().await.unwrap();
+        message_callbacks.wait_for_delivery(None).await.unwrap();
 
         // Uncomment the following lines to add more group name updates
         bo_group
             .update_group_name("Old Name3".to_string())
             .await
             .unwrap();
-        message_callbacks.wait_for_delivery().await.unwrap();
+        message_callbacks.wait_for_delivery(None).await.unwrap();
 
         assert_eq!(message_callbacks.message_count(), 3);
 
@@ -3147,9 +3148,9 @@ mod tests {
             .update_group_name("hello".to_string())
             .await
             .unwrap();
-        message_callbacks.wait_for_delivery().await.unwrap();
+        message_callbacks.wait_for_delivery(None).await.unwrap();
         alix_group.send("hello1".as_bytes().to_vec()).await.unwrap();
-        message_callbacks.wait_for_delivery().await.unwrap();
+        message_callbacks.wait_for_delivery(None).await.unwrap();
 
         let bo_groups = bo
             .conversations()
@@ -3166,9 +3167,9 @@ mod tests {
         assert_eq!(bo_messages1.len(), first_msg_check);
 
         bo_group.send("hello2".as_bytes().to_vec()).await.unwrap();
-        message_callbacks.wait_for_delivery().await.unwrap();
+        message_callbacks.wait_for_delivery(None).await.unwrap();
         bo_group.send("hello3".as_bytes().to_vec()).await.unwrap();
-        message_callbacks.wait_for_delivery().await.unwrap();
+        message_callbacks.wait_for_delivery(None).await.unwrap();
 
         alix_group.sync().await.unwrap();
 
@@ -3178,7 +3179,7 @@ mod tests {
         assert_eq!(alix_messages.len(), second_msg_check);
 
         alix_group.send("hello4".as_bytes().to_vec()).await.unwrap();
-        message_callbacks.wait_for_delivery().await.unwrap();
+        message_callbacks.wait_for_delivery(None).await.unwrap();
         bo_group.sync().await.unwrap();
 
         let bo_messages2 = bo_group
@@ -3211,7 +3212,7 @@ mod tests {
             .await
             .unwrap();
 
-        stream_callback.wait_for_delivery().await.unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
 
         assert_eq!(stream_callback.message_count(), 1);
         // Create another group and add bola
@@ -3222,7 +3223,7 @@ mod tests {
             )
             .await
             .unwrap();
-        stream_callback.wait_for_delivery().await.unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
 
         assert_eq!(stream_callback.message_count(), 2);
 
@@ -3254,7 +3255,7 @@ mod tests {
         stream.wait_for_ready().await;
 
         alix_group.send("first".as_bytes().to_vec()).await.unwrap();
-        stream_callback.wait_for_delivery().await.unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
 
         let bo_group = bo
             .conversations()
@@ -3267,11 +3268,11 @@ mod tests {
         let _ = caro.inner_client.sync_welcomes().await.unwrap();
 
         bo_group.send("second".as_bytes().to_vec()).await.unwrap();
-        stream_callback.wait_for_delivery().await.unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
         alix_group.send("third".as_bytes().to_vec()).await.unwrap();
-        stream_callback.wait_for_delivery().await.unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
         bo_group.send("fourth".as_bytes().to_vec()).await.unwrap();
-        stream_callback.wait_for_delivery().await.unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
 
         assert_eq!(stream_callback.message_count(), 4);
         stream.end_and_wait().await.unwrap();
@@ -3303,13 +3304,13 @@ mod tests {
         stream_closer.wait_for_ready().await;
 
         amal_group.send("hello".as_bytes().to_vec()).await.unwrap();
-        stream_callback.wait_for_delivery().await.unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
 
         amal_group
             .send("goodbye".as_bytes().to_vec())
             .await
             .unwrap();
-        stream_callback.wait_for_delivery().await.unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
 
         assert_eq!(stream_callback.message_count(), 2);
         stream_closer.end_and_wait().await.unwrap();
@@ -3342,9 +3343,9 @@ mod tests {
         stream_closer.wait_for_ready().await;
 
         amal_group.send(b"hello1".to_vec()).await.unwrap();
-        stream_callback.wait_for_delivery().await.unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
         amal_group.send(b"hello2".to_vec()).await.unwrap();
-        stream_callback.wait_for_delivery().await.unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
 
         assert_eq!(stream_callback.message_count(), 2);
         assert!(!stream_closer.is_closed());
@@ -3353,7 +3354,7 @@ mod tests {
             .remove_members_by_inbox_id(vec![bola.inbox_id().clone()])
             .await
             .unwrap();
-        stream_callback.wait_for_delivery().await.unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 3); // Member removal transcript message
                                                         //
         amal_group.send(b"hello3".to_vec()).await.unwrap();
@@ -3372,7 +3373,7 @@ mod tests {
         assert_eq!(stream_callback.message_count(), 3); // Don't receive transcript messages while removed
 
         amal_group.send("hello4".as_bytes().to_vec()).await.unwrap();
-        stream_callback.wait_for_delivery().await.unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 4); // Receiving messages again
         assert!(!stream_closer.is_closed());
 
@@ -3453,10 +3454,10 @@ mod tests {
             )
             .await
             .unwrap();
-        group_callback.wait_for_delivery().await.unwrap();
+        group_callback.wait_for_delivery(None).await.unwrap();
 
         alix_group.send("hello1".as_bytes().to_vec()).await.unwrap();
-        message_callback.wait_for_delivery().await.unwrap();
+        message_callback.wait_for_delivery(None).await.unwrap();
 
         assert_eq!(group_callback.message_count(), 1);
         assert_eq!(message_callback.message_count(), 1);
@@ -3941,6 +3942,181 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_dm_streaming() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Stream all conversations
+        let stream_callback = RustStreamCallback::default();
+        let stream = bo
+            .conversations()
+            .stream(Box::new(stream_callback.clone()))
+            .await;
+
+        alix.conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        stream_callback.wait_for_delivery(None).await.unwrap();
+
+        assert_eq!(stream_callback.message_count(), 1);
+        alix.conversations()
+            .create_dm(bo.account_address.clone())
+            .await
+            .unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
+
+        assert_eq!(stream_callback.message_count(), 2);
+
+        stream.end_and_wait().await.unwrap();
+        assert!(stream.is_closed());
+
+        // Stream just groups
+        let stream_callback = RustStreamCallback::default();
+        let stream = bo
+            .conversations()
+            .stream_groups(Box::new(stream_callback.clone()))
+            .await;
+
+        alix.conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        stream_callback.wait_for_delivery(None).await.unwrap();
+
+        assert_eq!(stream_callback.message_count(), 1);
+        alix.conversations()
+            .create_dm(bo.account_address.clone())
+            .await
+            .unwrap();
+        let result = stream_callback.wait_for_delivery(Some(2)).await;
+        assert!(result.is_err(), "Stream unexpectedly received a DM");
+        assert_eq!(stream_callback.message_count(), 1);
+
+        stream.end_and_wait().await.unwrap();
+        assert!(stream.is_closed());
+
+        // Stream just dms
+        let stream_callback = RustStreamCallback::default();
+        let stream = bo
+            .conversations()
+            .stream_dms(Box::new(stream_callback.clone()))
+            .await;
+
+        alix.conversations()
+            .create_dm(bo.account_address.clone())
+            .await
+            .unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
+        assert_eq!(stream_callback.message_count(), 1);
+
+        alix.conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        let result = stream_callback.wait_for_delivery(Some(2)).await;
+        assert!(result.is_err(), "Stream unexpectedly received a Group");
+        assert_eq!(stream_callback.message_count(), 1);
+
+        stream.end_and_wait().await.unwrap();
+        assert!(stream.is_closed());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_stream_all_dm_messages() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+        let alix_dm = alix
+            .conversations()
+            .create_dm(bo.account_address.clone())
+            .await
+            .unwrap();
+
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Stream all conversations
+        let stream_callback = RustStreamCallback::default();
+        let stream = bo
+            .conversations()
+            .stream_all_messages(Box::new(stream_callback.clone()))
+            .await;
+        stream.wait_for_ready().await;
+
+        alix_group.send("first".as_bytes().to_vec()).await.unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
+        assert_eq!(stream_callback.message_count(), 1);
+
+        alix_dm.send("second".as_bytes().to_vec()).await.unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
+        assert_eq!(stream_callback.message_count(), 2);
+
+        stream.end_and_wait().await.unwrap();
+        assert!(stream.is_closed());
+
+        // Stream just groups
+        let stream_callback = RustStreamCallback::default();
+        let stream = bo
+            .conversations()
+            .stream_all_group_messages(Box::new(stream_callback.clone()))
+            .await;
+        stream.wait_for_ready().await;
+
+        alix_group.send("first".as_bytes().to_vec()).await.unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
+        assert_eq!(stream_callback.message_count(), 1);
+
+        alix_dm.send("second".as_bytes().to_vec()).await.unwrap();
+        let result = stream_callback.wait_for_delivery(Some(2)).await;
+        assert!(result.is_err(), "Stream unexpectedly received a DM message");
+        assert_eq!(stream_callback.message_count(), 1);
+
+        stream.end_and_wait().await.unwrap();
+        assert!(stream.is_closed());
+
+        // Stream just dms
+        let stream_callback = RustStreamCallback::default();
+        let stream = bo
+            .conversations()
+            .stream_all_dm_messages(Box::new(stream_callback.clone()))
+            .await;
+        stream.wait_for_ready().await;
+
+        alix_dm.send("first".as_bytes().to_vec()).await.unwrap();
+        stream_callback.wait_for_delivery(None).await.unwrap();
+        assert_eq!(stream_callback.message_count(), 1);
+
+        alix_group.send("second".as_bytes().to_vec()).await.unwrap();
+        let result = stream_callback.wait_for_delivery(Some(2)).await;
+        assert!(
+            result.is_err(),
+            "Stream unexpectedly received a Group message"
+        );
+        assert_eq!(stream_callback.message_count(), 1);
+
+        stream.end_and_wait().await.unwrap();
+        assert!(stream.is_closed());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_set_and_get_group_consent() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
@@ -3976,6 +4152,42 @@ mod tests {
         .await
         .unwrap();
         let bo_updated_consent = bo_group.consent_state().unwrap();
+        assert_eq!(bo_updated_consent, FfiConsentState::Allowed);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_set_and_get_dm_consent() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        let alix_dm = alix
+            .conversations()
+            .create_dm(bo.account_address.clone())
+            .await
+            .unwrap();
+
+        let alix_initial_consent = alix_dm.consent_state().unwrap();
+        assert_eq!(alix_initial_consent, FfiConsentState::Allowed);
+
+        bo.conversations().sync().await.unwrap();
+        let bo_dm = bo.conversation(alix_dm.id()).unwrap();
+
+        let bo_initial_consent = bo_dm.consent_state().unwrap();
+        assert_eq!(bo_initial_consent, FfiConsentState::Unknown);
+
+        alix_dm
+            .update_consent_state(FfiConsentState::Denied)
+            .unwrap();
+        let alix_updated_consent = alix_dm.consent_state().unwrap();
+        assert_eq!(alix_updated_consent, FfiConsentState::Denied);
+        bo.set_consent_states(vec![FfiConsent {
+            state: FfiConsentState::Allowed,
+            entity_type: FfiConsentEntityType::ConversationId,
+            entity: hex::encode(bo_dm.id()),
+        }])
+        .await
+        .unwrap();
+        let bo_updated_consent = bo_dm.consent_state().unwrap();
         assert_eq!(bo_updated_consent, FfiConsentState::Allowed);
     }
 
