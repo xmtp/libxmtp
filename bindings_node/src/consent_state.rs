@@ -38,7 +38,7 @@ pub enum NapiConsentEntityType {
 impl From<NapiConsentEntityType> for ConsentType {
   fn from(entity_type: NapiConsentEntityType) -> Self {
     match entity_type {
-      NapiConsentEntityType::GroupId => ConsentType::GroupId,
+      NapiConsentEntityType::GroupId => ConsentType::ConversationId,
       NapiConsentEntityType::InboxId => ConsentType::InboxId,
       NapiConsentEntityType::Address => ConsentType::Address,
     }

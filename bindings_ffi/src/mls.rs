@@ -932,7 +932,7 @@ impl FfiConversations {
     ) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversation>> = inner
-            .find_dms(FindGroupParams {
+            .find_groups(FindGroupParams {
                 allowed_states: None,
                 created_after_ns: opts.created_after_ns,
                 created_before_ns: opts.created_before_ns,
@@ -974,7 +974,7 @@ impl FfiConversations {
 
     pub async fn stream_dms(&self, callback: Box<dyn FfiConversationCallback>) -> FfiStreamCloser {
         let client = self.inner_client.clone();
-        let handle = RustXmtpClient::stream_dms_with_callback(
+        let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
             move |convo| {
                 callback.on_conversation(Arc::new(FfiConversation {
@@ -1023,7 +1023,7 @@ impl FfiConversations {
         &self,
         message_callback: Box<dyn FfiMessageCallback>,
     ) -> FfiStreamCloser {
-        let handle = RustXmtpClient::stream_all_dm_messages_with_callback(
+        let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             move |message| message_callback.on_message(message.into()),
             Some(ConversationType::Dm),
@@ -1147,7 +1147,7 @@ impl FfiConversation {
     pub async fn send(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1161,7 +1161,7 @@ impl FfiConversation {
     pub fn send_optimistic(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1174,7 +1174,7 @@ impl FfiConversation {
     pub async fn publish_messages(&self) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
         group.publish_messages(&self.inner_client).await?;
@@ -1184,7 +1184,7 @@ impl FfiConversation {
     pub async fn sync(&self) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1199,7 +1199,7 @@ impl FfiConversation {
     ) -> Result<Vec<FfiMessage>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1226,7 +1226,7 @@ impl FfiConversation {
     ) -> Result<FfiMessage, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
         let message = group
@@ -1240,7 +1240,7 @@ impl FfiConversation {
     pub async fn list_members(&self) -> Result<Vec<FfiConversationMember>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1269,7 +1269,7 @@ impl FfiConversation {
 
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1288,7 +1288,7 @@ impl FfiConversation {
 
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1302,7 +1302,7 @@ impl FfiConversation {
     pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1319,7 +1319,7 @@ impl FfiConversation {
     ) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1333,7 +1333,7 @@ impl FfiConversation {
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1347,7 +1347,7 @@ impl FfiConversation {
     pub fn group_name(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1363,7 +1363,7 @@ impl FfiConversation {
     ) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1377,7 +1377,7 @@ impl FfiConversation {
     pub fn group_image_url_square(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1392,7 +1392,7 @@ impl FfiConversation {
     ) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1406,7 +1406,7 @@ impl FfiConversation {
     pub fn group_description(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1421,7 +1421,7 @@ impl FfiConversation {
     ) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1435,7 +1435,7 @@ impl FfiConversation {
     pub fn group_pinned_frame_url(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1447,7 +1447,7 @@ impl FfiConversation {
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1459,7 +1459,7 @@ impl FfiConversation {
     pub fn super_admin_list(&self) -> Result<Vec<String>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1481,7 +1481,7 @@ impl FfiConversation {
     pub async fn add_admin(&self, inbox_id: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
         group
@@ -1494,7 +1494,7 @@ impl FfiConversation {
     pub async fn remove_admin(&self, inbox_id: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
         group
@@ -1507,7 +1507,7 @@ impl FfiConversation {
     pub async fn add_super_admin(&self, inbox_id: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
         group
@@ -1520,7 +1520,7 @@ impl FfiConversation {
     pub async fn remove_super_admin(&self, inbox_id: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
         group
@@ -1537,7 +1537,7 @@ impl FfiConversation {
     pub fn group_permissions(&self) -> Result<Arc<FfiGroupPermissions>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1555,7 +1555,7 @@ impl FfiConversation {
     ) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
         group
@@ -1574,7 +1574,7 @@ impl FfiConversation {
         let inner_client = Arc::clone(&self.inner_client);
         let handle = MlsGroup::stream_with_callback(
             inner_client,
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
             move |message| message_callback.on_message(message.into()),
         );
@@ -1589,7 +1589,7 @@ impl FfiConversation {
     pub fn is_active(&self) -> Result<bool, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1599,7 +1599,7 @@ impl FfiConversation {
     pub fn consent_state(&self) -> Result<FfiConsentState, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1611,7 +1611,7 @@ impl FfiConversation {
     pub fn update_consent_state(&self, state: FfiConsentState) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1623,7 +1623,7 @@ impl FfiConversation {
     pub fn added_by_inbox_id(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1633,7 +1633,7 @@ impl FfiConversation {
     pub fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.context().clone(),
-            self.group_id.clone(),
+            self.conversation_id.clone(),
             self.created_at_ns,
         );
 
@@ -1647,7 +1647,7 @@ impl FfiConversation {
 #[uniffi::export]
 impl FfiConversation {
     pub fn id(&self) -> Vec<u8> {
-        self.group_id.clone()
+        self.conversation_id.clone()
     }
 }
 
@@ -2048,7 +2048,7 @@ mod tests {
         async fn update_installations(&self) -> Result<(), GroupError> {
             let group = MlsGroup::new(
                 self.inner_client.context().clone(),
-                self.group_id.clone(),
+                self.conversation_id.clone(),
                 self.created_at_ns,
             );
 
@@ -2599,8 +2599,8 @@ mod tests {
 
         let alix_group1 = alix_groups[0].clone();
         let alix_group5 = alix_groups[5].clone();
-        let bo_group1 = bo.group(alix_group1.id()).unwrap();
-        let bo_group5 = bo.group(alix_group5.id()).unwrap();
+        let bo_group1 = bo.conversation(alix_group1.id()).unwrap();
+        let bo_group5 = bo.conversation(alix_group5.id()).unwrap();
 
         alix_group1.send("alix1".as_bytes().to_vec()).await.unwrap();
         alix_group5.send("alix1".as_bytes().to_vec()).await.unwrap();
@@ -2614,7 +2614,7 @@ mod tests {
         assert_eq!(bo_messages1.len(), 0);
         assert_eq!(bo_messages5.len(), 0);
 
-        bo.conversations().sync_all_groups().await.unwrap();
+        bo.conversations().sync_all_conversations().await.unwrap();
 
         let bo_messages1 = bo_group1
             .find_messages(FfiListMessagesOptions::default())
@@ -2642,7 +2642,7 @@ mod tests {
                 .unwrap();
         }
         bo.conversations().sync().await.unwrap();
-        let num_groups_synced_1: u32 = bo.conversations().sync_all_groups().await.unwrap();
+        let num_groups_synced_1: u32 = bo.conversations().sync_all_conversations().await.unwrap();
         assert!(num_groups_synced_1 == 30);
 
         // Remove bo from all groups and sync
@@ -2659,11 +2659,11 @@ mod tests {
         }
 
         // First sync after removal needs to process all groups and set them to inactive
-        let num_groups_synced_2: u32 = bo.conversations().sync_all_groups().await.unwrap();
+        let num_groups_synced_2: u32 = bo.conversations().sync_all_conversations().await.unwrap();
         assert!(num_groups_synced_2 == 30);
 
         // Second sync after removal will not process inactive groups
-        let num_groups_synced_3: u32 = bo.conversations().sync_all_groups().await.unwrap();
+        let num_groups_synced_3: u32 = bo.conversations().sync_all_conversations().await.unwrap();
         assert!(num_groups_synced_3 == 0);
     }
 
@@ -2686,7 +2686,7 @@ mod tests {
             .unwrap();
 
         bo.conversations().sync().await.unwrap();
-        let bo_group = bo.group(alix_group.id()).unwrap();
+        let bo_group = bo.conversation(alix_group.id()).unwrap();
 
         bo_group.send("bo1".as_bytes().to_vec()).await.unwrap();
         // Temporary workaround for OpenMLS issue - make sure Alix's epoch is up-to-date
@@ -2768,8 +2768,8 @@ mod tests {
         client2.conversations().sync().await.unwrap();
 
         // Find groups for both clients
-        let client1_group = client1.group(group.id()).unwrap();
-        let client2_group = client2.group(group.id()).unwrap();
+        let client1_group = client1.conversation(group.id()).unwrap();
+        let client2_group = client2.conversation(group.id()).unwrap();
 
         // Sync both groups
         client1_group.sync().await.unwrap();
@@ -2801,7 +2801,7 @@ mod tests {
         assert_eq!(client1_members.len(), 2);
 
         client2.conversations().sync().await.unwrap();
-        let client2_group = client2.group(group.id()).unwrap();
+        let client2_group = client2.conversation(group.id()).unwrap();
         let client2_members = client2_group.list_members().await.unwrap();
         assert_eq!(client2_members.len(), 2);
     }
@@ -2840,9 +2840,9 @@ mod tests {
         caro.conversations().sync().await.unwrap();
 
         // Alix and Caro find the group
-        let alix_group = alix.group(group.id()).unwrap();
-        let bo_group = bo.group(group.id()).unwrap();
-        let caro_group = caro.group(group.id()).unwrap();
+        let alix_group = alix.conversation(group.id()).unwrap();
+        let bo_group = bo.conversation(group.id()).unwrap();
+        let caro_group = caro.conversation(group.id()).unwrap();
 
         alix_group.update_installations().await.unwrap();
         log::info!("Alix sending first message");
@@ -2882,7 +2882,7 @@ mod tests {
 
         // New installation of bo finds the group
         bo2.conversations().sync().await.unwrap();
-        let bo2_group = bo2.group(group.id()).unwrap();
+        let bo2_group = bo2.conversation(group.id()).unwrap();
 
         log::info!("Bo sending fourth message");
         // Bo sends a message to the group
@@ -2949,7 +2949,7 @@ mod tests {
 
         bo.conversations().sync().await.unwrap();
 
-        let bo_group = bo.group(alix_group.id()).unwrap();
+        let bo_group = bo.conversation(alix_group.id()).unwrap();
 
         // Move forward 4 epochs
         alix_group
@@ -3020,7 +3020,7 @@ mod tests {
             .unwrap();
 
         bo.conversations().sync().await.unwrap();
-        let bo_group = bo.group(alix_group.id()).unwrap();
+        let bo_group = bo.conversation(alix_group.id()).unwrap();
 
         bo_group.send("bo1".as_bytes().to_vec()).await.unwrap();
         alix_group.send("alix1".as_bytes().to_vec()).await.unwrap();
@@ -3076,7 +3076,7 @@ mod tests {
             .unwrap();
 
         bo.conversations().sync().await.unwrap();
-        let bo_group = bo.group(alix_group.id()).unwrap();
+        let bo_group = bo.conversation(alix_group.id()).unwrap();
 
         alix_group.sync().await.unwrap();
         let alix_members = alix_group.list_members().await.unwrap();
@@ -3293,7 +3293,9 @@ mod tests {
             .unwrap();
 
         bola.inner_client.sync_welcomes().await.unwrap();
-        let bola_group = bola.group(amal_group.group_id.clone()).unwrap();
+        let bola_group = bola
+            .conversation(amal_group.conversation_id.clone())
+            .unwrap();
 
         let stream_callback = RustStreamCallback::default();
         let stream_closer = bola_group.stream(Box::new(stream_callback.clone())).await;
@@ -3895,9 +3897,9 @@ mod tests {
             .create_dm(bola.account_address.clone())
             .await
             .unwrap();
-        let alix_num_sync = alix_conversations.sync_all_groups().await.unwrap();
+        let alix_num_sync = alix_conversations.sync_all_conversations().await.unwrap();
         bola_conversations.sync().await.unwrap();
-        let bola_num_sync = bola_conversations.sync_all_groups().await.unwrap();
+        let bola_num_sync = bola_conversations.sync_all_conversations().await.unwrap();
         assert_eq!(alix_num_sync, 1);
         assert_eq!(bola_num_sync, 1);
 
@@ -3932,7 +3934,7 @@ mod tests {
         assert_eq!(alix_initial_consent, FfiConsentState::Allowed);
 
         bo.conversations().sync().await.unwrap();
-        let bo_group = bo.group(alix_group.id()).unwrap();
+        let bo_group = bo.conversation(alix_group.id()).unwrap();
 
         let bo_initial_consent = bo_group.consent_state().unwrap();
         assert_eq!(bo_initial_consent, FfiConsentState::Unknown);
@@ -3944,7 +3946,7 @@ mod tests {
         assert_eq!(alix_updated_consent, FfiConsentState::Denied);
         bo.set_consent_states(vec![FfiConsent {
             state: FfiConsentState::Allowed,
-            entity_type: FfiConsentEntityType::GroupId,
+            entity_type: FfiConsentEntityType::ConversationId,
             entity: hex::encode(bo_group.id()),
         }])
         .await
