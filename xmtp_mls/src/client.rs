@@ -41,8 +41,9 @@ use xmtp_proto::xmtp::mls::api::v1::{
 use crate::{
     api::ApiClientWrapper,
     groups::{
-        group_permissions::PolicySet, validated_commit::CommitValidationError, GroupError,
-        GroupMetadataOptions, IntentError, MlsGroup,
+        group_metadata::ConversationType, group_permissions::PolicySet,
+        validated_commit::CommitValidationError, GroupError, GroupMetadataOptions, IntentError,
+        MlsGroup,
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
@@ -224,7 +225,7 @@ pub struct FindGroupParams {
     pub created_after_ns: Option<i64>,
     pub created_before_ns: Option<i64>,
     pub limit: Option<i64>,
-    pub include_dm_groups: bool,
+    pub conversation_type: Option<ConversationType>,
 }
 
 /// Clients manage access to the network, identity, and data store
@@ -636,7 +637,7 @@ where
                 params.created_after_ns,
                 params.created_before_ns,
                 params.limit,
-                params.include_dm_groups,
+                params.conversation_type,
             )?
             .into_iter()
             .map(|stored_group| {

@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 #[diesel(table_name = consent_records)]
 #[diesel(primary_key(entity_type, entity))]
 pub struct StoredConsentRecord {
-    /// Enum, [`ConsentType`] representing the type of consent (group_id inbox_id, etc..)
+    /// Enum, [`ConsentType`] representing the type of consent (conversation_id inbox_id, etc..)
     pub entity_type: ConsentType,
     /// Enum, [`ConsentState`] representing the state of consent (allowed, denied, etc..)
     pub state: ConsentState,
@@ -85,8 +85,8 @@ impl DbConnection {
 #[diesel(sql_type = Integer)]
 /// Type of consent record stored
 pub enum ConsentType {
-    /// Consent is for a group
-    GroupId = 1,
+    /// Consent is for a conversation
+    ConversationId = 1,
     /// Consent is for an inbox
     InboxId = 2,
     /// Consent is for an address
@@ -109,7 +109,7 @@ where
 {
     fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
         match i32::from_sql(bytes)? {
-            1 => Ok(ConsentType::GroupId),
+            1 => Ok(ConsentType::ConversationId),
             2 => Ok(ConsentType::InboxId),
             3 => Ok(ConsentType::Address),
             x => Err(format!("Unrecognized variant {}", x).into()),
