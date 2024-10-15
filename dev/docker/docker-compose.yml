@@ -27,6 +27,10 @@ services:
       context: ../..
       dockerfile: ./dev/validation_service/local.Dockerfile
 
+  foundry:
+    image: ghcr.io/foundry-rs/foundry
+    platform: linux/amd64
+
   db:
     image: postgres:13
     environment:
