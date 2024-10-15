@@ -7,6 +7,7 @@ use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFun
 use napi::JsFunction;
 use napi_derive::napi;
 use xmtp_mls::client::FindGroupParams;
+use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
 
 use crate::messages::NapiMessage;
@@ -210,7 +211,7 @@ impl NapiConversations {
           ThreadsafeFunctionCallMode::Blocking,
         );
       },
-      false,
+      Some(ConversationType::Group),
     );
 
     Ok(NapiStreamCloser::new(stream_closer))
@@ -225,6 +226,7 @@ impl NapiConversations {
       move |message| {
         tsfn.call(Ok(message.into()), ThreadsafeFunctionCallMode::Blocking);
       },
+      Some(ConversationType::Group),
     );
 
     Ok(NapiStreamCloser::new(stream_closer))

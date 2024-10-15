@@ -25,6 +25,7 @@ use xmtp_proto::{
     },
 };
 
+use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 
 use crate::XmtpApi;
@@ -135,7 +136,7 @@ where
 
     pub async fn ensure_member_of_all_groups(&self, inbox_id: String) -> Result<(), GroupError> {
         let conn = self.store().conn()?;
-        let groups = conn.find_groups(None, None, None, None, false)?;
+        let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
         for group in groups {
             let group = self.group(group.id)?;
             Box::pin(group.add_members_by_inbox_id(self, vec![inbox_id.clone()])).await?;
@@ -384,7 +385,7 @@ where
             self.sync_welcomes().await?;
 
             let conn = self.store().conn()?;
-            let groups = conn.find_groups(None, None, None, None, false)?;
+            let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
             for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {
                 let group = self.group(id)?;
                 Box::pin(group.sync(self)).await?;
@@ -502,14 +503,14 @@ where
 
     async fn prepare_groups_to_sync(&self) -> Result<Vec<StoredGroup>, MessageHistoryError> {
         let conn = self.store().conn()?;
-        Ok(conn.find_groups(None, None, None, None, false)?)
+        Ok(conn.find_groups(None, None, None, None, Some(ConversationType::Group))?)
     }
 
     async fn prepare_messages_to_sync(
         &self,
     ) -> Result<Vec<StoredGroupMessage>, MessageHistoryError> {
         let conn = self.store().conn()?;
-        let groups = conn.find_groups(None, None, None, None, false)?;
+        let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
         let mut all_messages: Vec<StoredGroupMessage> = vec![];
 
         for StoredGroup { id, .. } in groups.into_iter() {
