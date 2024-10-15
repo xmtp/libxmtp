@@ -50,8 +50,7 @@ impl TryFrom<GroupMetadata> for Vec<u8> {
     type Error = GroupMetadataError;
 
     fn try_from(value: GroupMetadata) -> Result<Self, Self::Error> {
-        let conversation_type: ConversationTypeProto = value.conversation_type.into(
-        );
+        let conversation_type: ConversationTypeProto = value.conversation_type.into();
         let proto_val = GroupMetadataProto {
             conversation_type: conversation_type as i32,
             creator_inbox_id: value.creator_inbox_id.clone(),
