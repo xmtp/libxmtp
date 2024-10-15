@@ -186,13 +186,34 @@ impl DbConnection {
         &self,
         welcome_id: i64,
     ) -> Result<Option<StoredGroup>, StorageError> {
-        let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
-        query = query.filter(dsl::welcome_id.eq(welcome_id));
+        let query = dsl::groups
+            .order(dsl::created_at_ns.asc())
+            .filter(dsl::welcome_id.eq(welcome_id));
+
         let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
         if groups.len() > 1 {
             tracing::error!("More than one group found for welcome_id {}", welcome_id);
         }
-        // Manually extract the first element
+
+        Ok(groups.into_iter().next())
+    }
+
+    pub fn find_dm_group(
+        &self,
+        dm_target_inbox_id: &str,
+    ) -> Result<Option<StoredGroup>, StorageError> {
+        let query = dsl::groups
+            .order(dsl::created_at_ns.asc())
+            .filter(dsl::dm_inbox_id.eq(Some(&dm_target_inbox_id)));
+
+        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
+        if groups.len() > 1 {
+            tracing::info!(
+                "More than one group found for dm_inbox_id {}",
+                dm_target_inbox_id
+            );
+        }
+
         Ok(groups.into_iter().next())
     }
 
@@ -523,6 +544,10 @@ pub(crate) mod tests {
             let dm_results = conn.find_groups(None, None, None, None, None).unwrap();
             assert_eq!(dm_results.len(), 3);
             assert_eq!(dm_results[2].id, test_group_3.id);
+
+            // test find_dm_group
+            let dm_result = conn.find_dm_group("placeholder_inbox_id").unwrap();
+            assert!(dm_result.is_some());
 
             // test only dms are returned
             let dm_results = conn

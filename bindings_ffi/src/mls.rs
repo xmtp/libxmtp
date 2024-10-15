@@ -253,6 +253,22 @@ impl FfiXmtpClient {
 
     pub fn conversation(&self, conversation_id: Vec<u8>) -> Result<FfiConversation, GenericError> {
         let convo = self.inner_client.group(conversation_id)?;
+
+        Ok(FfiConversation {
+            inner_client: self.inner_client.clone(),
+            conversation_id: convo.group_id,
+            created_at_ns: convo.created_at_ns,
+        })
+    }
+
+    pub fn dm_conversation(
+        &self,
+        target_inbox_id: String,
+    ) -> Result<FfiConversation, GenericError> {
+        let convo = self
+            .inner_client
+            .dm_group_from_target_inbox(target_inbox_id)?;
+
         Ok(FfiConversation {
             inner_client: self.inner_client.clone(),
             conversation_id: convo.group_id,

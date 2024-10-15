@@ -122,6 +122,20 @@ impl NapiConversations {
   }
 
   #[napi]
+  pub fn find_dm_by_target_inbox_id(&self, target_inbox_id: String) -> Result<NapiGroup> {
+    let convo = self
+      .inner_client
+      .dm_group_from_target_inbox(target_inbox_id)
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(NapiGroup::new(
+      self.inner_client.clone(),
+      convo.group_id,
+      convo.created_at_ns,
+    ))
+  }
+
+  #[napi]
   pub fn find_message_by_id(&self, message_id: String) -> Result<NapiMessage> {
     let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
 
