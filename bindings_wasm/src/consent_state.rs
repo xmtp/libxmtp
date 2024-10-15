@@ -40,7 +40,7 @@ pub enum WasmConsentEntityType {
 impl From<WasmConsentEntityType> for ConsentType {
   fn from(entity_type: WasmConsentEntityType) -> Self {
     match entity_type {
-      WasmConsentEntityType::GroupId => ConsentType::GroupId,
+      WasmConsentEntityType::GroupId => ConsentType::ConversationId,
       WasmConsentEntityType::InboxId => ConsentType::InboxId,
       WasmConsentEntityType::Address => ConsentType::Address,
     }

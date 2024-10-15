@@ -163,36 +163,26 @@ where
         .map(move |res| {
             let group_id_to_info = group_id_to_info.clone();
             async move {
-                match res {
-                    Ok(envelope) => {
-                        tracing::info!("Received message streaming payload");
-                        let group_id = extract_group_id(&envelope)?;
-                        tracing::info!("Extracted group id {}", hex::encode(&group_id));
-                        let stream_info = group_id_to_info.get(&group_id).ok_or(
-                            ClientError::StreamInconsistency(
-                                "Received message for a non-subscribed group".to_string(),
-                            ),
-                        )?;
-                        let mls_group = MlsGroup::new(
-                            client.clone(),
-                            group_id,
-                            stream_info.convo_created_at_ns,
-                        );
-                        mls_group.process_stream_entry(envelope).await
-                    }
-                    Err(err) => Err(GroupError::Api(err)),
-                }
+                let envelope = res.map_err(GroupError::from)?;
+                tracing::info!("Received message streaming payload");
+                let group_id = extract_group_id(&envelope)?;
+                tracing::info!("Extracted group id {}", hex::encode(&group_id));
+                let stream_info =
+                    group_id_to_info
+                        .get(&group_id)
+                        .ok_or(ClientError::StreamInconsistency(
+                            "Received message for a non-subscribed group".to_string(),
+                        ))?;
+                let mls_group =
+                    MlsGroup::new(client.clone(), group_id, stream_info.convo_created_at_ns);
+                mls_group.process_stream_entry(envelope).await
             }
         })
         .filter_map(|res| async {
-            match res.await {
-                Ok(Some(message)) => Some(message),
-                Ok(None) => {
+            match crate::optify!(res.await, "Error processing stream entry").flatten() {
+                Some(message) => Some(message),
+                None => {
                     tracing::info!("Skipped message streaming payload");
-                    None
-                }
-                Err(err) => {
-                    tracing::error!("Error processing stream entry: {:?}", err);
                     None
                 }
             }
@@ -231,7 +221,6 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
-    use core::time::Duration;
     use tokio_stream::wrappers::UnboundedReceiverStream;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -302,7 +291,7 @@ pub(crate) mod tests {
         let bola_group = Arc::new(bola_groups.first().unwrap().clone());
 
         let bola_group_ptr = bola_group.clone();
-        let notify = Delivery::new(Some(Duration::from_secs(10)));
+        let notify = Delivery::new(Some(10));
         let notify_ptr = notify.clone();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let mut stream = UnboundedReceiverStream::new(rx);
@@ -388,7 +377,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let amal_group_ptr = amal_group.clone();
-        let notify = Delivery::new(Some(Duration::from_secs(20)));
+        let notify = Delivery::new(Some(20));
         let notify_ptr = notify.clone();
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();

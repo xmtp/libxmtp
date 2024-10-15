@@ -394,11 +394,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         );
 
         stored_group.store(provider.conn_ref())?;
-        Ok(Self::new_from_arc(
-            client.clone(),
-            group_id,
-            stored_group.created_at_ns,
-        ))
+        let new_group = Self::new_from_arc(client.clone(), group_id, stored_group.created_at_ns);
+        // Consent state defaults to allowed when the user creates the group
+        new_group.update_consent_state(ConsentState::Allowed)?;
+        Ok(new_group)
     }
 
     // Create a group from a decrypted and decoded welcome message
@@ -998,8 +997,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Find the `consent_state` of the group
     pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
         let conn = self.context().store().conn()?;
-        let record =
-            conn.get_consent_record(hex::encode(self.group_id.clone()), ConsentType::GroupId)?;
+        let record = conn.get_consent_record(
+            hex::encode(self.group_id.clone()),
+            ConsentType::ConversationId,
+        )?;
 
         match record {
             Some(rec) => Ok(rec.state),
@@ -1010,7 +1011,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         let conn = self.context().store().conn()?;
         conn.insert_or_replace_consent_records(vec![StoredConsentRecord::new(
-            ConsentType::GroupId,
+            ConsentType::ConversationId,
             state,
             hex::encode(self.group_id.clone()),
         )])?;
@@ -3196,7 +3197,7 @@ pub(crate) mod tests {
         let _ = bola.sync_welcomes().await;
         let bola_groups = bola
             .find_groups(FindGroupParams {
-                include_dm_groups: true,
+                conversation_type: None,
                 ..FindGroupParams::default()
             })
             .unwrap();

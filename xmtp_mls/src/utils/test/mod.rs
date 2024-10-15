@@ -186,8 +186,8 @@ pub struct Delivery {
 }
 
 impl Delivery {
-    pub fn new(timeout: Option<core::time::Duration>) -> Self {
-        let timeout = timeout.unwrap_or(core::time::Duration::from_secs(60));
+    pub fn new(timeout: Option<u64>) -> Self {
+        let timeout = core::time::Duration::from_secs(timeout.unwrap_or(60));
         Self {
             notify: Arc::new(Notify::new()),
             timeout,
