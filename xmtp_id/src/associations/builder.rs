@@ -87,11 +87,8 @@ impl SignatureRequestBuilder {
                 new_member_identifier: new_member_identifier.clone(),
             }),
             pending_signatures: HashMap::from([
-                (
-                    SignatureField::ExistingMember,
-                    existing_member_identifier.clone(),
-                ),
-                (SignatureField::NewMember, new_member_identifier.clone()),
+                (SignatureField::ExistingMember, existing_member_identifier),
+                (SignatureField::NewMember, new_member_identifier),
             ]),
         });
 
@@ -106,7 +103,7 @@ impl SignatureRequestBuilder {
         self.actions.push(PendingIdentityAction {
             pending_signatures: HashMap::from([(
                 SignatureField::RecoveryAddress,
-                recovery_address_identifier.clone(),
+                recovery_address_identifier,
             )]),
             unsigned_action: UnsignedAction::RevokeAssociation(UnsignedRevokeAssociation {
                 revoked_member,
@@ -124,7 +121,7 @@ impl SignatureRequestBuilder {
         self.actions.push(PendingIdentityAction {
             pending_signatures: HashMap::from([(
                 SignatureField::RecoveryAddress,
-                recovery_address_identifier.clone(),
+                recovery_address_identifier,
             )]),
             unsigned_action: UnsignedAction::ChangeRecoveryAddress(UnsignedChangeRecoveryAddress {
                 new_recovery_address,

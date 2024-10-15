@@ -107,7 +107,7 @@ pub async fn sign_with_legacy_key(
         ))?;
     let legacy_private_key = secp256k1.bytes;
     let wallet: LocalWallet = hex::encode(legacy_private_key).parse::<LocalWallet>()?;
-    let signature = wallet.sign_message(signature_text.clone()).await?;
+    let signature = wallet.sign_message(signature_text).await?;
 
     let legacy_signed_public_key_proto =
         legacy_signed_private_key_proto

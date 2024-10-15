@@ -586,8 +586,11 @@ where
         Ok(sync_group)
     }
 
-    /// Look up a group by its ID
-    /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
+    /**
+     * Look up a group by its ID
+     *
+     * Returns a [`MlsGroup`] if the group exists, or an error if it does not
+     */
     pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup, ClientError> {
         let conn = &mut self.store().conn()?;
         let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
@@ -604,6 +607,11 @@ where
         }
     }
 
+    /**
+     * Look up a DM group by the target's inbox_id.
+     *
+     * Returns a [`MlsGroup`] if the group exists, or an error if it does not
+     */
     pub fn dm_group_inbox(&self, dm_target_inbox_id: String) -> Result<MlsGroup, ClientError> {
         let conn = self.store().conn()?;
         match conn.find_dm_group(&dm_target_inbox_id)? {
@@ -619,7 +627,15 @@ where
         }
     }
 
-    pub async fn dm_group_from_address(
+    /**
+     * Look up a DM group by the target's address.
+     *
+     * Returns a [`MlsGroup`] if the group exists, or an error if it does not
+     *
+     * You should prefer use of dm_group_inbox if you have the inbox_id
+     * as it's more performant. This function invokes an inbox_id lookup.
+     */
+    pub async fn dm_group_address(
         &self,
         dm_target_address: String,
     ) -> Result<MlsGroup, ClientError> {
