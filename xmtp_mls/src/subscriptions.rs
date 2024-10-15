@@ -132,7 +132,7 @@ where
 
     pub async fn stream_conversations(
         &self,
-        include_dm: bool,
+        conversation_type: Option<ConversationType>,
     ) -> Result<impl Stream<Item = MlsGroup> + '_, ClientError> {
         let provider = Arc::new(self.context.mls_provider()?);
 
@@ -268,12 +268,12 @@ where
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient>>,
         mut convo_callback: impl FnMut(MlsGroup) + Send + 'static,
-        include_dm: bool,
+        conversation_type: Option<ConversationType>,
     ) -> StreamHandle<Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
         let handle = tokio::spawn(async move {
-            let stream = client.stream_conversations(include_dm).await?;
+            let stream = client.stream_conversations(conversation_type).await?;
             futures::pin_mut!(stream);
             let _ = tx.send(());
             while let Some(convo) = stream.next().await {
@@ -317,14 +317,14 @@ where
 
     pub async fn stream_all_messages(
         &self,
-        include_dms: bool
+        conversation_type: Option<ConversationType>
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage, ClientError>> + '_, ClientError> {
         self.sync_welcomes().await?;
 
         let mut group_id_to_info = self
             .store()
             .conn()?
-            .find_groups(None, None, None, None, include_dms)?
+            .find_groups(None, None, None, None, conversation_type)?
             .into_iter()
             .map(Into::into)
             .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
@@ -399,12 +399,12 @@ where
     pub fn stream_all_messages_with_callback(
         client: Arc<Client<ApiClient>>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
-        include_dms: bool
+        conversation_type: Option<ConversationType>
     ) -> StreamHandle<Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
         let handle = tokio::spawn(async move {
-            let stream = Self::stream_all_messages(&client, include_dms).await?;
+            let stream = Self::stream_all_messages(&client, conversation_type).await?;
             let _ = tx.send(());
             futures::pin_mut!(stream);
             while let Some(message) = stream.next().await {

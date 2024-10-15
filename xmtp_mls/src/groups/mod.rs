@@ -3229,7 +3229,7 @@ mod tests {
         let _ = bola.sync_welcomes().await;
         let bola_groups = bola
             .find_groups(FindGroupParams {
-                include_dm_groups: true,
+                conversation_type: None,
                 ..FindGroupParams::default()
             })
             .unwrap();

@@ -41,8 +41,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 use crate::{
     api::ApiClientWrapper,
     groups::{
-        group_permissions::PolicySet, validated_commit::CommitValidationError, GroupError,
-        GroupMetadataOptions, IntentError, MlsGroup,
+        group_metadata::ConversationType, group_permissions::PolicySet, validated_commit::CommitValidationError, GroupError, GroupMetadataOptions, IntentError, MlsGroup
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
@@ -224,7 +223,7 @@ pub struct FindGroupParams {
     pub created_after_ns: Option<i64>,
     pub created_before_ns: Option<i64>,
     pub limit: Option<i64>,
-    pub include_dm_groups: bool,
+    pub conversation_type: Option<ConversationType>,
 }
 
 /// Clients manage access to the network, identity, and data store
@@ -636,29 +635,7 @@ where
                 params.created_after_ns,
                 params.created_before_ns,
                 params.limit,
-                params.include_dm_groups,
-            )?
-            .into_iter()
-            .map(|stored_group| {
-                MlsGroup::new(
-                    self.context.clone(),
-                    stored_group.id,
-                    stored_group.created_at_ns,
-                )
-            })
-            .collect())
-    }
-
-    pub fn find_dms(&self, params: FindGroupParams) -> Result<Vec<MlsGroup>, ClientError> {
-        Ok(self
-            .store()
-            .conn()?
-            .find_groups(
-                params.allowed_states,
-                params.created_after_ns,
-                params.created_before_ns,
-                params.limit,
-                true,
+                params.conversation_type,
             )?
             .into_iter()
             .map(|stored_group| {

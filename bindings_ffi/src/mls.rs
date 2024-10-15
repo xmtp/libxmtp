@@ -859,7 +859,7 @@ impl FfiConversations {
     pub async fn sync_all_conversations(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
         let groups = inner.find_groups(FindGroupParams {
-            include_dm_groups: true,
+            conversation_type: None,
             ..FindGroupParams::default()
         })?;
 
@@ -892,7 +892,7 @@ impl FfiConversations {
                 created_after_ns: opts.created_after_ns,
                 created_before_ns: opts.created_before_ns,
                 limit: opts.limit,
-                include_dm_groups: true,
+                conversation_type: None,
             })?
             .into_iter()
             .map(|group| {
@@ -918,7 +918,7 @@ impl FfiConversations {
                 created_after_ns: opts.created_after_ns,
                 created_before_ns: opts.created_before_ns,
                 limit: opts.limit,
-                include_dm_groups: false,
+                conversation_type: Some(ConversationType::Group),
             })?
             .into_iter()
             .map(|group| {
@@ -944,7 +944,7 @@ impl FfiConversations {
                 created_after_ns: opts.created_after_ns,
                 created_before_ns: opts.created_before_ns,
                 limit: opts.limit,
-                include_dm_groups: true,
+                conversation_type: Some(ConversationType::Dm),
             })?
             .into_iter()
             .map(|group| {
@@ -970,7 +970,24 @@ impl FfiConversations {
                     created_at_ns: convo.created_at_ns,
                 }))
             },
-            false,
+            Some(ConversationType::Group),
+        );
+
+        FfiStreamCloser::new(handle)
+    }
+
+    pub async fn stream_dms(&self, callback: Box<dyn FfiConversationCallback>) -> FfiStreamCloser {
+        let client = self.inner_client.clone();
+        let handle = RustXmtpClient::stream_dms_with_callback(
+            client.clone(),
+            move |convo| {
+                callback.on_conversation(Arc::new(FfiConversation {
+                    inner_client: client.clone(),
+                    conversation_id: convo.group_id,
+                    created_at_ns: convo.created_at_ns,
+                }))
+            },
+            Some(ConversationType::Dm),
         );
 
         FfiStreamCloser::new(handle)
@@ -987,7 +1004,7 @@ impl FfiConversations {
                     created_at_ns: convo.created_at_ns,
                 }))
             },
-            true,
+            None,
         );
 
         FfiStreamCloser::new(handle)
@@ -1000,7 +1017,20 @@ impl FfiConversations {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             move |message| message_callback.on_message(message.into()),
-            false
+            Some(ConversationType::Group)
+        );
+
+        FfiStreamCloser::new(handle)
+    }
+
+    pub async fn stream_all_dm_messages(
+        &self,
+        message_callback: Box<dyn FfiMessageCallback>,
+    ) -> FfiStreamCloser {
+        let handle = RustXmtpClient::stream_all_dm_messages_with_callback(
+            self.inner_client.clone(),
+            move |message| message_callback.on_message(message.into()),
+            Some(ConversationType::Dm)
         );
 
         FfiStreamCloser::new(handle)
@@ -1013,7 +1043,7 @@ impl FfiConversations {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             move |message| message_callback.on_message(message.into()),
-            true
+            None
         );
 
         FfiStreamCloser::new(handle)
