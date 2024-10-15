@@ -3893,7 +3893,7 @@ mod tests {
         let alix_conversations = alix.conversations();
         let bola_conversations = bola.conversations();
 
-        let _alix_group = alix_conversations
+        let _alix_dm = alix_conversations
             .create_dm(bola.account_address.clone())
             .await
             .unwrap();
@@ -3904,16 +3904,40 @@ mod tests {
         assert_eq!(bola_num_sync, 1);
 
         let alix_groups = alix_conversations
-            .list(FfiListConversationsOptions::default())
+            .list_groups(FfiListConversationsOptions::default())
             .await
             .unwrap();
         assert_eq!(alix_groups.len(), 0);
 
         let bola_groups = bola_conversations
-            .list(FfiListConversationsOptions::default())
+            .list_groups(FfiListConversationsOptions::default())
             .await
             .unwrap();
         assert_eq!(bola_groups.len(), 0);
+
+        let alix_dms = alix_conversations
+            .list_dms(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(alix_dms.len(), 1);
+
+        let bola_dms = bola_conversations
+            .list_groups(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(bola_dms.len(), 1);
+
+        let alix_conversations = alix_conversations
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(alix_conversations.len(), 1);
+
+        let bola_conversations = bola_conversations
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(bola_conversations.len(), 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
