@@ -325,9 +325,7 @@ where
         &self,
         address: String,
     ) -> Result<Option<String>, ClientError> {
-        let results = self
-            .find_inbox_ids_from_addresses(vec![address.clone()])
-            .await?;
+        let results = self.find_inbox_ids_from_addresses(vec![address]).await?;
         if let Some(first_result) = results.into_iter().next() {
             Ok(first_result)
         } else {
@@ -589,8 +587,11 @@ where
         Ok(sync_group)
     }
 
-    /// Look up a group by its ID
-    /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
+    /**
+     * Look up a group by its ID
+     *
+     * Returns a [`MlsGroup`] if the group exists, or an error if it does not
+     */
     pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup, ClientError> {
         let conn = &mut self.store().conn()?;
         let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
@@ -603,6 +604,29 @@ where
             None => Err(ClientError::Storage(StorageError::NotFound(format!(
                 "group {}",
                 hex::encode(group_id)
+            )))),
+        }
+    }
+
+    /**
+     * Look up a DM group by the target's inbox_id.
+     *
+     * Returns a [`MlsGroup`] if the group exists, or an error if it does not
+     */
+    pub fn dm_group_from_target_inbox(
+        &self,
+        target_inbox_id: String,
+    ) -> Result<MlsGroup, ClientError> {
+        let conn = self.store().conn()?;
+        match conn.find_dm_group(&target_inbox_id)? {
+            Some(dm_group) => Ok(MlsGroup::new(
+                self.context.clone(),
+                dm_group.id,
+                dm_group.created_at_ns,
+            )),
+            None => Err(ClientError::Storage(StorageError::NotFound(format!(
+                "dm_target_inbox_id {}",
+                hex::encode(target_inbox_id)
             )))),
         }
     }
