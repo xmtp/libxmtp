@@ -207,7 +207,7 @@ impl DbConnection {
 
         let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
         if groups.len() > 1 {
-            tracing::error!(
+            tracing::info!(
                 "More than one group found for dm_inbox_id {}",
                 dm_target_inbox_id
             );

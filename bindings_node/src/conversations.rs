@@ -122,7 +122,7 @@ impl NapiConversations {
   }
 
   #[napi]
-  pub fn find_dm_group_by_target_inbox_id(&self, target_inbox_id: String) -> Result<NapiGroup> {
+  pub fn find_dm_by_target_inbox_id(&self, target_inbox_id: String) -> Result<NapiGroup> {
     let convo = self
       .inner_client
       .dm_group_from_target_inbox(target_inbox_id)

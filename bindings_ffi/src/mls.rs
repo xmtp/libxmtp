@@ -363,21 +363,6 @@ impl FfiXmtpClient {
         Ok(state.into_iter().map(Into::into).collect())
     }
 
-    /**
-     * Get the inbox_id for each address.
-     */
-    pub async fn inbox_ids_from_addresses(
-        &self,
-        addresses: Vec<String>,
-    ) -> Result<Vec<Option<String>>, GenericError> {
-        let inbox_ids = self
-            .inner_client
-            .find_inbox_ids_from_addresses(addresses)
-            .await?;
-
-        Ok(inbox_ids)
-    }
-
     pub async fn get_latest_inbox_state(
         &self,
         inbox_id: String,
