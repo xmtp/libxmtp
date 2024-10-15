@@ -280,6 +280,18 @@ impl FfiXmtpClient {
         })
     }
 
+    pub fn dm_group(&self, target_inbox_id: String) -> Result<FfiGroup, GenericError> {
+        let convo = self
+            .inner_client
+            .dm_group_from_target_inbox(target_inbox_id)?;
+
+        Ok(FfiGroup {
+            inner_client: self.inner_client.clone(),
+            group_id: convo.group_id,
+            created_at_ns: convo.created_at_ns,
+        })
+    }
+
     pub fn message(&self, message_id: Vec<u8>) -> Result<FfiMessage, GenericError> {
         let message = self.inner_client.message(message_id)?;
         Ok(message.into())
@@ -353,21 +365,13 @@ impl FfiXmtpClient {
     pub async fn inbox_ids_from_addresses(
         &self,
         addresses: Vec<String>,
-    ) -> Result<Vec<String>, GenericError> {
+    ) -> Result<Vec<Option<String>>, GenericError> {
         let inbox_ids = self
             .inner_client
             .find_inbox_ids_from_addresses(addresses)
             .await?;
 
         Ok(inbox_ids)
-    }
-
-    pub fn dm_group(&self, target_inbox_id: String) -> Result<FfiGroup, GenericError> {
-        let group = self
-            .inner_client
-            .dm_group_from_target_inbox(target_inbox_id)?;
-
-        Ok(group)
     }
 
     pub async fn get_latest_inbox_state(

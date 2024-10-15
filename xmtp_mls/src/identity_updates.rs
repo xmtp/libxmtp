@@ -496,7 +496,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
     let to_store = updates
         .iter()
         .flat_map(|(inbox_id, updates)| {
-            updates.into_iter().map(|update| StoredIdentityUpdate {
+            updates.iter().map(|update| StoredIdentityUpdate {
                 inbox_id: inbox_id.clone(),
                 sequence_id: update.sequence_id as i64,
                 server_timestamp_ns: update.server_timestamp_ns as i64,
