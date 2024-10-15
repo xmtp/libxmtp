@@ -820,7 +820,10 @@ impl FfiConversations {
         Ok(out)
     }
 
-    pub async fn create_dm(&self, account_address: String) -> Result<Arc<FfiConversation>, GenericError> {
+    pub async fn create_dm(
+        &self,
+        account_address: String,
+    ) -> Result<Arc<FfiConversation>, GenericError> {
         log::info!("creating dm with target address: {}", account_address);
 
         let convo = self.inner_client.create_dm(account_address).await?;
@@ -906,7 +909,7 @@ impl FfiConversations {
 
         Ok(convo_list)
     }
-    
+
     pub async fn list_groups(
         &self,
         opts: FfiListConversationsOptions,
@@ -932,7 +935,7 @@ impl FfiConversations {
 
         Ok(convo_list)
     }
-    
+
     pub async fn list_dms(
         &self,
         opts: FfiListConversationsOptions,
@@ -959,7 +962,10 @@ impl FfiConversations {
         Ok(convo_list)
     }
 
-    pub async fn stream_groups(&self, callback: Box<dyn FfiConversationCallback>) -> FfiStreamCloser {
+    pub async fn stream_groups(
+        &self,
+        callback: Box<dyn FfiConversationCallback>,
+    ) -> FfiStreamCloser {
         let client = self.inner_client.clone();
         let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
@@ -993,7 +999,7 @@ impl FfiConversations {
         FfiStreamCloser::new(handle)
     }
 
-    pub async fn stream_conversations(&self, callback: Box<dyn FfiConversationCallback>) -> FfiStreamCloser {
+    pub async fn stream(&self, callback: Box<dyn FfiConversationCallback>) -> FfiStreamCloser {
         let client = self.inner_client.clone();
         let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
@@ -1017,7 +1023,7 @@ impl FfiConversations {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             move |message| message_callback.on_message(message.into()),
-            Some(ConversationType::Group)
+            Some(ConversationType::Group),
         );
 
         FfiStreamCloser::new(handle)
@@ -1030,7 +1036,7 @@ impl FfiConversations {
         let handle = RustXmtpClient::stream_all_dm_messages_with_callback(
             self.inner_client.clone(),
             move |message| message_callback.on_message(message.into()),
-            Some(ConversationType::Dm)
+            Some(ConversationType::Dm),
         );
 
         FfiStreamCloser::new(handle)
@@ -1043,7 +1049,7 @@ impl FfiConversations {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             move |message| message_callback.on_message(message.into()),
-            None
+            None,
         );
 
         FfiStreamCloser::new(handle)
@@ -1879,10 +1885,10 @@ mod tests {
     use super::{create_client, FfiMessage, FfiMessageCallback, FfiXmtpClient};
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConsent,
-        FfiConsentEntityType, FfiConsentState, FfiConversationCallback, FfiCreateGroupOptions,
-        FfiConversation, FfiConversationMessageKind, FfiGroupPermissionsOptions, FfiInboxOwner,
-        FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy,
-        FfiPermissionPolicySet, FfiPermissionUpdateType,
+        FfiConsentEntityType, FfiConsentState, FfiConversation, FfiConversationCallback,
+        FfiConversationMessageKind, FfiCreateGroupOptions, FfiGroupPermissionsOptions,
+        FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField,
+        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType,
     };
     use ethers::utils::hex;
     use rand::distributions::{Alphanumeric, DistString};
