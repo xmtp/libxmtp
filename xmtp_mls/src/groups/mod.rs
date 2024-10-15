@@ -1041,8 +1041,10 @@ impl MlsGroup {
     /// Find the `consent_state` of the group
     pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
         let conn = self.context.store.conn()?;
-        let record =
-            conn.get_consent_record(hex::encode(self.group_id.clone()), ConsentType::GroupId)?;
+        let record = conn.get_consent_record(
+            hex::encode(self.group_id.clone()),
+            ConsentType::ConversationId,
+        )?;
 
         match record {
             Some(rec) => Ok(rec.state),
@@ -1053,7 +1055,7 @@ impl MlsGroup {
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         let conn = self.context.store.conn()?;
         conn.insert_or_replace_consent_records(vec![StoredConsentRecord::new(
-            ConsentType::GroupId,
+            ConsentType::ConversationId,
             state,
             hex::encode(self.group_id.clone()),
         )])?;

@@ -271,16 +271,6 @@ impl FfiXmtpClient {
         })
     }
 
-    // deprecated use conversation instead
-    pub fn group(&self, group_id: Vec<u8>) -> Result<FfiConversation, GenericError> {
-        let convo = self.inner_client.group(group_id)?;
-        Ok(FfiConversation {
-            inner_client: self.inner_client.clone(),
-            conversation_id: convo.group_id,
-            created_at_ns: convo.created_at_ns,
-        })
-    }
-
     pub fn conversation(&self, conversation_id: Vec<u8>) -> Result<FfiConversation, GenericError> {
         let convo = self.inner_client.group(conversation_id)?;
         Ok(FfiConversation {
