@@ -649,6 +649,28 @@ where
             .collect())
     }
 
+    pub fn find_dms(&self, params: FindGroupParams) -> Result<Vec<MlsGroup>, ClientError> {
+        Ok(self
+            .store()
+            .conn()?
+            .find_groups(
+                params.allowed_states,
+                params.created_after_ns,
+                params.created_before_ns,
+                params.limit,
+                true,
+            )?
+            .into_iter()
+            .map(|stored_group| {
+                MlsGroup::new(
+                    self.context.clone(),
+                    stored_group.id,
+                    stored_group.created_at_ns,
+                )
+            })
+            .collect())
+    }
+
     /// Upload a Key Package to the network and publish the signed identity update
     /// from the provided SignatureRequest
     pub async fn register_identity(

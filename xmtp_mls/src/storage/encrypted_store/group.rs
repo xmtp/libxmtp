@@ -151,6 +151,37 @@ impl DbConnection {
         Ok(self.raw_query(|conn| query.load(conn))?)
     }
 
+    pub fn find_dms(
+        &self,
+        allowed_states: Option<Vec<GroupMembershipState>>,
+        created_after_ns: Option<i64>,
+        created_before_ns: Option<i64>,
+        limit: Option<i64>,
+    ) -> Result<Vec<StoredGroup>, StorageError> {
+        let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
+
+        if let Some(allowed_states) = allowed_states {
+            query = query.filter(dsl::membership_state.eq_any(allowed_states));
+        }
+
+        if let Some(created_after_ns) = created_after_ns {
+            query = query.filter(dsl::created_at_ns.gt(created_after_ns));
+        }
+
+        if let Some(created_before_ns) = created_before_ns {
+            query = query.filter(dsl::created_at_ns.lt(created_before_ns));
+        }
+
+        if let Some(limit) = limit {
+            query = query.limit(limit);
+        }
+
+        query = query.filter(dsl::dm_inbox_id.is_not_null());
+        query = query.filter(dsl::purpose.eq(Purpose::Conversation));
+
+        Ok(self.raw_query(|conn| query.load(conn))?)
+    }
+
     /// Return only the [`Purpose::Sync`] groups
     pub fn find_sync_groups(&self) -> Result<Vec<StoredGroup>, StorageError> {
         let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();

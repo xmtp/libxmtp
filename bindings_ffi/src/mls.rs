@@ -856,7 +856,7 @@ impl FfiConversations {
         Ok(())
     }
 
-    pub async fn sync_all_groups(&self) -> Result<u32, GenericError> {
+    pub async fn sync_all_conversations(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
         let groups = inner.find_groups(FindGroupParams {
             include_dm_groups: true,
@@ -892,7 +892,59 @@ impl FfiConversations {
                 created_after_ns: opts.created_after_ns,
                 created_before_ns: opts.created_before_ns,
                 limit: opts.limit,
+                include_dm_groups: true,
+            })?
+            .into_iter()
+            .map(|group| {
+                Arc::new(FfiConversation {
+                    inner_client: self.inner_client.clone(),
+                    conversation_id: group.group_id,
+                    created_at_ns: group.created_at_ns,
+                })
+            })
+            .collect();
+
+        Ok(convo_list)
+    }
+    
+    pub async fn list_groups(
+        &self,
+        opts: FfiListConversationsOptions,
+    ) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
+        let inner = self.inner_client.as_ref();
+        let convo_list: Vec<Arc<FfiConversation>> = inner
+            .find_groups(FindGroupParams {
+                allowed_states: None,
+                created_after_ns: opts.created_after_ns,
+                created_before_ns: opts.created_before_ns,
+                limit: opts.limit,
                 include_dm_groups: false,
+            })?
+            .into_iter()
+            .map(|group| {
+                Arc::new(FfiConversation {
+                    inner_client: self.inner_client.clone(),
+                    conversation_id: group.group_id,
+                    created_at_ns: group.created_at_ns,
+                })
+            })
+            .collect();
+
+        Ok(convo_list)
+    }
+    
+    pub async fn list_dms(
+        &self,
+        opts: FfiListConversationsOptions,
+    ) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
+        let inner = self.inner_client.as_ref();
+        let convo_list: Vec<Arc<FfiConversation>> = inner
+            .find_dms(FindGroupParams {
+                allowed_states: None,
+                created_after_ns: opts.created_after_ns,
+                created_before_ns: opts.created_before_ns,
+                limit: opts.limit,
+                include_dm_groups: true,
             })?
             .into_iter()
             .map(|group| {
@@ -924,6 +976,19 @@ impl FfiConversations {
         FfiStreamCloser::new(handle)
     }
 
+    pub async fn stream_all_group_messages(
+        &self,
+        message_callback: Box<dyn FfiMessageCallback>,
+    ) -> FfiStreamCloser {
+        let handle = RustXmtpClient::stream_all_messages_with_callback(
+            self.inner_client.clone(),
+            move |message| message_callback.on_message(message.into()),
+            false
+        );
+
+        FfiStreamCloser::new(handle)
+    }
+
     pub async fn stream_all_messages(
         &self,
         message_callback: Box<dyn FfiMessageCallback>,
@@ -931,6 +996,7 @@ impl FfiConversations {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             move |message| message_callback.on_message(message.into()),
+            true
         );
 
         FfiStreamCloser::new(handle)

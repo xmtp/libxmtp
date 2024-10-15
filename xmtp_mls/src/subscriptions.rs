@@ -317,13 +317,14 @@ where
 
     pub async fn stream_all_messages(
         &self,
+        include_dms: bool
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage, ClientError>> + '_, ClientError> {
         self.sync_welcomes().await?;
 
         let mut group_id_to_info = self
             .store()
             .conn()?
-            .find_groups(None, None, None, None, false)?
+            .find_groups(None, None, None, None, include_dms)?
             .into_iter()
             .map(Into::into)
             .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
@@ -398,11 +399,12 @@ where
     pub fn stream_all_messages_with_callback(
         client: Arc<Client<ApiClient>>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
+        include_dms: bool
     ) -> StreamHandle<Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
         let handle = tokio::spawn(async move {
-            let stream = Self::stream_all_messages(&client).await?;
+            let stream = Self::stream_all_messages(&client, include_dms).await?;
             let _ = tx.send(());
             futures::pin_mut!(stream);
             while let Some(message) = stream.next().await {
