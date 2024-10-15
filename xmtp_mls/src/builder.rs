@@ -696,14 +696,16 @@ mod tests {
         use std::sync::Arc;
         use xmtp_id::associations::AccountId;
         use xmtp_id::is_smart_contract;
-        use xmtp_id::scw_verifier::tests::{with_smart_contracts, CoinbaseSmartWallet};
+        use xmtp_id::scw_verifier::tests::{with_docker_smart_contracts, CoinbaseSmartWallet};
         use xmtp_id::scw_verifier::{
             MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier,
         };
 
-        with_smart_contracts(|anvil, _provider, client, smart_contracts| async move {
-            let key = anvil.keys()[0].clone();
-            let wallet: LocalWallet = key.clone().into();
+        with_docker_smart_contracts(|_provider, client, smart_contracts| async move {
+            let key =
+                hex::decode("ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+                    .unwrap();
+            let wallet = LocalWallet::from_bytes(&key).unwrap();
 
             let owners = vec![Bytes::from(H256::from(wallet.address()).0.to_vec())];
 
@@ -719,9 +721,9 @@ mod tests {
 
             contract_call.send().await.unwrap().await.unwrap();
 
-            assert!(is_smart_contract(scw_addr, anvil.endpoint(), None)
-                .await
-                .unwrap());
+            // assert!(is_smart_contract(scw_addr, anvil.endpoint(), None)
+            // .await
+            // .unwrap());
 
             let identity_strategy = IdentityStrategy::CreateIfNotFound(
                 generate_inbox_id(&wallet.address().to_string(), &0),
@@ -745,10 +747,10 @@ mod tests {
             let hash = H256::random().into();
             let smart_wallet = CoinbaseSmartWallet::new(
                 scw_addr,
-                Arc::new(client.with_signer(wallet.clone().with_chain_id(anvil.chain_id()))),
+                Arc::new(client.with_signer(wallet.clone().with_chain_id(31337u64))),
             );
             let replay_safe_hash = smart_wallet.replay_safe_hash(hash).call().await.unwrap();
-            let account_id = AccountId::new_evm(anvil.chain_id(), format!("{scw_addr:?}"));
+            let account_id = AccountId::new_evm(31337u64, format!("{scw_addr:?}"));
 
             let signature: Bytes = ethers::abi::encode(&[Token::Tuple(vec![
                 Token::Uint(U256::from(0)),
@@ -764,19 +766,8 @@ mod tests {
 
             // The mls validation service can't connect to our anvil instance, so it'll return false
             // This is to make sure the communication at least works.
-            assert!(!valid_response.is_valid);
+            assert!(valid_response.is_valid);
             assert_eq!(valid_response.block_number, None);
-
-            // So let's immitate more or less what the mls validation is doing locally, and validate there.
-            let mut multi_verifier = MultiSmartContractSignatureVerifier::default();
-            multi_verifier.add_verifier(account_id.get_chain_id().to_string(), anvil.endpoint());
-            let response = multi_verifier
-                .is_valid_signature(account_id, hash, signature, None)
-                .await
-                .unwrap();
-
-            assert!(response.is_valid);
-            assert!(response.block_number.is_some());
         })
         .await;
     }

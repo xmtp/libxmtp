@@ -117,7 +117,7 @@ pub mod tests {
     use super::*;
     use ethers::{
         abi::{self, Token},
-        core::utils::Anvil,
+        core::{k256::Secp256k1, utils::Anvil},
         middleware::{MiddlewareBuilder, SignerMiddleware},
         signers::{LocalWallet, Signer as _},
         types::{H256, U256},
@@ -157,6 +157,45 @@ pub mod tests {
         ) -> &CoinbaseSmartWalletFactory<SignerMiddleware<Provider<Http>, LocalWallet>> {
             &self.coinbase_smart_wallet_factory
         }
+    }
+
+    /// Test harness that loads a local anvil node with deployed smart contracts.
+    pub async fn with_docker_smart_contracts<Func, Fut>(fun: Func)
+    where
+        Func: FnOnce(
+            Provider<Http>,
+            SignerMiddleware<Provider<Http>, LocalWallet>,
+            SmartContracts,
+        ) -> Fut,
+        Fut: futures::Future<Output = ()>,
+    {
+        let key = hex::decode("2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6")
+            .unwrap();
+        let contract_deployer = LocalWallet::from_bytes(&key).unwrap();
+        let provider = Provider::<Http>::try_from("https://foundry:8545").unwrap();
+        let client = SignerMiddleware::new(
+            provider.clone(),
+            contract_deployer.clone().with_chain_id(31337u64),
+        );
+        // 1. coinbase smart wallet
+        // deploy implementation for factory
+        let implementation = CoinbaseSmartWallet::deploy(Arc::new(client.clone()), ())
+            .unwrap()
+            .gas_price(100)
+            .send()
+            .await
+            .unwrap();
+        // deploy factory
+        let factory =
+            CoinbaseSmartWalletFactory::deploy(Arc::new(client.clone()), implementation.address())
+                .unwrap()
+                .gas_price(100)
+                .send()
+                .await
+                .unwrap();
+
+        let smart_contracts = SmartContracts::new(factory);
+        fun(provider.clone(), client.clone(), smart_contracts).await
     }
 
     /// Test harness that loads a local anvil node with deployed smart contracts.

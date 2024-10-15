@@ -27,10 +27,11 @@ services:
       context: ../..
       dockerfile: ./dev/validation_service/local.Dockerfile
     environment:
-      FOUNDRY_URL: "https://foundry"
+      FOUNDRY_URL: "https://foundry:8545"
 
   foundry:
-    image: ghcr.io/foundry-rs/foundry
+    build:
+      dockerfile: ./foundry.Dockerfile
     platform: linux/amd64
 
   db:
