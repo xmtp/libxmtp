@@ -273,6 +273,7 @@ impl FfiXmtpClient {
 
     pub fn group(&self, group_id: Vec<u8>) -> Result<FfiGroup, GenericError> {
         let convo = self.inner_client.group(group_id)?;
+
         Ok(FfiGroup {
             inner_client: self.inner_client.clone(),
             group_id: convo.group_id,
