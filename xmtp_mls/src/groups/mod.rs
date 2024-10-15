@@ -381,11 +381,11 @@ impl MlsGroup {
         );
 
         stored_group.store(provider.conn_ref())?;
-        Ok(Self::new(
-            context.clone(),
-            group_id,
-            stored_group.created_at_ns,
-        ))
+        let new_group = Self::new(context.clone(), group_id, stored_group.created_at_ns);
+
+        // Consent state defaults to allowed when the user creates the group
+        new_group.update_consent_state(ConsentState::Allowed)?;
+        Ok(new_group)
     }
 
     // Create a group from a decrypted and decoded welcome message

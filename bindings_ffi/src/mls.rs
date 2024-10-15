@@ -3923,7 +3923,7 @@ mod tests {
         assert_eq!(alix_dms.len(), 1);
 
         let bola_dms = bola_conversations
-            .list_groups(FfiListConversationsOptions::default())
+            .list_dms(FfiListConversationsOptions::default())
             .await
             .unwrap();
         assert_eq!(bola_dms.len(), 1);
