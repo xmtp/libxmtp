@@ -15,7 +15,9 @@ use super::{
     db_connection::DbConnection,
     schema::{groups, groups::dsl},
 };
-use crate::{groups::group_metadata::ConversationType, impl_fetch, impl_store, DuplicateItem, StorageError};
+use crate::{
+    groups::group_metadata::ConversationType, impl_fetch, impl_store, DuplicateItem, StorageError,
+};
 
 /// The Group ID type.
 pub type ID = Vec<u8>;
@@ -150,7 +152,7 @@ impl DbConnection {
                 ConversationType::Dm => {
                     query = query.filter(dsl::dm_inbox_id.is_not_null());
                 }
-                ConversationType::Sync => {},
+                ConversationType::Sync => {}
             }
         }
 
@@ -468,7 +470,9 @@ pub(crate) mod tests {
             let test_group_3 = generate_dm(Some(GroupMembershipState::Allowed));
             test_group_3.store(conn).unwrap();
 
-            let all_results = conn.find_groups(None, None, None, None, Some(ConversationType::Group)).unwrap();
+            let all_results = conn
+                .find_groups(None, None, None, None, Some(ConversationType::Group))
+                .unwrap();
             assert_eq!(all_results.len(), 2);
 
             let pending_results = conn
@@ -484,12 +488,20 @@ pub(crate) mod tests {
             assert_eq!(pending_results.len(), 1);
 
             // Offset and limit
-            let results_with_limit = conn.find_groups(None, None, None, Some(1), Some(ConversationType::Group)).unwrap();
+            let results_with_limit = conn
+                .find_groups(None, None, None, Some(1), Some(ConversationType::Group))
+                .unwrap();
             assert_eq!(results_with_limit.len(), 1);
             assert_eq!(results_with_limit[0].id, test_group_1.id);
 
             let results_with_created_at_ns_after = conn
-                .find_groups(None, Some(test_group_1.created_at_ns), None, Some(1), Some(ConversationType::Group))
+                .find_groups(
+                    None,
+                    Some(test_group_1.created_at_ns),
+                    None,
+                    Some(1),
+                    Some(ConversationType::Group),
+                )
                 .unwrap();
             assert_eq!(results_with_created_at_ns_after.len(), 1);
             assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
@@ -504,7 +516,9 @@ pub(crate) mod tests {
             assert_eq!(dm_results[2].id, test_group_3.id);
 
             // test only dms are returned
-            let dm_results = conn.find_groups(None, None, None, None, Some(ConversationType::Dm)).unwrap();
+            let dm_results = conn
+                .find_groups(None, None, None, None, Some(ConversationType::Dm))
+                .unwrap();
             assert_eq!(dm_results.len(), 1);
             assert_eq!(dm_results[0].id, test_group_3.id);
         })

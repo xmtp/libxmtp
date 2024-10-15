@@ -139,29 +139,45 @@ where
         let event_queue =
             tokio_stream::wrappers::BroadcastStream::new(self.local_events.subscribe());
 
-        // Helper function for filtering Dm groups
-        let filter_group = move |group: MlsGroup, provider: Arc<XmtpOpenMlsProvider>| async move {
-            match group.metadata(provider.as_ref()) {
-                Ok(metadata) => {
-                    if include_dm || metadata.conversation_type != ConversationType::Dm {
-                        Some(group)
-                    } else {
+        // Helper function for filtering based on conversation type
+        let filter_group = Arc::new(move |group: MlsGroup, provider: Arc<XmtpOpenMlsProvider>| {
+            let conversation_type = conversation_type.clone();
+            async move {
+                match group.metadata(provider.as_ref()) {
+                    Ok(metadata) => match conversation_type {
+                        Some(ConversationType::Dm) => {
+                            if metadata.conversation_type == ConversationType::Dm {
+                                Some(group)
+                            } else {
+                                None
+                            }
+                        }
+                        Some(ConversationType::Group) => {
+                            if metadata.conversation_type == ConversationType::Group {
+                                Some(group)
+                            } else {
+                                None
+                            }
+                        }
+                        None => Some(group), // Return all groups if conversation_type is None
+                        _ => None,
+                    },
+                    Err(err) => {
+                        tracing::error!("Error processing group metadata: {:?}", err);
                         None
                     }
                 }
-                Err(err) => {
-                    tracing::error!("Error processing group metadata: {:?}", err);
-                    None
-                }
             }
-        };
+        });
 
         let event_provider = Arc::clone(&provider);
+        let event_filter_group = Arc::clone(&filter_group);
         let event_queue = event_queue.filter_map(move |event| {
             let provider = Arc::clone(&event_provider);
+            let event_filter_group = Arc::clone(&event_filter_group);
             async move {
                 match event {
-                    Ok(LocalEvents::NewGroup(group)) => filter_group(group, provider).await,
+                    Ok(LocalEvents::NewGroup(group)) => event_filter_group(group, provider).await,
                     Err(BroadcastStreamRecvError::Lagged(missed)) => {
                         tracing::warn!("Missed {missed} messages due to local event queue lagging");
                         None
@@ -180,6 +196,7 @@ where
             .await?;
 
         let stream_provider = Arc::clone(&provider);
+        let stream_filter_group = Arc::clone(&filter_group);
         let stream = subscription
             .map(|welcome| async {
                 tracing::info!("Received conversation streaming payload");
@@ -187,9 +204,10 @@ where
             })
             .filter_map(move |res| {
                 let provider = Arc::clone(&stream_provider);
+                let stream_filter_group = Arc::clone(&stream_filter_group);
                 async move {
                     match res.await {
-                        Ok(group) => filter_group(group, provider).await,
+                        Ok(group) => stream_filter_group(group, provider).await,
                         Err(err) => {
                             tracing::error!(
                                 "Error processing stream entry for conversation: {:?}",
@@ -317,14 +335,14 @@ where
 
     pub async fn stream_all_messages(
         &self,
-        conversation_type: Option<ConversationType>
+        conversation_type: Option<ConversationType>,
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage, ClientError>> + '_, ClientError> {
         self.sync_welcomes().await?;
 
         let mut group_id_to_info = self
             .store()
             .conn()?
-            .find_groups(None, None, None, None, conversation_type)?
+            .find_groups(None, None, None, None, conversation_type.clone())?
             .into_iter()
             .map(Into::into)
             .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
@@ -336,7 +354,7 @@ where
             futures::pin_mut!(messages_stream);
 
             tracing::info!("Setting up conversation stream in stream_all_messages");
-            let convo_stream = self.stream_conversations(true).await?;
+            let convo_stream = self.stream_conversations(conversation_type.clone()).await?;
 
             futures::pin_mut!(convo_stream);
 
@@ -399,7 +417,7 @@ where
     pub fn stream_all_messages_with_callback(
         client: Arc<Client<ApiClient>>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
-        conversation_type: Option<ConversationType>
+        conversation_type: Option<ConversationType>,
     ) -> StreamHandle<Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
@@ -427,6 +445,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::client::FindGroupParams;
+    use crate::groups::group_metadata::ConversationType;
     use crate::utils::test::{Delivery, TestClient};
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions,
@@ -458,7 +477,7 @@ mod tests {
         let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
         let bob_ptr = bob.clone();
         tokio::spawn(async move {
-            let bob_stream = bob_ptr.stream_conversations(true).await.unwrap();
+            let bob_stream = bob_ptr.stream_conversations(None).await.unwrap();
             futures::pin_mut!(bob_stream);
             while let Some(item) = bob_stream.next().await {
                 let _ = tx.send(item);
@@ -552,6 +571,7 @@ mod tests {
                 (*messages_clone.lock()).push(message);
                 notify_pointer.notify_one();
             },
+            None,
         );
         handle.wait_for_ready().await;
 
@@ -604,11 +624,14 @@ mod tests {
         let messages_clone = messages.clone();
         let delivery = Delivery::new(None);
         let delivery_pointer = delivery.clone();
-        let mut handle =
-            Client::<TestClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
+        let mut handle = Client::<TestClient>::stream_all_messages_with_callback(
+            caro.clone(),
+            move |message| {
                 delivery_pointer.notify_one();
                 (*messages_clone.lock()).push(message);
-            });
+            },
+            None,
+        );
         handle.wait_for_ready().await;
 
         alix_group
@@ -712,11 +735,14 @@ mod tests {
         let blocked = Arc::new(AtomicU64::new(55));
 
         let blocked_pointer = blocked.clone();
-        let mut handle =
-            Client::<TestClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
+        let mut handle = Client::<TestClient>::stream_all_messages_with_callback(
+            caro.clone(),
+            move |message| {
                 (*messages_clone.lock()).push(message);
                 blocked_pointer.fetch_sub(1, Ordering::SeqCst);
-            });
+            },
+            None,
+        );
         handle.wait_for_ready().await;
 
         let alix_group_pointer = alix_group.clone();
@@ -775,7 +801,7 @@ mod tests {
                 groups.push(g);
                 notify_pointer.notify_one();
             },
-            false,
+            Some(ConversationType::Group),
         );
 
         alix.create_group(None, GroupMetadataOptions::default())
@@ -836,7 +862,7 @@ mod tests {
                 groups.push(g);
                 notify_pointer.notify_one();
             },
-            false,
+            Some(ConversationType::Group),
         );
 
         alix.create_dm_by_inbox_id(bo.inbox_id()).await.unwrap();
@@ -858,7 +884,7 @@ mod tests {
                 groups.push(g);
                 notify_pointer.notify_one();
             },
-            true,
+            None,
         );
 
         alix.create_dm_by_inbox_id(bo.inbox_id()).await.unwrap();

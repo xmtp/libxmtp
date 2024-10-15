@@ -41,7 +41,9 @@ use xmtp_proto::xmtp::mls::api::v1::{
 use crate::{
     api::ApiClientWrapper,
     groups::{
-        group_metadata::ConversationType, group_permissions::PolicySet, validated_commit::CommitValidationError, GroupError, GroupMetadataOptions, IntentError, MlsGroup
+        group_metadata::ConversationType, group_permissions::PolicySet,
+        validated_commit::CommitValidationError, GroupError, GroupMetadataOptions, IntentError,
+        MlsGroup,
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
