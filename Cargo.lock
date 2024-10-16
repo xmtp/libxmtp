@@ -14,18 +14,12 @@ dependencies = [
 
 [[package]]
 name = "addr2line"
-version = "0.21.0"
+version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a30b2e23b9e17a9f90641c7ab1549cd9b44f296d3ccbf309d2863cfe398a0cb"
+checksum = "dfbe277e56a376000877090da837660b4427aad530e3028d44e0bffe4f89a1c1"
 dependencies = [
  "gimli",
 ]
-
-[[package]]
-name = "adler"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f26201604c87b1e01bd3d98f8d5d9a8fcbb815e8cedb41ffccbeb4bf593a35fe"
 
 [[package]]
 name = "adler2"
@@ -363,17 +357,17 @@ dependencies = [
 
 [[package]]
 name = "backtrace"
-version = "0.3.71"
+version = "0.3.74"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26b05800d2e817c8b3b4b54abd461726265fa9789ae34330622f2db9ee696f9d"
+checksum = "8d82cb332cdfaed17ae235a638438ac4d4839913cc2af585c3c6746e8f8bee1a"
 dependencies = [
  "addr2line",
- "cc",
  "cfg-if",
  "libc",
- "miniz_oxide 0.7.4",
+ "miniz_oxide",
  "object",
  "rustc-demangle",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -1179,7 +1173,7 @@ dependencies = [
 [[package]]
 name = "diesel"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#a3ea5242567b1a44f3b606d9b552bdd23065e001"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#efd59557a15322f1a54a5c263b1eb4ec0b5a0783"
 dependencies = [
  "diesel_derives",
  "downcast-rs",
@@ -1209,7 +1203,7 @@ dependencies = [
 [[package]]
 name = "diesel_derives"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#a3ea5242567b1a44f3b606d9b552bdd23065e001"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#efd59557a15322f1a54a5c263b1eb4ec0b5a0783"
 dependencies = [
  "diesel_table_macro_syntax",
  "dsl_auto_type",
@@ -1221,7 +1215,7 @@ dependencies = [
 [[package]]
 name = "diesel_migrations"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#a3ea5242567b1a44f3b606d9b552bdd23065e001"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#efd59557a15322f1a54a5c263b1eb4ec0b5a0783"
 dependencies = [
  "diesel",
  "migrations_internals",
@@ -1231,7 +1225,7 @@ dependencies = [
 [[package]]
 name = "diesel_table_macro_syntax"
 version = "0.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#a3ea5242567b1a44f3b606d9b552bdd23065e001"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#efd59557a15322f1a54a5c263b1eb4ec0b5a0783"
 dependencies = [
  "syn 2.0.79",
 ]
@@ -1314,7 +1308,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "dsl_auto_type"
 version = "0.1.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#a3ea5242567b1a44f3b606d9b552bdd23065e001"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#efd59557a15322f1a54a5c263b1eb4ec0b5a0783"
 dependencies = [
  "darling",
  "either",
@@ -1906,7 +1900,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1b589b4dc103969ad3cf85c950899926ec64300a1a46d76c03a6072957036f0"
 dependencies = [
  "crc32fast",
- "miniz_oxide 0.8.0",
+ "miniz_oxide",
 ]
 
 [[package]]
@@ -2139,9 +2133,9 @@ dependencies = [
 
 [[package]]
 name = "gimli"
-version = "0.28.1"
+version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4271d37baee1b8c7e4b708028c57d816cf9d2434acb33a549475f78c181f6253"
+checksum = "07e28edb80900c19c28f1072f2e8aeca7fa06b23cd4169cefe1af5aa3260783f"
 
 [[package]]
 name = "glob"
@@ -2551,7 +2545,7 @@ dependencies = [
  "http 1.1.0",
  "hyper 1.5.0",
  "hyper-util",
- "rustls 0.23.14",
+ "rustls 0.23.15",
  "rustls-pki-types",
  "tokio",
  "tokio-rustls 0.26.0",
@@ -3087,7 +3081,7 @@ checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 [[package]]
 name = "migrations_internals"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#a3ea5242567b1a44f3b606d9b552bdd23065e001"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#efd59557a15322f1a54a5c263b1eb4ec0b5a0783"
 dependencies = [
  "serde",
  "toml 0.8.19",
@@ -3096,7 +3090,7 @@ dependencies = [
 [[package]]
 name = "migrations_macros"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#a3ea5242567b1a44f3b606d9b552bdd23065e001"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#efd59557a15322f1a54a5c263b1eb4ec0b5a0783"
 dependencies = [
  "migrations_internals",
  "proc-macro2",
@@ -3134,15 +3128,6 @@ name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
-
-[[package]]
-name = "miniz_oxide"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8a240ddb74feaf34a79a7add65a741f3167852fba007066dcac1ca548d89c08"
-dependencies = [
- "adler",
-]
 
 [[package]]
 name = "miniz_oxide"
@@ -3441,9 +3426,9 @@ checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
 
 [[package]]
 name = "object"
-version = "0.32.2"
+version = "0.36.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6a622008b6e321afc04970976f62ee297fdbaa6f95318ca343e3eebb9648441"
+checksum = "aedf0a2d09c573ed1d8d85b30c119153926a2b36dce0ab28322c09a117a4683e"
 dependencies = [
  "memchr",
 ]
@@ -3592,9 +3577,9 @@ dependencies = [
 
 [[package]]
 name = "openssl"
-version = "0.10.57"
+version = "0.10.68"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bac25ee399abb46215765b1cb35bc0212377e58a061560d8b29b024fd0430e7c"
+checksum = "6174bc48f102d208783c2c84bf931bb75927a617866870de8a4ea85597f871f5"
 dependencies = [
  "bitflags 2.6.0",
  "cfg-if",
@@ -3624,18 +3609,18 @@ checksum = "ff011a302c396a5197692431fc1948019154afc178baf7d8e37367442a4601cf"
 
 [[package]]
 name = "openssl-src"
-version = "111.28.2+1.1.1w"
+version = "300.3.2+3.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb1830e20a48a975ca898ca8c1d036a36c3c6c5cb7dabc1c216706587857920f"
+checksum = "a211a18d945ef7e648cc6e0058f4c548ee46aab922ea203e0d30e966ea23647b"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.92"
+version = "0.9.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db7e971c2c2bba161b2d2fdf37080177eff520b3bc044787c7f1f5f9e78d869b"
+checksum = "45abf306cbf99debc8195b66b7346498d7b10c210de50418b5ccd7ceba08c741"
 dependencies = [
  "cc",
  "libc",
@@ -4141,9 +4126,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.87"
+version = "1.0.88"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3e4daa0dcf6feba26f985457cdf104d4b4256fc5a09547140f3631bb076b19a"
+checksum = "7c3a7fc5db1e57d5a779a352c8cdb57b29aa4c40cc69c3a68a7fedc815fbf2f9"
 dependencies = [
  "unicode-ident",
 ]
@@ -4632,9 +4617,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.14"
+version = "0.23.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "415d9944693cb90382053259f89fbb077ea730ad7273047ec63b19bc9b160ba8"
+checksum = "5fbb44d7acc4e873d613422379f69f237a1b141928c02f6bc6ccfddddc2d7993"
 dependencies = [
  "log",
  "once_cell",
@@ -5209,15 +5194,15 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "sval"
-version = "2.13.1"
+version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eaf38d1fa2ce984086ea42fb856a9f374d94680a4f796831a7fc868d7f2af1b9"
+checksum = "f6dc0f9830c49db20e73273ffae9b5240f63c42e515af1da1fceefb69fceafd8"
 
 [[package]]
 name = "sval_buffer"
-version = "2.13.1"
+version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81682ff859964ca1d7cf3d3d0f9ec7204ea04c2c32acb8cc2cf68ecbd3127354"
+checksum = "429922f7ad43c0ef8fd7309e14d750e38899e32eb7e8da656ea169dd28ee212f"
 dependencies = [
  "sval",
  "sval_ref",
@@ -5225,18 +5210,18 @@ dependencies = [
 
 [[package]]
 name = "sval_dynamic"
-version = "2.13.1"
+version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a213b93bb4c6f4c9f9b17f2e740e077fd18746bbf7c80c72bbadcac68fa7ee4"
+checksum = "68f16ff5d839396c11a30019b659b0976348f3803db0626f736764c473b50ff4"
 dependencies = [
  "sval",
 ]
 
 [[package]]
 name = "sval_fmt"
-version = "2.13.1"
+version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6902c6d3fb52c89206fe0dc93546c0123f7d48b5997fd14e61c9e64ff0b63275"
+checksum = "c01c27a80b6151b0557f9ccbe89c11db571dc5f68113690c1e028d7e974bae94"
 dependencies = [
  "itoa",
  "ryu",
@@ -5245,9 +5230,9 @@ dependencies = [
 
 [[package]]
 name = "sval_json"
-version = "2.13.1"
+version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11a28041ea78cdc394b930ae6b897d36246dc240a29a6edf82d76562487fb0b4"
+checksum = "0deef63c70da622b2a8069d8600cf4b05396459e665862e7bdb290fd6cf3f155"
 dependencies = [
  "itoa",
  "ryu",
@@ -5256,9 +5241,9 @@ dependencies = [
 
 [[package]]
 name = "sval_nested"
-version = "2.13.1"
+version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "850346e4b0742a7f2fd2697d703ff80084d0b658f0f2e336d71b8a06abf9b68e"
+checksum = "a39ce5976ae1feb814c35d290cf7cf8cd4f045782fe1548d6bc32e21f6156e9f"
 dependencies = [
  "sval",
  "sval_buffer",
@@ -5267,18 +5252,18 @@ dependencies = [
 
 [[package]]
 name = "sval_ref"
-version = "2.13.1"
+version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "824afd97a8919f28a35b0fdea979845cc2ae461a8a3aaa129455cb89c88bb77a"
+checksum = "bb7c6ee3751795a728bc9316a092023529ffea1783499afbc5c66f5fabebb1fa"
 dependencies = [
  "sval",
 ]
 
 [[package]]
 name = "sval_serde"
-version = "2.13.1"
+version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ada7520dd719ed672c786c7db7de4f5230f4d504b0821bd8305cd30ca442315"
+checksum = "2a5572d0321b68109a343634e3a5d576bf131b82180c6c442dee06349dfc652a"
 dependencies = [
  "serde",
  "sval",
@@ -5631,7 +5616,7 @@ version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c7bc40d0e5a97695bb96e27995cd3a08538541b0a846f65bba7a359f36700d4"
 dependencies = [
- "rustls 0.23.14",
+ "rustls 0.23.15",
  "rustls-pki-types",
  "tokio",
 ]
@@ -6219,9 +6204,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.10.0"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81dfa00651efa65069b0b6b651f4aaa31ba9e3c3ce0137aaad053604ee7e0314"
+checksum = "f8c5f0a0af699448548ad1a2fbf920fb4bee257eae39953ba95cb84891a0446a"
 dependencies = [
  "getrandom",
  "rand",
@@ -6775,7 +6760,7 @@ dependencies = [
  "tokio",
  "tonic",
  "tracing",
- "uuid 1.10.0",
+ "uuid 1.11.0",
  "xmtp_proto",
  "xmtp_v2",
 ]
@@ -6994,7 +6979,7 @@ dependencies = [
  "thread-id",
  "tokio",
  "uniffi",
- "uuid 1.10.0",
+ "uuid 1.11.0",
  "xmtp_api_grpc",
  "xmtp_cryptography",
  "xmtp_id",
