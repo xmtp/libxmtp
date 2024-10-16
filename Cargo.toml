@@ -14,7 +14,6 @@ members = [
   "bindings_wasm",
   "bindings_node",
   "bindings_ffi",
-  "xtask"
 ]
 
 # Make the feature resolver explicit.
