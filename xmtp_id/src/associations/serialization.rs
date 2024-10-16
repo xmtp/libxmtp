@@ -314,6 +314,7 @@ impl From<&SmartContractWalletValidationResponseProto> for ValidationResponse {
         Self {
             is_valid: value.is_valid,
             block_number: value.block_number,
+            error: value.error.clone(),
         }
     }
 }

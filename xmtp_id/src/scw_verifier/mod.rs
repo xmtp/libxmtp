@@ -54,6 +54,7 @@ pub trait SmartContractSignatureVerifier: Send + Sync + DynClone + 'static {
 pub struct ValidationResponse {
     pub is_valid: bool,
     pub block_number: Option<u64>,
+    pub error: Option<String>,
 }
 
 dyn_clone::clone_trait_object!(SmartContractSignatureVerifier);

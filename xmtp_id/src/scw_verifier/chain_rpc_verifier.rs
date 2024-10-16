@@ -105,6 +105,7 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
         Ok(ValidationResponse {
             is_valid,
             block_number: block_number.as_number().map(|n| n.0[0]),
+            error: None,
         })
     }
 }

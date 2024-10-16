@@ -27,12 +27,14 @@ services:
       context: ../..
       dockerfile: ./dev/validation_service/local.Dockerfile
     environment:
-      FOUNDRY_URL: "https://foundry:8545"
+      FOUNDRY_URL: "http://foundry:8545"
 
   foundry:
     build:
       dockerfile: ./foundry.Dockerfile
     platform: linux/amd64
+    ports:
+      - 8545:8545
 
   db:
     image: postgres:13

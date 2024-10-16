@@ -764,10 +764,8 @@ mod tests {
                 .await
                 .unwrap();
 
-            // The mls validation service can't connect to our anvil instance, so it'll return false
-            // This is to make sure the communication at least works.
             assert!(valid_response.is_valid);
-            assert_eq!(valid_response.block_number, None);
+            assert!(valid_response.block_number.is_some());
         })
         .await;
     }
