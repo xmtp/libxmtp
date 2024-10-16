@@ -15,6 +15,9 @@ trait-variant = "0.1.2"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tonic = { workspace = true }
 
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test.workspace = true
+
 [features]
 convert = ["openmls", "proto_full"]
 test-utils = []

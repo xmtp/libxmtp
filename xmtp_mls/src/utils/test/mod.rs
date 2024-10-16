@@ -150,6 +150,15 @@ impl ClientBuilder<TestClient> {
         )
         .await
     }
+
+    /// Add the local client to this builder
+    pub async fn local_client(self) -> Self {
+        self.api_client(<TestClient as XmtpTestClient>::create_local().await)
+    }
+
+    pub async fn dev_client(self) -> Self {
+        self.api_client(<TestClient as XmtpTestClient>::create_dev().await)
+    }
 }
 
 async fn inner_build<A, V>(owner: impl InboxOwner, api_client: &A, scw_verifier: V) -> Client<A, V>
