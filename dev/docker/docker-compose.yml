@@ -26,6 +26,15 @@ services:
     build:
       context: ../..
       dockerfile: ./dev/validation_service/local.Dockerfile
+    environment:
+      ANVIL_URL: "http://anvil:8545"
+
+  anvil:
+    build:
+      dockerfile: ./anvil.Dockerfile
+    platform: linux/amd64
+    ports:
+      - 8545:8545
 
   db:
     image: postgres:13

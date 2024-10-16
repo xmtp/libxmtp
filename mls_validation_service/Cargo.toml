@@ -37,3 +37,6 @@ rand = { workspace = true }
 sha2.workspace = true
 xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_mls = { workspace = true, features = ["test-utils"] }
+
+[features]
+test-utils = ["xmtp_id/test-utils"]

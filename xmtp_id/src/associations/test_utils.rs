@@ -60,6 +60,7 @@ impl SmartContractSignatureVerifier for MockSmartContractSignatureVerifier {
         Ok(ValidationResponse {
             is_valid: self.is_valid_signature,
             block_number: Some(1),
+            error: None,
         })
     }
 }
