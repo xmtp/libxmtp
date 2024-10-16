@@ -215,6 +215,7 @@ impl NapiConversations {
     let client = self.inner_client.clone();
     let stream_closer = RustXmtpClient::stream_conversations_with_callback(
       client.clone(),
+      Some(ConversationType::Group),
       move |convo| {
         tsfn.call(
           Ok(NapiGroup::new(
@@ -225,7 +226,6 @@ impl NapiConversations {
           ThreadsafeFunctionCallMode::Blocking,
         );
       },
-      Some(ConversationType::Group),
     );
 
     Ok(NapiStreamCloser::new(stream_closer))
@@ -237,10 +237,10 @@ impl NapiConversations {
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
       self.inner_client.clone(),
+      Some(ConversationType::Group),
       move |message| {
         tsfn.call(Ok(message.into()), ThreadsafeFunctionCallMode::Blocking);
       },
-      Some(ConversationType::Group),
     );
 
     Ok(NapiStreamCloser::new(stream_closer))

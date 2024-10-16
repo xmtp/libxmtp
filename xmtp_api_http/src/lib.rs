@@ -6,11 +6,13 @@ mod util;
 use futures::stream;
 use reqwest::header;
 use util::{create_grpc_stream, handle_error};
+// use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::api_client::{ClientWithMetadata, Error, ErrorKind, XmtpIdentityClient};
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
     GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
+    VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
@@ -41,6 +43,7 @@ fn reqwest_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder().connection_verbose(true)
 }
 
+#[derive(Clone)]
 pub struct XmtpHttpApiClient {
     http_client: reqwest::Client,
     host_url: String,
@@ -329,18 +332,40 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
         tracing::debug!("get_inbox_ids");
         handle_error(&*res)
     }
+
+    async fn verify_smart_contract_wallet_signatures(
+        &self,
+        request: VerifySmartContractWalletSignaturesRequest,
+    ) -> Result<VerifySmartContractWalletSignaturesResponse, Error> {
+        let res = self
+            .http_client
+            .post(self.endpoint(ApiEndpoints::VERIFY_SMART_CONTRACT_WALLET_SIGNATURES))
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?
+            .bytes()
+            .await
+            .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
+
+        tracing::debug!("verify_smart_contract_wallet_signatures");
+        handle_error(&*res)
+    }
 }
 
 // tests
 #[cfg(test)]
-mod tests {
+pub mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use xmtp_proto::xmtp::mls::api::v1::KeyPackageUpload;
 
     use crate::constants::ApiUrls;
 
     use super::*;
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_upload_key_package() {
         let client = XmtpHttpApiClient::new(ApiUrls::LOCAL_ADDRESS.to_string()).unwrap();
         let result = client

@@ -2,56 +2,43 @@ pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::logger::FfiLogger;
 use crate::GenericError;
-use std::collections::HashMap;
-use std::convert::TryInto;
-use std::sync::Arc;
-use tokio::{sync::Mutex, task::AbortHandle};
+use std::{collections::HashMap, convert::TryInto, sync::Arc};
+use tokio::sync::Mutex;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_id::associations::unverified::NewUnverifiedSmartContractWalletSignature;
-use xmtp_id::associations::unverified::UnverifiedSignature;
-use xmtp_id::associations::AccountId;
-use xmtp_id::associations::AssociationState;
-use xmtp_id::associations::MemberIdentifier;
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
-use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
-    associations::{builder::SignatureRequest, generate_inbox_id as xmtp_id_generate_inbox_id},
+    associations::{
+        builder::SignatureRequest,
+        generate_inbox_id as xmtp_id_generate_inbox_id,
+        unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
+        AccountId, AssociationState, MemberIdentifier,
+    },
     InboxId,
 };
-use xmtp_mls::client::FindGroupParams;
-use xmtp_mls::groups::group_mutable_metadata::MetadataField;
-use xmtp_mls::groups::group_permissions::BasePolicies;
-use xmtp_mls::groups::group_permissions::GroupMutablePermissionsError;
-use xmtp_mls::groups::group_permissions::MembershipPolicies;
-use xmtp_mls::groups::group_permissions::MetadataBasePolicies;
-use xmtp_mls::groups::group_permissions::MetadataPolicies;
-use xmtp_mls::groups::group_permissions::PermissionsBasePolicies;
-use xmtp_mls::groups::group_permissions::PermissionsPolicies;
-use xmtp_mls::groups::group_permissions::PolicySet;
-use xmtp_mls::groups::intents::PermissionPolicyOption;
-use xmtp_mls::groups::intents::PermissionUpdateType;
-use xmtp_mls::groups::GroupMetadataOptions;
-use xmtp_mls::storage::consent_record::ConsentState;
-use xmtp_mls::storage::consent_record::ConsentType;
-use xmtp_mls::storage::consent_record::StoredConsentRecord;
 use xmtp_mls::{
     api::ApiClientWrapper,
     builder::ClientBuilder,
-    client::Client as MlsClient,
-    client::ClientError,
+    client::{Client as MlsClient, ClientError, FindGroupParams},
     groups::{
         group_metadata::{ConversationType, GroupMetadata},
-        group_permissions::GroupMutablePermissions,
+        group_mutable_metadata::MetadataField,
+        group_permissions::{
+            BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError,
+            MembershipPolicies, MetadataBasePolicies, MetadataPolicies, PermissionsBasePolicies,
+            PermissionsPolicies, PolicySet,
+        },
+        intents::{PermissionPolicyOption, PermissionUpdateType},
         members::PermissionLevel,
-        MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
+        GroupMetadataOptions, MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
     },
     identity::IdentityStrategy,
     retry::Retry,
     storage::{
+        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         EncryptedMessageStore, EncryptionKey, StorageOption,
     },
-    subscriptions::StreamHandle,
+    AbortHandle, GenericStreamHandle, StreamHandle,
 };
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
@@ -114,9 +101,9 @@ pub async fn create_client(
             let key: EncryptionKey = key
                 .try_into()
                 .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
-            EncryptedMessageStore::new(storage_option, key)?
+            EncryptedMessageStore::new(storage_option, key).await?
         }
-        None => EncryptedMessageStore::new_unencrypted(storage_option)?,
+        None => EncryptedMessageStore::new_unencrypted(storage_option).await?,
     };
     log::info!("Creating XMTP client");
     let identity_strategy = IdentityStrategy::CreateIfNotFound(
@@ -126,15 +113,12 @@ pub async fn create_client(
         legacy_signed_private_key_proto,
     );
 
-    let scw_verifier = RemoteSignatureVerifier::new(api_client.identity_client().clone());
-
     let xmtp_client: RustXmtpClient = match history_sync_url {
         Some(url) => {
             ClientBuilder::new(identity_strategy)
                 .api_client(api_client)
                 .store(store)
                 .history_sync_url(&url)
-                .scw_signature_verifier(scw_verifier)
                 .build()
                 .await?
         }
@@ -142,7 +126,6 @@ pub async fn create_client(
             ClientBuilder::new(identity_strategy)
                 .api_client(api_client)
                 .store(store)
-                .scw_signature_verifier(scw_verifier)
                 .build()
                 .await?
         }
@@ -188,7 +171,7 @@ pub fn generate_inbox_id(account_address: String, nonce: u64) -> String {
 #[derive(uniffi::Object)]
 pub struct FfiSignatureRequest {
     inner: Arc<Mutex<SignatureRequest>>,
-    scw_verifier: Box<dyn SmartContractSignatureVerifier>,
+    scw_verifier: RemoteSignatureVerifier<TonicApiClient>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -199,7 +182,7 @@ impl FfiSignatureRequest {
         inner
             .add_signature(
                 UnverifiedSignature::new_recoverable_ecdsa(signature_bytes),
-                self.scw_verifier.clone().as_ref(),
+                &self.scw_verifier,
             )
             .await?;
 
@@ -224,10 +207,7 @@ impl FfiSignatureRequest {
         );
 
         inner
-            .add_new_unverified_smart_contract_signature(
-                new_signature,
-                self.scw_verifier.clone().as_ref(),
-            )
+            .add_new_unverified_smart_contract_signature(new_signature, &self.scw_verifier)
             .await?;
 
         Ok(())
@@ -398,14 +378,14 @@ impl FfiXmtpClient {
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
     pub fn signature_request(&self) -> Option<Arc<FfiSignatureRequest>> {
-        let scw_verifier = self.inner_client.context().scw_verifier.clone();
+        let scw_verifier = self.inner_client.scw_verifier().clone();
         self.inner_client
             .identity()
             .signature_request()
-            .map(|request| {
+            .map(move |request| {
                 Arc::new(FfiSignatureRequest {
                     inner: Arc::new(Mutex::new(request)),
-                    scw_verifier,
+                    scw_verifier: scw_verifier.clone(),
                 })
             })
     }
@@ -439,10 +419,10 @@ impl FfiXmtpClient {
         let signature_request = self
             .inner_client
             .associate_wallet(existing_wallet_address.into(), new_wallet_address.into())?;
-
+        let scw_verifier = self.inner_client.scw_verifier().clone();
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: self.inner_client.context().scw_verifier.clone(),
+            scw_verifier: scw_verifier.clone(),
         });
 
         Ok(request)
@@ -465,14 +445,17 @@ impl FfiXmtpClient {
         &self,
         wallet_address: &str,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
-        let signature_request = self
-            .inner_client
+        let Self {
+            ref inner_client, ..
+        } = self;
+
+        let signature_request = inner_client
             .revoke_wallets(vec![wallet_address.into()])
             .await?;
-
+        let scw_verifier = inner_client.clone().scw_verifier().clone();
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: self.inner_client.context().scw_verifier.clone(),
+            scw_verifier,
         });
 
         Ok(request)
@@ -499,7 +482,7 @@ impl FfiXmtpClient {
 
         Ok(Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: self.inner_client.context().scw_verifier.clone(),
+            scw_verifier: self.inner_client.scw_verifier().clone().clone(),
         }))
     }
 }
@@ -975,6 +958,7 @@ impl FfiConversations {
         let client = self.inner_client.clone();
         let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
+            Some(ConversationType::Group),
             move |convo| {
                 callback.on_conversation(Arc::new(FfiConversation {
                     inner_client: client.clone(),
@@ -982,7 +966,6 @@ impl FfiConversations {
                     created_at_ns: convo.created_at_ns,
                 }))
             },
-            Some(ConversationType::Group),
         );
 
         FfiStreamCloser::new(handle)
@@ -992,6 +975,7 @@ impl FfiConversations {
         let client = self.inner_client.clone();
         let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
+            Some(ConversationType::Dm),
             move |convo| {
                 callback.on_conversation(Arc::new(FfiConversation {
                     inner_client: client.clone(),
@@ -999,7 +983,6 @@ impl FfiConversations {
                     created_at_ns: convo.created_at_ns,
                 }))
             },
-            Some(ConversationType::Dm),
         );
 
         FfiStreamCloser::new(handle)
@@ -1009,6 +992,7 @@ impl FfiConversations {
         let client = self.inner_client.clone();
         let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
+            None,
             move |convo| {
                 callback.on_conversation(Arc::new(FfiConversation {
                     inner_client: client.clone(),
@@ -1016,7 +1000,6 @@ impl FfiConversations {
                     created_at_ns: convo.created_at_ns,
                 }))
             },
-            None,
         );
 
         FfiStreamCloser::new(handle)
@@ -1028,8 +1011,8 @@ impl FfiConversations {
     ) -> FfiStreamCloser {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
-            move |message| message_callback.on_message(message.into()),
             Some(ConversationType::Group),
+            move |message| message_callback.on_message(message.into()),
         );
 
         FfiStreamCloser::new(handle)
@@ -1041,8 +1024,8 @@ impl FfiConversations {
     ) -> FfiStreamCloser {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
-            move |message| message_callback.on_message(message.into()),
             Some(ConversationType::Dm),
+            move |message| message_callback.on_message(message.into()),
         );
 
         FfiStreamCloser::new(handle)
@@ -1054,8 +1037,8 @@ impl FfiConversations {
     ) -> FfiStreamCloser {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
-            move |message| message_callback.on_message(message.into()),
             None,
+            move |message| message_callback.on_message(message.into()),
         );
 
         FfiStreamCloser::new(handle)
@@ -1162,21 +1145,19 @@ impl FfiCreateGroupOptions {
 impl FfiConversation {
     pub async fn send(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
 
-        let message_id = group
-            .send_message(content_bytes.as_slice(), &self.inner_client)
-            .await?;
+        let message_id = group.send_message(content_bytes.as_slice()).await?;
         Ok(message_id)
     }
 
     /// send a message without immediately publishing to the delivery service.
     pub fn send_optimistic(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
@@ -1189,22 +1170,22 @@ impl FfiConversation {
     /// Publish all unpublished messages
     pub async fn publish_messages(&self) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
-        group.publish_messages(&self.inner_client).await?;
+        group.publish_messages().await?;
         Ok(())
     }
 
     pub async fn sync(&self) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
 
-        group.sync(&self.inner_client).await?;
+        group.sync().await?;
 
         Ok(())
     }
@@ -1214,7 +1195,7 @@ impl FfiConversation {
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<FfiMessage>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
@@ -1241,13 +1222,11 @@ impl FfiConversation {
         envelope_bytes: Vec<u8>,
     ) -> Result<FfiMessage, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
-        let message = group
-            .process_streamed_group_message(envelope_bytes, &self.inner_client)
-            .await?;
+        let message = group.process_streamed_group_message(envelope_bytes).await?;
         let ffi_message = message.into();
 
         Ok(ffi_message)
@@ -1255,13 +1234,13 @@ impl FfiConversation {
 
     pub async fn list_members(&self) -> Result<Vec<FfiConversationMember>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
 
         let members: Vec<FfiConversationMember> = group
-            .members(&self.inner_client)
+            .members()
             .await?
             .into_iter()
             .map(|member| FfiConversationMember {
@@ -1284,14 +1263,12 @@ impl FfiConversation {
         log::info!("adding members: {}", account_addresses.join(","));
 
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
 
-        group
-            .add_members(&self.inner_client, account_addresses)
-            .await?;
+        group.add_members(account_addresses).await?;
 
         Ok(())
     }
@@ -1303,28 +1280,24 @@ impl FfiConversation {
         log::info!("adding members by inbox id: {}", inbox_ids.join(","));
 
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
 
-        group
-            .add_members_by_inbox_id(&self.inner_client, inbox_ids)
-            .await?;
+        group.add_members_by_inbox_id(inbox_ids).await?;
 
         Ok(())
     }
 
     pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
 
-        group
-            .remove_members(&self.inner_client, account_addresses)
-            .await?;
+        group.remove_members(account_addresses).await?;
 
         Ok(())
     }
@@ -1334,35 +1307,31 @@ impl FfiConversation {
         inbox_ids: Vec<String>,
     ) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
 
-        group
-            .remove_members_by_inbox_id(&self.inner_client, inbox_ids)
-            .await?;
+        group.remove_members_by_inbox_id(inbox_ids).await?;
 
         Ok(())
     }
 
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
 
-        group
-            .update_group_name(&self.inner_client, group_name)
-            .await?;
+        group.update_group_name(group_name).await?;
 
         Ok(())
     }
 
     pub fn group_name(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
@@ -1378,13 +1347,13 @@ impl FfiConversation {
         group_image_url_square: String,
     ) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
 
         group
-            .update_group_image_url_square(&self.inner_client, group_image_url_square)
+            .update_group_image_url_square(group_image_url_square)
             .await?;
 
         Ok(())
@@ -1392,7 +1361,7 @@ impl FfiConversation {
 
     pub fn group_image_url_square(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
@@ -1407,21 +1376,19 @@ impl FfiConversation {
         group_description: String,
     ) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
 
-        group
-            .update_group_description(&self.inner_client, group_description)
-            .await?;
+        group.update_group_description(group_description).await?;
 
         Ok(())
     }
 
     pub fn group_description(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
@@ -1436,13 +1403,13 @@ impl FfiConversation {
         pinned_frame_url: String,
     ) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
 
         group
-            .update_group_pinned_frame_url(&self.inner_client, pinned_frame_url)
+            .update_group_pinned_frame_url(pinned_frame_url)
             .await?;
 
         Ok(())
@@ -1450,7 +1417,7 @@ impl FfiConversation {
 
     pub fn group_pinned_frame_url(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
@@ -1462,7 +1429,7 @@ impl FfiConversation {
 
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
@@ -1474,7 +1441,7 @@ impl FfiConversation {
 
     pub fn super_admin_list(&self) -> Result<Vec<String>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
@@ -1496,12 +1463,12 @@ impl FfiConversation {
 
     pub async fn add_admin(&self, inbox_id: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
         group
-            .update_admin_list(&self.inner_client, UpdateAdminListType::Add, inbox_id)
+            .update_admin_list(UpdateAdminListType::Add, inbox_id)
             .await?;
 
         Ok(())
@@ -1509,12 +1476,12 @@ impl FfiConversation {
 
     pub async fn remove_admin(&self, inbox_id: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
         group
-            .update_admin_list(&self.inner_client, UpdateAdminListType::Remove, inbox_id)
+            .update_admin_list(UpdateAdminListType::Remove, inbox_id)
             .await?;
 
         Ok(())
@@ -1522,12 +1489,12 @@ impl FfiConversation {
 
     pub async fn add_super_admin(&self, inbox_id: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
         group
-            .update_admin_list(&self.inner_client, UpdateAdminListType::AddSuper, inbox_id)
+            .update_admin_list(UpdateAdminListType::AddSuper, inbox_id)
             .await?;
 
         Ok(())
@@ -1535,16 +1502,12 @@ impl FfiConversation {
 
     pub async fn remove_super_admin(&self, inbox_id: String) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
         group
-            .update_admin_list(
-                &self.inner_client,
-                UpdateAdminListType::RemoveSuper,
-                inbox_id,
-            )
+            .update_admin_list(UpdateAdminListType::RemoveSuper, inbox_id)
             .await?;
 
         Ok(())
@@ -1552,7 +1515,7 @@ impl FfiConversation {
 
     pub fn group_permissions(&self) -> Result<Arc<FfiGroupPermissions>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
@@ -1570,13 +1533,12 @@ impl FfiConversation {
         metadata_field: Option<FfiMetadataField>,
     ) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
         group
             .update_permission_policy(
-                &self.inner_client,
                 PermissionUpdateType::from(&permission_update_type),
                 permission_policy_option.try_into()?,
                 metadata_field.map(|field| MetadataField::from(&field)),
@@ -1604,7 +1566,7 @@ impl FfiConversation {
 
     pub fn is_active(&self) -> Result<bool, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
@@ -1614,7 +1576,7 @@ impl FfiConversation {
 
     pub fn consent_state(&self) -> Result<FfiConsentState, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
@@ -1626,7 +1588,7 @@ impl FfiConversation {
 
     pub fn update_consent_state(&self, state: FfiConsentState) -> Result<(), GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
@@ -1638,7 +1600,7 @@ impl FfiConversation {
 
     pub fn added_by_inbox_id(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
@@ -1648,7 +1610,7 @@ impl FfiConversation {
 
     pub fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
         let group = MlsGroup::new(
-            self.inner_client.context().clone(),
+            self.inner_client.clone(),
             self.conversation_id.clone(),
             self.created_at_ns,
         );
@@ -1751,27 +1713,22 @@ impl From<FfiConsent> for StoredConsentRecord {
     }
 }
 
-#[derive(uniffi::Object, Clone, Debug)]
+type FfiHandle = Box<GenericStreamHandle<Result<(), ClientError>>>;
+
+#[derive(uniffi::Object, Clone)]
 pub struct FfiStreamCloser {
-    #[allow(clippy::type_complexity)]
-    stream_handle: Arc<Mutex<Option<StreamHandle<Result<(), ClientError>>>>>,
+    stream_handle: Arc<Mutex<Option<FfiHandle>>>,
     // for convenience, does not require locking mutex.
-    abort_handle: Arc<AbortHandle>,
+    abort_handle: Arc<Box<dyn AbortHandle>>,
 }
 
 impl FfiStreamCloser {
-    pub fn new(stream_handle: StreamHandle<Result<(), ClientError>>) -> Self {
+    pub fn new(
+        stream_handle: impl StreamHandle<StreamOutput = Result<(), ClientError>> + Send + Sync + 'static,
+    ) -> Self {
         Self {
-            abort_handle: Arc::new(stream_handle.handle.abort_handle()),
-            stream_handle: Arc::new(Mutex::new(Some(stream_handle))),
-        }
-    }
-
-    #[cfg(test)]
-    pub async fn wait_for_ready(&self) {
-        let mut handle = self.stream_handle.lock().await;
-        if let Some(ref mut h) = &mut *handle {
-            h.wait_for_ready().await;
+            abort_handle: Arc::new(stream_handle.abort_handle()),
+            stream_handle: Arc::new(Mutex::new(Some(Box::new(stream_handle)))),
         }
     }
 }
@@ -1781,28 +1738,28 @@ impl FfiStreamCloser {
     /// Signal the stream to end
     /// Does not wait for the stream to end.
     pub fn end(&self) {
-        self.abort_handle.abort();
+        self.abort_handle.end();
     }
 
     /// End the stream and asyncronously wait for it to shutdown
     pub async fn end_and_wait(&self) -> Result<(), GenericError> {
+        use xmtp_mls::StreamHandleError::*;
+        use GenericError::Generic;
+
         if self.abort_handle.is_finished() {
             return Ok(());
         }
 
         let mut stream_handle = self.stream_handle.lock().await;
         let stream_handle = stream_handle.take();
-        if let Some(h) = stream_handle {
-            h.handle.abort();
-            match h.handle.await {
-                Err(e) if !e.is_cancelled() => Err(GenericError::Generic {
-                    err: format!("subscription event loop join error {}", e),
-                }),
-                Err(e) if e.is_cancelled() => Ok(()),
-                Ok(t) => t.map_err(|e| GenericError::Generic { err: e.to_string() }),
-                Err(e) => Err(GenericError::Generic {
+        if let Some(mut h) = stream_handle {
+            match h.end_and_wait().await {
+                Err(Cancelled) => Ok(()),
+                Err(Panicked(msg)) => Err(Generic { err: msg }),
+                Err(e) => Err(Generic {
                     err: format!("error joining task {}", e),
                 }),
+                Ok(t) => t.map_err(|e| Generic { err: e.to_string() }),
             }
         } else {
             log::warn!("subscription already closed");
@@ -1812,6 +1769,13 @@ impl FfiStreamCloser {
 
     pub fn is_closed(&self) -> bool {
         self.abort_handle.is_finished()
+    }
+
+    pub async fn wait_for_ready(&self) {
+        let mut stream_handle = self.stream_handle.lock().await;
+        if let Some(ref mut h) = *stream_handle {
+            h.wait_for_ready().await;
+        }
     }
 }
 
@@ -2064,12 +2028,12 @@ mod tests {
         #[cfg(test)]
         async fn update_installations(&self) -> Result<(), GroupError> {
             let group = MlsGroup::new(
-                self.inner_client.context().clone(),
+                self.inner_client.clone(),
                 self.conversation_id.clone(),
                 self.created_at_ns,
             );
 
-            group.update_installations(&self.inner_client).await?;
+            group.update_installations().await?;
             Ok(())
         }
     }
@@ -2234,7 +2198,7 @@ mod tests {
                 UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(
                     wallet_signature,
                 )),
-                scw_verifier.clone().as_ref(),
+                scw_verifier,
             )
             .await
             .unwrap();

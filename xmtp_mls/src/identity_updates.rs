@@ -55,18 +55,14 @@ impl RetryableError for InstallationDiffError {
     }
 }
 
-impl<'a, ApiClient> Client<ApiClient>
-where
-    ApiClient: XmtpApi,
-{
+impl DbConnection {
     /// Take a list of inbox_id/sequence_id tuples and determine which `inbox_id`s have missing entries
     /// in the local DB
     pub(crate) fn filter_inbox_ids_needing_updates<InboxId: AsRef<str> + ToString>(
         &self,
-        conn: &DbConnection,
         filters: Vec<(InboxId, i64)>,
     ) -> Result<Vec<String>, ClientError> {
-        let existing_sequence_ids = conn.get_latest_sequence_id(
+        let existing_sequence_ids = self.get_latest_sequence_id(
             &filters
                 .iter()
                 .map(|f| f.0.to_string())
@@ -89,7 +85,13 @@ where
 
         Ok(needs_update)
     }
+}
 
+impl<'a, ApiClient, V> Client<ApiClient, V>
+where
+    ApiClient: XmtpApi + Clone,
+    V: SmartContractSignatureVerifier + Clone,
+{
     /// Get the association state for all provided `inbox_id`/optional `sequence_id` tuples, using the cache when available
     /// If the association state is not available in the cache, this falls back to reconstructing the association state
     /// from Identity Updates in the network.
@@ -152,11 +154,7 @@ where
             .into_iter()
             .map(UnverifiedIdentityUpdate::try_from)
             .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
-        let updates = verify_updates(
-            unverified_updates,
-            self.smart_contract_signature_verifier().as_ref(),
-        )
-        .await?;
+        let updates = verify_updates(unverified_updates, &self.scw_verifier).await?;
 
         let association_state = get_state(updates)?;
 
@@ -220,11 +218,8 @@ where
             .map(|update| update.try_into())
             .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
 
-        let incremental_updates = verify_updates(
-            unverified_incremental_updates,
-            self.smart_contract_signature_verifier().as_ref(),
-        )
-        .await?;
+        let incremental_updates =
+            verify_updates(unverified_incremental_updates, &self.scw_verifier).await?;
         let mut final_state = initial_state.clone();
         // Apply each update sequentially, aborting in the case of error
         for update in incremental_updates {
@@ -273,7 +268,7 @@ where
                     sig_bytes,
                     installation_public_key.to_vec(),
                 )),
-                self.smart_contract_signature_verifier().as_ref(),
+                &self.scw_verifier,
             )
             .await?;
 
@@ -363,9 +358,7 @@ where
             .build_identity_update()
             .map_err(IdentityUpdateError::from)?;
 
-        identity_update
-            .to_verified(self.smart_contract_signature_verifier().as_ref())
-            .await?;
+        identity_update.to_verified(self.scw_verifier()).await?;
 
         // We don't need to validate the update, since the server will do this for us
         self.api_client
@@ -421,7 +414,7 @@ where
         load_identity_updates(
             &self.api_client,
             conn,
-            self.filter_inbox_ids_needing_updates(conn, filters)?,
+            conn.filter_inbox_ids_needing_updates(filters)?,
         )
         .await?;
 
@@ -512,44 +505,47 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
 /// Convert a list of unverified updates to verified updates using the given smart contract verifier
 async fn verify_updates(
     updates: Vec<UnverifiedIdentityUpdate>,
-    scw_verifier: &dyn SmartContractSignatureVerifier,
+    scw_verifier: impl SmartContractSignatureVerifier,
 ) -> Result<Vec<IdentityUpdate>, SignatureError> {
     try_join_all(
         updates
             .iter()
-            .map(|update| update.to_verified(scw_verifier)),
+            .map(|update| update.to_verified(&scw_verifier)),
     )
     .await
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{
         associations::{
             builder::SignatureRequest, test_utils::add_wallet_signature, AssociationState,
             MemberIdentifier,
         },
+        scw_verifier::SmartContractSignatureVerifier,
         InboxOwner,
     };
 
     use crate::{
-        assert_logged,
         builder::ClientBuilder,
         groups::group_membership::GroupMembership,
         storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
-        utils::test::rand_vec,
+        utils::test::{rand_vec, FullXmtpClient},
         Client, XmtpApi,
     };
 
     use super::load_identity_updates;
 
-    async fn get_association_state<ApiClient>(
-        client: &Client<ApiClient>,
+    async fn get_association_state<ApiClient, Verifier>(
+        client: &Client<ApiClient, Verifier>,
         inbox_id: String,
     ) -> AssociationState
     where
-        ApiClient: XmtpApi,
+        ApiClient: XmtpApi + Clone,
+        Verifier: SmartContractSignatureVerifier + Clone,
     {
         let conn = client.store().conn().unwrap();
         load_identity_updates(&client.api_client, &conn, vec![inbox_id.clone()])
@@ -570,7 +566,8 @@ pub(crate) mod tests {
             .expect("insert should succeed");
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_inbox_round_trip() {
         let wallet = generate_local_wallet();
         let wallet_address = wallet.get_address();
@@ -596,7 +593,8 @@ pub(crate) mod tests {
         assert!(association_state.get(&wallet_address.into()).is_some())
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn add_association() {
         let wallet = generate_local_wallet();
         let wallet_2 = generate_local_wallet();
@@ -630,9 +628,11 @@ pub(crate) mod tests {
         assert!(association_state.get(&wallet_2_address.into()).is_some());
     }
 
-    #[test]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg(not(target_arch = "wasm32"))]
     fn cache_association_state() {
-        crate::traced_test(|| async {
+        use crate::{assert_logged, utils::test::traced_test};
+        traced_test(|| async {
             let wallet = generate_local_wallet();
             let wallet_2 = generate_local_wallet();
             let wallet_address = wallet.get_address();
@@ -684,7 +684,8 @@ pub(crate) mod tests {
         });
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn load_identity_updates_if_needed() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -697,11 +698,12 @@ pub(crate) mod tests {
         let filtered =
             // Inbox 1 is requesting an inbox ID higher than what is in the DB. Inbox 2 is requesting one that matches the DB.
             // Inbox 3 is requesting one lower than what is in the DB
-            client.filter_inbox_ids_needing_updates(&conn, vec![("inbox_1", 3), ("inbox_2", 2), ("inbox_3", 2)]);
+            conn.filter_inbox_ids_needing_updates(vec![("inbox_1", 3), ("inbox_2", 2), ("inbox_3", 2)]);
         assert_eq!(filtered.unwrap(), vec!["inbox_1"]);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn get_installation_diff() {
         let wallet_1 = generate_local_wallet();
         let wallet_2 = generate_local_wallet();
@@ -809,7 +811,8 @@ pub(crate) mod tests {
             .contains(&client_2_installation_key));
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     pub async fn revoke_wallet() {
         let recovery_wallet = generate_local_wallet();
         let second_wallet = generate_local_wallet();
@@ -865,11 +868,12 @@ pub(crate) mod tests {
         assert_eq!(inbox_ids.len(), 0);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     pub async fn revoke_installation() {
         let wallet = generate_local_wallet();
-        let client1 = ClientBuilder::new_test_client(&wallet).await;
-        let client2 = ClientBuilder::new_test_client(&wallet).await;
+        let client1: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
+        let client2: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
 
         let association_state = get_association_state(&client1, client1.inbox_id()).await;
         // Ensure there are two installations on the inbox

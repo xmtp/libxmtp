@@ -7,10 +7,7 @@ use std::{
     },
 };
 
-use futures::{
-    stream::{self, FuturesUnordered, StreamExt},
-    Future,
-};
+use futures::stream::{self, FuturesUnordered, StreamExt};
 use openmls::{
     credentials::errors::BasicCredentialError,
     framing::{MlsMessageBodyIn, MlsMessageIn},
@@ -29,7 +26,7 @@ use xmtp_id::{
         builder::{SignatureRequest, SignatureRequestError},
         AssociationError, AssociationState, SignatureError,
     },
-    scw_verifier::SmartContractSignatureVerifier,
+    scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
     InboxId,
 };
 
@@ -47,6 +44,7 @@ use crate::{
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
+    intents::Intents,
     mutex_registry::MutexRegistry,
     retry::Retry,
     retry_async, retryable,
@@ -229,12 +227,34 @@ pub struct FindGroupParams {
 }
 
 /// Clients manage access to the network, identity, and data store
-pub struct Client<ApiClient> {
+pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
+    pub(crate) intents: Arc<Intents>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
     #[cfg(feature = "message-history")]
     pub(crate) history_sync_url: Option<String>,
-    pub(crate) local_events: broadcast::Sender<LocalEvents>,
+    pub(crate) local_events: broadcast::Sender<LocalEvents<Self>>,
+    /// The method of verifying smart contract wallet signatures for this Client
+    pub(crate) scw_verifier: V,
+}
+
+// most of these things are `Arc`'s
+impl<ApiClient, V> Clone for Client<ApiClient, V>
+where
+    ApiClient: Clone,
+    V: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            api_client: self.api_client.clone(),
+            context: self.context.clone(),
+            #[cfg(feature = "message-history")]
+            history_sync_url: self.history_sync_url.clone(),
+            local_events: self.local_events.clone(),
+            scw_verifier: self.scw_verifier.clone(),
+            intents: self.intents.clone(),
+        }
+    }
 }
 
 /// The local context a XMTP MLS needs to function:
@@ -244,9 +264,8 @@ pub struct XmtpMlsLocalContext {
     /// XMTP Identity
     pub(crate) identity: Identity,
     /// XMTP Local Storage
-    pub(crate) store: EncryptedMessageStore,
+    store: EncryptedMessageStore,
     pub(crate) mutexes: MutexRegistry,
-    pub scw_verifier: Box<dyn SmartContractSignatureVerifier + 'static>,
 }
 
 impl XmtpMlsLocalContext {
@@ -265,6 +284,10 @@ impl XmtpMlsLocalContext {
         self.identity.sequence_id(conn)
     }
 
+    pub fn store(&self) -> &EncryptedMessageStore {
+        &self.store
+    }
+
     /// Pulls a new database connection and creates a new provider
     pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
         Ok(self.store.conn()?.into())
@@ -277,9 +300,10 @@ impl XmtpMlsLocalContext {
     }
 }
 
-impl<ApiClient> Client<ApiClient>
+impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi,
+    ApiClient: XmtpApi + Clone,
+    V: SmartContractSignatureVerifier + Clone,
 {
     /// Create a new client with the given network, identity, and store.
     /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating
@@ -288,24 +312,42 @@ where
         api_client: ApiClientWrapper<ApiClient>,
         identity: Identity,
         store: EncryptedMessageStore,
-        scw_verifier: Box<dyn SmartContractSignatureVerifier>,
+        scw_verifier: V,
         #[cfg(feature = "message-history")] history_sync_url: Option<String>,
-    ) -> Self {
-        let context = XmtpMlsLocalContext {
+    ) -> Self
+    where
+        V: SmartContractSignatureVerifier,
+    {
+        let context = Arc::new(XmtpMlsLocalContext {
             identity,
             store,
             mutexes: MutexRegistry::new(),
-            scw_verifier,
-        };
+        });
+        let intents = Arc::new(Intents {
+            context: context.clone(),
+        });
         let (tx, _) = broadcast::channel(10);
         Self {
             api_client,
-            context: Arc::new(context),
+            context,
             #[cfg(feature = "message-history")]
             history_sync_url,
             local_events: tx,
+            scw_verifier,
+            intents,
         }
     }
+
+    pub fn scw_verifier(&self) -> &V {
+        &self.scw_verifier
+    }
+}
+
+impl<ApiClient, V> Client<ApiClient, V>
+where
+    ApiClient: XmtpApi + Clone,
+    V: SmartContractSignatureVerifier + Clone,
+{
     /// Retrieves the client's installation public key, sometimes also called `installation_id`
     pub fn installation_public_key(&self) -> Vec<u8> {
         self.context.installation_public_key()
@@ -313,6 +355,10 @@ where
     /// Retrieves the client's inbox ID
     pub fn inbox_id(&self) -> String {
         self.context.inbox_id()
+    }
+
+    pub fn intents(&self) -> &Arc<Intents> {
+        &self.intents
     }
 
     /// Pulls a connection and creates a new MLS Provider
@@ -486,27 +532,23 @@ where
         &self.context
     }
 
-    pub fn smart_contract_signature_verifier(&self) -> Box<dyn SmartContractSignatureVerifier> {
-        self.context.scw_verifier.clone()
-    }
-
     /// Create a new group with the default settings
     /// Applies a custom [`PolicySet`] to the group if one is specified
     pub fn create_group(
         &self,
         permissions_policy_set: Option<PolicySet>,
         opts: GroupMetadataOptions,
-    ) -> Result<MlsGroup, ClientError> {
+    ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating group");
 
-        let group = MlsGroup::create_and_insert(
-            self.context.clone(),
+        let group: MlsGroup<Client<ApiClient, V>> = MlsGroup::create_and_insert(
+            Arc::new(self.clone()),
             GroupMembershipState::Allowed,
             permissions_policy_set.unwrap_or_default(),
             opts,
         )?;
 
-        // notify any streams of the new group
+        // notify streams of our new group
         let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
 
         Ok(group)
@@ -518,26 +560,17 @@ where
         account_addresses: Vec<String>,
         permissions_policy_set: Option<PolicySet>,
         opts: GroupMetadataOptions,
-    ) -> Result<MlsGroup, ClientError> {
+    ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating group");
+        let group = self.create_group(permissions_policy_set, opts)?;
 
-        let group = MlsGroup::create_and_insert(
-            self.context.clone(),
-            GroupMembershipState::Allowed,
-            permissions_policy_set.unwrap_or_default(),
-            opts,
-        )?;
-
-        group.add_members(self, account_addresses).await?;
-
-        // notify any streams of the new group
-        let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
+        group.add_members(account_addresses).await?;
 
         Ok(group)
     }
 
     /// Create a new Direct Message with the default settings
-    pub async fn create_dm(&self, account_address: String) -> Result<MlsGroup, ClientError> {
+    pub async fn create_dm(&self, account_address: String) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating dm with address: {}", account_address);
 
         let inbox_id = match self
@@ -560,17 +593,17 @@ where
     pub async fn create_dm_by_inbox_id(
         &self,
         dm_target_inbox_id: InboxId,
-    ) -> Result<MlsGroup, ClientError> {
+    ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating dm with {}", dm_target_inbox_id);
 
-        let group = MlsGroup::create_dm_and_insert(
-            self.context.clone(),
+        let group: MlsGroup<Client<ApiClient, V>> = MlsGroup::create_dm_and_insert(
+            Arc::new(self.clone()),
             GroupMembershipState::Allowed,
             dm_target_inbox_id.clone(),
         )?;
 
         group
-            .add_members_by_inbox_id(self, vec![dm_target_inbox_id])
+            .add_members_by_inbox_id(vec![dm_target_inbox_id])
             .await?;
 
         // notify any streams of the new group
@@ -580,9 +613,9 @@ where
     }
 
     #[cfg(feature = "message-history")]
-    pub(crate) fn create_sync_group(&self) -> Result<MlsGroup, ClientError> {
+    pub(crate) fn create_sync_group(&self) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating sync group");
-        let sync_group = MlsGroup::create_and_insert_sync_group(self.context.clone())?;
+        let sync_group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()))?;
 
         Ok(sync_group)
     }
@@ -592,15 +625,11 @@ where
      *
      * Returns a [`MlsGroup`] if the group exists, or an error if it does not
      */
-    pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup, ClientError> {
+    pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
         let conn = &mut self.store().conn()?;
         let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
         match stored_group {
-            Some(group) => Ok(MlsGroup::new(
-                self.context.clone(),
-                group.id,
-                group.created_at_ns,
-            )),
+            Some(group) => Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns)),
             None => Err(ClientError::Storage(StorageError::NotFound(format!(
                 "group {}",
                 hex::encode(group_id)
@@ -616,11 +645,11 @@ where
     pub fn dm_group_from_target_inbox(
         &self,
         target_inbox_id: String,
-    ) -> Result<MlsGroup, ClientError> {
+    ) -> Result<MlsGroup<Self>, ClientError> {
         let conn = self.store().conn()?;
         match conn.find_dm_group(&target_inbox_id)? {
             Some(dm_group) => Ok(MlsGroup::new(
-                self.context.clone(),
+                self.clone(),
                 dm_group.id,
                 dm_group.created_at_ns,
             )),
@@ -652,7 +681,7 @@ where
     /// - created_after_ns: only return groups created after the given timestamp (in nanoseconds)
     /// - created_before_ns: only return groups created before the given timestamp (in nanoseconds)
     /// - limit: only return the first `limit` groups
-    pub fn find_groups(&self, params: FindGroupParams) -> Result<Vec<MlsGroup>, ClientError> {
+    pub fn find_groups(&self, params: FindGroupParams) -> Result<Vec<MlsGroup<Self>>, ClientError> {
         Ok(self
             .store()
             .conn()?
@@ -665,11 +694,7 @@ where
             )?
             .into_iter()
             .map(|stored_group| {
-                MlsGroup::new(
-                    self.context.clone(),
-                    stored_group.id,
-                    stored_group.created_at_ns,
-                )
+                MlsGroup::new(self.clone(), stored_group.id, stored_group.created_at_ns)
             })
             .collect())
     }
@@ -711,14 +736,14 @@ where
     /// found in the local database
     pub(crate) async fn query_group_messages(
         &self,
-        group_id: &Vec<u8>,
+        group_id: &[u8],
         conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError> {
         let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
 
         let welcomes = self
             .api_client
-            .query_group_messages(group_id.clone(), Some(id_cursor as u64))
+            .query_group_messages(group_id.to_vec(), Some(id_cursor as u64))
             .await?;
 
         Ok(welcomes)
@@ -756,41 +781,14 @@ where
             .collect::<Result<_, _>>()?)
     }
 
-    /// In a database transaction, increment the cursor for a given entity and
-    /// apply the update after the provided `ProcessingFn` has completed successfully.
-    pub(crate) async fn process_for_id<Fut, ProcessingFn, ReturnValue>(
-        &self,
-        entity_id: &Vec<u8>,
-        entity_kind: EntityKind,
-        cursor: u64,
-        process_envelope: ProcessingFn,
-    ) -> Result<ReturnValue, MessageProcessingError>
-    where
-        Fut: Future<Output = Result<ReturnValue, MessageProcessingError>>,
-        ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Fut + Send,
-    {
-        self.store()
-            .transaction_async(|provider| async move {
-                let is_updated =
-                    provider
-                        .conn_ref()
-                        .update_cursor(entity_id, entity_kind, cursor as i64)?;
-                if !is_updated {
-                    return Err(MessageProcessingError::AlreadyProcessed(cursor));
-                }
-                process_envelope(provider).await
-            })
-            .await
-    }
-
     /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
     /// Returns any new groups created in the operation
-    pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup>, ClientError> {
+    pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Self>>, ClientError> {
         let envelopes = self.query_welcome_messages(&self.store().conn()?).await?;
         let num_envelopes = envelopes.len();
         let id = self.installation_public_key();
 
-        let groups: Vec<MlsGroup> = stream::iter(envelopes.into_iter())
+        let groups: Vec<MlsGroup<Self>> = stream::iter(envelopes.into_iter())
             .filter_map(|envelope: WelcomeMessage| async {
                 let welcome_v1 = match extract_welcome_message(envelope) {
                     Ok(inner) => inner,
@@ -803,13 +801,13 @@ where
                     Retry::default(),
                     (async {
                         let welcome_v1 = welcome_v1.clone();
-                        self.process_for_id(
+                        self.intents.process_for_id(
                             &id,
                             EntityKind::Welcome,
                             welcome_v1.id,
                             |provider| async move {
                                 let result = MlsGroup::create_from_encrypted_welcome(
-                                    self,
+                                    Arc::new(self.clone()),
                                     &provider,
                                     welcome_v1.hpke_public_key.as_slice(),
                                     welcome_v1.data,
@@ -855,7 +853,7 @@ where
 
     /// Sync all groups for the current installation and return the number of groups that were synced.
     /// Only active groups will be synced.
-    pub async fn sync_all_groups(&self, groups: Vec<MlsGroup>) -> Result<usize, GroupError> {
+    pub async fn sync_all_groups(&self, groups: Vec<MlsGroup<Self>>) -> Result<usize, GroupError> {
         // Acquire a single connection to be reused
         let provider: XmtpOpenMlsProvider = self.mls_provider()?;
 
@@ -877,11 +875,9 @@ where
                         mls_group.epoch()
                     );
                     if mls_group.is_active() {
-                        group
-                            .maybe_update_installations(provider_ref, None, self)
-                            .await?;
+                        group.maybe_update_installations(provider_ref, None).await?;
 
-                        group.sync_with_conn(provider_ref, self).await?;
+                        group.sync_with_conn(provider_ref).await?;
                         active_group_count.fetch_add(1, Ordering::SeqCst);
                     }
 
@@ -972,10 +968,14 @@ pub fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientErr
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
+    use super::Client;
     use diesel::RunQueryDsl;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::InboxOwner;
+    use xmtp_id::{scw_verifier::SmartContractSignatureVerifier, InboxOwner};
 
     use crate::{
         builder::ClientBuilder,
@@ -990,9 +990,8 @@ mod tests {
         XmtpApi,
     };
 
-    use super::Client;
-
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_group_member_recovery() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
@@ -1005,7 +1004,7 @@ mod tests {
 
         // Add both of Bola's installations to the group
         group
-            .add_members_by_inbox_id(&amal, vec![bola_a.inbox_id(), bola_b.inbox_id()])
+            .add_members_by_inbox_id(vec![bola_a.inbox_id(), bola_b.inbox_id()])
             .await
             .unwrap();
 
@@ -1013,13 +1012,15 @@ mod tests {
         conn.raw_query(|conn| diesel::delete(identity_updates::table).execute(conn))
             .unwrap();
 
-        let members = group.members(&amal).await.unwrap();
+        let members = group.members().await.unwrap();
         // // The three installations should count as two members
         assert_eq!(members.len(), 2);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_mls_error() {
+        tracing::debug!("Test MLS Error");
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let result = client
             .api_client
@@ -1031,7 +1032,8 @@ mod tests {
         assert!(error_string.contains("invalid identity"));
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_register_installation() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -1045,7 +1047,11 @@ mod tests {
         assert_eq!(association_state.installation_ids().len(), 1);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 1)
+    )]
     async fn test_rotate_key_package() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -1071,7 +1077,8 @@ mod tests {
         assert_ne!(init1, init2);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_find_groups() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let group_1 = client
@@ -1087,7 +1094,8 @@ mod tests {
         assert_eq!(groups[1].group_id, group_2.group_id);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_find_inbox_id() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -1100,7 +1108,11 @@ mod tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 2)
+    )]
     async fn test_sync_welcomes() {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1109,7 +1121,7 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alice_bob_group
-            .add_members_by_inbox_id(&alice, vec![bob.inbox_id()])
+            .add_members_by_inbox_id(vec![bob.inbox_id()])
             .await
             .unwrap();
 
@@ -1124,7 +1136,11 @@ mod tests {
         assert_eq!(duplicate_received_groups.len(), 0);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 2)
+    )]
     async fn test_sync_all_groups() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1136,11 +1152,11 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_bo_group1
-            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .add_members_by_inbox_id(vec![bo.inbox_id()])
             .await
             .unwrap();
         alix_bo_group2
-            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .add_members_by_inbox_id(vec![bo.inbox_id()])
             .await
             .unwrap();
 
@@ -1159,11 +1175,11 @@ mod tests {
             .unwrap();
         assert_eq!(bo_messages2.len(), 0);
         alix_bo_group1
-            .send_message(vec![1, 2, 3].as_slice(), &alix)
+            .send_message(vec![1, 2, 3].as_slice())
             .await
             .unwrap();
         alix_bo_group2
-            .send_message(vec![1, 2, 3].as_slice(), &alix)
+            .send_message(vec![1, 2, 3].as_slice())
             .await
             .unwrap();
 
@@ -1180,38 +1196,11 @@ mod tests {
         assert_eq!(bo_messages2.len(), 1);
     }
 
-    #[tokio::test]
-    async fn test_can_message() {
-        // let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        // let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        // let charlie_address = generate_local_wallet().get_address();
-
-        // let can_message_result = amal
-        //     .can_message(vec![
-        //         amal.account_address(),
-        //         bola.account_address(),
-        //         charlie_address.clone(),
-        //     ])
-        //     .await
-        //     .unwrap();
-        // assert_eq!(
-        //     can_message_result.get(&amal.account_address().to_string()),
-        //     Some(&true),
-        //     "Amal's messaging capability should be true"
-        // );
-        // assert_eq!(
-        //     can_message_result.get(&bola.account_address().to_string()),
-        //     Some(&true),
-        //     "Bola's messaging capability should be true"
-        // );
-        // assert_eq!(
-        //     can_message_result.get(&charlie_address),
-        //     Some(&false),
-        //     "Charlie's messaging capability should be false"
-        // );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 1)
+    )]
     async fn test_welcome_encryption() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let provider = client.mls_provider().unwrap();
@@ -1228,7 +1217,11 @@ mod tests {
         assert_eq!(decrypted, to_encrypt);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 1)
+    )]
     async fn test_add_remove_then_add_again() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1238,17 +1231,17 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
-        assert_eq!(amal_group.members(&amal).await.unwrap().len(), 2);
+        assert_eq!(amal_group.members().await.unwrap().len(), 2);
 
         // Now remove bola
         amal_group
-            .remove_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .remove_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
-        assert_eq!(amal_group.members(&amal).await.unwrap().len(), 1);
+        assert_eq!(amal_group.members().await.unwrap().len(), 1);
         tracing::info!("Syncing bolas welcomes");
         // See if Bola can see that they were added to the group
         bola.sync_welcomes().await.unwrap();
@@ -1256,7 +1249,7 @@ mod tests {
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         tracing::info!("Syncing bolas messages");
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
         // TODO: figure out why Bola's status is not updating to be inactive
         // assert!(!bola_group.is_active().unwrap());
 
@@ -1269,19 +1262,19 @@ mod tests {
 
         // Add Bola back to the group
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
 
         // Send a message from Amal, now that Bola is back in the group
         amal_group
-            .send_message(vec![1, 2, 3].as_slice(), &amal)
+            .send_message(vec![1, 2, 3].as_slice())
             .await
             .unwrap();
 
         // Sync Bola's state to get the latest
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
         // Find Bola's updated list of messages
         bola_messages = bola_group
             .find_messages(None, None, None, None, None)
@@ -1294,7 +1287,8 @@ mod tests {
         )
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_get_and_set_consent() {
         let bo_wallet = generate_local_wallet();
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1318,8 +1312,11 @@ mod tests {
         assert_eq!(address_consent, ConsentState::Denied);
     }
 
-    async fn get_key_package_init_key<ApiClient: XmtpApi>(
-        client: &Client<ApiClient>,
+    async fn get_key_package_init_key<
+        ApiClient: XmtpApi + Clone,
+        Verifier: SmartContractSignatureVerifier + Clone,
+    >(
+        client: &Client<ApiClient, Verifier>,
         installation_id: &[u8],
     ) -> Vec<u8> {
         let kps = client
@@ -1331,7 +1328,8 @@ mod tests {
         serialize_key_package_hash_ref(&kp.inner, &client.mls_provider().unwrap()).unwrap()
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_key_package_rotation() {
         let alix_wallet = generate_local_wallet();
         let bo_wallet = generate_local_wallet();

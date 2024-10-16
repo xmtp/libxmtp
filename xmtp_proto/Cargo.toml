@@ -8,8 +8,6 @@ futures = { workspace = true }
 pbjson-types.workspace = true
 pbjson.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
-# Only necessary if using Protobuf well-known types:
-prost-types = { workspace = true }
 serde = { workspace = true }
 openmls = { workspace = true, optional = true }
 trait-variant = "0.1.2"
@@ -17,9 +15,12 @@ trait-variant = "0.1.2"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tonic = { workspace = true }
 
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test.workspace = true
 
 [features]
 convert = ["openmls", "proto_full"]
+test-utils = []
 default = []
 
 # @@protoc_deletion_point(features)

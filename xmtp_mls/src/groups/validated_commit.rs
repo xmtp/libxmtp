@@ -27,7 +27,6 @@ use crate::{
     retry::RetryableError,
     retryable,
     storage::db_connection::DbConnection,
-    Client, XmtpApi,
 };
 
 use super::{
@@ -39,6 +38,7 @@ use super::{
     group_permissions::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
+    ScopedGroupClient,
 };
 
 #[derive(Debug, Error)]
@@ -215,8 +215,8 @@ pub struct ValidatedCommit {
 }
 
 impl ValidatedCommit {
-    pub async fn from_staged_commit<ApiClient: XmtpApi>(
-        client: &Client<ApiClient>,
+    pub async fn from_staged_commit(
+        client: impl ScopedGroupClient,
         conn: &DbConnection,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
@@ -276,7 +276,7 @@ impl ValidatedCommit {
             removed_inboxes,
         } = extract_expected_diff(
             conn,
-            client,
+            &client,
             staged_commit,
             existing_group_context,
             &immutable_metadata,
@@ -291,7 +291,6 @@ impl ValidatedCommit {
             removed_installations,
             current_group_members,
         )?;
-
         credentials_to_verify.push(actor.clone());
 
         // Verify the credentials of the following entities
@@ -462,9 +461,9 @@ struct ExpectedDiff {
 /// [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`].
 /// This requires loading the Inbox state from the network.
 /// Satisfies Rule 2
-async fn extract_expected_diff<'diff, ApiClient: XmtpApi>(
+async fn extract_expected_diff<'diff>(
     conn: &DbConnection,
-    client: &Client<ApiClient>,
+    client: impl ScopedGroupClient,
     staged_commit: &StagedCommit,
     existing_group_context: &GroupContext,
     immutable_metadata: &GroupMetadata,

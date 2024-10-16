@@ -5,13 +5,13 @@ use diesel::{
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
-    sqlite::Sqlite,
 };
 use serde::{Deserialize, Serialize};
 
 use super::{
     db_connection::DbConnection,
     schema::{group_messages, group_messages::dsl},
+    Sqlite,
 };
 use crate::{impl_fetch, impl_store, impl_store_or_ignore, StorageError};
 
@@ -204,7 +204,10 @@ impl DbConnection {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use super::*;
     use crate::{
         assert_err, assert_ok,
@@ -230,16 +233,19 @@ mod tests {
         }
     }
 
-    #[test]
-    fn it_does_not_error_on_empty_messages() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn it_does_not_error_on_empty_messages() {
         with_connection(|conn| {
             let id = vec![0x0];
             assert_eq!(conn.get_group_message(id).unwrap(), None);
         })
+        .await
     }
 
-    #[test]
-    fn it_gets_messages() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn it_gets_messages() {
         with_connection(|conn| {
             let group = generate_group(None);
             let message = generate_message(None, Some(&group.id), None);
@@ -251,10 +257,12 @@ mod tests {
             let stored_message = conn.get_group_message(id);
             assert_eq!(stored_message.unwrap(), Some(message));
         })
+        .await
     }
 
-    #[test]
-    fn it_cannot_insert_message_without_group() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn it_cannot_insert_message_without_group() {
         use diesel::result::{DatabaseErrorKind::ForeignKeyViolation, Error::DatabaseError};
 
         with_connection(|conn| {
@@ -264,10 +272,12 @@ mod tests {
                 StorageError::DieselResult(DatabaseError(ForeignKeyViolation, _))
             );
         })
+        .await
     }
 
-    #[test]
-    fn it_gets_many_messages() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn it_gets_many_messages() {
         use crate::storage::encrypted_store::schema::group_messages::dsl;
 
         with_connection(|conn| {
@@ -298,10 +308,12 @@ mod tests {
                 msg.sent_at_ns
             });
         })
+        .await
     }
 
-    #[test]
-    fn it_gets_messages_by_time() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn it_gets_messages_by_time() {
         with_connection(|conn| {
             let group = generate_group(None);
             group.store(conn).unwrap();
@@ -329,10 +341,12 @@ mod tests {
                 .unwrap();
             assert_eq!(messages.len(), 2);
         })
+        .await
     }
 
-    #[test]
-    fn it_gets_messages_by_kind() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn it_gets_messages_by_kind() {
         with_connection(|conn| {
             let group = generate_group(None);
             group.store(conn).unwrap();
@@ -383,5 +397,6 @@ mod tests {
                 .unwrap();
             assert_eq!(membership_changes.len(), 15);
         })
+        .await
     }
 }

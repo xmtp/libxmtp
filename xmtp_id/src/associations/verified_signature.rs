@@ -129,7 +129,7 @@ impl VerifiedSignature {
     /// Verifies a smart contract wallet signature using the provided signature verifier.
     pub async fn from_smart_contract_wallet<Text: AsRef<str>>(
         signature_text: Text,
-        signature_verifier: &dyn SmartContractSignatureVerifier,
+        signature_verifier: impl SmartContractSignatureVerifier,
         signature_bytes: &[u8],
         account_id: AccountId,
         block_number: &mut Option<u64>,
@@ -164,6 +164,9 @@ impl VerifiedSignature {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use super::*;
     use crate::{
         associations::{
@@ -182,7 +185,8 @@ mod tests {
     };
     use xmtp_v2::k256_helper::sign_sha256;
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_recoverable_ecdsa() {
         let wallet: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
         let signature_text = "test signature body";
@@ -196,7 +200,8 @@ mod tests {
         assert_eq!(verified_sig.raw_bytes, sig_bytes);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_recoverable_ecdsa_incorrect() {
         let wallet: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
         let signature_text = "test signature body";
@@ -208,7 +213,8 @@ mod tests {
         assert_ne!(verified_sig.signer, wallet.get_address().into());
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_installation_key() {
         let signing_key = Ed25519SigningKey::generate(&mut rand::thread_rng());
         let verifying_key = signing_key.verifying_key();
@@ -249,7 +255,8 @@ mod tests {
         .expect_err("should fail with incorrect verifying key");
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn validate_good_key_round_trip() {
         let proto_bytes = vec![
             10, 79, 8, 192, 195, 165, 174, 203, 153, 231, 213, 23, 26, 67, 10, 65, 4, 216, 84, 174,
@@ -272,7 +279,8 @@ mod tests {
         assert_eq!(validated_key.account_address(), account_address);
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn validate_malformed_key() {
         let proto_bytes = vec![
             10, 79, 8, 192, 195, 165, 174, 203, 153, 231, 213, 23, 26, 67, 10, 65, 4, 216, 84, 174,
@@ -292,7 +300,8 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_legacy_delegated() {
         let signature_text = "test_legacy_signature";
         let account_address = "0x0bd00b21af9a2d538103c3aaf95cb507f8af1b28".to_string();

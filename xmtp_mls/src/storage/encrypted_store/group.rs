@@ -7,13 +7,14 @@ use diesel::{
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
-    sqlite::Sqlite,
 };
+
 use serde::{Deserialize, Serialize};
 
 use super::{
     db_connection::DbConnection,
     schema::{groups, groups::dsl},
+    Sqlite,
 };
 use crate::{
     groups::group_metadata::ConversationType, impl_fetch, impl_store, DuplicateItem, StorageError,
@@ -392,6 +393,8 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
     use crate::{
@@ -430,8 +433,9 @@ pub(crate) mod tests {
         )
     }
 
-    #[test]
-    fn test_it_stores_group() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_it_stores_group() {
         with_connection(|conn| {
             let test_group = generate_group(None);
 
@@ -442,10 +446,12 @@ pub(crate) mod tests {
                 test_group
             );
         })
+        .await
     }
 
-    #[test]
-    fn test_it_fetches_group() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_it_fetches_group() {
         with_connection(|conn| {
             let test_group = generate_group(None);
 
@@ -459,10 +465,12 @@ pub(crate) mod tests {
             let fetched_group: Option<StoredGroup> = conn.fetch(&test_group.id).unwrap();
             assert_eq!(fetched_group, Some(test_group));
         })
+        .await
     }
 
-    #[test]
-    fn test_it_updates_group_membership_state() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_it_updates_group_membership_state() {
         with_connection(|conn| {
             let test_group = generate_group(Some(GroupMembershipState::Pending));
 
@@ -479,10 +487,11 @@ pub(crate) mod tests {
                 }
             );
         })
+        .await
     }
-
-    #[test]
-    fn test_find_groups() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_find_groups() {
         with_connection(|conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Pending));
             test_group_1.store(conn).unwrap();
@@ -547,10 +556,12 @@ pub(crate) mod tests {
             assert_eq!(dm_results.len(), 1);
             assert_eq!(dm_results[0].id, test_group_3.id);
         })
+        .await
     }
 
-    #[test]
-    fn test_installations_last_checked_is_updated() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_installations_last_checked_is_updated() {
         with_connection(|conn| {
             let test_group = generate_group(None);
             test_group.store(conn).unwrap();
@@ -568,10 +579,12 @@ pub(crate) mod tests {
             assert_ne!(fetched_group.installations_last_checked, 0);
             assert!(fetched_group.created_at_ns < fetched_group.installations_last_checked);
         })
+        .await
     }
 
-    #[test]
-    fn test_new_group_has_correct_purpose() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_new_group_has_correct_purpose() {
         with_connection(|conn| {
             let test_group = generate_group(None);
 
@@ -587,10 +600,12 @@ pub(crate) mod tests {
             let purpose = fetched_group.unwrap().purpose;
             assert_eq!(purpose, Purpose::Conversation);
         })
+        .await
     }
 
-    #[test]
-    fn test_new_sync_group() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_new_sync_group() {
         with_connection(|conn| {
             let id = rand_vec();
             let created_at_ns = now_ns();
@@ -606,5 +621,6 @@ pub(crate) mod tests {
             assert_eq!(found.len(), 1);
             assert_eq!(found[0].purpose, Purpose::Sync)
         })
+        .await
     }
 }

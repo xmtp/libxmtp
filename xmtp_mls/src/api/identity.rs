@@ -151,7 +151,10 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use super::super::test_utils::*;
     use super::GetIdentityUpdatesV2Filter;
     use crate::{api::ApiClientWrapper, retry::Retry};
@@ -172,7 +175,8 @@ mod tests {
         )
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn publish_identity_update() {
         let mut mock_api = MockApiClient::new();
         let inbox_id = rand_string();
@@ -189,7 +193,8 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn get_identity_update_v2() {
         let mut mock_api = MockApiClient::new();
         let inbox_id = rand_string();
@@ -235,7 +240,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn get_inbox_ids() {
         let mut mock_api = MockApiClient::new();
         let inbox_id = rand_string();

@@ -36,7 +36,7 @@ pub enum AssociationError {
     MissingIdentityUpdate,
 }
 
-pub trait IdentityAction: Send + 'static {
+pub trait IdentityAction: Send {
     fn update_state(
         &self,
         existing_state: Option<AssociationState>,

@@ -1,10 +1,10 @@
 mod association_log;
 pub mod builder;
 mod hashes;
-mod member;
-mod serialization;
+pub(super) mod member;
+pub(super) mod serialization;
 pub mod signature;
-mod state;
+pub(super) mod state;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 pub mod unsigned_actions;
@@ -112,12 +112,13 @@ pub mod test_defaults {
 }
 
 #[cfg(test)]
-mod tests {
-    use self::{
-        test_utils::{rand_string, rand_vec},
-        verified_signature::VerifiedSignature,
-    };
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
+    use self::test_utils::{rand_string, rand_vec};
     use super::*;
+    use crate::associations::verified_signature::VerifiedSignature;
 
     pub async fn new_test_inbox() -> AssociationState {
         let create_request = CreateInbox::default();
@@ -150,7 +151,8 @@ mod tests {
         .unwrap()
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_create_inbox() {
         let create_request = CreateInbox::default();
         let inbox_id = generate_inbox_id(&create_request.account_address, &create_request.nonce);
@@ -164,7 +166,8 @@ mod tests {
         assert!(existing_entity.identifier.eq(&account_address.into()));
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_and_add_separately() {
         let initial_state = new_test_inbox().await;
         let inbox_id = initial_state.inbox_id().clone();
@@ -196,7 +199,8 @@ mod tests {
         assert_eq!(new_member.added_by_entity, Some(first_member));
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_and_add_together() {
         let create_action = CreateInbox::default();
         let account_address = create_action.account_address.clone();
@@ -231,7 +235,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_from_legacy_key() {
         let member_identifier: MemberIdentifier = rand_string().into();
         let create_action = CreateInbox {
@@ -268,7 +273,8 @@ mod tests {
         assert!(matches!(update_result, Err(AssociationError::Replay)));
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn add_wallet_from_installation_key() {
         let initial_state = new_test_inbox_with_installation().await;
         let inbox_id = initial_state.inbox_id().clone();
@@ -302,7 +308,8 @@ mod tests {
         assert_eq!(new_state.members().len(), 3);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn reject_invalid_signature_on_create() {
         // Creates a signature with the wrong signer
         let bad_signature =
@@ -324,7 +331,8 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn reject_invalid_signature_on_update() {
         let initial_state = new_test_inbox().await;
         let inbox_id = initial_state.inbox_id().clone();
@@ -367,7 +375,8 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn reject_if_signer_not_existing_member() {
         let create_inbox = CreateInbox::default();
         let inbox_id = generate_inbox_id(&create_inbox.account_address, &create_inbox.nonce);
@@ -393,7 +402,8 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn reject_if_installation_adding_installation() {
         let existing_state = new_test_inbox_with_installation().await;
         let inbox_id = existing_state.inbox_id().clone();
@@ -428,7 +438,8 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn revoke() {
         let initial_state = new_test_inbox_with_installation().await;
         let inbox_id = initial_state.inbox_id().clone();
@@ -455,7 +466,8 @@ mod tests {
         assert!(new_state.get(&installation_id).is_none());
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn revoke_children() {
         let initial_state = new_test_inbox_with_installation().await;
         let inbox_id = initial_state.inbox_id().clone();
@@ -500,7 +512,8 @@ mod tests {
         assert_eq!(new_state.members().len(), 0);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn revoke_and_re_add() {
         let initial_state = new_test_inbox().await;
         let wallet_address = initial_state
@@ -568,7 +581,8 @@ mod tests {
         assert_eq!(state_after_re_add.members().len(), 2);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn change_recovery_address() {
         let initial_state = new_test_inbox_with_installation().await;
         let inbox_id = initial_state.inbox_id().clone();

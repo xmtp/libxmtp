@@ -4,7 +4,7 @@ name = "xmtp_user_preferences"
 version.workspace = true
 
 [dependencies]
-base64 = "0.22.1"
+base64.workspace = true
 # Need to include this as a dep or compile will fail because of a version mismatch
 prost = { workspace = true, features = ["prost-derive"] }
 xmtp_proto = { path = "../xmtp_proto", features = ["xmtp-message_contents"] }
@@ -15,4 +15,4 @@ libsecp256k1 = { version = "0.7.1", default-features = false, features = [
     "hmac",
     "static-context",
 ] }
-rand = "0.8.5"
+rand.workspace = true

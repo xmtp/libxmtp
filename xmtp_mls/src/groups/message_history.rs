@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use xmtp_cryptography::utils as crypto_utils;
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{
     xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{Reply, Request},
     xmtp::mls::message_contents::plaintext_envelope::{Content, V2},
@@ -102,11 +103,12 @@ enum SyncableTables {
     StoredGroupMessage(StoredGroupMessage),
 }
 
-impl<ApiClient> Client<ApiClient>
+impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi,
+    ApiClient: XmtpApi + Clone,
+    V: SmartContractSignatureVerifier + Clone,
 {
-    pub fn get_sync_group(&self) -> Result<MlsGroup, GroupError> {
+    pub fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
         let conn = self.store().conn()?;
         let sync_group_id = conn
             .find_sync_groups()?
@@ -129,7 +131,7 @@ where
         };
 
         // sync the group
-        sync_group.sync(self).await?;
+        sync_group.sync().await?;
 
         Ok(())
     }
@@ -139,7 +141,7 @@ where
         let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
         for group in groups {
             let group = self.group(group.id)?;
-            Box::pin(group.add_members_by_inbox_id(self, vec![inbox_id.clone()])).await?;
+            Box::pin(group.add_members_by_inbox_id(vec![inbox_id.clone()])).await?;
         }
 
         Ok(())
@@ -152,7 +154,7 @@ where
         let sync_group = self.get_sync_group()?;
 
         // sync the group
-        sync_group.sync(self).await?;
+        sync_group.sync().await?;
 
         let messages = sync_group.find_messages(
             Some(GroupMessageKind::Application),
@@ -194,7 +196,7 @@ where
             })?;
 
         // publish the intent
-        if let Err(err) = sync_group.publish_intents(&conn.into(), self).await {
+        if let Err(err) = sync_group.publish_intents(&conn.into()).await {
             tracing::error!("error publishing sync group intents: {:?}", err);
         }
 
@@ -210,7 +212,7 @@ where
         let sync_group = self.get_sync_group()?;
 
         // sync the group
-        Box::pin(sync_group.sync(self)).await?;
+        Box::pin(sync_group.sync()).await?;
 
         let messages = sync_group.find_messages(
             Some(GroupMessageKind::Application),
@@ -266,7 +268,7 @@ where
             })?;
 
         // publish the intent
-        if let Err(err) = sync_group.publish_messages(self).await {
+        if let Err(err) = sync_group.publish_messages().await {
             tracing::error!("error publishing sync group intents: {:?}", err);
         }
         Ok(())
@@ -278,7 +280,7 @@ where
         let sync_group = self.get_sync_group()?;
 
         // sync the group
-        sync_group.sync(self).await?;
+        sync_group.sync().await?;
 
         let messages = sync_group.find_messages(
             Some(GroupMessageKind::Application),
@@ -326,7 +328,7 @@ where
         let sync_group = self.get_sync_group()?;
 
         // sync the group
-        sync_group.sync(self).await?;
+        sync_group.sync().await?;
 
         let messages = sync_group.find_messages(
             Some(GroupMessageKind::Application),
@@ -388,7 +390,7 @@ where
             let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
             for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {
                 let group = self.group(id)?;
-                Box::pin(group.sync(self)).await?;
+                Box::pin(group.sync()).await?;
             }
 
             return Ok(());
@@ -780,8 +782,10 @@ fn new_pin() -> String {
     format!("{:04}", pin)
 }
 
-#[cfg(test)]
-mod tests {
+#[cfg(all(not(target_arch = "wasm32"), test))]
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     const HISTORY_SERVER_HOST: &str = "0.0.0.0";
     const HISTORY_SERVER_PORT: u16 = 5558;
@@ -925,14 +929,14 @@ mod tests {
         assert_eq!(amal_a_sync_groups.len(), 1);
         // get the first sync group
         let amal_a_sync_group = amal_a.group(amal_a_sync_groups[0].id.clone()).unwrap();
-        amal_a_sync_group.sync(&amal_a).await.expect("sync");
+        amal_a_sync_group.sync().await.expect("sync");
 
         // find the sync group (it should be the same as amal_a's sync group)
         let amal_b_sync_groups = amal_b.store().conn().unwrap().find_sync_groups().unwrap();
         assert_eq!(amal_b_sync_groups.len(), 1);
         // get the first sync group
         let amal_b_sync_group = amal_b.group(amal_b_sync_groups[0].id.clone()).unwrap();
-        amal_b_sync_group.sync(&amal_b).await.expect("sync");
+        amal_b_sync_group.sync().await.expect("sync");
 
         // make sure they are the same group
         assert_eq!(amal_a_sync_group.group_id, amal_b_sync_group.group_id);
@@ -957,7 +961,7 @@ mod tests {
         assert_eq!(amal_a_sync_groups.len(), 1);
         // get the first sync group
         let amal_a_sync_group = amal_a.group(amal_a_sync_groups[0].id.clone()).unwrap();
-        amal_a_sync_group.sync(&amal_a).await.expect("sync");
+        amal_a_sync_group.sync().await.expect("sync");
         let pin_challenge_result = amal_a.verify_pin(&request_id, &pin_code);
         assert_ok!(pin_challenge_result);
 
@@ -1032,7 +1036,7 @@ mod tests {
         assert_eq!(amal_a_sync_groups.len(), 1);
         // get the first sync group
         let amal_a_sync_group = amal_a.group(amal_a_sync_groups[0].id.clone()).unwrap();
-        amal_a_sync_group.sync(&amal_a).await.expect("sync");
+        amal_a_sync_group.sync().await.expect("sync");
 
         // amal_a builds and sends a message history reply back
         let history_reply = HistoryReply::new(&new_request_id(), &history_sync_url, encryption_key);
@@ -1041,13 +1045,13 @@ mod tests {
             .await
             .expect("send reply");
 
-        amal_a_sync_group.sync(&amal_a).await.expect("sync");
+        amal_a_sync_group.sync().await.expect("sync");
         // amal_b should have received the reply
         let amal_b_sync_groups = amal_b.store().conn().unwrap().find_sync_groups().unwrap();
         assert_eq!(amal_b_sync_groups.len(), 1);
 
         let amal_b_sync_group = amal_b.group(amal_b_sync_groups[0].id.clone()).unwrap();
-        amal_b_sync_group.sync(&amal_b).await.expect("sync");
+        amal_b_sync_group.sync().await.expect("sync");
 
         let amal_b_conn = amal_b.store().conn().unwrap();
         let amal_b_messages = amal_b_conn
@@ -1083,10 +1087,10 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
 
-        group_a.send_message(b"hi", &amal_a).await.expect("send");
-        group_a.send_message(b"hi x2", &amal_a).await.expect("send");
-        group_b.send_message(b"hi", &amal_a).await.expect("send");
-        group_b.send_message(b"hi x2", &amal_a).await.expect("send");
+        group_a.send_message(b"hi").await.expect("send");
+        group_a.send_message(b"hi x2").await.expect("send");
+        group_b.send_message(b"hi").await.expect("send");
+        group_b.send_message(b"hi x2").await.expect("send");
 
         let messages_result = amal_a.prepare_messages_to_sync().await.unwrap();
         assert_eq!(messages_result.len(), 4);
@@ -1103,10 +1107,10 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
 
-        group_a.send_message(b"hi", &amal_a).await.expect("send");
-        group_a.send_message(b"hi", &amal_a).await.expect("send");
-        group_b.send_message(b"hi", &amal_a).await.expect("send");
-        group_b.send_message(b"hi", &amal_a).await.expect("send");
+        group_a.send_message(b"hi").await.expect("send");
+        group_a.send_message(b"hi").await.expect("send");
+        group_b.send_message(b"hi").await.expect("send");
+        group_b.send_message(b"hi").await.expect("send");
 
         let groups = amal_a.prepare_groups_to_sync().await.unwrap();
         let messages = amal_a.prepare_messages_to_sync().await.unwrap();
@@ -1401,10 +1405,7 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
 
-        group_a
-            .send_message(b"hi", &amal_a)
-            .await
-            .expect("send message");
+        group_a.send_message(b"hi").await.expect("send message");
 
         let (bundle_path, enc_key) = amal_a
             .write_history_bundle()
@@ -1445,9 +1446,15 @@ mod tests {
 
         // try to join amal's sync group
         let sync_group_id = amal_sync_groups[0].id.clone();
-        let group = amal.group(sync_group_id).expect("get group");
-        let result = group
-            .add_members(&external_client, vec![external_wallet.get_address()])
+        let created_at_ns = amal_sync_groups[0].created_at_ns;
+
+        let external_client_group = MlsGroup::new(
+            external_client.clone(),
+            sync_group_id.clone(),
+            created_at_ns,
+        );
+        let result = external_client_group
+            .add_members(vec![external_wallet.get_address()])
             .await;
         assert!(result.is_err());
     }

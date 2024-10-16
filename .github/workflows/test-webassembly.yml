@@ -1,0 +1,48 @@
+name: Test Workspace with WebAssembly
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    # only run tests when related changes are made
+    paths:
+      - ".github/workflows/test-webassembly.yml"
+      - "xmtp_mls/src/**"
+      - "xmtp_id/src/**"
+      - "xmtp_api_http/src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain"
+env:
+  CARGO_TERM_COLOR: always
+  WASM_BINDGEN_TEST_TIMEOUT: 120
+  WASM_BINDGEN_TEST_ONLY_WEB: 1
+  WASM_BINDGEN_SPLIT_LINKED_MODULES: 1
+jobs:
+  test:
+    name: Test
+    runs-on: warp-ubuntu-latest-x64-8x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: taiki-e/install-action@wasm-bindgen
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: Start Docker containers
+        run: dev/up
+      - name: Build WebAssembly Packages
+        run: cargo build --tests --release --target wasm32-unknown-unknown -p xmtp_id -p xmtp_mls -p xmtp_api_http -p xmtp_cryptography
+      - name: test with chrome
+        run: |
+          cargo test --release --target wasm32-unknown-unknown -p xmtp_mls -p xmtp_id -p xmtp_api_http -p xmtp_cryptography -- \
+            --skip xmtp_mls::subscriptions --skip xmtp_mls::groups::subscriptions \
+            --skip xmtp_mls::storage::encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
+            --skip xmtp_mls::groups::tests::process_messages_abort_on_retryable_error \
+            --skip xmtp_mls::storage::encrypted_store::group::tests::test_find_groups \
+            --skip xmtp_mls::storage::encrypted_store::group::tests::test_installations_last_checked_is_updated
+        working-directory: ./
+        env:
+          CHROMEDRIVER: "chromedriver"

@@ -7,6 +7,10 @@ use super::{
     schema::identity_updates::{self, dsl},
 };
 use diesel::{dsl::max, prelude::*};
+
+#[cfg(target_arch = "wasm32")]
+use diesel_wasm_sqlite::dsl::RunQueryDsl;
+
 use xmtp_id::associations::{unverified::UnverifiedIdentityUpdate, AssociationError};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
@@ -126,7 +130,10 @@ impl DbConnection {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use crate::{
         storage::encrypted_store::tests::with_connection,
         utils::test::{rand_time, rand_vec},
@@ -139,8 +146,9 @@ mod tests {
         StoredIdentityUpdate::new(inbox_id.to_string(), sequence_id, rand_time(), rand_vec())
     }
 
-    #[test]
-    fn insert_and_read() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn insert_and_read() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
             let update_1 = build_update(inbox_id, 1);
@@ -160,11 +168,13 @@ mod tests {
             assert_eq!(first_update.payload, update_1_payload);
             let second_update = all_updates.last().unwrap();
             assert_eq!(second_update.payload, update_2_payload);
-        });
+        })
+        .await;
     }
 
-    #[test]
-    fn test_filter() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_filter() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
             let update_1 = build_update(inbox_id, 1);
@@ -193,10 +203,12 @@ mod tests {
             assert_eq!(only_update_2.len(), 1);
             assert_eq!(only_update_2[0].sequence_id, 2);
         })
+        .await
     }
 
-    #[test]
-    fn test_get_latest_sequence_id() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_get_latest_sequence_id() {
         with_connection(|conn| {
             let inbox_1 = "inbox_1";
             let inbox_2 = "inbox_2";
@@ -228,10 +240,12 @@ mod tests {
                 None
             );
         })
+        .await
     }
 
-    #[test]
-    fn get_single_sequence_id() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn get_single_sequence_id() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
             let update = build_update(inbox_id, 1);
@@ -244,5 +258,6 @@ mod tests {
                 .expect("query should work");
             assert_eq!(sequence_id, 2);
         })
+        .await
     }
 }

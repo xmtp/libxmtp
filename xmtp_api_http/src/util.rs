@@ -116,11 +116,28 @@ pub fn create_grpc_stream_inner<
     }
 }
 
+#[cfg(feature = "test-utils")]
+impl xmtp_proto::api_client::XmtpTestClient for crate::XmtpHttpApiClient {
+    async fn create_local() -> Self {
+        crate::XmtpHttpApiClient::new("http://localhost:5555".into())
+            .expect("could not create client")
+    }
+
+    async fn create_dev() -> Self {
+        crate::XmtpHttpApiClient::new("https://grpc.dev.xmtp.network:443".into())
+            .expect("coult not create client")
+    }
+}
+
 #[cfg(test)]
-mod tests {
+pub mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use super::*;
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_error_handler_on_unit_value() {
         handle_error::<_, ()>(b"{}".as_slice()).unwrap();
     }

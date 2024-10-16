@@ -6,6 +6,8 @@ use xmtp_proto::{
             GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
             GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
             GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
+            VerifySmartContractWalletSignaturesRequest,
+            VerifySmartContractWalletSignaturesResponse,
         },
         mls::api::v1::{
             group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
@@ -18,10 +20,10 @@ use xmtp_proto::{
     },
 };
 
-#[cfg(feature = "http-api")]
+#[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
-use crate::XmtpTestClient;
+use xmtp_proto::api_client::XmtpTestClient;
 
 pub fn build_group_messages(num_messages: usize, group_id: Vec<u8>) -> Vec<GroupMessage> {
     let mut out: Vec<GroupMessage> = vec![];
@@ -40,6 +42,7 @@ pub fn build_group_messages(num_messages: usize, group_id: Vec<u8>) -> Vec<Group
 }
 
 // Create a mock XmtpClient for testing the client wrapper
+// need separate defs for wasm and not wasm, b/c `cfg_attr` not supportd in macro! block
 mock! {
     pub ApiClient {}
 
@@ -61,15 +64,20 @@ mock! {
     }
 
     impl XmtpMlsStreams for ApiClient {
-        #[cfg(not(feature = "http-api"))]
+        #[cfg(all(not(feature = "http-api"), not(target_arch = "wasm32")))]
         type GroupMessageStream<'a> = xmtp_api_grpc::GroupMessageStream;
-        #[cfg(not(feature = "http-api"))]
+        #[cfg(all(not(feature = "http-api"), not(target_arch = "wasm32")))]
         type WelcomeMessageStream<'a> = xmtp_api_grpc::WelcomeMessageStream;
 
-        #[cfg(feature = "http-api")]
+        #[cfg(all(feature = "http-api", not(target_arch = "wasm32")))]
         type GroupMessageStream<'a> = futures::stream::BoxStream<'static, Result<GroupMessage, Error>>;
-        #[cfg(feature = "http-api")]
+        #[cfg(all(feature = "http-api", not(target_arch = "wasm32")))]
         type WelcomeMessageStream<'a> = futures::stream::BoxStream<'static, Result<WelcomeMessage, Error>>;
+
+        #[cfg(target_arch = "wasm32")]
+        type GroupMessageStream<'a> = futures::stream::LocalBoxStream<'static, Result<GroupMessage, Error>>;
+        #[cfg(target_arch = "wasm32")]
+        type WelcomeMessageStream<'a> = futures::stream::LocalBoxStream<'static, Result<WelcomeMessage, Error>>;
 
 
         async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<<Self as XmtpMlsStreams>::GroupMessageStream<'static>, Error>;
@@ -80,6 +88,8 @@ mock! {
         async fn publish_identity_update(&self, request: PublishIdentityUpdateRequest) -> Result<PublishIdentityUpdateResponse, Error>;
         async fn get_identity_updates_v2(&self, request: GetIdentityUpdatesV2Request) -> Result<GetIdentityUpdatesV2Response, Error>;
         async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, Error>;
+        async fn verify_smart_contract_wallet_signatures(&self, request: VerifySmartContractWalletSignaturesRequest)
+        -> Result<VerifySmartContractWalletSignaturesResponse, Error>;
     }
 
     impl XmtpTestClient for ApiClient {

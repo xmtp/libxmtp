@@ -4,11 +4,13 @@ pub mod group_mutable_metadata;
 pub mod group_permissions;
 pub mod intents;
 pub mod members;
+pub mod scoped_client;
+
 #[allow(dead_code)]
 #[cfg(feature = "message-history")]
 pub mod message_history;
-mod subscriptions;
-mod sync;
+pub(super) mod subscriptions;
+pub(super) mod sync;
 pub mod validated_commit;
 
 use intents::SendMessageIntentData;
@@ -38,6 +40,7 @@ pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
 #[cfg(feature = "message-history")]
 use self::message_history::MessageHistoryError;
+use self::scoped_client::ScopedGroupClient;
 use self::{
     group_membership::GroupMembership,
     group_metadata::{extract_group_metadata, DmMembers},
@@ -92,7 +95,7 @@ use crate::{
     },
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Client, Store, XmtpApi,
+    Store,
 };
 
 #[derive(Debug, Error)]
@@ -219,10 +222,10 @@ impl RetryableError for GroupError {
     }
 }
 
-pub struct MlsGroup {
+pub struct MlsGroup<C> {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
-    context: Arc<XmtpMlsLocalContext>,
+    pub(crate) client: Arc<C>,
     mutex: Arc<Mutex<()>>,
 }
 
@@ -234,12 +237,12 @@ pub struct GroupMetadataOptions {
     pub pinned_frame_url: Option<String>,
 }
 
-impl Clone for MlsGroup {
+impl<C> Clone for MlsGroup<C> {
     fn clone(&self) -> Self {
         Self {
-            context: self.context.clone(),
             group_id: self.group_id.clone(),
             created_at_ns: self.created_at_ns,
+            client: self.client.clone(),
             mutex: self.mutex.clone(),
         }
     }
@@ -257,22 +260,30 @@ pub enum UpdateAdminListType {
 ///
 /// This is a wrapper around OpenMLS's `MlsGroup` that handles our application-level configuration
 /// and validations.
-impl MlsGroup {
+impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     // Creates a new group instance. Does not validate that the group exists in the DB
-    pub fn new(context: Arc<XmtpMlsLocalContext>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
-        let mut mutexes = context.mutexes.clone();
+    pub fn new(client: ScopedClient, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+        Self::new_from_arc(Arc::new(client), group_id, created_at_ns)
+    }
+
+    pub fn new_from_arc(client: Arc<ScopedClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+        let mut mutexes = client.context().mutexes.clone();
         Self {
-            context,
             group_id: group_id.clone(),
             created_at_ns,
             mutex: mutexes.get_mutex(group_id),
+            client,
         }
+    }
+
+    pub(self) fn context(&self) -> Arc<XmtpMlsLocalContext> {
+        self.client.context()
     }
 
     /// Instantiate a new [`XmtpOpenMlsProvider`] pulling a connection from the database.
     /// prefer to use an already-instantiated mls provider if possible.
     pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, GroupError> {
-        Ok(self.context.store.conn()?.into())
+        Ok(self.context().mls_provider()?)
     }
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
@@ -291,12 +302,13 @@ impl MlsGroup {
 
     // Create a new group and save it to the DB
     pub fn create_and_insert(
-        context: Arc<XmtpMlsLocalContext>,
+        client: Arc<ScopedClient>,
         membership_state: GroupMembershipState,
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
     ) -> Result<Self, GroupError> {
-        let conn = context.store.conn()?;
+        let context = client.context();
+        let conn = context.store().conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let creator_inbox_id = context.inbox_id();
         let protected_metadata =
@@ -331,7 +343,7 @@ impl MlsGroup {
         );
 
         stored_group.store(provider.conn_ref())?;
-        let new_group = Self::new(context.clone(), group_id, stored_group.created_at_ns);
+        let new_group = Self::new_from_arc(client.clone(), group_id, stored_group.created_at_ns);
 
         // Consent state defaults to allowed when the user creates the group
         new_group.update_consent_state(ConsentState::Allowed)?;
@@ -340,11 +352,12 @@ impl MlsGroup {
 
     // Create a new DM and save it to the DB
     pub fn create_dm_and_insert(
-        context: Arc<XmtpMlsLocalContext>,
+        client: Arc<ScopedClient>,
         membership_state: GroupMembershipState,
         dm_target_inbox_id: InboxId,
     ) -> Result<Self, GroupError> {
-        let conn = context.store.conn()?;
+        let context = client.context();
+        let conn = context.store().conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata =
             build_dm_protected_metadata_extension(context.inbox_id(), dm_target_inbox_id.clone())?;
@@ -381,8 +394,7 @@ impl MlsGroup {
         );
 
         stored_group.store(provider.conn_ref())?;
-        let new_group = Self::new(context.clone(), group_id, stored_group.created_at_ns);
-
+        let new_group = Self::new_from_arc(client.clone(), group_id, stored_group.created_at_ns);
         // Consent state defaults to allowed when the user creates the group
         new_group.update_consent_state(ConsentState::Allowed)?;
         Ok(new_group)
@@ -390,8 +402,8 @@ impl MlsGroup {
 
     // Create a group from a decrypted and decoded welcome message
     // If the group already exists in the store, overwrite the MLS state and do not update the group entry
-    async fn create_from_welcome<ApiClient: XmtpApi>(
-        client: &Client<ApiClient>,
+    async fn create_from_welcome(
+        client: Arc<ScopedClient>,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
         added_by_inbox: String,
@@ -427,7 +439,7 @@ impl MlsGroup {
                 dm_inbox_id,
             ),
             ConversationType::Dm => {
-                validate_dm_group(client, &mls_group, &added_by_inbox)?;
+                validate_dm_group(client.as_ref(), &mls_group, &added_by_inbox)?;
                 StoredGroup::new_from_welcome(
                     group_id.clone(),
                     now_ns(),
@@ -451,22 +463,22 @@ impl MlsGroup {
 
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
-        validate_initial_group_membership(client, provider.conn_ref(), &mls_group).await?;
+        validate_initial_group_membership(client.as_ref(), provider.conn_ref(), &mls_group).await?;
 
         // Insert or replace the group in the database.
         // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
         let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
 
-        Ok(Self::new(
-            client.context.clone(),
+        Ok(Self::new_from_arc(
+            client.clone(),
             stored_group.id,
             stored_group.created_at_ns,
         ))
     }
 
     /// Decrypt a welcome message using HPKE and then create and save a group from the stored message
-    pub async fn create_from_encrypted_welcome<ApiClient: XmtpApi>(
-        client: &Client<ApiClient>,
+    pub async fn create_from_encrypted_welcome(
+        client: Arc<ScopedClient>,
         provider: &XmtpOpenMlsProvider,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: Vec<u8>,
@@ -498,9 +510,10 @@ impl MlsGroup {
 
     #[cfg(feature = "message-history")]
     pub(crate) fn create_and_insert_sync_group(
-        context: Arc<XmtpMlsLocalContext>,
-    ) -> Result<MlsGroup, GroupError> {
-        let conn = context.store.conn()?;
+        client: Arc<ScopedClient>,
+    ) -> Result<MlsGroup<ScopedClient>, GroupError> {
+        let context = client.context();
+        let conn = context.store().conn()?;
         // let my_sequence_id = context.inbox_sequence_id(&conn)?;
         let creator_inbox_id = context.inbox_id().to_string();
         let provider = XmtpOpenMlsProvider::new(conn);
@@ -535,34 +548,26 @@ impl MlsGroup {
 
         stored_group.store(provider.conn_ref())?;
 
-        Ok(Self::new(
-            context.clone(),
+        Ok(Self::new_from_arc(
+            client,
             stored_group.id,
             stored_group.created_at_ns,
         ))
     }
 
-    /// Send a message on this user's XMTP [`Client`].
-    pub async fn send_message<ApiClient>(
-        &self,
-        message: &[u8],
-        client: &Client<ApiClient>,
-    ) -> Result<Vec<u8>, GroupError>
-    where
-        ApiClient: XmtpApi,
-    {
+    /// Send a message on this users XMTP [`Client`].
+    pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        let conn = self.context.store.conn()?;
+        let conn = self.context().store().conn()?;
         let provider = XmtpOpenMlsProvider::from(conn);
-        self.maybe_update_installations(&provider, update_interval_ns, client)
+        self.maybe_update_installations(&provider, update_interval_ns)
             .await?;
 
         let message_id = self.prepare_message(message, provider.conn_ref(), |now| {
             Self::into_envelope(message, now)
         });
 
-        self.sync_until_last_intent_resolved(&provider, client)
-            .await?;
+        self.sync_until_last_intent_resolved(&provider).await?;
 
         // implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
@@ -572,20 +577,13 @@ impl MlsGroup {
 
     /// Publish all unpublished messages. This happens by calling `sync_until_last_intent_resolved`
     /// which publishes all pending intents and reads them back from the network.
-    pub async fn publish_messages<ApiClient>(
-        &self,
-        client: &Client<ApiClient>,
-    ) -> Result<(), GroupError>
-    where
-        ApiClient: XmtpApi,
-    {
-        let conn = self.context.store.conn()?;
+    pub async fn publish_messages(&self) -> Result<(), GroupError> {
+        let conn = self.context().store().conn()?;
         let provider = XmtpOpenMlsProvider::from(conn);
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        self.maybe_update_installations(&provider, update_interval_ns, client)
+        self.maybe_update_installations(&provider, update_interval_ns)
             .await?;
-        self.sync_until_last_intent_resolved(&provider, client)
-            .await?;
+        self.sync_until_last_intent_resolved(&provider).await?;
 
         // implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
@@ -597,23 +595,16 @@ impl MlsGroup {
     /// to be added or removed from the group.
     ///
     /// If so, adds/removes those group members
-    pub async fn update_installations<ApiClient>(
-        &self,
-        client: &Client<ApiClient>,
-    ) -> Result<(), GroupError>
-    where
-        ApiClient: XmtpApi,
-    {
-        let conn = self.context.store.conn()?;
+    pub async fn update_installations(&self) -> Result<(), GroupError> {
+        let conn = self.context().store().conn()?;
         let provider = XmtpOpenMlsProvider::from(conn);
-        self.maybe_update_installations(&provider, Some(0), client)
-            .await?;
+        self.maybe_update_installations(&provider, Some(0)).await?;
         Ok(())
     }
 
     /// Send a message, optimistically returning the ID of the message before the result of a message publish.
     pub fn send_message_optimistic(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.context().store().conn()?;
         let message_id =
             self.prepare_message(message, &conn, |now| Self::into_envelope(message, now))?;
         Ok(message_id)
@@ -653,8 +644,8 @@ impl MlsGroup {
             decrypted_message_bytes: message.to_vec(),
             sent_at_ns: now,
             kind: GroupMessageKind::Application,
-            sender_installation_id: self.context.installation_public_key(),
-            sender_inbox_id: self.context.inbox_id(),
+            sender_installation_id: self.context().installation_public_key(),
+            sender_inbox_id: self.context().inbox_id(),
             delivery_status: DeliveryStatus::Unpublished,
         };
         group_message.store(conn)?;
@@ -681,7 +672,7 @@ impl MlsGroup {
         delivery_status: Option<DeliveryStatus>,
         limit: Option<i64>,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.context().store().conn()?;
         let messages = conn.get_group_messages(
             &self.group_id,
             sent_after_ns,
@@ -701,21 +692,18 @@ impl MlsGroup {
      * group membership will be updated to include those changes as well.
      */
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn add_members<ApiClient>(
+    pub async fn add_members(
         &self,
-        client: &Client<ApiClient>,
         account_addresses_to_add: Vec<String>,
-    ) -> Result<(), GroupError>
-    where
-        ApiClient: XmtpApi,
-    {
+    ) -> Result<(), GroupError> {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_add)?;
-        let inbox_id_map = client
-            .api_client
+        let inbox_id_map = self
+            .client
+            .api()
             .get_inbox_ids(account_addresses.clone())
             .await?;
         // get current number of users in group
-        let member_count = self.members(client).await?.len();
+        let member_count = self.members().await?.len();
         if member_count + inbox_id_map.len() > MAX_GROUP_SIZE as usize {
             return Err(GroupError::UserLimitExceeded);
         }
@@ -729,19 +717,15 @@ impl MlsGroup {
             ));
         }
 
-        self.add_members_by_inbox_id(client, inbox_id_map.into_values().collect())
+        self.add_members_by_inbox_id(inbox_id_map.into_values().collect())
             .await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn add_members_by_inbox_id<ApiClient: XmtpApi>(
-        &self,
-        client: &Client<ApiClient>,
-        inbox_ids: Vec<String>,
-    ) -> Result<(), GroupError> {
-        let provider = client.mls_provider()?;
+    pub async fn add_members_by_inbox_id(&self, inbox_ids: Vec<String>) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider()?;
         let intent_data = self
-            .get_membership_update_intent(client, &provider, inbox_ids, vec![])
+            .get_membership_update_intent(&provider, inbox_ids, vec![])
             .await?;
 
         // TODO:nm this isn't the best test for whether the request is valid
@@ -758,8 +742,7 @@ impl MlsGroup {
             intent_data.into(),
         )?;
 
-        self.sync_until_intent_resolved(&provider, intent.id, client)
-            .await
+        self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
     /// Removes members from the group by their account addresses.
@@ -770,15 +753,14 @@ impl MlsGroup {
     ///
     /// # Returns
     /// A `Result` indicating success or failure of the operation.
-    pub async fn remove_members<ApiClient: XmtpApi>(
+    pub async fn remove_members(
         &self,
-        client: &Client<ApiClient>,
         account_addresses_to_remove: Vec<InboxId>,
     ) -> Result<(), GroupError> {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_remove)?;
-        let inbox_id_map = client.api_client.get_inbox_ids(account_addresses).await?;
+        let inbox_id_map = self.client.api().get_inbox_ids(account_addresses).await?;
 
-        self.remove_members_by_inbox_id(client, inbox_id_map.into_values().collect())
+        self.remove_members_by_inbox_id(inbox_id_map.into_values().collect())
             .await
     }
 
@@ -790,15 +772,14 @@ impl MlsGroup {
     ///
     /// # Returns
     /// A `Result` indicating success or failure of the operation.
-    pub async fn remove_members_by_inbox_id<ApiClient: XmtpApi>(
+    pub async fn remove_members_by_inbox_id(
         &self,
-        client: &Client<ApiClient>,
         inbox_ids: Vec<InboxId>,
     ) -> Result<(), GroupError> {
-        let provider = client.store().conn()?.into();
+        let provider = self.client.store().conn()?.into();
 
         let intent_data = self
-            .get_membership_update_intent(client, &provider, vec![], inbox_ids)
+            .get_membership_update_intent(&provider, vec![], inbox_ids)
             .await?;
 
         let intent = self.queue_intent_with_conn(
@@ -807,32 +788,23 @@ impl MlsGroup {
             intent_data.into(),
         )?;
 
-        self.sync_until_intent_resolved(&provider, intent.id, client)
-            .await
+        self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
     /// Updates the name of the group. Will error if the user does not have the appropriate permissions
     /// to perform these updates.
-    pub async fn update_group_name<ApiClient>(
-        &self,
-        client: &Client<ApiClient>,
-        group_name: String,
-    ) -> Result<(), GroupError>
-    where
-        ApiClient: XmtpApi,
-    {
+    pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
         let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&client.mls_provider()?, intent.id, client)
+        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
             .await
     }
 
     /// Updates the permission policy of the group. This requires super admin permissions.
-    pub async fn update_permission_policy<ApiClient: XmtpApi>(
+    pub async fn update_permission_policy(
         &self,
-        client: &Client<ApiClient>,
         permission_update_type: PermissionUpdateType,
         permission_policy: PermissionPolicyOption,
         metadata_field: Option<MetadataField>,
@@ -852,7 +824,7 @@ impl MlsGroup {
 
         let intent = self.queue_intent(IntentKind::UpdatePermission, intent_data)?;
 
-        self.sync_until_intent_resolved(&client.mls_provider()?, intent.id, client)
+        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
             .await
     }
 
@@ -871,19 +843,15 @@ impl MlsGroup {
     }
 
     /// Updates the description of the group.
-    pub async fn update_group_description<ApiClient>(
+    pub async fn update_group_description(
         &self,
-        client: &Client<ApiClient>,
         group_description: String,
-    ) -> Result<(), GroupError>
-    where
-        ApiClient: XmtpApi,
-    {
+    ) -> Result<(), GroupError> {
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_description(group_description).into();
         let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&client.mls_provider()?, intent.id, client)
+        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
             .await
     }
 
@@ -901,20 +869,16 @@ impl MlsGroup {
     }
 
     /// Updates the image URL (square) of the group.
-    pub async fn update_group_image_url_square<ApiClient>(
+    pub async fn update_group_image_url_square(
         &self,
-        client: &Client<ApiClient>,
         group_image_url_square: String,
-    ) -> Result<(), GroupError>
-    where
-        ApiClient: XmtpApi,
-    {
+    ) -> Result<(), GroupError> {
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_image_url_square(group_image_url_square)
                 .into();
         let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&client.mls_provider()?, intent.id, client)
+        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
             .await
     }
 
@@ -935,19 +899,15 @@ impl MlsGroup {
         }
     }
 
-    pub async fn update_group_pinned_frame_url<ApiClient>(
+    pub async fn update_group_pinned_frame_url(
         &self,
-        client: &Client<ApiClient>,
         pinned_frame_url: String,
-    ) -> Result<(), GroupError>
-    where
-        ApiClient: XmtpApi,
-    {
+    ) -> Result<(), GroupError> {
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_pinned_frame_url(pinned_frame_url).into();
         let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&client.mls_provider()?, intent.id, client)
+        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
             .await
     }
 
@@ -1003,15 +963,11 @@ impl MlsGroup {
     }
 
     /// Updates the admin list of the group and syncs the changes to the network.
-    pub async fn update_admin_list<ApiClient>(
+    pub async fn update_admin_list(
         &self,
-        client: &Client<ApiClient>,
         action_type: UpdateAdminListType,
         inbox_id: String,
-    ) -> Result<(), GroupError>
-    where
-        ApiClient: XmtpApi,
-    {
+    ) -> Result<(), GroupError> {
         let intent_action_type = match action_type {
             UpdateAdminListType::Add => AdminListActionType::Add,
             UpdateAdminListType::Remove => AdminListActionType::Remove,
@@ -1022,13 +978,13 @@ impl MlsGroup {
             UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
         let intent = self.queue_intent(IntentKind::UpdateAdminList, intent_data)?;
 
-        self.sync_until_intent_resolved(&client.mls_provider()?, intent.id, client)
+        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
             .await
     }
 
     /// Find the `inbox_id` of the group member who added the member to the group
     pub fn added_by_inbox_id(&self) -> Result<String, GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.context().store().conn()?;
         conn.find_group(self.group_id.clone())
             .map_err(GroupError::from)
             .and_then(|fetch_result| {
@@ -1040,7 +996,7 @@ impl MlsGroup {
 
     /// Find the `consent_state` of the group
     pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.context().store().conn()?;
         let record = conn.get_consent_record(
             hex::encode(self.group_id.clone()),
             ConsentType::ConversationId,
@@ -1053,7 +1009,7 @@ impl MlsGroup {
     }
 
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.context().store().conn()?;
         conn.insert_or_replace_consent_records(vec![StoredConsentRecord::new(
             ConsentType::ConversationId,
             state,
@@ -1063,13 +1019,10 @@ impl MlsGroup {
         Ok(())
     }
 
-    // Update this installation's leaf key in the group by creating a key update commit
-    pub async fn key_update<ApiClient>(&self, client: &Client<ApiClient>) -> Result<(), GroupError>
-    where
-        ApiClient: XmtpApi,
-    {
+    /// Update this installation's leaf key in the group by creating a key update commit
+    pub async fn key_update(&self) -> Result<(), GroupError> {
         let intent = self.queue_intent(IntentKind::KeyUpdate, vec![])?;
-        self.sync_until_intent_resolved(&client.mls_provider()?, intent.id, client)
+        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
             .await
     }
 
@@ -1098,25 +1051,27 @@ impl MlsGroup {
     }
 
     pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
-        let conn = self.context.store.conn()?;
+        let conn = self.context().store().conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
         let mls_group = self.load_mls_group(&provider)?;
 
         Ok(extract_group_permissions(&mls_group)?)
     }
+
     /// Used for testing that dm group validation works as expected.
     ///
     /// See the `test_validate_dm_group` test function for more details.
     #[cfg(test)]
     pub fn create_test_dm_group(
-        context: Arc<XmtpMlsLocalContext>,
+        client: Arc<ScopedClient>,
         dm_target_inbox_id: InboxId,
         custom_protected_metadata: Option<Extension>,
         custom_mutable_metadata: Option<Extension>,
         custom_group_membership: Option<Extension>,
         custom_mutable_permissions: Option<PolicySet>,
     ) -> Result<Self, GroupError> {
-        let conn = context.store.conn()?;
+        let context = client.context();
+        let conn = context.store().conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
 
         let protected_metadata = custom_protected_metadata.unwrap_or_else(|| {
@@ -1160,8 +1115,8 @@ impl MlsGroup {
         );
 
         stored_group.store(provider.conn_ref())?;
-        Ok(Self::new(
-            context.clone(),
+        Ok(Self::new_from_arc(
+            client,
             group_id,
             stored_group.created_at_ns,
         ))
@@ -1440,16 +1395,16 @@ fn build_group_config(
 /**
  * Ensures that the membership in the MLS tree matches the inboxes specified in the `GroupMembership` extension.
  */
-async fn validate_initial_group_membership<ApiClient: XmtpApi>(
-    client: &Client<ApiClient>,
+async fn validate_initial_group_membership(
+    client: impl ScopedGroupClient,
     conn: &DbConnection,
     mls_group: &OpenMlsGroup,
 ) -> Result<(), GroupError> {
     tracing::info!("Validating initial group membership");
     let membership = extract_group_membership(mls_group.extensions())?;
-    let needs_update = client.filter_inbox_ids_needing_updates(conn, membership.to_filters())?;
+    let needs_update = conn.filter_inbox_ids_needing_updates(membership.to_filters())?;
     if !needs_update.is_empty() {
-        load_identity_updates(&client.api_client, conn, needs_update).await?;
+        load_identity_updates(client.api(), conn, needs_update).await?;
     }
 
     let mut expected_installation_ids = HashSet::<Vec<u8>>::new();
@@ -1481,8 +1436,8 @@ async fn validate_initial_group_membership<ApiClient: XmtpApi>(
     Ok(())
 }
 
-fn validate_dm_group<ApiClient: XmtpApi>(
-    client: &Client<ApiClient>,
+fn validate_dm_group(
+    client: impl ScopedGroupClient,
     mls_group: &OpenMlsGroup,
     added_by_inbox: &str,
 ) -> Result<(), GroupError> {
@@ -1497,7 +1452,7 @@ fn validate_dm_group<ApiClient: XmtpApi>(
 
     // Check if DmMembers are set and validate their contents
     if let Some(dm_members) = metadata.dm_members {
-        let our_inbox_id = client.context.identity.inbox_id().clone();
+        let our_inbox_id = client.context().identity.inbox_id().clone();
         if !((dm_members.member_one_inbox_id == added_by_inbox
             && dm_members.member_two_inbox_id == our_inbox_id)
             || (dm_members.member_one_inbox_id == our_inbox_id
@@ -1543,30 +1498,32 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use diesel::connection::SimpleConnection;
     use futures::future::join_all;
-    use openmls::prelude::{tls_codec::Serialize, Member, MlsGroup as OpenMlsGroup};
+    use openmls::prelude::Member;
     use prost::Message;
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     use crate::{
-        assert_err, assert_logged,
+        assert_err,
         builder::ClientBuilder,
         client::{FindGroupParams, MessageProcessingError},
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
-            build_dm_protected_metadata_extension, build_group_membership_extension,
-            build_mutable_metadata_extension_default, build_protected_metadata_extension,
-            group_membership::GroupMembership,
+            build_dm_protected_metadata_extension, build_mutable_metadata_extension_default,
+            build_protected_metadata_extension,
             group_metadata::{ConversationType, GroupMetadata},
             group_mutable_metadata::MetadataField,
             intents::{PermissionPolicyOption, PermissionUpdateType},
             members::{GroupMember, PermissionLevel},
-            validate_dm_group, DeliveryStatus, GroupMetadataOptions, PreconfiguredPolicies,
-            UpdateAdminListType,
+            validate_dm_group, DeliveryStatus, GroupError, GroupMetadataOptions,
+            PreconfiguredPolicies, UpdateAdminListType,
         },
         storage::{
             consent_record::ConsentState,
@@ -1574,47 +1531,38 @@ mod tests {
             group_intent::{IntentKind, IntentState},
             group_message::{GroupMessageKind, StoredGroupMessage},
         },
+        utils::test::FullXmtpClient,
         xmtp_openmls_provider::XmtpOpenMlsProvider,
-        Client, InboxOwner, XmtpApi,
+        InboxOwner, StreamHandle as _,
     };
 
-    use super::{
-        group_permissions::PolicySet,
-        intents::{Installation, SendWelcomesAction},
-        GroupError, MlsGroup,
-    };
+    use super::{group_permissions::PolicySet, MlsGroup};
 
-    async fn receive_group_invite<ApiClient>(client: &Client<ApiClient>) -> MlsGroup
-    where
-        ApiClient: XmtpApi,
-    {
+    async fn receive_group_invite(client: &FullXmtpClient) -> MlsGroup<FullXmtpClient> {
         client.sync_welcomes().await.unwrap();
         let mut groups = client.find_groups(FindGroupParams::default()).unwrap();
 
         groups.remove(0)
     }
 
-    async fn get_latest_message<ApiClient>(
-        group: &MlsGroup,
-        client: &Client<ApiClient>,
-    ) -> StoredGroupMessage
-    where
-        ApiClient: XmtpApi,
-    {
-        group.sync(client).await.unwrap();
+    async fn get_latest_message(group: &MlsGroup<FullXmtpClient>) -> StoredGroupMessage {
+        group.sync().await.unwrap();
         let mut messages = group.find_messages(None, None, None, None, None).unwrap();
         messages.pop().unwrap()
     }
 
     // Adds a member to the group without the usual validations on group membership
     // Used for testing adversarial scenarios
-    async fn force_add_member<ApiClient: XmtpApi>(
-        sender_client: &Client<ApiClient>,
-        new_member_client: &Client<ApiClient>,
-        sender_group: &MlsGroup,
-        sender_mls_group: &mut OpenMlsGroup,
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn force_add_member(
+        sender_client: &FullXmtpClient,
+        new_member_client: &FullXmtpClient,
+        sender_group: &MlsGroup<FullXmtpClient>,
+        sender_mls_group: &mut openmls::prelude::MlsGroup,
         sender_provider: &XmtpOpenMlsProvider,
     ) {
+        use super::intents::{Installation, SendWelcomesAction};
+        use openmls::prelude::tls_codec::Serialize;
         let new_member_provider = new_member_client.mls_provider().unwrap();
 
         let key_package = new_member_client
@@ -1644,22 +1592,20 @@ mod tests {
             .await
             .unwrap();
         sender_group
-            .send_welcomes(send_welcomes_action, sender_client)
+            .send_welcomes(send_welcomes_action)
             .await
             .unwrap();
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_send_message() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
         let group = client
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
-        group
-            .send_message(b"hello", &client)
-            .await
-            .expect("send message");
+        group.send_message(b"hello").await.expect("send message");
 
         let messages = client
             .api_client
@@ -1669,7 +1615,8 @@ mod tests {
         assert_eq!(messages.len(), 2);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_receive_self_message() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -1677,13 +1624,10 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
         let msg = b"hello";
-        group
-            .send_message(msg, &client)
-            .await
-            .expect("send message");
+        group.send_message(msg).await.expect("send message");
 
         group
-            .receive(&client.store().conn().unwrap().into(), &client)
+            .receive(&client.store().conn().unwrap().into())
             .await
             .unwrap();
         // Check for messages
@@ -1692,7 +1636,8 @@ mod tests {
         assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_receive_message_from_other() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1700,31 +1645,32 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
         alix_group
-            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .add_members_by_inbox_id(vec![bo.inbox_id()])
             .await
             .unwrap();
         let alix_message = b"hello from alix";
         alix_group
-            .send_message(alix_message, &alix)
+            .send_message(alix_message)
             .await
             .expect("send message");
 
         let bo_group = receive_group_invite(&bo).await;
-        let message = get_latest_message(&bo_group, &bo).await;
+        let message = get_latest_message(&bo_group).await;
         assert_eq!(message.decrypted_message_bytes, alix_message);
 
         let bo_message = b"hello from bo";
         bo_group
-            .send_message(bo_message, &bo)
+            .send_message(bo_message)
             .await
             .expect("send message");
 
-        let message = get_latest_message(&alix_group, &alix).await;
+        let message = get_latest_message(&alix_group).await;
         assert_eq!(message.decrypted_message_bytes, bo_message);
     }
 
     // Test members function from non group creator
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_members_func_from_non_creator() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1733,7 +1679,7 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
 
@@ -1742,8 +1688,8 @@ mod tests {
         let bola_group = bola_groups.first().unwrap();
 
         // Call sync for both
-        amal_group.sync(&amal).await.unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        amal_group.sync().await.unwrap();
+        bola_group.sync().await.unwrap();
 
         // Verify bola can see the group name
         let bola_group_name = bola_group
@@ -1752,8 +1698,8 @@ mod tests {
         assert_eq!(bola_group_name, "");
 
         // Check if both clients can see the members correctly
-        let amal_members: Vec<GroupMember> = amal_group.members(&amal).await.unwrap();
-        let bola_members: Vec<GroupMember> = bola_group.members(&bola).await.unwrap();
+        let amal_members: Vec<GroupMember> = amal_group.members().await.unwrap();
+        let bola_members: Vec<GroupMember> = bola_group.members().await.unwrap();
 
         assert_eq!(amal_members.len(), 2);
         assert_eq!(bola_members.len(), 2);
@@ -1777,7 +1723,8 @@ mod tests {
 
     // Amal and Bola will both try and add Charlie from the same epoch.
     // The group should resolve to a consistent state
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_add_member_conflict() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1788,40 +1735,40 @@ mod tests {
             .unwrap();
         // Add bola
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
 
         // Get bola's version of the same group
         let bola_groups = bola.sync_welcomes().await.unwrap();
         let bola_group = bola_groups.first().unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
 
         tracing::info!("Adding charlie from amal");
         // Have amal and bola both invite charlie.
         amal_group
-            .add_members_by_inbox_id(&amal, vec![charlie.inbox_id()])
+            .add_members_by_inbox_id(vec![charlie.inbox_id()])
             .await
             .expect("failed to add charlie");
         tracing::info!("Adding charlie from bola");
         bola_group
-            .add_members_by_inbox_id(&bola, vec![charlie.inbox_id()])
+            .add_members_by_inbox_id(vec![charlie.inbox_id()])
             .await
             .expect("bola's add should succeed in a no-op");
 
         amal_group
-            .receive(&amal.store().conn().unwrap().into(), &amal)
+            .receive(&amal.store().conn().unwrap().into())
             .await
             .expect_err("expected error");
 
         // Check Amal's MLS group state.
-        let amal_db = XmtpOpenMlsProvider::from(amal.context.store.conn().unwrap());
+        let amal_db = XmtpOpenMlsProvider::from(amal.context.store().conn().unwrap());
         let amal_mls_group = amal_group.load_mls_group(&amal_db).unwrap();
         let amal_members: Vec<Member> = amal_mls_group.members().collect();
         assert_eq!(amal_members.len(), 3);
 
         // Check Bola's MLS group state.
-        let bola_db = XmtpOpenMlsProvider::from(bola.context.store.conn().unwrap());
+        let bola_db = XmtpOpenMlsProvider::from(bola.context.store().conn().unwrap());
         let bola_mls_group = bola_group.load_mls_group(&bola_db).unwrap();
         let bola_members: Vec<Member> = bola_mls_group.members().collect();
         assert_eq!(bola_members.len(), 3);
@@ -1853,11 +1800,11 @@ mod tests {
 
         // Make sure sending and receiving both worked
         amal_group
-            .send_message("hello from amal".as_bytes(), &amal)
+            .send_message("hello from amal".as_bytes())
             .await
             .unwrap();
         bola_group
-            .send_message("hello from bola".as_bytes(), &bola)
+            .send_message("hello from bola".as_bytes())
             .await
             .unwrap();
 
@@ -1871,13 +1818,16 @@ mod tests {
         assert!(matching_message.is_some());
     }
 
-    #[test]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg(not(target_arch = "wasm32"))]
     fn test_create_from_welcome_validation() {
-        crate::traced_test(|| async {
+        use crate::groups::{build_group_membership_extension, group_membership::GroupMembership};
+        use crate::{assert_logged, utils::test::traced_test};
+        traced_test(|| async {
             let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
             let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-            let alix_group: MlsGroup = alix
+            let alix_group = alix
                 .create_group(None, GroupMetadataOptions::default())
                 .unwrap();
             let provider = alix.mls_provider().unwrap();
@@ -1907,7 +1857,8 @@ mod tests {
         });
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_add_inbox() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1916,7 +1867,7 @@ mod tests {
             .expect("create group");
 
         group
-            .add_members_by_inbox_id(&client, vec![client_2.inbox_id()])
+            .add_members_by_inbox_id(vec![client_2.inbox_id()])
             .await
             .unwrap();
 
@@ -1931,7 +1882,8 @@ mod tests {
         assert_eq!(messages.len(), 1);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_add_invalid_member() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let group = client
@@ -1939,27 +1891,27 @@ mod tests {
             .expect("create group");
 
         let result = group
-            .add_members_by_inbox_id(&client, vec!["1234".to_string()])
+            .add_members_by_inbox_id(vec!["1234".to_string()])
             .await;
 
         assert!(result.is_err());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_add_unregistered_member() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let unconnected_wallet_address = generate_local_wallet().get_address();
         let group = amal
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
-        let result = group
-            .add_members(&amal, vec![unconnected_wallet_address])
-            .await;
+        let result = group.add_members(vec![unconnected_wallet_address]).await;
 
         assert!(result.is_err());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_remove_inbox() {
         let client_1 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         // Add another client onto the network
@@ -1969,7 +1921,7 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
         group
-            .add_members_by_inbox_id(&client_1, vec![client_2.inbox_id()])
+            .add_members_by_inbox_id(vec![client_2.inbox_id()])
             .await
             .expect("group create failure");
 
@@ -1978,7 +1930,7 @@ mod tests {
 
         // Try and add another member without merging the pending commit
         group
-            .remove_members_by_inbox_id(&client_1, vec![client_2.inbox_id()])
+            .remove_members_by_inbox_id(vec![client_2.inbox_id()])
             .await
             .expect("group remove members failure");
 
@@ -1997,7 +1949,8 @@ mod tests {
         assert_eq!(messages.len(), 2);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_key_update() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2006,11 +1959,11 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
         group
-            .add_members_by_inbox_id(&client, vec![bola_client.inbox_id()])
+            .add_members_by_inbox_id(vec![bola_client.inbox_id()])
             .await
             .unwrap();
 
-        group.key_update(&client).await.unwrap();
+        group.key_update().await.unwrap();
 
         let messages = client
             .api_client
@@ -2019,27 +1972,25 @@ mod tests {
             .unwrap();
         assert_eq!(messages.len(), 2);
 
-        let provider: XmtpOpenMlsProvider = client.context.store.conn().unwrap().into();
+        let provider: XmtpOpenMlsProvider = client.context.store().conn().unwrap().into();
         let mls_group = group.load_mls_group(&provider).unwrap();
         let pending_commit = mls_group.pending_commit();
         assert!(pending_commit.is_none());
 
-        group
-            .send_message(b"hello", &client)
-            .await
-            .expect("send message");
+        group.send_message(b"hello").await.expect("send message");
 
         bola_client.sync_welcomes().await.unwrap();
         let bola_groups = bola_client.find_groups(FindGroupParams::default()).unwrap();
         let bola_group = bola_groups.first().unwrap();
-        bola_group.sync(&bola_client).await.unwrap();
+        bola_group.sync().await.unwrap();
         let bola_messages = bola_group
             .find_messages(None, None, None, None, None)
             .unwrap();
         assert_eq!(bola_messages.len(), 1);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_post_commit() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2048,7 +1999,7 @@ mod tests {
             .expect("create group");
 
         group
-            .add_members_by_inbox_id(&client, vec![client_2.inbox_id()])
+            .add_members_by_inbox_id(vec![client_2.inbox_id()])
             .await
             .unwrap();
 
@@ -2062,7 +2013,8 @@ mod tests {
         assert_eq!(welcome_messages.len(), 1);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_remove_by_account_address() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = &generate_local_wallet();
@@ -2074,14 +2026,14 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members(
-                &amal,
-                vec![bola_wallet.get_address(), charlie_wallet.get_address()],
-            )
+            .add_members(vec![
+                bola_wallet.get_address(),
+                charlie_wallet.get_address(),
+            ])
             .await
             .unwrap();
         tracing::info!("created the group with 2 additional members");
-        assert_eq!(group.members(&bola).await.unwrap().len(), 3);
+        assert_eq!(group.members().await.unwrap().len(), 3);
         let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].kind, GroupMessageKind::MembershipChange);
@@ -2092,10 +2044,10 @@ mod tests {
         assert_eq!(group_update.removed_inboxes.len(), 0);
 
         group
-            .remove_members(&amal, vec![bola_wallet.get_address()])
+            .remove_members(vec![bola_wallet.get_address()])
             .await
             .unwrap();
-        assert_eq!(group.members(&bola).await.unwrap().len(), 2);
+        assert_eq!(group.members().await.unwrap().len(), 2);
         tracing::info!("removed bola");
         let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 2);
@@ -2107,13 +2059,14 @@ mod tests {
         assert_eq!(group_update.removed_inboxes.len(), 1);
 
         let bola_group = receive_group_invite(&bola).await;
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
         assert!(!bola_group
             .is_active(bola_group.mls_provider().unwrap())
             .unwrap())
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_removed_members_cannot_send_message_to_others() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = &generate_local_wallet();
@@ -2121,63 +2074,64 @@ mod tests {
         let charlie_wallet = &generate_local_wallet();
         let charlie = ClientBuilder::new_test_client(charlie_wallet).await;
 
-        let group = amal
+        let amal_group = amal
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
-        group
-            .add_members(
-                &amal,
-                vec![bola_wallet.get_address(), charlie_wallet.get_address()],
-            )
+        amal_group
+            .add_members(vec![
+                bola_wallet.get_address(),
+                charlie_wallet.get_address(),
+            ])
             .await
             .unwrap();
-        assert_eq!(group.members(&bola).await.unwrap().len(), 3);
+        assert_eq!(amal_group.members().await.unwrap().len(), 3);
 
-        group
-            .remove_members(&amal, vec![bola_wallet.get_address()])
+        amal_group
+            .remove_members(vec![bola_wallet.get_address()])
             .await
             .unwrap();
-        assert_eq!(group.members(&bola).await.unwrap().len(), 2);
-        assert!(group
-            .members(&bola)
+        assert_eq!(amal_group.members().await.unwrap().len(), 2);
+        assert!(amal_group
+            .members()
             .await
             .unwrap()
             .iter()
             .all(|m| m.inbox_id != bola.inbox_id()));
-        assert!(group
-            .members(&bola)
+        assert!(amal_group
+            .members()
             .await
             .unwrap()
             .iter()
             .any(|m| m.inbox_id == charlie.inbox_id()));
 
-        group.sync(&amal).await.expect("sync failed");
+        amal_group.sync().await.expect("sync failed");
 
         let message_text = b"hello";
-        group
-            .send_message(message_text, &bola)
+
+        let bola_group = MlsGroup::<FullXmtpClient>::new(
+            bola.clone(),
+            amal_group.group_id.clone(),
+            amal_group.created_at_ns,
+        );
+        bola_group
+            .send_message(message_text)
             .await
             .expect_err("expected send_message to fail");
 
-        group.sync(&bola).await.expect("sync failed");
-        group.sync(&amal).await.expect("sync failed");
+        amal_group.sync().await.expect("sync failed");
+        amal_group.sync().await.expect("sync failed");
 
-        let amal_messages = group
+        let amal_messages = amal_group
             .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
             .unwrap()
             .into_iter()
             .collect::<Vec<StoredGroupMessage>>();
 
-        let message = amal_messages.first().unwrap();
-
-        // FIXME:st this is passing ONLY because the message IS being sent to the group
-        assert_eq!(message_text, &message.decrypted_message_bytes[..]);
-        assert_eq!(amal_messages.len(), 1);
+        assert!(amal_messages.is_empty());
     }
 
-    // TODO:nm add more tests for filling in missing installations
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_add_missing_installations() {
         // Setup for test
         let amal_wallet = generate_local_wallet();
@@ -2188,29 +2142,33 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
 
-        assert_eq!(group.members(&amal).await.unwrap().len(), 2);
+        assert_eq!(group.members().await.unwrap().len(), 2);
 
-        let provider: XmtpOpenMlsProvider = amal.context.store.conn().unwrap().into();
+        let provider: XmtpOpenMlsProvider = amal.context.store().conn().unwrap().into();
         // Finished with setup
 
         // add a second installation for amal using the same wallet
         let _amal_2nd = ClientBuilder::new_test_client(&amal_wallet).await;
 
         // test if adding the new installation(s) worked
-        let new_installations_were_added = group.add_missing_installations(&provider, &amal).await;
+        let new_installations_were_added = group.add_missing_installations(&provider).await;
         assert!(new_installations_were_added.is_ok());
 
-        group.sync(&amal).await.unwrap();
+        group.sync().await.unwrap();
         let mls_group = group.load_mls_group(&provider).unwrap();
         let num_members = mls_group.members().collect::<Vec<_>>().len();
         assert_eq!(num_members, 3);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_self_resolve_epoch_mismatch() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2222,35 +2180,35 @@ mod tests {
             .unwrap();
         // Add bola to the group
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
 
         let bola_group = receive_group_invite(&bola).await;
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
         // Both Amal and Bola are up to date on the group state. Now each of them want to add someone else
         amal_group
-            .add_members_by_inbox_id(&amal, vec![charlie.inbox_id()])
+            .add_members_by_inbox_id(vec![charlie.inbox_id()])
             .await
             .unwrap();
 
         bola_group
-            .add_members_by_inbox_id(&bola, vec![dave.inbox_id()])
+            .add_members_by_inbox_id(vec![dave.inbox_id()])
             .await
             .unwrap();
 
         // Send a message to the group, now that everyone is invited
-        amal_group.sync(&amal).await.unwrap();
-        amal_group.send_message(b"hello", &amal).await.unwrap();
+        amal_group.sync().await.unwrap();
+        amal_group.send_message(b"hello").await.unwrap();
 
         let charlie_group = receive_group_invite(&charlie).await;
         let dave_group = receive_group_invite(&dave).await;
 
         let (amal_latest_message, bola_latest_message, charlie_latest_message, dave_latest_message) = tokio::join!(
-            get_latest_message(&amal_group, &amal),
-            get_latest_message(&bola_group, &bola),
-            get_latest_message(&charlie_group, &charlie),
-            get_latest_message(&dave_group, &dave)
+            get_latest_message(&amal_group),
+            get_latest_message(&bola_group),
+            get_latest_message(&charlie_group),
+            get_latest_message(&dave_group)
         );
 
         let expected_latest_message = b"hello".to_vec();
@@ -2260,7 +2218,8 @@ mod tests {
         assert!(expected_latest_message.eq(&dave_latest_message.decrypted_message_bytes));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_group_permissions() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2274,19 +2233,20 @@ mod tests {
             .unwrap();
         // Add bola to the group
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
 
         let bola_group = receive_group_invite(&bola).await;
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
         assert!(bola_group
-            .add_members_by_inbox_id(&bola, vec![charlie.inbox_id()])
+            .add_members_by_inbox_id(vec![charlie.inbox_id()])
             .await
             .is_err(),);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_group_options() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
@@ -2328,9 +2288,8 @@ mod tests {
         assert_eq!(amal_group_pinned_frame_url, "pinned frame");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    // TODO: Need to enforce limits on max wallets on `add_members_by_inbox_id` and break up
-    // requests into multiple transactions
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     #[ignore]
     async fn test_max_limit_add() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2346,26 +2305,27 @@ mod tests {
             ClientBuilder::new_test_client(&wallet).await;
             clients.push(wallet.get_address());
         }
-        amal_group.add_members(&amal, clients).await.unwrap();
+        amal_group.add_members(clients).await.unwrap();
         let bola_wallet = generate_local_wallet();
         ClientBuilder::new_test_client(&bola_wallet).await;
         assert!(amal_group
-            .add_members_by_inbox_id(&amal, vec![bola_wallet.get_address()])
+            .add_members_by_inbox_id(vec![bola_wallet.get_address()])
             .await
             .is_err(),);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_group_mutable_data() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and verify it has the default group name
         let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-        let amal_group: MlsGroup = amal
+        let amal_group = amal
             .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
 
         let group_mutable_metadata = amal_group
             .mutable_metadata(amal_group.mls_provider().unwrap())
@@ -2379,14 +2339,14 @@ mod tests {
 
         // Add bola to the group
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
         let group_mutable_metadata = bola_group
             .mutable_metadata(bola_group.mls_provider().unwrap())
             .unwrap();
@@ -2398,17 +2358,14 @@ mod tests {
 
         // Update group name
         amal_group
-            .update_group_name(&amal, "New Group Name 1".to_string())
+            .update_group_name("New Group Name 1".to_string())
             .await
             .unwrap();
 
-        amal_group
-            .send_message("hello".as_bytes(), &amal)
-            .await
-            .unwrap();
+        amal_group.send_message("hello".as_bytes()).await.unwrap();
 
         // Verify amal group sees update
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
         let binding = amal_group
             .mutable_metadata(amal_group.mls_provider().unwrap())
             .expect("msg");
@@ -2419,7 +2376,7 @@ mod tests {
         assert_eq!(amal_group_name, "New Group Name 1");
 
         // Verify bola group sees update
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
         let binding = bola_group
             .mutable_metadata(bola_group.mls_provider().unwrap())
             .expect("msg");
@@ -2431,12 +2388,12 @@ mod tests {
 
         // Verify that bola can not update the group name since they are not the creator
         bola_group
-            .update_group_name(&bola, "New Group Name 2".to_string())
+            .update_group_name("New Group Name 2".to_string())
             .await
             .expect_err("expected err");
 
         // Verify bola group does not see an update
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
         let binding = bola_group
             .mutable_metadata(bola_group.mls_provider().unwrap())
             .expect("msg");
@@ -2447,16 +2404,17 @@ mod tests {
         assert_eq!(bola_group_name, "New Group Name 1");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_update_group_image_url_square() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and verify it has the default group name
         let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-        let amal_group: MlsGroup = amal
+        let amal_group = amal
             .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
 
         let group_mutable_metadata = amal_group
             .mutable_metadata(amal_group.mls_provider().unwrap())
@@ -2469,12 +2427,12 @@ mod tests {
 
         // Update group name
         amal_group
-            .update_group_image_url_square(&amal, "a url".to_string())
+            .update_group_image_url_square("a url".to_string())
             .await
             .unwrap();
 
         // Verify amal group sees update
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
         let binding = amal_group
             .mutable_metadata(amal_group.mls_provider().unwrap())
             .expect("msg");
@@ -2485,16 +2443,17 @@ mod tests {
         assert_eq!(amal_group_image_url, "a url");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_update_group_pinned_frame_url() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and verify it has the default group name
         let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-        let amal_group: MlsGroup = amal
+        let amal_group = amal
             .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
 
         let group_mutable_metadata = amal_group
             .mutable_metadata(amal_group.mls_provider().unwrap())
@@ -2507,12 +2466,12 @@ mod tests {
 
         // Update group name
         amal_group
-            .update_group_pinned_frame_url(&amal, "a frame url".to_string())
+            .update_group_pinned_frame_url("a frame url".to_string())
             .await
             .unwrap();
 
         // Verify amal group sees update
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
         let binding = amal_group
             .mutable_metadata(amal_group.mls_provider().unwrap())
             .expect("msg");
@@ -2523,7 +2482,8 @@ mod tests {
         assert_eq!(amal_group_pinned_frame_url, "a frame url");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_group_mutable_data_group_permissions() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
@@ -2531,10 +2491,10 @@ mod tests {
 
         // Create a group and verify it has the default group name
         let policy_set = Some(PreconfiguredPolicies::AllMembers.to_policy_set());
-        let amal_group: MlsGroup = amal
+        let amal_group = amal
             .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
 
         let group_mutable_metadata = amal_group
             .mutable_metadata(amal_group.mls_provider().unwrap())
@@ -2547,14 +2507,14 @@ mod tests {
 
         // Add bola to the group
         amal_group
-            .add_members(&amal, vec![bola_wallet.get_address()])
+            .add_members(vec![bola_wallet.get_address()])
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
         let group_mutable_metadata = bola_group
             .mutable_metadata(bola_group.mls_provider().unwrap())
             .unwrap();
@@ -2566,12 +2526,12 @@ mod tests {
 
         // Update group name
         amal_group
-            .update_group_name(&amal, "New Group Name 1".to_string())
+            .update_group_name("New Group Name 1".to_string())
             .await
             .unwrap();
 
         // Verify amal group sees update
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
         let binding = amal_group
             .mutable_metadata(amal_group.mls_provider().unwrap())
             .unwrap();
@@ -2582,7 +2542,7 @@ mod tests {
         assert_eq!(amal_group_name, "New Group Name 1");
 
         // Verify bola group sees update
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
         let binding = bola_group
             .mutable_metadata(bola_group.mls_provider().unwrap())
             .expect("msg");
@@ -2594,12 +2554,12 @@ mod tests {
 
         // Verify that bola CAN update the group name since everyone is admin for this group
         bola_group
-            .update_group_name(&bola, "New Group Name 2".to_string())
+            .update_group_name("New Group Name 2".to_string())
             .await
             .expect("non creator failed to udpate group name");
 
         // Verify amal group sees an update
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
         let binding = amal_group
             .mutable_metadata(amal_group.mls_provider().unwrap())
             .expect("msg");
@@ -2610,7 +2570,8 @@ mod tests {
         assert_eq!(amal_group_name, "New Group Name 2");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_group_admin_list_update() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
@@ -2622,18 +2583,18 @@ mod tests {
         let amal_group = amal
             .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
 
         // Add bola to the group
         amal_group
-            .add_members(&amal, vec![bola_wallet.get_address()])
+            .add_members(vec![bola_wallet.get_address()])
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
 
         // Verify Amal is the only admin and super admin
         let provider = amal_group.mls_provider().unwrap();
@@ -2648,20 +2609,20 @@ mod tests {
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
-        let bola_group: &MlsGroup = bola_groups.first().unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
+        bola_group.sync().await.unwrap();
         bola_group
-            .add_members_by_inbox_id(&bola, vec![caro.inbox_id()])
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
             .await
             .expect_err("expected err");
 
         // Add bola as an admin
         amal_group
-            .update_admin_list(&amal, UpdateAdminListType::Add, bola.inbox_id())
+            .update_admin_list(UpdateAdminListType::Add, bola.inbox_id())
             .await
             .unwrap();
-        amal_group.sync(&amal).await.unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        amal_group.sync().await.unwrap();
+        bola_group.sync().await.unwrap();
         assert_eq!(
             bola_group
                 .admin_list(bola_group.mls_provider().unwrap())
@@ -2676,26 +2637,26 @@ mod tests {
 
         // Verify that bola can now add caro because they are an admin
         bola_group
-            .add_members_by_inbox_id(&bola, vec![caro.inbox_id()])
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
             .await
             .unwrap();
 
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
 
         // Verify that bola can not remove amal as a super admin, because
         // Remove admin is super admin only permissions
         bola_group
-            .update_admin_list(&bola, UpdateAdminListType::RemoveSuper, amal.inbox_id())
+            .update_admin_list(UpdateAdminListType::RemoveSuper, amal.inbox_id())
             .await
             .expect_err("expected err");
 
         // Now amal removes bola as an admin
         amal_group
-            .update_admin_list(&amal, UpdateAdminListType::Remove, bola.inbox_id())
+            .update_admin_list(UpdateAdminListType::Remove, bola.inbox_id())
             .await
             .unwrap();
-        amal_group.sync(&amal).await.unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        amal_group.sync().await.unwrap();
+        bola_group.sync().await.unwrap();
         assert_eq!(
             bola_group
                 .admin_list(bola_group.mls_provider().unwrap())
@@ -2712,15 +2673,16 @@ mod tests {
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
-        let bola_group: &MlsGroup = bola_groups.first().unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
+        bola_group.sync().await.unwrap();
         bola_group
-            .add_members_by_inbox_id(&bola, vec![charlie.inbox_id()])
+            .add_members_by_inbox_id(vec![charlie.inbox_id()])
             .await
             .expect_err("expected err");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_group_super_admin_list_update() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2730,18 +2692,18 @@ mod tests {
         let amal_group = amal
             .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
 
         // Add bola to the group
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
 
         // Verify Amal is the only super admin
         let provider = amal_group.mls_provider().unwrap();
@@ -2756,20 +2718,20 @@ mod tests {
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
-        let bola_group: &MlsGroup = bola_groups.first().unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
+        bola_group.sync().await.unwrap();
         bola_group
-            .update_admin_list(&bola, UpdateAdminListType::Add, caro.inbox_id())
+            .update_admin_list(UpdateAdminListType::Add, caro.inbox_id())
             .await
             .expect_err("expected err");
 
         // Add bola as a super admin
         amal_group
-            .update_admin_list(&amal, UpdateAdminListType::AddSuper, bola.inbox_id())
+            .update_admin_list(UpdateAdminListType::AddSuper, bola.inbox_id())
             .await
             .unwrap();
-        amal_group.sync(&amal).await.unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        amal_group.sync().await.unwrap();
+        bola_group.sync().await.unwrap();
         let provider = bola_group.mls_provider().unwrap();
         assert_eq!(bola_group.super_admin_list(&provider).unwrap().len(), 2);
         assert!(bola_group
@@ -2780,10 +2742,10 @@ mod tests {
 
         // Verify that bola can now add caro as an admin
         bola_group
-            .update_admin_list(&bola, UpdateAdminListType::Add, caro.inbox_id())
+            .update_admin_list(UpdateAdminListType::Add, caro.inbox_id())
             .await
             .unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
         let provider = bola_group.mls_provider().unwrap();
         assert_eq!(bola_group.admin_list(&provider).unwrap().len(), 1);
         assert!(bola_group
@@ -2794,16 +2756,16 @@ mod tests {
 
         // Verify that no one can remove a super admin from a group
         amal_group
-            .remove_members(&amal, vec![bola.inbox_id()])
+            .remove_members(vec![bola.inbox_id()])
             .await
             .expect_err("expected err");
 
         // Verify that bola can now remove themself as a super admin
         bola_group
-            .update_admin_list(&bola, UpdateAdminListType::RemoveSuper, bola.inbox_id())
+            .update_admin_list(UpdateAdminListType::RemoveSuper, bola.inbox_id())
             .await
             .unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
         let provider = bola_group.mls_provider().unwrap();
         assert_eq!(bola_group.super_admin_list(&provider).unwrap().len(), 1);
         assert!(!bola_group
@@ -2814,12 +2776,13 @@ mod tests {
 
         // Verify that amal can NOT remove themself as a super admin because they are the only remaining
         amal_group
-            .update_admin_list(&amal, UpdateAdminListType::RemoveSuper, amal.inbox_id())
+            .update_admin_list(UpdateAdminListType::RemoveSuper, amal.inbox_id())
             .await
             .expect_err("expected err");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_group_members_permission_level_update() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2829,17 +2792,17 @@ mod tests {
         let amal_group = amal
             .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
 
         // Add Bola and Caro to the group
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id(), caro.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id(), caro.inbox_id()])
             .await
             .unwrap();
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
 
         // Initial checks for group members
-        let initial_members = amal_group.members(&amal).await.unwrap();
+        let initial_members = amal_group.members().await.unwrap();
         let mut count_member = 0;
         let mut count_admin = 0;
         let mut count_super_admin = 0;
@@ -2861,13 +2824,13 @@ mod tests {
 
         // Add Bola as an admin
         amal_group
-            .update_admin_list(&amal, UpdateAdminListType::Add, bola.inbox_id())
+            .update_admin_list(UpdateAdminListType::Add, bola.inbox_id())
             .await
             .unwrap();
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
 
         // Check after adding Bola as an admin
-        let members = amal_group.members(&amal).await.unwrap();
+        let members = amal_group.members().await.unwrap();
         let mut count_member = 0;
         let mut count_admin = 0;
         let mut count_super_admin = 0;
@@ -2889,13 +2852,13 @@ mod tests {
 
         // Add Caro as a super admin
         amal_group
-            .update_admin_list(&amal, UpdateAdminListType::AddSuper, caro.inbox_id())
+            .update_admin_list(UpdateAdminListType::AddSuper, caro.inbox_id())
             .await
             .unwrap();
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
 
         // Check after adding Caro as a super admin
-        let members = amal_group.members(&amal).await.unwrap();
+        let members = amal_group.members().await.unwrap();
         let mut count_member = 0;
         let mut count_admin = 0;
         let mut count_super_admin = 0;
@@ -2916,7 +2879,8 @@ mod tests {
         assert_eq!(count_member, 0, "no members have no admin status");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_staged_welcome() {
         // Create Clients
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2929,7 +2893,7 @@ mod tests {
 
         // Amal adds Bola to the group
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
 
@@ -2956,14 +2920,15 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_can_read_group_creator_inbox_id() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let policy_set = Some(PreconfiguredPolicies::AllMembers.to_policy_set());
         let amal_group = amal
             .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
 
         let mutable_metadata = amal_group
             .mutable_metadata(amal_group.mls_provider().unwrap())
@@ -2982,7 +2947,8 @@ mod tests {
         assert_eq!(protected_metadata.creator_inbox_id, amal.inbox_id());
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_can_update_gce_after_failed_commit() {
         // Step 1: Amal creates a group
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2990,25 +2956,25 @@ mod tests {
         let amal_group = amal
             .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
 
         // Step 2:  Amal adds Bola to the group
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
 
         // Step 3: Verify that Bola can update the group name, and amal sees the update
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
-        let bola_group: &MlsGroup = bola_groups.first().unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
+        bola_group.sync().await.unwrap();
         bola_group
-            .update_group_name(&bola, "Name Update 1".to_string())
+            .update_group_name("Name Update 1".to_string())
             .await
             .unwrap();
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
         let name = amal_group
             .group_name(amal_group.mls_provider().unwrap())
             .unwrap();
@@ -3016,20 +2982,20 @@ mod tests {
 
         // Step 4:  Bola attempts an action that they do not have permissions for like add admin, fails as expected
         let result = bola_group
-            .update_admin_list(&bola, UpdateAdminListType::Add, bola.inbox_id())
+            .update_admin_list(UpdateAdminListType::Add, bola.inbox_id())
             .await;
         if let Err(e) = &result {
             eprintln!("Error updating admin list: {:?}", e);
         }
         // Step 5: Now have Bola attempt to update the group name again
         bola_group
-            .update_group_name(&bola, "Name Update 2".to_string())
+            .update_group_name("Name Update 2".to_string())
             .await
             .unwrap();
 
         // Step 6: Verify that both clients can sync without error and that the group name has been updated
-        amal_group.sync(&amal).await.unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        amal_group.sync().await.unwrap();
+        bola_group.sync().await.unwrap();
         let binding = amal_group
             .mutable_metadata(amal_group.mls_provider().unwrap())
             .expect("msg");
@@ -3048,18 +3014,19 @@ mod tests {
         assert_eq!(bola_group_name, "Name Update 2");
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_can_update_permissions_after_group_creation() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-        let amal_group: MlsGroup = amal
+        let amal_group: MlsGroup<_> = amal
             .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
 
         // Step 2:  Amal adds Bola to the group
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         amal_group
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
 
@@ -3067,10 +3034,10 @@ mod tests {
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
-        let bola_group: &MlsGroup = bola_groups.first().unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
+        bola_group.sync().await.unwrap();
         let result = bola_group
-            .add_members_by_inbox_id(&bola, vec![caro.inbox_id()])
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
             .await;
         if let Err(e) = &result {
             eprintln!("Error adding member: {:?}", e);
@@ -3081,7 +3048,6 @@ mod tests {
         // Step 4: Bola attempts to update permissions but fails because they are not a super admin
         let result = bola_group
             .update_permission_policy(
-                &bola,
                 PermissionUpdateType::AddMember,
                 PermissionPolicyOption::Allow,
                 None,
@@ -3096,7 +3062,6 @@ mod tests {
         // Step 5: Amal updates group permissions so that all members can add
         amal_group
             .update_permission_policy(
-                &amal,
                 PermissionUpdateType::AddMember,
                 PermissionPolicyOption::Allow,
                 None,
@@ -3106,15 +3071,16 @@ mod tests {
 
         // Step 6: Bola can now add Caro to the group
         bola_group
-            .add_members_by_inbox_id(&bola, vec![caro.inbox_id()])
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
             .await
             .unwrap();
-        bola_group.sync(&bola).await.unwrap();
-        let members = bola_group.members(&bola).await.unwrap();
+        bola_group.sync().await.unwrap();
+        let members = bola_group.members().await.unwrap();
         assert_eq!(members.len(), 3);
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     async fn test_optimistic_send() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola_wallet = generate_local_wallet();
@@ -3122,10 +3088,10 @@ mod tests {
         let amal_group = amal
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
-        amal_group.sync(&amal).await.unwrap();
+        amal_group.sync().await.unwrap();
         // Add bola to the group
         amal_group
-            .add_members(&amal, vec![bola_wallet.get_address()])
+            .add_members(vec![bola_wallet.get_address()])
             .await
             .unwrap();
         let bola_group = receive_group_invite(&bola).await;
@@ -3181,8 +3147,8 @@ mod tests {
             ]
         );
 
-        amal_group.publish_messages(&amal).await.unwrap();
-        bola_group.sync(&bola).await.unwrap();
+        amal_group.publish_messages().await.unwrap();
+        bola_group.sync().await.unwrap();
 
         let messages = bola_group
             .find_messages(None, None, None, None, None)
@@ -3203,28 +3169,27 @@ mod tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     async fn test_dm_creation() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Amal creates a dm group targetting bola
-        let amal_dm: MlsGroup = amal.create_dm_by_inbox_id(bola.inbox_id()).await.unwrap();
+        let amal_dm = amal.create_dm_by_inbox_id(bola.inbox_id()).await.unwrap();
 
         // Amal can not add caro to the dm group
-        let result = amal_dm
-            .add_members_by_inbox_id(&amal, vec![caro.inbox_id()])
-            .await;
+        let result = amal_dm.add_members_by_inbox_id(vec![caro.inbox_id()]).await;
         assert!(result.is_err());
 
         // Bola is already a member
         let result = amal_dm
-            .add_members_by_inbox_id(&amal, vec![bola.inbox_id(), caro.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id(), caro.inbox_id()])
             .await;
         assert!(result.is_err());
-        amal_dm.sync(&amal).await.unwrap();
-        let members = amal_dm.members(&amal).await.unwrap();
+        amal_dm.sync().await.unwrap();
+        let members = amal_dm.members().await.unwrap();
         assert_eq!(members.len(), 2);
 
         // Bola can message amal
@@ -3235,11 +3200,11 @@ mod tests {
                 ..FindGroupParams::default()
             })
             .unwrap();
-        let bola_dm: &MlsGroup = bola_groups.first().unwrap();
-        bola_dm.send_message(b"test one", &bola).await.unwrap();
+        let bola_dm: &MlsGroup<_> = bola_groups.first().unwrap();
+        bola_dm.send_message(b"test one").await.unwrap();
 
         // Amal sync and reads message
-        amal_dm.sync(&amal).await.unwrap();
+        amal_dm.sync().await.unwrap();
         let messages = amal_dm.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 2);
         let message = messages.last().unwrap();
@@ -3247,16 +3212,16 @@ mod tests {
 
         // Amal can not remove bola
         let result = amal_dm
-            .remove_members_by_inbox_id(&amal, vec![bola.inbox_id()])
+            .remove_members_by_inbox_id(vec![bola.inbox_id()])
             .await;
         assert!(result.is_err());
-        amal_dm.sync(&amal).await.unwrap();
-        let members = amal_dm.members(&amal).await.unwrap();
+        amal_dm.sync().await.unwrap();
+        let members = amal_dm.members().await.unwrap();
         assert_eq!(members.len(), 2);
 
         // Neither Amal nor Bola is an admin or super admin
-        amal_dm.sync(&amal).await.unwrap();
-        bola_dm.sync(&bola).await.unwrap();
+        amal_dm.sync().await.unwrap();
+        bola_dm.sync().await.unwrap();
         let is_amal_admin = amal_dm
             .is_admin(amal.inbox_id(), amal.mls_provider().unwrap())
             .unwrap();
@@ -3275,7 +3240,8 @@ mod tests {
         assert!(!is_bola_super_admin);
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     async fn process_messages_abort_on_retryable_error() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3285,17 +3251,17 @@ mod tests {
             .unwrap();
 
         alix_group
-            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .add_members_by_inbox_id(vec![bo.inbox_id()])
             .await
             .unwrap();
 
         // Create two commits
         alix_group
-            .update_group_name(&alix, "foo".to_string())
+            .update_group_name("foo".to_string())
             .await
             .unwrap();
         alix_group
-            .update_group_name(&alix, "bar".to_string())
+            .update_group_name("bar".to_string())
             .await
             .unwrap();
 
@@ -3308,11 +3274,15 @@ mod tests {
             .unwrap();
 
         let conn_1: XmtpOpenMlsProvider = bo.store().conn().unwrap().into();
-        let mut conn_2 = bo.store().raw_conn().unwrap();
+        let conn_2 = bo.store().conn().unwrap();
+        conn_2
+            .raw_query(|c| {
+                c.batch_execute("BEGIN EXCLUSIVE").unwrap();
+                Ok::<_, diesel::result::Error>(())
+            })
+            .unwrap();
 
-        // Begin an exclusive transaction on a second connection to lock the database
-        conn_2.batch_execute("BEGIN EXCLUSIVE").unwrap();
-        let process_result = bo_group.process_messages(bo_messages, &conn_1, &bo).await;
+        let process_result = bo_group.process_messages(bo_messages, &conn_1).await;
         if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
             assert_eq!(errors.len(), 1);
             assert!(errors
@@ -3325,8 +3295,12 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    async fn test_paralell_syncs() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 5)
+    )]
+    async fn test_parallel_syncs() {
         let wallet = generate_local_wallet();
         let alix1 = Arc::new(ClientBuilder::new_test_client(&wallet).await);
         let alix1_group = alix1
@@ -3338,10 +3312,9 @@ mod tests {
         let sync_tasks: Vec<_> = (0..10)
             .map(|_| {
                 let group_clone = alix1_group.clone();
-                let client_clone = alix1.clone();
                 // Each of these syncs is going to trigger the client to invite alix2 to the group
                 // because of the race
-                tokio::spawn(async move { group_clone.sync(&client_clone).await })
+                crate::spawn(None, async move { group_clone.sync().await }).join()
             })
             .collect();
 
@@ -3372,18 +3345,18 @@ mod tests {
 
         // Send a message from alix1
         alix1_group
-            .send_message("hi from alix1".as_bytes(), &alix1)
+            .send_message("hi from alix1".as_bytes())
             .await
             .unwrap();
         // Send a message from alix2
         alix2_group
-            .send_message("hi from alix2".as_bytes(), &alix2)
+            .send_message("hi from alix2".as_bytes())
             .await
             .unwrap();
 
         // Sync both clients
-        alix1_group.sync(&alix1).await.unwrap();
-        alix2_group.sync(&alix2).await.unwrap();
+        alix1_group.sync().await.unwrap();
+        alix2_group.sync().await.unwrap();
 
         let alix1_messages = alix1_group
             .find_messages(None, None, None, None, None)
@@ -3402,15 +3375,12 @@ mod tests {
     }
 
     // Create a membership update intent, but don't sync it yet
-    async fn create_membership_update_no_sync<ApiClient>(
-        group: &MlsGroup,
+    async fn create_membership_update_no_sync(
+        group: &MlsGroup<FullXmtpClient>,
         provider: &XmtpOpenMlsProvider,
-        client: &Client<ApiClient>,
-    ) where
-        ApiClient: XmtpApi,
-    {
+    ) {
         let intent_data = group
-            .get_membership_update_intent(client, provider, vec![], vec![])
+            .get_membership_update_intent(provider, vec![], vec![])
             .await
             .unwrap();
 
@@ -3431,7 +3401,11 @@ mod tests {
      * We need to be safe even in situations where there are multiple
      * intents that do the same thing, leading to conflicts
      */
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 5)
+    )]
     async fn add_missing_installs_reentrancy() {
         let wallet = generate_local_wallet();
         let alix1 = ClientBuilder::new_test_client(&wallet).await;
@@ -3445,28 +3419,22 @@ mod tests {
 
         // We are going to run add_missing_installations TWICE
         // which will create two intents to add the installations
-        create_membership_update_no_sync(&alix1_group, &alix1_provider, &alix1).await;
-        create_membership_update_no_sync(&alix1_group, &alix1_provider, &alix1).await;
+        create_membership_update_no_sync(&alix1_group, &alix1_provider).await;
+        create_membership_update_no_sync(&alix1_group, &alix1_provider).await;
 
         // Now I am going to run publish intents multiple times
         alix1_group
-            .publish_intents(&alix1_provider, &alix1)
+            .publish_intents(&alix1_provider)
             .await
             .expect("Expect publish to be OK");
         alix1_group
-            .publish_intents(&alix1_provider, &alix1)
+            .publish_intents(&alix1_provider)
             .await
             .expect("Expected publish to be OK");
 
         // Now I am going to sync twice
-        alix1_group
-            .sync_with_conn(&alix1_provider, &alix1)
-            .await
-            .unwrap();
-        alix1_group
-            .sync_with_conn(&alix1_provider, &alix1)
-            .await
-            .unwrap();
+        alix1_group.sync_with_conn(&alix1_provider).await.unwrap();
+        alix1_group.sync_with_conn(&alix1_provider).await.unwrap();
 
         // Make sure that only one welcome was sent
         let alix2_welcomes = alix1
@@ -3489,18 +3457,18 @@ mod tests {
 
         // Send a message from alix1
         alix1_group
-            .send_message("hi from alix1".as_bytes(), &alix1)
+            .send_message("hi from alix1".as_bytes())
             .await
             .unwrap();
         // Send a message from alix2
         alix2_group
-            .send_message("hi from alix2".as_bytes(), &alix2)
+            .send_message("hi from alix2".as_bytes())
             .await
             .unwrap();
 
         // Sync both clients
-        alix1_group.sync(&alix1).await.unwrap();
-        alix2_group.sync(&alix2).await.unwrap();
+        alix1_group.sync().await.unwrap();
+        alix2_group.sync().await.unwrap();
 
         let alix1_messages = alix1_group
             .find_messages(None, None, None, None, None)
@@ -3518,7 +3486,11 @@ mod tests {
             .any(|m| m.decrypted_message_bytes == "hi from alix1".as_bytes()));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 5)
+    )]
     async fn respect_allow_epoch_increment() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -3530,7 +3502,7 @@ mod tests {
         let _client_2 = ClientBuilder::new_test_client(&wallet).await;
 
         // Sync the group to get the message adding client_2 published to the network
-        group.sync(&client).await.unwrap();
+        group.sync().await.unwrap();
 
         // Retrieve the envelope for the commit from the network
         let messages = client
@@ -3549,13 +3521,7 @@ mod tests {
         let provider = client.mls_provider().unwrap();
         let mut openmls_group = group.load_mls_group(&provider).unwrap();
         let process_result = group
-            .process_message(
-                &client,
-                &mut openmls_group,
-                &provider,
-                &first_message,
-                false,
-            )
+            .process_message(&mut openmls_group, &provider, &first_message, false)
             .await;
 
         assert_err!(
@@ -3564,7 +3530,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_get_and_set_consent() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3582,7 +3549,7 @@ mod tests {
         assert_eq!(alix_group.consent_state().unwrap(), ConsentState::Denied);
 
         alix_group
-            .add_members_by_inbox_id(&alix, vec![bola.inbox_id()])
+            .add_members_by_inbox_id(vec![bola.inbox_id()])
             .await
             .unwrap();
 
@@ -3593,7 +3560,7 @@ mod tests {
         assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Unknown);
 
         bola_group
-            .send_message("hi from bola".as_bytes(), &bola)
+            .send_message("hi from bola".as_bytes())
             .await
             .unwrap();
 
@@ -3601,7 +3568,7 @@ mod tests {
         assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Allowed);
 
         alix_group
-            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
             .await
             .unwrap();
 
@@ -3613,14 +3580,15 @@ mod tests {
             .send_message_optimistic("hi from caro".as_bytes())
             .unwrap();
 
-        caro_group.publish_messages(&caro).await.unwrap();
+        caro_group.publish_messages().await.unwrap();
 
         // group consent state should be allowed if user publishes a message to the group
         assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Allowed);
     }
 
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     // TODO(rich): Generalize the test once fixed - test messages that are 0, 1, 2, 3, 4, 5 epochs behind
-    #[tokio::test]
     async fn test_max_past_epochs() {
         // Create group with two members
         let bo_wallet = generate_local_wallet();
@@ -3639,13 +3607,10 @@ mod tests {
         let bo_group = bo_groups.first().unwrap();
 
         // Both members see the same amount of messages to start
-        alix_group
-            .send_message("alix 1".as_bytes(), &alix)
-            .await
-            .unwrap();
-        bo_group.send_message("bo 1".as_bytes(), &bo).await.unwrap();
-        alix_group.sync(&alix).await.unwrap();
-        bo_group.sync(&bo).await.unwrap();
+        alix_group.send_message("alix 1".as_bytes()).await.unwrap();
+        bo_group.send_message("bo 1".as_bytes()).await.unwrap();
+        alix_group.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
 
         let alix_messages = alix_group
             .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
@@ -3659,16 +3624,16 @@ mod tests {
 
         // Alix moves the group forward by 1 epoch
         alix_group
-            .update_group_name(&alix, "new name".to_string())
+            .update_group_name("new name".to_string())
             .await
             .unwrap();
 
         // Bo sends a message while 1 epoch behind
-        bo_group.send_message("bo 2".as_bytes(), &bo).await.unwrap();
+        bo_group.send_message("bo 2".as_bytes()).await.unwrap();
 
         // If max_past_epochs is working, Alix should be able to decrypt Bo's message
-        alix_group.sync(&alix).await.unwrap();
-        bo_group.sync(&bo).await.unwrap();
+        alix_group.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
 
         let alix_messages = alix_group
             .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
@@ -3680,7 +3645,8 @@ mod tests {
         assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_validate_dm_group() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let added_by_inbox = "added_by_inbox_id";
@@ -3688,8 +3654,8 @@ mod tests {
         let dm_target_inbox_id = added_by_inbox.to_string();
 
         // Test case 1: Valid DM group
-        let valid_dm_group = MlsGroup::create_test_dm_group(
-            client.context.clone(),
+        let valid_dm_group = MlsGroup::<FullXmtpClient>::create_test_dm_group(
+            client.clone().into(),
             dm_target_inbox_id.clone(),
             None,
             None,
@@ -3710,8 +3676,8 @@ mod tests {
         let invalid_protected_metadata =
             build_protected_metadata_extension(creator_inbox_id.clone(), Purpose::Conversation)
                 .unwrap();
-        let invalid_type_group = MlsGroup::create_test_dm_group(
-            client.context.clone(),
+        let invalid_type_group = MlsGroup::<FullXmtpClient>::create_test_dm_group(
+            client.clone().into(),
             dm_target_inbox_id.clone(),
             Some(invalid_protected_metadata),
             None,
@@ -3733,8 +3699,8 @@ mod tests {
             "wrong_inbox_id".to_string(),
         )
         .unwrap();
-        let mismatched_dm_members_group = MlsGroup::create_test_dm_group(
-            client.context.clone(),
+        let mismatched_dm_members_group = MlsGroup::<FullXmtpClient>::create_test_dm_group(
+            client.clone().into(),
             dm_target_inbox_id.clone(),
             Some(mismatched_dm_members),
             None,
@@ -3753,8 +3719,8 @@ mod tests {
             GroupMetadataOptions::default(),
         )
         .unwrap();
-        let non_empty_admin_list_group = MlsGroup::create_test_dm_group(
-            client.context.clone(),
+        let non_empty_admin_list_group = MlsGroup::<FullXmtpClient>::create_test_dm_group(
+            client.clone().into(),
             dm_target_inbox_id.clone(),
             None,
             Some(non_empty_admin_list),
@@ -3772,8 +3738,8 @@ mod tests {
 
         // Test case 7: Invalid permissions
         let invalid_permissions = PolicySet::default();
-        let invalid_permissions_group = MlsGroup::create_test_dm_group(
-            client.context.clone(),
+        let invalid_permissions_group = MlsGroup::<FullXmtpClient>::create_test_dm_group(
+            client.clone().into(),
             dm_target_inbox_id.clone(),
             None,
             None,

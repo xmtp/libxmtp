@@ -65,7 +65,7 @@ async fn create_tls_channel(address: String) -> Result<Channel, Error> {
     Ok(channel)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Client {
     pub(crate) client: MessageApiClient<Channel>,
     pub(crate) mls_client: ProtoMlsApiClient<Channel>,

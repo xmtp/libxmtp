@@ -18,7 +18,14 @@ tokio = { workspace = true, features = ["sync", "rt", "macros"] }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 
 [dev-dependencies]
+xmtp_proto = { path = "../xmtp_proto", features = ["test-utils"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 
-[profile.release]
-opt-level = "s"
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+tokio = { workspace = true, features = ["macros", "time"] }
+wasm-bindgen-test.workspace = true
+
+[features]
+test-utils = ["xmtp_proto/test-utils"]

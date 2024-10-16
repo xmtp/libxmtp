@@ -8,13 +8,14 @@ version.workspace = true
 aes-gcm = "0.10.1"
 ecdsa = "0.15.1"
 generic-array = "0.14.6"
-getrandom = { workspace = true, features = ["js"] }
 hex = { workspace = true }
 hkdf = "0.12.3"
 k256 = { version = "0.12.0", features = ["ecdh"] }
 rand = { workspace = true }
-rand_chacha = "0.3.1"
 sha2 = "0.10.6"
 sha3 = "0.10.6"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { workspace = true, features = ["js"] }
 
 [dev-dependencies]

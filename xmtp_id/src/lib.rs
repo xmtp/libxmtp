@@ -1,3 +1,5 @@
+#![warn(clippy::unwrap_used)]
+
 pub mod associations;
 pub mod constants;
 pub mod scw_verifier;
@@ -58,11 +60,27 @@ impl InboxOwner for LocalWallet {
     }
 }
 
+impl<T> InboxOwner for &T
+where
+    T: InboxOwner,
+{
+    fn get_address(&self) -> String {
+        (**self).get_address()
+    }
+
+    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
+        (**self).sign(text)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::scw_verifier::tests::with_smart_contracts;
+    #![allow(clippy::unwrap_used)]
+
     use ethers::contract::abigen;
+
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     abigen!(
         CoinbaseSmartWallet,
@@ -76,8 +94,12 @@ mod tests {
         derives(serde::Serialize, serde::Deserialize)
     );
 
-    #[tokio::test]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[cfg(not(target_arch = "wasm32"))]
     async fn test_is_smart_contract() {
+        use super::*;
+        use crate::utils::test::with_smart_contracts;
+
         with_smart_contracts(|anvil, _provider, _client, smart_contracts| async move {
             let deployer: LocalWallet = anvil.keys()[0].clone().into();
             let factory = smart_contracts.coinbase_smart_wallet_factory();

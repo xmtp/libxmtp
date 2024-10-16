@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let scw_verifier = match args.chain_urls {
         Some(path) => MultiSmartContractSignatureVerifier::new_from_file(path)?,
-        None => MultiSmartContractSignatureVerifier::default(),
+        None => MultiSmartContractSignatureVerifier::new_from_env()?,
     };
 
     let grpc_server = Server::builder()

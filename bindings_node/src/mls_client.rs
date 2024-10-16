@@ -14,7 +14,6 @@ use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 use xmtp_id::associations::unverified::UnverifiedSignature;
-use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::identity::IdentityStrategy;
@@ -73,8 +72,6 @@ pub async fn create_client(
     .await
     .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
 
-  let scw_verifier = RemoteSignatureVerifier::new(api_client.identity_client().clone());
-
   let storage_option = StorageOption::Persistent(db_path);
 
   let store = match encryption_key {
@@ -84,9 +81,11 @@ pub async fn create_client(
         .try_into()
         .map_err(|_| Error::from_reason("Malformed 32 byte encryption key".to_string()))?;
       EncryptedMessageStore::new(storage_option, key)
+        .await
         .map_err(|_| Error::from_reason("Error creating encrypted message store"))?
     }
     None => EncryptedMessageStore::new_unencrypted(storage_option)
+      .await
       .map_err(|_| Error::from_reason("Error creating unencrypted message store"))?,
   };
 
@@ -103,14 +102,13 @@ pub async fn create_client(
       .api_client(api_client)
       .store(store)
       .history_sync_url(&url)
-      .scw_signature_verifier(scw_verifier)
       .build()
       .await
       .map_err(ErrorWrapper::from)?,
+
     None => ClientBuilder::new(identity_strategy)
       .api_client(api_client)
       .store(store)
-      .scw_signature_verifier(scw_verifier)
       .build()
       .await
       .map_err(ErrorWrapper::from)?,
@@ -370,13 +368,7 @@ impl NapiClient {
       let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.deref().to_vec());
 
       signature_request
-        .add_signature(
-          signature,
-          self
-            .inner_client
-            .smart_contract_signature_verifier()
-            .as_ref(),
-        )
+        .add_signature(signature, &self.inner_client.scw_verifier())
         .await
         .map_err(ErrorWrapper::from)?;
     } else {

@@ -50,7 +50,7 @@ impl TryFrom<GroupMetadata> for Vec<u8> {
     type Error = GroupMetadataError;
 
     fn try_from(value: GroupMetadata) -> Result<Self, Self::Error> {
-        let conversation_type: ConversationTypeProto = value.conversation_type.clone().into();
+        let conversation_type: ConversationTypeProto = value.conversation_type.into();
         let proto_val = GroupMetadataProto {
             conversation_type: conversation_type as i32,
             creator_inbox_id: value.creator_inbox_id.clone(),
@@ -100,11 +100,11 @@ impl TryFrom<&Extensions> for GroupMetadata {
 /**
  * XMTP supports the following types of conversation
  *
- * Group: A conversation with 1->N members and complex permissions and roles
- * DM: A conversation between 2 members with simplified permissions
- * Sync: A conversation between all the devices of a single member with simplified permissions
+ * *Group*: A conversation with 1->N members and complex permissions and roles
+ * *DM*: A conversation between 2 members with simplified permissions
+ * *Sync*: A conversation between all the devices of a single member with simplified permissions
  */
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ConversationType {
     Group,
     Dm,

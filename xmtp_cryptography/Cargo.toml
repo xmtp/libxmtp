@@ -4,6 +4,9 @@ name = "xmtp_cryptography"
 rust-version = "1.70"
 version.workspace = true
 
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown", "aarch64-apple-darwin"]
+
 [dependencies]
 tracing.workspace = true
 curve25519-dalek = "4"
@@ -21,9 +24,15 @@ thiserror = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["js"] }
+wasm-bindgen-test.workspace = true
+wasm-bindgen-futures.workspace = true
 
 [features]
 ws = ["ethers/ws"]
 
 [dev-dependencies]
 tokio = { version = "1.28.1", features = ["rt", "macros"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test.workspace = true
+

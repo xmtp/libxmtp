@@ -14,9 +14,8 @@ use std::{
 
 use crate::storage::StorageError;
 
-use super::StorageOption;
+use super::{EncryptionKey, StorageOption};
 
-pub type EncryptionKey = [u8; 32];
 pub type Salt = [u8; 16];
 const PLAINTEXT_HEADER_SIZE: usize = 32;
 const SALT_FILE_NAME: &str = "sqlcipher_salt";
@@ -181,7 +180,29 @@ impl EncryptedConnection {
         Ok(db_path.join(format!("{}.{}", name.to_string_lossy(), SALT_FILE_NAME)))
     }
 
-    pub(super) fn validate(&self, opts: &StorageOption) -> Result<(), StorageError> {
+    /// Output the corect order of PRAGMAS to instantiate a connection
+    fn pragmas(&self) -> impl Display {
+        let Self { ref key, ref salt } = self;
+
+        if let Some(s) = salt {
+            format!(
+                "{}\n{}\n{}",
+                pragma_key(hex::encode(key)),
+                pragma_plaintext_header(),
+                pragma_salt(hex::encode(s))
+            )
+        } else {
+            format!(
+                "{}\n{}",
+                pragma_key(hex::encode(key)),
+                pragma_plaintext_header()
+            )
+        }
+    }
+}
+
+impl super::native::ValidatedConnection for EncryptedConnection {
+    fn validate(&self, opts: &StorageOption) -> Result<(), StorageError> {
         let conn = &mut opts.conn()?;
 
         let cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
@@ -217,26 +238,6 @@ impl EncryptedConnection {
         }
         tracing::debug!("SQLCipher Database validated.");
         Ok(())
-    }
-
-    /// Output the corect order of PRAGMAS to instantiate a connection
-    fn pragmas(&self) -> impl Display {
-        let Self { ref key, ref salt } = self;
-
-        if let Some(s) = salt {
-            format!(
-                "{}\n{}\n{}",
-                pragma_key(hex::encode(key)),
-                pragma_plaintext_header(),
-                pragma_salt(hex::encode(s))
-            )
-        } else {
-            format!(
-                "{}\n{}",
-                pragma_key(hex::encode(key)),
-                pragma_plaintext_header()
-            )
-        }
     }
 }
 
@@ -277,14 +278,15 @@ mod tests {
     const SQLITE3_PLAINTEXT_HEADER: &str = "SQLite format 3\0";
     use StorageOption::*;
 
-    #[test]
-    fn test_db_creates_with_plaintext_header() {
+    #[tokio::test]
+    async fn test_db_creates_with_plaintext_header() {
         let db_path = tmp_path();
         {
             let _ = EncryptedMessageStore::new(
                 Persistent(db_path.clone()),
                 EncryptedMessageStore::generate_enc_key(),
             )
+            .await
             .unwrap();
 
             assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
@@ -304,8 +306,8 @@ mod tests {
         EncryptedMessageStore::remove_db_files(db_path)
     }
 
-    #[test]
-    fn test_db_migrates() {
+    #[tokio::test]
+    async fn test_db_migrates() {
         let db_path = tmp_path();
         {
             let key = EncryptedMessageStore::generate_enc_key();
@@ -330,7 +332,9 @@ mod tests {
             file.read_exact(&mut plaintext_header).unwrap();
             assert!(String::from_utf8_lossy(&plaintext_header) != SQLITE3_PLAINTEXT_HEADER);
 
-            let _ = EncryptedMessageStore::new(Persistent(db_path.clone()), key).unwrap();
+            let _ = EncryptedMessageStore::new(Persistent(db_path.clone()), key)
+                .await
+                .unwrap();
 
             assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
             let bytes = std::fs::read(EncryptedConnection::salt_file(&db_path).unwrap()).unwrap();

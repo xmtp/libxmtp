@@ -54,14 +54,14 @@ impl UnverifiedIdentityUpdate {
 
     pub async fn to_verified(
         &self,
-        scw_verifier: &dyn SmartContractSignatureVerifier,
+        scw_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<IdentityUpdate, SignatureError> {
         let signature_text = self.signature_text();
 
         let actions: Vec<Action> = try_join_all(
             self.actions
                 .iter()
-                .map(|action| action.to_verified(&signature_text, scw_verifier)),
+                .map(|action| action.to_verified(&signature_text, &scw_verifier)),
         )
         .await?;
 
@@ -118,7 +118,7 @@ impl UnverifiedAction {
     pub async fn to_verified<Text: AsRef<str>>(
         &self,
         signature_text: Text,
-        scw_verifier: &dyn SmartContractSignatureVerifier,
+        scw_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Action, SignatureError> {
         let action = match self {
             UnverifiedAction::CreateInbox(action) => Action::CreateInbox(CreateInbox {
@@ -126,25 +126,25 @@ impl UnverifiedAction {
                 account_address: action.unsigned_action.account_address.clone(),
                 initial_address_signature: action
                     .initial_address_signature
-                    .to_verified(signature_text.as_ref(), scw_verifier)
+                    .to_verified(signature_text.as_ref(), &scw_verifier)
                     .await?,
             }),
             UnverifiedAction::AddAssociation(action) => Action::AddAssociation(AddAssociation {
                 new_member_signature: action
                     .new_member_signature
-                    .to_verified(signature_text.as_ref(), scw_verifier)
+                    .to_verified(signature_text.as_ref(), &scw_verifier)
                     .await?,
                 new_member_identifier: action.unsigned_action.new_member_identifier.clone(),
                 existing_member_signature: action
                     .existing_member_signature
-                    .to_verified(signature_text.as_ref(), scw_verifier)
+                    .to_verified(signature_text.as_ref(), &scw_verifier)
                     .await?,
             }),
             UnverifiedAction::RevokeAssociation(action) => {
                 Action::RevokeAssociation(RevokeAssociation {
                     recovery_address_signature: action
                         .recovery_address_signature
-                        .to_verified(signature_text.as_ref(), scw_verifier)
+                        .to_verified(signature_text.as_ref(), &scw_verifier)
                         .await?,
                     revoked_member: action.unsigned_action.revoked_member.clone(),
                 })
@@ -153,7 +153,7 @@ impl UnverifiedAction {
                 Action::ChangeRecoveryAddress(super::ChangeRecoveryAddress {
                     recovery_address_signature: action
                         .recovery_address_signature
-                        .to_verified(signature_text.as_ref(), scw_verifier)
+                        .to_verified(signature_text.as_ref(), &scw_verifier)
                         .await?,
                     new_recovery_address: action.unsigned_action.new_recovery_address.clone(),
                 })
@@ -250,7 +250,7 @@ impl UnverifiedSignature {
     pub async fn to_verified<Text: AsRef<str>>(
         &self,
         signature_text: Text,
-        scw_verifier: &dyn SmartContractSignatureVerifier,
+        scw_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<VerifiedSignature, SignatureError> {
         match self {
             UnverifiedSignature::InstallationKey(sig) => VerifiedSignature::from_installation_key(
@@ -393,6 +393,9 @@ impl UnverifiedLegacyDelegatedSignature {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use crate::associations::{
         generate_inbox_id, test_utils::rand_string, unsigned_actions::UnsignedCreateInbox,
     };
@@ -402,7 +405,8 @@ mod tests {
         UnverifiedRecoverableEcdsaSignature, UnverifiedSignature,
     };
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn create_identity_update() {
         let account_address = rand_string();
         let nonce = 1;

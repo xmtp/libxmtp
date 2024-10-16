@@ -1,4 +1,4 @@
-mod encrypted_store;
+pub(super) mod encrypted_store;
 mod errors;
 pub mod serialization;
 pub mod sql_key_store;

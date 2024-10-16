@@ -1,31 +1,31 @@
 use super::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
 use crate::associations::AccountId;
-use async_trait::async_trait;
 use ethers::types::{BlockNumber, Bytes};
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use tonic::transport::Channel;
 
-use xmtp_proto::xmtp::identity::api::v1::{
-    identity_api_client::IdentityApiClient, VerifySmartContractWalletSignatureRequestSignature,
-    VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
+use xmtp_proto::{
+    api_client::trait_impls::XmtpApi,
+    xmtp::identity::api::v1::{
+        VerifySmartContractWalletSignatureRequestSignature,
+        VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
+    },
 };
 
-#[derive(Clone)]
-pub struct RemoteSignatureVerifier {
-    identity_client: Arc<Mutex<IdentityApiClient<Channel>>>,
+pub struct RemoteSignatureVerifier<C> {
+    identity_client: C,
 }
 
-impl RemoteSignatureVerifier {
-    pub fn new(identity_client: IdentityApiClient<Channel>) -> Self {
-        Self {
-            identity_client: Arc::new(Mutex::new(identity_client)),
-        }
+impl<C> RemoteSignatureVerifier<C> {
+    pub fn new(identity_client: C) -> Self {
+        Self { identity_client }
     }
 }
 
-#[async_trait]
-impl SmartContractSignatureVerifier for RemoteSignatureVerifier {
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl<C> SmartContractSignatureVerifier for RemoteSignatureVerifier<C>
+where
+    C: XmtpApi,
+{
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
@@ -37,8 +37,6 @@ impl SmartContractSignatureVerifier for RemoteSignatureVerifier {
 
         let result = self
             .identity_client
-            .lock()
-            .await
             .verify_smart_contract_wallet_signatures(VerifySmartContractWalletSignaturesRequest {
                 signatures: vec![VerifySmartContractWalletSignatureRequestSignature {
                     account_id: account_id.into(),
@@ -47,15 +45,25 @@ impl SmartContractSignatureVerifier for RemoteSignatureVerifier {
                     hash: hash.to_vec(),
                 }],
             })
-            .await
-            .map_err(VerifierError::Tonic)?;
+            .await?;
 
-        let VerifySmartContractWalletSignaturesResponse { responses } = result.into_inner();
+        let VerifySmartContractWalletSignaturesResponse { responses } = result;
 
         Ok(responses
             .into_iter()
             .next()
             .expect("Api given one request will return one response")
             .into())
+    }
+}
+
+impl<T> Clone for RemoteSignatureVerifier<T>
+where
+    T: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            identity_client: self.identity_client.clone(),
+        }
     }
 }

@@ -15,13 +15,10 @@ futures = { workspace = true }
 hex = { workspace = true }
 openmls = { workspace = true }
 openmls_rust_crypto = { workspace = true }
-openmls_traits = { workspace = true }
-prost = { workspace = true, features = ["prost-derive"] }
-serde = { workspace = true }
 thiserror.workspace = true
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
 tonic = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "ansi"] }
 tracing.workspace = true
 warp = "0.3.6"
 xmtp_cryptography = { path = "../xmtp_cryptography" }

@@ -5,10 +5,9 @@ use diesel::{
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
-    sqlite::Sqlite,
 };
 
-use super::{db_connection::DbConnection, schema::refresh_state};
+use super::{db_connection::DbConnection, schema::refresh_state, Sqlite};
 use crate::{impl_store, impl_store_or_ignore, storage::StorageError, StoreOrIgnore};
 
 #[repr(i32)]
@@ -55,7 +54,7 @@ impl_store!(RefreshState, refresh_state);
 impl_store_or_ignore!(RefreshState, refresh_state);
 
 impl DbConnection {
-    pub fn get_refresh_state<EntityId: AsRef<Vec<u8>>>(
+    pub fn get_refresh_state<EntityId: AsRef<[u8]>>(
         &self,
         entity_id: EntityId,
         entity_kind: EntityKind,
@@ -71,7 +70,7 @@ impl DbConnection {
         Ok(res)
     }
 
-    pub fn get_last_cursor_for_id<IdType: AsRef<Vec<u8>>>(
+    pub fn get_last_cursor_for_id<IdType: AsRef<[u8]>>(
         &self,
         id: IdType,
         entity_kind: EntityKind,
@@ -81,7 +80,7 @@ impl DbConnection {
             Some(state) => Ok(state.cursor),
             None => {
                 let new_state = RefreshState {
-                    entity_id: id.as_ref().clone(),
+                    entity_id: id.as_ref().to_vec(),
                     entity_kind,
                     cursor: 0,
                 };
@@ -120,11 +119,15 @@ impl DbConnection {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use super::*;
     use crate::{storage::encrypted_store::tests::with_connection, Store};
 
-    #[test]
-    fn get_cursor_with_no_existing_state() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn get_cursor_with_no_existing_state() {
         with_connection(|conn| {
             let id = vec![1, 2, 3];
             let kind = EntityKind::Group;
@@ -134,10 +137,12 @@ pub(crate) mod tests {
             let entry: Option<RefreshState> = conn.get_refresh_state(&id, kind).unwrap();
             assert!(entry.is_some());
         })
+        .await
     }
 
-    #[test]
-    fn get_timestamp_with_existing_state() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn get_timestamp_with_existing_state() {
         with_connection(|conn| {
             let id = vec![1, 2, 3];
             let entity_kind = EntityKind::Welcome;
@@ -149,10 +154,12 @@ pub(crate) mod tests {
             entry.store(conn).unwrap();
             assert_eq!(conn.get_last_cursor_for_id(&id, entity_kind).unwrap(), 123);
         })
+        .await
     }
 
-    #[test]
-    fn update_timestamp_when_bigger() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn update_timestamp_when_bigger() {
         with_connection(|conn| {
             let id = vec![1, 2, 3];
             let entity_kind = EntityKind::Group;
@@ -166,10 +173,12 @@ pub(crate) mod tests {
             let entry: Option<RefreshState> = conn.get_refresh_state(&id, entity_kind).unwrap();
             assert_eq!(entry.unwrap().cursor, 124);
         })
+        .await
     }
 
-    #[test]
-    fn dont_update_timestamp_when_smaller() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn dont_update_timestamp_when_smaller() {
         with_connection(|conn| {
             let entity_id = vec![1, 2, 3];
             let entity_kind = EntityKind::Welcome;
@@ -185,10 +194,12 @@ pub(crate) mod tests {
                 conn.get_refresh_state(&entity_id, entity_kind).unwrap();
             assert_eq!(entry.unwrap().cursor, 123);
         })
+        .await
     }
 
-    #[test]
-    fn allow_installation_and_welcome_same_id() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn allow_installation_and_welcome_same_id() {
         with_connection(|conn| {
             let entity_id = vec![1, 2, 3];
             let welcome_state = RefreshState {
@@ -217,5 +228,6 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(group_state_retrieved.cursor, 456);
         })
+        .await
     }
 }

@@ -1,4 +1,12 @@
 #!/bin/bash
 set -eou pipefail
 
-cargo fmt
+if ! cargo-clippy &>/dev/null; then rustup component add clippy; fi
+
+cargo fmt &
+cargo clippy --manifest-path "bindings_ffi/Cargo.toml" --all-features --all-targets --no-deps -- -Dwarnings &
+cargo clippy --manifest-path "bindings_node/Cargo.toml" --all-features --all-targets --no-deps -- -Dwarnings &
+cargo clippy --manifest-path "bindings_wasm/Cargo.toml" --all-features --all-targets --no-deps -- -Dwarnings &
+cargo clippy --all-features --all-targets --no-deps -- -Dwarnings &
+
+wait

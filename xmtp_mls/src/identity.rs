@@ -85,7 +85,7 @@ impl IdentityStrategy {
         self,
         api_client: &ApiClientWrapper<ApiClient>,
         store: &EncryptedMessageStore,
-        scw_signature_verifier: &dyn SmartContractSignatureVerifier,
+        scw_signature_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Identity, IdentityError> {
         info!("Initializing identity");
         let conn = store.conn()?;
@@ -240,7 +240,7 @@ impl Identity {
         legacy_signed_private_key: Option<Vec<u8>>,
         api_client: &ApiClientWrapper<ApiClient>,
         provider: &XmtpOpenMlsProvider,
-        scw_signature_verifier: &dyn SmartContractSignatureVerifier,
+        scw_signature_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Self, IdentityError> {
         // check if address is already associated with an inbox_id
         let address = address.to_lowercase();
@@ -311,7 +311,7 @@ impl Identity {
                         )
                         .await?,
                     ),
-                    scw_signature_verifier,
+                    &scw_signature_verifier,
                 )
                 .await?;
             signature_request
@@ -418,7 +418,7 @@ impl Identity {
     /// Generate a new key package and store the associated keys in the database.
     pub(crate) fn new_key_package(
         &self,
-        provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore>,
+        provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore<crate::storage::RawDbConnection>>,
     ) -> Result<KeyPackage, IdentityError> {
         let last_resort = Extension::LastResort(LastResortExtension::default());
         let key_package_extensions = Extensions::single(last_resort);
@@ -528,7 +528,7 @@ impl Identity {
 
 pub(crate) fn serialize_key_package_hash_ref(
     kp: &KeyPackage,
-    provider: &impl OpenMlsProvider<StorageProvider = SqlKeyStore>,
+    provider: &impl OpenMlsProvider<StorageProvider = SqlKeyStore<crate::storage::RawDbConnection>>,
 ) -> Result<Vec<u8>, IdentityError> {
     let key_package_hash_ref = kp
         .hash_ref(provider.crypto())

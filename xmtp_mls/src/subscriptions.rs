@@ -1,16 +1,14 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use futures::{FutureExt, Stream, StreamExt};
 use prost::Message;
 use tokio::{sync::oneshot, task::JoinHandle};
-use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
 use crate::{
-    api::GroupFilter,
     client::{extract_welcome_message, ClientError},
-    groups::{extract_group_id, group_metadata::ConversationType, GroupError, MlsGroup},
+    groups::{group_metadata::ConversationType, subscriptions, MlsGroup},
     retry::Retry,
     retry_async,
     storage::{group::StoredGroup, group_message::StoredGroupMessage},
@@ -21,16 +19,36 @@ use crate::{
 /// Wrapper around a [`tokio::task::JoinHandle`] but with a oneshot receiver
 /// which allows waiting for a `with_callback` stream fn to be ready for stream items.
 pub struct StreamHandle<T> {
-    pub handle: JoinHandle<T>,
+    handle: JoinHandle<T>,
     start: Option<oneshot::Receiver<()>>,
 }
 
 /// Events local to this client
 /// are broadcast across all senders/receivers of streams
-#[derive(Clone)]
-pub(crate) enum LocalEvents {
+pub(crate) enum LocalEvents<C> {
     // a new group was created
-    NewGroup(MlsGroup),
+    NewGroup(MlsGroup<C>),
+}
+
+impl<C> LocalEvents<C> {
+    fn group_filter(self) -> Option<MlsGroup<C>> {
+        use LocalEvents::*;
+        // this is just to protect against any future variants
+        #[allow(unreachable_patterns)]
+        match self {
+            NewGroup(c) => Some(c),
+            _ => None,
+        }
+    }
+}
+
+impl<ScopedClient: Clone> Clone for LocalEvents<ScopedClient> {
+    fn clone(&self) -> LocalEvents<ScopedClient> {
+        use LocalEvents::*;
+        match self {
+            NewGroup(c) => NewGroup(c.clone()),
+        }
+    }
 }
 
 impl<T> StreamHandle<T> {
@@ -66,14 +84,15 @@ impl From<StoredGroup> for (Vec<u8>, MessagesStreamInfo) {
     }
 }
 
-impl<ApiClient> Client<ApiClient>
+impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + 'static,
+    ApiClient: XmtpApi + Clone + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Clone + Send + Sync + 'static,
 {
     async fn process_streamed_welcome(
         &self,
         welcome: WelcomeMessage,
-    ) -> Result<MlsGroup, ClientError> {
+    ) -> Result<MlsGroup<Self>, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
         let creation_result = retry_async!(
             Retry::default(),
@@ -81,10 +100,10 @@ where
                 tracing::info!("Trying to process streamed welcome");
                 let welcome_v1 = welcome_v1.clone();
                 self.context
-                    .store
+                    .store()
                     .transaction_async(|provider| async move {
                         MlsGroup::create_from_encrypted_welcome(
-                            self,
+                            Arc::new(self.clone()),
                             &provider,
                             welcome_v1.hpke_public_key.as_slice(),
                             welcome_v1.data,
@@ -97,7 +116,7 @@ where
         );
 
         if let Some(err) = creation_result.as_ref().err() {
-            let conn = self.context.store.conn()?;
+            let conn = self.context.store().conn()?;
             let result = conn.find_group_by_welcome_id(welcome_v1.id as i64);
             match result {
                 Ok(Some(group)) => {
@@ -105,11 +124,7 @@ where
                         "Loading existing group for welcome_id: {:?}",
                         group.welcome_id
                     );
-                    return Ok(MlsGroup::new(
-                        self.context.clone(),
-                        group.id,
-                        group.created_at_ns,
-                    ));
+                    return Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns));
                 }
                 Ok(None) => return Err(ClientError::Generic(err.to_string())),
                 Err(e) => return Err(ClientError::Generic(e.to_string())),
@@ -122,7 +137,7 @@ where
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<MlsGroup, ClientError> {
+    ) -> Result<MlsGroup<Self>, ClientError> {
         let envelope = WelcomeMessage::decode(envelope_bytes.as_slice())
             .map_err(|e| ClientError::Generic(e.to_string()))?;
 
@@ -133,58 +148,26 @@ where
     pub async fn stream_conversations(
         &self,
         conversation_type: Option<ConversationType>,
-    ) -> Result<impl Stream<Item = MlsGroup> + '_, ClientError> {
-        let provider = Arc::new(self.context.mls_provider()?);
-
-        let event_queue =
-            tokio_stream::wrappers::BroadcastStream::new(self.local_events.subscribe());
-
-        // Helper function for filtering based on conversation type
-        let filter_group = Arc::new(move |group: MlsGroup, provider: Arc<XmtpOpenMlsProvider>| {
-            let conversation_type = conversation_type.clone();
-            async move {
-                match group.metadata(provider.as_ref()) {
-                    Ok(metadata) => match conversation_type {
-                        Some(ConversationType::Dm) => {
-                            if metadata.conversation_type == ConversationType::Dm {
-                                Some(group)
-                            } else {
-                                None
-                            }
-                        }
-                        Some(ConversationType::Group) => {
-                            if metadata.conversation_type == ConversationType::Group {
-                                Some(group)
-                            } else {
-                                None
-                            }
-                        }
-                        None => Some(group), // Return all groups if conversation_type is None
-                        _ => None,
-                    },
-                    Err(err) => {
-                        tracing::error!("Error processing group metadata: {:?}", err);
-                        None
-                    }
-                }
-            }
+    ) -> Result<impl Stream<Item = MlsGroup<Self>> + '_, ClientError> {
+        let event_queue = tokio_stream::wrappers::BroadcastStream::new(
+            self.local_events.subscribe(),
+        )
+        .filter_map(|event| async {
+            crate::optify!(event, "Missed messages due to event queue lag")
+                .map(|c| c.group_filter())
+                .flatten()
         });
 
-        let event_provider = Arc::clone(&provider);
-        let event_filter_group = Arc::clone(&filter_group);
-        let event_queue = event_queue.filter_map(move |event| {
-            let provider = Arc::clone(&event_provider);
-            let event_filter_group = Arc::clone(&event_filter_group);
-            async move {
-                match event {
-                    Ok(LocalEvents::NewGroup(group)) => event_filter_group(group, provider).await,
-                    Err(BroadcastStreamRecvError::Lagged(missed)) => {
-                        tracing::warn!("Missed {missed} messages due to local event queue lagging");
-                        None
-                    }
-                }
-            }
-        });
+        // Helper function for filtering Dm groups
+        let filter_group = move |group: MlsGroup<Self>| async move {
+            let conversation_type = &conversation_type;
+            let provider = crate::optify!(group.client.context().mls_provider())?;
+            let metadata =
+                crate::optify!(group.metadata(provider), "error processing group metadata");
+            metadata
+                .filter(|m| conversation_type.map_or(true, |ct| ct == m.conversation_type))
+                .map(|_| group)
+        };
 
         let installation_key = self.installation_public_key();
         let id_cursor = 0;
@@ -195,102 +178,35 @@ where
             .subscribe_welcome_messages(installation_key, Some(id_cursor))
             .await?;
 
-        let stream_provider = Arc::clone(&provider);
-        let stream_filter_group = Arc::clone(&filter_group);
         let stream = subscription
             .map(|welcome| async {
                 tracing::info!("Received conversation streaming payload");
                 self.process_streamed_welcome(welcome?).await
             })
-            .filter_map(move |res| {
-                let provider = Arc::clone(&stream_provider);
-                let stream_filter_group = Arc::clone(&stream_filter_group);
-                async move {
-                    match res.await {
-                        Ok(group) => stream_filter_group(group, provider).await,
-                        Err(err) => {
-                            tracing::error!(
-                                "Error processing stream entry for conversation: {:?}",
-                                err
-                            );
-                            None
-                        }
-                    }
-                }
+            .filter_map(move |res| async {
+                crate::optify!(
+                    res.await,
+                    "Error processing stream entry for conversation: "
+                )
             });
 
-        Ok(futures::stream::select(stream, event_queue))
-    }
-
-    #[tracing::instrument(skip(self, group_id_to_info))]
-    pub(crate) async fn stream_messages(
-        &self,
-        group_id_to_info: Arc<HashMap<Vec<u8>, MessagesStreamInfo>>,
-    ) -> Result<impl Stream<Item = StoredGroupMessage> + '_, ClientError>
-    where
-        ApiClient: 'static,
-    {
-        let filters: Vec<GroupFilter> = group_id_to_info
-            .iter()
-            .map(|(group_id, info)| GroupFilter::new(group_id.clone(), Some(info.cursor)))
-            .collect();
-
-        let messages_subscription = self.api_client.subscribe_group_messages(filters).await?;
-
-        let stream = messages_subscription
-            .map(move |res| {
-                let group_info = group_id_to_info.clone();
-                async move {
-                    match res {
-                        Ok(envelope) => {
-                            tracing::info!("Received message streaming payload");
-                            let group_id = extract_group_id(&envelope)?;
-                            tracing::info!("Extracted group id {}", hex::encode(&group_id));
-                            let stream_info = group_info.get(&group_id).ok_or(
-                                ClientError::StreamInconsistency(
-                                    "Received message for a non-subscribed group".to_string(),
-                                ),
-                            )?;
-                            let mls_group = MlsGroup::new(
-                                self.context.clone(),
-                                group_id,
-                                stream_info.convo_created_at_ns,
-                            );
-                            mls_group.process_stream_entry(envelope, self).await
-                        }
-                        Err(err) => Err(GroupError::Api(err)),
-                    }
-                }
-            })
-            .filter_map(|res| async {
-                match res.await {
-                    Ok(Some(message)) => Some(message),
-                    Ok(None) => {
-                        tracing::info!("Skipped message streaming payload");
-                        None
-                    }
-                    Err(err) => {
-                        tracing::error!("Error processing stream entry: {:?}", err);
-                        None
-                    }
-                }
-            });
-        Ok(stream)
+        Ok(futures::stream::select(stream, event_queue).filter_map(filter_group))
     }
 }
 
-impl<ApiClient> Client<ApiClient>
+impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + 'static,
+    ApiClient: XmtpApi + Clone + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Clone + Send + Sync + 'static,
 {
     pub fn stream_conversations_with_callback(
-        client: Arc<Client<ApiClient>>,
-        mut convo_callback: impl FnMut(MlsGroup) + Send + 'static,
+        client: Arc<Client<ApiClient, V>>,
         conversation_type: Option<ConversationType>,
-    ) -> StreamHandle<Result<(), ClientError>> {
+        mut convo_callback: impl FnMut(MlsGroup<Self>) + Send + 'static,
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
-        let handle = tokio::spawn(async move {
+        crate::spawn(Some(rx), async move {
             let stream = client.stream_conversations(conversation_type).await?;
             futures::pin_mut!(stream);
             let _ = tx.send(());
@@ -299,38 +215,8 @@ where
                 convo_callback(convo)
             }
             tracing::debug!("`stream_conversations` stream ended, dropping stream");
-            Ok(())
-        });
-
-        StreamHandle {
-            start: Some(rx),
-            handle,
-        }
-    }
-
-    pub(crate) fn stream_messages_with_callback(
-        client: Arc<Client<ApiClient>>,
-        group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
-        mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
-    ) -> StreamHandle<Result<(), ClientError>> {
-        let (tx, rx) = oneshot::channel();
-
-        let client = client.clone();
-        let handle = tokio::spawn(async move {
-            let stream = Self::stream_messages(&client, group_id_to_info.into()).await?;
-            let _ = tx.send(());
-            futures::pin_mut!(stream);
-            while let Some(message) = stream.next().await {
-                callback(message)
-            }
-            tracing::debug!("`stream_messages` stream ended, dropping stream");
-            Ok(())
-        });
-
-        StreamHandle {
-            start: Some(rx),
-            handle,
-        }
+            Ok::<_, ClientError>(())
+        })
     }
 
     pub async fn stream_all_messages(
@@ -342,19 +228,21 @@ where
         let mut group_id_to_info = self
             .store()
             .conn()?
-            .find_groups(None, None, None, None, conversation_type.clone())?
+            .find_groups(None, None, None, None, conversation_type)?
             .into_iter()
             .map(Into::into)
             .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
 
         let stream = async_stream::stream! {
-            let messages_stream = self
-                .stream_messages(Arc::new(group_id_to_info.clone()))
-                .await?;
+            let messages_stream = subscriptions::stream_messages(
+                self,
+                Arc::new(group_id_to_info.clone())
+            )
+            .await?;
             futures::pin_mut!(messages_stream);
 
             tracing::info!("Setting up conversation stream in stream_all_messages");
-            let convo_stream = self.stream_conversations(conversation_type.clone()).await?;
+            let convo_stream = self.stream_conversations(conversation_type).await?;
 
             futures::pin_mut!(convo_stream);
 
@@ -392,7 +280,10 @@ where
                                 cursor: 1, // For the new group, stream all messages since the group was created
                             },
                         );
-                        let new_messages_stream = match self.stream_messages(Arc::new(group_id_to_info.clone())).await {
+                        let new_messages_stream = match subscriptions::stream_messages(
+                            self,
+                            Arc::new(group_id_to_info.clone())
+                        ).await {
                             Ok(stream) => stream,
                             Err(e) => {
                                 tracing::error!("{}", e);
@@ -415,16 +306,16 @@ where
     }
 
     pub fn stream_all_messages_with_callback(
-        client: Arc<Client<ApiClient>>,
-        mut callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
+        client: Arc<Client<ApiClient, V>>,
         conversation_type: Option<ConversationType>,
-    ) -> StreamHandle<Result<(), ClientError>> {
+        mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
-        let handle = tokio::spawn(async move {
-            let stream = Self::stream_all_messages(&client, conversation_type).await?;
-            let _ = tx.send(());
+        crate::spawn(Some(rx), async move {
+            let stream = client.stream_all_messages(conversation_type).await?;
             futures::pin_mut!(stream);
+            let _ = tx.send(());
             while let Some(message) = stream.next().await {
                 match message {
                     Ok(m) => callback(m),
@@ -432,24 +323,23 @@ where
                 }
             }
             tracing::debug!("`stream_all_messages` stream ended, dropping stream");
-            Ok(())
-        });
-
-        StreamHandle {
-            start: Some(rx),
-            handle,
-        }
+            Ok::<_, ClientError>(())
+        })
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::client::FindGroupParams;
-    use crate::groups::group_metadata::ConversationType;
-    use crate::utils::test::{Delivery, TestClient};
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use crate::{
-        builder::ClientBuilder, groups::GroupMetadataOptions,
-        storage::group_message::StoredGroupMessage, Client,
+        builder::ClientBuilder,
+        client::FindGroupParams,
+        groups::{group_metadata::ConversationType, GroupMetadataOptions},
+        storage::group_message::StoredGroupMessage,
+        utils::test::{Delivery, FullXmtpClient, TestClient},
+        Client, StreamHandle,
     };
     use futures::StreamExt;
     use parking_lot::Mutex;
@@ -459,7 +349,8 @@ mod tests {
     };
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    #[tokio::test(flavor = "current_thread")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_stream_welcomes() {
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bob = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -476,7 +367,7 @@ mod tests {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
         let bob_ptr = bob.clone();
-        tokio::spawn(async move {
+        crate::spawn(None, async move {
             let bob_stream = bob_ptr.stream_conversations(None).await.unwrap();
             futures::pin_mut!(bob_stream);
             while let Some(item) = bob_stream.next().await {
@@ -486,7 +377,7 @@ mod tests {
 
         let group_id = alice_bob_group.group_id.clone();
         alice_bob_group
-            .add_members_by_inbox_id(&alice, vec![bob.inbox_id()])
+            .add_members_by_inbox_id(vec![bob.inbox_id()])
             .await
             .unwrap();
 
@@ -494,7 +385,11 @@ mod tests {
         assert_eq!(bob_received_groups.group_id, group_id);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_stream_messages() {
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -503,9 +398,9 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
-        // let mut bob_stream = bob.stream_conversations().await.unwrap();
+        // let mut bob_stream = bob.stream_conversations().await.unwrap()warning: unused implementer of `futures::Future` that must be used;
         alice_group
-            .add_members_by_inbox_id(&alice, vec![bob.inbox_id()])
+            .add_members_by_inbox_id(vec![bob.inbox_id()])
             .await
             .unwrap();
         let bob_group = bob.sync_welcomes().await.unwrap();
@@ -514,8 +409,8 @@ mod tests {
         let notify = Delivery::new(None);
         let notify_ptr = notify.clone();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        tokio::spawn(async move {
-            let stream = alice_group.stream(&alice).await.unwrap();
+        crate::spawn(None, async move {
+            let stream = alice_group.stream().await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
                 let _ = tx.send(item);
@@ -524,12 +419,12 @@ mod tests {
         });
         let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
 
-        bob_group.send_message(b"hello", &bob).await.unwrap();
+        bob_group.send_message(b"hello").await.unwrap();
         notify.wait_for_delivery().await.unwrap();
         let message = stream.next().await.unwrap();
         assert_eq!(message.decrypted_message_bytes, b"hello");
 
-        bob_group.send_message(b"hello2", &bob).await.unwrap();
+        bob_group.send_message(b"hello2").await.unwrap();
         notify.wait_for_delivery().await.unwrap();
         let message = stream.next().await.unwrap();
         assert_eq!(message.decrypted_message_bytes, b"hello2");
@@ -537,7 +432,11 @@ mod tests {
         // assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_stream_all_messages_unchanging_group_list() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -547,7 +446,7 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group
-            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
             .await
             .unwrap();
 
@@ -555,48 +454,36 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         bo_group
-            .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        crate::sleep(core::time::Duration::from_millis(100)).await;
 
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let messages_clone = messages.clone();
 
         let notify = Delivery::new(None);
         let notify_pointer = notify.clone();
-        let mut handle = Client::<TestClient>::stream_all_messages_with_callback(
+        let mut handle = Client::<TestClient, _>::stream_all_messages_with_callback(
             Arc::new(caro),
+            None,
             move |message| {
                 (*messages_clone.lock()).push(message);
                 notify_pointer.notify_one();
             },
-            None,
         );
         handle.wait_for_ready().await;
 
-        alix_group
-            .send_message("first".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_group.send_message("first".as_bytes()).await.unwrap();
         notify
             .wait_for_delivery()
             .await
             .expect("didn't get `first`");
-        bo_group
-            .send_message("second".as_bytes(), &bo)
-            .await
-            .unwrap();
+        bo_group.send_message("second".as_bytes()).await.unwrap();
         notify.wait_for_delivery().await.unwrap();
-        alix_group
-            .send_message("third".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_group.send_message("third".as_bytes()).await.unwrap();
         notify.wait_for_delivery().await.unwrap();
-        bo_group
-            .send_message("fourth".as_bytes(), &bo)
-            .await
-            .unwrap();
+        bo_group.send_message("fourth".as_bytes()).await.unwrap();
         notify.wait_for_delivery().await.unwrap();
 
         let messages = messages.lock();
@@ -606,7 +493,11 @@ mod tests {
         assert_eq!(messages[3].decrypted_message_bytes, b"fourth");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_stream_all_messages_changing_group_list() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -616,7 +507,7 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group
-            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
             .await
             .unwrap();
 
@@ -624,20 +515,17 @@ mod tests {
         let messages_clone = messages.clone();
         let delivery = Delivery::new(None);
         let delivery_pointer = delivery.clone();
-        let mut handle = Client::<TestClient>::stream_all_messages_with_callback(
+        let mut handle = Client::<TestClient, _>::stream_all_messages_with_callback(
             caro.clone(),
+            None,
             move |message| {
                 delivery_pointer.notify_one();
                 (*messages_clone.lock()).push(message);
             },
-            None,
         );
         handle.wait_for_ready().await;
 
-        alix_group
-            .send_message("first".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_group.send_message("first".as_bytes()).await.unwrap();
         delivery
             .wait_for_delivery()
             .await
@@ -647,23 +535,17 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         bo_group
-            .add_members_by_inbox_id(&bo, vec![caro.inbox_id()])
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
             .await
             .unwrap();
 
-        bo_group
-            .send_message("second".as_bytes(), &bo)
-            .await
-            .unwrap();
+        bo_group.send_message("second".as_bytes()).await.unwrap();
         delivery
             .wait_for_delivery()
             .await
             .expect("timed out waiting for `second`");
 
-        alix_group
-            .send_message("third".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_group.send_message("third".as_bytes()).await.unwrap();
         delivery
             .wait_for_delivery()
             .await
@@ -673,23 +555,17 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group_2
-            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
             .await
             .unwrap();
 
-        alix_group
-            .send_message("fourth".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_group.send_message("fourth".as_bytes()).await.unwrap();
         delivery
             .wait_for_delivery()
             .await
             .expect("timed out waiting for `fourth`");
 
-        alix_group_2
-            .send_message("fifth".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_group_2.send_message("fifth".as_bytes()).await.unwrap();
         delivery
             .wait_for_delivery()
             .await
@@ -700,23 +576,27 @@ mod tests {
             assert_eq!(messages.len(), 5);
         }
 
-        let a = handle.handle.abort_handle();
-        a.abort();
-        let _ = handle.handle.await;
+        let a = handle.abort_handle();
+        a.end();
+        let _ = handle.join().await;
         assert!(a.is_finished());
 
         alix_group
-            .send_message("should not show up".as_bytes(), &alix)
+            .send_message("should not show up".as_bytes())
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        crate::sleep(core::time::Duration::from_millis(100)).await;
 
         let messages = messages.lock();
         assert_eq!(messages.len(), 5);
     }
 
     #[ignore]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 10)
+    )]
     async fn test_stream_all_messages_does_not_lose_messages() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let caro = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -725,7 +605,7 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group
-            .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
             .await
             .unwrap();
 
@@ -735,25 +615,21 @@ mod tests {
         let blocked = Arc::new(AtomicU64::new(55));
 
         let blocked_pointer = blocked.clone();
-        let mut handle = Client::<TestClient>::stream_all_messages_with_callback(
+        let mut handle = Client::<TestClient, _>::stream_all_messages_with_callback(
             caro.clone(),
+            None,
             move |message| {
                 (*messages_clone.lock()).push(message);
                 blocked_pointer.fetch_sub(1, Ordering::SeqCst);
             },
-            None,
         );
         handle.wait_for_ready().await;
 
         let alix_group_pointer = alix_group.clone();
-        let alix_pointer = alix.clone();
-        tokio::spawn(async move {
+        crate::spawn(None, async move {
             for _ in 0..50 {
-                alix_group_pointer
-                    .send_message(b"spam", &alix_pointer)
-                    .await
-                    .unwrap();
-                tokio::time::sleep(std::time::Duration::from_micros(200)).await;
+                alix_group_pointer.send_message(b"spam").await.unwrap();
+                crate::sleep(core::time::Duration::from_micros(200)).await;
             }
         });
 
@@ -762,16 +638,16 @@ mod tests {
                 .create_group(None, GroupMetadataOptions::default())
                 .unwrap();
             new_group
-                .add_members_by_inbox_id(&alix, vec![caro.inbox_id()])
+                .add_members_by_inbox_id(vec![caro.inbox_id()])
                 .await
                 .unwrap();
             new_group
-                .send_message(b"spam from new group", &alix)
+                .send_message(b"spam from new group")
                 .await
                 .unwrap();
         }
 
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        let _ = tokio::time::timeout(core::time::Duration::from_secs(120), async {
             while blocked.load(Ordering::SeqCst) > 0 {
                 tokio::task::yield_now().await;
             }
@@ -785,7 +661,8 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     async fn test_self_group_creation() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -794,14 +671,14 @@ mod tests {
         let notify = Delivery::new(None);
         let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
 
-        let closer = Client::<TestClient>::stream_conversations_with_callback(
+        let closer = Client::<TestClient, _>::stream_conversations_with_callback(
             alix.clone(),
+            Some(ConversationType::Group),
             move |g| {
                 let mut groups = groups_pointer.lock();
                 groups.push(g);
                 notify_pointer.notify_one();
             },
-            Some(ConversationType::Group),
         );
 
         alix.create_group(None, GroupMetadataOptions::default())
@@ -821,7 +698,7 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members_by_inbox_id(&bo, vec![alix.inbox_id()])
+            .add_members_by_inbox_id(vec![alix.inbox_id()])
             .await
             .unwrap();
 
@@ -841,28 +718,29 @@ mod tests {
             assert_eq!(grps.len(), find_groups_results.len());
         }
 
-        closer.handle.abort();
+        closer.end();
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     async fn test_dm_streaming() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
 
         let groups = Arc::new(Mutex::new(Vec::new()));
         // Wait for 2 seconds for the group creation to be streamed
-        let notify = Delivery::new(Some(std::time::Duration::from_secs(1)));
+        let notify = Delivery::new(Some(1));
         let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
 
-        // Start a stream with conversation_type Group
-        let closer = Client::<TestClient>::stream_conversations_with_callback(
+        // Start a stream with enableDm set to false
+        let mut closer = Client::<TestClient, _>::stream_conversations_with_callback(
             alix.clone(),
+            Some(ConversationType::Group),
             move |g| {
                 let mut groups = groups_pointer.lock();
                 groups.push(g);
                 notify_pointer.notify_one();
             },
-            Some(ConversationType::Group),
         );
 
         alix.create_dm_by_inbox_id(bo.inbox_id()).await.unwrap();
@@ -874,7 +752,7 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .add_members_by_inbox_id(vec![bo.inbox_id()])
             .await
             .unwrap();
 
@@ -884,34 +762,29 @@ mod tests {
             assert_eq!(grps.len(), 1);
         }
 
-        closer.handle.abort();
+        let _ = closer.end_and_wait().await;
 
         // Start a stream with only dms
         let groups = Arc::new(Mutex::new(Vec::new()));
-        // Wait for 2 seconds for the group creation to be streamed
-        let notify = Delivery::new(Some(std::time::Duration::from_secs(1)));
+        let notify = Delivery::new(Some(1));
         let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
 
         // Start a stream with conversation_type DM
-        let closer = Client::<TestClient>::stream_conversations_with_callback(
+        let closer = Client::<TestClient, _>::stream_conversations_with_callback(
             alix.clone(),
+            Some(ConversationType::Dm),
             move |g| {
-                let mut groups: parking_lot::lock_api::MutexGuard<
-                    '_,
-                    parking_lot::RawMutex,
-                    Vec<crate::groups::MlsGroup>,
-                > = groups_pointer.lock();
+                let mut groups = groups_pointer.lock();
                 groups.push(g);
                 notify_pointer.notify_one();
             },
-            Some(ConversationType::Dm),
         );
 
         let group = alix
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .add_members_by_inbox_id(vec![bo.inbox_id()])
             .await
             .unwrap();
 
@@ -925,23 +798,19 @@ mod tests {
             assert_eq!(grps.len(), 1);
         }
 
-        closer.handle.abort();
+        closer.end();
 
         // Start a stream with all conversations
         let groups = Arc::new(Mutex::new(Vec::new()));
         // Wait for 2 seconds for the group creation to be streamed
-        let notify = Delivery::new(Some(std::time::Duration::from_secs(60)));
+        let notify = Delivery::new(None);
         let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
-        // Start a stream with conversation_type None
-        let closer = Client::<TestClient>::stream_conversations_with_callback(
-            alix.clone(),
-            move |g| {
+        let closer =
+            FullXmtpClient::stream_conversations_with_callback(alix.clone(), None, move |g| {
                 let mut groups = groups_pointer.lock();
                 groups.push(g);
                 notify_pointer.notify_one();
-            },
-            None,
-        );
+            });
 
         alix.create_dm_by_inbox_id(bo.inbox_id()).await.unwrap();
         notify.wait_for_delivery().await.unwrap();
@@ -951,7 +820,7 @@ mod tests {
         }
 
         let dm = bo.create_dm_by_inbox_id(alix.inbox_id()).await.unwrap();
-        dm.add_members_by_inbox_id(&bo, vec![alix.inbox_id()])
+        dm.add_members_by_inbox_id(vec![alix.inbox_id()])
             .await
             .unwrap();
         notify.wait_for_delivery().await.unwrap();
@@ -964,7 +833,7 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .add_members_by_inbox_id(vec![bo.inbox_id()])
             .await
             .unwrap();
 
@@ -974,10 +843,11 @@ mod tests {
             assert_eq!(grps.len(), 3);
         }
 
-        closer.handle.abort();
+        closer.end();
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     async fn test_dm_stream_all_messages() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -986,7 +856,7 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group
-            .add_members_by_inbox_id(&alix, vec![bo.inbox_id()])
+            .add_members_by_inbox_id(vec![bo.inbox_id()])
             .await
             .unwrap();
 
@@ -995,11 +865,12 @@ mod tests {
         // Start a stream with only groups
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         // Wait for 2 seconds for the group creation to be streamed
-        let notify = Delivery::new(Some(std::time::Duration::from_secs(1)));
+        let notify = Delivery::new(Some(1));
         let (notify_pointer, messages_pointer) = (notify.clone(), messages.clone());
 
-        let mut closer = Client::<TestClient>::stream_all_messages_with_callback(
+        let mut closer = Client::<TestClient, _>::stream_all_messages_with_callback(
             bo.clone(),
+            Some(ConversationType::Group),
             move |message| {
                 let mut messages: parking_lot::lock_api::MutexGuard<
                     '_,
@@ -1009,22 +880,15 @@ mod tests {
                 messages.push(message);
                 notify_pointer.notify_one();
             },
-            Some(ConversationType::Group),
         );
         closer.wait_for_ready().await;
 
-        alix_dm
-            .send_message("first".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_dm.send_message("first".as_bytes()).await.unwrap();
 
         let result = notify.wait_for_delivery().await;
         assert!(result.is_err(), "Stream unexpectedly received a DM message");
 
-        alix_group
-            .send_message("second".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_group.send_message("second".as_bytes()).await.unwrap();
 
         notify.wait_for_delivery().await.unwrap();
         {
@@ -1032,16 +896,17 @@ mod tests {
             assert_eq!(msgs.len(), 1);
         }
 
-        closer.handle.abort();
+        closer.end();
 
         // Start a stream with only dms
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         // Wait for 2 seconds for the group creation to be streamed
-        let notify = Delivery::new(Some(std::time::Duration::from_secs(1)));
+        let notify = Delivery::new(Some(1));
         let (notify_pointer, messages_pointer) = (notify.clone(), messages.clone());
 
-        let mut closer = Client::<TestClient>::stream_all_messages_with_callback(
+        let mut closer = Client::<TestClient, _>::stream_all_messages_with_callback(
             bo.clone(),
+            Some(ConversationType::Dm),
             move |message| {
                 let mut messages: parking_lot::lock_api::MutexGuard<
                     '_,
@@ -1051,14 +916,10 @@ mod tests {
                 messages.push(message);
                 notify_pointer.notify_one();
             },
-            Some(ConversationType::Dm),
         );
         closer.wait_for_ready().await;
 
-        alix_group
-            .send_message("first".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_group.send_message("first".as_bytes()).await.unwrap();
 
         let result = notify.wait_for_delivery().await;
         assert!(
@@ -1066,10 +927,7 @@ mod tests {
             "Stream unexpectedly received a Group message"
         );
 
-        alix_dm
-            .send_message("second".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_dm.send_message("second".as_bytes()).await.unwrap();
 
         notify.wait_for_delivery().await.unwrap();
         {
@@ -1077,33 +935,26 @@ mod tests {
             assert_eq!(msgs.len(), 1);
         }
 
-        closer.handle.abort();
+        closer.end();
 
         // Start a stream with all conversations
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         // Wait for 2 seconds for the group creation to be streamed
-        let notify = Delivery::new(Some(std::time::Duration::from_secs(1)));
+        let notify = Delivery::new(Some(1));
         let (notify_pointer, messages_pointer) = (notify.clone(), messages.clone());
 
-        let mut closer = Client::<TestClient>::stream_all_messages_with_callback(
+        let mut closer = Client::<TestClient, _>::stream_all_messages_with_callback(
             bo.clone(),
+            None,
             move |message| {
-                let mut messages: parking_lot::lock_api::MutexGuard<
-                    '_,
-                    parking_lot::RawMutex,
-                    Vec<StoredGroupMessage>,
-                > = messages_pointer.lock();
+                let mut messages = messages_pointer.lock();
                 messages.push(message);
                 notify_pointer.notify_one();
             },
-            None,
         );
         closer.wait_for_ready().await;
 
-        alix_group
-            .send_message("first".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_group.send_message("first".as_bytes()).await.unwrap();
 
         notify.wait_for_delivery().await.unwrap();
         {
@@ -1111,10 +962,7 @@ mod tests {
             assert_eq!(msgs.len(), 1);
         }
 
-        alix_dm
-            .send_message("second".as_bytes(), &alix)
-            .await
-            .unwrap();
+        alix_dm.send_message("second".as_bytes()).await.unwrap();
 
         notify.wait_for_delivery().await.unwrap();
         {
@@ -1122,6 +970,6 @@ mod tests {
             assert_eq!(msgs.len(), 2);
         }
 
-        closer.handle.abort();
+        closer.end();
     }
 }

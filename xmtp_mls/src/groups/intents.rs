@@ -39,6 +39,7 @@ use super::{
     group_membership::GroupMembership,
     group_mutable_metadata::MetadataField,
     group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
+    scoped_client::ScopedGroupClient,
     GroupError, MlsGroup,
 };
 
@@ -54,13 +55,13 @@ pub enum IntentError {
     Generic(String),
 }
 
-impl MlsGroup {
+impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub fn queue_intent(
         &self,
         intent_kind: IntentKind,
         intent_data: Vec<u8>,
     ) -> Result<StoredGroupIntent, GroupError> {
-        self.context.store.transaction(|provider| {
+        self.context().store().transaction(|provider| {
             let conn = provider.conn_ref();
             self.queue_intent_with_conn(conn, intent_kind, intent_data)
         })
@@ -720,19 +721,22 @@ impl TryFrom<Vec<u8>> for PostCommitAction {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use openmls::prelude::{MlsMessageBodyIn, MlsMessageIn, ProcessedMessageContent};
     use tls_codec::Deserialize;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::api::v1::{group_message, GroupMessage};
 
     use crate::{
-        builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::TestClient, Client,
+        builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::FullXmtpClient,
     };
 
     use super::*;
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_serialize_send_message() {
         let message = vec![1, 2, 3];
         let intent = SendMessageIntentData::new(message.clone());
@@ -742,7 +746,8 @@ mod tests {
         assert_eq!(restored_intent.message, message);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_serialize_update_membership() {
         let mut membership_updates = HashMap::new();
         membership_updates.insert("foo".to_string(), 123);
@@ -761,7 +766,8 @@ mod tests {
         assert_eq!(intent.removed_members, restored_intent.removed_members);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_serialize_update_metadata() {
         let intent = UpdateMetadataIntentData::new_update_group_name("group name".to_string());
         let as_bytes: Vec<u8> = intent.clone().into();
@@ -771,7 +777,8 @@ mod tests {
         assert_eq!(intent.field_value, restored_intent.field_value);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_key_rotation_before_first_message() {
         let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -781,60 +788,57 @@ mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
         group_a
-            .add_members_by_inbox_id(&client_a, vec![client_b.inbox_id()])
+            .add_members_by_inbox_id(vec![client_b.inbox_id()])
             .await
             .unwrap();
-        group_a
-            .send_message(b"First message from A", &client_a)
-            .await
-            .unwrap();
+        group_a.send_message(b"First message from A").await.unwrap();
 
         // No key rotation needed, because A's commit to add B already performs a rotation.
         // Group should have a commit to add client B, followed by A's message.
-        verify_num_payloads_in_group(&client_a, &group_a, 2).await;
+        verify_num_payloads_in_group(&group_a, 2).await;
 
         // Client B sends a message to Client A
         let groups_b = client_b.sync_welcomes().await.unwrap();
         assert_eq!(groups_b.len(), 1);
         let group_b = groups_b[0].clone();
         group_b
-            .send_message(b"First message from B", &client_b)
+            .send_message(b"First message from B")
             .await
             .expect("send message");
 
         // B must perform a key rotation before sending their first message.
         // Group should have a commit to add B, A's message, B's key rotation and then B's message.
-        let payloads_a = verify_num_payloads_in_group(&client_a, &group_a, 4).await;
-        let payloads_b = verify_num_payloads_in_group(&client_b, &group_b, 4).await;
+        let payloads_a = verify_num_payloads_in_group(&group_a, 4).await;
+        let payloads_b = verify_num_payloads_in_group(&group_b, 4).await;
 
         // Verify key rotation payload
         for i in 0..payloads_a.len() {
             assert_eq!(payloads_a[i].encode_to_vec(), payloads_b[i].encode_to_vec());
         }
-        verify_commit_updates_leaf_node(&client_a, &group_a, &payloads_a[2]);
+        verify_commit_updates_leaf_node(&group_a, &payloads_a[2]);
 
         // Client B sends another message to Client A, and Client A sends another message to Client B.
         group_b
-            .send_message(b"Second message from B", &client_b)
+            .send_message(b"Second message from B")
             .await
             .expect("send message");
         group_a
-            .send_message(b"Second message from A", &client_a)
+            .send_message(b"Second message from A")
             .await
             .expect("send message");
 
         // Group should only have 2 additional messages - no more key rotations needed.
-        verify_num_payloads_in_group(&client_a, &group_a, 6).await;
-        verify_num_payloads_in_group(&client_b, &group_b, 6).await;
+        verify_num_payloads_in_group(&group_a, 6).await;
+        verify_num_payloads_in_group(&group_b, 6).await;
     }
 
     async fn verify_num_payloads_in_group(
-        client: &Client<TestClient>,
-        group: &MlsGroup,
+        group: &MlsGroup<FullXmtpClient>,
         num_messages: usize,
     ) -> Vec<GroupMessage> {
-        let messages = client
-            .api_client
+        let messages = group
+            .client
+            .api()
             .query_group_messages(group.group_id.clone(), None)
             .await
             .unwrap();
@@ -842,11 +846,7 @@ mod tests {
         messages
     }
 
-    fn verify_commit_updates_leaf_node(
-        client: &Client<TestClient>,
-        group: &MlsGroup,
-        payload: &GroupMessage,
-    ) {
+    fn verify_commit_updates_leaf_node(group: &MlsGroup<FullXmtpClient>, payload: &GroupMessage) {
         let msgv1 = match &payload.version {
             Some(group_message::Version::V1(value)) => value,
             _ => panic!("error msgv1"),
@@ -858,7 +858,7 @@ mod tests {
             _ => panic!("error mls_message"),
         };
 
-        let provider = client.mls_provider().unwrap();
+        let provider = group.client.mls_provider().unwrap();
         let mut openmls_group = group.load_mls_group(&provider).unwrap();
         let decrypted_message = openmls_group
             .process_message(&provider, mls_message)

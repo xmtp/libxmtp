@@ -91,16 +91,13 @@ impl NapiGroup {
   pub async fn send(&self, encoded_content: NapiEncodedContent) -> Result<String> {
     let encoded_content: EncodedContent = encoded_content.into();
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     let message_id = group
-      .send_message(
-        encoded_content.encode_to_vec().as_slice(),
-        &self.inner_client,
-      )
+      .send_message(encoded_content.encode_to_vec().as_slice())
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(hex::encode(message_id.clone()))
@@ -111,7 +108,7 @@ impl NapiGroup {
   pub fn send_optimistic(&self, encoded_content: NapiEncodedContent) -> Result<String> {
     let encoded_content: EncodedContent = encoded_content.into();
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -127,29 +124,23 @@ impl NapiGroup {
   #[napi]
   pub async fn publish_messages(&self) -> Result<()> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
-    group
-      .publish_messages(&self.inner_client)
-      .await
-      .map_err(ErrorWrapper::from)?;
+    group.publish_messages().await.map_err(ErrorWrapper::from)?;
     Ok(())
   }
 
   #[napi]
   pub async fn sync(&self) -> Result<()> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
-    group
-      .sync(&self.inner_client)
-      .await
-      .map_err(ErrorWrapper::from)?;
+    group.sync().await.map_err(ErrorWrapper::from)?;
 
     Ok(())
   }
@@ -167,7 +158,7 @@ impl NapiGroup {
     };
 
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -196,13 +187,13 @@ impl NapiGroup {
     envelope_bytes: Uint8Array,
   ) -> Result<NapiMessage> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
     let envelope_bytes: Vec<u8> = envelope_bytes.deref().to_vec();
     let message = group
-      .process_streamed_group_message(envelope_bytes, &self.inner_client)
+      .process_streamed_group_message(envelope_bytes)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -212,13 +203,13 @@ impl NapiGroup {
   #[napi]
   pub async fn list_members(&self) -> Result<Vec<NapiGroupMember>> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     let members: Vec<NapiGroupMember> = group
-      .members(&self.inner_client)
+      .members()
       .await
       .map_err(ErrorWrapper::from)?
       .into_iter()
@@ -245,7 +236,7 @@ impl NapiGroup {
   #[napi]
   pub fn admin_list(&self) -> Result<Vec<String>> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -260,7 +251,7 @@ impl NapiGroup {
   #[napi]
   pub fn super_admin_list(&self) -> Result<Vec<String>> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -287,13 +278,13 @@ impl NapiGroup {
   #[napi]
   pub async fn add_members(&self, account_addresses: Vec<String>) -> Result<()> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     group
-      .add_members(&self.inner_client, account_addresses)
+      .add_members(account_addresses)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -303,12 +294,12 @@ impl NapiGroup {
   #[napi]
   pub async fn add_admin(&self, inbox_id: String) -> Result<()> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
     group
-      .update_admin_list(&self.inner_client, UpdateAdminListType::Add, inbox_id)
+      .update_admin_list(UpdateAdminListType::Add, inbox_id)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -318,12 +309,12 @@ impl NapiGroup {
   #[napi]
   pub async fn remove_admin(&self, inbox_id: String) -> Result<()> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
     group
-      .update_admin_list(&self.inner_client, UpdateAdminListType::Remove, inbox_id)
+      .update_admin_list(UpdateAdminListType::Remove, inbox_id)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -333,12 +324,12 @@ impl NapiGroup {
   #[napi]
   pub async fn add_super_admin(&self, inbox_id: String) -> Result<()> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
     group
-      .update_admin_list(&self.inner_client, UpdateAdminListType::AddSuper, inbox_id)
+      .update_admin_list(UpdateAdminListType::AddSuper, inbox_id)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -348,16 +339,12 @@ impl NapiGroup {
   #[napi]
   pub async fn remove_super_admin(&self, inbox_id: String) -> Result<()> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
     group
-      .update_admin_list(
-        &self.inner_client,
-        UpdateAdminListType::RemoveSuper,
-        inbox_id,
-      )
+      .update_admin_list(UpdateAdminListType::RemoveSuper, inbox_id)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -367,7 +354,7 @@ impl NapiGroup {
   #[napi]
   pub fn group_permissions(&self) -> Result<NapiGroupPermissions> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -380,13 +367,13 @@ impl NapiGroup {
   #[napi]
   pub async fn add_members_by_inbox_id(&self, inbox_ids: Vec<String>) -> Result<()> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     group
-      .add_members_by_inbox_id(&self.inner_client, inbox_ids)
+      .add_members_by_inbox_id(inbox_ids)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -396,13 +383,13 @@ impl NapiGroup {
   #[napi]
   pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<()> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     group
-      .remove_members(&self.inner_client, account_addresses)
+      .remove_members(account_addresses)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -412,13 +399,13 @@ impl NapiGroup {
   #[napi]
   pub async fn remove_members_by_inbox_id(&self, inbox_ids: Vec<String>) -> Result<()> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     group
-      .remove_members_by_inbox_id(&self.inner_client, inbox_ids)
+      .remove_members_by_inbox_id(inbox_ids)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -428,13 +415,13 @@ impl NapiGroup {
   #[napi]
   pub async fn update_group_name(&self, group_name: String) -> Result<()> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     group
-      .update_group_name(&self.inner_client, group_name)
+      .update_group_name(group_name)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -444,7 +431,7 @@ impl NapiGroup {
   #[napi]
   pub fn group_name(&self) -> Result<String> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -459,13 +446,13 @@ impl NapiGroup {
   #[napi]
   pub async fn update_group_image_url_square(&self, group_image_url_square: String) -> Result<()> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     group
-      .update_group_image_url_square(&self.inner_client, group_image_url_square)
+      .update_group_image_url_square(group_image_url_square)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -475,7 +462,7 @@ impl NapiGroup {
   #[napi]
   pub fn group_image_url_square(&self) -> Result<String> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -490,13 +477,13 @@ impl NapiGroup {
   #[napi]
   pub async fn update_group_description(&self, group_description: String) -> Result<()> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     group
-      .update_group_description(&self.inner_client, group_description)
+      .update_group_description(group_description)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -506,7 +493,7 @@ impl NapiGroup {
   #[napi]
   pub fn group_description(&self) -> Result<String> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -521,13 +508,13 @@ impl NapiGroup {
   #[napi]
   pub async fn update_group_pinned_frame_url(&self, pinned_frame_url: String) -> Result<()> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
     group
-      .update_group_pinned_frame_url(&self.inner_client, pinned_frame_url)
+      .update_group_pinned_frame_url(pinned_frame_url)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -537,7 +524,7 @@ impl NapiGroup {
   #[napi]
   pub fn group_pinned_frame_url(&self) -> Result<String> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -562,7 +549,7 @@ impl NapiGroup {
       },
     );
 
-    Ok(stream_closer.into())
+    Ok(NapiStreamCloser::new(stream_closer))
   }
 
   #[napi]
@@ -573,7 +560,7 @@ impl NapiGroup {
   #[napi]
   pub fn is_active(&self) -> Result<bool> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -588,7 +575,7 @@ impl NapiGroup {
   #[napi]
   pub fn added_by_inbox_id(&self) -> Result<String> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -599,7 +586,7 @@ impl NapiGroup {
   #[napi]
   pub fn group_metadata(&self) -> Result<NapiGroupMetadata> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -614,7 +601,7 @@ impl NapiGroup {
   #[napi]
   pub fn consent_state(&self) -> Result<NapiConsentState> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
@@ -627,7 +614,7 @@ impl NapiGroup {
   #[napi]
   pub fn update_consent_state(&self, state: NapiConsentState) -> Result<()> {
     let group = MlsGroup::new(
-      self.inner_client.context().clone(),
+      self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );

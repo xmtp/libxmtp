@@ -130,7 +130,7 @@ async fn create_identity(is_dev_network: bool) -> Identity {
     let client = if is_dev_network {
         ClientBuilder::new_dev_client(&wallet).await
     } else {
-        ClientBuilder::new_test_client(&wallet).await
+        ClientBuilder::new_local_client(&wallet).await
     };
     Identity::new(client.inbox_id(), wallet.get_address())
 }

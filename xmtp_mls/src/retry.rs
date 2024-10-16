@@ -16,8 +16,6 @@
 //! }
 //! ```
 
-use std::time::Duration;
-
 use rand::Rng;
 
 /// Specifies which errors are retryable.
@@ -30,7 +28,7 @@ pub trait RetryableError: std::error::Error {
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct Retry {
     retries: usize,
-    duration: std::time::Duration,
+    duration: core::time::Duration,
     // The amount to multiply the duration on each subsequent attempt
     multiplier: u32,
     max_jitter_ms: usize,
@@ -40,7 +38,7 @@ impl Default for Retry {
     fn default() -> Self {
         Self {
             retries: 5,
-            duration: std::time::Duration::from_millis(50),
+            duration: core::time::Duration::from_millis(50),
             multiplier: 3,
             max_jitter_ms: 25,
         }
@@ -56,14 +54,14 @@ impl Retry {
     /// Get the duration to wait between retries.
     /// Multiples the duration by the multiplier for each subsequent attempt
     /// and adds a random jitter to avoid repeated collisions
-    pub fn duration(&self, attempts: usize) -> Duration {
+    pub fn duration(&self, attempts: usize) -> core::time::Duration {
         let mut duration = self.duration;
         for _ in 0..attempts - 1 {
             duration *= self.multiplier;
         }
 
         let jitter = rand::thread_rng().gen_range(0..=self.max_jitter_ms);
-        duration + Duration::from_millis(jitter as u64)
+        duration + core::time::Duration::from_millis(jitter as u64)
     }
 }
 
@@ -71,7 +69,7 @@ impl Retry {
 #[derive(Default, PartialEq, Eq, Copy, Clone)]
 pub struct RetryBuilder {
     retries: Option<usize>,
-    duration: Option<std::time::Duration>,
+    duration: Option<core::time::Duration>,
 }
 
 /// Builder for [`Retry`].
@@ -82,7 +80,7 @@ pub struct RetryBuilder {
 ///
 /// RetryBuilder::default()
 ///     .retries(5)
-///     .duration(std::time::Duration::from_millis(1000))
+///     .duration(core::time::Duration::from_millis(1000))
 ///     .build();
 /// ```
 impl RetryBuilder {
@@ -93,7 +91,7 @@ impl RetryBuilder {
     }
 
     /// Specify the duration to wait before retrying again
-    pub fn duration(mut self, duration: std::time::Duration) -> Self {
+    pub fn duration(mut self, duration: core::time::Duration) -> Self {
         self.duration = Some(duration);
         self
     }
@@ -185,7 +183,7 @@ macro_rules! retry_async {
                             e.to_string()
                         );
                         attempts += 1;
-                        tokio::time::sleep($retry.duration(attempts)).await;
+                        $crate::sleep($retry.duration(attempts)).await;
                     } else {
                         tracing::info!("error is not retryable. {:?}", e);
                         break Err(e);
@@ -217,7 +215,10 @@ impl RetryableError for xmtp_proto::api_client::Error {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use super::*;
     use thiserror::Error;
     use tokio::sync::mpsc;
@@ -245,7 +246,8 @@ mod tests {
         Err(SomeError::ARetryableError)
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn it_retries_twice_and_succeeds() {
         let mut i = 0;
         let mut test_fn = || -> Result<(), SomeError> {
@@ -260,7 +262,8 @@ mod tests {
         retry_async!(Retry::default(), (async { test_fn() })).unwrap();
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn it_works_with_random_args() {
         let mut i = 0;
         let list = vec!["String".into(), "Foo".into()];
@@ -275,7 +278,8 @@ mod tests {
         retry_async!(Retry::default(), (async { test_fn() })).unwrap();
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn it_fails_on_three_retries() {
         let closure = || -> Result<(), SomeError> {
             retry_error_fn()?;
@@ -286,7 +290,8 @@ mod tests {
         assert!(result.is_err())
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn it_only_runs_non_retryable_once() {
         let mut attempts = 0;
         let mut test_fn = || -> Result<(), SomeError> {
@@ -299,7 +304,8 @@ mod tests {
         assert_eq!(attempts, 1);
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn it_works_async() {
         async fn retryable_async_fn(rx: &mut mpsc::Receiver<usize>) -> Result<(), SomeError> {
             let val = rx.recv().await.unwrap();
@@ -307,7 +313,7 @@ mod tests {
                 return Ok(());
             }
             // do some work
-            tokio::time::sleep(std::time::Duration::from_nanos(100)).await;
+            crate::sleep(core::time::Duration::from_nanos(100)).await;
             Err(SomeError::ARetryableError)
         }
 
@@ -324,7 +330,8 @@ mod tests {
         assert!(rx.is_empty());
     }
 
-    #[tokio::test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn it_works_async_mut() {
         async fn retryable_async_fn(data: &mut usize) -> Result<(), SomeError> {
             if *data == 2 {
@@ -332,7 +339,7 @@ mod tests {
             }
             *data += 1;
             // do some work
-            tokio::time::sleep(std::time::Duration::from_nanos(100)).await;
+            crate::sleep(core::time::Duration::from_nanos(100)).await;
             Err(SomeError::ARetryableError)
         }
 
@@ -344,7 +351,8 @@ mod tests {
         .unwrap();
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn backoff_retry() {
         let backoff_retry = Retry::default();
 

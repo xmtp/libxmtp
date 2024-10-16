@@ -1271,7 +1271,10 @@ impl std::fmt::Display for PreconfiguredPolicies {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use crate::{
         groups::{
             group_metadata::DmMembers, group_mutable_metadata::MetadataField,
@@ -1372,7 +1375,8 @@ mod tests {
 
     /// Tests that a commit by a non admin/super admin can add and remove members
     /// with allow policies.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_allow_all() {
         let permissions = PolicySet::new(
             MembershipPolicies::allow(),
@@ -1396,7 +1400,8 @@ mod tests {
     }
 
     /// Tests that a commit by a non admin/super admin is denied for add and remove member policies.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_deny() {
         let permissions = PolicySet::new(
             MembershipPolicies::deny(),
@@ -1431,7 +1436,8 @@ mod tests {
     }
 
     /// Tests that a group creator can perform super admin actions.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_actor_is_creator() {
         let permissions = PolicySet::new(
             MembershipPolicies::allow_if_actor_super_admin(),
@@ -1478,7 +1484,8 @@ mod tests {
     }
 
     /// Tests that and conditions are enforced as expected.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_and_condition() {
         let permissions = PolicySet::new(
             MembershipPolicies::and(vec![
@@ -1505,7 +1512,8 @@ mod tests {
     }
 
     /// Tests that any conditions are enforced as expected.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_any_condition() {
         let permissions = PolicySet::new(
             MembershipPolicies::any(vec![
@@ -1532,7 +1540,8 @@ mod tests {
     }
 
     /// Tests that the PolicySet can be serialized and deserialized.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_serialize() {
         let permissions = PolicySet::new(
             MembershipPolicies::any(vec![
@@ -1560,7 +1569,9 @@ mod tests {
     }
 
     /// Tests that the PolicySet can enforce update group name policy.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    /// Tests that the PolicySet can enforce update group name policy.
     fn test_update_group_name() {
         let allow_permissions = PolicySet::new(
             MembershipPolicies::allow(),
@@ -1596,7 +1607,8 @@ mod tests {
     }
 
     /// Tests that the preconfigured policy functions work as expected
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_preconfigured_policy() {
         let group_permissions = GroupMutablePermissions::new(policy_all_members());
 
@@ -1617,7 +1629,8 @@ mod tests {
     }
 
     /// Tests that the preconfigured policy functions work as expected with new metadata fields.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_preconfigured_policy_equality_new_metadata() {
         let mut metadata_policies_map = MetadataPolicies::default_map(MetadataPolicies::allow());
         metadata_policies_map.insert("new_metadata_field".to_string(), MetadataPolicies::allow());
@@ -1651,7 +1664,8 @@ mod tests {
     }
 
     /// Tests that the permission update policy is enforced as expected.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_permission_update() {
         let permissions = PolicySet::new(
             MembershipPolicies::allow(),
@@ -1672,7 +1686,8 @@ mod tests {
     }
 
     /// Tests that the PolicySet can evaluate field updates with unknown policies.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_evaluate_field_with_unknown_policy() {
         // Create a group whose default metadata can be updated by any member
         let permissions = PolicySet::new(
@@ -1749,7 +1764,8 @@ mod tests {
         assert!(permissions.evaluate_commit(&non_existing_field_updated_commit));
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_dm_group_permissions() {
         // Simulate a group with DM Permissions
         let permissions = PolicySet::new_dm();

@@ -1,19 +1,12 @@
 mod chain_rpc_verifier;
 mod remote_signature_verifier;
 
+use std::{collections::HashMap, env, fs, path::Path};
+
 use crate::associations::AccountId;
-use async_trait::async_trait;
-use dyn_clone::DynClone;
 use ethers::{
     providers::{Http, Provider, ProviderError},
     types::{BlockNumber, Bytes},
-};
-use std::{
-    collections::HashMap,
-    env,
-    fs::{self},
-    io,
-    path::Path,
 };
 use thiserror::Error;
 use tracing::info;
@@ -37,11 +30,20 @@ pub enum VerifierError {
     #[error(transparent)]
     Provider(#[from] ethers::providers::ProviderError),
     #[error(transparent)]
-    Tonic(tonic::Status),
+    ApiClient(#[from] xmtp_proto::api_client::Error),
+    #[error(transparent)]
+    Url(#[from] url::ParseError),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Serde(#[from] serde_json::Error),
+    #[error("URLs must be preceeded with eip144:")]
+    MalformedEipUrl,
 }
 
-#[async_trait]
-pub trait SmartContractSignatureVerifier: Send + Sync + DynClone + 'static {
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+pub trait SmartContractSignatureVerifier: Send + Sync {
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
@@ -51,16 +53,43 @@ pub trait SmartContractSignatureVerifier: Send + Sync + DynClone + 'static {
     ) -> Result<ValidationResponse, VerifierError>;
 }
 
-pub struct ValidationResponse {
-    pub is_valid: bool,
-    pub block_number: Option<u64>,
-    pub error: Option<String>,
+#[cfg(target_arch = "wasm32")]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+pub trait SmartContractSignatureVerifier {
+    async fn is_valid_signature(
+        &self,
+        account_id: AccountId,
+        hash: [u8; 32],
+        signature: Bytes,
+        block_number: Option<BlockNumber>,
+    ) -> Result<ValidationResponse, VerifierError>;
 }
 
-dyn_clone::clone_trait_object!(SmartContractSignatureVerifier);
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl<T> SmartContractSignatureVerifier for &T
+where
+    T: SmartContractSignatureVerifier,
+{
+    async fn is_valid_signature(
+        &self,
+        account_id: AccountId,
+        hash: [u8; 32],
+        signature: Bytes,
+        block_number: Option<BlockNumber>,
+    ) -> Result<ValidationResponse, VerifierError> {
+        (*self)
+            .is_valid_signature(account_id, hash, signature, block_number)
+            .await
+    }
+}
 
-#[async_trait]
-impl<S: SmartContractSignatureVerifier + Clone> SmartContractSignatureVerifier for Box<S> {
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl<T> SmartContractSignatureVerifier for Box<T>
+where
+    T: SmartContractSignatureVerifier + ?Sized,
+{
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
@@ -74,81 +103,77 @@ impl<S: SmartContractSignatureVerifier + Clone> SmartContractSignatureVerifier f
     }
 }
 
-#[derive(Clone)]
-pub struct MultiSmartContractSignatureVerifier {
-    verifiers: HashMap<String, Box<dyn SmartContractSignatureVerifier>>,
+pub struct ValidationResponse {
+    pub is_valid: bool,
+    pub block_number: Option<u64>,
+    pub error: Option<String>,
 }
 
-impl Default for MultiSmartContractSignatureVerifier {
-    fn default() -> Self {
-        let urls: HashMap<String, Url> =
-            serde_json::from_str(DEFAULT_CHAIN_URLS).expect("DEFAULT_CHAIN_URLS is malformatted");
-        Self::new(urls).upgrade()
-    }
+pub struct MultiSmartContractSignatureVerifier {
+    verifiers: HashMap<String, Box<dyn SmartContractSignatureVerifier + Send + Sync>>,
 }
 
 impl MultiSmartContractSignatureVerifier {
-    pub fn new(urls: HashMap<String, url::Url>) -> Self {
+    pub fn new(urls: HashMap<String, url::Url>) -> Result<Self, VerifierError> {
         let verifiers = urls
             .into_iter()
             .map(|(chain_id, url)| {
-                (
+                Ok::<_, VerifierError>((
                     chain_id,
-                    Box::new(RpcSmartContractWalletVerifier::new(url.to_string()))
-                        as Box<dyn SmartContractSignatureVerifier>,
-                )
+                    Box::new(RpcSmartContractWalletVerifier::new(url.to_string())?)
+                        as Box<dyn SmartContractSignatureVerifier + Send + Sync>,
+                ))
             })
-            .collect();
+            .collect::<Result<HashMap<_, _>, _>>()?;
 
-        Self { verifiers }
+        Ok(Self { verifiers })
     }
 
-    pub fn new_from_file(path: impl AsRef<Path>) -> Result<Self, io::Error> {
-        let json = fs::read_to_string(path.as_ref())?;
-        let urls: HashMap<String, Url> = serde_json::from_str(&json).map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Unable to deserialize json: {err:?}"),
-            )
-        })?;
+    pub fn new_from_env() -> Result<Self, VerifierError> {
+        let urls: HashMap<String, Url> = serde_json::from_str(DEFAULT_CHAIN_URLS)?;
+        Self::new(urls)?.upgrade()
+    }
 
-        Ok(Self::new(urls))
+    pub fn new_from_file(path: impl AsRef<Path>) -> Result<Self, VerifierError> {
+        let json = fs::read_to_string(path.as_ref())?;
+        let urls: HashMap<String, Url> = serde_json::from_str(&json)?;
+
+        Self::new(urls)
     }
 
     /// Upgrade the default urls to paid/private/alternative urls if the env vars are present.
-    pub fn upgrade(mut self) -> Self {
-        self.verifiers.iter_mut().for_each(|(id, verif)| {
+    pub fn upgrade(mut self) -> Result<Self, VerifierError> {
+        for (id, verifier) in self.verifiers.iter_mut() {
             // TODO: coda - update the chain id env var ids to preceeded with "EIP155_"
-            let eip_id = id
-                .split(":")
-                .nth(1)
-                .expect("All chain ids are preceeded with 'eip155:' for now.");
-            if let Ok(url) = env::var(format!("CHAIN_RPC_{eip_id}")) {
-                *verif = Box::new(RpcSmartContractWalletVerifier::new(url));
+            let eip_id = id.split(":").nth(1).ok_or(VerifierError::MalformedEipUrl)?;
+            if let Ok(url) = std::env::var(format!("CHAIN_RPC_{eip_id}")) {
+                *verifier = Box::new(RpcSmartContractWalletVerifier::new(url)?);
             } else {
                 info!("No upgraded chain url for chain {id}, using default.");
             };
-        });
+        }
 
         #[cfg(feature = "test-utils")]
         if let Ok(url) = env::var("ANVIL_URL") {
             info!("Adding anvil to the verifiers: {url}");
             self.verifiers.insert(
                 "eip155:31337".to_string(),
-                Box::new(RpcSmartContractWalletVerifier::new(url)),
+                Box::new(RpcSmartContractWalletVerifier::new(url)?),
             );
         }
 
-        self
+        Ok(self)
     }
 
-    pub fn add_verifier(&mut self, id: String, url: String) {
+    pub fn add_verifier(&mut self, id: String, url: String) -> Result<(), VerifierError> {
         self.verifiers
-            .insert(id, Box::new(RpcSmartContractWalletVerifier::new(url)));
+            .insert(id, Box::new(RpcSmartContractWalletVerifier::new(url)?));
+        Ok(())
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
     async fn is_valid_signature(
         &self,

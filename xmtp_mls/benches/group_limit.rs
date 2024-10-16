@@ -40,11 +40,11 @@ fn setup() -> (Arc<BenchClient>, Vec<Identity>, Runtime) {
             tracing::info!("Using Dev GRPC");
             Arc::new(ClientBuilder::new_dev_client(&wallet).await)
         } else {
-            Arc::new(ClientBuilder::new_test_client(&wallet).await)
+            Arc::new(ClientBuilder::new_local_client(&wallet).await)
         };
 
         let identities: Vec<Identity> =
-            create_identities_if_dont_exist(MAX_IDENTITIES, &client, is_dev_network).await;
+            create_identities_if_dont_exist(MAX_IDENTITIES, client.as_ref(), is_dev_network).await;
 
         (client, identities)
     });
@@ -84,7 +84,6 @@ fn add_to_empty_group(c: &mut Criterion) {
             b.to_async(&runtime).iter_batched(
                 || {
                     (
-                        client.clone(),
                         client
                             .create_group(None, GroupMetadataOptions::default())
                             .unwrap(),
@@ -92,12 +91,8 @@ fn add_to_empty_group(c: &mut Criterion) {
                         span.clone(),
                     )
                 },
-                |(client, group, addrs, span)| async move {
-                    group
-                        .add_members(&client, addrs)
-                        .instrument(span)
-                        .await
-                        .unwrap();
+                |(group, addrs, span)| async move {
+                    group.add_members(addrs).instrument(span).await.unwrap();
                 },
                 BatchSize::SmallInput,
             );
@@ -127,7 +122,6 @@ fn add_to_empty_group_by_inbox_id(c: &mut Criterion) {
             b.to_async(&runtime).iter_batched(
                 || {
                     (
-                        client.clone(),
                         client
                             .create_group(None, GroupMetadataOptions::default())
                             .unwrap(),
@@ -135,9 +129,9 @@ fn add_to_empty_group_by_inbox_id(c: &mut Criterion) {
                         ids.clone(),
                     )
                 },
-                |(client, group, span, ids)| async move {
+                |(group, span, ids)| async move {
                     group
-                        .add_members_by_inbox_id(&client, ids)
+                        .add_members_by_inbox_id(ids)
                         .instrument(span)
                         .await
                         .unwrap();
@@ -176,7 +170,6 @@ fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
                             .unwrap();
                         group
                             .add_members_by_inbox_id(
-                                &client,
                                 // it is OK to take from the back for now because we aren't getting
                                 // near MAX_IDENTITIES
                                 inbox_ids.iter().rev().take(100).cloned().collect(),
@@ -184,12 +177,12 @@ fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
                             .await
                             .unwrap();
 
-                        (client.clone(), group, span.clone(), ids.clone())
+                        (group, span.clone(), ids.clone())
                     })
                 },
-                |(client, group, span, ids)| async move {
+                |(group, span, ids)| async move {
                     group
-                        .add_members_by_inbox_id(&client, ids)
+                        .add_members_by_inbox_id(ids)
                         .instrument(span)
                         .await
                         .unwrap();
@@ -226,16 +219,13 @@ fn remove_all_members_from_group(c: &mut Criterion) {
                         let group = client
                             .create_group(None, GroupMetadataOptions::default())
                             .unwrap();
-                        group
-                            .add_members_by_inbox_id(&client, ids.clone())
-                            .await
-                            .unwrap();
-                        (client.clone(), group, span.clone(), ids.clone())
+                        group.add_members_by_inbox_id(ids.clone()).await.unwrap();
+                        (group, span.clone(), ids.clone())
                     })
                 },
-                |(client, group, span, ids)| async move {
+                |(group, span, ids)| async move {
                     group
-                        .remove_members_by_inbox_id(&client, ids)
+                        .remove_members_by_inbox_id(ids)
                         .instrument(span)
                         .await
                         .unwrap();
@@ -272,21 +262,13 @@ fn remove_half_members_from_group(c: &mut Criterion) {
                         let group = client
                             .create_group(None, GroupMetadataOptions::default())
                             .unwrap();
-                        group
-                            .add_members_by_inbox_id(&client, ids.clone())
-                            .await
-                            .unwrap();
-                        (
-                            client.clone(),
-                            group,
-                            span.clone(),
-                            ids[0..(size / 2)].into(),
-                        )
+                        group.add_members_by_inbox_id(ids.clone()).await.unwrap();
+                        (group, span.clone(), ids[0..(size / 2)].into())
                     })
                 },
-                |(client, group, span, ids)| async move {
+                |(group, span, ids)| async move {
                     group
-                        .remove_members_by_inbox_id(&client, ids)
+                        .remove_members_by_inbox_id(ids)
                         .instrument(span)
                         .await
                         .unwrap();
@@ -323,17 +305,14 @@ fn add_1_member_to_group(c: &mut Criterion) {
                         let group = client
                             .create_group(None, GroupMetadataOptions::default())
                             .unwrap();
-                        group
-                            .add_members_by_inbox_id(&client, ids.clone())
-                            .await
-                            .unwrap();
+                        group.add_members_by_inbox_id(ids.clone()).await.unwrap();
                         let member = inbox_ids.last().unwrap().clone();
-                        (client.clone(), group, vec![member], span.clone())
+                        (group, vec![member], span.clone())
                     })
                 },
-                |(client, group, member, span)| async move {
+                |(group, member, span)| async move {
                     group
-                        .add_members_by_inbox_id(&client, member)
+                        .add_members_by_inbox_id(member)
                         .instrument(span)
                         .await
                         .unwrap();

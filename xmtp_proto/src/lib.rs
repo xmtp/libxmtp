@@ -9,3 +9,9 @@ pub mod api_client;
 
 #[cfg(feature = "convert")]
 pub mod convert;
+
+#[cfg(test)]
+pub mod test {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+}

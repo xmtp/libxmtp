@@ -3,12 +3,14 @@ edition = "2021"
 name = "xmtp_id"
 version.workspace = true
 
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown", "aarch64-apple-darwin"]
+
 [dependencies]
+url = { workspace = true, features = ["serde"] }
 async-trait.workspace = true
 chrono.workspace = true
-dyn-clone = "1"
 ed25519-dalek = { workspace = true, features = ["digest"] }
-ethers.workspace = true
 futures.workspace = true
 hex.workspace = true
 openmls_traits.workspace = true
@@ -21,19 +23,27 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros"] }
-tonic.workspace = true
 tracing.workspace = true
-url = { workspace = true, features = ["serde"] }
 xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
+wasm-timer.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+openmls = { workspace = true, features = ["js"] }
+ethers = { workspace = true, features = ["rustls"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+openmls.workspace = true
+ethers = { workspace = true, features = ["openssl"] }
 
 [dev-dependencies]
-ctor = "0.2.5"
-ed25519-dalek = { workspace = true, features = ["digest"] }
-futures = "0.3"
-regex = "1.10"
-tokio = { workspace = true, features = ["macros", "time"] }
 xmtp_v2 = { path = "../xmtp_v2" }
+ed25519-dalek = { workspace = true, features = ["digest", "rand_core"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test.workspace = true
+gloo-timers.workspace = true
 
 [features]
 test-utils = []

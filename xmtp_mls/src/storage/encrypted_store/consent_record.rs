@@ -1,5 +1,6 @@
 use crate::{impl_store, storage::StorageError};
 
+use super::Sqlite;
 use super::{
     db_connection::DbConnection,
     schema::consent_records::{self, dsl},
@@ -11,7 +12,6 @@ use diesel::{
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
-    sqlite::Sqlite,
     upsert::excluded,
 };
 use serde::{Deserialize, Serialize};
@@ -48,7 +48,7 @@ impl DbConnection {
         entity: String,
         entity_type: ConsentType,
     ) -> Result<Option<StoredConsentRecord>, StorageError> {
-        Ok(self.raw_query(|conn| {
+        Ok(self.raw_query(|conn| -> diesel::QueryResult<_> {
             dsl::consent_records
                 .filter(dsl::entity.eq(entity))
                 .filter(dsl::entity_type.eq(entity_type))
@@ -62,7 +62,7 @@ impl DbConnection {
         &self,
         records: Vec<StoredConsentRecord>,
     ) -> Result<(), StorageError> {
-        self.raw_query(|conn| {
+        self.raw_query(|conn| -> diesel::QueryResult<_> {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 for record in records.iter() {
                     diesel::insert_into(dsl::consent_records)
@@ -157,6 +157,8 @@ where
 #[cfg(test)]
 mod tests {
     use crate::storage::encrypted_store::tests::with_connection;
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
 
@@ -172,8 +174,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn insert_and_read() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn insert_and_read() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
             let consent_record = generate_consent_record(
@@ -191,6 +194,7 @@ mod tests {
                 .expect("query should work");
 
             assert_eq!(consent_record.unwrap().entity, consent_record_entity);
-        });
+        })
+        .await;
     }
 }

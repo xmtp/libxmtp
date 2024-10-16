@@ -7,8 +7,29 @@ pub const DEV_ADDRESS: &str = "https://grpc.dev.xmtp.network:443";
 
 pub use grpc_api_helper::{Client, GroupMessageStream, WelcomeMessageStream};
 
+mod utils {
+    #[cfg(feature = "test-utils")]
+    mod test {
+        use xmtp_proto::api_client::XmtpTestClient;
+
+        impl XmtpTestClient for crate::Client {
+            async fn create_local() -> Self {
+                crate::Client::create("http://localhost:5556".into(), false)
+                    .await
+                    .unwrap()
+            }
+
+            async fn create_dev() -> Self {
+                crate::Client::create("https://grpc.dev.xmtp.network:443".into(), false)
+                    .await
+                    .unwrap()
+            }
+        }
+    }
+}
+
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use self::auth_token::Authenticator;

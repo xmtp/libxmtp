@@ -39,7 +39,7 @@ use xmtp_mls::{
     builder::ClientBuilderError,
     client::ClientError,
     codecs::{text::TextCodec, ContentCodec},
-    groups::{message_history::MessageHistoryUrls, GroupMetadataOptions, MlsGroup},
+    groups::{message_history::MessageHistoryUrls, GroupMetadataOptions},
     identity::IdentityStrategy,
     storage::{
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
@@ -50,6 +50,7 @@ use xmtp_mls::{
 };
 type Client = xmtp_mls::client::Client<ApiClient>;
 type ClientBuilder = xmtp_mls::builder::ClientBuilder<ApiClient>;
+type MlsGroup = xmtp_mls::groups::MlsGroup<Client>;
 
 /// A fictional versioning CLI
 #[derive(Debug, Parser)] // requires `derive` feature
@@ -213,12 +214,12 @@ async fn main() {
                 .find_groups(FindGroupParams::default())
                 .expect("failed to list groups");
             for group in group_list.iter() {
-                group.sync(&client).await.expect("error syncing group");
+                group.sync().await.expect("error syncing group");
             }
 
             let serializable_group_list = group_list
                 .iter()
-                .map(|g| SerializableGroup::from(g, &client))
+                .map(SerializableGroup::from)
                 .collect::<Vec<_>>();
             let serializable_group_list = join_all(serializable_group_list).await;
 
@@ -239,7 +240,7 @@ async fn main() {
             let group = get_group(&client, hex::decode(group_id).expect("group id decode"))
                 .await
                 .expect("failed to get group");
-            send(group, msg.clone(), &client).await.unwrap();
+            send(group, msg.clone()).await.unwrap();
             info!("sent message", { command_output: true, group_id: group_id, message: msg });
         }
         Commands::ListGroupMessages { group_id } => {
@@ -282,7 +283,7 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .add_members(&client, account_addresses.clone())
+                .add_members(account_addresses.clone())
                 .await
                 .expect("failed to add member");
 
@@ -304,7 +305,7 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .remove_members(&client, account_addresses.clone())
+                .remove_members(account_addresses.clone())
                 .await
                 .expect("failed to add member");
 
@@ -340,8 +341,8 @@ async fn main() {
             let group = &client
                 .group(hex::decode(group_id).expect("bad group id"))
                 .expect("group not found");
-            group.sync(&client).await.unwrap();
-            let serializable = SerializableGroup::from(group, &client).await;
+            group.sync().await.unwrap();
+            let serializable = SerializableGroup::from(group).await;
             info!("Group {}", group_id, { command_output: true, group_id: group_id, group_info: make_value(&serializable) })
         }
         Commands::RequestHistorySync {} => {
@@ -383,7 +384,7 @@ async fn main() {
             client.enable_history_sync().await.unwrap();
             let group = client.get_sync_group().unwrap();
             let group_id_str = hex::encode(group.group_id.clone());
-            group.sync(&client).await.unwrap();
+            group.sync().await.unwrap();
             let messages = group
                 .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
                 .unwrap();
@@ -413,7 +414,7 @@ async fn main() {
 }
 
 async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, CliError> {
-    let msg_store = get_encrypted_store(&cli.db).unwrap();
+    let msg_store = get_encrypted_store(&cli.db).await.unwrap();
     let mut builder = ClientBuilder::new(account).store(msg_store);
 
     if cli.local {
@@ -468,10 +469,7 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
     let signature =
         UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(sig_bytes));
     signature_request
-        .add_signature(
-            signature,
-            client.smart_contract_signature_verifier().as_ref(),
-        )
+        .add_signature(signature, client.scw_verifier())
         .await
         .unwrap();
 
@@ -488,20 +486,20 @@ async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup, CliEr
     client.sync_welcomes().await?;
     let group = client.group(group_id)?;
     group
-        .sync(client)
+        .sync()
         .await
         .map_err(|_| CliError::Generic("failed to sync group".to_string()))?;
 
     Ok(group)
 }
 
-async fn send(group: MlsGroup, msg: String, client: &Client) -> Result<(), CliError> {
+async fn send(group: MlsGroup, msg: String) -> Result<(), CliError> {
     let mut buf = Vec::new();
     TextCodec::encode(msg.clone())
         .unwrap()
         .encode(&mut buf)
         .unwrap();
-    group.send_message(buf.as_slice(), client).await.unwrap();
+    group.send_message(buf.as_slice()).await.unwrap();
     Ok(())
 }
 
@@ -540,17 +538,17 @@ fn static_enc_key() -> EncryptionKey {
     [2u8; 32]
 }
 
-fn get_encrypted_store(db: &Option<PathBuf>) -> Result<EncryptedMessageStore, CliError> {
+async fn get_encrypted_store(db: &Option<PathBuf>) -> Result<EncryptedMessageStore, CliError> {
     let store = match db {
         Some(path) => {
             let s = path.as_path().to_string_lossy().to_string();
             info!("Using persistent storage: {} ", s);
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(s))
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(s)).await
         }
 
         None => {
             info!("Using ephemeral store");
-            EncryptedMessageStore::new(StorageOption::Ephemeral, static_enc_key())
+            EncryptedMessageStore::new(StorageOption::Ephemeral, static_enc_key()).await
         }
     };
 

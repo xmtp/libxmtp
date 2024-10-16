@@ -10,6 +10,7 @@ use crate::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
     GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
+    VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
 use crate::xmtp::mls::api::v1::{
     FetchKeyPackagesRequest, FetchKeyPackagesResponse, GroupMessage, QueryGroupMessagesRequest,
@@ -17,6 +18,138 @@ use crate::xmtp::mls::api::v1::{
     SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
     SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage,
 };
+
+#[cfg(any(test, feature = "test-utils"))]
+#[trait_variant::make(XmtpTestClient: Send)]
+pub trait LocalXmtpTestClient {
+    async fn create_local() -> Self;
+    async fn create_dev() -> Self;
+}
+
+/// XMTP Api Super Trait
+/// Implements all Trait Network APIs for convenience.
+pub mod trait_impls {
+    #[allow(unused)]
+    #[cfg(any(test, feature = "test-utils"))]
+    use super::{LocalXmtpTestClient, XmtpTestClient};
+    pub use inner::*;
+
+    // native, release
+    #[cfg(all(not(feature = "test-utils"), not(target_arch = "wasm32")))]
+    mod inner {
+        use crate::api_client::{
+            ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
+        };
+
+        pub trait XmtpApi
+        where
+            Self: XmtpMlsClient
+                + XmtpMlsStreams
+                + XmtpIdentityClient
+                + ClientWithMetadata
+                + Send
+                + Sync,
+        {
+        }
+        impl<T> XmtpApi for T where
+            T: XmtpMlsClient
+                + XmtpMlsStreams
+                + XmtpIdentityClient
+                + ClientWithMetadata
+                + Send
+                + Sync
+                + ?Sized
+        {
+        }
+    }
+
+    // wasm32, release
+    #[cfg(all(not(feature = "test-utils"), target_arch = "wasm32"))]
+    mod inner {
+
+        use crate::api_client::{
+            ClientWithMetadata, LocalXmtpIdentityClient, LocalXmtpMlsClient, LocalXmtpMlsStreams,
+        };
+        pub trait XmtpApi
+        where
+            Self: LocalXmtpMlsClient
+                + LocalXmtpMlsStreams
+                + LocalXmtpIdentityClient
+                + ClientWithMetadata,
+        {
+        }
+
+        impl<T> XmtpApi for T where
+            T: LocalXmtpMlsClient
+                + LocalXmtpMlsStreams
+                + LocalXmtpIdentityClient
+                + ClientWithMetadata
+                + ?Sized
+        {
+        }
+    }
+
+    // test, native
+    #[cfg(all(feature = "test-utils", not(target_arch = "wasm32")))]
+    mod inner {
+        use crate::api_client::{
+            ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
+        };
+
+        pub trait XmtpApi
+        where
+            Self: XmtpMlsClient
+                + XmtpMlsStreams
+                + XmtpIdentityClient
+                + super::XmtpTestClient
+                + ClientWithMetadata
+                + Send
+                + Sync,
+        {
+        }
+        impl<T> XmtpApi for T where
+            T: XmtpMlsClient
+                + XmtpMlsStreams
+                + XmtpIdentityClient
+                + super::XmtpTestClient
+                + ClientWithMetadata
+                + Send
+                + Sync
+                + ?Sized
+        {
+        }
+    }
+
+    // test, wasm32
+    #[cfg(all(feature = "test-utils", target_arch = "wasm32"))]
+    mod inner {
+        use crate::api_client::{
+            ClientWithMetadata, LocalXmtpIdentityClient, LocalXmtpMlsClient, LocalXmtpMlsStreams,
+        };
+
+        pub trait XmtpApi
+        where
+            Self: LocalXmtpMlsClient
+                + LocalXmtpMlsStreams
+                + LocalXmtpIdentityClient
+                + super::LocalXmtpTestClient
+                + ClientWithMetadata,
+        {
+        }
+
+        impl<T> XmtpApi for T where
+            T: LocalXmtpMlsClient
+                + LocalXmtpMlsStreams
+                + LocalXmtpIdentityClient
+                + super::LocalXmtpTestClient
+                + ClientWithMetadata
+                + Send
+                + Sync
+                + ?Sized
+        {
+        }
+    }
+}
 
 #[derive(Debug)]
 pub enum ErrorKind {
@@ -231,4 +364,9 @@ pub trait LocalXmtpIdentityClient {
         &self,
         request: GetInboxIdsRequest,
     ) -> Result<GetInboxIdsResponse, Error>;
+
+    async fn verify_smart_contract_wallet_signatures(
+        &self,
+        request: VerifySmartContractWalletSignaturesRequest,
+    ) -> Result<VerifySmartContractWalletSignaturesResponse, Error>;
 }

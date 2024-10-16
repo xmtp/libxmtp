@@ -1,6 +1,6 @@
 use xmtp_id::InboxId;
 
-use super::{validated_commit::extract_group_membership, GroupError, MlsGroup};
+use super::{validated_commit::extract_group_membership, GroupError, MlsGroup, ScopedGroupClient};
 
 use crate::{
     storage::{
@@ -8,7 +8,6 @@ use crate::{
         consent_record::{ConsentState, ConsentType},
     },
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Client, XmtpApi,
 };
 
 #[derive(Debug, Clone)]
@@ -27,19 +26,18 @@ pub enum PermissionLevel {
     SuperAdmin,
 }
 
-impl MlsGroup {
+impl<ScopedClient> MlsGroup<ScopedClient>
+where
+    ScopedClient: ScopedGroupClient,
+{
     // Load the member list for the group from the DB, merging together multiple installations into a single entry
-    pub async fn members<ApiClient: XmtpApi>(
-        &self,
-        client: &Client<ApiClient>,
-    ) -> Result<Vec<GroupMember>, GroupError> {
+    pub async fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
         let provider = self.mls_provider()?;
-        self.members_with_provider(client, &provider).await
+        self.members_with_provider(&provider).await
     }
 
-    pub async fn members_with_provider<ApiClient: XmtpApi>(
+    pub async fn members_with_provider(
         &self,
-        client: &Client<ApiClient>,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<GroupMember>, GroupError> {
         let openmls_group = self.load_mls_group(provider)?;
@@ -72,7 +70,8 @@ impl MlsGroup {
                 })
                 .collect();
 
-            let mut new_states = client
+            let mut new_states = self
+                .client
                 .batch_get_association_state(conn, &missing_requests)
                 .await?;
             association_states.append(&mut new_states);
@@ -117,48 +116,5 @@ impl MlsGroup {
             .collect::<Result<Vec<GroupMember>, GroupError>>()?;
 
         Ok(members)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    // use xmtp_cryptography::utils::generate_local_wallet;
-
-    // use crate::builder::ClientBuilder;
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_member_list() {
-        // let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        // let bola_wallet = generate_local_wallet();
-        // // Add two separate installations for Bola
-        // let bola_a = ClientBuilder::new_test_client(&bola_wallet).await;
-        // let bola_b = ClientBuilder::new_test_client(&bola_wallet).await;
-
-        // let group = amal.create_group(None).unwrap();
-        // Add both of Bola's installations to the group
-        // group
-        //     .add_members_by_installation_id(
-        //         vec![
-        //             bola_a.installation_public_key(),
-        //             bola_b.installation_public_key(),
-        //         ],
-        //         &amal,
-        //     )
-        //     .await
-        //     .unwrap();
-
-        // let members = group.members().unwrap();
-        // // The three installations should count as two members
-        // assert_eq!(members.len(), 2);
-
-        // for member in members {
-        //     if member.account_address.eq(&amal.account_address()) {
-        //         assert_eq!(member.installation_ids.len(), 1);
-        //     }
-        //     if member.account_address.eq(&bola_a.account_address()) {
-        //         assert_eq!(member.installation_ids.len(), 2);
-        //     }
-        // }
     }
 }
