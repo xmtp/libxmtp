@@ -790,20 +790,6 @@ pub(crate) mod tests {
 
                 contract_call.send().await.unwrap().await.unwrap();
                 let account_id = AccountId::new_evm(anvil_meta.chain_id, format!("{scw_addr:?}"));
-                let account_id_string: String = account_id.clone().into();
-
-                let identity_strategy = IdentityStrategy::CreateIfNotFound(
-                    generate_inbox_id(&account_id_string, &0),
-                    account_id_string,
-                    0,
-                    None,
-                );
-                let store = EncryptedMessageStore::new(
-                    StorageOption::Persistent(tmp_path()),
-                    EncryptedMessageStore::generate_enc_key(),
-                )
-                .await
-                .unwrap();
 
                 let xmtp_client = ClientBuilder::new_local_client(&wallet).await;
 
@@ -829,10 +815,10 @@ pub(crate) mod tests {
                     .add_new_unverified_smart_contract_signature(
                         NewUnverifiedSmartContractWalletSignature::new(
                             signature_bytes.to_vec(),
-                            account_id.clone(),
+                            account_id,
                             None,
                         ),
-                        xmtp_client.context.scw_verifier.as_ref(),
+                        &xmtp_client.scw_verifier,
                     )
                     .await
                     .unwrap();
