@@ -130,8 +130,8 @@ impl MultiSmartContractSignatureVerifier {
             };
         });
 
-        if let Ok(url) = env::var("FOUNDRY_URL") {
-            info!("Adding foundry to the verifiers: {url}");
+        if let Ok(url) = env::var("ANVIL_URL") {
+            info!("Adding anvil to the verifiers: {url}");
             self.verifiers.insert(
                 "eip155:31337".to_string(),
                 Box::new(RpcSmartContractWalletVerifier::new(url)),

@@ -27,11 +27,11 @@ services:
       context: ../..
       dockerfile: ./dev/validation_service/local.Dockerfile
     environment:
-      FOUNDRY_URL: "http://foundry:8545"
+      ANVIL_URL: "http://anvil:8545"
 
-  foundry:
+  anvil:
     build:
-      dockerfile: ./foundry.Dockerfile
+      dockerfile: ./anvil.Dockerfile
     platform: linux/amd64
     ports:
       - 8545:8545
