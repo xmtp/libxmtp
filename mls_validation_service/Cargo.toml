@@ -25,7 +25,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing.workspace = true
 warp = "0.3.6"
 xmtp_cryptography = { path = "../xmtp_cryptography" }
-xmtp_id.workspace = true
+xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_mls.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
 
@@ -39,4 +39,4 @@ xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_mls = { workspace = true, features = ["test-utils"] }
 
 [features]
-test-utils = []
+test-utils = ["xmtp_id/test-utils"]

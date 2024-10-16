@@ -153,6 +153,10 @@ impl VerifiedSignature {
                 signature_bytes.to_vec(),
             ))
         } else {
+            tracing::error!(
+                "Smart contract wallet signature is invalid {:?}",
+                response.error
+            );
             Err(SignatureError::Invalid)
         }
     }
