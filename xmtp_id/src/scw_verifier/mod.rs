@@ -130,6 +130,7 @@ impl MultiSmartContractSignatureVerifier {
             };
         });
 
+        #[cfg(feature = "test-utils")]
         if let Ok(url) = env::var("ANVIL_URL") {
             info!("Adding anvil to the verifiers: {url}");
             self.verifiers.insert(
