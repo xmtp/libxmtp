@@ -49,7 +49,11 @@ where
 
         let VerifySmartContractWalletSignaturesResponse { responses } = result;
 
-        Ok((&responses[0]).into())
+        Ok(responses
+            .into_iter()
+            .next()
+            .expect("Api given one request will return one response")
+            .into())
     }
 }
 

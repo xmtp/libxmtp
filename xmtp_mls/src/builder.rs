@@ -762,74 +762,88 @@ pub(crate) mod tests {
             abi::Token,
             signers::{LocalWallet, Signer},
             types::{Bytes, H256, U256},
+            utils::hash_message,
         };
         use std::sync::Arc;
         use xmtp_id::associations::AccountId;
-        use xmtp_id::is_smart_contract;
         use xmtp_id::scw_verifier::MultiSmartContractSignatureVerifier;
         use xmtp_id::utils::test::{with_smart_contracts, CoinbaseSmartWallet};
+        use xmtp_id::{
+            associations::unverified::NewUnverifiedSmartContractWalletSignature,
+            scw_verifier::tests::with_docker_smart_contracts,
+        };
 
-        with_smart_contracts(|anvil, _provider, client, smart_contracts| async move {
-            let key = anvil.keys()[0].clone();
-            let wallet: LocalWallet = key.clone().into();
+        with_docker_smart_contracts(
+            |anvil_meta, _provider, client, smart_contracts| async move {
+                let wallet: LocalWallet = anvil_meta.keys[0].clone().into();
 
-            let owners = vec![Bytes::from(H256::from(wallet.address()).0.to_vec())];
+                let owners = vec![Bytes::from(H256::from(wallet.address()).0.to_vec())];
 
-            let scw_factory = smart_contracts.coinbase_smart_wallet_factory();
-            let nonce = U256::from(0);
+                let scw_factory = smart_contracts.coinbase_smart_wallet_factory();
+                let nonce = U256::from(0);
 
-            let scw_addr = scw_factory
-                .get_address(owners.clone(), nonce)
+                let scw_addr = scw_factory
+                    .get_address(owners.clone(), nonce)
+                    .await
+                    .unwrap();
+
+                let contract_call = scw_factory.create_account(owners.clone(), nonce);
+
+                contract_call.send().await.unwrap().await.unwrap();
+                let account_id = AccountId::new_evm(anvil_meta.chain_id, format!("{scw_addr:?}"));
+                let account_id_string: String = account_id.clone().into();
+
+                let identity_strategy = IdentityStrategy::CreateIfNotFound(
+                    generate_inbox_id(&account_id_string, &0),
+                    account_id_string,
+                    0,
+                    None,
+                );
+                let store = EncryptedMessageStore::new(
+                    StorageOption::Persistent(tmp_path()),
+                    EncryptedMessageStore::generate_enc_key(),
+                )
                 .await
                 .unwrap();
 
-            let contract_call = scw_factory.create_account(owners.clone(), nonce);
+                let xmtp_client = ClientBuilder::new_local_client(&wallet).await;
 
-            contract_call.send().await.unwrap().await.unwrap();
+                let smart_wallet = CoinbaseSmartWallet::new(
+                    scw_addr,
+                    Arc::new(client.with_signer(wallet.clone().with_chain_id(anvil_meta.chain_id))),
+                );
+                let mut signature_request = xmtp_client.context.signature_request().unwrap();
+                let signature_text = signature_request.signature_text();
+                let hash_to_sign = hash_message(signature_text);
+                let replay_safe_hash = smart_wallet
+                    .replay_safe_hash(hash_to_sign.into())
+                    .call()
+                    .await
+                    .unwrap();
+                let signature_bytes: Bytes = ethers::abi::encode(&[Token::Tuple(vec![
+                    Token::Uint(U256::from(0)),
+                    Token::Bytes(wallet.sign_hash(replay_safe_hash.into()).unwrap().to_vec()),
+                ])])
+                .into();
 
-            assert!(is_smart_contract(scw_addr, anvil.endpoint(), None)
-                .await
-                .unwrap());
+                signature_request
+                    .add_new_unverified_smart_contract_signature(
+                        NewUnverifiedSmartContractWalletSignature::new(
+                            signature_bytes.to_vec(),
+                            account_id.clone(),
+                            None,
+                        ),
+                        xmtp_client.context.scw_verifier.as_ref(),
+                    )
+                    .await
+                    .unwrap();
 
-            let api_client = ClientBuilder::new_local_client(&wallet).await;
-            let hash = H256::random().into();
-            let smart_wallet = CoinbaseSmartWallet::new(
-                scw_addr,
-                Arc::new(client.with_signer(wallet.clone().with_chain_id(anvil.chain_id()))),
-            );
-            let replay_safe_hash = smart_wallet.replay_safe_hash(hash).call().await.unwrap();
-            let account_id = AccountId::new_evm(anvil.chain_id(), format!("{scw_addr:?}"));
-
-            let signature: Bytes = ethers::abi::encode(&[Token::Tuple(vec![
-                Token::Uint(U256::from(0)),
-                Token::Bytes(wallet.sign_hash(replay_safe_hash.into()).unwrap().to_vec()),
-            ])])
-            .into();
-
-            let valid_response = api_client
-                .scw_verifier()
-                .is_valid_signature(account_id.clone(), hash, signature.clone(), None)
-                .await
-                .unwrap();
-
-            // The mls validation service can't connect to our anvil instance, so it'll return false
-            // This is to make sure the communication at least works.
-            assert!(!valid_response.is_valid);
-            assert_eq!(valid_response.block_number, None);
-
-            // So let's immitate more or less what the mls validation is doing locally, and validate there.
-            let mut multi_verifier = MultiSmartContractSignatureVerifier::new_from_env().unwrap();
-            multi_verifier
-                .add_verifier(account_id.get_chain_id().to_string(), anvil.endpoint())
-                .unwrap();
-            let response = multi_verifier
-                .is_valid_signature(account_id, hash, signature, None)
-                .await
-                .unwrap();
-
-            assert!(response.is_valid);
-            assert!(response.block_number.is_some());
-        })
+                xmtp_client
+                    .register_identity(signature_request)
+                    .await
+                    .unwrap();
+            },
+        )
         .await;
     }
 }

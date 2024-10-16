@@ -200,17 +200,17 @@ impl DbConnection {
 
     pub fn find_dm_group(
         &self,
-        dm_target_inbox_id: &str,
+        target_inbox_id: &str,
     ) -> Result<Option<StoredGroup>, StorageError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.asc())
-            .filter(dsl::dm_inbox_id.eq(Some(&dm_target_inbox_id)));
+            .filter(dsl::dm_inbox_id.eq(Some(target_inbox_id)));
 
         let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
         if groups.len() > 1 {
             tracing::info!(
                 "More than one group found for dm_inbox_id {}",
-                dm_target_inbox_id
+                target_inbox_id
             );
         }
 

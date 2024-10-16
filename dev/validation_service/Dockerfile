@@ -1,7 +1,7 @@
 FROM rust:1-bullseye as builder
 WORKDIR /code
 COPY . .
-RUN cargo build --release --package mls_validation_service
+RUN cargo build --release --features test-utils --package mls_validation_service
 
 FROM debian:bullseye-slim
 RUN apt-get update && apt-get install -y sqlite3 curl
