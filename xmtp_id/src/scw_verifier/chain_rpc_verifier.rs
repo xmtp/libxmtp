@@ -181,10 +181,7 @@ pub mod tests {
         Fut: futures::Future<Output = ()>,
     {
         // Spawn an anvil instance to get the keys and chain_id
-        let anvil = Anvil::new()
-            .args(vec!["--base-fee", "100"])
-            .port(8546u16)
-            .spawn();
+        let anvil = Anvil::new().port(8546u16).spawn();
 
         let anvil_meta = AnvilMeta {
             keys: anvil.keys().to_vec(),
