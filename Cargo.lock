@@ -6971,6 +6971,7 @@ dependencies = [
  "aes-gcm",
  "ecdsa 0.15.1",
  "generic-array",
+ "getrandom",
  "hex",
  "hkdf",
  "k256 0.12.0",

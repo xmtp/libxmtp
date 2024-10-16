@@ -48,9 +48,9 @@ xmtp_id = { path = "../xmtp_id" }
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 # Optional/Features
+xmtp_api_http = { path = "../xmtp_api_http", optional = true }
 toml = { version = "0.8.4", optional = true }
 tracing-wasm = { version = "0.2", optional = true }
-xmtp_api_http = { path = "../xmtp_api_http", optional = true }
 reqwest = { version = "0.12.4", features = ["stream"], optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 

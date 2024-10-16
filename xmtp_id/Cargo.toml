@@ -3,6 +3,9 @@ edition = "2021"
 name = "xmtp_id"
 version.workspace = true
 
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown", "aarch64-apple-darwin"]
+
 [dependencies]
 url = { workspace = true, features = ["serde"] }
 async-trait.workspace = true

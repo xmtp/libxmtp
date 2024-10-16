@@ -4,6 +4,9 @@ name = "xmtp_cryptography"
 rust-version = "1.70"
 version.workspace = true
 
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown", "aarch64-apple-darwin"]
+
 [dependencies]
 tracing.workspace = true
 curve25519-dalek = "4"

@@ -71,7 +71,7 @@ pub async fn sleep(duration: core::time::Duration) {
     tokio::time::sleep(duration).await
 }
 
-/// Turn the Result<T, E> into an `Option<T>`, logging the error with `tracing::error` and
+/// Turn the `Result<T, E>` into an `Option<T>`, logging the error with `tracing::error` and
 /// returning `None` if the value matches on Result::Err().
 /// Optionally pass a message as the second argument.
 #[macro_export]

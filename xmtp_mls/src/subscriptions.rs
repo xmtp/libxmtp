@@ -165,13 +165,7 @@ where
             let metadata =
                 crate::optify!(group.metadata(provider), "error processing group metadata");
             metadata
-                .filter(|m| {
-                    if &Some(m.conversation_type) == conversation_type {
-                        true
-                    } else {
-                        conversation_type.is_none()
-                    }
-                })
+                .filter(|m| conversation_type.map_or(true, |ct| ct == m.conversation_type))
                 .map(|_| group)
         };
 
