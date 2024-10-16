@@ -118,7 +118,10 @@ pub mod tests {
     use super::*;
     use ethers::{
         abi::{self, Token},
-        core::{k256::Secp256k1, utils::Anvil},
+        core::{
+            k256::{elliptic_curve::SecretKey, Secp256k1},
+            utils::Anvil,
+        },
         middleware::{MiddlewareBuilder, SignerMiddleware},
         signers::{LocalWallet, Signer as _},
         types::{H256, U256},
@@ -160,23 +163,41 @@ pub mod tests {
         }
     }
 
-    /// Test harness that loads a local anvil node with deployed smart contracts.
+    pub struct AnvilMeta {
+        pub keys: Vec<SecretKey<Secp256k1>>,
+        pub endpoint: String,
+        pub chain_id: u64,
+    }
+
+    /// Test harness that loads a local docker anvil node with deployed smart contracts.
     pub async fn with_docker_smart_contracts<Func, Fut>(fun: Func)
     where
         Func: FnOnce(
+            AnvilMeta,
             Provider<Http>,
             SignerMiddleware<Provider<Http>, LocalWallet>,
             SmartContracts,
         ) -> Fut,
         Fut: futures::Future<Output = ()>,
     {
-        let key = hex::decode("2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6")
-            .unwrap();
-        let contract_deployer = LocalWallet::from_bytes(&key).unwrap();
-        let provider = Provider::<Http>::try_from("http://localhost:8545").unwrap();
+        // Spawn an anvil instance to get the keys and chain_id
+        let anvil = Anvil::new()
+            .args(vec!["--base-fee", "100"])
+            .port(8546u16)
+            .spawn();
+
+        let anvil_meta = AnvilMeta {
+            keys: anvil.keys().to_vec(),
+            chain_id: anvil.chain_id(),
+            endpoint: "http://localhost:8545".to_string(),
+        };
+
+        let keys = anvil.keys().to_vec();
+        let contract_deployer: LocalWallet = keys[9].clone().into();
+        let provider = Provider::<Http>::try_from(&anvil_meta.endpoint).unwrap();
         let client = SignerMiddleware::new(
             provider.clone(),
-            contract_deployer.clone().with_chain_id(31337u64),
+            contract_deployer.clone().with_chain_id(anvil_meta.chain_id),
         );
         // 1. coinbase smart wallet
         // deploy implementation for factory
@@ -196,7 +217,13 @@ pub mod tests {
                 .unwrap();
 
         let smart_contracts = SmartContracts::new(factory);
-        fun(provider.clone(), client.clone(), smart_contracts).await
+        fun(
+            anvil_meta,
+            provider.clone(),
+            client.clone(),
+            smart_contracts,
+        )
+        .await
     }
 
     /// Test harness that loads a local anvil node with deployed smart contracts.

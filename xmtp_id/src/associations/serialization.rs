@@ -309,12 +309,12 @@ impl From<UnverifiedIdentityUpdate> for Vec<u8> {
     }
 }
 
-impl From<&SmartContractWalletValidationResponseProto> for ValidationResponse {
-    fn from(value: &SmartContractWalletValidationResponseProto) -> Self {
+impl From<SmartContractWalletValidationResponseProto> for ValidationResponse {
+    fn from(value: SmartContractWalletValidationResponseProto) -> Self {
         Self {
             is_valid: value.is_valid,
             block_number: value.block_number,
-            error: value.error.clone(),
+            error: value.error,
         }
     }
 }

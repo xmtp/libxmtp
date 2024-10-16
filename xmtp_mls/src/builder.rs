@@ -695,78 +695,69 @@ mod tests {
         };
         use std::sync::Arc;
         use xmtp_id::associations::AccountId;
-        use xmtp_id::is_smart_contract;
         use xmtp_id::scw_verifier::tests::{with_docker_smart_contracts, CoinbaseSmartWallet};
-        use xmtp_id::scw_verifier::{
-            MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier,
-        };
 
-        with_docker_smart_contracts(|_provider, client, smart_contracts| async move {
-            let key =
-                hex::decode("ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+        with_docker_smart_contracts(
+            |anvil_meta, _provider, client, smart_contracts| async move {
+                let wallet: LocalWallet = anvil_meta.keys[0].clone().into();
+
+                let owners = vec![Bytes::from(H256::from(wallet.address()).0.to_vec())];
+
+                let scw_factory = smart_contracts.coinbase_smart_wallet_factory();
+                let nonce = U256::from(0);
+
+                let scw_addr = scw_factory
+                    .get_address(owners.clone(), nonce)
+                    .await
                     .unwrap();
-            let wallet = LocalWallet::from_bytes(&key).unwrap();
 
-            let owners = vec![Bytes::from(H256::from(wallet.address()).0.to_vec())];
+                let contract_call = scw_factory.create_account(owners.clone(), nonce);
 
-            let scw_factory = smart_contracts.coinbase_smart_wallet_factory();
-            let nonce = U256::from(0);
+                contract_call.send().await.unwrap().await.unwrap();
 
-            let scw_addr = scw_factory
-                .get_address(owners.clone(), nonce)
-                .await
+                let identity_strategy = IdentityStrategy::CreateIfNotFound(
+                    generate_inbox_id(&wallet.address().to_string(), &0),
+                    wallet.address().to_string(),
+                    0,
+                    None,
+                );
+                let store = EncryptedMessageStore::new(
+                    StorageOption::Persistent(tmp_path()),
+                    EncryptedMessageStore::generate_enc_key(),
+                )
                 .unwrap();
+                let api_client: Client<TestClient> = ClientBuilder::new(identity_strategy)
+                    .store(store)
+                    .local_client()
+                    .await
+                    .build()
+                    .await
+                    .unwrap();
 
-            let contract_call = scw_factory.create_account(owners.clone(), nonce);
+                let hash = H256::random().into();
+                let smart_wallet = CoinbaseSmartWallet::new(
+                    scw_addr,
+                    Arc::new(client.with_signer(wallet.clone().with_chain_id(anvil_meta.chain_id))),
+                );
+                let replay_safe_hash = smart_wallet.replay_safe_hash(hash).call().await.unwrap();
+                let account_id = AccountId::new_evm(anvil_meta.chain_id, format!("{scw_addr:?}"));
 
-            contract_call.send().await.unwrap().await.unwrap();
+                let signature: Bytes = ethers::abi::encode(&[Token::Tuple(vec![
+                    Token::Uint(U256::from(0)),
+                    Token::Bytes(wallet.sign_hash(replay_safe_hash.into()).unwrap().to_vec()),
+                ])])
+                .into();
 
-            // assert!(is_smart_contract(scw_addr, anvil.endpoint(), None)
-            // .await
-            // .unwrap());
+                let valid_response = api_client
+                    .smart_contract_signature_verifier()
+                    .is_valid_signature(account_id.clone(), hash, signature.clone(), None)
+                    .await
+                    .unwrap();
 
-            let identity_strategy = IdentityStrategy::CreateIfNotFound(
-                generate_inbox_id(&wallet.address().to_string(), &0),
-                wallet.address().to_string(),
-                0,
-                None,
-            );
-            let store = EncryptedMessageStore::new(
-                StorageOption::Persistent(tmp_path()),
-                EncryptedMessageStore::generate_enc_key(),
-            )
-            .unwrap();
-            let api_client: Client<TestClient> = ClientBuilder::new(identity_strategy)
-                .store(store)
-                .local_client()
-                .await
-                .build()
-                .await
-                .unwrap();
-
-            let hash = H256::random().into();
-            let smart_wallet = CoinbaseSmartWallet::new(
-                scw_addr,
-                Arc::new(client.with_signer(wallet.clone().with_chain_id(31337u64))),
-            );
-            let replay_safe_hash = smart_wallet.replay_safe_hash(hash).call().await.unwrap();
-            let account_id = AccountId::new_evm(31337u64, format!("{scw_addr:?}"));
-
-            let signature: Bytes = ethers::abi::encode(&[Token::Tuple(vec![
-                Token::Uint(U256::from(0)),
-                Token::Bytes(wallet.sign_hash(replay_safe_hash.into()).unwrap().to_vec()),
-            ])])
-            .into();
-
-            let valid_response = api_client
-                .smart_contract_signature_verifier()
-                .is_valid_signature(account_id.clone(), hash, signature.clone(), None)
-                .await
-                .unwrap();
-
-            assert!(valid_response.is_valid);
-            assert!(valid_response.block_number.is_some());
-        })
+                assert!(valid_response.is_valid);
+                assert!(valid_response.block_number.is_some());
+            },
+        )
         .await;
     }
 }
