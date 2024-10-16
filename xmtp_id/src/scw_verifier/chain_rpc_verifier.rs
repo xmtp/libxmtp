@@ -120,11 +120,7 @@ pub(crate) mod tests {
     use super::*;
     use ethers::{
         abi::{self, Token},
-        core::{
-            k256::{elliptic_curve::SecretKey, Secp256k1},
-            utils::Anvil,
-        },
-        middleware::{MiddlewareBuilder, SignerMiddleware},
+        middleware::MiddlewareBuilder,
         signers::{LocalWallet, Signer as _},
         types::{H256, U256},
         utils::hash_message,
@@ -141,29 +137,6 @@ pub(crate) mod tests {
         "artifact/CoinbaseSmartWalletFactory.json",
         derives(serde::Serialize, serde::Deserialize)
     );
-
-    pub struct SmartContracts {
-        coinbase_smart_wallet_factory:
-            CoinbaseSmartWalletFactory<SignerMiddleware<Provider<Http>, LocalWallet>>,
-    }
-
-    impl SmartContracts {
-        fn new(
-            coinbase_smart_wallet_factory: CoinbaseSmartWalletFactory<
-                SignerMiddleware<Provider<Http>, LocalWallet>,
-            >,
-        ) -> Self {
-            Self {
-                coinbase_smart_wallet_factory,
-            }
-        }
-
-        pub fn coinbase_smart_wallet_factory(
-            &self,
-        ) -> &CoinbaseSmartWalletFactory<SignerMiddleware<Provider<Http>, LocalWallet>> {
-            &self.coinbase_smart_wallet_factory
-        }
-    }
 
     #[tokio::test]
     async fn test_coinbase_smart_wallet() {

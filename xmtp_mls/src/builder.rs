@@ -766,11 +766,10 @@ pub(crate) mod tests {
         };
         use std::sync::Arc;
         use xmtp_id::associations::AccountId;
-        use xmtp_id::scw_verifier::MultiSmartContractSignatureVerifier;
-        use xmtp_id::utils::test::{with_smart_contracts, CoinbaseSmartWallet};
+        use xmtp_id::utils::test::CoinbaseSmartWallet;
         use xmtp_id::{
             associations::unverified::NewUnverifiedSmartContractWalletSignature,
-            scw_verifier::tests::with_docker_smart_contracts,
+            utils::test::with_docker_smart_contracts,
         };
 
         with_docker_smart_contracts(
