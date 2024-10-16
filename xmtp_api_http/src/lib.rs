@@ -259,7 +259,8 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
             request,
             self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES),
             self.http_client.clone(),
-        ))
+        )
+        .await)
     }
 
     async fn subscribe_welcome_messages(
@@ -271,7 +272,8 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
             request,
             self.endpoint(ApiEndpoints::SUBSCRIBE_WELCOME_MESSAGES),
             self.http_client.clone(),
-        ))
+        )
+        .await)
     }
 }
 
