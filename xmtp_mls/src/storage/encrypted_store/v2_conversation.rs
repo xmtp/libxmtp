@@ -1,3 +1,5 @@
+//! The V2 Conversation database table. Stored information surrounding v2 conversations.
+
 use crate::{impl_store, storage::StorageError};
 
 use super::Sqlite;
@@ -107,39 +109,47 @@ mod tests {
 
     use super::*;
 
-    // fn generate_consent_record(
-    //     entity_type: ConsentType,
-    //     state: ConsentState,
-    //     entity: String,
-    // ) -> StoredConsentRecord {
-    //     StoredConsentRecord {
-    //         entity_type,
-    //         state,
-    //         entity,
-    //     }
-    // }
+    fn generate_v2_conversation(
+        topic: String,
+        peer_address: String,
+        envelope_bytes: Vec<u8>,
+        created_at_ns: i64,
+    ) -> StoredV2Conversation {
+        StoredV2Conversation {
+            topic,
+            peer_address,
+            envelope_bytes,
+            created_at_ns
+        }
+    }
 
-    // #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    // #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    // async fn insert_and_read() {
-    //     with_connection(|conn| {
-    //         let inbox_id = "inbox_1";
-    //         let consent_record = generate_consent_record(
-    //             ConsentType::InboxId,
-    //             ConsentState::Denied,
-    //             inbox_id.to_string(),
-    //         );
-    //         let consent_record_entity = consent_record.entity.clone();
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn insert_and_read() {
+        with_connection(|conn| {
+            let peer_address = "example_peer_address";
+            let v2_conversation = generate_v2_conversation(
+                "example_topic",
+                peer_address,
+                vec![1, 2, 3],
+                now_ns()
+            );
+            let v2_conversation_entity = v2_conversation.entity.clone();
 
-    //         conn.insert_or_replace_consent_records(vec![consent_record])
-    //             .expect("should store without error");
+            conn.insert_or_replace_v2_conversation(vec![v2_conversation_entity])
+                .expect("should store without error");
 
-    //         let consent_record = conn
-    //             .get_consent_record(inbox_id.to_owned(), ConsentType::InboxId)
-    //             .expect("query should work");
+            let v2_conversations = conn
+                .get_v2_conversations()
+                .expect("query should work");
 
-    //         assert_eq!(consent_record.unwrap().entity, consent_record_entity);
-    //     })
-    //     .await;
-    // }
+            let v2_conversation = conn
+                .get_v2_conversation(peer_address)
+                .expect("query should work");
+
+            assert_eq!(v2_conversation.unwrap().entity, v2_conversation_entity);
+            assert_eq!(v2_conversations.unwrap().first().entity, v2_conversation_entity);
+        })
+        .await;
+    }
 }
