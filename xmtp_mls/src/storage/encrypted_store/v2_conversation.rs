@@ -74,16 +74,16 @@ impl DbConnection {
                 .optional()?;
 
             if maybe_inserted_conversation.is_none() {
-                let existing_conversation: StoredV2Conversation = dsl::v2_conversations.find(v2_conversation.id).first(conn)?;
-                if existing_conversation.welcome_id == v2_conversation.welcome_id {
+                let existing_conversation: StoredV2Conversation = dsl::v2_conversations.find(v2_conversation.topic).first(conn)?;
+                if existing_conversation.topic == v2_conversation.topic {
                     tracing::info!("V2 Conversation invite already exists");
                     // Error so OpenMLS db transaction are rolled back on duplicate welcomes
                     return Err(StorageError::Duplicate(DuplicateItem::WelcomeId(
-                        existing_group.welcome_id,
+                        existing_conversation.topic,
                     )));
                 } else {
                     tracing::info!("V2 Conversation already exists");
-                    return Ok(existing_group);
+                    return Ok(existing_conversation);
                 }
             } else {
                 tracing::info!("V2 Conversation is inserted");
@@ -91,7 +91,7 @@ impl DbConnection {
 
             match maybe_inserted_conversation {
                 Some(v2_conversation) => Ok(v2_conversation),
-                None => Ok(dsl::v2_conversations.find(v2_conversation.id).first(conn)?),
+                None => Ok(dsl::v2_conversations.find(v2_conversation.topic).first(conn)?),
             }
         })?;
 
