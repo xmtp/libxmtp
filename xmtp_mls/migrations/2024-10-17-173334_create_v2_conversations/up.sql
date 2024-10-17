@@ -4,3 +4,5 @@ CREATE TABLE v2_conversations (
     peer_address TEXT NOT NULL,
     envelope_bytes BLOB NOT NULL
 );
+
+CREATE INDEX idx_peer_address ON v2_conversations (peer_address);
