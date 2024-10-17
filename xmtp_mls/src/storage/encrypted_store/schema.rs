@@ -111,7 +111,7 @@ diesel::table! {
     v2_conversations (topic) {
         topic -> Text,
         created_at_ns -> BigInt,
-        peer_address -> Integer,
+        peer_address -> Text,
         envelope_bytes -> Binary,
     }
 }
