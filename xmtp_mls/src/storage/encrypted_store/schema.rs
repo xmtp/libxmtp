@@ -107,6 +107,15 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    v2_conversations (topic) {
+        topic -> Text,
+        created_at_ns -> BigInt,
+        peer_address -> Text,
+        envelope_bytes -> Binary,
+    }
+}
+
 diesel::joinable!(group_intents -> groups (group_id));
 diesel::joinable!(group_messages -> groups (group_id));
 
@@ -122,4 +131,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     openmls_key_store,
     openmls_key_value,
     refresh_state,
+    v2_conversations,
 );
