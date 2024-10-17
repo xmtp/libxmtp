@@ -1,4 +1,7 @@
 PROJECT_NAME = xmtpv3
+WORKSPACE_MANIFEST=$(shell cargo locate-project --workspace --message-format=plain)
+WORKSPACE_PATH=$(shell dirname $(WORKSPACE_MANIFEST))
+TARGET_DIR=$(WORKSPACE_PATH)/target
 
 # Simulator config
 ARCHS_IOS = x86_64-apple-ios aarch64-apple-ios-sim
@@ -42,19 +45,19 @@ libxmtp-version:
 	echo "Version: $(GIT_COMMIT_HASH)\nBranch: $(GIT_BRANCH)\nDate: $(GIT_COMMIT_DATE)" > libxmtp-version.txt
 
 $(ARCHS_IOS): %: build-sqlcipher
-	cross build --target $@ --target-dir ./target --release --no-default-features
+	cross build --target $@ --target-dir $(TARGET_DIR) --release --no-default-features
 	mkdir -p build/$@
-	mv target/$@/release/$(LIB) build/$@/$(LIB)
+	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 
 $(ARCHS_MAC): %: build-sqlcipher
-	cross build --target $@ --target-dir ./target --release --no-default-features
+	cross build --target $@ --target-dir $(TARGET_DIR) --release --no-default-features
 	mkdir -p build/$@
-	mv target/$@/release/$(LIB) build/$@/$(LIB)
+	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 
 aarch64-apple-ios: build-sqlcipher
-	cross build --target $@ --target-dir ./target --release
+	cross build --target $@ --target-dir $(TARGET_DIR) --release
 	mkdir -p build/$@
-	mv target/$@/release/$(LIB) build/$@/$(LIB)
+	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 
 $(LIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
 
@@ -78,10 +81,10 @@ framework: lipo
 
 # build uniffi bindings for swift
 swift: libxmtp-version
-	cargo build --release
+	cargo build --release -p xmtpv3
 	rm -rf build/swift
-	target/release/ffi-uniffi-bindgen generate \
-		--lib-file target/release/$(LIB) \
+	$(TARGET_DIR)/release/ffi-uniffi-bindgen generate \
+		--lib-file $(TARGET_DIR)/release/$(LIB) \
 		src/$(PROJECT_NAME).udl \
 		--out-dir build/swift \
 		--language swift
@@ -91,6 +94,6 @@ swift: libxmtp-version
 	mv build/swift/$(PROJECT_NAME)FFI.modulemap build/swift/include/module.modulemap
 	cp libxmtp-version.txt build/swift/
 
-swiftlocal: libxmtpv3.a swift framework 
+swiftlocal: libxmtpv3.a swift framework
 
 .PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift lipo download-sqlcipher build-sqlcipher

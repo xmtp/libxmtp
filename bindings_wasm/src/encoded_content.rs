@@ -12,6 +12,24 @@ pub struct WasmContentTypeId {
   pub version_minor: u32,
 }
 
+#[wasm_bindgen]
+impl WasmContentTypeId {
+  #[wasm_bindgen(constructor)]
+  pub fn new(
+    authority_id: String,
+    type_id: String,
+    version_major: u32,
+    version_minor: u32,
+  ) -> WasmContentTypeId {
+    WasmContentTypeId {
+      authority_id,
+      type_id,
+      version_major,
+      version_minor,
+    }
+  }
+}
+
 impl From<ContentTypeId> for WasmContentTypeId {
   fn from(content_type_id: ContentTypeId) -> WasmContentTypeId {
     WasmContentTypeId {
@@ -42,6 +60,26 @@ pub struct WasmEncodedContent {
   pub fallback: Option<String>,
   pub compression: Option<i32>,
   pub content: Uint8Array,
+}
+
+#[wasm_bindgen]
+impl WasmEncodedContent {
+  #[wasm_bindgen(constructor)]
+  pub fn new(
+    r#type: Option<WasmContentTypeId>,
+    parameters: JsValue,
+    fallback: Option<String>,
+    compression: Option<i32>,
+    content: Uint8Array,
+  ) -> WasmEncodedContent {
+    WasmEncodedContent {
+      r#type,
+      parameters,
+      fallback,
+      compression,
+      content,
+    }
+  }
 }
 
 impl From<EncodedContent> for WasmEncodedContent {
