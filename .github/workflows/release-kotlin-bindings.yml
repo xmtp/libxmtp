@@ -1,8 +1,6 @@
 name: Release Kotlin Bindings
-
 on:
   workflow_dispatch:
-
 jobs:
   build-linux:
     runs-on: warp-ubuntu-latest-x64-16x
@@ -26,64 +24,53 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Update rust toolchains, add target
         run: |
           rustup update
           rustup target add ${{ matrix.target }}
-
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             .
             bindings_ffi
-
       # Install latest cross to mitigate unwind linking issue on android builds.
       # See https://github.com/cross-rs/cross/issues/1222
       - name: Install cross
         run: |
           cargo install cross --git https://github.com/cross-rs/cross
-
       - name: Build target
         env:
           CROSS_NO_WARNINGS: "0"
         run: |
-          cross build --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml --target-dir bindings_ffi/target
-
+          cross build --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
       - name: Prepare JNI libs
         run: |
           mkdir -p bindings_ffi/jniLibs/${{ matrix.output_target }}/ && \
-          cp bindings_ffi/target/${{ matrix.target }}/release/libxmtpv3.so bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
-
+          cp target/${{ matrix.target }}/release/libxmtpv3.so bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.output_target }}
           path: bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
           retention-days: 1
-
   package-kotlin:
     needs: [build-linux]
     runs-on: warp-ubuntu-latest-x64-16x
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: bindings_ffi/jniLibs
-
       - name: Build archive
         working-directory: bindings_ffi
         run: |
           zip -r LibXMTPKotlinFFI.zip jniLibs
-
       - name: Get short SHA
         id: slug
         run: echo "::set-output name=sha7::$(echo ${GITHUB_SHA} | cut -c1-7)"
-
       - name: Create release
         id: create_release
         uses: actions/create-release@v1
@@ -94,7 +81,6 @@ jobs:
           release_name: Kotlin-Bindings-${{ steps.slug.outputs.sha7 }}
           draft: false
           prerelease: true
-
       - name: Upload release asset
         uses: actions/upload-release-asset@v1
         env:
