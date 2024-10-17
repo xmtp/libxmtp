@@ -8,7 +8,7 @@ WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
 BINDINGS_MANIFEST="$WORKSPACE_PATH/bindings_ffi/Cargo.toml"
 BINDINGS_PATH="$(dirname $BINDINGS_MANIFEST)"
 TARGET_DIR="$WORKSPACE_PATH/target"
-XMTP_ANDROID="${1:-../xmtp_android}"
+XMTP_ANDROID="${1:-../../xmtp-android}"
 
 if [ ! -d $XMTP_ANDROID ]; then
   echo "${RED}xmtp-android directory not detected${NC}"
