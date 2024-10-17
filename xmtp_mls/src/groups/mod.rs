@@ -508,6 +508,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Self::create_from_welcome(client, provider, welcome, inbox_id, welcome_id).await
     }
 
+    pub(crate) fn create_and_insert_consent_sync_group(
+        client: Arc<ScopedClient>,
+    ) -> Result<MlsGroup<ScopedClient>, GroupError> {
+        let context = client.context();
+        let conn = context.store().conn()?;
+
+        let creator_inbox_id = context.inbox_id() as String;
+    }
+
     #[cfg(feature = "message-history")]
     pub(crate) fn create_and_insert_sync_group(
         client: Arc<ScopedClient>,
@@ -515,7 +524,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let context = client.context();
         let conn = context.store().conn()?;
         // let my_sequence_id = context.inbox_sequence_id(&conn)?;
-        let creator_inbox_id = context.inbox_id().to_string();
+        let creator_inbox_id = context.inbox_id() as String;
         let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata =
             build_protected_metadata_extension(creator_inbox_id.clone(), Purpose::Sync)?;
