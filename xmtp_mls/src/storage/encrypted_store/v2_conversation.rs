@@ -61,7 +61,7 @@ impl DbConnection {
         &self,
     ) -> Result<Vec<StoredV2Conversation>, StorageError> {
         Ok(self.raw_query(|conn| -> diesel::QueryResult<_> {
-            dsl::v2_conversations
+            dsl::v2_conversations.load(conn)
         })?)
     }
 
