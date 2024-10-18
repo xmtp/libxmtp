@@ -1,0 +1,44 @@
+name: Test Workspace
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    # only run tests when related changes are made
+    paths:
+      - ".github/workflows/test-workspace-against-dev.yml"
+      - "dev/**"
+      - "mls_validation_service/**"
+      - "xmtp_api_grpc/**"
+      - "xmtp_cryptography/**"
+      - "xmtp_id/**"
+      - "xmtp_mls/**"
+      - "xmtp_proto/**"
+      - "xmtp_v2/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain"
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  test:
+    name: Test
+    runs-on: warp-ubuntu-latest-x64-16x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Update rust toolchains
+        run: rustup update
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+      - name: build tests
+        run: cargo nextest run --features test-dev --no-run --workspace --tests --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
+      - name: cargo test
+        run: cargo nextest run --features test-dev --workspace --test-threads 2 --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm

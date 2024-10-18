@@ -153,7 +153,11 @@ impl ClientBuilder<TestClient> {
 
     /// Add the local client to this builder
     pub async fn local_client(self) -> Self {
-        self.api_client(<TestClient as XmtpTestClient>::create_local().await)
+        if cfg!(feature = "test-dev") {
+            self.api_client(<TestClient as XmtpTestClient>::create_dev().await)
+        } else {
+            self.api_client(<TestClient as XmtpTestClient>::create_local().await)
+        }
     }
 
     pub async fn dev_client(self) -> Self {
@@ -187,6 +191,7 @@ where
 
     client
 }
+
 /// wrapper over a `Notify` with a 60-scond timeout for waiting
 #[derive(Clone, Default)]
 pub struct Delivery {

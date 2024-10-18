@@ -29,9 +29,31 @@ use xmtp_proto::{
     },
 };
 
-async fn create_tls_channel(address: String) -> Result<Channel, Error> {
+#[derive(thiserror::Error, Debug)]
+pub enum GrpcError {
+    #[error("failed to create channel {0}")]
+    SetupCreateChannel(#[from] http::uri::InvalidUri),
+    #[error("tls configuration failed: {0}")]
+    SetupTLSConfig(tonic::transport::Error, String),
+    #[error("connection setup failed {0}")]
+    SetupConnection(tonic::transport::Error),
+    #[error(transparent)]
+    Transport(#[from] tonic::transport::Error),
+    #[error("metadata error {0}")]
+    MetadataValueConversion(#[from] tonic::metadata::errors::InvalidMetadataValueBytes)
+    #[error("publish error {0}")]
+    Publish()
+
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum PublishError {
+    Parse(#[from] )
+}
+
+async fn create_tls_channel(address: String) -> Result<Channel, GrpcError> {
     let channel = Channel::from_shared(address)
-        .map_err(|e| Error::new(ErrorKind::SetupCreateChannelError).with(e))?
+        .map_err(GrpcError::SetupCreateChannel)?
         // Purpose: This setting controls the size of the initial connection-level flow control window for HTTP/2, which is the underlying protocol for gRPC.
         // Functionality: Flow control in HTTP/2 manages how much data can be in flight on the network. Setting the initial connection window size to (1 << 31) - 1 (the maximum possible value for a 32-bit integer, which is 2,147,483,647 bytes) essentially allows the client to receive a very large amount of data from the server before needing to acknowledge receipt and permit more data to be sent. This can be particularly useful in high-latency networks or when transferring large amounts of data.
         // Impact: Increasing the window size can improve throughput by allowing more data to be in transit at a time, but it may also increase memory usage and can potentially lead to inefficient use of bandwidth if the network is unreliable.
@@ -57,10 +79,10 @@ async fn create_tls_channel(address: String) -> Result<Channel, Error> {
         // Impact: This setting is crucial for quickly detecting unresponsive connections and freeing up resources associated with them. It ensures that the client has up-to-date information on the status of connections and can react accordingly.
         .keep_alive_timeout(Duration::from_secs(25))
         .tls_config(ClientTlsConfig::new().with_enabled_roots())
-        .map_err(|e| Error::new(ErrorKind::SetupTLSConfigError).with(e))?
+        .map_err(|e| GrpcError::Transport(e))?
         .connect()
         .await
-        .map_err(|e| Error::new(ErrorKind::SetupConnectionError).with(e))?;
+        .map_err(|e| GrpcError::SetupConnection(e))?;
 
     Ok(channel)
 }
@@ -75,20 +97,18 @@ pub struct Client {
 }
 
 impl Client {
-    pub async fn create(host: String, is_secure: bool) -> Result<Self, Error> {
+    pub async fn create(host: String, is_secure: bool) -> Result<Self, GrpcError> {
         let host = host.to_string();
-        let app_version = MetadataValue::try_from(&String::from("0.0.0"))
-            .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
-        let libxmtp_version = MetadataValue::try_from(&String::from("0.0.0"))
-            .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
+        let app_version = MetadataValue::try_from(&String::from("0.0.0"))?;
+        let libxmtp_version = MetadataValue::try_from(&String::from("0.0.0"))?;
 
         let channel = match is_secure {
             true => create_tls_channel(host).await?,
             false => Channel::from_shared(host)
-                .map_err(|e| Error::new(ErrorKind::SetupCreateChannelError).with(e))?
+                .map_err(GrpcError::SetupCreateChannel)?
                 .connect()
                 .await
-                .map_err(|e| Error::new(ErrorKind::SetupConnectionError).with(e))?,
+                .map_err(GrpcError::SetupConnection)?,
         };
 
         let client = MessageApiClient::new(channel.clone());
@@ -121,15 +141,13 @@ impl Client {
 
 impl ClientWithMetadata for Client {
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Error> {
-        self.libxmtp_version = MetadataValue::try_from(&version)
-            .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
+        self.libxmtp_version = MetadataValue::try_from(&version)?;
 
         Ok(())
     }
 
     fn set_app_version(&mut self, version: String) -> Result<(), Error> {
-        self.app_version = MetadataValue::try_from(&version)
-            .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
+        self.app_version = MetadataValue::try_from(&version)?;
 
         Ok(())
     }
@@ -143,11 +161,9 @@ impl XmtpApiClient for Client {
         &self,
         token: String,
         request: PublishRequest,
-    ) -> Result<PublishResponse, Error> {
+    ) -> Result<PublishResponse, PublishError> {
         let auth_token_string = format!("Bearer {}", token);
-        let token: MetadataValue<_> = auth_token_string
-            .parse()
-            .map_err(|e| Error::new(ErrorKind::PublishError).with(e))?;
+        let token: MetadataValue<_> = auth_token_string.parse()?;
 
         let mut tonic_request = self.build_request(request);
         tonic_request.metadata_mut().insert("authorization", token);
@@ -156,8 +172,7 @@ impl XmtpApiClient for Client {
         client
             .publish(tonic_request)
             .await
-            .map(|r| r.into_inner())
-            .map_err(|e| Error::new(ErrorKind::PublishError).with(e))
+            .map(|r| r.into_inner())?;
     }
 
     async fn subscribe(&self, request: SubscribeRequest) -> Result<Subscription, Error> {

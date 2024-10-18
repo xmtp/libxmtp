@@ -4,6 +4,7 @@ name = "xmtp_api_grpc"
 version.workspace = true
 
 [dependencies]
+thiserror.workspace = true
 async-stream.workspace = true
 base64.workspace = true
 futures.workspace = true
@@ -14,6 +15,7 @@ tonic = { workspace = true, features = [
     "tls-native-roots",
     "tls-webpki-roots",
 ] }
+http = "1.1" # for error msgs from tonic
 tracing.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 xmtp_v2 = { path = "../xmtp_v2" }

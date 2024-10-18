@@ -1206,7 +1206,7 @@ dependencies = [
 [[package]]
 name = "diesel"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#efd59557a15322f1a54a5c263b1eb4ec0b5a0783"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#b170af753cc3c6774f578aae1081711a09dfa2ac"
 dependencies = [
  "diesel_derives",
  "downcast-rs",
@@ -1236,7 +1236,7 @@ dependencies = [
 [[package]]
 name = "diesel_derives"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#efd59557a15322f1a54a5c263b1eb4ec0b5a0783"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#b170af753cc3c6774f578aae1081711a09dfa2ac"
 dependencies = [
  "diesel_table_macro_syntax",
  "dsl_auto_type",
@@ -1248,7 +1248,7 @@ dependencies = [
 [[package]]
 name = "diesel_migrations"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#efd59557a15322f1a54a5c263b1eb4ec0b5a0783"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#b170af753cc3c6774f578aae1081711a09dfa2ac"
 dependencies = [
  "diesel",
  "migrations_internals",
@@ -1258,7 +1258,7 @@ dependencies = [
 [[package]]
 name = "diesel_table_macro_syntax"
 version = "0.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#efd59557a15322f1a54a5c263b1eb4ec0b5a0783"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#b170af753cc3c6774f578aae1081711a09dfa2ac"
 dependencies = [
  "syn 2.0.79",
 ]
@@ -1341,7 +1341,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "dsl_auto_type"
 version = "0.1.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#efd59557a15322f1a54a5c263b1eb4ec0b5a0783"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#b170af753cc3c6774f578aae1081711a09dfa2ac"
 dependencies = [
  "darling",
  "either",
@@ -2600,19 +2600,6 @@ dependencies = [
 
 [[package]]
 name = "hyper-tls"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6183ddfa99b85da61a140bea0efc93fdf56ceaa041b37d553518030827f9905"
-dependencies = [
- "bytes",
- "hyper 0.14.31",
- "native-tls",
- "tokio",
- "tokio-native-tls",
-]
-
-[[package]]
-name = "hyper-tls"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70206fc6890eaca9fde8a0bf71caa2ddfc9fe045ac9e5c70df101a7dbde866e0"
@@ -2964,9 +2951,9 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "libc"
-version = "0.2.159"
+version = "0.2.161"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "561d97a539a36e26a9a5fad1ea11a3039a67714694aaa379433e580854bc3dc5"
+checksum = "8e9489c2807c139ffd9c1794f4af0ebe86a828db53ecdc7fea2111d0fed085d1"
 
 [[package]]
 name = "libloading"
@@ -3114,7 +3101,7 @@ checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 [[package]]
 name = "migrations_internals"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#efd59557a15322f1a54a5c263b1eb4ec0b5a0783"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#b170af753cc3c6774f578aae1081711a09dfa2ac"
 dependencies = [
  "serde",
  "toml 0.8.19",
@@ -3123,7 +3110,7 @@ dependencies = [
 [[package]]
 name = "migrations_macros"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#efd59557a15322f1a54a5c263b1eb4ec0b5a0783"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#b170af753cc3c6774f578aae1081711a09dfa2ac"
 dependencies = [
  "migrations_internals",
  "proc-macro2",
@@ -3619,9 +3606,9 @@ dependencies = [
 
 [[package]]
 name = "openssl"
-version = "0.10.68"
+version = "0.10.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6174bc48f102d208783c2c84bf931bb75927a617866870de8a4ea85597f871f5"
+checksum = "bac25ee399abb46215765b1cb35bc0212377e58a061560d8b29b024fd0430e7c"
 dependencies = [
  "bitflags 2.6.0",
  "cfg-if",
@@ -3651,18 +3638,18 @@ checksum = "ff011a302c396a5197692431fc1948019154afc178baf7d8e37367442a4601cf"
 
 [[package]]
 name = "openssl-src"
-version = "300.3.2+3.3.2"
+version = "111.28.2+1.1.1w"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a211a18d945ef7e648cc6e0058f4c548ee46aab922ea203e0d30e966ea23647b"
+checksum = "bb1830e20a48a975ca898ca8c1d036a36c3c6c5cb7dabc1c216706587857920f"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.104"
+version = "0.9.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45abf306cbf99debc8195b66b7346498d7b10c210de50418b5ccd7ceba08c741"
+checksum = "db7e971c2c2bba161b2d2fdf37080177eff520b3bc044787c7f1f5f9e78d869b"
 dependencies = [
  "cc",
  "libc",
@@ -4424,12 +4411,10 @@ dependencies = [
  "http-body 0.4.6",
  "hyper 0.14.31",
  "hyper-rustls 0.24.2",
- "hyper-tls 0.5.0",
  "ipnet",
  "js-sys",
  "log",
  "mime",
- "native-tls",
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
@@ -4441,7 +4426,6 @@ dependencies = [
  "sync_wrapper 0.1.2",
  "system-configuration 0.5.1",
  "tokio",
- "tokio-native-tls",
  "tokio-rustls 0.24.1",
  "tower-service",
  "url",
@@ -4469,7 +4453,7 @@ dependencies = [
  "http-body-util",
  "hyper 1.5.0",
  "hyper-rustls 0.27.3",
- "hyper-tls 0.6.0",
+ "hyper-tls",
  "hyper-util",
  "ipnet",
  "js-sys",
@@ -4976,9 +4960,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.128"
+version = "1.0.129"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ff5456707a1de34e7e37f2a6fd3d3f808c318259cbd01ab6377795054b483d8"
+checksum = "6dbcf9b78a125ee667ae19388837dd12294b858d101fdd393cb9d5501ef09eb2"
 dependencies = [
  "itoa",
  "memchr",
@@ -5695,10 +5679,8 @@ checksum = "212d5dcb2a1ce06d81107c3d0ffa3121fe974b73f068c8282cb1c32328113b6c"
 dependencies = [
  "futures-util",
  "log",
- "native-tls",
  "rustls 0.21.12",
  "tokio",
- "tokio-native-tls",
  "tokio-rustls 0.24.1",
  "tungstenite 0.20.1",
  "webpki-roots 0.25.4",
@@ -5973,7 +5955,6 @@ dependencies = [
  "http 0.2.12",
  "httparse",
  "log",
- "native-tls",
  "rand",
  "rustls 0.21.12",
  "sha1",
@@ -6842,7 +6823,9 @@ dependencies = [
  "base64 0.22.1",
  "futures",
  "hex",
+ "http 1.1.0",
  "prost",
+ "thiserror",
  "tokio",
  "tonic",
  "tracing",
@@ -7019,6 +7002,7 @@ dependencies = [
  "pbjson-types",
  "prost",
  "serde",
+ "thiserror",
  "tonic",
  "trait-variant",
  "wasm-bindgen-test",
