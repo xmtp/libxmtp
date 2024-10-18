@@ -128,3 +128,6 @@ diesel-wasm-sqlite = { git = "https://github.com/xmtp/diesel-wasm-sqlite", branc
 diesel = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_derives = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_migrations = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
+# https://github.com/xmtp/rust-openssl on the branch clone-v0.9.92, which is pinned
+# to that version. Once this is addressed upstream we can remove the patch.
+openssl-sys = { git = "https://github.com/xmtp/rust-openssl.git", branch = "clone-v0.9.92" }
