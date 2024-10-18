@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use xmtp_cryptography::utils as crypto_utils;
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKeyType as DeviceSyncKeyTypeProto;
 use xmtp_proto::xmtp::mls::message_contents::{
     device_sync_key_type::Key, DeviceSyncReply as DeviceSyncReplyProto,
@@ -24,6 +26,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 
+use crate::Client;
 use crate::{client::ClientError, storage::StorageError};
 
 #[cfg(feature = "consent-sync")]
@@ -88,6 +91,24 @@ impl MessageHistoryUrls {
     pub const LOCAL_ADDRESS: &'static str = "http://0.0.0.0:5558";
     pub const DEV_ADDRESS: &'static str = "https://message-history.dev.ephemera.network/";
     pub const PRODUCTION_ADDRESS: &'static str = "https://message-history.ephemera.network/";
+}
+
+impl<ApiClient, V> Client<ApiClient, V>
+where
+    ApiClient: XmtpApi + Clone,
+    V: SmartContractSignatureVerifier + Clone,
+{
+    pub fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
+        let conn = self.store().conn()?;
+        let sync_group_id = conn
+            .find_sync_groups()?
+            .pop()
+            .ok_or(GroupError::GroupNotFound)?
+            .id;
+        let sync_group = self.group(sync_group_id.clone())?;
+
+        Ok(sync_group)
+    }
 }
 
 pub(crate) fn decrypt_history_file(

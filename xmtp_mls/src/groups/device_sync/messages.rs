@@ -37,18 +37,6 @@ where
     ApiClient: XmtpApi + Clone,
     V: SmartContractSignatureVerifier + Clone,
 {
-    pub fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
-        let conn = self.store().conn()?;
-        let sync_group_id = conn
-            .find_sync_groups()?
-            .pop()
-            .ok_or(GroupError::GroupNotFound)?
-            .id;
-        let sync_group = self.group(sync_group_id.clone())?;
-
-        Ok(sync_group)
-    }
-
     pub async fn enable_history_sync(&self) -> Result<(), GroupError> {
         // look for the sync group, create if not found
         let sync_group = match self.get_sync_group() {
