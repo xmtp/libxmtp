@@ -1143,7 +1143,6 @@ fn build_protected_metadata_extension(
     let group_type = match group_purpose {
         Purpose::Conversation => ConversationType::Group,
         Purpose::Sync => ConversationType::Sync,
-        Purpose::ConsentSync => ConversationType::Sync,
     };
 
     let metadata = GroupMetadata::new(group_type, creator_inbox_id, None);

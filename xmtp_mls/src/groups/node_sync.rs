@@ -14,7 +14,7 @@ use super::{
     GroupError, MlsGroup, ScopedGroupClient,
 };
 #[cfg(feature = "message-history")]
-use crate::groups::device_sync::messages::MessageHistoryContent;
+use crate::groups::device_sync::DeviceSyncContent;
 use crate::{
     client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
@@ -409,8 +409,8 @@ where
                     })) => match message_type {
                         #[cfg(feature = "message-history")]
                         Some(Request(history_request)) => {
-                            let content: MessageHistoryContent =
-                                MessageHistoryContent::Request(history_request);
+                            let content: DeviceSyncContent =
+                                DeviceSyncContent::Request(history_request);
                             let content_bytes = serde_json::to_vec(&content)?;
                             let message_id = calculate_message_id(
                                 &self.group_id,
@@ -433,8 +433,8 @@ where
                         }
                         #[cfg(feature = "message-history")]
                         Some(Reply(history_reply)) => {
-                            let content: MessageHistoryContent =
-                                MessageHistoryContent::Reply(history_reply);
+                            let content: DeviceSyncContent =
+                                DeviceSyncContent::Reply(history_reply);
                             let content_bytes = serde_json::to_vec(&content)?;
                             let message_id = calculate_message_id(
                                 &self.group_id,

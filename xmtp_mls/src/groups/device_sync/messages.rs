@@ -7,13 +7,12 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{
     xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{Reply, Request},
     xmtp::mls::message_contents::plaintext_envelope::{Content, V2},
     xmtp::mls::message_contents::PlaintextEnvelope,
-    xmtp::mls::message_contents::{MessageHistoryReply, MessageHistoryRequest},
 };
 
 use super::*;
@@ -25,12 +24,6 @@ use crate::{
     storage::group::StoredGroup,
     Client, Store,
 };
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum MessageHistoryContent {
-    Request(MessageHistoryRequest),
-    Reply(MessageHistoryReply),
-}
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
@@ -100,22 +93,23 @@ where
             None,
         )?;
 
+        // idempotency
         let last_message = messages.last();
         if let Some(msg) = last_message {
             let message_history_content =
-                serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes)?;
+                serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes)?;
 
-            if let MessageHistoryContent::Request(request) = message_history_content {
+            if let DeviceSyncContent::Request(request) = message_history_content {
                 return Ok((request.request_id, request.pin_code));
             }
         };
 
         // build the request
-        let history_request = HistoryRequest::new();
+        let history_request = DeviceSyncRequest::new();
         let pin_code = history_request.pin_code.clone();
         let request_id = history_request.request_id.clone();
 
-        let content = MessageHistoryContent::Request(MessageHistoryRequest {
+        let content = DeviceSyncContent::Request(DeviceSyncRequestProto {
             request_id: request_id.clone(),
             pin_code: pin_code.clone(),
         });
@@ -141,7 +135,7 @@ where
 
     pub(crate) async fn send_history_reply(
         &self,
-        contents: MessageHistoryReply,
+        contents: DeviceSyncReplyProto,
     ) -> Result<(), MessageHistoryError> {
         // find the sync group
         let conn = self.store().conn()?;
@@ -161,16 +155,16 @@ where
         let last_message = match messages.last() {
             Some(msg) => {
                 let message_history_content =
-                    serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes)?;
+                    serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes)?;
                 match message_history_content {
-                    MessageHistoryContent::Request(request) => {
+                    DeviceSyncContent::Request(request) => {
                         // check that the request ID matches
                         if !request.request_id.eq(&contents.request_id) {
                             return Err(MessageHistoryError::ReplyRequestIdMismatch);
                         }
                         Some(msg)
                     }
-                    MessageHistoryContent::Reply(_) => {
+                    DeviceSyncContent::Reply(_) => {
                         // if last message is a reply, it's already been processed
                         return Err(MessageHistoryError::ReplyAlreadyProcessed);
                     }
@@ -190,7 +184,7 @@ where
         }
 
         // the reply message
-        let content = MessageHistoryContent::Reply(contents.clone());
+        let content = DeviceSyncContent::Reply(contents.clone());
         let content_bytes = serde_json::to_vec(&content)?;
 
         let _message_id =
@@ -229,12 +223,10 @@ where
 
         let history_request: Option<(String, String)> = if let Some(msg) = last_message {
             let message_history_content =
-                serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes)?;
+                serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes)?;
             match message_history_content {
                 // if the last message is a request, return its request ID and pin code
-                MessageHistoryContent::Request(request) => {
-                    Some((request.request_id, request.pin_code))
-                }
+                DeviceSyncContent::Request(request) => Some((request.request_id, request.pin_code)),
                 _ => None,
             }
         } else {
@@ -246,11 +238,11 @@ where
 
     pub async fn reply_to_history_request(
         &self,
-    ) -> Result<MessageHistoryReply, MessageHistoryError> {
+    ) -> Result<DeviceSyncReplyProto, MessageHistoryError> {
         let pending_request = self.get_pending_history_request().await?;
 
         if let Some((request_id, _)) = pending_request {
-            let reply: MessageHistoryReply = self.prepare_history_reply(&request_id).await?.into();
+            let reply: DeviceSyncReplyProto = self.prepare_history_reply(&request_id).await?.into();
             self.send_history_reply(reply.clone()).await?;
             return Ok(reply);
         }
@@ -260,7 +252,7 @@ where
 
     pub async fn get_latest_history_reply(
         &self,
-    ) -> Result<Option<MessageHistoryReply>, MessageHistoryError> {
+    ) -> Result<Option<DeviceSyncReplyProto>, MessageHistoryError> {
         let sync_group = self.get_sync_group()?;
 
         // sync the group
@@ -276,7 +268,7 @@ where
 
         let last_message = messages.last();
 
-        let reply: Option<MessageHistoryReply> = match last_message {
+        let reply: Option<DeviceSyncReplyProto> = match last_message {
             Some(msg) => {
                 // if the message was sent by this installation, ignore it
                 if msg
@@ -285,12 +277,11 @@ where
                 {
                     None
                 } else {
-                    let message_history_content = serde_json::from_slice::<MessageHistoryContent>(
-                        &msg.decrypted_message_bytes,
-                    )?;
+                    let message_history_content =
+                        serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes)?;
                     match message_history_content {
                         // if the last message is a reply, return it
-                        MessageHistoryContent::Reply(reply) => Some(reply),
+                        DeviceSyncContent::Reply(reply) => Some(reply),
                         _ => None,
                     }
                 }
@@ -350,10 +341,10 @@ where
         )?;
         let request = requests.into_iter().find(|msg| {
             let message_history_content =
-                serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
+                serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes);
 
             match message_history_content {
-                Ok(MessageHistoryContent::Request(request)) => {
+                Ok(DeviceSyncContent::Request(request)) => {
                     request.request_id.eq(request_id) && request.pin_code.eq(pin_code)
                 }
                 Err(e) => {
@@ -401,7 +392,7 @@ where
     pub(crate) async fn prepare_history_reply(
         &self,
         request_id: &str,
-    ) -> Result<HistoryReply, MessageHistoryError> {
+    ) -> Result<DeviceSyncReply, MessageHistoryError> {
         let (history_file, enc_key) = self.write_history_bundle().await?;
         let url = match &self.history_sync_url {
             Some(url) => url.as_str(),
@@ -415,10 +406,12 @@ where
 
         tracing::info!("history bundle uploaded to {:?}", bundle_url);
 
-        Ok(HistoryReply::new(request_id, &bundle_url, enc_key))
+        Ok(DeviceSyncReply::new(request_id, &bundle_url, enc_key))
     }
 
-    async fn write_history_bundle(&self) -> Result<(PathBuf, HistoryKeyType), MessageHistoryError> {
+    async fn write_history_bundle(
+        &self,
+    ) -> Result<(PathBuf, DeviceSyncKeyType), MessageHistoryError> {
         let groups = self.prepare_groups_to_sync().await?;
         let messages = self.prepare_messages_to_sync().await?;
 
@@ -427,7 +420,7 @@ where
         write_to_file(temp_file.as_path(), messages)?;
 
         let history_file = std::env::temp_dir().join("history.jsonl.enc");
-        let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let enc_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
         encrypt_history_file(
             temp_file.as_path(),
             history_file.as_path(),
@@ -595,8 +588,8 @@ pub(crate) mod tests {
 
         let request_id = new_request_id();
         let url = "https://test.com/abc-123";
-        let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
-        let reply = HistoryReply::new(&request_id, url, encryption_key);
+        let encryption_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
+        let reply = DeviceSyncReply::new(&request_id, url, encryption_key);
         let result = client.send_history_reply(reply.into()).await;
 
         // the reply should fail because there's no pending request to reply to
@@ -609,16 +602,16 @@ pub(crate) mod tests {
 
         let request_id2 = new_request_id();
         let url = "https://test.com/abc-123";
-        let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
-        let reply = HistoryReply::new(&request_id2, url, encryption_key);
+        let encryption_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
+        let reply = DeviceSyncReply::new(&request_id2, url, encryption_key);
         let result = client.send_history_reply(reply.into()).await;
 
         // the reply should fail because there's a mismatched request ID
         assert!(result.is_err());
 
         let url = "https://test.com/abc-123";
-        let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
-        let reply = HistoryReply::new(&request_id, url, encryption_key);
+        let encryption_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
+        let reply = DeviceSyncReply::new(&request_id, url, encryption_key);
         let result = client.send_history_reply(reply.into()).await;
 
         // the reply should succeed with a valid request ID
@@ -727,7 +720,7 @@ pub(crate) mod tests {
 
         let output_file = NamedTempFile::new().unwrap();
         let output_path = output_file.path();
-        let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let encryption_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
         encrypt_history_file(input_path, output_path, encryption_key.as_bytes()).unwrap();
 
         let mut file = File::open(output_path).unwrap();
@@ -761,7 +754,8 @@ pub(crate) mod tests {
         amal_a_sync_group.sync().await.expect("sync");
 
         // amal_a builds and sends a message history reply back
-        let history_reply = HistoryReply::new(&new_request_id(), &history_sync_url, encryption_key);
+        let history_reply =
+            DeviceSyncReply::new(&new_request_id(), &history_sync_url, encryption_key);
         amal_a
             .send_history_reply(history_reply.into())
             .await
@@ -853,8 +847,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_encrypt_decrypt_file() {
-        let key = HistoryKeyType::new_chacha20_poly1305_key();
-        let converted_key: MessageHistoryKeyType = key.into();
+        let key = DeviceSyncKeyType::new_chacha20_poly1305_key();
+        let converted_key: DeviceSyncKeyTypeProto = key.into();
         let key_bytes = key.as_bytes();
         let input_content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'";
         let input_file = NamedTempFile::new().expect("Unable to create temp file");
@@ -1036,7 +1030,7 @@ pub(crate) mod tests {
 
         // amal_a sends a reply
         amal_a
-            .send_history_reply(MessageHistoryReply {
+            .send_history_reply(DeviceSyncReplyProto {
                 request_id: request_id.clone(),
                 url: "http://foo/bar".to_string(),
                 encryption_key: None,
@@ -1135,7 +1129,7 @@ pub(crate) mod tests {
             .expect("Unable to write history bundle");
 
         let output_file = NamedTempFile::new().expect("Unable to create temp file");
-        let converted_key: MessageHistoryKeyType = enc_key.into();
+        let converted_key: DeviceSyncKeyTypeProto = enc_key.into();
         decrypt_history_file(&bundle_path, output_file.path(), converted_key)
             .expect("Unable to decrypt history file");
 
@@ -1196,8 +1190,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_new_key() {
-        let sig_key = HistoryKeyType::new_chacha20_poly1305_key();
-        let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let sig_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
+        let enc_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
         assert_eq!(sig_key.len(), ENC_KEY_SIZE);
         assert_eq!(enc_key.len(), ENC_KEY_SIZE);
         // ensure keys are different (seed isn't reused)

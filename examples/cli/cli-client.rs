@@ -20,7 +20,7 @@ use kv_log_macro::{error, info};
 use prost::Message;
 use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature};
 use xmtp_mls::client::FindGroupParams;
-use xmtp_mls::groups::device_sync::messages::MessageHistoryContent;
+use xmtp_mls::groups::device_sync::DeviceSyncContent;
 use xmtp_mls::storage::group_message::GroupMessageKind;
 
 use crate::{
@@ -390,15 +390,14 @@ async fn main() {
                 .unwrap();
             info!("Listing history sync messages", { group_id: group_id_str, messages: messages.len()});
             for message in messages {
-                let message_history_content = serde_json::from_slice::<MessageHistoryContent>(
-                    &message.decrypted_message_bytes,
-                );
+                let message_history_content =
+                    serde_json::from_slice::<DeviceSyncContent>(&message.decrypted_message_bytes);
 
                 match message_history_content {
-                    Ok(MessageHistoryContent::Request(ref request)) => {
+                    Ok(DeviceSyncContent::Request(ref request)) => {
                         info!("Request: {:?}", request);
                     }
-                    Ok(MessageHistoryContent::Reply(ref reply)) => {
+                    Ok(DeviceSyncContent::Reply(ref reply)) => {
                         info!("Reply: {:?}", reply);
                     }
                     _ => {

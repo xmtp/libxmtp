@@ -76,9 +76,10 @@ pub enum MessageHistoryError {
     InvalidBundleUrl,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub enum DeviceSyncContent {
-    Request(DeviceSyncRequest),
-    Reply(DeviceSyncReply),
+    Request(DeviceSyncRequestProto),
+    Reply(DeviceSyncReplyProto),
 }
 
 pub struct MessageHistoryUrls;
