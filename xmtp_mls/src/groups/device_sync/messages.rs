@@ -7,94 +7,23 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
-use rand::{
-    distributions::{Alphanumeric, DistString},
-    Rng, RngCore,
-};
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
-
-use xmtp_cryptography::utils as crypto_utils;
+use serde::Deserialize;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{
     xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{Reply, Request},
     xmtp::mls::message_contents::plaintext_envelope::{Content, V2},
     xmtp::mls::message_contents::PlaintextEnvelope,
-    xmtp::mls::message_contents::{
-        message_history_key_type::Key, MessageHistoryKeyType, MessageHistoryReply,
-        MessageHistoryRequest,
-    },
 };
 
-use super::group_metadata::ConversationType;
+use super::*;
 use super::{GroupError, MlsGroup};
 
 use crate::XmtpApi;
 use crate::{
-    client::ClientError,
     groups::{GroupMessageKind, StoredGroupMessage},
-    storage::{group::StoredGroup, StorageError},
+    storage::group::StoredGroup,
     Client, Store,
 };
-
-const ENC_KEY_SIZE: usize = 32; // 256-bit key
-const NONCE_SIZE: usize = 12; // 96-bit nonce
-
-pub struct MessageHistoryUrls;
-
-impl MessageHistoryUrls {
-    pub const LOCAL_ADDRESS: &'static str = "http://0.0.0.0:5558";
-    pub const DEV_ADDRESS: &'static str = "https://message-history.dev.ephemera.network/";
-    pub const PRODUCTION_ADDRESS: &'static str = "https://message-history.ephemera.network/";
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum MessageHistoryContent {
-    Request(MessageHistoryRequest),
-    Reply(MessageHistoryReply),
-}
-
-#[derive(Debug, Error)]
-pub enum MessageHistoryError {
-    #[error("pin not found")]
-    PinNotFound,
-    #[error("pin does not match the expected value")]
-    PinMismatch,
-    #[error("IO error: {0}")]
-    IO(#[from] std::io::Error),
-    #[error("Serialization/Deserialization Error {0}")]
-    Serde(#[from] serde_json::Error),
-    #[error("AES-GCM encryption error")]
-    AesGcm(#[from] aes_gcm::Error),
-    #[error("reqwest error: {0}")]
-    Reqwest(#[from] reqwest::Error),
-    #[error("storage error: {0}")]
-    Storage(#[from] StorageError),
-    #[error("type conversion error")]
-    Conversion,
-    #[error("utf-8 error: {0}")]
-    UTF8(#[from] std::str::Utf8Error),
-    #[error("client error: {0}")]
-    Client(#[from] ClientError),
-    #[error("group error: {0}")]
-    Group(#[from] GroupError),
-    #[error("request ID of reply does not match request")]
-    ReplyRequestIdMismatch,
-    #[error("reply already processed")]
-    ReplyAlreadyProcessed,
-    #[error("no pending request to reply to")]
-    NoPendingRequest,
-    #[error("no reply to process")]
-    NoReplyToProcess,
-    #[error("generic: {0}")]
-    Generic(String),
-    #[error("missing history sync url")]
-    MissingHistorySyncUrl,
-    #[error("invalid history message payload")]
-    InvalidPayload,
-    #[error("invalid history bundle url")]
-    InvalidBundleUrl,
-}
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
@@ -108,18 +37,6 @@ where
     ApiClient: XmtpApi + Clone,
     V: SmartContractSignatureVerifier + Clone,
 {
-    pub fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
-        let conn = self.store().conn()?;
-        let sync_group_id = conn
-            .find_sync_groups()?
-            .pop()
-            .ok_or(GroupError::GroupNotFound)?
-            .id;
-        let sync_group = self.group(sync_group_id.clone())?;
-
-        Ok(sync_group)
-    }
-
     pub async fn enable_history_sync(&self) -> Result<(), GroupError> {
         // look for the sync group, create if not found
         let sync_group = match self.get_sync_group() {
@@ -164,22 +81,23 @@ where
             None,
         )?;
 
+        // idempotency
         let last_message = messages.last();
         if let Some(msg) = last_message {
             let message_history_content =
-                serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes)?;
+                serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes)?;
 
-            if let MessageHistoryContent::Request(request) = message_history_content {
+            if let DeviceSyncContent::Request(request) = message_history_content {
                 return Ok((request.request_id, request.pin_code));
             }
         };
 
         // build the request
-        let history_request = HistoryRequest::new();
+        let history_request = DeviceSyncRequest::new();
         let pin_code = history_request.pin_code.clone();
         let request_id = history_request.request_id.clone();
 
-        let content = MessageHistoryContent::Request(MessageHistoryRequest {
+        let content = DeviceSyncContent::Request(DeviceSyncRequestProto {
             request_id: request_id.clone(),
             pin_code: pin_code.clone(),
         });
@@ -205,7 +123,7 @@ where
 
     pub(crate) async fn send_history_reply(
         &self,
-        contents: MessageHistoryReply,
+        contents: DeviceSyncReplyProto,
     ) -> Result<(), MessageHistoryError> {
         // find the sync group
         let conn = self.store().conn()?;
@@ -225,16 +143,16 @@ where
         let last_message = match messages.last() {
             Some(msg) => {
                 let message_history_content =
-                    serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes)?;
+                    serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes)?;
                 match message_history_content {
-                    MessageHistoryContent::Request(request) => {
+                    DeviceSyncContent::Request(request) => {
                         // check that the request ID matches
                         if !request.request_id.eq(&contents.request_id) {
                             return Err(MessageHistoryError::ReplyRequestIdMismatch);
                         }
                         Some(msg)
                     }
-                    MessageHistoryContent::Reply(_) => {
+                    DeviceSyncContent::Reply(_) => {
                         // if last message is a reply, it's already been processed
                         return Err(MessageHistoryError::ReplyAlreadyProcessed);
                     }
@@ -254,7 +172,7 @@ where
         }
 
         // the reply message
-        let content = MessageHistoryContent::Reply(contents.clone());
+        let content = DeviceSyncContent::Reply(contents.clone());
         let content_bytes = serde_json::to_vec(&content)?;
 
         let _message_id =
@@ -293,12 +211,10 @@ where
 
         let history_request: Option<(String, String)> = if let Some(msg) = last_message {
             let message_history_content =
-                serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes)?;
+                serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes)?;
             match message_history_content {
                 // if the last message is a request, return its request ID and pin code
-                MessageHistoryContent::Request(request) => {
-                    Some((request.request_id, request.pin_code))
-                }
+                DeviceSyncContent::Request(request) => Some((request.request_id, request.pin_code)),
                 _ => None,
             }
         } else {
@@ -310,13 +226,13 @@ where
 
     pub async fn reply_to_history_request(
         &self,
-    ) -> Result<MessageHistoryReply, MessageHistoryError> {
+    ) -> Result<DeviceSyncReplyProto, MessageHistoryError> {
         let pending_request = self.get_pending_history_request().await?;
 
         if let Some((request_id, _)) = pending_request {
-            let reply = self.prepare_history_reply(&request_id).await?;
-            self.send_history_reply(reply.clone().into()).await?;
-            return Ok(reply.into());
+            let reply: DeviceSyncReplyProto = self.prepare_history_reply(&request_id).await?.into();
+            self.send_history_reply(reply.clone()).await?;
+            return Ok(reply);
         }
 
         Err(MessageHistoryError::NoPendingRequest)
@@ -324,7 +240,7 @@ where
 
     pub async fn get_latest_history_reply(
         &self,
-    ) -> Result<Option<MessageHistoryReply>, MessageHistoryError> {
+    ) -> Result<Option<DeviceSyncReplyProto>, MessageHistoryError> {
         let sync_group = self.get_sync_group()?;
 
         // sync the group
@@ -340,7 +256,7 @@ where
 
         let last_message = messages.last();
 
-        let reply: Option<MessageHistoryReply> = match last_message {
+        let reply: Option<DeviceSyncReplyProto> = match last_message {
             Some(msg) => {
                 // if the message was sent by this installation, ignore it
                 if msg
@@ -349,12 +265,11 @@ where
                 {
                     None
                 } else {
-                    let message_history_content = serde_json::from_slice::<MessageHistoryContent>(
-                        &msg.decrypted_message_bytes,
-                    )?;
+                    let message_history_content =
+                        serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes)?;
                     match message_history_content {
                         // if the last message is a reply, return it
-                        MessageHistoryContent::Reply(reply) => Some(reply),
+                        DeviceSyncContent::Reply(reply) => Some(reply),
                         _ => None,
                     }
                 }
@@ -414,10 +329,10 @@ where
         )?;
         let request = requests.into_iter().find(|msg| {
             let message_history_content =
-                serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
+                serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes);
 
             match message_history_content {
-                Ok(MessageHistoryContent::Request(request)) => {
+                Ok(DeviceSyncContent::Request(request)) => {
                     request.request_id.eq(request_id) && request.pin_code.eq(pin_code)
                 }
                 Err(e) => {
@@ -465,7 +380,7 @@ where
     pub(crate) async fn prepare_history_reply(
         &self,
         request_id: &str,
-    ) -> Result<HistoryReply, MessageHistoryError> {
+    ) -> Result<DeviceSyncReply, MessageHistoryError> {
         let (history_file, enc_key) = self.write_history_bundle().await?;
         let url = match &self.history_sync_url {
             Some(url) => url.as_str(),
@@ -479,10 +394,12 @@ where
 
         tracing::info!("history bundle uploaded to {:?}", bundle_url);
 
-        Ok(HistoryReply::new(request_id, &bundle_url, enc_key))
+        Ok(DeviceSyncReply::new(request_id, &bundle_url, enc_key))
     }
 
-    async fn write_history_bundle(&self) -> Result<(PathBuf, HistoryKeyType), MessageHistoryError> {
+    async fn write_history_bundle(
+        &self,
+    ) -> Result<(PathBuf, DeviceSyncKeyType), MessageHistoryError> {
         let groups = self.prepare_groups_to_sync().await?;
         let messages = self.prepare_messages_to_sync().await?;
 
@@ -491,7 +408,7 @@ where
         write_to_file(temp_file.as_path(), messages)?;
 
         let history_file = std::env::temp_dir().join("history.jsonl.enc");
-        let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let enc_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
         encrypt_history_file(
             temp_file.as_path(),
             history_file.as_path(),
@@ -566,220 +483,6 @@ fn encrypt_history_file(
     output_file.write_all(&ciphertext)?;
 
     Ok(())
-}
-
-pub(crate) fn decrypt_history_file(
-    input_path: &Path,
-    output_path: &Path,
-    encryption_key: MessageHistoryKeyType,
-) -> Result<(), MessageHistoryError> {
-    let enc_key: HistoryKeyType = encryption_key.try_into()?;
-    let enc_key_bytes = enc_key.as_bytes();
-    // Read the messages file content
-    let mut input_file = File::open(input_path)?;
-    let mut buffer = Vec::new();
-    input_file.read_to_end(&mut buffer)?;
-
-    // Split the nonce and ciphertext
-    let (nonce, ciphertext) = buffer.split_at(NONCE_SIZE);
-
-    // Create a cipher instance
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(enc_key_bytes));
-    let nonce_array = GenericArray::from_slice(nonce);
-
-    // Decrypt the ciphertext
-    let plaintext = cipher.decrypt(nonce_array, ciphertext)?;
-
-    // Write the plaintext to the output file
-    let mut output_file = File::create(output_path)?;
-    output_file.write_all(&plaintext)?;
-
-    Ok(())
-}
-
-async fn upload_history_bundle(
-    url: &str,
-    file_path: PathBuf,
-) -> Result<String, MessageHistoryError> {
-    let mut file = File::open(file_path)?;
-    let mut content = Vec::new();
-    file.read_to_end(&mut content)?;
-
-    let client = reqwest::Client::new();
-    let response = client.post(url).body(content).send().await?;
-
-    if response.status().is_success() {
-        Ok(response.text().await?)
-    } else {
-        tracing::error!(
-            "Failed to upload file. Status code: {} Response: {:?}",
-            response.status(),
-            response
-        );
-        Err(MessageHistoryError::Reqwest(
-            response
-                .error_for_status()
-                .expect_err("Checked for success"),
-        ))
-    }
-}
-
-pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, MessageHistoryError> {
-    let client = reqwest::Client::new();
-
-    tracing::info!("downloading history bundle from {:?}", url);
-
-    let bundle_name = url
-        .split('/')
-        .last()
-        .ok_or(MessageHistoryError::InvalidBundleUrl)?;
-
-    let response = client.get(url).send().await?;
-
-    if response.status().is_success() {
-        let file_name = format!("{}.jsonl.enc", bundle_name);
-        let file_path = std::env::temp_dir().join(file_name);
-        let mut file = File::create(&file_path)?;
-        let bytes = response.bytes().await?;
-        file.write_all(&bytes)?;
-        tracing::info!("downloaded history bundle to {:?}", file_path);
-        Ok(file_path)
-    } else {
-        tracing::error!(
-            "Failed to download file. Status code: {} Response: {:?}",
-            response.status(),
-            response
-        );
-        Err(MessageHistoryError::Reqwest(
-            response
-                .error_for_status()
-                .expect_err("Checked for success"),
-        ))
-    }
-}
-
-#[derive(Clone)]
-struct HistoryRequest {
-    pin_code: String,
-    request_id: String,
-}
-
-impl HistoryRequest {
-    pub(crate) fn new() -> Self {
-        Self {
-            pin_code: new_pin(),
-            request_id: new_request_id(),
-        }
-    }
-}
-
-impl From<HistoryRequest> for MessageHistoryRequest {
-    fn from(req: HistoryRequest) -> Self {
-        MessageHistoryRequest {
-            pin_code: req.pin_code,
-            request_id: req.request_id,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct HistoryReply {
-    /// Unique ID for each client Message History Request
-    request_id: String,
-    /// URL to download the backup bundle
-    url: String,
-    /// Encryption key for the backup bundle
-    encryption_key: HistoryKeyType,
-}
-
-impl HistoryReply {
-    pub(crate) fn new(id: &str, url: &str, encryption_key: HistoryKeyType) -> Self {
-        Self {
-            request_id: id.into(),
-            url: url.into(),
-            encryption_key,
-        }
-    }
-}
-
-impl From<HistoryReply> for MessageHistoryReply {
-    fn from(reply: HistoryReply) -> Self {
-        MessageHistoryReply {
-            request_id: reply.request_id,
-            url: reply.url,
-            encryption_key: Some(reply.encryption_key.into()),
-        }
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub(crate) enum HistoryKeyType {
-    Chacha20Poly1305([u8; ENC_KEY_SIZE]),
-}
-
-impl HistoryKeyType {
-    fn new_chacha20_poly1305_key() -> Self {
-        let mut rng = crypto_utils::rng();
-        let mut key = [0u8; ENC_KEY_SIZE];
-        rng.fill_bytes(&mut key);
-        HistoryKeyType::Chacha20Poly1305(key)
-    }
-
-    fn len(&self) -> usize {
-        match self {
-            HistoryKeyType::Chacha20Poly1305(key) => key.len(),
-        }
-    }
-
-    fn as_bytes(&self) -> &[u8; ENC_KEY_SIZE] {
-        match self {
-            HistoryKeyType::Chacha20Poly1305(key) => key,
-        }
-    }
-}
-
-impl From<HistoryKeyType> for MessageHistoryKeyType {
-    fn from(key: HistoryKeyType) -> Self {
-        match key {
-            HistoryKeyType::Chacha20Poly1305(key) => MessageHistoryKeyType {
-                key: Some(Key::Chacha20Poly1305(key.to_vec())),
-            },
-        }
-    }
-}
-
-impl TryFrom<MessageHistoryKeyType> for HistoryKeyType {
-    type Error = MessageHistoryError;
-    fn try_from(key: MessageHistoryKeyType) -> Result<Self, Self::Error> {
-        let MessageHistoryKeyType { key } = key;
-        match key {
-            Some(k) => {
-                let Key::Chacha20Poly1305(hist_key) = k;
-                match hist_key.try_into() {
-                    Ok(array) => Ok(HistoryKeyType::Chacha20Poly1305(array)),
-                    Err(_) => Err(MessageHistoryError::Conversion),
-                }
-            }
-            None => Err(MessageHistoryError::Conversion),
-        }
-    }
-}
-
-fn new_request_id() -> String {
-    Alphanumeric.sample_string(&mut rand::thread_rng(), ENC_KEY_SIZE)
-}
-
-fn generate_nonce() -> [u8; NONCE_SIZE] {
-    let mut nonce = [0u8; NONCE_SIZE];
-    let mut rng = crypto_utils::rng();
-    rng.fill_bytes(&mut nonce);
-    nonce
-}
-
-fn new_pin() -> String {
-    let mut rng = crypto_utils::rng();
-    let pin: u32 = rng.gen_range(0..10000);
-    format!("{:04}", pin)
 }
 
 #[cfg(all(not(target_arch = "wasm32"), test))]
@@ -873,8 +576,8 @@ pub(crate) mod tests {
 
         let request_id = new_request_id();
         let url = "https://test.com/abc-123";
-        let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
-        let reply = HistoryReply::new(&request_id, url, encryption_key);
+        let encryption_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
+        let reply = DeviceSyncReply::new(&request_id, url, encryption_key);
         let result = client.send_history_reply(reply.into()).await;
 
         // the reply should fail because there's no pending request to reply to
@@ -887,16 +590,16 @@ pub(crate) mod tests {
 
         let request_id2 = new_request_id();
         let url = "https://test.com/abc-123";
-        let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
-        let reply = HistoryReply::new(&request_id2, url, encryption_key);
+        let encryption_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
+        let reply = DeviceSyncReply::new(&request_id2, url, encryption_key);
         let result = client.send_history_reply(reply.into()).await;
 
         // the reply should fail because there's a mismatched request ID
         assert!(result.is_err());
 
         let url = "https://test.com/abc-123";
-        let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
-        let reply = HistoryReply::new(&request_id, url, encryption_key);
+        let encryption_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
+        let reply = DeviceSyncReply::new(&request_id, url, encryption_key);
         let result = client.send_history_reply(reply.into()).await;
 
         // the reply should succeed with a valid request ID
@@ -1005,7 +708,7 @@ pub(crate) mod tests {
 
         let output_file = NamedTempFile::new().unwrap();
         let output_path = output_file.path();
-        let encryption_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let encryption_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
         encrypt_history_file(input_path, output_path, encryption_key.as_bytes()).unwrap();
 
         let mut file = File::open(output_path).unwrap();
@@ -1039,7 +742,8 @@ pub(crate) mod tests {
         amal_a_sync_group.sync().await.expect("sync");
 
         // amal_a builds and sends a message history reply back
-        let history_reply = HistoryReply::new(&new_request_id(), &history_sync_url, encryption_key);
+        let history_reply =
+            DeviceSyncReply::new(&new_request_id(), &history_sync_url, encryption_key);
         amal_a
             .send_history_reply(history_reply.into())
             .await
@@ -1131,8 +835,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_encrypt_decrypt_file() {
-        let key = HistoryKeyType::new_chacha20_poly1305_key();
-        let converted_key: MessageHistoryKeyType = key.into();
+        let key = DeviceSyncKeyType::new_chacha20_poly1305_key();
+        let converted_key: DeviceSyncKeyTypeProto = key.into();
         let key_bytes = key.as_bytes();
         let input_content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'";
         let input_file = NamedTempFile::new().expect("Unable to create temp file");
@@ -1314,7 +1018,7 @@ pub(crate) mod tests {
 
         // amal_a sends a reply
         amal_a
-            .send_history_reply(MessageHistoryReply {
+            .send_history_reply(DeviceSyncReplyProto {
                 request_id: request_id.clone(),
                 url: "http://foo/bar".to_string(),
                 encryption_key: None,
@@ -1413,7 +1117,7 @@ pub(crate) mod tests {
             .expect("Unable to write history bundle");
 
         let output_file = NamedTempFile::new().expect("Unable to create temp file");
-        let converted_key: MessageHistoryKeyType = enc_key.into();
+        let converted_key: DeviceSyncKeyTypeProto = enc_key.into();
         decrypt_history_file(&bundle_path, output_file.path(), converted_key)
             .expect("Unable to decrypt history file");
 
@@ -1474,8 +1178,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_new_key() {
-        let sig_key = HistoryKeyType::new_chacha20_poly1305_key();
-        let enc_key = HistoryKeyType::new_chacha20_poly1305_key();
+        let sig_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
+        let enc_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
         assert_eq!(sig_key.len(), ENC_KEY_SIZE);
         assert_eq!(enc_key.len(), ENC_KEY_SIZE);
         // ensure keys are different (seed isn't reused)

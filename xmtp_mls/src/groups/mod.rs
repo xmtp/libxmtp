@@ -1,3 +1,5 @@
+#[cfg(any(feature = "message-history", feature = "consent-sync"))]
+pub mod device_sync;
 pub mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
@@ -6,11 +8,8 @@ pub mod intents;
 pub mod members;
 pub mod scoped_client;
 
-#[allow(dead_code)]
-#[cfg(feature = "message-history")]
-pub mod message_history;
+pub(super) mod node_sync;
 pub(super) mod subscriptions;
-pub(super) mod sync;
 pub mod validated_commit;
 
 use intents::SendMessageIntentData;
@@ -36,10 +35,10 @@ use prost::Message;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
+#[cfg(feature = "message-history")]
+use self::device_sync::MessageHistoryError;
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
-#[cfg(feature = "message-history")]
-use self::message_history::MessageHistoryError;
 use self::scoped_client::ScopedGroupClient;
 use self::{
     group_membership::GroupMembership,
@@ -515,7 +514,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let context = client.context();
         let conn = context.store().conn()?;
         // let my_sequence_id = context.inbox_sequence_id(&conn)?;
-        let creator_inbox_id = context.inbox_id().to_string();
+        let creator_inbox_id = context.inbox_id() as String;
         let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata =
             build_protected_metadata_extension(creator_inbox_id.clone(), Purpose::Sync)?;
