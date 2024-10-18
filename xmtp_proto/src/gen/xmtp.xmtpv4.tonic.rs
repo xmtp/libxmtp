@@ -89,13 +89,11 @@ pub mod replication_api_client {
         }
         /** Subscribe to envelopes
 */
-        pub async fn batch_subscribe_envelopes(
+        pub async fn subscribe_envelopes(
             &mut self,
-            request: impl tonic::IntoRequest<super::BatchSubscribeEnvelopesRequest>,
+            request: impl tonic::IntoRequest<super::SubscribeEnvelopesRequest>,
         ) -> std::result::Result<
-            tonic::Response<
-                tonic::codec::Streaming<super::BatchSubscribeEnvelopesResponse>,
-            >,
+            tonic::Response<tonic::codec::Streaming<super::SubscribeEnvelopesResponse>>,
             tonic::Status,
         > {
             self.inner
@@ -109,15 +107,12 @@ pub mod replication_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.xmtpv4.ReplicationApi/BatchSubscribeEnvelopes",
+                "/xmtp.xmtpv4.ReplicationApi/SubscribeEnvelopes",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new(
-                        "xmtp.xmtpv4.ReplicationApi",
-                        "BatchSubscribeEnvelopes",
-                    ),
+                    GrpcMethod::new("xmtp.xmtpv4.ReplicationApi", "SubscribeEnvelopes"),
                 );
             self.inner.server_streaming(req, path, codec).await
         }
@@ -150,11 +145,11 @@ pub mod replication_api_client {
         }
         /** Publish envelope
 */
-        pub async fn publish_envelope(
+        pub async fn publish_envelopes(
             &mut self,
-            request: impl tonic::IntoRequest<super::PublishEnvelopeRequest>,
+            request: impl tonic::IntoRequest<super::PublishEnvelopesRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::PublishEnvelopeResponse>,
+            tonic::Response<super::PublishEnvelopesResponse>,
             tonic::Status,
         > {
             self.inner
@@ -168,12 +163,12 @@ pub mod replication_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.xmtpv4.ReplicationApi/PublishEnvelope",
+                "/xmtp.xmtpv4.ReplicationApi/PublishEnvelopes",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("xmtp.xmtpv4.ReplicationApi", "PublishEnvelope"),
+                    GrpcMethod::new("xmtp.xmtpv4.ReplicationApi", "PublishEnvelopes"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -214,10 +209,10 @@ pub mod replication_api_server {
     /// Generated trait containing gRPC methods that should be implemented for use with ReplicationApiServer.
     #[async_trait]
     pub trait ReplicationApi: Send + Sync + 'static {
-        /// Server streaming response type for the BatchSubscribeEnvelopes method.
-        type BatchSubscribeEnvelopesStream: tonic::codegen::tokio_stream::Stream<
+        /// Server streaming response type for the SubscribeEnvelopes method.
+        type SubscribeEnvelopesStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<
-                    super::BatchSubscribeEnvelopesResponse,
+                    super::SubscribeEnvelopesResponse,
                     tonic::Status,
                 >,
             >
@@ -225,11 +220,11 @@ pub mod replication_api_server {
             + 'static;
         /** Subscribe to envelopes
 */
-        async fn batch_subscribe_envelopes(
+        async fn subscribe_envelopes(
             &self,
-            request: tonic::Request<super::BatchSubscribeEnvelopesRequest>,
+            request: tonic::Request<super::SubscribeEnvelopesRequest>,
         ) -> std::result::Result<
-            tonic::Response<Self::BatchSubscribeEnvelopesStream>,
+            tonic::Response<Self::SubscribeEnvelopesStream>,
             tonic::Status,
         >;
         /** Query envelopes
@@ -243,11 +238,11 @@ pub mod replication_api_server {
         >;
         /** Publish envelope
 */
-        async fn publish_envelope(
+        async fn publish_envelopes(
             &self,
-            request: tonic::Request<super::PublishEnvelopeRequest>,
+            request: tonic::Request<super::PublishEnvelopesRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::PublishEnvelopeResponse>,
+            tonic::Response<super::PublishEnvelopesResponse>,
             tonic::Status,
         >;
         /** Get inbox ids
@@ -338,32 +333,27 @@ pub mod replication_api_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
-                "/xmtp.xmtpv4.ReplicationApi/BatchSubscribeEnvelopes" => {
+                "/xmtp.xmtpv4.ReplicationApi/SubscribeEnvelopes" => {
                     #[allow(non_camel_case_types)]
-                    struct BatchSubscribeEnvelopesSvc<T: ReplicationApi>(pub Arc<T>);
+                    struct SubscribeEnvelopesSvc<T: ReplicationApi>(pub Arc<T>);
                     impl<
                         T: ReplicationApi,
                     > tonic::server::ServerStreamingService<
-                        super::BatchSubscribeEnvelopesRequest,
-                    > for BatchSubscribeEnvelopesSvc<T> {
-                        type Response = super::BatchSubscribeEnvelopesResponse;
-                        type ResponseStream = T::BatchSubscribeEnvelopesStream;
+                        super::SubscribeEnvelopesRequest,
+                    > for SubscribeEnvelopesSvc<T> {
+                        type Response = super::SubscribeEnvelopesResponse;
+                        type ResponseStream = T::SubscribeEnvelopesStream;
                         type Future = BoxFuture<
                             tonic::Response<Self::ResponseStream>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<
-                                super::BatchSubscribeEnvelopesRequest,
-                            >,
+                            request: tonic::Request<super::SubscribeEnvelopesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ReplicationApi>::batch_subscribe_envelopes(
-                                        &inner,
-                                        request,
-                                    )
+                                <T as ReplicationApi>::subscribe_envelopes(&inner, request)
                                     .await
                             };
                             Box::pin(fut)
@@ -375,7 +365,7 @@ pub mod replication_api_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = BatchSubscribeEnvelopesSvc(inner);
+                        let method = SubscribeEnvelopesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -437,25 +427,25 @@ pub mod replication_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/xmtp.xmtpv4.ReplicationApi/PublishEnvelope" => {
+                "/xmtp.xmtpv4.ReplicationApi/PublishEnvelopes" => {
                     #[allow(non_camel_case_types)]
-                    struct PublishEnvelopeSvc<T: ReplicationApi>(pub Arc<T>);
+                    struct PublishEnvelopesSvc<T: ReplicationApi>(pub Arc<T>);
                     impl<
                         T: ReplicationApi,
-                    > tonic::server::UnaryService<super::PublishEnvelopeRequest>
-                    for PublishEnvelopeSvc<T> {
-                        type Response = super::PublishEnvelopeResponse;
+                    > tonic::server::UnaryService<super::PublishEnvelopesRequest>
+                    for PublishEnvelopesSvc<T> {
+                        type Response = super::PublishEnvelopesResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::PublishEnvelopeRequest>,
+                            request: tonic::Request<super::PublishEnvelopesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ReplicationApi>::publish_envelope(&inner, request)
+                                <T as ReplicationApi>::publish_envelopes(&inner, request)
                                     .await
                             };
                             Box::pin(fut)
@@ -467,7 +457,7 @@ pub mod replication_api_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = PublishEnvelopeSvc(inner);
+                        let method = PublishEnvelopesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
