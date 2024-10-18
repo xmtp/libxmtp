@@ -20,7 +20,7 @@ use kv_log_macro::{error, info};
 use prost::Message;
 use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature};
 use xmtp_mls::client::FindGroupParams;
-use xmtp_mls::groups::message_history::MessageHistoryContent;
+use xmtp_mls::groups::device_sync::messages::MessageHistoryContent;
 use xmtp_mls::storage::group_message::GroupMessageKind;
 
 use crate::{
@@ -39,7 +39,7 @@ use xmtp_mls::{
     builder::ClientBuilderError,
     client::ClientError,
     codecs::{text::TextCodec, ContentCodec},
-    groups::{message_history::MessageHistoryUrls, GroupMetadataOptions},
+    groups::{device_sync::MessageHistoryUrls, GroupMetadataOptions},
     identity::IdentityStrategy,
     storage::{
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,

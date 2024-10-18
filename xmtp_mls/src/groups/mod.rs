@@ -1,3 +1,5 @@
+#[cfg(any(feature = "message-history", feature = "consent-sync"))]
+pub mod device_sync;
 pub mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
@@ -6,11 +8,8 @@ pub mod intents;
 pub mod members;
 pub mod scoped_client;
 
-#[allow(dead_code)]
-#[cfg(feature = "message-history")]
-pub mod message_history;
+pub(super) mod node_sync;
 pub(super) mod subscriptions;
-pub(super) mod sync;
 pub mod validated_commit;
 
 use intents::SendMessageIntentData;
@@ -36,10 +35,10 @@ use prost::Message;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
+#[cfg(feature = "message-history")]
+use self::device_sync::MessageHistoryError;
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
-#[cfg(feature = "message-history")]
-use self::message_history::MessageHistoryError;
 use self::scoped_client::ScopedGroupClient;
 use self::{
     group_membership::GroupMembership,
@@ -515,6 +514,43 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let conn = context.store().conn()?;
 
         let creator_inbox_id = context.inbox_id() as String;
+        let provider = XmtpOpenMlsProvider::new(conn);
+        let protected_metadata =
+            build_protected_metadata_extension(creator_inbox_id.clone(), Purpose::Sync)?;
+        let mutable_metadata = build_mutable_metadata_extension_default(
+            creator_inbox_id,
+            GroupMetadataOptions::default(),
+        )?;
+        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
+        let mutable_permissions =
+            build_mutable_permissions_extension(PreconfiguredPolicies::default().to_policy_set())?;
+        let group_config = build_group_config(
+            protected_metadata,
+            mutable_metadata,
+            group_membership,
+            mutable_permissions,
+        )?;
+        let mls_group = OpenMlsGroup::new(
+            &provider,
+            &context.identity.installation_keys,
+            &group_config,
+            CredentialWithKey {
+                credential: context.identity.credential(),
+                signature_key: context.identity.installation_keys.to_public_vec().into(),
+            },
+        )?;
+
+        let group_id = mls_group.group_id().to_vec();
+        let stored_group =
+            StoredGroup::new_sync_group(group_id.clone(), now_ns(), GroupMembershipState::Allowed);
+
+        stored_group.store(provider.conn_ref())?;
+
+        Ok(Self::new_from_arc(
+            client,
+            stored_group.id,
+            stored_group.created_at_ns,
+        ))
     }
 
     #[cfg(feature = "message-history")]
@@ -1153,6 +1189,7 @@ fn build_protected_metadata_extension(
     let group_type = match group_purpose {
         Purpose::Conversation => ConversationType::Group,
         Purpose::Sync => ConversationType::Sync,
+        Purpose::ConsentSync => ConversationType::Sync,
     };
 
     let metadata = GroupMetadata::new(group_type, creator_inbox_id, None);

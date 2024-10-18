@@ -366,6 +366,7 @@ where
 pub enum Purpose {
     Conversation = 1,
     Sync = 2,
+    ConsentSync = 3,
 }
 
 impl ToSql<Integer, Sqlite> for Purpose
@@ -386,6 +387,7 @@ where
         match i32::from_sql(bytes)? {
             1 => Ok(Purpose::Conversation),
             2 => Ok(Purpose::Sync),
+            3 => Ok(Purpose::ConsentSync),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

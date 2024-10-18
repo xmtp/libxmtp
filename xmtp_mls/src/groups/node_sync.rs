@@ -14,7 +14,7 @@ use super::{
     GroupError, MlsGroup, ScopedGroupClient,
 };
 #[cfg(feature = "message-history")]
-use crate::groups::message_history::MessageHistoryContent;
+use crate::groups::device_sync::messages::MessageHistoryContent;
 use crate::{
     client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
