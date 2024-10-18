@@ -1,5 +1,5 @@
-use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::fs::File;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use aes_gcm::aead::generic_array::GenericArray;
@@ -11,31 +11,18 @@ use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
 };
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use xmtp_cryptography::utils as crypto_utils;
-use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::{
-    xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{Reply, Request},
-    xmtp::mls::message_contents::plaintext_envelope::{Content, V2},
-    xmtp::mls::message_contents::PlaintextEnvelope,
-    xmtp::mls::message_contents::{
-        message_history_key_type::Key, MessageHistoryKeyType, MessageHistoryReply,
-        MessageHistoryRequest,
-    },
+use xmtp_proto::xmtp::mls::message_contents::{
+    message_history_key_type::Key, MessageHistoryKeyType, MessageHistoryReply,
+    MessageHistoryRequest,
 };
 
 use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 
-use crate::XmtpApi;
-use crate::{
-    client::ClientError,
-    groups::{GroupMessageKind, StoredGroupMessage},
-    storage::{group::StoredGroup, StorageError},
-    Client, Store,
-};
+use crate::{client::ClientError, storage::StorageError};
 
 #[cfg(feature = "consent-sync")]
 pub mod consent;
@@ -212,11 +199,11 @@ impl From<HistoryRequest> for MessageHistoryRequest {
 #[derive(Debug, Clone)]
 pub(crate) struct HistoryReply {
     /// Unique ID for each client Message History Request
-    pub(super) request_id: String,
+    request_id: String,
     /// URL to download the backup bundle
-    pub(super) url: String,
+    url: String,
     /// Encryption key for the backup bundle
-    pub(super) encryption_key: HistoryKeyType,
+    encryption_key: HistoryKeyType,
 }
 
 impl HistoryReply {
@@ -245,20 +232,20 @@ pub(crate) enum HistoryKeyType {
 }
 
 impl HistoryKeyType {
-    pub(super) fn new_chacha20_poly1305_key() -> Self {
+    fn new_chacha20_poly1305_key() -> Self {
         let mut rng = crypto_utils::rng();
         let mut key = [0u8; ENC_KEY_SIZE];
         rng.fill_bytes(&mut key);
         HistoryKeyType::Chacha20Poly1305(key)
     }
 
-    pub(super) fn len(&self) -> usize {
+    fn len(&self) -> usize {
         match self {
             HistoryKeyType::Chacha20Poly1305(key) => key.len(),
         }
     }
 
-    pub(super) fn as_bytes(&self) -> &[u8; ENC_KEY_SIZE] {
+    fn as_bytes(&self) -> &[u8; ENC_KEY_SIZE] {
         match self {
             HistoryKeyType::Chacha20Poly1305(key) => key,
         }

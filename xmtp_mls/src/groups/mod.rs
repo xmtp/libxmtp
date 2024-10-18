@@ -507,52 +507,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Self::create_from_welcome(client, provider, welcome, inbox_id, welcome_id).await
     }
 
-    pub(crate) fn create_and_insert_consent_sync_group(
-        client: Arc<ScopedClient>,
-    ) -> Result<MlsGroup<ScopedClient>, GroupError> {
-        let context = client.context();
-        let conn = context.store().conn()?;
-
-        let creator_inbox_id = context.inbox_id() as String;
-        let provider = XmtpOpenMlsProvider::new(conn);
-        let protected_metadata =
-            build_protected_metadata_extension(creator_inbox_id.clone(), Purpose::Sync)?;
-        let mutable_metadata = build_mutable_metadata_extension_default(
-            creator_inbox_id,
-            GroupMetadataOptions::default(),
-        )?;
-        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
-        let mutable_permissions =
-            build_mutable_permissions_extension(PreconfiguredPolicies::default().to_policy_set())?;
-        let group_config = build_group_config(
-            protected_metadata,
-            mutable_metadata,
-            group_membership,
-            mutable_permissions,
-        )?;
-        let mls_group = OpenMlsGroup::new(
-            &provider,
-            &context.identity.installation_keys,
-            &group_config,
-            CredentialWithKey {
-                credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.to_public_vec().into(),
-            },
-        )?;
-
-        let group_id = mls_group.group_id().to_vec();
-        let stored_group =
-            StoredGroup::new_sync_group(group_id.clone(), now_ns(), GroupMembershipState::Allowed);
-
-        stored_group.store(provider.conn_ref())?;
-
-        Ok(Self::new_from_arc(
-            client,
-            stored_group.id,
-            stored_group.created_at_ns,
-        ))
-    }
-
     #[cfg(feature = "message-history")]
     pub(crate) fn create_and_insert_sync_group(
         client: Arc<ScopedClient>,

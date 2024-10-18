@@ -366,7 +366,6 @@ where
 pub enum Purpose {
     Conversation = 1,
     Sync = 2,
-    ConsentSync = 3,
 }
 
 impl ToSql<Integer, Sqlite> for Purpose

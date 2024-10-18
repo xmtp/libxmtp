@@ -7,23 +7,13 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
-use rand::{
-    distributions::{Alphanumeric, DistString},
-    Rng, RngCore,
-};
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
-
-use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{
     xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{Reply, Request},
     xmtp::mls::message_contents::plaintext_envelope::{Content, V2},
     xmtp::mls::message_contents::PlaintextEnvelope,
-    xmtp::mls::message_contents::{
-        message_history_key_type::Key, MessageHistoryKeyType, MessageHistoryReply,
-        MessageHistoryRequest,
-    },
+    xmtp::mls::message_contents::{MessageHistoryReply, MessageHistoryRequest},
 };
 
 use super::*;
@@ -31,9 +21,8 @@ use super::{GroupError, MlsGroup};
 
 use crate::XmtpApi;
 use crate::{
-    client::ClientError,
     groups::{GroupMessageKind, StoredGroupMessage},
-    storage::{group::StoredGroup, StorageError},
+    storage::group::StoredGroup,
     Client, Store,
 };
 
