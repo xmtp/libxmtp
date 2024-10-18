@@ -31,7 +31,7 @@ name = "ffi-uniffi-bindgen"
 path = "src/bin.rs"
 
 [dev-dependencies]
-ethers = { workspace = true, features = ["openssl"] }
+ethers = { workspace = true, features = ["rustls"] }
 rand.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 uniffi = { version = "0.28.0", features = ["bindgen-tests"] }

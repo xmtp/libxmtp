@@ -28,7 +28,5 @@ cd $BINDINGS_PATH
 make libxmtp-version
 cp libxmtp-version.txt src/uniffi/$PROJECT_NAME/
 
-cd $WORKSPACE_PATH
-
 cp $BINDINGS_PATH/src/uniffi/xmtpv3/xmtpv3.kt $XMTP_ANDROID/library/src/main/java/xmtpv3.kt
 cp $BINDINGS_PATH/src/uniffi/xmtpv3/libxmtp-version.txt $XMTP_ANDROID/library/src/main/java/libxmtp-version.txt
