@@ -11,12 +11,14 @@ use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
 };
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use xmtp_cryptography::utils as crypto_utils;
+use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKeyType as DeviceSyncKeyTypeProto;
 use xmtp_proto::xmtp::mls::message_contents::{
-    message_history_key_type::Key, MessageHistoryKeyType, MessageHistoryReply,
-    MessageHistoryRequest,
+    device_sync_key_type::Key, DeviceSyncReply as DeviceSyncReplyProto,
+    DeviceSyncRequest as DeviceSyncRequestProto,
 };
 
 use super::group_metadata::ConversationType;
@@ -74,6 +76,11 @@ pub enum MessageHistoryError {
     InvalidBundleUrl,
 }
 
+pub enum DeviceSyncContent {
+    Request(DeviceSyncRequest),
+    Reply(DeviceSyncReply),
+}
+
 pub struct MessageHistoryUrls;
 
 impl MessageHistoryUrls {
@@ -85,9 +92,9 @@ impl MessageHistoryUrls {
 pub(crate) fn decrypt_history_file(
     input_path: &Path,
     output_path: &Path,
-    encryption_key: MessageHistoryKeyType,
+    encryption_key: DeviceSyncKeyTypeProto,
 ) -> Result<(), MessageHistoryError> {
-    let enc_key: HistoryKeyType = encryption_key.try_into()?;
+    let enc_key: DeviceSyncKeyType = encryption_key.try_into()?;
     let enc_key_bytes = enc_key.as_bytes();
     // Read the messages file content
     let mut input_file = File::open(input_path)?;
@@ -172,13 +179,13 @@ pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, Messag
     }
 }
 
-#[derive(Clone)]
-pub(super) struct HistoryRequest {
+#[derive(Clone, Debug)]
+pub(super) struct DeviceSyncRequest {
     pub pin_code: String,
     pub request_id: String,
 }
 
-impl HistoryRequest {
+impl DeviceSyncRequest {
     pub(crate) fn new() -> Self {
         Self {
             pin_code: new_pin(),
@@ -187,9 +194,9 @@ impl HistoryRequest {
     }
 }
 
-impl From<HistoryRequest> for MessageHistoryRequest {
-    fn from(req: HistoryRequest) -> Self {
-        MessageHistoryRequest {
+impl From<DeviceSyncRequest> for DeviceSyncRequestProto {
+    fn from(req: DeviceSyncRequest) -> Self {
+        DeviceSyncRequestProto {
             pin_code: req.pin_code,
             request_id: req.request_id,
         }
@@ -197,17 +204,17 @@ impl From<HistoryRequest> for MessageHistoryRequest {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct HistoryReply {
+pub(crate) struct DeviceSyncReply {
     /// Unique ID for each client Message History Request
     request_id: String,
     /// URL to download the backup bundle
     url: String,
     /// Encryption key for the backup bundle
-    encryption_key: HistoryKeyType,
+    encryption_key: DeviceSyncKeyType,
 }
 
-impl HistoryReply {
-    pub(crate) fn new(id: &str, url: &str, encryption_key: HistoryKeyType) -> Self {
+impl DeviceSyncReply {
+    pub(crate) fn new(id: &str, url: &str, encryption_key: DeviceSyncKeyType) -> Self {
         Self {
             request_id: id.into(),
             url: url.into(),
@@ -216,9 +223,9 @@ impl HistoryReply {
     }
 }
 
-impl From<HistoryReply> for MessageHistoryReply {
-    fn from(reply: HistoryReply) -> Self {
-        MessageHistoryReply {
+impl From<DeviceSyncReply> for DeviceSyncReplyProto {
+    fn from(reply: DeviceSyncReply) -> Self {
+        DeviceSyncReplyProto {
             request_id: reply.request_id,
             url: reply.url,
             encryption_key: Some(reply.encryption_key.into()),
@@ -227,50 +234,50 @@ impl From<HistoryReply> for MessageHistoryReply {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub(crate) enum HistoryKeyType {
+pub(crate) enum DeviceSyncKeyType {
     Chacha20Poly1305([u8; ENC_KEY_SIZE]),
 }
 
-impl HistoryKeyType {
+impl DeviceSyncKeyType {
     fn new_chacha20_poly1305_key() -> Self {
         let mut rng = crypto_utils::rng();
         let mut key = [0u8; ENC_KEY_SIZE];
         rng.fill_bytes(&mut key);
-        HistoryKeyType::Chacha20Poly1305(key)
+        DeviceSyncKeyType::Chacha20Poly1305(key)
     }
 
     fn len(&self) -> usize {
         match self {
-            HistoryKeyType::Chacha20Poly1305(key) => key.len(),
+            DeviceSyncKeyType::Chacha20Poly1305(key) => key.len(),
         }
     }
 
     fn as_bytes(&self) -> &[u8; ENC_KEY_SIZE] {
         match self {
-            HistoryKeyType::Chacha20Poly1305(key) => key,
+            DeviceSyncKeyType::Chacha20Poly1305(key) => key,
         }
     }
 }
 
-impl From<HistoryKeyType> for MessageHistoryKeyType {
-    fn from(key: HistoryKeyType) -> Self {
+impl From<DeviceSyncKeyType> for DeviceSyncKeyTypeProto {
+    fn from(key: DeviceSyncKeyType) -> Self {
         match key {
-            HistoryKeyType::Chacha20Poly1305(key) => MessageHistoryKeyType {
+            DeviceSyncKeyType::Chacha20Poly1305(key) => DeviceSyncKeyTypeProto {
                 key: Some(Key::Chacha20Poly1305(key.to_vec())),
             },
         }
     }
 }
 
-impl TryFrom<MessageHistoryKeyType> for HistoryKeyType {
+impl TryFrom<DeviceSyncKeyTypeProto> for DeviceSyncKeyType {
     type Error = MessageHistoryError;
-    fn try_from(key: MessageHistoryKeyType) -> Result<Self, Self::Error> {
-        let MessageHistoryKeyType { key } = key;
+    fn try_from(key: DeviceSyncKeyTypeProto) -> Result<Self, Self::Error> {
+        let DeviceSyncKeyTypeProto { key } = key;
         match key {
             Some(k) => {
                 let Key::Chacha20Poly1305(hist_key) = k;
                 match hist_key.try_into() {
-                    Ok(array) => Ok(HistoryKeyType::Chacha20Poly1305(array)),
+                    Ok(array) => Ok(DeviceSyncKeyType::Chacha20Poly1305(array)),
                     Err(_) => Err(MessageHistoryError::Conversion),
                 }
             }
