@@ -50,7 +50,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                                 openmls_group.epoch()
                             );
 
-                            self.process_message(&mut openmls_group, &provider, &msgv1, false)
+                            self.process_message(&mut openmls_group, &provider, msgv1, false)
                                 .await
                                 .map_err(GroupError::ReceiveError)
                         })

@@ -185,7 +185,7 @@ macro_rules! retry_async {
                         attempts += 1;
                         $crate::sleep($retry.duration(attempts)).await;
                     } else {
-                        tracing::info!("error is not retryable. {:?}", e);
+                        tracing::info!("error is not retryable. {:?}:{}", e, e);
                         break Err(e);
                     }
                 }
