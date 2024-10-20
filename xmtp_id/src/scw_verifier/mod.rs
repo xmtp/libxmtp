@@ -1,7 +1,7 @@
 mod chain_rpc_verifier;
 mod remote_signature_verifier;
 
-use std::{collections::HashMap, env, fs, path::Path};
+use std::{collections::HashMap, fs, path::Path};
 
 use crate::associations::AccountId;
 use ethers::{
