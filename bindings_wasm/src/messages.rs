@@ -58,6 +58,24 @@ pub struct WasmListMessagesOptions {
   pub delivery_status: Option<WasmDeliveryStatus>,
 }
 
+#[wasm_bindgen]
+impl WasmListMessagesOptions {
+  #[wasm_bindgen(constructor)]
+  pub fn new(
+    sent_before_ns: Option<i64>,
+    sent_after_ns: Option<i64>,
+    limit: Option<i64>,
+    delivery_status: Option<WasmDeliveryStatus>,
+  ) -> Self {
+    Self {
+      sent_before_ns,
+      sent_after_ns,
+      limit,
+      delivery_status,
+    }
+  }
+}
+
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
 pub struct WasmMessage {
@@ -68,6 +86,30 @@ pub struct WasmMessage {
   pub content: WasmEncodedContent,
   pub kind: WasmGroupMessageKind,
   pub delivery_status: WasmDeliveryStatus,
+}
+
+#[wasm_bindgen]
+impl WasmMessage {
+  #[wasm_bindgen(constructor)]
+  pub fn new(
+    id: String,
+    sent_at_ns: i64,
+    convo_id: String,
+    sender_inbox_id: String,
+    content: WasmEncodedContent,
+    kind: WasmGroupMessageKind,
+    delivery_status: WasmDeliveryStatus,
+  ) -> Self {
+    Self {
+      id,
+      sent_at_ns,
+      convo_id,
+      sender_inbox_id,
+      content,
+      kind,
+      delivery_status,
+    }
+  }
 }
 
 impl From<StoredGroupMessage> for WasmMessage {

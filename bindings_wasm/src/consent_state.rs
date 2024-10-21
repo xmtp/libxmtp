@@ -54,6 +54,18 @@ pub struct WasmConsent {
   pub entity: String,
 }
 
+#[wasm_bindgen]
+impl WasmConsent {
+  #[wasm_bindgen(constructor)]
+  pub fn new(entity_type: WasmConsentEntityType, state: WasmConsentState, entity: String) -> Self {
+    Self {
+      entity_type,
+      state,
+      entity,
+    }
+  }
+}
+
 impl From<WasmConsent> for StoredConsentRecord {
   fn from(consent: WasmConsent) -> Self {
     Self {
