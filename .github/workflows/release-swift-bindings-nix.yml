@@ -31,8 +31,8 @@ jobs:
             bindings_ffi
       - name: Build target
         run: |
-        nix develop --command \
-          cargo build --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
+          nix develop --command \
+            cargo build --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
