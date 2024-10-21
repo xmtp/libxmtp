@@ -1,11 +1,15 @@
 [package]
 edition = "2021"
 name = "mls_validation_service"
-version.workspace = true
+version = "0.1.0"
+build = "build.rs"
 
 [[bin]] # Bin to run the Validation Service
 name = "mls-validation-service"
 path = "src/main.rs"
+
+[build-dependencies]
+vergen = { version = "8.3.2", features = ["git", "git2"] }
 
 [dependencies]
 clap = { version = "4.4.6", features = ["derive"] }
