@@ -15,6 +15,22 @@ pub struct WasmListConversationsOptions {
   pub limit: Option<i64>,
 }
 
+#[wasm_bindgen]
+impl WasmListConversationsOptions {
+  #[wasm_bindgen(constructor)]
+  pub fn new(
+    created_after_ns: Option<i64>,
+    created_before_ns: Option<i64>,
+    limit: Option<i64>,
+  ) -> Self {
+    Self {
+      created_after_ns,
+      created_before_ns,
+      limit,
+    }
+  }
+}
+
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
 pub struct WasmCreateGroupOptions {
@@ -23,6 +39,26 @@ pub struct WasmCreateGroupOptions {
   pub group_image_url_square: Option<String>,
   pub group_description: Option<String>,
   pub group_pinned_frame_url: Option<String>,
+}
+
+#[wasm_bindgen]
+impl WasmCreateGroupOptions {
+  #[wasm_bindgen(constructor)]
+  pub fn new(
+    permissions: Option<WasmGroupPermissionsOptions>,
+    group_name: Option<String>,
+    group_image_url_square: Option<String>,
+    group_description: Option<String>,
+    group_pinned_frame_url: Option<String>,
+  ) -> Self {
+    Self {
+      permissions,
+      group_name,
+      group_image_url_square,
+      group_description,
+      group_pinned_frame_url,
+    }
+  }
 }
 
 impl WasmCreateGroupOptions {

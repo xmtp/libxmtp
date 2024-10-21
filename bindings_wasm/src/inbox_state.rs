@@ -9,12 +9,41 @@ pub struct WasmInstallation {
   pub client_timestamp_ns: Option<u64>,
 }
 
+#[wasm_bindgen]
+impl WasmInstallation {
+  #[wasm_bindgen(constructor)]
+  pub fn new(id: String, client_timestamp_ns: Option<u64>) -> Self {
+    Self {
+      id,
+      client_timestamp_ns,
+    }
+  }
+}
+
 #[wasm_bindgen(getter_with_clone)]
 pub struct WasmInboxState {
   pub inbox_id: String,
   pub recovery_address: String,
   pub installations: Vec<WasmInstallation>,
   pub account_addresses: Vec<String>,
+}
+
+#[wasm_bindgen]
+impl WasmInboxState {
+  #[wasm_bindgen(constructor)]
+  pub fn new(
+    inbox_id: String,
+    recovery_address: String,
+    installations: Vec<WasmInstallation>,
+    account_addresses: Vec<String>,
+  ) -> Self {
+    Self {
+      inbox_id,
+      recovery_address,
+      installations,
+      account_addresses,
+    }
+  }
 }
 
 impl From<AssociationState> for WasmInboxState {
