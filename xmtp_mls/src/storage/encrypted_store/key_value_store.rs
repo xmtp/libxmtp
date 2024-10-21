@@ -6,8 +6,8 @@ use diesel::prelude::*;
 #[diesel(table_name = key_value_store)]
 #[diesel(primary_key(key))]
 pub struct KeyValueStore {
-    pub key: String,
-    pub value: Vec<u8>,
+    key: String,
+    value: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]

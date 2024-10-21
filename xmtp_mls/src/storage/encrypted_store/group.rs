@@ -42,10 +42,10 @@ pub struct StoredGroup {
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message
     pub welcome_id: Option<i64>,
-    /// The last time the leaf node encryption key was rotated
-    pub rotated_at_ns: i64,
     /// The inbox_id of the DM target
     pub dm_inbox_id: Option<String>,
+    /// The last time the leaf node encryption key was rotated
+    pub rotated_at_ns: i64,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
