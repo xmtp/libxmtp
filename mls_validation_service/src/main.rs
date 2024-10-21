@@ -10,10 +10,10 @@ use health_check::health_check_server;
 use tokio::signal::unix::{signal, SignalKind};
 use tonic::transport::Server;
 
+use crate::version::get_version;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt as _, EnvFilter};
 use xmtp_id::scw_verifier::MultiSmartContractSignatureVerifier;
 use xmtp_proto::xmtp::mls_validation::v1::validation_api_server::ValidationApiServer;
-use crate::version::get_version;
 
 #[macro_use]
 extern crate tracing;
@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if args.version {
         println!("Version: {0}", get_version());
-        return Ok(())
+        return Ok(());
     }
 
     let addr = format!("0.0.0.0:{}", args.port).parse()?;
