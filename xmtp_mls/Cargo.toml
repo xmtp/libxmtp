@@ -24,8 +24,7 @@ bench = [
     "criterion",
 ]
 consent-sync = ["dep:reqwest"]
-default = ["grpc-api"]
-device-sync = ["message-history", "consent-sync"]
+default = ["grpc-api", "message-history", "consent-sync"]
 grpc-api = ["dep:xmtp_api_grpc"]
 http-api = ["dep:xmtp_api_http"]
 message-history = ["dep:reqwest"]

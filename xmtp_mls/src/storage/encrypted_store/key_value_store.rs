@@ -5,7 +5,7 @@ use diesel::prelude::*;
 #[derive(Insertable, Queryable, Debug, Clone)]
 #[diesel(table_name = key_value_store)]
 #[diesel(primary_key(key))]
-pub struct KeyValueStore {
+pub(crate) struct KeyValueStore {
     key: String,
     value: Vec<u8>,
 }
@@ -29,7 +29,7 @@ impl KeyValueStore {
             Ok(value) => value,
             Err(err) => {
                 tracing::error!("Unable to deserialize keystore: {key}");
-                return Err(StorageError::Deserialization(format!("{err:?}")));
+                return Err(StorageError::Deserialization(err.to_string()));
             }
         };
 
@@ -43,12 +43,22 @@ impl KeyValueStore {
         let entry = KeyValueStore {
             key: format!("{key:?}"),
             value: bincode::serialize(&value)
-                .map_err(|err| StorageError::Serialization(format!("{err:?}")))?,
+                .map_err(|err| StorageError::Serialization(err.to_string()))?,
         };
 
         conn.raw_query(|conn| {
             diesel::replace_into(key_value_store::table)
                 .values(entry)
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
+    pub fn delete(conn: &DbConnection, key: &StoreKey) -> Result<(), StorageError> {
+        let key = format!("{key:?}");
+        conn.raw_query(|conn| {
+            diesel::delete(key_value_store::table.filter(key_value_store::key.eq(key)))
                 .execute(conn)
         })?;
 

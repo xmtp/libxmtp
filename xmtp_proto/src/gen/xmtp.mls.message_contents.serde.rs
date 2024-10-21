@@ -395,6 +395,77 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncKeyType {
         deserializer.deserialize_struct("xmtp.mls.message_contents.DeviceSyncKeyType", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for DeviceSyncKind {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::MessageHistory => "MESSAGE_HISTORY",
+            Self::Consent => "CONSENT",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for DeviceSyncKind {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "MESSAGE_HISTORY",
+            "CONSENT",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DeviceSyncKind;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "MESSAGE_HISTORY" => Ok(DeviceSyncKind::MessageHistory),
+                    "CONSENT" => Ok(DeviceSyncKind::Consent),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
 impl serde::Serialize for DeviceSyncReply {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -536,12 +607,20 @@ impl serde::Serialize for DeviceSyncRequest {
         if !self.pin_code.is_empty() {
             len += 1;
         }
+        if self.kind != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.DeviceSyncRequest", len)?;
         if !self.request_id.is_empty() {
             struct_ser.serialize_field("requestId", &self.request_id)?;
         }
         if !self.pin_code.is_empty() {
             struct_ser.serialize_field("pinCode", &self.pin_code)?;
+        }
+        if self.kind != 0 {
+            let v = DeviceSyncKind::try_from(self.kind)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.kind)))?;
+            struct_ser.serialize_field("kind", &v)?;
         }
         struct_ser.end()
     }
@@ -557,12 +636,14 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
             "requestId",
             "pin_code",
             "pinCode",
+            "kind",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             RequestId,
             PinCode,
+            Kind,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -586,6 +667,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
                         match value {
                             "requestId" | "request_id" => Ok(GeneratedField::RequestId),
                             "pinCode" | "pin_code" => Ok(GeneratedField::PinCode),
+                            "kind" => Ok(GeneratedField::Kind),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -607,6 +689,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
             {
                 let mut request_id__ = None;
                 let mut pin_code__ = None;
+                let mut kind__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RequestId => {
@@ -621,11 +704,18 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
                             }
                             pin_code__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Kind => {
+                            if kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("kind"));
+                            }
+                            kind__ = Some(map_.next_value::<DeviceSyncKind>()? as i32);
+                        }
                     }
                 }
                 Ok(DeviceSyncRequest {
                     request_id: request_id__.unwrap_or_default(),
                     pin_code: pin_code__.unwrap_or_default(),
+                    kind: kind__.unwrap_or_default(),
                 })
             }
         }

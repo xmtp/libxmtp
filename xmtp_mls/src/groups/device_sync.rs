@@ -17,28 +17,36 @@ use thiserror::Error;
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
-use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKeyType as DeviceSyncKeyTypeProto;
+use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
 use xmtp_proto::xmtp::mls::message_contents::{
     device_sync_key_type::Key, DeviceSyncReply as DeviceSyncReplyProto,
     DeviceSyncRequest as DeviceSyncRequestProto,
 };
 
+use xmtp_proto::xmtp::mls::message_contents::{
+    plaintext_envelope::v2::MessageType::{Reply, Request},
+    plaintext_envelope::V2,
+    DeviceSyncKeyType as DeviceSyncKeyTypeProto, DeviceSyncKind, PlaintextEnvelope,
+};
+
 use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 
+use crate::storage::group_message::GroupMessageKind;
+use crate::storage::key_value_store::{KeyValueStore, StoreKey};
 use crate::Client;
 use crate::{client::ClientError, storage::StorageError};
 
 #[cfg(feature = "consent-sync")]
-pub mod consent;
+pub mod consent_sync;
 #[cfg(feature = "message-history")]
-pub mod messages;
+pub mod message_sync;
 
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
 pub const NONCE_SIZE: usize = 12; // 96-bit nonce
 
 #[derive(Debug, Error)]
-pub enum MessageHistoryError {
+pub enum DeviceSyncError {
     #[error("pin not found")]
     PinNotFound,
     #[error("pin does not match the expected value")]
@@ -79,6 +87,165 @@ pub enum MessageHistoryError {
     InvalidBundleUrl,
 }
 
+impl<ApiClient, V> Client<ApiClient, V>
+where
+    ApiClient: XmtpApi + Clone,
+    V: SmartContractSignatureVerifier + Clone,
+{
+    async fn send_sync_request(
+        &self,
+        request: DeviceSyncRequest,
+    ) -> Result<(String, String), DeviceSyncError> {
+        // find the sync group
+        let conn = self.store().conn()?;
+        let sync_group = self.get_sync_group()?;
+
+        // sync the group
+        sync_group.sync().await?;
+
+        let messages = sync_group.find_messages(
+            Some(GroupMessageKind::Application),
+            None,
+            None,
+            None,
+            None,
+        )?;
+
+        let store_key = match request.kind {
+            DeviceSyncKind::Consent => StoreKey::ConsentSyncRequestId,
+            DeviceSyncKind::MessageHistory => StoreKey::MessageHistorySyncRequestId,
+        };
+
+        if let Some(request_id) =
+            KeyValueStore::get::<String>(&conn, &store_key).map_err(DeviceSyncError::Storage)?
+        {
+            for message in messages.iter().rev() {
+                let ctx: DeviceSyncContent =
+                    serde_json::from_slice(&message.decrypted_message_bytes)?;
+                if let DeviceSyncContent::Request(request) = ctx {
+                    if request.request_id == request_id {
+                        return Ok((request.request_id, request.pin_code));
+                    }
+                }
+            }
+
+            // Request id not found.
+            tracing::warn!("Unable to find sync message with request_id: {request_id}");
+            KeyValueStore::delete(&conn, &store_key).map_err(DeviceSyncError::Storage)?;
+        }
+
+        // build the request
+        let request: DeviceSyncRequestProto = request.into();
+        let pin_code = request.pin_code.clone();
+        let request_id = request.request_id.clone();
+
+        let content = DeviceSyncContent::Request(request.clone());
+        let content_bytes = serde_json::to_vec(&content)?;
+
+        let _message_id = sync_group.prepare_message(&content_bytes, &conn, move |_time_ns| {
+            PlaintextEnvelope {
+                content: Some(Content::V2(V2 {
+                    message_type: Some(Request(request)),
+                    idempotency_key: new_request_id(),
+                })),
+            }
+        })?;
+
+        KeyValueStore::set(&conn, &store_key, request_id.clone())
+            .map_err(DeviceSyncError::Storage)?;
+
+        // publish the intent
+        if let Err(err) = sync_group.publish_intents(&conn.into()).await {
+            tracing::error!("error publishing sync group intents: {:?}", err);
+        }
+
+        Ok((request_id, pin_code))
+    }
+
+    pub async fn send_sync_reply(
+        &self,
+        contents: DeviceSyncReplyProto,
+    ) -> Result<(), DeviceSyncError> {
+        // find the sync group
+        let conn = self.store().conn()?;
+        let sync_group = self.get_sync_group()?;
+
+        // sync the group
+        sync_group.sync().await?;
+
+        let messages = sync_group.find_messages(
+            Some(GroupMessageKind::Application),
+            None,
+            None,
+            None,
+            None,
+        )?;
+
+        let mut pending_request = None;
+        for msg in messages.iter().rev() {
+            let msg_content: DeviceSyncContent =
+                serde_json::from_slice(&msg.decrypted_message_bytes)?;
+            match msg_content {
+                DeviceSyncContent::Request(request)
+                    if request.request_id == contents.request_id =>
+                {
+                    pending_request = Some(msg);
+                    break;
+                }
+                DeviceSyncContent::Reply(reply) if reply.request_id == contents.request_id => {
+                    return Err(DeviceSyncError::ReplyAlreadyProcessed);
+                }
+                _ => {}
+            }
+        }
+
+        tracing::info!("{:?}", pending_request);
+        if let Some(pending_request) = pending_request {
+            // ensure the requester is a member of all the groups
+            self.ensure_member_of_all_groups(&pending_request.sender_inbox_id)
+                .await?;
+        }
+
+        // the reply message
+        let (content_bytes, contents) = {
+            let content = DeviceSyncContent::Reply(contents);
+            let content_bytes = serde_json::to_vec(&content)?;
+            let DeviceSyncContent::Reply(contents) = content else {
+                // we know it's a reply, we just want to take the contents back, as we'll need them
+                unreachable!();
+            };
+
+            (content_bytes, contents)
+        };
+
+        let _message_id = sync_group.prepare_message(&content_bytes, &conn, move |_time_ns| {
+            PlaintextEnvelope {
+                content: Some(Content::V2(V2 {
+                    idempotency_key: new_request_id(),
+                    message_type: Some(Reply(contents)),
+                })),
+            }
+        })?;
+
+        // publish the intent
+        if let Err(err) = sync_group.publish_messages().await {
+            tracing::error!("error publishing sync group intents: {:?}", err);
+        }
+        Ok(())
+    }
+
+    pub async fn ensure_member_of_all_groups(&self, inbox_id: &str) -> Result<(), GroupError> {
+        let conn = self.store().conn()?;
+        let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
+        for group in groups {
+            let group = self.group(group.id)?;
+            Box::pin(group.add_members_by_inbox_id(vec![inbox_id.to_string()])).await?;
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DeviceSyncContent {
     Request(DeviceSyncRequestProto),
@@ -115,7 +282,7 @@ pub(crate) fn decrypt_history_file(
     input_path: &Path,
     output_path: &Path,
     encryption_key: DeviceSyncKeyTypeProto,
-) -> Result<(), MessageHistoryError> {
+) -> Result<(), DeviceSyncError> {
     let enc_key: DeviceSyncKeyType = encryption_key.try_into()?;
     let enc_key_bytes = enc_key.as_bytes();
     // Read the messages file content
@@ -143,7 +310,7 @@ pub(crate) fn decrypt_history_file(
 pub(super) async fn upload_history_bundle(
     url: &str,
     file_path: PathBuf,
-) -> Result<String, MessageHistoryError> {
+) -> Result<String, DeviceSyncError> {
     let mut file = File::open(file_path)?;
     let mut content = Vec::new();
     file.read_to_end(&mut content)?;
@@ -159,7 +326,7 @@ pub(super) async fn upload_history_bundle(
             response.status(),
             response
         );
-        Err(MessageHistoryError::Reqwest(
+        Err(DeviceSyncError::Reqwest(
             response
                 .error_for_status()
                 .expect_err("Checked for success"),
@@ -167,7 +334,7 @@ pub(super) async fn upload_history_bundle(
     }
 }
 
-pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, MessageHistoryError> {
+pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, DeviceSyncError> {
     let client = reqwest::Client::new();
 
     tracing::info!("downloading history bundle from {:?}", url);
@@ -175,7 +342,7 @@ pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, Messag
     let bundle_name = url
         .split('/')
         .last()
-        .ok_or(MessageHistoryError::InvalidBundleUrl)?;
+        .ok_or(DeviceSyncError::InvalidBundleUrl)?;
 
     let response = client.get(url).send().await?;
 
@@ -193,7 +360,7 @@ pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, Messag
             response.status(),
             response
         );
-        Err(MessageHistoryError::Reqwest(
+        Err(DeviceSyncError::Reqwest(
             response
                 .error_for_status()
                 .expect_err("Checked for success"),
@@ -205,13 +372,15 @@ pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, Messag
 pub(super) struct DeviceSyncRequest {
     pub pin_code: String,
     pub request_id: String,
+    pub kind: DeviceSyncKind,
 }
 
 impl DeviceSyncRequest {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(kind: DeviceSyncKind) -> Self {
         Self {
             pin_code: new_pin(),
             request_id: new_request_id(),
+            kind,
         }
     }
 }
@@ -221,6 +390,7 @@ impl From<DeviceSyncRequest> for DeviceSyncRequestProto {
         DeviceSyncRequestProto {
             pin_code: req.pin_code,
             request_id: req.request_id,
+            kind: req.kind as i32,
         }
     }
 }
@@ -292,7 +462,7 @@ impl From<DeviceSyncKeyType> for DeviceSyncKeyTypeProto {
 }
 
 impl TryFrom<DeviceSyncKeyTypeProto> for DeviceSyncKeyType {
-    type Error = MessageHistoryError;
+    type Error = DeviceSyncError;
     fn try_from(key: DeviceSyncKeyTypeProto) -> Result<Self, Self::Error> {
         let DeviceSyncKeyTypeProto { key } = key;
         match key {
@@ -300,10 +470,10 @@ impl TryFrom<DeviceSyncKeyTypeProto> for DeviceSyncKeyType {
                 let Key::Chacha20Poly1305(hist_key) = k;
                 match hist_key.try_into() {
                     Ok(array) => Ok(DeviceSyncKeyType::Chacha20Poly1305(array)),
-                    Err(_) => Err(MessageHistoryError::Conversion),
+                    Err(_) => Err(DeviceSyncError::Conversion),
                 }
             }
-            None => Err(MessageHistoryError::Conversion),
+            None => Err(DeviceSyncError::Conversion),
         }
     }
 }

@@ -36,7 +36,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 #[cfg(feature = "message-history")]
-use self::device_sync::MessageHistoryError;
+use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
 use self::scoped_client::ScopedGroupClient;
@@ -175,7 +175,7 @@ pub enum GroupError {
     LeafNodeError(#[from] LibraryError),
     #[cfg(feature = "message-history")]
     #[error("Message History error: {0}")]
-    MessageHistory(#[from] Box<MessageHistoryError>),
+    MessageHistory(#[from] Box<DeviceSyncError>),
     #[error("Installation diff error: {0}")]
     InstallationDiff(#[from] InstallationDiffError),
     #[error("PSKs are not support")]
