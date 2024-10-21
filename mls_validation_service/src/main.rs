@@ -3,6 +3,7 @@ mod handlers;
 mod health_check;
 mod version;
 
+use crate::version::get_version;
 use clap::Parser;
 use config::Args;
 use handlers::ValidationService;
@@ -10,7 +11,6 @@ use health_check::health_check_server;
 use tokio::signal::unix::{signal, SignalKind};
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
-use crate::version::get_version;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt as _, EnvFilter};
 use xmtp_id::scw_verifier::MultiSmartContractSignatureVerifier;
 use xmtp_proto::xmtp::mls_validation::v1::validation_api_server::ValidationApiServer;
@@ -22,9 +22,11 @@ extern crate tracing;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::registry()
         .with(fmt::layer())
-        .with(EnvFilter::builder()
-            .with_default_directive(LevelFilter::INFO.into())
-            .from_env_lossy())
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
         .init();
 
     let args = Args::parse();
