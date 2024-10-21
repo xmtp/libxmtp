@@ -481,7 +481,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         client: Arc<ScopedClient>,
         provider: &XmtpOpenMlsProvider,
         hpke_public_key: &[u8],
-        encrypted_welcome_bytes: &Vec<u8>,
+        encrypted_welcome_bytes: &[u8],
         welcome_id: i64,
     ) -> Result<Self, GroupError> {
         tracing::info!("Trying to decrypt welcome");
