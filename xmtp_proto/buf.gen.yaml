@@ -27,6 +27,8 @@ plugins:
       - server_mod_attribute=xmtp.message_api.v1=#[cfg(not(target_arch = "wasm32"))]
       - server_mod_attribute=xmtp.mls.api.v1=#[cfg(not(target_arch = "wasm32"))]
       - server_mod_attribute=xmtp.xmtpv4=#[cfg(not(target_arch = "wasm32"))]
+      - server_mod_attribute=xmtp.xmtpv4.payer_api=#[cfg(not(target_arch = "wasm32"))]
+      - server_mod_attribute=xmtp.xmtpv4.message_api=#[cfg(not(target_arch = "wasm32"))]
   - name: prost-crate
     out: .
     strategy: all
