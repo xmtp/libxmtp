@@ -20,8 +20,8 @@ impl WasmContentTypeId {
     type_id: String,
     version_major: u32,
     version_minor: u32,
-  ) -> WasmContentTypeId {
-    WasmContentTypeId {
+  ) -> Self {
+    Self {
       authority_id,
       type_id,
       version_major,

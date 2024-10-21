@@ -120,6 +120,33 @@ pub struct WasmPermissionPolicySet {
   pub update_group_pinned_frame_url_policy: WasmPermissionPolicy,
 }
 
+#[wasm_bindgen]
+impl WasmPermissionPolicySet {
+  #[wasm_bindgen(constructor)]
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(
+    add_member_policy: WasmPermissionPolicy,
+    remove_member_policy: WasmPermissionPolicy,
+    add_admin_policy: WasmPermissionPolicy,
+    remove_admin_policy: WasmPermissionPolicy,
+    update_group_name_policy: WasmPermissionPolicy,
+    update_group_description_policy: WasmPermissionPolicy,
+    update_group_image_url_square_policy: WasmPermissionPolicy,
+    update_group_pinned_frame_url_policy: WasmPermissionPolicy,
+  ) -> Self {
+    Self {
+      add_member_policy,
+      remove_member_policy,
+      add_admin_policy,
+      remove_admin_policy,
+      update_group_name_policy,
+      update_group_description_policy,
+      update_group_image_url_square_policy,
+      update_group_pinned_frame_url_policy,
+    }
+  }
+}
+
 impl From<PreconfiguredPolicies> for WasmGroupPermissionsOptions {
   fn from(policy: PreconfiguredPolicies) -> Self {
     match policy {
@@ -142,7 +169,6 @@ impl WasmGroupPermissions {
 
 #[wasm_bindgen]
 impl WasmGroupPermissions {
-  #[wasm_bindgen]
   #[wasm_bindgen]
   pub fn policy_type(&self) -> Result<WasmGroupPermissionsOptions, JsError> {
     if let Ok(preconfigured_policy) = self.inner.preconfigured_policy() {
