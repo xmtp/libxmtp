@@ -3,6 +3,3 @@ runner = 'wasm-bindgen-test-runner'
 
 [alias]
 xtask = "run --package xtask --"
-
-[target.x86_64-linux-android]
-linker = "bindings_ffi/sdk_root/ndk/27.2.12479018/toolchains/llvm/prebuilt/darwin-x86_64/bin/x86_64-linux-android35-clang"
