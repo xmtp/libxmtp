@@ -1,9 +1,6 @@
-use diesel::{prelude::*, sql_types::Binary};
-use tracing::warn;
-
-use crate::storage::StorageError;
-
 use super::{db_connection::DbConnection, schema::key_value_store};
+use crate::storage::StorageError;
+use diesel::prelude::*;
 
 #[derive(Insertable, Queryable, Debug, Clone)]
 #[diesel(table_name = key_value_store)]
@@ -37,5 +34,23 @@ impl KeyValueStore {
         };
 
         Ok(value)
+    }
+
+    pub fn set<T>(conn: &DbConnection, key: &StoreKey, value: T) -> Result<(), StorageError>
+    where
+        T: serde::ser::Serialize,
+    {
+        let entry = KeyValueStore {
+            key: format!("{key:?}"),
+            value: bincode::serialize(&value).unwrap(),
+        };
+
+        conn.raw_query(|conn| {
+            diesel::replace_into(key_value_store::table)
+                .values(entry)
+                .execute(conn)
+        })?;
+
+        Ok(())
     }
 }
