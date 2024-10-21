@@ -77,6 +77,7 @@ pub fn build_bindings_wasm(extra_args: &[String], flags: flags::BindingsWasm) ->
 
     sp.text("running wasm-opt").update();
     step_run_wasm_opt(&pkg_directory, spinner_update)?;
+    sp.success();
     Ok(())
 }
 

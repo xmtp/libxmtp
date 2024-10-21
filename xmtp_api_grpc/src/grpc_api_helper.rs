@@ -40,15 +40,21 @@ pub enum GrpcError {
     #[error(transparent)]
     Transport(#[from] tonic::transport::Error),
     #[error("metadata error {0}")]
-    MetadataValueConversion(#[from] tonic::metadata::errors::InvalidMetadataValueBytes)
-    #[error("publish error {0}")]
-    Publish()
-
+    MetadataValueConversion(#[from] tonic::metadata::errors::InvalidMetadataValue),
+    // #[error("publish error {0}")]
+    // Publish(#[from] PublishError),
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum PublishError {
-    Parse(#[from] )
+pub enum V2ApiError {
+    #[error("metadata error {0}")]
+    MetadataValueConversion(#[from] tonic::metadata::errors::InvalidMetadataValue),
+    #[error("Publish request failed with status {0}")]
+    Publish(tonic::Status),
+    #[error("Subcribe request failed with status {0}")]
+    Subscribe(tonic::Status),
+    #[error("Query request failed with status {0}")]
+    Query(tonic::Status),
 }
 
 async fn create_tls_channel(address: String) -> Result<Channel, GrpcError> {
@@ -140,13 +146,14 @@ impl Client {
 }
 
 impl ClientWithMetadata for Client {
-    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Error> {
+    type Error = GrpcError;
+    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
         self.libxmtp_version = MetadataValue::try_from(&version)?;
 
         Ok(())
     }
 
-    fn set_app_version(&mut self, version: String) -> Result<(), Error> {
+    fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
         self.app_version = MetadataValue::try_from(&version)?;
 
         Ok(())
@@ -156,12 +163,13 @@ impl ClientWithMetadata for Client {
 impl XmtpApiClient for Client {
     type Subscription = Subscription;
     type MutableSubscription = GrpcMutableSubscription;
+    type Error = V2ApiError;
 
     async fn publish(
         &self,
         token: String,
         request: PublishRequest,
-    ) -> Result<PublishResponse, PublishError> {
+    ) -> Result<PublishResponse, Self::Error> {
         let auth_token_string = format!("Bearer {}", token);
         let token: MetadataValue<_> = auth_token_string.parse()?;
 
@@ -172,15 +180,16 @@ impl XmtpApiClient for Client {
         client
             .publish(tonic_request)
             .await
-            .map(|r| r.into_inner())?;
+            .map(|r| r.into_inner())
+            .map_err(V2ApiError::Publish)
     }
 
-    async fn subscribe(&self, request: SubscribeRequest) -> Result<Subscription, Error> {
+    async fn subscribe(&self, request: SubscribeRequest) -> Result<Subscription, Self::Error> {
         let client = &mut self.client.clone();
         let stream = client
             .subscribe(self.build_request(request))
             .await
-            .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
+            .map_err(V2ApiError::Subscribe)?
             .into_inner();
 
         Ok(Subscription::start(stream).await)
@@ -189,7 +198,7 @@ impl XmtpApiClient for Client {
     async fn subscribe2(
         &self,
         request: SubscribeRequest,
-    ) -> Result<GrpcMutableSubscription, Error> {
+    ) -> Result<GrpcMutableSubscription, Self::Error> {
         let (sender, mut receiver) = futures::channel::mpsc::unbounded::<SubscribeRequest>();
 
         let input_stream = async_stream::stream! {
@@ -215,7 +224,7 @@ impl XmtpApiClient for Client {
         ))
     }
 
-    async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error> {
+    async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error> {
         let client = &mut self.client.clone();
 
         let res = client.query(self.build_request(request)).await;
@@ -226,7 +235,10 @@ impl XmtpApiClient for Client {
         }
     }
 
-    async fn batch_query(&self, request: BatchQueryRequest) -> Result<BatchQueryResponse, Error> {
+    async fn batch_query(
+        &self,
+        request: BatchQueryRequest,
+    ) -> Result<BatchQueryResponse, Self::Error> {
         let client = &mut self.client.clone();
         let res = client.batch_query(self.build_request(request)).await;
 

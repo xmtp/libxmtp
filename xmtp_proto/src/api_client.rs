@@ -236,14 +236,16 @@ pub trait XmtpApiSubscription {
 }
 
 #[allow(async_fn_in_trait)]
-pub trait MutableApiSubscription: Stream<Item = Result<Envelope, Error>> + Send {
+pub trait MutableApiSubscription: Stream<Item = Result<Envelope, Self::Error>> + Send {
+    type Error;
     async fn update(&mut self, req: SubscribeRequest) -> Result<(), Error>;
     fn close(&self);
 }
 
 pub trait ClientWithMetadata {
-    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Error>;
-    fn set_app_version(&mut self, version: String) -> Result<(), Error>;
+    type Error;
+    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error>;
+    fn set_app_version(&mut self, version: String) -> Result<(), Self::Error>;
 }
 
 /// Global Marker trait for WebAssembly
@@ -257,6 +259,7 @@ impl<T> Wasm for T {}
 #[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpApiClient: Send))]
 #[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpApiClient: Wasm))]
 pub trait LocalXmtpApiClient {
+    type Error;
     type Subscription: XmtpApiSubscription;
     type MutableSubscription: MutableApiSubscription;
 
@@ -264,18 +267,22 @@ pub trait LocalXmtpApiClient {
         &self,
         token: String,
         request: PublishRequest,
-    ) -> Result<PublishResponse, Error>;
+    ) -> Result<PublishResponse, Self::Error>;
 
-    async fn subscribe(&self, request: SubscribeRequest) -> Result<Self::Subscription, Error>;
+    async fn subscribe(&self, request: SubscribeRequest)
+        -> Result<Self::Subscription, Self::Error>;
 
     async fn subscribe2(
         &self,
         request: SubscribeRequest,
-    ) -> Result<Self::MutableSubscription, Error>;
+    ) -> Result<Self::MutableSubscription, Self::Error>;
 
-    async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error>;
+    async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error>;
 
-    async fn batch_query(&self, request: BatchQueryRequest) -> Result<BatchQueryResponse, Error>;
+    async fn batch_query(
+        &self,
+        request: BatchQueryRequest,
+    ) -> Result<BatchQueryResponse, Self::Error>;
 }
 
 // Wasm futures don't have `Send` or `Sync` bounds.
