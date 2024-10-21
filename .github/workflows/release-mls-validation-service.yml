@@ -32,7 +32,7 @@ jobs:
           images: ghcr.io/xmtp/mls-validation-service
           tags: |
             type=ref,event=tag
-            type=semver,pattern={{version}}
+            type=match,pattern={{mls-validation-service-v(\d.\d.\d)}}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
