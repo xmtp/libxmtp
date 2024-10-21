@@ -1,0 +1,17 @@
+#!/bin/bash
+set -eou pipefail
+
+# Local script to release android jniLibs with same environment as CI
+
+WORKSPACE_MANIFEST="$(cargo locate-project --workspace --message-format=plain)"
+WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
+BINDINGS_MANIFEST="$WORKSPACE_PATH/bindings_ffi/Cargo.toml"
+BINDINGS_PATH="$(dirname $BINDINGS_MANIFEST)"
+TARGET_DIR="$WORKSPACE_PATH/target"
+
+if [[ "${OSTYPE}" == "darwin"* ]]; then
+  if ! which nix &>/dev/null; then curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --determinate; fi
+fi
+
+cd $BINDINGS_PATH
+nix develop ../ --command make swift

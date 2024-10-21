@@ -1,3 +1,4 @@
+# Flake Shell for building release artifacts for swift and kotlin
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
@@ -10,7 +11,7 @@
     flake-utils = { url = "github:numtide/flake-utils"; };
   };
 
-  outputs = { nixpkgs, flake-utils, fenix, ... }@inputs:
+  outputs = { nixpkgs, flake-utils, fenix, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         inherit (pkgs.stdenv) isDarwin;
@@ -41,6 +42,7 @@
         };
 
         fenixPkgs = fenix.packages.${system};
+        # Pinned Rust Version
         rust-toolchain = fenixPkgs.fromToolchainFile {
           file = ./rust-toolchain;
           sha256 = "sha256-yMuSb5eQPO/bHv+Bcf/US8LVMbf/G/0MSfiPwBhiPpk=";
