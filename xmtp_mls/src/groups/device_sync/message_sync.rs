@@ -26,13 +26,6 @@ use crate::{
     Client, Store,
 };
 
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum SyncableTables {
-    StoredGroup(StoredGroup),
-    StoredGroupMessage(StoredGroupMessage),
-}
-
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi + Clone,
@@ -97,7 +90,7 @@ where
 
         if let Some((request_id, _)) = pending_request {
             let reply: DeviceSyncReplyProto = self.prepare_history_reply(&request_id).await?.into();
-            self.send_history_reply(reply.clone()).await?;
+            self.send_sync_reply(reply.clone()).await?;
             return Ok(reply);
         }
 
@@ -211,30 +204,6 @@ where
 
         if request.is_none() {
             return Err(DeviceSyncError::PinNotFound);
-        }
-
-        Ok(())
-    }
-
-    pub(crate) fn insert_history_bundle(&self, history_file: &Path) -> Result<(), DeviceSyncError> {
-        let file = File::open(history_file)?;
-        let reader = BufReader::new(file);
-        let lines = reader.lines();
-
-        let conn = self.store().conn()?;
-
-        for line in lines {
-            let line = line?;
-            let db_entry: SyncableTables = serde_json::from_str(&line)?;
-            match db_entry {
-                SyncableTables::StoredGroup(group) => {
-                    // alternatively consider: group.store(&conn)?
-                    conn.insert_or_replace_group(group)?;
-                }
-                SyncableTables::StoredGroupMessage(group_message) => {
-                    group_message.store(&conn)?;
-                }
-            }
         }
 
         Ok(())

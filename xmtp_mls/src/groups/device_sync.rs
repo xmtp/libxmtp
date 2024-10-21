@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 
 use aes_gcm::aead::generic_array::GenericArray;
@@ -32,10 +32,18 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 
-use crate::storage::group_message::GroupMessageKind;
-use crate::storage::key_value_store::{KeyValueStore, StoreKey};
-use crate::Client;
-use crate::{client::ClientError, storage::StorageError};
+use crate::Store;
+use crate::{
+    client::ClientError,
+    storage::{
+        consent_record::StoredConsentRecord,
+        group::StoredGroup,
+        group_message::{GroupMessageKind, StoredGroupMessage},
+        key_value_store::{KeyValueStore, StoreKey},
+        StorageError,
+    },
+    Client,
+};
 
 #[cfg(feature = "consent-sync")]
 pub mod consent_sync;
@@ -44,6 +52,14 @@ pub mod message_sync;
 
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
 pub const NONCE_SIZE: usize = 12; // 96-bit nonce
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum SyncableTables {
+    StoredGroup(StoredGroup),
+    StoredGroupMessage(StoredGroupMessage),
+    StoredConsentRecord(StoredConsentRecord),
+}
 
 #[derive(Debug, Error)]
 pub enum DeviceSyncError {
@@ -240,6 +256,24 @@ where
         for group in groups {
             let group = self.group(group.id)?;
             Box::pin(group.add_members_by_inbox_id(vec![inbox_id.to_string()])).await?;
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn insert_sync_bundle(&self, history_file: &Path) -> Result<(), DeviceSyncError> {
+        let conn = self.store().conn()?;
+
+        let file = File::open(history_file)?;
+        let reader = BufReader::new(file);
+
+        for line in reader.lines() {
+            let db_entry: SyncableTables = serde_json::from_str(&line?)?;
+            match db_entry {
+                SyncableTables::StoredGroup(group) => group.store(&conn),
+                SyncableTables::StoredGroupMessage(group_message) => group_message.store(&conn),
+                SyncableTables::StoredConsentRecord(consent_record) => consent_record.store(&conn),
+            }?;
         }
 
         Ok(())

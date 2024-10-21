@@ -17,10 +17,10 @@ pub enum StoreKey {
 }
 
 impl KeyValueStore {
-    pub fn get<T>(conn: &DbConnection, key: &StoreKey) -> Result<Option<T>, StorageError>
-    where
-        T: serde::de::DeserializeOwned,
-    {
+    pub fn get<T: serde::de::DeserializeOwned>(
+        conn: &DbConnection,
+        key: &StoreKey,
+    ) -> Result<Option<T>, StorageError> {
         let key = format!("{key:?}");
         let store: KeyValueStore =
             conn.raw_query(|conn| key_value_store::table.find(&key).first(conn))?;
@@ -36,10 +36,11 @@ impl KeyValueStore {
         Ok(value)
     }
 
-    pub fn set<T>(conn: &DbConnection, key: &StoreKey, value: T) -> Result<(), StorageError>
-    where
-        T: serde::ser::Serialize,
-    {
+    pub fn set<T: serde::Serialize>(
+        conn: &DbConnection,
+        key: &StoreKey,
+        value: T,
+    ) -> Result<(), StorageError> {
         let entry = KeyValueStore {
             key: format!("{key:?}"),
             value: bincode::serialize(&value)

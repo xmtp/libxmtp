@@ -17,7 +17,7 @@ use diesel::{
 use serde::{Deserialize, Serialize};
 
 /// StoredConsentRecord holds a serialized ConsentRecord
-#[derive(Insertable, Queryable, Debug, Clone, PartialEq, Eq)]
+#[derive(Insertable, Queryable, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[diesel(table_name = consent_records)]
 #[diesel(primary_key(entity_type, entity))]
 pub struct StoredConsentRecord {
