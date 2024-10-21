@@ -42,7 +42,8 @@ impl KeyValueStore {
     {
         let entry = KeyValueStore {
             key: format!("{key:?}"),
-            value: bincode::serialize(&value).unwrap(),
+            value: bincode::serialize(&value)
+                .map_err(|err| StorageError::Serialization(format!("{err:?}")))?,
         };
 
         conn.raw_query(|conn| {
