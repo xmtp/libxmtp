@@ -172,6 +172,7 @@ impl NapiGroup {
         opts.sent_after_ns,
         delivery_status,
         opts.limit,
+        None,
       )
       .map_err(ErrorWrapper::from)?
       .into_iter()

@@ -224,7 +224,6 @@ pub struct FindGroupParams {
     pub created_before_ns: Option<i64>,
     pub limit: Option<i64>,
     pub conversation_type: Option<ConversationType>,
-    pub consent_state: Option<ConsentState>,
 }
 
 /// Clients manage access to the network, identity, and data store
@@ -692,7 +691,6 @@ where
                 params.created_before_ns,
                 params.limit,
                 params.conversation_type,
-                params.consent_state,
             )?
             .into_iter()
             .map(|stored_group| {

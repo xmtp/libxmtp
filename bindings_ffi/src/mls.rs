@@ -15,6 +15,7 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::storage::group_message::SortDirection;
 use xmtp_mls::{
     api::ApiClientWrapper,
     builder::ClientBuilder,
@@ -40,7 +41,6 @@ use xmtp_mls::{
     },
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
-use xmtp_proto::xmtp::mls::api::v1::SortDirection;
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
@@ -887,7 +887,6 @@ impl FfiConversations {
                 created_before_ns: opts.created_before_ns,
                 limit: opts.limit,
                 conversation_type: None,
-                consent_state: opts.consent_state.into(),
             })?
             .into_iter()
             .map(|group| {
@@ -914,7 +913,6 @@ impl FfiConversations {
                 created_before_ns: opts.created_before_ns,
                 limit: opts.limit,
                 conversation_type: Some(ConversationType::Group),
-                consent_state: opts.consent_state.into(),
             })?
             .into_iter()
             .map(|group| {
@@ -941,7 +939,6 @@ impl FfiConversations {
                 created_before_ns: opts.created_before_ns,
                 limit: opts.limit,
                 conversation_type: Some(ConversationType::Dm),
-                consent_state: opts.consent_state.into(),
             })?
             .into_iter()
             .map(|group| {
@@ -1221,14 +1218,17 @@ impl FfiConversation {
             self.created_at_ns,
         );
 
+        let delivery_status = opts.delivery_status.map(|status| status.into());
+        let direction = opts.direction.map(|dir| dir.into());
+
         let messages: Vec<FfiMessage> = group
             .find_messages(
                 None,
                 opts.sent_before_ns,
                 opts.sent_after_ns,
-                opts.delivery_status.into(),
+                delivery_status,
                 opts.limit,
-                opts.direction.into(),
+                direction,
             )?
             .into_iter()
             .map(|msg| msg.into())

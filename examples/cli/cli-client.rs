@@ -253,7 +253,9 @@ async fn main() {
                 .await
                 .expect("failed to get group");
 
-            let messages = group.find_messages(None, None, None, None, None).unwrap();
+            let messages = group
+                .find_messages(None, None, None, None, None, None)
+                .unwrap();
             if cli.json {
                 let json_serializable_messages = messages
                     .iter()
@@ -386,7 +388,14 @@ async fn main() {
             let group_id_str = hex::encode(group.group_id.clone());
             group.sync().await.unwrap();
             let messages = group
-                .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+                .find_messages(
+                    Some(GroupMessageKind::Application),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
                 .unwrap();
             info!("Listing history sync messages", { group_id: group_id_str, messages: messages.len()});
             for message in messages {
