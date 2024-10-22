@@ -22,6 +22,16 @@ services:
   validation:
     image: ghcr.io/xmtp/mls-validation-service:main
     platform: linux/amd64
+    environment:
+      ANVIL_URL: "http://anvil:8545"
+
+  anvil:
+    image: ghcr.io/foundry-rs/foundry
+    platform: linux/amd64
+    entrypoint: ["anvil", "--host", "0.0.0.0"]
+    working_dir: /anvil
+    ports:
+      - 8545:8545
 
   db:
     image: postgres:13

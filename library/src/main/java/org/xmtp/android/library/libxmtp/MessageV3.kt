@@ -11,7 +11,7 @@ import org.xmtp.android.library.messages.MessageDeliveryStatus
 import org.xmtp.android.library.messages.Topic
 import org.xmtp.android.library.toHex
 import uniffi.xmtpv3.FfiDeliveryStatus
-import uniffi.xmtpv3.FfiGroupMessageKind
+import uniffi.xmtpv3.FfiConversationMessageKind
 import uniffi.xmtpv3.FfiMessage
 import java.util.Date
 
@@ -47,7 +47,7 @@ data class MessageV3(val client: Client, private val libXMTPMessage: FfiMessage)
                 sent = sentAt,
                 deliveryStatus = deliveryStatus
             )
-            if (decodedMessage.encodedContent.type == ContentTypeGroupUpdated && libXMTPMessage.kind != FfiGroupMessageKind.MEMBERSHIP_CHANGE) {
+            if (decodedMessage.encodedContent.type == ContentTypeGroupUpdated && libXMTPMessage.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE) {
                 throw XMTPException("Error decoding group membership change")
             }
             return decodedMessage

@@ -40,7 +40,7 @@ import uniffi.xmtpv3.FfiConversationCallback
 import uniffi.xmtpv3.FfiConversations
 import uniffi.xmtpv3.FfiCreateGroupOptions
 import uniffi.xmtpv3.FfiEnvelope
-import uniffi.xmtpv3.FfiGroup
+import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiListConversationsOptions
 import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
@@ -193,7 +193,7 @@ data class Conversations(
 
     // Sync all existing local groups data from the network (Note: call syncGroups() first to get the latest list of groups)
     suspend fun syncAllGroups(): UInt? {
-        return libXMTPConversations?.syncAllGroups()
+        return libXMTPConversations?.syncAllConversations()
     }
 
     suspend fun listGroups(
@@ -201,7 +201,7 @@ data class Conversations(
         before: Date? = null,
         limit: Int? = null,
     ): List<Group> {
-        return libXMTPConversations?.list(
+        return libXMTPConversations?.listGroups(
             opts = FfiListConversationsOptions(
                 after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
                 before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
@@ -655,22 +655,22 @@ data class Conversations(
 
     private fun streamGroupConversations(): Flow<Conversation> = callbackFlow {
         val groupCallback = object : FfiConversationCallback {
-            override fun onConversation(conversation: FfiGroup) {
+            override fun onConversation(conversation: FfiConversation) {
                 trySend(Conversation.Group(Group(client, conversation)))
             }
         }
-        val stream = libXMTPConversations?.stream(groupCallback)
+        val stream = libXMTPConversations?.streamGroups(groupCallback)
             ?: throw XMTPException("Client does not support Groups")
         awaitClose { stream.end() }
     }
 
     fun streamGroups(): Flow<Group> = callbackFlow {
         val groupCallback = object : FfiConversationCallback {
-            override fun onConversation(conversation: FfiGroup) {
+            override fun onConversation(conversation: FfiConversation) {
                 trySend(Group(client, conversation))
             }
         }
-        val stream = libXMTPConversations?.stream(groupCallback)
+        val stream = libXMTPConversations?.streamGroups(groupCallback)
             ?: throw XMTPException("Client does not support Groups")
         awaitClose { stream.end() }
     }
@@ -684,7 +684,7 @@ data class Conversations(
                 }
             }
         }
-        val stream = libXMTPConversations?.streamAllMessages(messageCallback)
+        val stream = libXMTPConversations?.streamAllGroupMessages(messageCallback)
             ?: throw XMTPException("Client does not support Groups")
         awaitClose { stream.end() }
     }
@@ -698,7 +698,7 @@ data class Conversations(
                 }
             }
         }
-        val stream = libXMTPConversations?.streamAllMessages(messageCallback)
+        val stream = libXMTPConversations?.streamAllGroupMessages(messageCallback)
             ?: throw XMTPException("Client does not support Groups")
         awaitClose { stream.end() }
     }

@@ -1,13 +1,13 @@
 package org.xmtp.android.library.libxmtp
 
 import org.xmtp.android.library.ConsentState
-import uniffi.xmtpv3.FfiGroupMember
+import uniffi.xmtpv3.FfiConversationMember
 import uniffi.xmtpv3.FfiPermissionLevel
 
 enum class PermissionLevel {
     MEMBER, ADMIN, SUPER_ADMIN
 }
-class Member(private val ffiMember: FfiGroupMember) {
+class Member(private val ffiMember: FfiConversationMember) {
 
     val inboxId: String
         get() = ffiMember.inboxId

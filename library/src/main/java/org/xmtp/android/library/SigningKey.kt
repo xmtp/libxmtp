@@ -19,9 +19,36 @@ import java.util.Date
 interface SigningKey {
     val address: String
 
-    suspend fun sign(data: ByteArray): SignatureOuterClass.Signature?
+    // The wallet type if Smart Contract Wallet this should be type SCW.
+    val type: WalletType
+        get() = WalletType.EOA
 
-    suspend fun sign(message: String): SignatureOuterClass.Signature?
+    // The chainId of the Smart Contract Wallet value should be null if not SCW
+    var chainId: Long?
+        get() = null
+        set(_) {}
+
+    // Default blockNumber value set to null
+    var blockNumber: Long?
+        get() = null
+        set(_) {}
+
+    suspend fun sign(data: ByteArray): SignatureOuterClass.Signature? {
+        throw NotImplementedError("sign(ByteArray) is not implemented.")
+    }
+
+    suspend fun sign(message: String): SignatureOuterClass.Signature? {
+        throw NotImplementedError("sign(String) is not implemented.")
+    }
+
+    suspend fun signSCW(message: String): ByteArray {
+        throw NotImplementedError("signSCW(String) is not implemented.")
+    }
+}
+
+enum class WalletType {
+    SCW, // Smart Contract Wallet
+    EOA // Externally Owned Account *Default
 }
 
 /**
@@ -36,10 +63,13 @@ fun SigningKey.createIdentity(
     identity: PrivateKeyOuterClass.PrivateKey,
     preCreateIdentityCallback: PreEventCallback? = null,
 ): AuthorizedIdentity {
-    val slimKey = PublicKeyOuterClass.PublicKey.newBuilder().apply {
-        timestamp = Date().time
-        secp256K1Uncompressed = identity.publicKey.secp256K1Uncompressed
-    }.build()
+    val slimKey =
+        PublicKeyOuterClass.PublicKey
+            .newBuilder()
+            .apply {
+                timestamp = Date().time
+                secp256K1Uncompressed = identity.publicKey.secp256K1Uncompressed
+            }.build()
 
     preCreateIdentityCallback?.let {
         runBlocking {
@@ -53,17 +83,19 @@ fun SigningKey.createIdentity(
     val signature = runBlocking { sign(signatureText) } ?: throw XMTPException("Illegal signature")
 
     val signatureData = KeyUtil.getSignatureData(signature.rawData.toByteString().toByteArray())
-    val publicKey = Sign.recoverFromSignature(
-        BigInteger(1, signatureData.v).toInt(),
-        ECDSASignature(BigInteger(1, signatureData.r), BigInteger(1, signatureData.s)),
-        digest,
-    )
+    val publicKey =
+        Sign.recoverFromSignature(
+            BigInteger(1, signatureData.v).toInt(),
+            ECDSASignature(BigInteger(1, signatureData.r), BigInteger(1, signatureData.s)),
+            digest,
+        )
 
-    val authorized = PublicKey.newBuilder().also {
-        it.secp256K1Uncompressed = slimKey.secp256K1Uncompressed
-        it.timestamp = slimKey.timestamp
-        it.signature = signature
-    }
+    val authorized =
+        PublicKey.newBuilder().also {
+            it.secp256K1Uncompressed = slimKey.secp256K1Uncompressed
+            it.timestamp = slimKey.timestamp
+            it.signature = signature
+        }
     return AuthorizedIdentity(
         address = Keys.toChecksumAddress(Keys.getAddress(publicKey)),
         authorized = authorized.build(),

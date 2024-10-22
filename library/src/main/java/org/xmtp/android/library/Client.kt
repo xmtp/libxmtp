@@ -289,34 +289,62 @@ class Client() {
         }
     }
 
-    // This is a V3 only feature
-    suspend fun createOrBuild(
+    private suspend fun initializeV3Client(
+        accountAddress: String,
+        clientOptions: ClientOptions,
+        signingKey: SigningKey? = null,
+    ): Client {
+        val inboxId = getOrCreateInboxId(clientOptions, accountAddress)
+
+        val (libXMTPClient, dbPath) = ffiXmtpClient(
+            clientOptions,
+            signingKey,
+            clientOptions.appContext,
+            null,
+            accountAddress,
+            inboxId
+        )
+
+        libXMTPClient?.let { client ->
+            return Client(
+                accountAddress,
+                client,
+                dbPath,
+                client.installationId().toHex(),
+                client.inboxId(),
+                clientOptions.api.env
+            )
+        } ?: throw XMTPException("Error creating V3 client: libXMTPClient is null")
+    }
+
+    // Function to create a V3 client with a signing key
+    suspend fun createV3(
         account: SigningKey,
-        options: ClientOptions,
+        options: ClientOptions? = null,
     ): Client {
         this.hasV2Client = false
-        val inboxId = getOrCreateInboxId(options, account.address)
-
+        val clientOptions = options ?: ClientOptions(enableV3 = true)
+        val accountAddress =
+            if (account.chainId != null) "eip155:${account.chainId}:${account.address.lowercase()}" else account.address.lowercase()
         return try {
-            val (libXMTPClient, dbPath) = ffiXmtpClient(
-                options,
-                account,
-                options.appContext,
-                null,
-                account.address,
-                inboxId
-            )
+            initializeV3Client(accountAddress, clientOptions, account)
+        } catch (e: Exception) {
+            throw XMTPException("Error creating V3 client: ${e.message}", e)
+        }
+    }
 
-            libXMTPClient?.let { client ->
-                Client(
-                    account.address,
-                    client,
-                    dbPath,
-                    client.installationId().toHex(),
-                    client.inboxId(),
-                    options.api.env
-                )
-            } ?: throw XMTPException("Error creating V3 client: libXMTPClient is null")
+    // Function to build a V3 client without a signing key (using only address (& chainId for SCW))
+    suspend fun buildV3(
+        address: String,
+        chainId: Long? = null,
+        options: ClientOptions? = null,
+    ): Client {
+        this.hasV2Client = false
+        val clientOptions = options ?: ClientOptions(enableV3 = true)
+        val accountAddress =
+            if (chainId != null) "eip155:$chainId:${address.lowercase()}" else address.lowercase()
+        return try {
+            initializeV3Client(accountAddress, clientOptions)
         } catch (e: Exception) {
             throw XMTPException("Error creating V3 client: ${e.message}", e)
         }
@@ -420,9 +448,20 @@ class Client() {
             }
             v3Client.signatureRequest()?.let { signatureRequest ->
                 if (account != null) {
-                    account.sign(signatureRequest.signatureText())?.let {
-                        signatureRequest.addEcdsaSignature(it.rawData)
+                    if (account.type == WalletType.SCW) {
+                        val chainId = account.chainId ?: throw XMTPException("ChainId is required for smart contract wallets")
+                        signatureRequest.addScwSignature(
+                            account.signSCW(signatureRequest.signatureText()),
+                            account.address.lowercase(),
+                            chainId.toULong(),
+                            account.blockNumber?.toULong()
+                        )
+                    } else {
+                        account.sign(signatureRequest.signatureText())?.let {
+                            signatureRequest.addEcdsaSignature(it.rawData)
+                        }
                     }
+
                     v3Client.registerIdentity(signatureRequest)
                 } else {
                     throw XMTPException("No signer passed but signer was required.")
@@ -570,7 +609,7 @@ class Client() {
     fun findGroup(groupId: String): Group? {
         val client = v3Client ?: throw XMTPException("Error no V3 client initialized")
         try {
-            return Group(this, client.group(groupId.hexToByteArray()))
+            return Group(this, client.conversation(groupId.hexToByteArray()))
         } catch (e: Exception) {
             return null
         }

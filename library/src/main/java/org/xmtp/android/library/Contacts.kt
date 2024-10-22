@@ -47,7 +47,7 @@ enum class EntryType {
         fun toFfiConsentEntityType(option: EntryType): FfiConsentEntityType {
             return when (option) {
                 EntryType.ADDRESS -> FfiConsentEntityType.ADDRESS
-                EntryType.GROUP_ID -> FfiConsentEntityType.GROUP_ID
+                EntryType.GROUP_ID -> FfiConsentEntityType.CONVERSATION_ID
                 EntryType.INBOX_ID -> FfiConsentEntityType.INBOX_ID
             }
         }
@@ -55,7 +55,7 @@ enum class EntryType {
         fun fromFfiConsentEntityType(option: FfiConsentEntityType): EntryType {
             return when (option) {
                 FfiConsentEntityType.ADDRESS -> EntryType.ADDRESS
-                FfiConsentEntityType.GROUP_ID -> EntryType.GROUP_ID
+                FfiConsentEntityType.CONVERSATION_ID -> EntryType.GROUP_ID
                 FfiConsentEntityType.INBOX_ID -> EntryType.INBOX_ID
             }
         }
@@ -301,7 +301,7 @@ class ConsentList(
         client.v3Client?.let {
             return ConsentState.fromFfiConsentState(
                 it.getConsentState(
-                    FfiConsentEntityType.GROUP_ID,
+                    FfiConsentEntityType.CONVERSATION_ID,
                     groupId
                 )
             )
