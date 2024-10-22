@@ -40,6 +40,7 @@ use xmtp_mls::{
     },
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
+use xmtp_proto::xmtp::mls::api::v1::SortDirection;
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
@@ -1112,12 +1113,28 @@ impl From<FfiConsentEntityType> for ConsentType {
     }
 }
 
+#[derive(uniffi::Enum, Clone)]
+pub enum FfiDirection {
+    Ascending,
+    Descending,
+}
+
+impl From<FfiDirection> for SortDirection {
+    fn from(direction: FfiDirection) -> Self {
+        match direction {
+            FfiDirection::Ascending => SortDirection::Ascending,
+            FfiDirection::Descending => SortDirection::Descending,
+        }
+    }
+}
+
 #[derive(uniffi::Record, Clone, Default)]
 pub struct FfiListMessagesOptions {
     pub sent_before_ns: Option<i64>,
     pub sent_after_ns: Option<i64>,
     pub limit: Option<i64>,
     pub delivery_status: Option<FfiDeliveryStatus>,
+    pub direction: Option<FfiDirection>,
 }
 
 #[derive(uniffi::Record, Clone, Default)]
@@ -1200,15 +1217,14 @@ impl FfiConversation {
             self.created_at_ns,
         );
 
-        let delivery_status = opts.delivery_status.map(|status| status.into());
-
         let messages: Vec<FfiMessage> = group
             .find_messages(
                 None,
                 opts.sent_before_ns,
                 opts.sent_after_ns,
-                delivery_status,
+                opts.delivery_status.into(),
                 opts.limit,
+                opts.direction.into(),
             )?
             .into_iter()
             .map(|msg| msg.into())

@@ -7,6 +7,7 @@ use diesel::{
     sql_types::Integer,
 };
 use serde::{Deserialize, Serialize};
+use xmtp_proto::xmtp::message_api::v1::SortDirection;
 
 use super::{
     db_connection::DbConnection,
@@ -118,9 +119,9 @@ impl DbConnection {
         kind: Option<GroupMessageKind>,
         delivery_status: Option<DeliveryStatus>,
         limit: Option<i64>,
+        direction: Option<SortDirection>,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
         let mut query = dsl::group_messages
-            .order(dsl::sent_at_ns.asc())
             .filter(dsl::group_id.eq(group_id.as_ref()))
             .into_boxed();
 
@@ -142,6 +143,14 @@ impl DbConnection {
 
         if let Some(limit) = limit {
             query = query.limit(limit);
+        }
+
+        if let Some(dir) = direction {
+            query = match dir {
+                SortDirection::Ascending => query.order(dsl::sent_at_ns.asc()),
+                SortDirection::Descending => query.order(dsl::sent_at_ns.desc()),
+                SortDirection::Unspecified => query,
+            };
         }
 
         Ok(self.raw_query(|conn| query.load::<StoredGroupMessage>(conn))?)
@@ -299,7 +308,7 @@ pub(crate) mod tests {
             assert_eq!(count, 50);
 
             let messages = conn
-                .get_group_messages(&group.id, None, None, None, None, None)
+                .get_group_messages(&group.id, None, None, None, None, None, None)
                 .unwrap();
 
             assert_eq!(messages.len(), 50);
@@ -326,18 +335,26 @@ pub(crate) mod tests {
             ];
             assert_ok!(messages.store(conn));
             let message = conn
-                .get_group_messages(&group.id, Some(1_000), Some(100_000), None, None, None)
+                .get_group_messages(
+                    &group.id,
+                    Some(1_000),
+                    Some(100_000),
+                    None,
+                    None,
+                    None,
+                    None,
+                )
                 .unwrap();
             assert_eq!(message.len(), 1);
             assert_eq!(message.first().unwrap().sent_at_ns, 10_000);
 
             let messages = conn
-                .get_group_messages(&group.id, None, Some(100_000), None, None, None)
+                .get_group_messages(&group.id, None, Some(100_000), None, None, None, None)
                 .unwrap();
             assert_eq!(messages.len(), 2);
 
             let messages = conn
-                .get_group_messages(&group.id, Some(10_000), None, None, None, None)
+                .get_group_messages(&group.id, Some(10_000), None, None, None, None, None)
                 .unwrap();
             assert_eq!(messages.len(), 2);
         })
@@ -381,6 +398,7 @@ pub(crate) mod tests {
                     Some(GroupMessageKind::Application),
                     None,
                     None,
+                    None,
                 )
                 .unwrap();
             assert_eq!(application_messages.len(), 15);
@@ -391,6 +409,7 @@ pub(crate) mod tests {
                     None,
                     None,
                     Some(GroupMessageKind::MembershipChange),
+                    None,
                     None,
                     None,
                 )
