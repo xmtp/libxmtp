@@ -29,7 +29,7 @@ use xmtp_id::{
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
     InboxId,
 };
-
+use xmtp_proto::api_client::BoxedApiClient;
 use xmtp_proto::xmtp::mls::api::v1::{
     welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
     GroupMessage, WelcomeMessage,
@@ -227,7 +227,7 @@ pub struct FindGroupParams {
 }
 
 /// Clients manage access to the network, identity, and data store
-pub struct Client<V = RemoteSignatureVerifier<ApiClient>> {
+pub struct Client<V = RemoteSignatureVerifier> {
     pub(crate) api_client: ApiClientWrapper,
     pub(crate) intents: Arc<Intents>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
@@ -239,9 +239,8 @@ pub struct Client<V = RemoteSignatureVerifier<ApiClient>> {
 }
 
 // most of these things are `Arc`'s
-impl<ApiClient, V> Clone for Client<ApiClient, V>
+impl<V> Clone for Client<V>
 where
-    ApiClient: Clone + ?Sized,
     V: Clone,
 {
     fn clone(&self) -> Self {
@@ -300,16 +299,15 @@ impl XmtpMlsLocalContext {
     }
 }
 
-impl<ApiClient, V> Client<ApiClient, V>
+impl<V> Client<V>
 where
-    ApiClient: XmtpApi + Clone,
     V: SmartContractSignatureVerifier + Clone,
 {
     /// Create a new client with the given network, identity, and store.
     /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating
     /// a client directly.
     pub fn new(
-        api_client: ApiClientWrapper<ApiClient>,
+        api_client: BoxedApiClient,
         identity: Identity,
         store: EncryptedMessageStore,
         scw_verifier: V,
@@ -343,9 +341,8 @@ where
     }
 }
 
-impl<ApiClient, V> Client<ApiClient, V>
+impl<V> Client<V>
 where
-    ApiClient: XmtpApi + Clone,
     V: SmartContractSignatureVerifier + Clone,
 {
     /// Retrieves the client's installation public key, sometimes also called `installation_id`
@@ -541,7 +538,7 @@ where
     ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating group");
 
-        let group: MlsGroup<Client<ApiClient, V>> = MlsGroup::create_and_insert(
+        let group: MlsGroup<Client<V>> = MlsGroup::create_and_insert(
             Arc::new(self.clone()),
             GroupMembershipState::Allowed,
             permissions_policy_set.unwrap_or_default(),
@@ -1313,10 +1310,9 @@ pub(crate) mod tests {
     }
 
     async fn get_key_package_init_key<
-        ApiClient: XmtpApi + Clone,
         Verifier: SmartContractSignatureVerifier + Clone,
     >(
-        client: &Client<ApiClient, Verifier>,
+        client: &Client<Verifier>,
         installation_id: &[u8],
     ) -> Vec<u8> {
         let kps = client

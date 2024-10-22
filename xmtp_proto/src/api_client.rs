@@ -51,6 +51,7 @@ pub mod trait_impls {
                 + XmtpIdentityClient
                 + ClientWithMetadata
                 + Send
+                + Clone
                 + Sync,
         {
         }
@@ -61,6 +62,7 @@ pub mod trait_impls {
                 + ClientWithMetadata
                 + Send
                 + Sync
+                + Clone
                 + ?Sized
         {
         }
@@ -149,6 +151,7 @@ pub mod trait_impls {
                 + ClientWithMetadata
                 + Send
                 + Sync
+                + Clone
                 + ?Sized
         {
         }
