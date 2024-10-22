@@ -528,6 +528,7 @@ pub struct FfiListConversationsOptions {
     pub created_after_ns: Option<i64>,
     pub created_before_ns: Option<i64>,
     pub limit: Option<i64>,
+    pub consent_state: Option<FfiConsentState>,
 }
 
 #[derive(uniffi::Object)]
@@ -886,6 +887,7 @@ impl FfiConversations {
                 created_before_ns: opts.created_before_ns,
                 limit: opts.limit,
                 conversation_type: None,
+                consent_state: opts.consent_state.into(),
             })?
             .into_iter()
             .map(|group| {
@@ -912,6 +914,7 @@ impl FfiConversations {
                 created_before_ns: opts.created_before_ns,
                 limit: opts.limit,
                 conversation_type: Some(ConversationType::Group),
+                consent_state: opts.consent_state.into(),
             })?
             .into_iter()
             .map(|group| {
@@ -938,6 +941,7 @@ impl FfiConversations {
                 created_before_ns: opts.created_before_ns,
                 limit: opts.limit,
                 conversation_type: Some(ConversationType::Dm),
+                consent_state: opts.consent_state.into(),
             })?
             .into_iter()
             .map(|group| {
