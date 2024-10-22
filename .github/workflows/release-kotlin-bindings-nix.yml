@@ -1,0 +1,80 @@
+name: Release Kotlin Bindings
+on:
+  workflow_dispatch:
+jobs:
+  build-linux:
+    runs-on: warp-ubuntu-latest-x64-16x
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-linux-android
+          - i686-linux-android
+          - armv7-linux-androideabi
+          - aarch64-linux-android
+        include:
+          - target: x86_64-linux-android
+            output_target: x86_64
+          - target: i686-linux-android
+            output_target: x86
+          - target: armv7-linux-androideabi
+            output_target: armeabi-v7a
+          - target: aarch64-linux-android
+            output_target: arm64-v8a
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            bindings_ffi
+      - name: Install Nix
+        uses: cachix/install-nix-action@v17
+        with:
+          # Mostly to avoid GitHub rate limiting
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+      - uses: DeterminateSystems/magic-nix-cache-action@v2
+      - name: Build jniLibs
+        run: |
+          nix develop --command \
+            cargo ndk -o bindings_ffi/jniLibs --manifest-path ./bindings_ffi/Cargo.toml \
+            -t ${{ matrix.target }} -- build --release
+      - name: Prepare JNI libs
+        run: |
+          cp bindings_ffi/jniLibs/${{ matrix.output_target }}/libxmtpv3.so bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output_target }}
+          path: bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
+          retention-days: 1
+  package-kotlin:
+    needs: [build-linux]
+    runs-on: warp-ubuntu-latest-x64-16x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: bindings_ffi/jniLibs
+      - name: Build archive
+        working-directory: bindings_ffi
+        run: |
+          zip -r LibXMTPKotlinFFI.zip jniLibs
+      - name: Get short SHA
+        id: slug
+        run: echo "sha7=$(echo "${GITHUB_SHA}" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+      - name: Create release and upload asset
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./bindings_ffi/LibXMTPKotlinFFI.zip
+          tag_name: kotlin-bindings-${{ steps.slug.outputs.sha7 }}
+          name: Kotlin-Bindings-${{ steps.slug.outputs.sha7 }}
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
