@@ -22,7 +22,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.0.1"
+version = "0.1.0"
 
 [workspace.dependencies]
 anyhow = "1.0"
@@ -57,7 +57,11 @@ sha2 = "0.10.8"
 thiserror = "1.0"
 tls_codec = "0.4.1"
 tokio = { version = "1.35.1", default-features = false }
-tonic = "^0.12"
+# Changing this version and rustls may potentially break the android build. Use Caution.
+# Test with Android and Swift first.
+# Its probably preferable to one day use https://github.com/rustls/rustls-native-certs
+tonic = { version = "^0.12.2", features = ["tls", "tls-native-roots", "tls-webpki-roots"] }
+rustls = { version = "=0.23.7", features = ["ring"] }
 tracing = { version = "0.1", features = ["log", "release_max_level_debug"] }
 tracing-subscriber = { version = "0.3", default-features = false }
 diesel = { version = "2.2", default-features = false }
@@ -70,10 +74,8 @@ wasm-bindgen-test = "0.3.45"
 gloo-timers = "0.3"
 web-sys = "0.3"
 js-sys = "0.3"
-# NOTE: A regression in openssl-sys exists where libatomic is dynamically linked
-# for i686-linux-android targets. https://github.com/sfackler/rust-openssl/issues/2163
-openssl-sys = "0.9.104"
-openssl = "0.10.68"
+openssl-sys = "0.9"
+openssl = { version = "0.10", features = ["vendored"] }
 libsqlite3-sys = { version = "0.29", features = ["bundled-sqlcipher-vendored-openssl" ] }
 dyn-clone = "1"
 trait-variant = "0.1.2"
@@ -128,3 +130,4 @@ diesel-wasm-sqlite = { git = "https://github.com/xmtp/diesel-wasm-sqlite", branc
 diesel = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_derives = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_migrations = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
+

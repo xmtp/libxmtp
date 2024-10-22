@@ -98,7 +98,7 @@ where
             Retry::default(),
             (async {
                 tracing::info!("Trying to process streamed welcome");
-                let welcome_v1 = welcome_v1.clone();
+                let welcome_v1 = &welcome_v1;
                 self.context
                     .store()
                     .transaction_async(|provider| async move {
@@ -106,7 +106,7 @@ where
                             Arc::new(self.clone()),
                             &provider,
                             welcome_v1.hpke_public_key.as_slice(),
-                            welcome_v1.data,
+                            &welcome_v1.data,
                             welcome_v1.id as i64,
                         )
                         .await
