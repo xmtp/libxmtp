@@ -34,8 +34,11 @@ jobs:
           workspaces: |
             .
             bindings_ffi
+      # Install latest cross to mitigate unwind linking issue on android builds.
+      # See https://github.com/cross-rs/cross/issues/1222
       - name: Install cross
-        uses: taiki-e/install-action@cross
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross
       - name: Build target
         env:
           CROSS_NO_WARNINGS: "0"
