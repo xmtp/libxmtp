@@ -29,9 +29,9 @@ use crate::{
 };
 use serializable::maybe_get_text;
 use thiserror::Error;
-use xmtp_api_grpc::{GroupMessageStream, WelcomeMessageStream};
 use xmtp_api_grpc::grpc_api_helper::Client as ClientV2;
 use xmtp_api_grpc::replication_client::ClientV4;
+use xmtp_api_grpc::{GroupMessageStream, WelcomeMessageStream};
 use xmtp_cryptography::{
     signature::{RecoverableSignature, SignatureError},
     utils::rng,
@@ -50,8 +50,8 @@ use xmtp_mls::{
     utils::time::now_ns,
     InboxOwner,
 };
-use xmtp_proto::api_client::BoxedApiClient;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
+use xmtp_proto::api_client::BoxedApiClient;
 
 type ClientBuilder = xmtp_mls::builder::ClientBuilder<ClientV2>;
 type MlsGroup = xmtp_mls::groups::MlsGroup<BoxedApiClient>;
@@ -445,25 +445,25 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<BoxedApiC
     //     }
     // }
     // else {
-        if cli.local {
-            info!("Using local network");
-            builder = builder
-                .api_client(
-                    Box::new(ClientV2::create("http://localhost:5556".into(), false)
-                        .await
-                        .unwrap()),
-                )
-                .history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS);
-        } else {
-            info!("Using dev network");
-            builder = builder
-                .api_client(
-                    Box::new(ClientV2::create("https://grpc.dev.xmtp.network:443".into(), true)
-                        .await
-                        .unwrap()),
-                )
-                .history_sync_url(MessageHistoryUrls::DEV_ADDRESS);
-        }
+    if cli.local {
+        info!("Using local network");
+        builder = builder
+            .api_client(Box::new(
+                ClientV2::create("http://localhost:5556".into(), false)
+                    .await
+                    .unwrap(),
+            ))
+            .history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS);
+    } else {
+        info!("Using dev network");
+        builder = builder
+            .api_client(Box::new(
+                ClientV2::create("https://grpc.dev.xmtp.network:443".into(), true)
+                    .await
+                    .unwrap(),
+            ))
+            .history_sync_url(MessageHistoryUrls::DEV_ADDRESS);
+    }
     // }
 
     let client = builder.build().await.map_err(CliError::ClientBuilder)?;

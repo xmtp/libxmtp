@@ -412,7 +412,9 @@ pub(crate) mod tests {
             let result = ClientBuilder::new(test_case.strategy)
                 .temp_store()
                 .await
-                .api_client(Box::new(<TestClient as XmtpTestClient>::create_local().await))
+                .api_client(Box::new(
+                    <TestClient as XmtpTestClient>::create_local().await,
+                ))
                 .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
                 .build_with_verifier()
                 .await;
@@ -452,7 +454,9 @@ pub(crate) mod tests {
 
         let client1 = ClientBuilder::new(identity_strategy.clone())
             .store(store.clone())
-            .api_client(Box::new(<TestClient as XmtpTestClient>::create_local().await))
+            .api_client(Box::new(
+                <TestClient as XmtpTestClient>::create_local().await,
+            ))
             .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
             .build_with_verifier()
             .await
@@ -461,7 +465,9 @@ pub(crate) mod tests {
 
         let client2 = ClientBuilder::new(IdentityStrategy::CachedOnly)
             .store(store.clone())
-            .api_client(Box::new(<TestClient as XmtpTestClient>::create_local().await))
+            .api_client(Box::new(
+                <TestClient as XmtpTestClient>::create_local().await,
+            ))
             .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
             .build_with_verifier()
             .await
@@ -477,7 +483,9 @@ pub(crate) mod tests {
             None,
         ))
         .store(store.clone())
-            .api_client(Box::new(<TestClient as XmtpTestClient>::create_local().await))
+        .api_client(Box::new(
+            <TestClient as XmtpTestClient>::create_local().await,
+        ))
         .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
         .build_with_verifier()
         .await
@@ -494,7 +502,9 @@ pub(crate) mod tests {
         ))
         .temp_store()
         .await
-            .api_client(Box::new(<TestClient as XmtpTestClient>::create_local().await))
+        .api_client(Box::new(
+            <TestClient as XmtpTestClient>::create_local().await,
+        ))
         .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
         .build_with_verifier()
         .await
@@ -688,7 +698,9 @@ pub(crate) mod tests {
             nonce,
             None,
         ))
-        .api_client(Box::new(<TestClient as XmtpTestClient>::create_local().await))
+        .api_client(Box::new(
+            <TestClient as XmtpTestClient>::create_local().await,
+        ))
         .store(store_a)
         .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
         .build_with_verifier()
@@ -712,7 +724,9 @@ pub(crate) mod tests {
             nonce,
             None,
         ))
-            .api_client(Box::new(<TestClient as XmtpTestClient>::create_local().await))
+        .api_client(Box::new(
+            <TestClient as XmtpTestClient>::create_local().await,
+        ))
         .store(store_b)
         .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
         .build_with_verifier()
@@ -745,7 +759,9 @@ pub(crate) mod tests {
             .await
             .unwrap();
         let client_d = Client::builder(IdentityStrategy::CachedOnly)
-            .api_client(Box::new(<TestClient as XmtpTestClient>::create_local().await))
+            .api_client(Box::new(
+                <TestClient as XmtpTestClient>::create_local().await,
+            ))
             .store(store_d)
             .scw_signature_verifier(MockSmartContractSignatureVerifier::new(true))
             .build_with_verifier()

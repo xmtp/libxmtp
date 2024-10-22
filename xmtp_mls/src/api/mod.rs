@@ -34,8 +34,7 @@ pub struct ApiClientWrapper {
     pub(crate) retry_strategy: Retry,
 }
 
-impl ApiClientWrapper
-{
+impl ApiClientWrapper {
     pub fn new(api_client: BoxedApiClient, retry_strategy: Retry) -> Self {
         Self {
             api_client,

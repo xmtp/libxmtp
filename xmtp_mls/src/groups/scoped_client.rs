@@ -172,11 +172,8 @@ where
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError> {
-        crate::Client::<Verifier>::get_key_packages_for_installation_ids(
-            self,
-            installation_ids,
-        )
-        .await
+        crate::Client::<Verifier>::get_key_packages_for_installation_ids(self, installation_ids)
+            .await
     }
 
     async fn get_association_state(
@@ -185,13 +182,7 @@ where
         inbox_id: String,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
-        crate::Client::<Verifier>::get_association_state(
-            self,
-            conn,
-            inbox_id,
-            to_sequence_id,
-        )
-        .await
+        crate::Client::<Verifier>::get_association_state(self, conn, inbox_id, to_sequence_id).await
     }
 
     async fn batch_get_association_state(
@@ -199,8 +190,7 @@ where
         conn: &DbConnection,
         identifiers: &[(String, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
-        crate::Client::<Verifier>::batch_get_association_state(self, conn, identifiers)
-            .await
+        crate::Client::<Verifier>::batch_get_association_state(self, conn, identifiers).await
     }
 
     async fn query_group_messages(

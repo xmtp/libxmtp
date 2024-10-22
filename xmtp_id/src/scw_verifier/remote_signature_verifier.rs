@@ -2,13 +2,11 @@ use super::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
 use crate::associations::AccountId;
 use ethers::types::{BlockNumber, Bytes};
 
-use xmtp_proto::{
-    xmtp::identity::api::v1::{
-        VerifySmartContractWalletSignatureRequestSignature,
-        VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
-    },
-};
 use xmtp_proto::api_client::BoxedApiClient;
+use xmtp_proto::xmtp::identity::api::v1::{
+    VerifySmartContractWalletSignatureRequestSignature, VerifySmartContractWalletSignaturesRequest,
+    VerifySmartContractWalletSignaturesResponse,
+};
 
 pub struct RemoteSignatureVerifier {
     identity_client: BoxedApiClient,
@@ -22,8 +20,7 @@ impl RemoteSignatureVerifier {
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl SmartContractSignatureVerifier for RemoteSignatureVerifier
-{
+impl SmartContractSignatureVerifier for RemoteSignatureVerifier {
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
@@ -55,8 +52,7 @@ impl SmartContractSignatureVerifier for RemoteSignatureVerifier
     }
 }
 
-impl Clone for RemoteSignatureVerifier
-{
+impl Clone for RemoteSignatureVerifier {
     fn clone(&self) -> Self {
         Self {
             identity_client: self.identity_client.clone(),

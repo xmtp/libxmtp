@@ -99,7 +99,7 @@ pub async fn create_client(
 
   let xmtp_client = match history_sync_url {
     Some(url) => ClientBuilder::new(identity_strategy)
-        .api_client(Box::new(api_client))
+      .api_client(Box::new(api_client))
       .store(store)
       .history_sync_url(&url)
       .build()
@@ -107,7 +107,7 @@ pub async fn create_client(
       .map_err(ErrorWrapper::from)?,
 
     None => ClientBuilder::new(identity_strategy)
-        .api_client(Box::new(api_client))
+      .api_client(Box::new(api_client))
       .store(store)
       .build()
       .await
@@ -129,9 +129,11 @@ pub async fn get_inbox_id_for_address(
 ) -> Result<Option<String>> {
   let account_address = account_address.to_lowercase();
   let api_client = ApiClientWrapper::new(
-    Box::new(TonicApiClient::create(host.clone(), is_secure)
-      .await
-      .map_err(ErrorWrapper::from)?),
+    Box::new(
+      TonicApiClient::create(host.clone(), is_secure)
+        .await
+        .map_err(ErrorWrapper::from)?,
+    ),
     Retry::default(),
   );
 

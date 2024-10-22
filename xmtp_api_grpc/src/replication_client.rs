@@ -16,30 +16,26 @@ use xmtp_proto::xmtp::xmtpv4::message_api::replication_api_client::ReplicationAp
 use xmtp_proto::{
     api_client::{
         Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
-    }
-    ,
+    },
     xmtp::identity::api::v1::{
-        get_inbox_ids_response,
-        GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response,
-        GetInboxIdsRequest, GetInboxIdsResponse, PublishIdentityUpdateRequest,
-        PublishIdentityUpdateResponse, VerifySmartContractWalletSignaturesRequest,
-        VerifySmartContractWalletSignaturesResponse,
+        get_inbox_ids_response, GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
+        GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
+        GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
+        VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
     },
     xmtp::message_api::v1::{
-        BatchQueryRequest, BatchQueryResponse, Envelope,
-        PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
+        BatchQueryRequest, BatchQueryResponse, Envelope, PublishRequest, PublishResponse,
+        QueryRequest, QueryResponse, SubscribeRequest,
     },
     xmtp::mls::api::v1::{
-        FetchKeyPackagesRequest,
-        FetchKeyPackagesResponse, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
-        QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, SendGroupMessagesRequest,
-        SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-        UploadKeyPackageRequest,
+        FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
+        QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
+        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
+        SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
     },
     xmtp::xmtpv4::message_api::{
-        get_inbox_ids_request,
-        GetInboxIdsRequest as GetInboxIdsRequestV4,
-    }
+        get_inbox_ids_request, GetInboxIdsRequest as GetInboxIdsRequestV4,
+    },
 };
 
 async fn create_tls_channel(address: String) -> Result<Channel, Error> {
@@ -86,7 +82,7 @@ pub struct ClientV4 {
 }
 
 impl ClientV4 {
-    pub async fn  create(host: String, is_secure: bool) -> Result<Self, Error> {
+    pub async fn create(host: String, is_secure: bool) -> Result<Self, Error> {
         let host = host.to_string();
         let app_version = MetadataValue::try_from(&String::from("0.0.0"))
             .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
@@ -409,11 +405,7 @@ impl XmtpIdentityClient for ClientV4 {
             requests: request
                 .requests
                 .into_iter()
-                .map(
-                    |r| get_inbox_ids_request::Request {
-                        address: r.address,
-                    },
-                )
+                .map(|r| get_inbox_ids_request::Request { address: r.address })
                 .collect(),
         };
 
@@ -424,11 +416,9 @@ impl XmtpIdentityClient for ClientV4 {
                 responses: response
                     .responses
                     .into_iter()
-                    .map(|r| {
-                        get_inbox_ids_response::Response {
-                            address: r.address,
-                            inbox_id: r.inbox_id,
-                        }
+                    .map(|r| get_inbox_ids_response::Response {
+                        address: r.address,
+                        inbox_id: r.inbox_id,
                     })
                     .collect(),
             })
