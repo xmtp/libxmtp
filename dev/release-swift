@@ -8,6 +8,7 @@ WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
 BINDINGS_MANIFEST="$WORKSPACE_PATH/bindings_ffi/Cargo.toml"
 BINDINGS_PATH="$(dirname $BINDINGS_MANIFEST)"
 TARGET_DIR="$WORKSPACE_PATH/target"
+XMTP_SWIFT="${1:-$(realpath ../../libxmtp-swift)}"
 
 if [[ "${OSTYPE}" == "darwin"* ]]; then
   if ! which nix &>/dev/null; then
@@ -26,5 +27,10 @@ fi
 
 cd $BINDINGS_PATH
 nix develop ../ --command make swift
-cp build/swift/xmtpv3.swift $XMTP_SWIFT/Sources/LibXMTP/xmtpv3.swift
-cp build/swift/libxmtp-version.txt $XMTP_SWIFT/Sources/LibXMTP/libxmtp-version.txt
+for file in "build/swift/xmtpv3.swift" "build/swift/libxmtp-version.txt"; do
+  if [ -f "$file" ]; then
+    cp "$file" "$XMTP_SWIFT/Sources/LibXMTP/$(basename "$file")"
+  else
+    echo "Warning: $file not found"
+  fi
+done

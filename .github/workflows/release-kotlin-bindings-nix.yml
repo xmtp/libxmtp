@@ -67,7 +67,7 @@ jobs:
           zip -r LibXMTPKotlinFFI.zip jniLibs
       - name: Get short SHA
         id: slug
-        run: echo "sha7=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
+        run: echo "sha7=$(echo ${GITHUB_SHA} | cut -c1-7)" >> "$GITHUB_OUTPUT"
       - name: Create release
         id: create_release
         uses: actions/create-release@v1
