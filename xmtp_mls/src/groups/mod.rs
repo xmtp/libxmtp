@@ -65,7 +65,7 @@ use xmtp_id::InboxId;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        GroupMessage, SortDirection,
+        GroupMessage,
     },
     message_contents::{
         plaintext_envelope::{Content, V1},
@@ -90,7 +90,7 @@ use crate::{
         db_connection::DbConnection,
         group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::IntentKind,
-        group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+        group_message::{DeliveryStatus, GroupMessageKind, SortDirection, StoredGroupMessage},
         sql_key_store,
     },
     utils::{id::calculate_message_id, time::now_ns},
@@ -1549,7 +1549,7 @@ pub(crate) mod tests {
 
     async fn get_latest_message(group: &MlsGroup<FullXmtpClient>) -> StoredGroupMessage {
         group.sync().await.unwrap();
-        let mut messages = group.find_messages(None, None, None, None, None).unwrap();
+        let mut messages = group.find_messages(None, None, None, None, None, None).unwrap();
         messages.pop().unwrap()
     }
 
@@ -1633,7 +1633,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         // Check for messages
-        let messages = group.find_messages(None, None, None, None, None).unwrap();
+        let messages = group.find_messages(None, None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
     }
@@ -1811,7 +1811,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let bola_messages = bola_group
-            .find_messages(None, None, None, None, None)
+            .find_messages(None, None, None, None, None, None)
             .unwrap();
         let matching_message = bola_messages
             .iter()
@@ -1927,7 +1927,7 @@ pub(crate) mod tests {
             .await
             .expect("group create failure");
 
-        let messages_with_add = group.find_messages(None, None, None, None, None).unwrap();
+        let messages_with_add = group.find_messages(None, None, None, None, None, None).unwrap();
         assert_eq!(messages_with_add.len(), 1);
 
         // Try and add another member without merging the pending commit
@@ -1936,7 +1936,7 @@ pub(crate) mod tests {
             .await
             .expect("group remove members failure");
 
-        let messages_with_remove = group.find_messages(None, None, None, None, None).unwrap();
+        let messages_with_remove = group.find_messages(None, None, None, None, None, None).unwrap();
         assert_eq!(messages_with_remove.len(), 2);
 
         // We are expecting 1 message on the group topic, not 2, because the second one should have
@@ -1986,7 +1986,7 @@ pub(crate) mod tests {
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
         let bola_messages = bola_group
-            .find_messages(None, None, None, None, None)
+            .find_messages(None, None, None, None, None, None)
             .unwrap();
         assert_eq!(bola_messages.len(), 1);
     }
@@ -2036,7 +2036,7 @@ pub(crate) mod tests {
             .unwrap();
         tracing::info!("created the group with 2 additional members");
         assert_eq!(group.members().await.unwrap().len(), 3);
-        let messages = group.find_messages(None, None, None, None, None).unwrap();
+        let messages = group.find_messages(None, None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].kind, GroupMessageKind::MembershipChange);
         let encoded_content =
@@ -2051,7 +2051,7 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(group.members().await.unwrap().len(), 2);
         tracing::info!("removed bola");
-        let messages = group.find_messages(None, None, None, None, None).unwrap();
+        let messages = group.find_messages(None, None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[1].kind, GroupMessageKind::MembershipChange);
         let encoded_content =
@@ -2124,7 +2124,7 @@ pub(crate) mod tests {
         amal_group.sync().await.expect("sync failed");
 
         let amal_messages = amal_group
-            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None, None)
             .unwrap()
             .into_iter()
             .collect::<Vec<StoredGroupMessage>>();
@@ -3106,7 +3106,7 @@ pub(crate) mod tests {
         ];
 
         let messages = amal_group
-            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None, None)
             .unwrap()
             .into_iter()
             .collect::<Vec<StoredGroupMessage>>();
@@ -3153,7 +3153,7 @@ pub(crate) mod tests {
         bola_group.sync().await.unwrap();
 
         let messages = bola_group
-            .find_messages(None, None, None, None, None)
+            .find_messages(None, None, None, None, None, None)
             .unwrap();
         let delivery = messages
             .iter()
@@ -3207,7 +3207,7 @@ pub(crate) mod tests {
 
         // Amal sync and reads message
         amal_dm.sync().await.unwrap();
-        let messages = amal_dm.find_messages(None, None, None, None, None).unwrap();
+        let messages = amal_dm.find_messages(None, None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 2);
         let message = messages.last().unwrap();
         assert_eq!(message.decrypted_message_bytes, b"test one");
@@ -3361,10 +3361,10 @@ pub(crate) mod tests {
         alix2_group.sync().await.unwrap();
 
         let alix1_messages = alix1_group
-            .find_messages(None, None, None, None, None)
+            .find_messages(None, None, None, None, None, None)
             .unwrap();
         let alix2_messages = alix2_group
-            .find_messages(None, None, None, None, None)
+            .find_messages(None, None, None, None, None, None)
             .unwrap();
         assert_eq!(alix1_messages.len(), alix2_messages.len());
 
@@ -3473,10 +3473,10 @@ pub(crate) mod tests {
         alix2_group.sync().await.unwrap();
 
         let alix1_messages = alix1_group
-            .find_messages(None, None, None, None, None)
+            .find_messages(None, None, None, None, None, None)
             .unwrap();
         let alix2_messages = alix2_group
-            .find_messages(None, None, None, None, None)
+            .find_messages(None, None, None, None, None, None)
             .unwrap();
         assert_eq!(alix1_messages.len(), alix2_messages.len());
 
@@ -3615,10 +3615,10 @@ pub(crate) mod tests {
         bo_group.sync().await.unwrap();
 
         let alix_messages = alix_group
-            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None, None)
             .unwrap();
         let bo_messages = bo_group
-            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None, None)
             .unwrap();
 
         assert_eq!(alix_messages.len(), 2);
@@ -3638,10 +3638,10 @@ pub(crate) mod tests {
         bo_group.sync().await.unwrap();
 
         let alix_messages = alix_group
-            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None, None)
             .unwrap();
         let bo_messages = bo_group
-            .find_messages(Some(GroupMessageKind::Application), None, None, None, None)
+            .find_messages(Some(GroupMessageKind::Application), None, None, None, None, None)
             .unwrap();
         assert_eq!(bo_messages.len(), 3);
         assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3

@@ -7,7 +7,6 @@ use diesel::{
     sql_types::Integer,
 };
 use serde::{Deserialize, Serialize};
-use xmtp_proto::xmtp::message_api::v1::SortDirection;
 
 use super::{
     db_connection::DbConnection,
@@ -39,6 +38,12 @@ pub struct StoredGroupMessage {
     pub sender_inbox_id: String,
     /// We optimistically store messages before sending.
     pub delivery_status: DeliveryStatus,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum SortDirection {
+    Ascending,
+    Descending,
 }
 
 #[repr(i32)]
@@ -145,7 +150,6 @@ impl DbConnection {
             query = match dir {
                 SortDirection::Ascending => query.order(dsl::sent_at_ns.asc()),
                 SortDirection::Descending => query.order(dsl::sent_at_ns.desc()),
-                SortDirection::Unspecified => query,
             };
         }
 
@@ -415,6 +419,49 @@ pub(crate) mod tests {
                 )
                 .unwrap();
             assert_eq!(membership_changes.len(), 15);
+        })
+        .await
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn it_orders_messages_by_sent() {
+        with_connection(|conn| {
+            let group = generate_group(None);
+            group.store(conn).unwrap();
+
+            let messages = vec![
+                generate_message(None, Some(&group.id), Some(1_000)),
+                generate_message(None, Some(&group.id), Some(10_000)),
+                generate_message(None, Some(&group.id), Some(100_000)),
+                generate_message(None, Some(&group.id), Some(1_000_000)),
+            ];
+
+            let membership_changes_asc = conn
+                .get_group_messages(
+                    &group.id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(SortDirection::Ascending),
+                )
+                .unwrap();
+            assert_eq!(membership_changes_asc[0], messages[0]);
+
+            let membership_changes_desc = conn
+                .get_group_messages(
+                    &group.id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(SortDirection::Descending),
+                )
+                .unwrap();
+            assert_eq!(membership_changes_desc[0], messages[4]);
         })
         .await
     }

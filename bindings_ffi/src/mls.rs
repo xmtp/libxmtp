@@ -3404,11 +3404,7 @@ mod tests {
         // Bola gets the group id. This will be needed to fetch the group from
         // the database.
         let bola_groups = bola_conversations
-            .list(crate::FfiListConversationsOptions {
-                created_after_ns: None,
-                created_before_ns: None,
-                limit: None,
-            })
+            .list(FfiListConversationsOptions::default())
             .await
             .unwrap();
 
@@ -3595,11 +3591,7 @@ mod tests {
         let bola_conversations = bola.conversations();
         let _ = bola_conversations.sync().await;
         let bola_groups = bola_conversations
-            .list(crate::FfiListConversationsOptions {
-                created_after_ns: None,
-                created_before_ns: None,
-                limit: None,
-            })
+            .list(FfiListConversationsOptions::default())
             .await
             .unwrap();
 
@@ -3704,11 +3696,7 @@ mod tests {
         let bola_conversations = bola.conversations();
         let _ = bola_conversations.sync().await;
         let bola_groups = bola_conversations
-            .list(crate::FfiListConversationsOptions {
-                created_after_ns: None,
-                created_before_ns: None,
-                limit: None,
-            })
+            .list(FfiListConversationsOptions::default())
             .await
             .unwrap();
 
