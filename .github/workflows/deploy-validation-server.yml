@@ -14,6 +14,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,7 +31,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/xmtp/mls-validation-service
+          images: ghcr.io/${{ github.repository_owner }}/mls-validation-service
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -41,22 +43,23 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Deploy (dev)
-        uses: xmtp-labs/terraform-deployer@v1
-        with:
-          terraform-token: ${{ secrets.TERRAFORM_TOKEN }}
-          terraform-org: xmtp
-          terraform-workspace: dev
-          variable-name: validation_service_image
-          variable-value: "ghcr.io/xmtp/mls-validation-service@${{ steps.push.outputs.digest }}"
-          variable-value-required-prefix: "ghcr.io/xmtp/mls-validation-service@sha256:"
+  deploy:
+    name: Deploy new images to infra
+    runs-on: warp-ubuntu-latest-x64-16x
+    needs: push_to_registry
+    strategy:
+      matrix:
+        environment: [ dev, production, testnet ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Deploy (production)
+      - name: Deploy to ${{ matrix.environment }}
         uses: xmtp-labs/terraform-deployer@v1
         with:
           terraform-token: ${{ secrets.TERRAFORM_TOKEN }}
           terraform-org: xmtp
-          terraform-workspace: production
+          terraform-workspace: ${{ matrix.environment }}
           variable-name: validation_service_image
-          variable-value: "ghcr.io/xmtp/mls-validation-service@${{ steps.push.outputs.digest }}"
+          variable-value: "ghcr.io/xmtp/mls-validation-service@${{ needs.push_to_registry.outputs.digest }}"
           variable-value-required-prefix: "ghcr.io/xmtp/mls-validation-service@sha256:"
