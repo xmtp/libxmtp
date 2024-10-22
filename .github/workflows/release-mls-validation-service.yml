@@ -31,7 +31,6 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/mls-validation-service
           tags: |
-            type=ref,event=tag
             type=match,pattern=mls-validation-service-(.*),group=1
             type=match,pattern=mls-validation-service-v(.*),group=1
 
