@@ -51,9 +51,10 @@
         # https://github.com/NixOS/nixpkgs/blob/master/doc/languages-frameworks/android.section.md
         androidHome = "${androidComposition.androidsdk}/libexec/android-sdk";
         androidComposition = androidenv.composeAndroidPackages sdkArgs;
-        nativeBuildInputs = with pkgs; [ pkg-config androidsdk jdk17 ];
-
         packages = with pkgs; [ swiftformat cargo-ndk ];
+
+        # Packages available to flake while building the environment
+        nativeBuildInputs = with pkgs; [ pkg-config ];
         # Define the packages available to the build environment
         # https://search.nixos.org/packages
         buildInputs = with pkgs; [
