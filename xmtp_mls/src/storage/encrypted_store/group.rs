@@ -163,7 +163,7 @@ impl DbConnection {
         Ok(self.raw_query(|conn| query.load(conn))?)
     }
 
-    pub fn load_consent_records(&self) -> Result<Vec<StoredConsentRecord>, StorageError> {
+    pub fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, StorageError> {
         Ok(self.raw_query(|conn| super::schema::consent_records::table.load(conn))?)
     }
 

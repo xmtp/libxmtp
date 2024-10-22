@@ -54,48 +54,22 @@ where
         self.send_sync_request(request).await
     }
 
-    pub async fn get_pending_history_request(
-        &self,
-    ) -> Result<Option<(String, String)>, DeviceSyncError> {
-        let sync_group = self.get_sync_group()?;
-
-        // sync the group
-        sync_group.sync().await?;
-
-        let messages = sync_group.find_messages(
-            Some(GroupMessageKind::Application),
-            None,
-            None,
-            None,
-            None,
-        )?;
-        let last_message = messages.last();
-
-        let history_request: Option<(String, String)> = if let Some(msg) = last_message {
-            let message_history_content =
-                serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes)?;
-            match message_history_content {
-                // if the last message is a request, return its request ID and pin code
-                DeviceSyncContent::Request(request) => Some((request.request_id, request.pin_code)),
-                _ => None,
-            }
-        } else {
-            None
+    pub async fn reply_to_history_request(&self) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
+        let Some((_msg, request)) = self
+            .pending_sync_request(DeviceSyncKind::MessageHistory)
+            .await?
+        else {
+            return Err(DeviceSyncError::NoPendingRequest);
         };
 
-        Ok(history_request)
-    }
+        let groups = self.syncable_groups()?;
+        let messages = self.syncable_messages()?;
 
-    pub async fn reply_to_history_request(&self) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
-        let pending_request = self.get_pending_history_request().await?;
+        let reply = self
+            .send_syncables(&request.request_id, &[groups, messages])
+            .await?;
 
-        if let Some((request_id, _)) = pending_request {
-            let reply: DeviceSyncReplyProto = self.prepare_history_reply(&request_id).await?.into();
-            self.send_sync_reply(reply.clone()).await?;
-            return Ok(reply);
-        }
-
-        Err(DeviceSyncError::NoPendingRequest)
+        Ok(reply)
     }
 
     pub async fn process_message_history_reply(
@@ -149,60 +123,26 @@ where
         Ok(())
     }
 
-    pub(crate) async fn prepare_history_reply(
-        &self,
-        request_id: &str,
-    ) -> Result<DeviceSyncReply, DeviceSyncError> {
-        let (history_file, enc_key) = self.write_history_bundle().await?;
-        let url = match &self.history_sync_url {
-            Some(url) => url.as_str(),
-            None => return Err(DeviceSyncError::MissingHistorySyncUrl),
-        };
-        let upload_url = format!("{}{}", url, "upload");
-        tracing::info!("using upload url {:?}", upload_url);
-
-        let bundle_file = upload_history_bundle(&upload_url, history_file.clone()).await?;
-        let bundle_url = format!("{}files/{}", url, bundle_file);
-
-        tracing::info!("history bundle uploaded to {:?}", bundle_url);
-
-        Ok(DeviceSyncReply::new(request_id, &bundle_url, enc_key))
-    }
-
-    async fn write_history_bundle(&self) -> Result<(PathBuf, DeviceSyncKeyType), DeviceSyncError> {
-        let groups = self.prepare_groups_to_sync().await?;
-        let messages = self.prepare_messages_to_sync().await?;
-
-        let temp_file = std::env::temp_dir().join("history.jsonl.tmp");
-        write_to_file(&temp_file, groups)?;
-        write_to_file(&temp_file, messages)?;
-
-        let history_file = std::env::temp_dir().join("history.jsonl.enc");
-        let enc_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
-        encrypt_bytes(
-            temp_file.as_path(),
-            history_file.as_path(),
-            enc_key.as_bytes(),
-        )?;
-
-        std::fs::remove_file(temp_file.as_path())?;
-
-        Ok((history_file, enc_key))
-    }
-
-    async fn prepare_groups_to_sync(&self) -> Result<Vec<StoredGroup>, DeviceSyncError> {
+    fn syncable_groups(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
         let conn = self.store().conn()?;
-        Ok(conn.find_groups(None, None, None, None, Some(ConversationType::Group))?)
+        let groups = conn
+            .find_groups(None, None, None, None, Some(ConversationType::Group))?
+            .into_iter()
+            .map(Syncable::Group)
+            .collect();
+        Ok(groups)
     }
 
-    async fn prepare_messages_to_sync(&self) -> Result<Vec<StoredGroupMessage>, DeviceSyncError> {
+    fn syncable_messages(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
         let conn = self.store().conn()?;
         let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
-        let mut all_messages: Vec<StoredGroupMessage> = vec![];
 
+        let mut all_messages = vec![];
         for StoredGroup { id, .. } in groups.into_iter() {
             let messages = conn.get_group_messages(id, None, None, None, None, None)?;
-            all_messages.extend(messages);
+            for msg in messages {
+                all_messages.push(Syncable::GroupMessage(msg));
+            }
         }
 
         Ok(all_messages)
@@ -424,7 +364,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
 
-        let groups = amal_a.prepare_groups_to_sync().await.unwrap();
+        let groups = amal_a.syncable_groups().await.unwrap();
 
         let input_file = NamedTempFile::new().unwrap();
         let input_path = input_file.path();
@@ -500,7 +440,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
 
-        let result = amal_a.prepare_groups_to_sync().await.unwrap();
+        let result = amal_a.syncable_groups().await.unwrap();
         assert_eq!(result.len(), 2);
     }
 
@@ -520,7 +460,7 @@ pub(crate) mod tests {
         group_b.send_message(b"hi").await.expect("send");
         group_b.send_message(b"hi x2").await.expect("send");
 
-        let messages_result = amal_a.prepare_messages_to_sync().await.unwrap();
+        let messages_result = amal_a.syncable_messages().await.unwrap();
         assert_eq!(messages_result.len(), 4);
     }
 
@@ -540,8 +480,8 @@ pub(crate) mod tests {
         group_b.send_message(b"hi").await.expect("send");
         group_b.send_message(b"hi").await.expect("send");
 
-        let groups = amal_a.prepare_groups_to_sync().await.unwrap();
-        let messages = amal_a.prepare_messages_to_sync().await.unwrap();
+        let groups = amal_a.syncable_groups().await.unwrap();
+        let messages = amal_a.syncable_messages().await.unwrap();
 
         let temp_file = NamedTempFile::new().expect("Unable to create temp file");
         let wrote_groups = write_to_file(temp_file.path(), groups);

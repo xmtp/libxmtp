@@ -54,12 +54,12 @@ pub mod message_sync;
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
 pub const NONCE_SIZE: usize = 12; // 96-bit nonce
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
-enum SyncableTables {
-    StoredGroup(StoredGroup),
-    StoredGroupMessage(StoredGroupMessage),
-    StoredConsentRecord(StoredConsentRecord),
+enum Syncable {
+    Group(StoredGroup),
+    GroupMessage(StoredGroupMessage),
+    ConsentRecord(StoredConsentRecord),
 }
 
 #[derive(Debug, Error)]
@@ -155,6 +155,7 @@ where
         let request: DeviceSyncRequestProto = request.into();
         let pin_code = request.pin_code.clone();
         let request_id = request.request_id.clone();
+        KVStore::set(&conn, &store_key, request_id.clone()).map_err(DeviceSyncError::Storage)?;
 
         let content = DeviceSyncContent::Request(request.clone());
         let content_bytes = serde_json::to_vec(&content)?;
@@ -168,8 +169,6 @@ where
             }
         })?;
 
-        KVStore::set(&conn, &store_key, request_id.clone()).map_err(DeviceSyncError::Storage)?;
-
         // publish the intent
         if let Err(err) = sync_group.publish_intents(&conn.into()).await {
             tracing::error!("error publishing sync group intents: {:?}", err);
@@ -178,15 +177,12 @@ where
         Ok((request_id, pin_code))
     }
 
-    pub async fn send_sync_reply(
+    async fn pending_sync_request(
         &self,
-        contents: DeviceSyncReplyProto,
-    ) -> Result<(), DeviceSyncError> {
-        // find the sync group
-        let conn = self.store().conn()?;
+        kind: DeviceSyncKind,
+    ) -> Result<Option<(StoredGroupMessage, DeviceSyncRequestProto)>, DeviceSyncError> {
         let sync_group = self.get_sync_group()?;
 
-        // sync the group
         sync_group.sync().await?;
 
         let messages = sync_group.find_messages(
@@ -197,57 +193,62 @@ where
             None,
         )?;
 
-        let mut pending_request = None;
-        for msg in messages.iter().rev() {
+        let mut replied_request_ids = vec![];
+        for msg in messages.into_iter().rev() {
             let msg_content: DeviceSyncContent =
                 serde_json::from_slice(&msg.decrypted_message_bytes)?;
             match msg_content {
-                DeviceSyncContent::Request(request)
-                    if request.request_id == contents.request_id =>
-                {
-                    pending_request = Some(msg);
-                    break;
+                DeviceSyncContent::Request(request) if request.kind == kind as i32 => {
+                    if replied_request_ids.contains(&request.request_id) {
+                        // request was already replied to, no longer considered pending.
+                        return Ok(None);
+                    } else {
+                        return Ok(Some((msg, request)));
+                    }
                 }
-                DeviceSyncContent::Reply(reply) if reply.request_id == contents.request_id => {
-                    return Err(DeviceSyncError::ReplyAlreadyProcessed);
+                DeviceSyncContent::Reply(reply) => {
+                    // track this request_id as being replied to
+                    replied_request_ids.push(reply.request_id.clone());
                 }
                 _ => {}
             }
         }
 
-        tracing::info!("{:?}", pending_request);
-        if let Some(pending_request) = pending_request {
-            // ensure the requester is a member of all the groups
-            self.ensure_member_of_all_groups(&pending_request.sender_inbox_id)
-                .await?;
-        }
+        Ok(None)
+    }
 
-        // the reply message
-        let (content_bytes, contents) = {
-            let content = DeviceSyncContent::Reply(contents);
-            let content_bytes = serde_json::to_vec(&content)?;
-            let DeviceSyncContent::Reply(contents) = content else {
-                // we know it's a reply, we just want to take the contents back, as we'll need them
-                unreachable!();
-            };
+    async fn pending_sync_request_id(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<(StoredGroupMessage, DeviceSyncRequestProto)>, DeviceSyncError> {
+        let sync_group = self.get_sync_group()?;
 
-            (content_bytes, contents)
-        };
+        sync_group.sync().await?;
 
-        let _message_id = sync_group.prepare_message(&content_bytes, &conn, move |_time_ns| {
-            PlaintextEnvelope {
-                content: Some(Content::V2(V2 {
-                    idempotency_key: new_request_id(),
-                    message_type: Some(Reply(contents)),
-                })),
+        let messages = sync_group.find_messages(
+            Some(GroupMessageKind::Application),
+            None,
+            None,
+            None,
+            None,
+        )?;
+
+        for msg in messages.into_iter().rev() {
+            let msg_content: DeviceSyncContent =
+                serde_json::from_slice(&msg.decrypted_message_bytes)?;
+            match msg_content {
+                DeviceSyncContent::Request(request) if request.request_id == request_id => {
+                    return Ok(Some((msg, request)));
+                }
+                DeviceSyncContent::Reply(reply) if reply.request_id == request_id => {
+                    // already replied, request is not considered pending anymore
+                    return Ok(None);
+                }
+                _ => {}
             }
-        })?;
-
-        // publish the intent
-        if let Err(err) = sync_group.publish_messages().await {
-            tracing::error!("error publishing sync group intents: {:?}", err);
         }
-        Ok(())
+
+        Ok(None)
     }
 
     pub async fn get_sync_reply(
@@ -331,14 +332,108 @@ where
         let reader = BufReader::new(file);
 
         for line in reader.lines() {
-            let db_entry: SyncableTables = serde_json::from_str(&line?)?;
+            let db_entry: Syncable = serde_json::from_str(&line?)?;
             match db_entry {
-                SyncableTables::StoredGroup(group) => group.store(&conn),
-                SyncableTables::StoredGroupMessage(group_message) => group_message.store(&conn),
-                SyncableTables::StoredConsentRecord(consent_record) => consent_record.store(&conn),
+                Syncable::Group(group) => group.store(&conn),
+                Syncable::GroupMessage(group_message) => group_message.store(&conn),
+                Syncable::ConsentRecord(consent_record) => consent_record.store(&conn),
             }?;
         }
 
+        Ok(())
+    }
+
+    async fn send_syncables(
+        &self,
+        request_id: &str,
+        syncables: &[Vec<Syncable>],
+    ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
+        let mut payload = vec![];
+        for collection in syncables {
+            for syncable in collection {
+                payload.extend_from_slice(serde_json::to_string(&syncable)?.as_bytes());
+                payload.push(b'\n');
+            }
+        }
+
+        // encrypt the payload
+        let enc_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
+        let payload = encrypt_bytes(&payload, enc_key.as_bytes())?;
+
+        // upload the payload
+        let Some(url) = &self.history_sync_url else {
+            return Err(DeviceSyncError::MissingHistorySyncUrl);
+        };
+        tracing::info!("Using upload url {url}upload");
+
+        let response = reqwest::Client::new()
+            .post(format!("{url}upload"))
+            .body(payload)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            tracing::error!(
+                "Failed to upload file. Status code: {} Response: {response:?}",
+                response.status()
+            );
+            response.error_for_status()?;
+            // checked for error, the above line bubbled up
+            unreachable!();
+        }
+
+        let url = format!("{url}files/{}", response.text().await?);
+
+        let sync_reply = DeviceSyncReplyProto {
+            encryption_key: Some(enc_key.into()),
+            request_id: request_id.to_string(),
+            url,
+        };
+
+        self.send_sync_reply(sync_reply.clone()).await?;
+
+        Ok(sync_reply)
+    }
+
+    async fn send_sync_reply(&self, contents: DeviceSyncReplyProto) -> Result<(), DeviceSyncError> {
+        // find the sync group
+        let conn = self.store().conn()?;
+        let sync_group = self.get_sync_group()?;
+
+        // sync the group
+        sync_group.sync().await?;
+
+        // try to add original sender to all groups on this device on the node
+        if let Some((msg, _request)) = self.pending_sync_request_id(&contents.request_id).await? {
+            self.ensure_member_of_all_groups(&msg.sender_inbox_id)
+                .await?;
+        }
+
+        // the reply message
+        let (content_bytes, contents) = {
+            let content = DeviceSyncContent::Reply(contents);
+            let content_bytes = serde_json::to_vec(&content)?;
+            let DeviceSyncContent::Reply(contents) = content else {
+                // we know it's a reply, we just want to take the contents back, as we'll need them
+                unreachable!();
+            };
+
+            (content_bytes, contents)
+        };
+
+        let _message_id = sync_group.prepare_message(&content_bytes, &conn, move |_time_ns| {
+            PlaintextEnvelope {
+                content: Some(Content::V2(V2 {
+                    idempotency_key: new_request_id(),
+                    message_type: Some(Reply(contents)),
+                })),
+            }
+        })?;
+
+        // publish the intent
+        if let Err(err) = sync_group.publish_messages().await {
+            tracing::error!("error publishing sync group intents: {:?}", err);
+        }
         Ok(())
     }
 }
@@ -619,7 +714,7 @@ fn encrypt_bytes(
     let cipher = Aes256Gcm::new(GenericArray::from_slice(encryption_key));
     let nonce_array = GenericArray::from_slice(&result);
 
-    // encrypt the file content and append to the result
+    // encrypt the payload and append to the result
     result.append(&mut cipher.encrypt(nonce_array, payload)?);
 
     Ok(result)

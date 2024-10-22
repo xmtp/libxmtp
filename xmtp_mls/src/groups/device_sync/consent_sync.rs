@@ -23,23 +23,26 @@ where
     pub async fn reply_to_consent_sync_request(
         &self,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
-        let pending_request = self.get_pending_history_request().await?;
-        if let Some((request_id, _)) = pending_request {
-            let reply: DeviceSyncReplyProto = self.prepare_history_reply(&request_id).await?.into();
-            self.send_sync_reply(reply.clone()).await?;
-            return Ok(reply);
-        }
+        let Some((_msg, request)) = self.pending_sync_request(DeviceSyncKind::Consent).await?
+        else {
+            return Err(DeviceSyncError::NoPendingRequest);
+        };
 
-        Err(DeviceSyncError::NoPendingRequest)
+        let consent_records = self.syncable_consent_records()?;
+
+        let reply = self
+            .send_syncables(&request.request_id, &[consent_records])
+            .await?;
+
+        Ok(reply)
     }
 
-    pub async fn process_consent_sync_reply(
-        &self,
-        conn: &DbConnection,
-    ) -> Result<(), DeviceSyncError> {
+    async fn process_consent_sync_reply(&self) -> Result<(), DeviceSyncError> {
+        let conn = self.store().conn()?;
+
         // load the request_id
         let request_id: Option<String> =
-            KVStore::get(conn, &Key::ConsentSyncRequestId).map_err(DeviceSyncError::Storage)?;
+            KVStore::get(&conn, &Key::ConsentSyncRequestId).map_err(DeviceSyncError::Storage)?;
         let Some(request_id) = request_id else {
             return Err(DeviceSyncError::NoReplyToProcess);
         };
@@ -48,48 +51,13 @@ where
         self.process_sync_reply(&request_id).await
     }
 
-    pub async fn prepare_consent_sync_reply(
-        &self,
-        request_id: &str,
-    ) -> Result<DeviceSyncReply, DeviceSyncError> {
+    fn syncable_consent_records(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
         let conn = self.store().conn()?;
-        let consent_records = conn.load_consent_records()?;
-
-        // build the payload
-        let mut payload = Vec::new();
-        for record in consent_records {
-            payload.extend_from_slice(serde_json::to_string(&record)?.as_bytes());
-            payload.push(b'\n');
-        }
-
-        // encrypt the payload
-        let enc_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
-        let payload = encrypt_bytes(&payload, enc_key.as_bytes())?;
-
-        // upload the payload
-        let Some(url) = &self.history_sync_url else {
-            return Err(DeviceSyncError::MissingHistorySyncUrl);
-        };
-        tracing::info!("Using upload url {url}upload");
-
-        let response = reqwest::Client::new()
-            .post(format!("{url}upload"))
-            .body(payload)
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            tracing::error!(
-                "Failed to upload file. Status code: {} Response: {response:?}",
-                response.status()
-            );
-            response.error_for_status()?;
-            // checked for error, the above line bubbled up
-            unreachable!();
-        }
-
-        let upload_url = format!("{url}files/{}", response.text().await?);
-
-        Ok(DeviceSyncReply::new(request_id, &upload_url, enc_key))
+        let consent_records = conn
+            .consent_records()?
+            .into_iter()
+            .map(Syncable::ConsentRecord)
+            .collect();
+        Ok(consent_records)
     }
 }
