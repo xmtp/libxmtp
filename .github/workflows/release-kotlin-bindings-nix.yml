@@ -67,23 +67,14 @@ jobs:
           zip -r LibXMTPKotlinFFI.zip jniLibs
       - name: Get short SHA
         id: slug
-        run: echo "sha7=$(echo ${GITHUB_SHA} | cut -c1-7)" >> "$GITHUB_OUTPUT"
-      - name: Create release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "sha7=$(echo "${GITHUB_SHA}" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+      - name: Create release and upload asset
+        uses: softprops/action-gh-release@v1
         with:
+          files: ./bindings_ffi/LibXMTPKotlinFFI.zip
           tag_name: kotlin-bindings-${{ steps.slug.outputs.sha7 }}
-          release_name: Kotlin-Bindings-${{ steps.slug.outputs.sha7 }}
+          name: Kotlin-Bindings-${{ steps.slug.outputs.sha7 }}
           draft: false
           prerelease: true
-      - name: Upload release asset
-        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./bindings_ffi/LibXMTPKotlinFFI.zip
-          asset_name: LibXMTPKotlinFFI.zip
-          asset_content_type: application/zip
