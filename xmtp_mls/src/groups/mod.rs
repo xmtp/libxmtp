@@ -199,6 +199,8 @@ pub enum GroupError {
     MissingPendingCommit,
     #[error("Sync failed to wait for intent")]
     SyncFailedToWait,
+    #[error("cannot change metadata of DM")]
+    DmGroupMetadataForbidden,
 }
 
 impl RetryableError for GroupError {
@@ -596,8 +598,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ///
     /// If so, adds/removes those group members
     pub async fn update_installations(&self) -> Result<(), GroupError> {
-        let conn = self.context().store().conn()?;
-        let provider = XmtpOpenMlsProvider::from(conn);
+        let provider = self.client.mls_provider()?;
         self.maybe_update_installations(&provider, Some(0)).await?;
         Ok(())
     }
@@ -794,12 +795,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Updates the name of the group. Will error if the user does not have the appropriate permissions
     /// to perform these updates.
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider()?;
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
+            return Err(GroupError::DmGroupMetadataForbidden);
+        }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
         let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
-            .await
+        self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
     /// Updates the permission policy of the group. This requires super admin permissions.
@@ -809,6 +813,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         permission_policy: PermissionPolicyOption,
         metadata_field: Option<MetadataField>,
     ) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider()?;
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
+            return Err(GroupError::DmGroupMetadataForbidden);
+        }
         if permission_update_type == PermissionUpdateType::UpdateMetadata
             && metadata_field.is_none()
         {
@@ -824,8 +832,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         let intent = self.queue_intent(IntentKind::UpdatePermission, intent_data)?;
 
-        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
-            .await
+        self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
     /// Retrieves the group name from the group's mutable metadata extension.
@@ -847,12 +854,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         group_description: String,
     ) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider()?;
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
+            return Err(GroupError::DmGroupMetadataForbidden);
+        }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_description(group_description).into();
         let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
-            .await
+        self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
     pub fn group_description(&self, provider: impl OpenMlsProvider) -> Result<String, GroupError> {
@@ -873,13 +883,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         group_image_url_square: String,
     ) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider()?;
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
+            return Err(GroupError::DmGroupMetadataForbidden);
+        }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_image_url_square(group_image_url_square)
                 .into();
         let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
-            .await
+        self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
     /// Retrieves the image URL (square) of the group from the group's mutable metadata extension.
@@ -903,12 +916,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         pinned_frame_url: String,
     ) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider()?;
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
+            return Err(GroupError::DmGroupMetadataForbidden);
+        }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_pinned_frame_url(pinned_frame_url).into();
         let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
-            .await
+        self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
     pub fn group_pinned_frame_url(
@@ -968,6 +984,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         action_type: UpdateAdminListType,
         inbox_id: String,
     ) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider()?;
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
+            return Err(GroupError::DmGroupMetadataForbidden);
+        }
         let intent_action_type = match action_type {
             UpdateAdminListType::Add => AdminListActionType::Add,
             UpdateAdminListType::Remove => AdminListActionType::Remove,
@@ -978,8 +998,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
         let intent = self.queue_intent(IntentKind::UpdateAdminList, intent_data)?;
 
-        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
-            .await
+        self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
     /// Find the `inbox_id` of the group member who added the member to the group

@@ -49,6 +49,12 @@ jobs:
         with:
           workspaces: |
             .
+      - name: Install Nix
+        uses: cachix/install-nix-action@v17
+        with:
+          # Mostly to avoid GitHub rate limiting
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
       - name: Generate bindings
         working-directory: bindings_ffi
         run: |
