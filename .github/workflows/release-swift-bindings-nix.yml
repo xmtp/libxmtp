@@ -28,7 +28,6 @@ jobs:
         with:
           workspaces: |
             .
-            bindings_ffi
       - name: Build target
         run: |
           nix develop --command \
@@ -44,22 +43,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Update rust toolchains, add target
-        run: |
-          rustup update
-          rustup target add x86_64-apple-darwin
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             .
-            bindings_ffi
-      - name: Install swift
-        run: brew install swiftformat
       - name: Generate bindings
         working-directory: bindings_ffi
         run: |
-          make swift
+          nix develop ./../ --command make swift
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

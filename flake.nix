@@ -53,12 +53,12 @@
         androidComposition = androidenv.composeAndroidPackages sdkArgs;
         nativeBuildInputs = with pkgs; [ pkg-config androidsdk jdk17 ];
 
+        packages = with pkgs; [ swiftformat cargo-ndk ];
         # Define the packages available to the build environment
         # https://search.nixos.org/packages
         buildInputs = with pkgs; [
           rust-toolchain
           kotlin
-          cargo-ndk
           androidsdk
           jdk17
 
