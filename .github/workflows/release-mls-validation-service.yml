@@ -29,10 +29,11 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/xmtp/mls-validation-service
+          images: ghcr.io/${{ github.repository_owner }}/mls-validation-service
           tags: |
             type=ref,event=tag
-            type=match,pattern={{mls-validation-service-(.*)}},group=1
+            type=match,pattern=mls-validation-service-(.*),group=1
+            type=match,pattern=mls-validation-service-v(.*),group=1
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
