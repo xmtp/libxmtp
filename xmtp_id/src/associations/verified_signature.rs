@@ -148,7 +148,7 @@ impl VerifiedSignature {
             *block_number = response.block_number;
 
             Ok(Self::new(
-                MemberIdentifier::Address(account_id.into()),
+                MemberIdentifier::Address(account_id.get_account_address().to_string()),
                 SignatureKind::Erc1271,
                 signature_bytes.to_vec(),
             ))
