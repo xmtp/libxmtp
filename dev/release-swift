@@ -15,3 +15,5 @@ fi
 
 cd $BINDINGS_PATH
 nix develop ../ --command make swift
+cp build/swift/xmtpv3.swift $XMTP_SWIFT/Sources/LibXMTP/xmtpv3.swift
+cp build/swift/libxmtp-version.txt $XMTP_SWIFT/Sources/LibXMTP/libxmtp-version.txt
