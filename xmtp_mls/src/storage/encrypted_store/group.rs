@@ -558,14 +558,7 @@ pub(crate) mod tests {
 
             // Offset and limit
             let results_with_limit = conn
-                .find_groups(
-                    None,
-                    None,
-                    None,
-                    Some(1),
-                    Some(ConversationType::Group),
-                    None,
-                )
+                .find_groups(GroupQueryArgs::default().limit(1).conversation_type(ConversationType::Group))
                 .unwrap();
             assert_eq!(results_with_limit.len(), 1);
             assert_eq!(results_with_limit[0].id, test_group_1.id);
@@ -588,9 +581,7 @@ pub(crate) mod tests {
             assert_eq!(synced_groups.len(), 0);
 
             // test that dm groups are included
-            let dm_results = conn
-                .find_groups(None, None, None, None, None, None)
-                .unwrap();
+            let dm_results = conn.find_groups(GroupQueryArgs::default()).unwrap();
             assert_eq!(dm_results.len(), 3);
             assert_eq!(dm_results[2].id, test_group_3.id);
 
