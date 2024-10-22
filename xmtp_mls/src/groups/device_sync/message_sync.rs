@@ -18,7 +18,8 @@ use xmtp_proto::{
 
 use super::*;
 
-use crate::storage::key_value_store::{KeyValueStore, StoreKey};
+use crate::storage::key_value_store::{KVStore, Key};
+use crate::storage::DbConnection;
 use crate::XmtpApi;
 use crate::{
     groups::{GroupMessageKind, StoredGroupMessage},
@@ -97,80 +98,19 @@ where
         Err(DeviceSyncError::NoPendingRequest)
     }
 
-    pub async fn get_latest_history_reply(
+    pub async fn process_message_history_reply(
         &self,
-    ) -> Result<Option<DeviceSyncReplyProto>, DeviceSyncError> {
-        let sync_group = self.get_sync_group()?;
-
-        // sync the group
-        sync_group.sync().await?;
-
-        let messages = sync_group.find_messages(
-            Some(GroupMessageKind::Application),
-            None,
-            None,
-            None,
-            None,
-        )?;
-
-        let last_message = messages.last();
-
-        let reply: Option<DeviceSyncReplyProto> = match last_message {
-            Some(msg) => {
-                // if the message was sent by this installation, ignore it
-                if msg
-                    .sender_installation_id
-                    .eq(&self.installation_public_key())
-                {
-                    None
-                } else {
-                    let message_history_content =
-                        serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes)?;
-                    match message_history_content {
-                        // if the last message is a reply, return it
-                        DeviceSyncContent::Reply(reply) => Some(reply),
-                        _ => None,
-                    }
-                }
-            }
-            None => None,
+        conn: &DbConnection,
+    ) -> Result<(), DeviceSyncError> {
+        // load the request_id
+        let request_id: Option<String> = KVStore::get(conn, &Key::MessageHistorySyncRequestId)
+            .map_err(DeviceSyncError::Storage)?;
+        let Some(request_id) = request_id else {
+            return Err(DeviceSyncError::NoReplyToProcess);
         };
 
-        Ok(reply)
-    }
-
-    pub async fn process_history_reply(&self) -> Result<(), DeviceSyncError> {
-        let reply = self.get_latest_history_reply().await?;
-
-        if let Some(reply) = reply {
-            let Some(encryption_key) = reply.encryption_key.clone() else {
-                return Err(DeviceSyncError::InvalidPayload);
-            };
-
-            let history_bundle = download_history_bundle(&reply.url).await?;
-            let messages_path = std::env::temp_dir().join("messages.jsonl");
-
-            decrypt_history_file(&history_bundle, &messages_path, encryption_key)?;
-
-            self.insert_history_bundle(&messages_path)?;
-
-            // clean up temporary files associated with the bundle
-            std::fs::remove_file(history_bundle.as_path())?;
-            std::fs::remove_file(messages_path.as_path())?;
-
-            self.sync_welcomes().await?;
-
-            let conn = self.store().conn()?;
-            let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
-            for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {
-                let group = self.group(id)?;
-                Box::pin(group.sync()).await?;
-            }
-
-            return Ok(());
-        }
-
-        Err(DeviceSyncError::NoReplyToProcess)
+        // process the reply
+        self.process_sync_reply(&request_id).await
     }
 
     pub(crate) fn verify_pin(
@@ -269,50 +209,6 @@ where
     }
 }
 
-fn write_to_file<T: serde::Serialize>(
-    file_path: &Path,
-    content: Vec<T>,
-) -> Result<(), DeviceSyncError> {
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(file_path)?;
-    for entry in content {
-        let entry_str = serde_json::to_string(&entry)?;
-        file.write_all(entry_str.as_bytes())?;
-        file.write_all(b"\n")?;
-    }
-
-    Ok(())
-}
-
-fn encrypt_history_file(
-    input_path: &Path,
-    output_path: &Path,
-    encryption_key: &[u8; ENC_KEY_SIZE],
-) -> Result<(), DeviceSyncError> {
-    // Read in the messages file content
-    let mut input_file = File::open(input_path)?;
-    let mut buffer = Vec::new();
-    input_file.read_to_end(&mut buffer)?;
-
-    let nonce = generate_nonce();
-
-    // Create a cipher instance
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(encryption_key));
-    let nonce_array = GenericArray::from_slice(&nonce);
-
-    // Encrypt the file content
-    let ciphertext = cipher.encrypt(nonce_array, buffer.as_ref())?;
-
-    // Write the nonce and ciphertext to the output file
-    let mut output_file = File::create(output_path)?;
-    output_file.write_all(&nonce)?;
-    output_file.write_all(&ciphertext)?;
-
-    Ok(())
-}
-
 #[cfg(all(not(target_arch = "wasm32"), test))]
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
@@ -406,7 +302,7 @@ pub(crate) mod tests {
         let url = "https://test.com/abc-123";
         let encryption_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
         let reply = DeviceSyncReply::new(&request_id, url, encryption_key);
-        let result = client.send_history_reply(reply.into()).await;
+        let result = client.send_sync_reply(reply.into()).await;
 
         // the reply should fail because there's no pending request to reply to
         assert!(result.is_err());
@@ -420,7 +316,7 @@ pub(crate) mod tests {
         let url = "https://test.com/abc-123";
         let encryption_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
         let reply = DeviceSyncReply::new(&request_id2, url, encryption_key);
-        let result = client.send_history_reply(reply.into()).await;
+        let result = client.send_sync_reply(reply.into()).await;
 
         // the reply should fail because there's a mismatched request ID
         assert!(result.is_err());
@@ -428,7 +324,7 @@ pub(crate) mod tests {
         let url = "https://test.com/abc-123";
         let encryption_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
         let reply = DeviceSyncReply::new(&request_id, url, encryption_key);
-        let result = client.send_history_reply(reply.into()).await;
+        let result = client.send_sync_reply(reply.into()).await;
 
         // the reply should succeed with a valid request ID
         assert_ok!(result);
@@ -573,7 +469,7 @@ pub(crate) mod tests {
         let history_reply =
             DeviceSyncReply::new(&new_request_id(), &history_sync_url, encryption_key);
         amal_a
-            .send_history_reply(history_reply.into())
+            .send_sync_reply(history_reply.into())
             .await
             .expect("send reply");
 
@@ -846,7 +742,7 @@ pub(crate) mod tests {
 
         // amal_a sends a reply
         amal_a
-            .send_history_reply(DeviceSyncReplyProto {
+            .send_sync_reply(DeviceSyncReplyProto {
                 request_id: request_id.clone(),
                 url: "http://foo/bar".to_string(),
                 encryption_key: None,

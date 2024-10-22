@@ -17,7 +17,8 @@ use xmtp_proto::{
 
 use super::*;
 
-use crate::storage::key_value_store::{KeyValueStore, StoreKey};
+use crate::storage::key_value_store::{KVStore, Key};
+use crate::storage::DbConnection;
 use crate::XmtpApi;
 use crate::{groups::GroupMessageKind, Client};
 
@@ -37,7 +38,7 @@ where
         let pending_request = self.get_pending_history_request().await?;
         if let Some((request_id, _)) = pending_request {
             let reply: DeviceSyncReplyProto = self.prepare_history_reply(&request_id).await?.into();
-            self.send_history_reply(reply.clone()).await?;
+            self.send_sync_reply(reply.clone()).await?;
             return Ok(reply);
         }
 
@@ -55,5 +56,20 @@ where
         sync_group.sync().await?;
 
         Ok(())
+    }
+
+    pub async fn process_consent_sync_reply(
+        &self,
+        conn: &DbConnection,
+    ) -> Result<(), DeviceSyncError> {
+        // load the request_id
+        let request_id: Option<String> =
+            KVStore::get(conn, &Key::ConsentSyncRequestId).map_err(DeviceSyncError::Storage)?;
+        let Some(request_id) = request_id else {
+            return Err(DeviceSyncError::NoReplyToProcess);
+        };
+
+        // process the reply
+        self.process_sync_reply(&request_id).await
     }
 }

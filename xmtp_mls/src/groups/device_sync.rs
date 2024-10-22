@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -17,10 +17,10 @@ use thiserror::Error;
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
+use xmtp_proto::xmtp::mls::message_contents::device_sync_key_type::Key as EncKeyProto;
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
 use xmtp_proto::xmtp::mls::message_contents::{
-    device_sync_key_type::Key, DeviceSyncReply as DeviceSyncReplyProto,
-    DeviceSyncRequest as DeviceSyncRequestProto,
+    DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
 };
 
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -32,6 +32,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 
+use crate::storage::key_value_store::Key;
 use crate::Store;
 use crate::{
     client::ClientError,
@@ -39,7 +40,7 @@ use crate::{
         consent_record::StoredConsentRecord,
         group::StoredGroup,
         group_message::{GroupMessageKind, StoredGroupMessage},
-        key_value_store::{KeyValueStore, StoreKey},
+        key_value_store::KVStore,
         StorageError,
     },
     Client,
@@ -128,12 +129,12 @@ where
         )?;
 
         let store_key = match request.kind {
-            DeviceSyncKind::Consent => StoreKey::ConsentSyncRequestId,
-            DeviceSyncKind::MessageHistory => StoreKey::MessageHistorySyncRequestId,
+            DeviceSyncKind::Consent => Key::ConsentSyncRequestId,
+            DeviceSyncKind::MessageHistory => Key::MessageHistorySyncRequestId,
         };
 
         if let Some(request_id) =
-            KeyValueStore::get::<String>(&conn, &store_key).map_err(DeviceSyncError::Storage)?
+            KVStore::get::<String>(&conn, &store_key).map_err(DeviceSyncError::Storage)?
         {
             for message in messages.iter().rev() {
                 let ctx: DeviceSyncContent =
@@ -147,7 +148,7 @@ where
 
             // Request id not found.
             tracing::warn!("Unable to find sync message with request_id: {request_id}");
-            KeyValueStore::delete(&conn, &store_key).map_err(DeviceSyncError::Storage)?;
+            KVStore::delete(&conn, &store_key).map_err(DeviceSyncError::Storage)?;
         }
 
         // build the request
@@ -167,8 +168,7 @@ where
             }
         })?;
 
-        KeyValueStore::set(&conn, &store_key, request_id.clone())
-            .map_err(DeviceSyncError::Storage)?;
+        KVStore::set(&conn, &store_key, request_id.clone()).map_err(DeviceSyncError::Storage)?;
 
         // publish the intent
         if let Err(err) = sync_group.publish_intents(&conn.into()).await {
@@ -247,6 +247,69 @@ where
         if let Err(err) = sync_group.publish_messages().await {
             tracing::error!("error publishing sync group intents: {:?}", err);
         }
+        Ok(())
+    }
+
+    pub async fn get_sync_reply(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<DeviceSyncReplyProto>, DeviceSyncError> {
+        let sync_group = self.get_sync_group()?;
+
+        sync_group.sync().await?;
+        let messages = sync_group.find_messages(
+            Some(GroupMessageKind::Application),
+            None,
+            None,
+            None,
+            None,
+        )?;
+
+        for msg in messages.iter().rev() {
+            // ignore this installation's messages
+            if msg.sender_installation_id == self.installation_public_key() {
+                continue;
+            }
+
+            let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
+            if let DeviceSyncContent::Reply(reply) = content {
+                if reply.request_id == request_id {
+                    return Ok(Some(reply));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    pub async fn process_sync_reply(&self, request_id: &str) -> Result<(), DeviceSyncError> {
+        let Some(reply) = self.get_sync_reply(&request_id).await? else {
+            return Err(DeviceSyncError::NoReplyToProcess);
+        };
+        let Some(encryption_key) = reply.encryption_key.clone() else {
+            return Err(DeviceSyncError::InvalidPayload);
+        };
+
+        let history_bundle = download_history_bundle(&reply.url).await?;
+        let sync_path = std::env::temp_dir().join("sync.jsonl");
+
+        decrypt_history_file(&history_bundle, &sync_path, encryption_key)?;
+
+        self.insert_sync_bundle(&sync_path)?;
+
+        // clean up temporary files associated with the bundle
+        std::fs::remove_file(history_bundle.as_path())?;
+        std::fs::remove_file(sync_path.as_path())?;
+
+        self.sync_welcomes().await?;
+
+        let conn = self.store().conn()?;
+        let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
+        for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {
+            let group = self.group(id)?;
+            Box::pin(group.sync()).await?;
+        }
+
         Ok(())
     }
 
@@ -489,7 +552,7 @@ impl From<DeviceSyncKeyType> for DeviceSyncKeyTypeProto {
     fn from(key: DeviceSyncKeyType) -> Self {
         match key {
             DeviceSyncKeyType::Chacha20Poly1305(key) => DeviceSyncKeyTypeProto {
-                key: Some(Key::Chacha20Poly1305(key.to_vec())),
+                key: Some(EncKeyProto::Chacha20Poly1305(key.to_vec())),
             },
         }
     }
@@ -501,7 +564,7 @@ impl TryFrom<DeviceSyncKeyTypeProto> for DeviceSyncKeyType {
         let DeviceSyncKeyTypeProto { key } = key;
         match key {
             Some(k) => {
-                let Key::Chacha20Poly1305(hist_key) = k;
+                let EncKeyProto::Chacha20Poly1305(hist_key) = k;
                 match hist_key.try_into() {
                     Ok(array) => Ok(DeviceSyncKeyType::Chacha20Poly1305(array)),
                     Err(_) => Err(DeviceSyncError::Conversion),
@@ -527,4 +590,48 @@ pub(super) fn new_pin() -> String {
     let mut rng = crypto_utils::rng();
     let pin: u32 = rng.gen_range(0..10000);
     format!("{:04}", pin)
+}
+
+fn write_to_file<T: serde::Serialize>(
+    file_path: &Path,
+    content: Vec<T>,
+) -> Result<(), DeviceSyncError> {
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file_path)?;
+    for entry in content {
+        let entry_str = serde_json::to_string(&entry)?;
+        file.write_all(entry_str.as_bytes())?;
+        file.write_all(b"\n")?;
+    }
+
+    Ok(())
+}
+
+fn encrypt_history_file(
+    input_path: &Path,
+    output_path: &Path,
+    encryption_key: &[u8; ENC_KEY_SIZE],
+) -> Result<(), DeviceSyncError> {
+    // Read in the messages file content
+    let mut input_file = File::open(input_path)?;
+    let mut buffer = Vec::new();
+    input_file.read_to_end(&mut buffer)?;
+
+    let nonce = generate_nonce();
+
+    // Create a cipher instance
+    let cipher = Aes256Gcm::new(GenericArray::from_slice(encryption_key));
+    let nonce_array = GenericArray::from_slice(&nonce);
+
+    // Encrypt the file content
+    let ciphertext = cipher.encrypt(nonce_array, buffer.as_ref())?;
+
+    // Write the nonce and ciphertext to the output file
+    let mut output_file = File::create(output_path)?;
+    output_file.write_all(&nonce)?;
+    output_file.write_all(&ciphertext)?;
+
+    Ok(())
 }
