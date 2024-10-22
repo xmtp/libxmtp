@@ -23,8 +23,6 @@ use xmtp_proto::{
 #[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
-use xmtp_proto::api_client::XmtpTestClient;
-
 pub fn build_group_messages(num_messages: usize, group_id: Vec<u8>) -> Vec<GroupMessage> {
     let mut out: Vec<GroupMessage> = vec![];
     for i in 0..num_messages {
@@ -92,8 +90,13 @@ mock! {
         -> Result<VerifySmartContractWalletSignaturesResponse, Error>;
     }
 
-    impl XmtpTestClient for ApiClient {
-        async fn create_local() -> Self { ApiClient }
-        async fn create_dev() -> Self { ApiClient }
+}
+
+impl ApiClient {
+    pub async fn create_local() -> ApiClient {
+        ApiClient
+    }
+    pub async fn create_dev() -> ApiClient {
+        ApiClient
     }
 }

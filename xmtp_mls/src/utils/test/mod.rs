@@ -14,7 +14,7 @@ use xmtp_id::{
     },
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
 };
-use xmtp_proto::api_client::{BoxedApiClient, XmtpTestClient};
+use xmtp_proto::api_client::BoxedApiClient;
 
 use crate::{
     builder::ClientBuilder,
@@ -106,7 +106,7 @@ impl<A, V> ClientBuilder<A, V> {
 
 impl ClientBuilder<MockSmartContractSignatureVerifier> {
     pub async fn new_test_client(owner: &impl InboxOwner) -> FullXmtpClient {
-        let api_client = <TestClient as XmtpTestClient>::create_local().await;
+        let api_client = TestClient::create_local().await;
         inner_build(
             owner,
             &api_client,
@@ -119,7 +119,7 @@ impl ClientBuilder<MockSmartContractSignatureVerifier> {
     pub async fn new_mock_dev_client(
         owner: impl InboxOwner,
     ) -> Client<TestClient, MockSmartContractSignatureVerifier> {
-        let api_client = <TestClient as XmtpTestClient>::create_dev().await;
+        let api_client = TestClient::create_dev().await;
         inner_build(
             owner,
             &api_client,
@@ -132,7 +132,7 @@ impl ClientBuilder<MockSmartContractSignatureVerifier> {
 impl ClientBuilder<TestClient> {
     /// Create a client pointed at the local container with the default remote verifier
     pub async fn new_local_client(owner: &impl InboxOwner) -> Client<TestClient> {
-        let api_client = <TestClient as XmtpTestClient>::create_local().await;
+        let api_client = TestClient::create_local().await;
         inner_build(
             owner,
             &api_client,
@@ -142,7 +142,7 @@ impl ClientBuilder<TestClient> {
     }
 
     pub async fn new_dev_client(owner: &impl InboxOwner) -> Client<TestClient> {
-        let api_client = <TestClient as XmtpTestClient>::create_dev().await;
+        let api_client = TestClient::create_dev().await;
         inner_build(
             owner,
             &api_client,
@@ -153,15 +153,19 @@ impl ClientBuilder<TestClient> {
 
     /// Add the local client to this builder
     pub async fn local_client(self) -> Self {
-        self.api_client(Box::new(<TestClient as XmtpTestClient>::create_local().await))
+        self.api_client(Box::new(TestClient::create_local().await))
     }
 
     pub async fn dev_client(self) -> Self {
-        self.api_client(Box::new(<TestClient as XmtpTestClient>::create_dev().await))
+        self.api_client(Box::new(TestClient::create_dev().await))
     }
 }
 
-async fn inner_build<V>(owner: impl InboxOwner, api_client: BoxedApiClient, scw_verifier: V) -> Client<V>
+async fn inner_build<V>(
+    owner: impl InboxOwner,
+    api_client: BoxedApiClient,
+    scw_verifier: V,
+) -> Client<V>
 where
     V: SmartContractSignatureVerifier + Clone,
 {

@@ -11,17 +11,14 @@ pub use grpc_api_helper::{Client, GroupMessageStream, WelcomeMessageStream};
 mod utils {
     #[cfg(feature = "test-utils")]
     mod test {
-        use xmtp_proto::api_client::XmtpTestClient;
-
-        #[async_trait::async_trait]
-        impl XmtpTestClient for crate::Client {
-            async fn create_local() -> Self {
+        impl crate::Client {
+            pub async fn create_local() -> Self {
                 crate::Client::create("http://localhost:5556".into(), false)
                     .await
                     .unwrap()
             }
 
-            async fn create_dev() -> Self {
+            pub async fn create_dev() -> Self {
                 crate::Client::create("https://grpc.dev.xmtp.network:443".into(), false)
                     .await
                     .unwrap()

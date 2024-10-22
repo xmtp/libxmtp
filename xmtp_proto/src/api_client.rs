@@ -22,20 +22,11 @@ use futures::Stream;
 pub type BoxedApiClient =
     Box<dyn XmtpApi<GroupMessageStream<'static> = (), WelcomeMessageStream<'static> = ()>>;
 
-#[cfg(any(test, feature = "test-utils"))]
-// #[trait_variant::make(XmtpTestClient: Send)]
-#[async_trait::async_trait]
-pub trait XmtpTestClient: Send {
-    async fn create_local() -> Self;
-    async fn create_dev() -> Self;
-}
-
 /// XMTP Api Super Trait
 /// Implements all Trait Network APIs for convenience.
 pub mod trait_impls {
     #[allow(unused)]
     #[cfg(any(test, feature = "test-utils"))]
-    use super::{/*LocalXmtpTestClient,*/ XmtpTestClient};
     pub use inner::*;
 
     // native, release
@@ -104,7 +95,6 @@ pub mod trait_impls {
             Self: XmtpMlsClient
                 + XmtpMlsStreams
                 + XmtpIdentityClient
-                + super::XmtpTestClient
                 + ClientWithMetadata
                 + Send
                 + Sync,
@@ -114,7 +104,6 @@ pub mod trait_impls {
             T: XmtpMlsClient
                 + XmtpMlsStreams
                 + XmtpIdentityClient
-                + super::XmtpTestClient
                 + ClientWithMetadata
                 + Send
                 + Sync
@@ -135,7 +124,6 @@ pub mod trait_impls {
             Self: LocalXmtpMlsClient
                 + LocalXmtpMlsStreams
                 + LocalXmtpIdentityClient
-                + super::LocalXmtpTestClient
                 + ClientWithMetadata,
         {
         }
@@ -144,7 +132,6 @@ pub mod trait_impls {
             T: LocalXmtpMlsClient
                 + LocalXmtpMlsStreams
                 + LocalXmtpIdentityClient
-                + super::LocalXmtpTestClient
                 + ClientWithMetadata
                 + Send
                 + Sync
