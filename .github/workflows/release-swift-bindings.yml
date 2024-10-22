@@ -26,6 +26,7 @@ jobs:
           workspaces: |
             .
             bindings_ffi
+      - name: Install Cross
         uses: taiki-e/install-action@cross
       - name: Build target
         env:

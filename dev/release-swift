@@ -10,7 +10,18 @@ BINDINGS_PATH="$(dirname $BINDINGS_MANIFEST)"
 TARGET_DIR="$WORKSPACE_PATH/target"
 
 if [[ "${OSTYPE}" == "darwin"* ]]; then
-  if ! which nix &>/dev/null; then curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --determinate; fi
+  if ! which nix &>/dev/null; then
+    echo "Nix is not installed. Please review the installation script at:"
+    echo "https://install.determinate.systems/nix"
+    read -p "Do you want to proceed with the installation? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --determinate
+    else
+      echo "Nix installation aborted. Please install Nix manually or run commands in local environment to proceed."
+      exit 1
+    fi
+  fi
 fi
 
 cd $BINDINGS_PATH

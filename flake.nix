@@ -16,8 +16,8 @@
       let
         inherit (pkgs.stdenv) isDarwin;
         inherit (pkgs) androidenv;
-        inherit (pkgs.darwin.apple_sdk) frameworks;
         inherit (androidComposition) androidsdk;
+        frameworks = if isDarwin then pkgs.darwin.apple_sdk.frameworks else null;
         pkgs = import nixpkgs {
           inherit system;
           # Rust Overlay
