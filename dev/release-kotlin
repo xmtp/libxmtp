@@ -1,0 +1,33 @@
+#!/bin/bash
+set -eou pipefail
+
+# Local script to release android jniLibs with same environment as CI
+
+if [[ "${OSTYPE}" == "darwin"* ]]; then
+  if ! which nix &>/dev/null; then
+    echo "Nix is not installed. Please review the installation script at:"
+    echo "https://install.determinate.systems/nix"
+    read -p "Do you want to proceed with the installation? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --determinate
+    else
+      echo "Nix installation aborted. Please install Nix manually or run commands in local environment to proceed."
+      exit 1
+    fi
+  fi
+fi
+
+LIBRARY_NAME="libxmtpv3"
+TARGET_NAME="libuniffi_xmtpv3"
+
+nix develop . --command cargo ndk -o bindings_ffi/jniLibs/ --manifest-path ./bindings_ffi/Cargo.toml \
+  -t aarch64-linux-android \
+  -t x86_64-linux-android \
+  -t i686-linux-android \
+  -t armv7-linux-androideabi \
+  -- build --release
+
+for arch in arm64-v8a armeabi-v7a x86 x86_64; do
+  mv "./bindings_ffi/jniLibs/$arch/$LIBRARY_NAME.so" "./bindings_ffi/jniLibs/$arch/$TARGET_NAME.so"
+done

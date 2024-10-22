@@ -16,23 +16,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Update rust toolchains, add target
-        run: |
-          rustup update
-          rustup target add ${{ matrix.target }}
+      - name: Install Nix
+        uses: cachix/install-nix-action@v17
+        with:
+          # Mostly to avoid GitHub rate limiting
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+      - uses: DeterminateSystems/magic-nix-cache-action@v2
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             .
-            bindings_ffi
-      - name: Install Cross
-        uses: taiki-e/install-action@cross
       - name: Build target
-        env:
-          CROSS_NO_WARNINGS: "0"
         run: |
-          cross build --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
+          nix develop --command \
+            cargo build --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
@@ -44,22 +43,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Update rust toolchains, add target
-        run: |
-          rustup update
-          rustup target add x86_64-apple-darwin
+      - uses: DeterminateSystems/magic-nix-cache-action@v2
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             .
-            bindings_ffi
-      - name: Install swift
-        run: brew install swiftformat
       - name: Generate bindings
         working-directory: bindings_ffi
         run: |
-          make swift
+          nix develop ./../ --command make swift
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -88,27 +81,17 @@ jobs:
         id: checksum
         working-directory: bindings_ffi
         run: |
-          echo "::set-output name=checksum::$(shasum -a 256 LibXMTPSwiftFFI.zip | awk '{ print $1 }')"
+          echo "checksum=$(shasum -a 256 "LibXMTPSwiftFFI.zip" | awk '{ print $1 }')" >> "$GITHUB_OUTPUT"
       - name: Get short SHA
         id: slug
-        run: echo "::set-output name=sha7::$(echo ${GITHUB_SHA} | cut -c1-7)"
-      - name: Create release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "sha7=$(echo "$GITHUB_SHA" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+      - name: Create release and upload asset
+        uses: softprops/action-gh-release@v1
         with:
+          files: ./bindings_ffi/LibXMTPSwiftFFI.zip
           tag_name: swift-bindings-${{ steps.slug.outputs.sha7 }}
-          release_name: Swift-Bindings-${{ steps.slug.outputs.sha7 }}
-          body: "Checksum of LibXMTPSwiftFFI.zip: ${{ steps.checksum.outputs.checksum }}"
+          name: Swift-Bindings-${{ steps.slug.outputs.sha7 }}
           draft: false
           prerelease: true
-      - name: Upload release asset
-        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./bindings_ffi/LibXMTPSwiftFFI.zip
-          asset_name: LibXMTPSwiftFFI.zip
-          asset_content_type: application/zip

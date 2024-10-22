@@ -35,8 +35,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             let process_result = retry_async!(
                 Retry::default(),
                 (async {
-                    let client_id = client_id.clone();
-                    let msgv1 = msgv1.clone();
+                    let client_id = &client_id;
+                    let msgv1 = &msgv1;
                     self.context()
                         .store()
                         .transaction_async(|provider| async move {
@@ -50,7 +50,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                                 openmls_group.epoch()
                             );
 
-                            self.process_message(&mut openmls_group, &provider, &msgv1, false)
+                            self.process_message(&mut openmls_group, &provider, msgv1, false)
                                 .await
                                 .map_err(GroupError::ReceiveError)
                         })

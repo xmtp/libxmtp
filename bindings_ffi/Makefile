@@ -45,17 +45,17 @@ libxmtp-version:
 	echo "Version: $(GIT_COMMIT_HASH)\nBranch: $(GIT_BRANCH)\nDate: $(GIT_COMMIT_DATE)" > libxmtp-version.txt
 
 $(ARCHS_IOS): %: build-sqlcipher
-	cross build --target $@ --target-dir $(TARGET_DIR) --release --no-default-features
+	cargo build --target $@ --target-dir $(TARGET_DIR) --release --no-default-features
 	mkdir -p build/$@
 	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 
 $(ARCHS_MAC): %: build-sqlcipher
-	cross build --target $@ --target-dir $(TARGET_DIR) --release --no-default-features
+	cargo build --target $@ --target-dir $(TARGET_DIR) --release --no-default-features
 	mkdir -p build/$@
 	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 
 aarch64-apple-ios: build-sqlcipher
-	cross build --target $@ --target-dir $(TARGET_DIR) --release
+	cargo build --target $@ --target-dir $(TARGET_DIR) --release
 	mkdir -p build/$@
 	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 
