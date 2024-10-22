@@ -116,6 +116,7 @@ impl_store_or_ignore!(StoredGroupMessage, group_messages);
 
 impl DbConnection {
     /// Query for group messages
+    #[allow(clippy::too_many_arguments)]
     pub fn get_group_messages<GroupId: AsRef<[u8]>>(
         &self,
         group_id: GroupId,
