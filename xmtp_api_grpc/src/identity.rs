@@ -9,6 +9,7 @@ use xmtp_proto::{
     },
 };
 
+#[async_trait::async_trait]
 impl XmtpIdentityClient for Client {
     #[tracing::instrument(level = "trace", skip_all)]
     async fn publish_identity_update(

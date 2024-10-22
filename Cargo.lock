@@ -6898,6 +6898,7 @@ name = "xmtp_api_grpc"
 version = "0.0.1"
 dependencies = [
  "async-stream",
+ "async-trait",
  "base64 0.22.1",
  "futures",
  "hex",
@@ -6915,6 +6916,7 @@ name = "xmtp_api_http"
 version = "0.0.1"
 dependencies = [
  "async-stream",
+ "async-trait",
  "futures",
  "reqwest 0.12.8",
  "serde",
@@ -7072,6 +7074,7 @@ dependencies = [
 name = "xmtp_proto"
 version = "0.0.1"
 dependencies = [
+ "async-trait",
  "futures",
  "openmls",
  "pbjson",

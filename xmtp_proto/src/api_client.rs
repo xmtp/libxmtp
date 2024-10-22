@@ -23,8 +23,9 @@ pub type BoxedApiClient =
     Box<dyn XmtpApi<GroupMessageStream<'static> = (), WelcomeMessageStream<'static> = ()>>;
 
 #[cfg(any(test, feature = "test-utils"))]
-#[trait_variant::make(XmtpTestClient: Send)]
-pub trait LocalXmtpTestClient {
+// #[trait_variant::make(XmtpTestClient: Send)]
+#[async_trait::async_trait]
+pub trait XmtpTestClient: Send {
     async fn create_local() -> Self;
     async fn create_dev() -> Self;
 }
@@ -34,7 +35,7 @@ pub trait LocalXmtpTestClient {
 pub mod trait_impls {
     #[allow(unused)]
     #[cfg(any(test, feature = "test-utils"))]
-    use super::{LocalXmtpTestClient, XmtpTestClient};
+    use super::{/*LocalXmtpTestClient,*/ XmtpTestClient};
     pub use inner::*;
 
     // native, release
@@ -51,7 +52,6 @@ pub mod trait_impls {
                 + XmtpIdentityClient
                 + ClientWithMetadata
                 + Send
-                + Clone
                 + Sync,
         {
         }
@@ -62,7 +62,6 @@ pub mod trait_impls {
                 + ClientWithMetadata
                 + Send
                 + Sync
-                + Clone
                 + ?Sized
         {
         }
@@ -108,8 +107,7 @@ pub mod trait_impls {
                 + super::XmtpTestClient
                 + ClientWithMetadata
                 + Send
-                + Sync
-                + Clone,
+                + Sync,
         {
         }
         impl<T> XmtpApi for T where
@@ -120,7 +118,6 @@ pub mod trait_impls {
                 + ClientWithMetadata
                 + Send
                 + Sync
-                + Clone
                 + ?Sized
         {
         }
@@ -151,7 +148,6 @@ pub mod trait_impls {
                 + ClientWithMetadata
                 + Send
                 + Sync
-                + Clone
                 + ?Sized
         {
         }
@@ -286,10 +282,10 @@ pub trait LocalXmtpApiClient {
 }
 
 // Wasm futures don't have `Send` or `Sync` bounds.
-#[allow(async_fn_in_trait)]
-#[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpMlsClient: Send))]
-#[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpMlsClient: Wasm))]
-pub trait LocalXmtpMlsClient {
+#[async_trait::async_trait]
+// #[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpMlsClient: Send))]
+// #[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpMlsClient: Wasm))]
+pub trait XmtpMlsClient: Send {
     async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
     async fn fetch_key_packages(
         &self,
@@ -308,6 +304,7 @@ pub trait LocalXmtpMlsClient {
     ) -> Result<QueryWelcomeMessagesResponse, Error>;
 }
 
+// TODO: support Wasm
 #[allow(async_fn_in_trait)]
 #[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpMlsStreams: Wasm))]
 pub trait LocalXmtpMlsStreams {
@@ -331,8 +328,9 @@ pub trait LocalXmtpMlsStreams {
 
 // we manually make a Local+Non-Local trait variant here b/c the
 // macro breaks with GATs
-#[allow(async_fn_in_trait)]
-#[cfg(not(target_arch = "wasm32"))]
+// #[allow(async_fn_in_trait)]
+// #[cfg(not(target_arch = "wasm32"))]
+#[async_trait::async_trait]
 pub trait XmtpMlsStreams: Send {
     type GroupMessageStream<'a>: Stream<Item = Result<GroupMessage, Error>> + Send + 'a
     where
@@ -353,10 +351,11 @@ pub trait XmtpMlsStreams: Send {
     ) -> impl futures::Future<Output = Result<Self::WelcomeMessageStream<'_>, Error>> + Send;
 }
 
+#[async_trait::async_trait]
 #[allow(async_fn_in_trait)]
-#[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpIdentityClient: Send))]
-#[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpIdentityClient: Wasm))]
-pub trait LocalXmtpIdentityClient {
+// #[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpIdentityClient: Send))]
+// #[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpIdentityClient: Wasm))]
+pub trait XmtpIdentityClient: Send {
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,

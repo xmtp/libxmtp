@@ -116,6 +116,7 @@ pub fn create_grpc_stream_inner<
     }
 }
 
+#[async_trait::async_trait]
 #[cfg(feature = "test-utils")]
 impl xmtp_proto::api_client::XmtpTestClient for crate::XmtpHttpApiClient {
     async fn create_local() -> Self {

@@ -336,6 +336,8 @@ impl MutableApiSubscription for GrpcMutableSubscription {
         self.update_channel.close_channel();
     }
 }
+
+#[async_trait::async_trait]
 impl XmtpMlsClient for Client {
     #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Error> {

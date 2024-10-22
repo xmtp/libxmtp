@@ -123,6 +123,7 @@ impl ClientWithMetadata for XmtpHttpApiClient {
     }
 }
 
+#[async_trait::async_trait]
 impl XmtpMlsClient for XmtpHttpApiClient {
     async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error> {
         let res = self
@@ -275,6 +276,7 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
     }
 }
 
+#[async_trait::async_trait]
 impl XmtpIdentityClient for XmtpHttpApiClient {
     async fn publish_identity_update(
         &self,

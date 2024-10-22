@@ -13,6 +13,7 @@ mod utils {
     mod test {
         use xmtp_proto::api_client::XmtpTestClient;
 
+        #[async_trait::async_trait]
         impl XmtpTestClient for crate::Client {
             async fn create_local() -> Self {
                 crate::Client::create("http://localhost:5556".into(), false)
