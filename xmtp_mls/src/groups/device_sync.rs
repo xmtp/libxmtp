@@ -609,29 +609,18 @@ fn write_to_file<T: serde::Serialize>(
     Ok(())
 }
 
-fn encrypt_history_file(
-    input_path: &Path,
-    output_path: &Path,
+fn encrypt_bytes(
+    payload: &[u8],
     encryption_key: &[u8; ENC_KEY_SIZE],
-) -> Result<(), DeviceSyncError> {
-    // Read in the messages file content
-    let mut input_file = File::open(input_path)?;
-    let mut buffer = Vec::new();
-    input_file.read_to_end(&mut buffer)?;
+) -> Result<Vec<u8>, DeviceSyncError> {
+    let mut result = generate_nonce().to_vec();
 
-    let nonce = generate_nonce();
-
-    // Create a cipher instance
+    // create a cipher instance
     let cipher = Aes256Gcm::new(GenericArray::from_slice(encryption_key));
-    let nonce_array = GenericArray::from_slice(&nonce);
+    let nonce_array = GenericArray::from_slice(&result);
 
-    // Encrypt the file content
-    let ciphertext = cipher.encrypt(nonce_array, buffer.as_ref())?;
+    // encrypt the file content and append to the result
+    result.append(&mut cipher.encrypt(nonce_array, payload)?);
 
-    // Write the nonce and ciphertext to the output file
-    let mut output_file = File::create(output_path)?;
-    output_file.write_all(&nonce)?;
-    output_file.write_all(&ciphertext)?;
-
-    Ok(())
+    Ok(result)
 }

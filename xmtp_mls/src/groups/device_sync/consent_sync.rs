@@ -1,26 +1,14 @@
-use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Write};
-use std::path::{Path, PathBuf};
-
-use aes_gcm::aead::generic_array::GenericArray;
-use aes_gcm::{
-    aead::{Aead, KeyInit},
-    Aes256Gcm,
-};
-use serde::Deserialize;
-use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::{
-    xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{Reply, Request},
-    xmtp::mls::message_contents::plaintext_envelope::{Content, V2},
-    xmtp::mls::message_contents::PlaintextEnvelope,
-};
+use std::io::Cursor;
 
 use super::*;
-
-use crate::storage::key_value_store::{KVStore, Key};
-use crate::storage::DbConnection;
-use crate::XmtpApi;
-use crate::{groups::GroupMessageKind, Client};
+use crate::{
+    storage::{
+        key_value_store::{KVStore, Key},
+        DbConnection,
+    },
+    Client, XmtpApi,
+};
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
@@ -45,19 +33,6 @@ where
         Err(DeviceSyncError::NoPendingRequest)
     }
 
-    pub async fn send_consent_sync_reply(
-        &self,
-        contents: DeviceSyncReplyProto,
-    ) -> Result<(), DeviceSyncError> {
-        // find the sync group
-        let conn = self.store().conn()?;
-        let sync_group = self.get_sync_group()?;
-
-        sync_group.sync().await?;
-
-        Ok(())
-    }
-
     pub async fn process_consent_sync_reply(
         &self,
         conn: &DbConnection,
@@ -71,5 +46,50 @@ where
 
         // process the reply
         self.process_sync_reply(&request_id).await
+    }
+
+    pub async fn prepare_consent_sync_reply(
+        &self,
+        request_id: &str,
+    ) -> Result<DeviceSyncReply, DeviceSyncError> {
+        let conn = self.store().conn()?;
+        let consent_records = conn.load_consent_records()?;
+
+        // build the payload
+        let mut payload = Vec::new();
+        for record in consent_records {
+            payload.extend_from_slice(serde_json::to_string(&record)?.as_bytes());
+            payload.push(b'\n');
+        }
+
+        // encrypt the payload
+        let enc_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
+        let payload = encrypt_bytes(&payload, enc_key.as_bytes())?;
+
+        // upload the payload
+        let Some(url) = &self.history_sync_url else {
+            return Err(DeviceSyncError::MissingHistorySyncUrl);
+        };
+        tracing::info!("Using upload url {url}upload");
+
+        let response = reqwest::Client::new()
+            .post(format!("{url}upload"))
+            .body(payload)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            tracing::error!(
+                "Failed to upload file. Status code: {} Response: {response:?}",
+                response.status()
+            );
+            response.error_for_status()?;
+            // checked for error, the above line bubbled up
+            unreachable!();
+        }
+
+        let upload_url = format!("{url}files/{}", response.text().await?);
+
+        Ok(DeviceSyncReply::new(request_id, &upload_url, enc_key))
     }
 }

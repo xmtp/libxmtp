@@ -174,12 +174,12 @@ where
         let messages = self.prepare_messages_to_sync().await?;
 
         let temp_file = std::env::temp_dir().join("history.jsonl.tmp");
-        write_to_file(temp_file.as_path(), groups)?;
-        write_to_file(temp_file.as_path(), messages)?;
+        write_to_file(&temp_file, groups)?;
+        write_to_file(&temp_file, messages)?;
 
         let history_file = std::env::temp_dir().join("history.jsonl.enc");
         let enc_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
-        encrypt_history_file(
+        encrypt_bytes(
             temp_file.as_path(),
             history_file.as_path(),
             enc_key.as_bytes(),
@@ -433,7 +433,7 @@ pub(crate) mod tests {
         let output_file = NamedTempFile::new().unwrap();
         let output_path = output_file.path();
         let encryption_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
-        encrypt_history_file(input_path, output_path, encryption_key.as_bytes()).unwrap();
+        encrypt_bytes(input_path, output_path, encryption_key.as_bytes()).unwrap();
 
         let mut file = File::open(output_path).unwrap();
         let mut content = Vec::new();
@@ -571,7 +571,7 @@ pub(crate) mod tests {
         std::fs::write(input_file.path(), input_content).expect("Unable to write test input file");
 
         // Encrypt the file
-        encrypt_history_file(input_file.path(), encrypted_file.path(), key_bytes)
+        encrypt_bytes(input_file.path(), encrypted_file.path(), key_bytes)
             .expect("Encryption failed");
 
         // Decrypt the file

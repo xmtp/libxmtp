@@ -12,8 +12,9 @@ use diesel::{
 use serde::{Deserialize, Serialize};
 
 use super::{
+    consent_record::{self, StoredConsentRecord},
     db_connection::DbConnection,
-    schema::{groups, groups::dsl},
+    schema::groups::{self, dsl},
     Sqlite,
 };
 use crate::{
@@ -160,6 +161,10 @@ impl DbConnection {
         query = query.filter(dsl::purpose.eq(Purpose::Conversation));
 
         Ok(self.raw_query(|conn| query.load(conn))?)
+    }
+
+    pub fn load_consent_records(&self) -> Result<Vec<StoredConsentRecord>, StorageError> {
+        Ok(self.raw_query(|conn| super::schema::consent_records::table.load(conn))?)
     }
 
     /// Return only the [`Purpose::Sync`] groups
