@@ -18,6 +18,7 @@ use crate::xmtp::mls::api::v1::{
     SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
     SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage,
 };
+use crate::xmtp::xmtpv4::payer_api::{PublishClientEnvelopesRequest, PublishClientEnvelopesResponse};
 
 #[cfg(any(test, feature = "test-utils"))]
 #[trait_variant::make(XmtpTestClient: Send)]
@@ -44,49 +45,46 @@ pub mod trait_impls {
         pub trait XmtpApi
         where
             Self: XmtpMlsClient
-                + XmtpMlsStreams
-                + XmtpIdentityClient
-                + ClientWithMetadata
-                + Send
-                + Sync,
-        {
-        }
-        impl<T> XmtpApi for T where
+            + XmtpMlsStreams
+            + XmtpIdentityClient
+            + ClientWithMetadata
+            + Send
+            + Sync,
+        {}
+        impl<T> XmtpApi for T
+        where
             T: XmtpMlsClient
-                + XmtpMlsStreams
-                + XmtpIdentityClient
-                + ClientWithMetadata
-                + Send
-                + Sync
-                + ?Sized
-        {
-        }
+            + XmtpMlsStreams
+            + XmtpIdentityClient
+            + ClientWithMetadata
+            + Send
+            + Sync
+            + ?Sized,
+        {}
     }
 
     // wasm32, release
     #[cfg(all(not(feature = "test-utils"), target_arch = "wasm32"))]
     mod inner {
-
         use crate::api_client::{
             ClientWithMetadata, LocalXmtpIdentityClient, LocalXmtpMlsClient, LocalXmtpMlsStreams,
         };
         pub trait XmtpApi
         where
             Self: LocalXmtpMlsClient
-                + LocalXmtpMlsStreams
-                + LocalXmtpIdentityClient
-                + ClientWithMetadata,
-        {
-        }
+            + LocalXmtpMlsStreams
+            + LocalXmtpIdentityClient
+            + ClientWithMetadata,
+        {}
 
-        impl<T> XmtpApi for T where
+        impl<T> XmtpApi for T
+        where
             T: LocalXmtpMlsClient
-                + LocalXmtpMlsStreams
-                + LocalXmtpIdentityClient
-                + ClientWithMetadata
-                + ?Sized
-        {
-        }
+            + LocalXmtpMlsStreams
+            + LocalXmtpIdentityClient
+            + ClientWithMetadata
+            + ?Sized,
+        {}
     }
 
     // test, native
@@ -99,25 +97,24 @@ pub mod trait_impls {
         pub trait XmtpApi
         where
             Self: XmtpMlsClient
-                + XmtpMlsStreams
-                + XmtpIdentityClient
-                + super::XmtpTestClient
-                + ClientWithMetadata
-                + Send
-                + Sync,
-        {
-        }
-        impl<T> XmtpApi for T where
+            + XmtpMlsStreams
+            + XmtpIdentityClient
+            + super::XmtpTestClient
+            + ClientWithMetadata
+            + Send
+            + Sync,
+        {}
+        impl<T> XmtpApi for T
+        where
             T: XmtpMlsClient
-                + XmtpMlsStreams
-                + XmtpIdentityClient
-                + super::XmtpTestClient
-                + ClientWithMetadata
-                + Send
-                + Sync
-                + ?Sized
-        {
-        }
+            + XmtpMlsStreams
+            + XmtpIdentityClient
+            + super::XmtpTestClient
+            + ClientWithMetadata
+            + Send
+            + Sync
+            + ?Sized,
+        {}
     }
 
     // test, wasm32
@@ -130,24 +127,23 @@ pub mod trait_impls {
         pub trait XmtpApi
         where
             Self: LocalXmtpMlsClient
-                + LocalXmtpMlsStreams
-                + LocalXmtpIdentityClient
-                + super::LocalXmtpTestClient
-                + ClientWithMetadata,
-        {
-        }
+            + LocalXmtpMlsStreams
+            + LocalXmtpIdentityClient
+            + super::LocalXmtpTestClient
+            + ClientWithMetadata,
+        {}
 
-        impl<T> XmtpApi for T where
+        impl<T> XmtpApi for T
+        where
             T: LocalXmtpMlsClient
-                + LocalXmtpMlsStreams
-                + LocalXmtpIdentityClient
-                + super::LocalXmtpTestClient
-                + ClientWithMetadata
-                + Send
-                + Sync
-                + ?Sized
-        {
-        }
+            + LocalXmtpMlsStreams
+            + LocalXmtpIdentityClient
+            + super::LocalXmtpTestClient
+            + ClientWithMetadata
+            + Send
+            + Sync
+            + ?Sized,
+        {}
     }
 }
 
@@ -236,7 +232,7 @@ pub trait XmtpApiSubscription {
 }
 
 #[allow(async_fn_in_trait)]
-pub trait MutableApiSubscription: Stream<Item = Result<Envelope, Error>> + Send {
+pub trait MutableApiSubscription: Stream<Item=Result<Envelope, Error>> + Send {
     async fn update(&mut self, req: SubscribeRequest) -> Result<(), Error>;
     fn close(&self);
 }
@@ -290,7 +286,7 @@ pub trait LocalXmtpMlsClient {
     ) -> Result<FetchKeyPackagesResponse, Error>;
     async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), Error>;
     async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest)
-        -> Result<(), Error>;
+                                   -> Result<(), Error>;
     async fn query_group_messages(
         &self,
         request: QueryGroupMessagesRequest,
@@ -304,11 +300,11 @@ pub trait LocalXmtpMlsClient {
 #[allow(async_fn_in_trait)]
 #[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpMlsStreams: Wasm))]
 pub trait LocalXmtpMlsStreams {
-    type GroupMessageStream<'a>: Stream<Item = Result<GroupMessage, Error>> + 'a
+    type GroupMessageStream<'a>: Stream<Item=Result<GroupMessage, Error>> + 'a
     where
         Self: 'a;
 
-    type WelcomeMessageStream<'a>: Stream<Item = Result<WelcomeMessage, Error>> + 'a
+    type WelcomeMessageStream<'a>: Stream<Item=Result<WelcomeMessage, Error>> + 'a
     where
         Self: 'a;
 
@@ -327,23 +323,23 @@ pub trait LocalXmtpMlsStreams {
 #[allow(async_fn_in_trait)]
 #[cfg(not(target_arch = "wasm32"))]
 pub trait XmtpMlsStreams: Send {
-    type GroupMessageStream<'a>: Stream<Item = Result<GroupMessage, Error>> + Send + 'a
+    type GroupMessageStream<'a>: Stream<Item=Result<GroupMessage, Error>> + Send + 'a
     where
         Self: 'a;
 
-    type WelcomeMessageStream<'a>: Stream<Item = Result<WelcomeMessage, Error>> + Send + 'a
+    type WelcomeMessageStream<'a>: Stream<Item=Result<WelcomeMessage, Error>> + Send + 'a
     where
         Self: 'a;
 
     fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
-    ) -> impl futures::Future<Output = Result<Self::GroupMessageStream<'_>, Error>> + Send;
+    ) -> impl futures::Future<Output=Result<Self::GroupMessageStream<'_>, Error>> + Send;
 
     fn subscribe_welcome_messages(
         &self,
         request: SubscribeWelcomeMessagesRequest,
-    ) -> impl futures::Future<Output = Result<Self::WelcomeMessageStream<'_>, Error>> + Send;
+    ) -> impl futures::Future<Output=Result<Self::WelcomeMessageStream<'_>, Error>> + Send;
 }
 
 #[allow(async_fn_in_trait)]
