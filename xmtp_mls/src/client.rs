@@ -227,8 +227,8 @@ pub struct FindGroupParams {
 }
 
 /// Clients manage access to the network, identity, and data store
-pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
-    pub(crate) api_client: ApiClientWrapper<ApiClient>,
+pub struct Client<V = RemoteSignatureVerifier<ApiClient>> {
+    pub(crate) api_client: ApiClientWrapper,
     pub(crate) intents: Arc<Intents>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
     #[cfg(feature = "message-history")]
@@ -241,7 +241,7 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
 // most of these things are `Arc`'s
 impl<ApiClient, V> Clone for Client<ApiClient, V>
 where
-    ApiClient: Clone,
+    ApiClient: Clone + ?Sized,
     V: Clone,
 {
     fn clone(&self) -> Self {

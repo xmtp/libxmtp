@@ -75,14 +75,14 @@ pub async fn create_client(
 
   let xmtp_client = match history_sync_url {
     Some(url) => ClientBuilder::new(identity_strategy)
-      .api_client(api_client)
+        .api_client(Box::new(api_client))
       .store(store)
       .history_sync_url(&url)
       .build()
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?,
     None => ClientBuilder::new(identity_strategy)
-      .api_client(api_client)
+        .api_client(Box::new(api_client))
       .store(store)
       .build()
       .await

@@ -1,7 +1,7 @@
 use std::{error::Error as StdError, fmt};
 
 use futures::Stream;
-
+use crate::api_client::trait_impls::XmtpApi;
 pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PagingInfo, PublishRequest, PublishResponse,
     QueryRequest, QueryResponse, SubscribeRequest,
@@ -18,7 +18,9 @@ use crate::xmtp::mls::api::v1::{
     SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
     SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage,
 };
-use crate::xmtp::xmtpv4::payer_api::{PublishClientEnvelopesRequest, PublishClientEnvelopesResponse};
+
+
+pub type BoxedApiClient = Box<dyn XmtpApi<GroupMessageStream<'static>=(), WelcomeMessageStream<'static>=()>>;
 
 #[cfg(any(test, feature = "test-utils"))]
 #[trait_variant::make(XmtpTestClient: Send)]
@@ -102,7 +104,8 @@ pub mod trait_impls {
             + super::XmtpTestClient
             + ClientWithMetadata
             + Send
-            + Sync,
+            + Sync
+            + Clone,
         {}
         impl<T> XmtpApi for T
         where
@@ -113,6 +116,7 @@ pub mod trait_impls {
             + ClientWithMetadata
             + Send
             + Sync
+            + Clone
             + ?Sized,
         {}
     }

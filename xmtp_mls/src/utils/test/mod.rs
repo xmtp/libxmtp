@@ -136,7 +136,7 @@ impl ClientBuilder<TestClient> {
         inner_build(
             owner,
             &api_client,
-            RemoteSignatureVerifier::new(api_client.clone()),
+            RemoteSignatureVerifier::new(Box::new(api_client.clone())),
         )
         .await
     }
@@ -146,18 +146,18 @@ impl ClientBuilder<TestClient> {
         inner_build(
             owner,
             &api_client,
-            RemoteSignatureVerifier::new(api_client.clone()),
+            RemoteSignatureVerifier::new(Box::new(api_client.clone())),
         )
         .await
     }
 
     /// Add the local client to this builder
     pub async fn local_client(self) -> Self {
-        self.api_client(<TestClient as XmtpTestClient>::create_local().await)
+        self.api_client(Box::new(<TestClient as XmtpTestClient>::create_dev().await))
     }
 
     pub async fn dev_client(self) -> Self {
-        self.api_client(<TestClient as XmtpTestClient>::create_dev().await)
+        self.api_client(Box::new(<TestClient as XmtpTestClient>::create_dev().await))
     }
 }
 
@@ -177,7 +177,7 @@ where
     ))
     .temp_store()
     .await
-    .api_client(api_client.clone())
+    .api_client(Box::new(api_client.clone()))
     .scw_signature_verifier(scw_verifier)
     .build_with_verifier()
     .await

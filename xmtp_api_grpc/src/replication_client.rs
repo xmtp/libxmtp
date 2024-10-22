@@ -18,6 +18,13 @@ use xmtp_proto::{
         Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
     }
     ,
+    xmtp::identity::api::v1::{
+        get_inbox_ids_response,
+        GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response,
+        GetInboxIdsRequest, GetInboxIdsResponse, PublishIdentityUpdateRequest,
+        PublishIdentityUpdateResponse, VerifySmartContractWalletSignaturesRequest,
+        VerifySmartContractWalletSignaturesResponse,
+    },
     xmtp::message_api::v1::{
         BatchQueryRequest, BatchQueryResponse, Envelope,
         PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
@@ -29,19 +36,11 @@ use xmtp_proto::{
         SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
         UploadKeyPackageRequest,
     },
-    xmtp::identity::api::v1::{
-        GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
-        GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
-        GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
-        VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
-        get_inbox_ids_response,
-    },
     xmtp::xmtpv4::message_api::{
-        GetInboxIdsRequest as GetInboxIdsRequestV4,
         get_inbox_ids_request,
+        GetInboxIdsRequest as GetInboxIdsRequestV4,
     }
 };
-use crate::Client;
 
 async fn create_tls_channel(address: String) -> Result<Channel, Error> {
     let channel = Channel::from_shared(address)

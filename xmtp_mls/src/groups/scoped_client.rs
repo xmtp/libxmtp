@@ -20,9 +20,7 @@ use super::group_membership::{GroupMembership, MembershipDiff};
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unused)]
 pub trait LocalScopedGroupClient: Send + Sync + Sized {
-    type ApiClient: XmtpApi;
-
-    fn api(&self) -> &ApiClientWrapper<Self::ApiClient>;
+    fn api(&self) -> &ApiClientWrapper;
 
     fn store(&self) -> &EncryptedMessageStore {
         self.context_ref().store()
@@ -137,14 +135,11 @@ pub trait ScopedGroupClient: Sized {
     ) -> Result<Vec<GroupMessage>, ClientError>;
 }
 
-impl<ApiClient, Verifier> ScopedGroupClient for Client<ApiClient, Verifier>
+impl<Verifier> ScopedGroupClient for Client<Verifier>
 where
-    ApiClient: XmtpApi + Clone,
     Verifier: SmartContractSignatureVerifier + Clone,
 {
-    type ApiClient = ApiClient;
-
-    fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
+    fn api(&self) -> &ApiClientWrapper {
         &self.api_client
     }
 
@@ -153,7 +148,7 @@ where
     }
 
     fn intents(&self) -> &Arc<Intents> {
-        crate::Client::<ApiClient, Verifier>::intents(self)
+        crate::Client::<Verifier>::intents(self)
     }
 
     async fn get_installation_diff(
@@ -163,7 +158,7 @@ where
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
     ) -> Result<InstallationDiff, InstallationDiffError> {
-        crate::Client::<ApiClient, Verifier>::get_installation_diff(
+        crate::Client::<Verifier>::get_installation_diff(
             self,
             conn,
             old_group_membership,
@@ -177,7 +172,7 @@ where
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError> {
-        crate::Client::<ApiClient, Verifier>::get_key_packages_for_installation_ids(
+        crate::Client::<Verifier>::get_key_packages_for_installation_ids(
             self,
             installation_ids,
         )
@@ -190,7 +185,7 @@ where
         inbox_id: String,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
-        crate::Client::<ApiClient, Verifier>::get_association_state(
+        crate::Client::<Verifier>::get_association_state(
             self,
             conn,
             inbox_id,
@@ -204,7 +199,7 @@ where
         conn: &DbConnection,
         identifiers: &[(String, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
-        crate::Client::<ApiClient, Verifier>::batch_get_association_state(self, conn, identifiers)
+        crate::Client::<Verifier>::batch_get_association_state(self, conn, identifiers)
             .await
     }
 
@@ -213,178 +208,6 @@ where
         group_id: &[u8],
         conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError> {
-        crate::Client::<ApiClient, Verifier>::query_group_messages(self, group_id, conn).await
-    }
-}
-
-impl<T> ScopedGroupClient for &T
-where
-    T: ScopedGroupClient,
-{
-    type ApiClient = <T as ScopedGroupClient>::ApiClient;
-
-    fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
-        (**self).api()
-    }
-
-    fn store(&self) -> &EncryptedMessageStore {
-        (**self).store()
-    }
-
-    fn intents(&self) -> &Arc<Intents> {
-        (**self).intents()
-    }
-
-    fn inbox_id(&self) -> String {
-        (**self).inbox_id()
-    }
-
-    fn context_ref(&self) -> &Arc<XmtpMlsLocalContext> {
-        (**self).context_ref()
-    }
-
-    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
-        (**self).mls_provider()
-    }
-
-    async fn get_installation_diff(
-        &self,
-        conn: &DbConnection,
-        old_group_membership: &GroupMembership,
-        new_group_membership: &GroupMembership,
-        membership_diff: &MembershipDiff<'_>,
-    ) -> Result<InstallationDiff, InstallationDiffError> {
-        (**self)
-            .get_installation_diff(
-                conn,
-                old_group_membership,
-                new_group_membership,
-                membership_diff,
-            )
-            .await
-    }
-
-    async fn get_key_packages_for_installation_ids(
-        &self,
-        installation_ids: Vec<Vec<u8>>,
-    ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError> {
-        (**self)
-            .get_key_packages_for_installation_ids(installation_ids)
-            .await
-    }
-
-    async fn get_association_state(
-        &self,
-        conn: &DbConnection,
-        inbox_id: String,
-        to_sequence_id: Option<i64>,
-    ) -> Result<AssociationState, ClientError> {
-        (**self)
-            .get_association_state(conn, inbox_id, to_sequence_id)
-            .await
-    }
-
-    async fn batch_get_association_state(
-        &self,
-        conn: &DbConnection,
-        identifiers: &[(String, Option<i64>)],
-    ) -> Result<Vec<AssociationState>, ClientError> {
-        (**self)
-            .batch_get_association_state(conn, identifiers)
-            .await
-    }
-
-    async fn query_group_messages(
-        &self,
-        group_id: &[u8],
-        conn: &DbConnection,
-    ) -> Result<Vec<GroupMessage>, ClientError> {
-        (**self).query_group_messages(group_id, conn).await
-    }
-}
-
-impl<T> ScopedGroupClient for Arc<T>
-where
-    T: ScopedGroupClient,
-{
-    type ApiClient = <T as ScopedGroupClient>::ApiClient;
-
-    fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
-        (**self).api()
-    }
-
-    fn store(&self) -> &EncryptedMessageStore {
-        (**self).store()
-    }
-
-    fn intents(&self) -> &Arc<Intents> {
-        (**self).intents()
-    }
-
-    fn inbox_id(&self) -> String {
-        (**self).inbox_id()
-    }
-
-    fn context_ref(&self) -> &Arc<XmtpMlsLocalContext> {
-        (**self).context_ref()
-    }
-
-    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
-        (**self).mls_provider()
-    }
-
-    async fn get_installation_diff(
-        &self,
-        conn: &DbConnection,
-        old_group_membership: &GroupMembership,
-        new_group_membership: &GroupMembership,
-        membership_diff: &MembershipDiff<'_>,
-    ) -> Result<InstallationDiff, InstallationDiffError> {
-        (**self)
-            .get_installation_diff(
-                conn,
-                old_group_membership,
-                new_group_membership,
-                membership_diff,
-            )
-            .await
-    }
-
-    async fn get_key_packages_for_installation_ids(
-        &self,
-        installation_ids: Vec<Vec<u8>>,
-    ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError> {
-        (**self)
-            .get_key_packages_for_installation_ids(installation_ids)
-            .await
-    }
-
-    async fn get_association_state(
-        &self,
-        conn: &DbConnection,
-        inbox_id: String,
-        to_sequence_id: Option<i64>,
-    ) -> Result<AssociationState, ClientError> {
-        (**self)
-            .get_association_state(conn, inbox_id, to_sequence_id)
-            .await
-    }
-
-    async fn batch_get_association_state(
-        &self,
-        conn: &DbConnection,
-        identifiers: &[(String, Option<i64>)],
-    ) -> Result<Vec<AssociationState>, ClientError> {
-        (**self)
-            .batch_get_association_state(conn, identifiers)
-            .await
-    }
-
-    async fn query_group_messages(
-        &self,
-        group_id: &[u8],
-        conn: &DbConnection,
-    ) -> Result<Vec<GroupMessage>, ClientError> {
-        (**self).query_group_messages(group_id, conn).await
+        crate::Client::<Verifier>::query_group_messages(self, group_id, conn).await
     }
 }
