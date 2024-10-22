@@ -65,7 +65,7 @@ use xmtp_id::InboxId;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        GroupMessage,
+        GroupMessage, SortDirection,
     },
     message_contents::{
         plaintext_envelope::{Content, V1},
@@ -671,7 +671,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
         let conn = self.context().store().conn()?;
         let messages = conn.get_group_messages(&self.group_id, args)?;
-
         Ok(messages)
     }
 

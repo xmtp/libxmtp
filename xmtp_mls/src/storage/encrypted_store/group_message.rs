@@ -7,6 +7,7 @@ use diesel::{
     sql_types::Integer,
 };
 use serde::{Deserialize, Serialize};
+use xmtp_proto::xmtp::message_api::v1::SortDirection;
 
 use super::{
     db_connection::DbConnection,
@@ -211,6 +212,14 @@ impl DbConnection {
 
         if let Some(limit) = args.limit {
             query = query.limit(limit);
+        }
+
+        if let Some(dir) = direction {
+            query = match dir {
+                SortDirection::Ascending => query.order(dsl::sent_at_ns.asc()),
+                SortDirection::Descending => query.order(dsl::sent_at_ns.desc()),
+                SortDirection::Unspecified => query,
+            };
         }
 
         Ok(self.raw_query(|conn| query.load::<StoredGroupMessage>(conn))?)
