@@ -431,13 +431,15 @@ pub(crate) mod tests {
             group.store(conn).unwrap();
 
             let messages = vec![
-                generate_message(None, Some(&group.id), Some(1_000)),
                 generate_message(None, Some(&group.id), Some(10_000)),
+                generate_message(None, Some(&group.id), Some(1_000)),
                 generate_message(None, Some(&group.id), Some(100_000)),
                 generate_message(None, Some(&group.id), Some(1_000_000)),
             ];
 
-            let membership_changes_asc = conn
+            assert_ok!(messages.store(conn));
+
+            let messages_asc = conn
                 .get_group_messages(
                     &group.id,
                     None,
@@ -448,9 +450,13 @@ pub(crate) mod tests {
                     Some(SortDirection::Ascending),
                 )
                 .unwrap();
-            assert_eq!(membership_changes_asc[0], messages[0]);
+            assert_eq!(messages_asc.len(), 4);
+            assert_eq!(messages_asc[0].sent_at_ns, 1_000);
+            assert_eq!(messages_asc[1].sent_at_ns, 10_000);
+            assert_eq!(messages_asc[2].sent_at_ns, 100_000);
+            assert_eq!(messages_asc[3].sent_at_ns, 1_000_000);
 
-            let membership_changes_desc = conn
+            let messages_desc = conn
                 .get_group_messages(
                     &group.id,
                     None,
@@ -461,7 +467,11 @@ pub(crate) mod tests {
                     Some(SortDirection::Descending),
                 )
                 .unwrap();
-            assert_eq!(membership_changes_desc[0], messages[4]);
+            assert_eq!(messages_desc.len(), 4);
+            assert_eq!(messages_desc[0].sent_at_ns, 1_000_000);
+            assert_eq!(messages_desc[1].sent_at_ns, 100_000);
+            assert_eq!(messages_desc[2].sent_at_ns, 10_000);
+            assert_eq!(messages_desc[3].sent_at_ns, 1_000);
         })
         .await
     }

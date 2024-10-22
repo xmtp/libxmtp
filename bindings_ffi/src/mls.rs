@@ -528,7 +528,6 @@ pub struct FfiListConversationsOptions {
     pub created_after_ns: Option<i64>,
     pub created_before_ns: Option<i64>,
     pub limit: Option<i64>,
-    pub consent_state: Option<FfiConsentState>,
 }
 
 #[derive(uniffi::Object)]
