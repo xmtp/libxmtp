@@ -7,7 +7,6 @@ use diesel::{
     sql_types::Integer,
 };
 use serde::{Deserialize, Serialize};
-use xmtp_proto::xmtp::message_api::v1::SortDirection;
 
 use super::{
     db_connection::DbConnection,
