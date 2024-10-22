@@ -1,8 +1,10 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
 
+use diesel::query_dsl::QueryDsl;
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
+    dsl::sql,
     expression::AsExpression,
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
@@ -12,8 +14,9 @@ use diesel::{
 use serde::{Deserialize, Serialize};
 
 use super::{
+    consent_record::ConsentState,
     db_connection::DbConnection,
-    schema::{groups, groups::dsl},
+    schema::groups::{self, dsl},
     Sqlite,
 };
 use crate::{
@@ -126,40 +129,56 @@ impl DbConnection {
         created_before_ns: Option<i64>,
         limit: Option<i64>,
         conversation_type: Option<ConversationType>,
+        consent_state: Option<ConsentState>,
     ) -> Result<Vec<StoredGroup>, StorageError> {
-        let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
+        use crate::storage::schema::consent_records::dsl as consent_dsl;
+        use crate::storage::schema::groups::dsl as groups_dsl;
+
+        let mut query = groups_dsl::groups
+            .order(groups_dsl::created_at_ns.asc())
+            .into_boxed();
 
         if let Some(allowed_states) = allowed_states {
-            query = query.filter(dsl::membership_state.eq_any(allowed_states));
+            query = query.filter(groups_dsl::membership_state.eq_any(allowed_states));
         }
 
         if let Some(created_after_ns) = created_after_ns {
-            query = query.filter(dsl::created_at_ns.gt(created_after_ns));
+            query = query.filter(groups_dsl::created_at_ns.gt(created_after_ns));
         }
 
         if let Some(created_before_ns) = created_before_ns {
-            query = query.filter(dsl::created_at_ns.lt(created_before_ns));
+            query = query.filter(groups_dsl::created_at_ns.lt(created_before_ns));
+        }
+
+        if let Some(conversation_type) = conversation_type {
+            match conversation_type {
+                ConversationType::Group => {
+                    query = query.filter(groups_dsl::dm_inbox_id.is_null());
+                }
+                ConversationType::Dm => {
+                    query = query.filter(groups_dsl::dm_inbox_id.is_not_null());
+                }
+                ConversationType::Sync => {}
+            }
+        }
+
+        if let Some(state) = consent_state {
+            query =
+                query
+                    .inner_join(consent_dsl::consent_records.on(
+                        sql::<diesel::sql_types::Text>("hex(groups.id)").eq(consent_dsl::entity),
+                    ))
+                    .filter(consent_dsl::state.eq(state))
+                    .select(groups_dsl::groups::all_columns());
         }
 
         if let Some(limit) = limit {
             query = query.limit(limit);
         }
 
-        if let Some(conversation_type) = conversation_type {
-            match conversation_type {
-                ConversationType::Group => {
-                    query = query.filter(dsl::dm_inbox_id.is_null());
-                }
-                ConversationType::Dm => {
-                    query = query.filter(dsl::dm_inbox_id.is_not_null());
-                }
-                ConversationType::Sync => {}
-            }
-        }
+        query = query.filter(groups_dsl::purpose.eq(Purpose::Conversation));
 
-        query = query.filter(dsl::purpose.eq(Purpose::Conversation));
-
-        Ok(self.raw_query(|conn| query.load(conn))?)
+        Ok(self.raw_query(|conn| query.load::<StoredGroup>(conn))?)
     }
 
     /// Return only the [`Purpose::Sync`] groups
@@ -501,7 +520,7 @@ pub(crate) mod tests {
             test_group_3.store(conn).unwrap();
 
             let all_results = conn
-                .find_groups(None, None, None, None, Some(ConversationType::Group))
+                .find_groups(None, None, None, None, Some(ConversationType::Group), None)
                 .unwrap();
             assert_eq!(all_results.len(), 2);
 
@@ -512,6 +531,7 @@ pub(crate) mod tests {
                     None,
                     None,
                     Some(ConversationType::Group),
+                    None,
                 )
                 .unwrap();
             assert_eq!(pending_results[0].id, test_group_1.id);
@@ -519,7 +539,7 @@ pub(crate) mod tests {
 
             // Offset and limit
             let results_with_limit = conn
-                .find_groups(None, None, None, Some(1), Some(ConversationType::Group))
+                .find_groups(None, None, None, Some(1), Some(ConversationType::Group), None)
                 .unwrap();
             assert_eq!(results_with_limit.len(), 1);
             assert_eq!(results_with_limit[0].id, test_group_1.id);
@@ -531,6 +551,7 @@ pub(crate) mod tests {
                     None,
                     Some(1),
                     Some(ConversationType::Group),
+                    None,
                 )
                 .unwrap();
             assert_eq!(results_with_created_at_ns_after.len(), 1);
@@ -541,7 +562,7 @@ pub(crate) mod tests {
             assert_eq!(synced_groups.len(), 0);
 
             // test that dm groups are included
-            let dm_results = conn.find_groups(None, None, None, None, None).unwrap();
+            let dm_results = conn.find_groups(None, None, None, None, None, None).unwrap();
             assert_eq!(dm_results.len(), 3);
             assert_eq!(dm_results[2].id, test_group_3.id);
 
@@ -551,7 +572,7 @@ pub(crate) mod tests {
 
             // test only dms are returned
             let dm_results = conn
-                .find_groups(None, None, None, None, Some(ConversationType::Dm))
+                .find_groups(None, None, None, None, Some(ConversationType::Dm), None)
                 .unwrap();
             assert_eq!(dm_results.len(), 1);
             assert_eq!(dm_results[0].id, test_group_3.id);
