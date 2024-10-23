@@ -78,6 +78,7 @@ pub struct Member {
     pub identifier: MemberIdentifier,
     pub added_by_entity: Option<MemberIdentifier>,
     pub client_timestamp_ns: Option<u64>,
+    pub added_on_chain_id: Option<u64>,
 }
 
 impl Member {
@@ -85,11 +86,13 @@ impl Member {
         identifier: MemberIdentifier,
         added_by_entity: Option<MemberIdentifier>,
         client_timestamp_ns: Option<u64>,
+        added_on_chain_id: Option<u64>,
     ) -> Self {
         Self {
             identifier,
             added_by_entity,
             client_timestamp_ns,
+            added_on_chain_id,
         }
     }
 
@@ -128,6 +131,7 @@ pub(crate) mod tests {
                 identifier: MemberIdentifier::default(),
                 added_by_entity: None,
                 client_timestamp_ns: None,
+                added_on_chain_id: None,
             }
         }
     }

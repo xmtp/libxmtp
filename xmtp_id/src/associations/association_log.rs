@@ -88,7 +88,11 @@ impl IdentityAction for CreateInbox {
             return Err(AssociationError::LegacySignatureReuse);
         }
 
-        Ok(AssociationState::new(account_address, self.nonce))
+        Ok(AssociationState::new(
+            account_address,
+            self.nonce,
+            self.initial_address_signature.chain_id,
+        ))
     }
 
     fn signatures(&self) -> Vec<Vec<u8>> {
@@ -183,6 +187,7 @@ impl IdentityAction for AddAssociation {
             new_member_address.clone(),
             Some(existing_entity_id),
             Some(client_timestamp_ns),
+            self.new_member_signature.chain_id,
         );
 
         Ok(existing_state.add(new_member))
