@@ -53,27 +53,10 @@ pub fn build_bindings_wasm(extra_args: &[String], flags: flags::BindingsWasm) ->
         .join(BINDINGS_WASM.replace("-", "_"))
         .with_extension("wasm");
 
-    let package_json = r#"
-    {
-        "dependencies": {
-            "@sqlite.org/sqlite-wasm": "latest"
-        }
-    }
-    "#;
     let spinner_update = |s: &str| sp.text(s).update();
 
     cargo_build(extra_args, spinner_update)?;
     create_pkg_dir(&pkg_directory, spinner_update)?;
-    sp.text("writing package.json").update();
-    fs::write(pkg_directory.join("package.json"), package_json)?;
-
-    sp.text("copying readme").update();
-    fs::copy(
-        manifest_dir.join("README.md"),
-        pkg_directory.join("README.md"),
-    )?;
-    sp.text("copying license").update();
-    fs::copy(manifest_dir.join("LICENSE"), pkg_directory.join("LICENSE"))?;
 
     sp.text("running wasm-bindgen").update();
     step_wasm_bindgen_build(&wasm_path, &pkg_directory, spinner_update)?;
@@ -114,7 +97,6 @@ pub fn create_pkg_dir<T>(out_dir: &Path, f: impl Fn(&str) -> T) -> Result<()> {
     f(&format!("creating package directory {}", out_dir.display()));
     let _ = fs::remove_file(out_dir.join("package.json")); // Clean up package.json from previous runs
     fs::create_dir_all(out_dir)?;
-    fs::write(out_dir.join(".gitignore"), "*")?;
     Ok(())
 }
 
