@@ -37,7 +37,7 @@ impl KVStore {
             }
         };
 
-        Ok(value)
+        Ok(Some(value))
     }
 
     pub fn set<T: serde::Serialize>(
