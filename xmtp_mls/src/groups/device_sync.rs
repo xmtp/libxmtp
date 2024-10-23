@@ -1,5 +1,5 @@
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 
 use aes_gcm::aead::generic_array::GenericArray;
@@ -338,20 +338,16 @@ where
         let Some(reply) = self.get_sync_reply(&request_id).await? else {
             return Err(DeviceSyncError::NoReplyToProcess);
         };
-        let Some(encryption_key) = reply.encryption_key.clone() else {
+        let Some(enc_key) = reply.encryption_key.clone() else {
             return Err(DeviceSyncError::InvalidPayload);
         };
 
-        let history_bundle = download_history_bundle(&reply.url).await?;
-        let sync_path = std::env::temp_dir().join("sync.jsonl");
+        let payload = download_history_payload(&reply.url).await?;
 
-        decrypt_history_file(&history_bundle, &sync_path, encryption_key)?;
+        let enc_key: DeviceSyncKeyType = enc_key.try_into()?;
+        let payload = decrypt_bytes(payload, enc_key.as_bytes())?;
 
-        self.insert_sync_bundle(&sync_path)?;
-
-        // clean up temporary files associated with the bundle
-        std::fs::remove_file(history_bundle.as_path())?;
-        std::fs::remove_file(sync_path.as_path())?;
+        self.insert_sync_payload(payload)?;
 
         self.sync_welcomes().await?;
 
@@ -376,11 +372,11 @@ where
         Ok(())
     }
 
-    fn insert_sync_bundle(&self, history_file: &Path) -> Result<(), DeviceSyncError> {
+    fn insert_sync_payload(&self, payload: Vec<u8>) -> Result<(), DeviceSyncError> {
         let conn = self.store().conn()?;
 
-        let file = File::open(history_file)?;
-        let reader = BufReader::new(file);
+        let cursor = Cursor::new(payload);
+        let reader = BufReader::new(cursor);
 
         for line in reader.lines() {
             let db_entry: Syncable = serde_json::from_str(&line?)?;
@@ -521,36 +517,7 @@ where
     }
 }
 
-pub(crate) fn decrypt_history_file(
-    input_path: &Path,
-    output_path: &Path,
-    encryption_key: DeviceSyncKeyTypeProto,
-) -> Result<(), DeviceSyncError> {
-    let enc_key: DeviceSyncKeyType = encryption_key.try_into()?;
-    let enc_key_bytes = enc_key.as_bytes();
-    // Read the messages file content
-    let mut input_file = File::open(input_path)?;
-    let mut buffer = Vec::new();
-    input_file.read_to_end(&mut buffer)?;
-
-    // Split the nonce and ciphertext
-    let (nonce, ciphertext) = buffer.split_at(NONCE_SIZE);
-
-    // Create a cipher instance
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(enc_key_bytes));
-    let nonce_array = GenericArray::from_slice(nonce);
-
-    // Decrypt the ciphertext
-    let plaintext = cipher.decrypt(nonce_array, ciphertext)?;
-
-    // Write the plaintext to the output file
-    let mut output_file = File::create(output_path)?;
-    output_file.write_all(&plaintext)?;
-
-    Ok(())
-}
-
-pub(super) async fn upload_history_bundle(
+pub(super) async fn upload_history_payload(
     url: &str,
     file_path: PathBuf,
 ) -> Result<String, DeviceSyncError> {
@@ -577,38 +544,21 @@ pub(super) async fn upload_history_bundle(
     }
 }
 
-pub(crate) async fn download_history_bundle(url: &str) -> Result<PathBuf, DeviceSyncError> {
-    let client = reqwest::Client::new();
-
+pub(crate) async fn download_history_payload(url: &str) -> Result<Vec<u8>, DeviceSyncError> {
     tracing::info!("downloading history bundle from {:?}", url);
+    let response = reqwest::Client::new().get(url).send().await?;
 
-    let bundle_name = url
-        .split('/')
-        .last()
-        .ok_or(DeviceSyncError::InvalidBundleUrl)?;
-
-    let response = client.get(url).send().await?;
-
-    if response.status().is_success() {
-        let file_name = format!("{}.jsonl.enc", bundle_name);
-        let file_path = std::env::temp_dir().join(file_name);
-        let mut file = File::create(&file_path)?;
-        let bytes = response.bytes().await?;
-        file.write_all(&bytes)?;
-        tracing::info!("downloaded history bundle to {:?}", file_path);
-        Ok(file_path)
-    } else {
+    if !response.status().is_success() {
         tracing::error!(
             "Failed to download file. Status code: {} Response: {:?}",
             response.status(),
             response
         );
-        Err(DeviceSyncError::Reqwest(
-            response
-                .error_for_status()
-                .expect_err("Checked for success"),
-        ))
+        response.error_for_status()?;
+        unreachable!("Checked for error");
     }
+
+    Ok(response.bytes().await?.to_vec())
 }
 
 #[derive(Clone, Debug)]
@@ -738,21 +688,24 @@ pub(super) fn new_pin() -> String {
     format!("{:04}", pin)
 }
 
-fn write_to_file<T: serde::Serialize>(
-    file_path: &Path,
-    content: Vec<T>,
-) -> Result<(), DeviceSyncError> {
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(file_path)?;
-    for entry in content {
-        let entry_str = serde_json::to_string(&entry)?;
-        file.write_all(entry_str.as_bytes())?;
-        file.write_all(b"\n")?;
-    }
+fn decrypt_bytes(
+    encrypted: Vec<u8>,
+    enc_key: &[u8; ENC_KEY_SIZE],
+) -> Result<Vec<u8>, DeviceSyncError> {
+    // let enc_key: DeviceSyncKeyType = enc_key.try_into()?;
+    // let enc_key_bytes = enc_key.as_bytes();
 
-    Ok(())
+    // Split the nonce and ciphertext
+    let (nonce, ciphertext) = encrypted.split_at(NONCE_SIZE);
+
+    // Create a cipher instance
+    let cipher = Aes256Gcm::new(GenericArray::from_slice(enc_key));
+    let nonce_array = GenericArray::from_slice(nonce);
+
+    // Decrypt the ciphertext
+    let decrypted = cipher.decrypt(nonce_array, ciphertext)?;
+
+    Ok(decrypted)
 }
 
 fn encrypt_bytes(

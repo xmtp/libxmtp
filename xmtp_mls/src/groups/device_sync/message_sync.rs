@@ -449,7 +449,7 @@ pub(crate) mod tests {
             HISTORY_SERVER_HOST,
             HISTORY_SERVER_PORT + 1
         );
-        let result = upload_history_bundle(&url, file_path.into()).await;
+        let result = upload_history_payload(&url, file_path.into()).await;
 
         assert!(result.is_ok());
         _m.assert_async().await;
@@ -476,7 +476,7 @@ pub(crate) mod tests {
             "http://{}:{}/files/{bundle_id}",
             HISTORY_SERVER_HOST, HISTORY_SERVER_PORT
         );
-        let output_path = download_history_bundle(&url)
+        let output_path = download_history_payload(&url)
             .await
             .expect("could not download history bundle");
 
