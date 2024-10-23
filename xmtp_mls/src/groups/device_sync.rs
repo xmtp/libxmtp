@@ -85,8 +85,8 @@ pub enum DeviceSyncError {
     Client(#[from] ClientError),
     #[error("group error: {0}")]
     Group(#[from] GroupError),
-    #[error("request ID of reply does not match request")]
-    ReplyRequestIdMismatch,
+    #[error("unable to find sync request with provided request_id")]
+    ReplyRequestIdMissing,
     #[error("reply already processed")]
     ReplyAlreadyProcessed,
     #[error("no pending request to reply to")]
@@ -297,8 +297,7 @@ where
                     return Ok(Some((msg, request)));
                 }
                 DeviceSyncContent::Reply(reply) if reply.request_id == request_id => {
-                    // already replied, request is not considered pending anymore
-                    return Ok(None);
+                    return Err(DeviceSyncError::ReplyAlreadyProcessed);
                 }
                 _ => {}
             }
@@ -425,19 +424,23 @@ where
         // sync the group
         sync_group.sync().await?;
 
-        // try to add original sender to all groups on this device on the node
-        if let Some((msg, _request)) = self.pending_sync_request_id(&contents.request_id).await? {
-            self.ensure_member_of_all_groups(&msg.sender_inbox_id)
-                .await?;
-        }
+        let Some((msg, _request)) = self.pending_sync_request_id(&contents.request_id).await?
+        else {
+            // pending_sync_request_id will return an error if it's already replied to
+            // so if we're here, it means we can't find the request at all, and that's a problem
+            return Err(DeviceSyncError::ReplyRequestIdMissing);
+        };
+
+        // add original sender to all groups on this device on the node
+        self.ensure_member_of_all_groups(&msg.sender_inbox_id)
+            .await?;
 
         // the reply message
         let (content_bytes, contents) = {
             let content = DeviceSyncContent::Reply(contents);
             let content_bytes = serde_json::to_vec(&content)?;
             let DeviceSyncContent::Reply(contents) = content else {
-                // we know it's a reply, we just want to take the contents back, as we'll need them
-                unreachable!();
+                unreachable!("This is a reply.");
             };
 
             (content_bytes, contents)
