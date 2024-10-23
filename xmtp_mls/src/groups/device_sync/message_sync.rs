@@ -357,6 +357,10 @@ pub(crate) mod tests {
             )
             .unwrap();
 
+        // there should be two messages in the sync group
+        assert_eq!(amal_b_messages.len(), 2);
+
+        // first a request
         let request_msg = &amal_b_messages[0];
         let content: DeviceSyncContent =
             serde_json::from_slice(&request_msg.decrypted_message_bytes).unwrap();
@@ -365,14 +369,13 @@ pub(crate) mod tests {
             panic!("should be a request");
         };
 
+        // then a reply
         let reply_msg = &amal_b_messages[1];
         let content: DeviceSyncContent =
             serde_json::from_slice(&reply_msg.decrypted_message_bytes).unwrap();
         let DeviceSyncContent::Reply(_reply) = content else {
             panic!("should be a reply");
         };
-
-        assert_eq!(amal_b_messages.len(), 2);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
