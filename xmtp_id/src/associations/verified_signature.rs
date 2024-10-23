@@ -183,8 +183,10 @@ mod tests {
     use super::*;
     use crate::{
         associations::{
-            sign_with_legacy_key, verified_signature::VerifiedSignature, MemberIdentifier,
-            SignatureKind,
+            sign_with_legacy_key,
+            test_utils::{rand_string, MockSmartContractSignatureVerifier},
+            verified_signature::VerifiedSignature,
+            MemberIdentifier, SignatureKind,
         },
         constants::INSTALLATION_KEY_SIGNATURE_CONTEXT,
         InboxOwner,
@@ -374,5 +376,34 @@ mod tests {
             legacy_signed_public_key_proto,
         );
         assert!(matches!(res, Err(super::SignatureError::Invalid)));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_smart_contract_wallet() {
+        let mock_verifier = MockSmartContractSignatureVerifier::new(true);
+        let chain_id: u64 = 24;
+        let account_address = rand_string();
+        let account_id = AccountId::new(format!("eip155:{chain_id}"), account_address.clone());
+        let signature_text = "test_smart_contract_wallet_signature";
+        let signature_bytes = &[1, 2, 3];
+        let mut block_number = Some(1);
+
+        let verified_sig = VerifiedSignature::from_smart_contract_wallet(
+            signature_text,
+            mock_verifier,
+            signature_bytes,
+            account_id,
+            &mut block_number,
+        )
+        .await
+        .expect("should validate");
+        assert_eq!(
+            verified_sig.signer,
+            MemberIdentifier::Address(account_address)
+        );
+        assert_eq!(verified_sig.kind, SignatureKind::Erc1271);
+        assert_eq!(verified_sig.raw_bytes, signature_bytes);
+        assert_eq!(verified_sig.chain_id, Some(chain_id));
     }
 }
