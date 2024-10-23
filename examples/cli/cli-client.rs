@@ -372,7 +372,7 @@ async fn main() {
                 .unwrap();
             client.sync_welcomes().await.unwrap();
             client.enable_history_sync().await.unwrap();
-            client.process_history_reply().await.unwrap();
+            client.process_message_history_reply().await.unwrap();
 
             info!("History bundle downloaded and inserted into user DB", {})
         }

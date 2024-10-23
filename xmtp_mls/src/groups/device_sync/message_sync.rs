@@ -1,6 +1,5 @@
 use super::*;
 use crate::storage::key_value_store::{KVStore, Key};
-use crate::storage::DbConnection;
 use crate::XmtpApi;
 use crate::{storage::group::StoredGroup, Client};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -34,12 +33,10 @@ where
         Ok(reply)
     }
 
-    pub async fn process_message_history_reply(
-        &self,
-        conn: &DbConnection,
-    ) -> Result<(), DeviceSyncError> {
+    pub async fn process_message_history_reply(&self) -> Result<(), DeviceSyncError> {
+        let conn = self.store().conn()?;
         // load the request_id
-        let request_id: Option<String> = KVStore::get(conn, &Key::MessageHistorySyncRequestId)
+        let request_id: Option<String> = KVStore::get(&conn, &Key::MessageHistorySyncRequestId)
             .map_err(DeviceSyncError::Storage)?;
         let Some(request_id) = request_id else {
             return Err(DeviceSyncError::NoReplyToProcess);
@@ -291,23 +288,12 @@ pub(crate) mod tests {
 
         let groups = amal_a.syncable_groups().unwrap();
 
-        let input_file = NamedTempFile::new().unwrap();
-        let input_path = input_file.path();
-        write_to_file(input_path, groups).unwrap();
-
-        let output_file = NamedTempFile::new().unwrap();
-        let output_path = output_file.path();
-        let encryption_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
-        encrypt_bytes(input_path, output_path, encryption_key.as_bytes()).unwrap();
-
-        let mut file = File::open(output_path).unwrap();
-        let mut content = Vec::new();
-        file.read_to_end(&mut content).unwrap();
+        let (enc_content, enc_key) = encrypt_syncables(&[groups]).unwrap();
 
         let _m = server
             .mock("GET", "/upload")
             .with_status(201)
-            .with_body(content)
+            .with_body(&enc_content)
             .create();
 
         let wallet = generate_local_wallet();
@@ -331,8 +317,7 @@ pub(crate) mod tests {
         amal_a_sync_group.sync().await.expect("sync");
 
         // amal_a builds and sends a message history reply back
-        let history_reply =
-            DeviceSyncReply::new(&new_request_id(), &history_sync_url, encryption_key);
+        let history_reply = DeviceSyncReply::new(&new_request_id(), &history_sync_url, enc_key);
         amal_a
             .send_sync_reply(history_reply.into())
             .await
@@ -389,114 +374,6 @@ pub(crate) mod tests {
         assert_eq!(messages_result.len(), 4);
     }
 
-    #[test]
-    fn test_encrypt_decrypt_file() {
-        let key = DeviceSyncKeyType::new_chacha20_poly1305_key();
-        let converted_key: DeviceSyncKeyTypeProto = key.into();
-        let key_bytes = key.as_bytes();
-        let content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'".to_vec();
-
-        // Encrypt the file
-        let enc_content = encrypt_bytes(&content, key_bytes).expect("Encryption failed");
-
-        // Decrypt the file
-        let decrypted_content = decrypt_bytes(enc_content, key_bytes).expect("Decryption failed");
-
-        // Assert the decrypted content is the same as the original input content
-        assert_eq!(decrypted_content, content);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_upload_history_bundle() {
-        let options = mockito::ServerOpts {
-            host: HISTORY_SERVER_HOST,
-            port: HISTORY_SERVER_PORT + 1,
-            ..Default::default()
-        };
-        let mut server = mockito::Server::new_with_opts_async(options).await;
-
-        let _m = server
-            .mock("POST", "/upload")
-            .with_status(201)
-            .with_body("File uploaded")
-            .create();
-
-        let file_content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'".to_vec();
-
-        let url = format!(
-            "http://{}:{}/upload",
-            HISTORY_SERVER_HOST,
-            HISTORY_SERVER_PORT + 1
-        );
-        let result = upload_history_payload(&url, file_content).await;
-
-        assert!(result.is_ok());
-        _m.assert_async().await;
-        server.reset();
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_download_history_bundle() {
-        let bundle_id = "test_bundle_id";
-        let options = mockito::ServerOpts {
-            host: HISTORY_SERVER_HOST,
-            port: HISTORY_SERVER_PORT,
-            ..Default::default()
-        };
-        let mut server = mockito::Server::new_with_opts_async(options).await;
-
-        let _m = server
-            .mock("GET", format!("/files/{}", bundle_id).as_str())
-            .with_status(200)
-            .with_body("encrypted_content")
-            .create();
-
-        let url = format!(
-            "http://{}:{}/files/{bundle_id}",
-            HISTORY_SERVER_HOST, HISTORY_SERVER_PORT
-        );
-        let output_path = download_history_payload(&url)
-            .await
-            .expect("could not download history bundle");
-
-        _m.assert_async().await;
-        std::fs::remove_file(output_path.as_path()).expect("Unable to remove test output file");
-        server.reset();
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_prepare_history_reply() {
-        let wallet = generate_local_wallet();
-        let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_b.enable_history_sync().await);
-
-        amal_a.sync_welcomes().await.expect("sync_welcomes");
-
-        let request_id = new_request_id();
-
-        let port = HISTORY_SERVER_PORT + 2;
-        let options = mockito::ServerOpts {
-            host: HISTORY_SERVER_HOST,
-            port,
-            ..Default::default()
-        };
-        let mut server = mockito::Server::new_with_opts_async(options).await;
-
-        let url = format!("http://{HISTORY_SERVER_HOST}:{port}/");
-        let _m = server
-            .mock("POST", "/upload")
-            .with_status(201)
-            .with_body("encrypted_content")
-            .create();
-
-        amal_a.history_sync_url = Some(url);
-        let reply = amal_a.prepare_history_reply(&request_id).await;
-        assert!(reply.is_ok());
-        _m.assert_async().await;
-        server.reset();
-    }
-
     #[tokio::test]
     async fn test_get_pending_history_request() {
         let wallet = generate_local_wallet();
@@ -505,11 +382,6 @@ pub(crate) mod tests {
         // enable history sync for the client
         assert_ok!(amal_a.enable_history_sync().await);
 
-        // ensure there's no pending request initially
-        let initial_request = amal_a.get_pending_history_request().await;
-        assert!(initial_request.is_ok());
-        assert!(initial_request.unwrap().is_none());
-
         // create a history request
         let request = amal_a
             .send_history_request()
@@ -517,14 +389,15 @@ pub(crate) mod tests {
             .expect("history request");
 
         // check for the pending request
-        let pending_request = amal_a.get_pending_history_request().await;
-        assert!(pending_request.is_ok());
-        let pending = pending_request.unwrap();
-        assert!(pending.is_some());
+        let pending_request = amal_a
+            .pending_sync_request(DeviceSyncKind::MessageHistory)
+            .await
+            .unwrap();
+        assert!(pending_request.is_some());
 
-        let (request_id, pin_code) = pending.unwrap();
-        assert_eq!(request_id, request.0);
-        assert_eq!(pin_code, request.1);
+        let (_msg, req) = pending_request.unwrap();
+        assert_eq!(req.request_id, request.0);
+        assert_eq!(req.pin_code, request.1);
     }
 
     #[tokio::test]
@@ -536,11 +409,6 @@ pub(crate) mod tests {
         // enable history sync for both clients
         assert_ok!(amal_a.enable_history_sync().await);
         assert_ok!(amal_b.enable_history_sync().await);
-
-        // ensure there's no reply initially
-        let initial_reply = amal_b.get_latest_history_reply().await;
-        assert!(initial_reply.is_ok());
-        assert!(initial_reply.unwrap().is_none());
 
         // amal_b sends a history request
         let (request_id, _pin_code) = amal_b
@@ -562,13 +430,11 @@ pub(crate) mod tests {
             .expect("send reply");
 
         // check latest reply for amal_b
-        let latest_reply = amal_b.get_latest_history_reply().await;
-        assert!(latest_reply.is_ok());
-        let received_reply = latest_reply.unwrap();
-        assert!(received_reply.is_some());
+        let sync_reply = amal_b.get_sync_reply(&request_id).await.unwrap();
+        assert!(sync_reply.is_some());
 
-        let received_reply = received_reply.unwrap();
-        assert_eq!(received_reply.request_id, request_id);
+        let sync_reply = sync_reply.unwrap();
+        assert_eq!(sync_reply.request_id, request_id);
     }
 
     #[tokio::test]
@@ -612,9 +478,7 @@ pub(crate) mod tests {
         amal_a.history_sync_url = Some(url);
 
         // amal_a replies to the history request
-        let reply = amal_a.reply_to_history_request().await;
-        assert!(reply.is_ok());
-        let reply = reply.unwrap();
+        let reply = amal_a.reply_to_history_request().await.unwrap();
 
         // verify the reply
         assert_eq!(reply.request_id, request_id);
@@ -622,9 +486,7 @@ pub(crate) mod tests {
         assert!(reply.encryption_key.is_some());
 
         // check if amal_b received the reply
-        let received_reply = amal_b.get_latest_history_reply().await;
-        assert!(received_reply.is_ok());
-        let received_reply = received_reply.unwrap();
+        let received_reply = amal_b.get_sync_reply(&reply.request_id).await.unwrap();
         assert!(received_reply.is_some());
         let received_reply = received_reply.unwrap();
         assert_eq!(received_reply.request_id, request_id);
@@ -646,18 +508,13 @@ pub(crate) mod tests {
 
         group_a.send_message(b"hi").await.expect("send message");
 
-        let (bundle_path, enc_key) = amal_a
-            .write_history_bundle()
-            .await
-            .expect("Unable to write history bundle");
+        let syncables = amal_a.syncable_messages().unwrap();
+        let (enc_payload, enc_key) = encrypt_syncables(&[syncables]).unwrap();
 
-        let output_file = NamedTempFile::new().expect("Unable to create temp file");
-        let converted_key: DeviceSyncKeyTypeProto = enc_key.into();
-        decrypt_history_file(&bundle_path, output_file.path(), converted_key)
-            .expect("Unable to decrypt history file");
+        let amal_b_conn = amal_b.store().conn().unwrap();
+        let result = insert_encrypted_syncables(&amal_b_conn, enc_payload, &enc_key);
 
-        let inserted = amal_b.insert_history_bundle(output_file.path());
-        assert!(inserted.is_ok());
+        assert!(result.is_ok());
     }
 
     #[tokio::test]

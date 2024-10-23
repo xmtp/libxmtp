@@ -31,6 +31,7 @@ use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 
 use crate::storage::key_value_store::Key;
+use crate::storage::DbConnection;
 use crate::Store;
 use crate::{
     client::ClientError,
@@ -335,6 +336,8 @@ where
     }
 
     async fn process_sync_reply(&self, request_id: &str) -> Result<(), DeviceSyncError> {
+        let conn = self.store().conn()?;
+
         let Some(reply) = self.get_sync_reply(&request_id).await? else {
             return Err(DeviceSyncError::NoReplyToProcess);
         };
@@ -342,16 +345,11 @@ where
             return Err(DeviceSyncError::InvalidPayload);
         };
 
-        let payload = download_history_payload(&reply.url).await?;
-
-        let enc_key: DeviceSyncKeyType = enc_key.try_into()?;
-        let payload = decrypt_bytes(payload, enc_key.as_bytes())?;
-
-        self.insert_sync_payload(payload)?;
+        let enc_payload = download_history_payload(&reply.url).await?;
+        insert_encrypted_syncables(&conn, enc_payload, &enc_key.try_into()?)?;
 
         self.sync_welcomes().await?;
 
-        let conn = self.store().conn()?;
         let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
         for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {
             let group = self.group(id)?;
@@ -372,40 +370,12 @@ where
         Ok(())
     }
 
-    fn insert_sync_payload(&self, payload: Vec<u8>) -> Result<(), DeviceSyncError> {
-        let conn = self.store().conn()?;
-
-        let cursor = Cursor::new(payload);
-        let reader = BufReader::new(cursor);
-
-        for line in reader.lines() {
-            let db_entry: Syncable = serde_json::from_str(&line?)?;
-            match db_entry {
-                Syncable::Group(group) => group.store(&conn),
-                Syncable::GroupMessage(group_message) => group_message.store(&conn),
-                Syncable::ConsentRecord(consent_record) => consent_record.store(&conn),
-            }?;
-        }
-
-        Ok(())
-    }
-
     async fn send_syncables(
         &self,
         request_id: &str,
         syncables: &[Vec<Syncable>],
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
-        let mut payload = vec![];
-        for collection in syncables {
-            for syncable in collection {
-                payload.extend_from_slice(serde_json::to_string(&syncable)?.as_bytes());
-                payload.push(b'\n');
-            }
-        }
-
-        // encrypt the payload
-        let enc_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
-        let payload = encrypt_bytes(&payload, enc_key.as_bytes())?;
+        let (payload, enc_key) = encrypt_syncables(syncables)?;
 
         // upload the payload
         let Some(url) = &self.history_sync_url else {
@@ -684,38 +654,61 @@ pub(super) fn new_pin() -> String {
     format!("{:04}", pin)
 }
 
-fn decrypt_bytes(
-    encrypted: Vec<u8>,
-    enc_key: &[u8; ENC_KEY_SIZE],
-) -> Result<Vec<u8>, DeviceSyncError> {
-    // let enc_key: DeviceSyncKeyType = enc_key.try_into()?;
-    // let enc_key_bytes = enc_key.as_bytes();
+fn insert_encrypted_syncables(
+    conn: &DbConnection,
+    payload: Vec<u8>,
+    enc_key: &DeviceSyncKeyType,
+) -> Result<(), DeviceSyncError> {
+    let enc_key = enc_key.as_bytes();
 
     // Split the nonce and ciphertext
-    let (nonce, ciphertext) = encrypted.split_at(NONCE_SIZE);
+    let (nonce, ciphertext) = payload.split_at(NONCE_SIZE);
 
     // Create a cipher instance
     let cipher = Aes256Gcm::new(GenericArray::from_slice(enc_key));
     let nonce_array = GenericArray::from_slice(nonce);
 
     // Decrypt the ciphertext
-    let decrypted = cipher.decrypt(nonce_array, ciphertext)?;
+    let payload = cipher.decrypt(nonce_array, ciphertext)?;
 
-    Ok(decrypted)
+    let cursor = Cursor::new(payload);
+    let reader = BufReader::new(cursor);
+
+    for line in reader.lines() {
+        let db_entry: Syncable = serde_json::from_str(&line?)?;
+        match db_entry {
+            Syncable::Group(group) => group.store(&conn),
+            Syncable::GroupMessage(group_message) => group_message.store(&conn),
+            Syncable::ConsentRecord(consent_record) => consent_record.store(&conn),
+        }?;
+    }
+
+    Ok(())
 }
 
-fn encrypt_bytes(
-    payload: &[u8],
-    encryption_key: &[u8; ENC_KEY_SIZE],
-) -> Result<Vec<u8>, DeviceSyncError> {
+fn encrypt_syncables(
+    syncables: &[Vec<Syncable>],
+) -> Result<(Vec<u8>, DeviceSyncKeyType), DeviceSyncError> {
+    let mut payload = vec![];
+    for collection in syncables {
+        for syncable in collection {
+            payload.extend_from_slice(serde_json::to_string(&syncable)?.as_bytes());
+            payload.push(b'\n');
+        }
+    }
+
+    // encrypt the payload
+    let enc_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
+    let enc_key_bytes = enc_key.as_bytes();
+
     let mut result = generate_nonce().to_vec();
 
     // create a cipher instance
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(encryption_key));
+    let cipher = Aes256Gcm::new(GenericArray::from_slice(enc_key_bytes));
     let nonce_array = GenericArray::from_slice(&result);
 
     // encrypt the payload and append to the result
-    result.append(&mut cipher.encrypt(nonce_array, payload)?);
+    result.append(&mut cipher.encrypt(nonce_array, &*payload)?);
 
-    Ok(result)
+    Ok((result, enc_key))
 }
