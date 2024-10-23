@@ -1,6 +1,4 @@
-use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Cursor, Read, Write};
-use std::path::{Path, PathBuf};
+use std::io::{BufRead, BufReader, Cursor};
 
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
@@ -519,29 +517,25 @@ where
 
 pub(super) async fn upload_history_payload(
     url: &str,
-    file_path: PathBuf,
+    payload: Vec<u8>,
 ) -> Result<String, DeviceSyncError> {
-    let mut file = File::open(file_path)?;
-    let mut content = Vec::new();
-    file.read_to_end(&mut content)?;
+    let response = reqwest::Client::new()
+        .post(url)
+        .body(payload)
+        .send()
+        .await?;
 
-    let client = reqwest::Client::new();
-    let response = client.post(url).body(content).send().await?;
-
-    if response.status().is_success() {
-        Ok(response.text().await?)
-    } else {
+    if !response.status().is_success() {
         tracing::error!(
             "Failed to upload file. Status code: {} Response: {:?}",
             response.status(),
             response
         );
-        Err(DeviceSyncError::Reqwest(
-            response
-                .error_for_status()
-                .expect_err("Checked for success"),
-        ))
+        response.error_for_status()?;
+        unreachable!("Checked for success");
     }
+
+    Ok(response.text().await?)
 }
 
 pub(crate) async fn download_history_payload(url: &str) -> Result<Vec<u8>, DeviceSyncError> {

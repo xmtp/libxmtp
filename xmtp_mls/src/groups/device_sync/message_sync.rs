@@ -438,18 +438,14 @@ pub(crate) mod tests {
             .with_body("File uploaded")
             .create();
 
-        let file_content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'";
-
-        let mut file = NamedTempFile::new().unwrap();
-        file.write_all(file_content).unwrap();
-        let file_path = file.path().to_str().unwrap().to_string();
+        let file_content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'".to_vec();
 
         let url = format!(
             "http://{}:{}/upload",
             HISTORY_SERVER_HOST,
             HISTORY_SERVER_PORT + 1
         );
-        let result = upload_history_payload(&url, file_path.into()).await;
+        let result = upload_history_payload(&url, file_content).await;
 
         assert!(result.is_ok());
         _m.assert_async().await;
