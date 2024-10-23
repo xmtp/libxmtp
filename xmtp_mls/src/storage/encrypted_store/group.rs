@@ -418,8 +418,14 @@ pub(crate) mod tests {
     use super::*;
     use crate::{
         assert_ok,
-        storage::encrypted_store::{schema::groups::dsl::groups, tests::with_connection},
-        utils::{test::rand_vec, time::now_ns},
+        storage::{
+            consent_record::{ConsentType, StoredConsentRecord},
+            encrypted_store::{schema::groups::dsl::groups, tests::with_connection},
+        },
+        utils::{
+            test::{self, rand_vec},
+            time::now_ns,
+        },
         Fetch, Store,
     };
 
@@ -435,6 +441,19 @@ pub(crate) mod tests {
             "placeholder_address".to_string(),
             None,
         )
+    }
+
+    /// Generate a test consent
+    fn generate_consent_record(
+        entity_type: ConsentType,
+        state: ConsentState,
+        entity: String,
+    ) -> StoredConsentRecord {
+        StoredConsentRecord {
+            entity_type,
+            state,
+            entity,
+        }
     }
 
     /// Generate a test dm group
@@ -539,7 +558,14 @@ pub(crate) mod tests {
 
             // Offset and limit
             let results_with_limit = conn
-                .find_groups(None, None, None, Some(1), Some(ConversationType::Group), None)
+                .find_groups(
+                    None,
+                    None,
+                    None,
+                    Some(1),
+                    Some(ConversationType::Group),
+                    None,
+                )
                 .unwrap();
             assert_eq!(results_with_limit.len(), 1);
             assert_eq!(results_with_limit[0].id, test_group_1.id);
@@ -562,7 +588,9 @@ pub(crate) mod tests {
             assert_eq!(synced_groups.len(), 0);
 
             // test that dm groups are included
-            let dm_results = conn.find_groups(None, None, None, None, None, None).unwrap();
+            let dm_results = conn
+                .find_groups(None, None, None, None, None, None)
+                .unwrap();
             assert_eq!(dm_results.len(), 3);
             assert_eq!(dm_results[2].id, test_group_3.id);
 
@@ -641,6 +669,63 @@ pub(crate) mod tests {
             let found = conn.find_sync_groups().unwrap();
             assert_eq!(found.len(), 1);
             assert_eq!(found[0].purpose, Purpose::Sync)
+        })
+        .await
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_find_groups_by_consent_state() {
+        with_connection(|conn| {
+            let test_group_1 = generate_group(Some(GroupMembershipState::Allowed));
+            test_group_1.store(conn).unwrap();
+            let test_group_2 = generate_group(Some(GroupMembershipState::Allowed));
+            test_group_2.store(conn).unwrap();
+            let test_group_3 = generate_dm(Some(GroupMembershipState::Allowed));
+            test_group_3.store(conn).unwrap();
+            let test_group_4 = generate_dm(Some(GroupMembershipState::Allowed));
+            test_group_4.store(conn).unwrap();
+
+            let test_group_1_consent = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                hex::encode(test_group_1.id.clone()),
+            );
+            test_group_1_consent.store(conn).unwrap();
+            let test_group_2_consent = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Denied,
+                hex::encode(test_group_2.id.clone()),
+            );
+            test_group_2_consent.store(conn).unwrap();
+            let test_group_3_consent = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                hex::encode(test_group_3.id.clone()),
+            );
+            test_group_3_consent.store(conn).unwrap();
+
+            let all_results = conn
+                .find_groups(None, None, None, None, None, None)
+                .unwrap();
+            assert_eq!(all_results.len(), 4);
+
+            let allowed_results = conn
+                .find_groups(None, None, None, None, None, Some(ConsentState::Allowed))
+                .unwrap();
+            assert_eq!(allowed_results.len(), 2);
+
+            let denied_results = conn
+                .find_groups(None, None, None, None, None, Some(ConsentState::Denied))
+                .unwrap();
+            assert_eq!(denied_results.len(), 1);
+            assert_eq!(denied_results[0].id, test_group_2.id);
+
+            let unknown_results = conn
+                .find_groups(None, None, None, None, None, Some(ConsentState::Unknown))
+                .unwrap();
+            assert_eq!(unknown_results.len(), 1);
+            assert_eq!(unknown_results[0].id, test_group_4.id);
         })
         .await
     }
