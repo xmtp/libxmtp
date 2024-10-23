@@ -195,13 +195,13 @@ extension FfiV2SubscribeRequest {
 
 // MARK: Group
 
-extension FfiGroup {
+extension FfiConversation {
 	func fromFFI(client: Client) -> Group {
 		Group(ffiGroup: self, client: client)
 	}
 }
 
-extension FfiGroupMember {
+extension FfiConversationMember {
 	var fromFFI: Member {
 		Member(ffiGroupMember: self)
 	}
@@ -230,7 +230,7 @@ extension FfiConsentState {
 extension EntryType {
 	var toFFI: FfiConsentEntityType{
 		switch (self) {
-		case .group_id: return FfiConsentEntityType.groupId
+		case .group_id: return FfiConsentEntityType.conversationId
 		case .inbox_id: return FfiConsentEntityType.inboxId
 		case .address: return FfiConsentEntityType.address
 		}

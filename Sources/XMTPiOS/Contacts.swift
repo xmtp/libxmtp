@@ -248,7 +248,7 @@ public class ConsentList {
 	func groupState(groupId: String) async throws -> ConsentState {
 		if let client = client.v3Client {
 			return try await client.getConsentState(
-				entityType: .groupId,
+				entityType: .conversationId,
 				entity: groupId
 			).fromFFI
 		}

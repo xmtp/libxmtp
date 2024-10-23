@@ -54,7 +54,7 @@ final class GroupStreamCallback: FfiConversationCallback {
 		self.callback = callback
 	}
 
-	func onConversation(conversation: FfiGroup) {
+	func onConversation(conversation: FfiConversation) {
 		self.callback(conversation.fromFFI(client: client))
 	}
 }
@@ -119,7 +119,7 @@ public actor Conversations {
 		guard let v3Client = client.v3Client else {
 			return 0
 		}
-		return try await v3Client.conversations().syncAllGroups()
+		return try await v3Client.conversations().syncAllConversations()
 	}
 
 	public func groups(createdAfter: Date? = nil, createdBefore: Date? = nil, limit: Int? = nil) async throws -> [Group] {
@@ -136,7 +136,7 @@ public actor Conversations {
 		if let limit {
 			options.limit = Int64(limit)
 		}
-		return try await v3Client.conversations().list(opts: options).map { $0.fromFFI(client: client) }
+		return try await v3Client.conversations().listGroups(opts: options).map { $0.fromFFI(client: client) }
 	}
 
 	public func streamGroups() async throws -> AsyncThrowingStream<Group, Error> {
@@ -150,7 +150,7 @@ public actor Conversations {
 					}
 					continuation.yield(group)
 				}
-				guard let stream = await self.client.v3Client?.conversations().stream(callback: groupCallback) else {
+				guard let stream = await self.client.v3Client?.conversations().streamGroups(callback: groupCallback) else {
 					continuation.finish(throwing: GroupError.streamingFailure)
 					return
 				}
@@ -175,7 +175,7 @@ public actor Conversations {
 		AsyncThrowingStream { continuation in
             let ffiStreamActor = FfiStreamActor()
 			let task = Task {
-				let stream = await self.client.v3Client?.conversations().stream(
+				let stream = await self.client.v3Client?.conversations().streamGroups(
 					callback: GroupStreamCallback(client: self.client) { group in
 						guard !Task.isCancelled else {
 							continuation.finish()
@@ -435,7 +435,7 @@ public actor Conversations {
 		AsyncThrowingStream { continuation in
             let ffiStreamActor = FfiStreamActor()
 			let task = Task {
-				let stream = await self.client.v3Client?.conversations().streamAllMessages(
+				let stream = await self.client.v3Client?.conversations().streamAllGroupMessages(
 					messageCallback: MessageCallback(client: self.client) { message in
 						guard !Task.isCancelled else {
 							continuation.finish()
@@ -500,7 +500,7 @@ public actor Conversations {
 		AsyncThrowingStream { continuation in
             let ffiStreamActor = FfiStreamActor()
 			let task = Task {
-				let stream = await self.client.v3Client?.conversations().streamAllMessages(
+				let stream = await self.client.v3Client?.conversations().streamAllGroupMessages(
 					messageCallback: MessageCallback(client: self.client) { message in
 						guard !Task.isCancelled else {
 							continuation.finish()

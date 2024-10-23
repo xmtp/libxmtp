@@ -5,7 +5,6 @@
 //  Created by Naomi Plasterer on 9/19/24.
 //
 
-import CryptoKit
 import XCTest
 @testable import XMTPiOS
 import LibXMTP
@@ -33,7 +32,7 @@ class V3ClientTests: XCTestCase {
 			)
 		)
 		let boV3 = try PrivateKey.generate()
-		let boV3Client = try await Client.createOrBuild(
+		let boV3Client = try await Client.createV3(
 			account: boV3,
 			options: .init(
 				api: .init(env: .local, isSecure: false),
@@ -50,7 +49,7 @@ class V3ClientTests: XCTestCase {
 				encryptionKey: key
 			)
 		)
-		
+
 		return .init(
 			alixV2: alixV2,
 			boV3: boV3,

@@ -27,7 +27,7 @@ final class StreamHolder {
 }
 
 public struct Group: Identifiable, Equatable, Hashable {
-	var ffiGroup: FfiGroup
+	var ffiGroup: FfiConversation
 	var client: Client
 	let streamHolder = StreamHolder()
 
@@ -39,7 +39,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		Topic.groupMessage(id).description
 	}
 
-	func metadata() throws -> FfiGroupMetadata {
+	func metadata() throws -> FfiConversationMetadata {
 		return try ffiGroup.groupMetadata()
 	}
     
@@ -230,12 +230,12 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 	
 	public func processMessage(envelopeBytes: Data) async throws -> DecodedMessage {
-		let message = try await ffiGroup.processStreamedGroupMessage(envelopeBytes: envelopeBytes)
+		let message = try await ffiGroup.processStreamedConversationMessage(envelopeBytes: envelopeBytes)
 		return try MessageV3(client: client, ffiMessage: message).decode()
 	}
 	
 	public func processMessageDecrypted(envelopeBytes: Data) async throws -> DecryptedMessage {
-		let message = try await ffiGroup.processStreamedGroupMessage(envelopeBytes: envelopeBytes)
+		let message = try await ffiGroup.processStreamedConversationMessage(envelopeBytes: envelopeBytes)
 		return try MessageV3(client: client, ffiMessage: message).decrypt()
 	}
 
@@ -373,7 +373,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 			sentBeforeNs: nil,
 			sentAfterNs: nil,
 			limit: nil,
-			deliveryStatus: nil
+			deliveryStatus: nil,
+			direction: nil
 		)
 
 		if let before {
@@ -402,16 +403,20 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}()
 
 		options.deliveryStatus = status
+		
+		let direction: FfiDirection? = {
+			switch direction {
+			case .ascending:
+				return FfiDirection.ascending
+			default:
+				return FfiDirection.descending
+			}
+		}()
 
-		let messages = try ffiGroup.findMessages(opts: options).compactMap { ffiMessage in
+		options.direction = direction
+
+		return try ffiGroup.findMessages(opts: options).compactMap { ffiMessage in
 			return MessageV3(client: self.client, ffiMessage: ffiMessage).decodeOrNull()
-		}
-
-		switch direction {
-		case .ascending:
-			return messages
-		default:
-			return messages.reversed()
 		}
 	}
 
@@ -426,7 +431,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 			sentBeforeNs: nil,
 			sentAfterNs: nil,
 			limit: nil,
-			deliveryStatus: nil
+			deliveryStatus: nil,
+			direction: nil
 		)
 
 		if let before {
@@ -455,16 +461,20 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}()
 		
 		options.deliveryStatus = status
-
-		let messages = try ffiGroup.findMessages(opts: options).compactMap { ffiMessage in
-			return MessageV3(client: self.client, ffiMessage: ffiMessage).decryptOrNull()
-		}
 		
-		switch direction {
-		case .ascending:
-			return messages
-		default:
-			return messages.reversed()
+		let direction: FfiDirection? = {
+			switch direction {
+			case .ascending:
+				return FfiDirection.ascending
+			default:
+				return FfiDirection.descending
+			}
+		}()
+
+		options.direction = direction
+
+		return try ffiGroup.findMessages(opts: options).compactMap { ffiMessage in
+			return MessageV3(client: self.client, ffiMessage: ffiMessage).decryptOrNull()
 		}
 	}
 }

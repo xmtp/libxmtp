@@ -161,23 +161,26 @@ public final class Client {
 		}
 	}
 	
-	// This is a V3 only feature
-	public static func createOrBuild(account: SigningKey, options: ClientOptions) async throws -> Client {
-		let inboxId = try await getOrCreateInboxId(options: options, address: account.address)
-
+	static func initializeClient(
+		accountAddress: String,
+		options: ClientOptions,
+		signingKey: SigningKey?,
+		inboxId: String
+	) async throws -> Client {
 		let (libxmtpClient, dbPath) = try await initV3Client(
-			accountAddress: account.address,
+			accountAddress: accountAddress,
 			options: options,
 			privateKeyBundleV1: nil,
-			signingKey: account,
+			signingKey: signingKey,
 			inboxId: inboxId
 		)
+
 		guard let v3Client = libxmtpClient else {
 			throw ClientError.noV3Client("Error no V3 client initialized")
 		}
 
 		let client = try Client(
-			address: account.address,
+			address: accountAddress,
 			v3Client: v3Client,
 			dbPath: dbPath,
 			installationID: v3Client.installationId().toHex,
@@ -185,13 +188,35 @@ public final class Client {
 			environment: options.api.env
 		)
 
-		let conversations = client.conversations
-		let contacts = client.contacts
-
-		for codec in (options.codecs) {
+		// Register codecs
+		for codec in options.codecs {
 			client.register(codec: codec)
 		}
+
 		return client
+	}
+
+	public static func createV3(account: SigningKey, options: ClientOptions) async throws -> Client {
+		let accountAddress = account.address
+		let inboxId = try await getOrCreateInboxId(options: options, address: accountAddress)
+
+		return try await initializeClient(
+			accountAddress: accountAddress,
+			options: options,
+			signingKey: account,
+			inboxId: inboxId
+		)
+	}
+	
+	public static func buildV3(address: String, options: ClientOptions) async throws -> Client {
+		let inboxId = try await getOrCreateInboxId(options: options, address: address)
+
+		return try await initializeClient(
+			accountAddress: address,
+			options: options,
+			signingKey: nil,
+			inboxId: inboxId
+		)
 	}
 
 	static func initV3Client(
@@ -224,7 +249,7 @@ public final class Client {
 			let alias = "xmtp-\(options?.api.env.rawValue ?? "")-\(inboxId).db3"
 			let dbURL = directoryURL.appendingPathComponent(alias).path
 			
-			var encryptionKey = options?.dbEncryptionKey
+			let encryptionKey = options?.dbEncryptionKey
 			if (encryptionKey == nil) {
 				throw ClientError.creationError("No encryption key passed for the database. Please store and provide a secure encryption key.")
 			}
@@ -246,8 +271,20 @@ public final class Client {
 			if let signatureRequest = v3Client.signatureRequest() {
 				if let signingKey = signingKey {
 					do {
-						let signedData = try await signingKey.sign(message: signatureRequest.signatureText())
-						try await signatureRequest.addEcdsaSignature(signatureBytes: signedData.rawData)
+						if signingKey.type == WalletType.SCW {
+							guard let chainId = signingKey.chainId else {
+								throw ClientError.creationError("Chain id must be present to sign Smart Contract Wallet")
+							}
+							let signedData = try await signingKey.signSCW(message: signatureRequest.signatureText())
+							try await signatureRequest.addScwSignature(signatureBytes: signedData,
+																	   address: signingKey.address,
+																	   chainId: UInt64(chainId),
+																	   blockNumber: signingKey.blockNumber.flatMap { $0 >= 0 ? UInt64($0) : nil })
+
+						} else {
+							let signedData = try await signingKey.sign(message: signatureRequest.signatureText())
+							try await signatureRequest.addEcdsaSignature(signatureBytes: signedData.rawData)
+						}
 						try await v3Client.registerIdentity(signatureRequest: signatureRequest)
 					} catch {
 						throw ClientError.creationError("Failed to sign the message: \(error.localizedDescription)")
@@ -651,7 +688,7 @@ public final class Client {
 			throw ClientError.noV3Client("Error no V3 client initialized")
 		}
 		do {
-			return Group(ffiGroup: try client.group(groupId: groupId.hexToData), client: self)
+			return Group(ffiGroup: try client.conversation(conversationId: groupId.hexToData), client: self)
 		} catch {
 			return nil
 		}

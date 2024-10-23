@@ -13,9 +13,9 @@ public enum PermissionLevel {
 }
 
 public struct Member {
-    var ffiGroupMember: FfiGroupMember
+    var ffiGroupMember: FfiConversationMember
     
-    init(ffiGroupMember: FfiGroupMember) {
+    init(ffiGroupMember: FfiConversationMember) {
         self.ffiGroupMember = ffiGroupMember
     }
 
