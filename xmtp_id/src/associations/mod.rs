@@ -646,4 +646,74 @@ pub(crate) mod tests {
             Err(AssociationError::MissingExistingMember)
         ));
     }
+
+    #[test]
+    fn scw_signature_binding() {
+        let initial_chain_id: u64 = 1;
+        let signer = rand_string();
+        let initial_address_signature = VerifiedSignature::new(
+            signer.clone().into(),
+            SignatureKind::Erc1271,
+            rand_vec(),
+            Some(initial_chain_id),
+        );
+        let action = CreateInbox {
+            initial_address_signature,
+            nonce: 0,
+            account_address: signer.clone(),
+        };
+
+        let initial_state = get_state(vec![IdentityUpdate::new_test(
+            vec![Action::CreateInbox(action)],
+            generate_inbox_id(&signer, &0),
+        )])
+        .expect("initial state should be OK");
+
+        let inbox_id = initial_state.inbox_id().clone();
+
+        let new_chain_id: u64 = 2;
+        let new_member: MemberIdentifier = rand_vec().into();
+
+        // A signature from the same account address but on a different chain ID
+        let existing_member_sig = VerifiedSignature::new(
+            signer.clone().into(),
+            SignatureKind::Erc1271,
+            rand_vec(),
+            Some(new_chain_id),
+        );
+
+        let actions: Vec<Action> = vec![
+            Action::AddAssociation(AddAssociation {
+                existing_member_signature: existing_member_sig.clone(),
+                new_member_signature: VerifiedSignature::new(
+                    new_member.clone(),
+                    SignatureKind::InstallationKey,
+                    rand_vec(),
+                    None,
+                ),
+                new_member_identifier: new_member.clone(),
+            }),
+            Action::RevokeAssociation(RevokeAssociation {
+                recovery_address_signature: existing_member_sig.clone(),
+                revoked_member: signer.clone().into(),
+            }),
+            Action::ChangeRecoveryAddress(ChangeRecoveryAddress {
+                recovery_address_signature: existing_member_sig.clone(),
+                new_recovery_address: rand_string(),
+            }),
+        ];
+
+        // Test all possible actions and ensure the chain id mismatch error is thrown
+        for action in actions {
+            let apply_result = apply_update(
+                initial_state.clone(),
+                IdentityUpdate::new_test(vec![action], inbox_id.clone()),
+            );
+
+            assert!(matches!(
+                apply_result,
+                Err(AssociationError::ChainIdMismatch(_, _))
+            ));
+        }
+    }
 }
