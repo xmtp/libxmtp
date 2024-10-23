@@ -23,10 +23,10 @@
     "directory": "bindings_wasm"
   },
   "scripts": {
-    "build": "yarn clean && yarn build:web && yarn clean:gitignore",
+    "build": "yarn clean && yarn build:web && yarn clean:release",
     "build:web": "cargo xtask build BindingsWasm --out-dir ./dist -- --release",
+    "clean:release": "rm -f ./dist/package.json",
     "clean": "rm -rf ./dist",
-    "clean:gitignore": "rm -f ./dist/**/.gitignore",
     "prepublishOnly": "yarn build",
     "test": "wasm-pack test --chrome --headless"
   },
