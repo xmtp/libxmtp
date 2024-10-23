@@ -147,12 +147,10 @@ impl DbConnection {
             query = query.filter(dsl::delivery_status.eq(status));
         }
 
-        if let Some(dir) = direction {
-            query = match dir {
-                SortDirection::Ascending => query.order(dsl::sent_at_ns.asc()),
-                SortDirection::Descending => query.order(dsl::sent_at_ns.desc()),
-            };
-        }
+        query = match direction.unwrap_or(SortDirection::Ascending) {
+            SortDirection::Ascending => query.order(dsl::sent_at_ns.asc()),
+            SortDirection::Descending => query.order(dsl::sent_at_ns.desc()),
+        };
 
         if let Some(limit) = limit {
             query = query.limit(limit);
