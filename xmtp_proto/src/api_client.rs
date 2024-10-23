@@ -19,8 +19,7 @@ use crate::xmtp::mls::api::v1::{
 };
 use futures::Stream;
 
-pub type BoxedApiClient =
-    Box<dyn XmtpApi<GroupMessageStream<'static> = (), WelcomeMessageStream<'static> = ()>>;
+pub type BoxedApiClient<'a, M, W> = Box<dyn XmtpApi<'a, M, W>>;
 
 /// XMTP Api Super Trait
 /// Implements all Trait Network APIs for convenience.
@@ -86,31 +85,43 @@ pub mod trait_impls {
     // test, native
     #[cfg(all(feature = "test-utils", not(target_arch = "wasm32")))]
     mod inner {
-        use crate::api_client::{
-            ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
+        use futures::Stream;
+
+        use crate::{
+            api_client::{
+                ClientWithMetadata, Error, MessagesStream, WelcomesStream, XmtpIdentityClient,
+                XmtpMlsClient, XmtpMlsStreams,
+            },
+            xmtp::mls::api::v1::{GroupMessage, WelcomeMessage},
         };
 
-        pub trait XmtpApi
+        pub trait XmtpApi<'a, M: MessagesStream<'a>, W: WelcomesStream<'a>>
         where
             Self: XmtpMlsClient
-                + XmtpMlsStreams
+                + XmtpMlsStreams<'a, M, W>
                 + XmtpIdentityClient
                 + ClientWithMetadata
                 + Send
                 + Sync,
         {
         }
-        impl<T> XmtpApi for T where
+        impl<'a, T, M, W> XmtpApi<'a, M, W> for T
+        where
             T: XmtpMlsClient
-                + XmtpMlsStreams
+                + XmtpMlsStreams<'a, M, W>
                 + XmtpIdentityClient
                 + ClientWithMetadata
                 + Send
                 + Sync
-                + ?Sized
+                + ?Sized,
+            M: MessagesStream<'a>,
+            W: WelcomesStream<'a>,
         {
         }
     }
+
+    // Support Clone with dynamic dispatch:
+    // https://users.rust-lang.org/t/how-to-deal-with-the-trait-cannot-be-made-into-an-object-error-in-rust-which-traits-are-object-safe-and-which-aint/90620/3
 
     // test, wasm32
     #[cfg(all(feature = "test-utils", target_arch = "wasm32"))]
@@ -313,29 +324,40 @@ pub trait LocalXmtpMlsStreams {
     ) -> Result<Self::WelcomeMessageStream<'_>, Error>;
 }
 
+pub trait MessagesStream<'a>: Stream<Item = Result<GroupMessage, Error>> + Send + 'a {}
+pub trait WelcomesStream<'a>: Stream<Item = Result<WelcomeMessage, Error>> + Send + 'a {}
+
 // we manually make a Local+Non-Local trait variant here b/c the
 // macro breaks with GATs
-// #[allow(async_fn_in_trait)]
-// #[cfg(not(target_arch = "wasm32"))]
-#[async_trait::async_trait]
-pub trait XmtpMlsStreams: Send {
-    type GroupMessageStream<'a>: Stream<Item = Result<GroupMessage, Error>> + Send + 'a
-    where
-        Self: 'a;
+#[allow(async_fn_in_trait)]
+// https://blog.rust-lang.org/2023/12/21/async-fn-rpit-in-traits.html#should-i-still-use-the-async_trait-macro
+#[cfg(not(target_arch = "wasm32"))]
+// https://blog.rust-lang.org/2022/10/28/gats-stabilization.html#traits-with-gats-are-not-object-safe
+// #[async_trait::async_trait]
+pub trait XmtpMlsStreams<
+    'a,
+    GroupMessageStream: MessagesStream<'a>,
+    WelcomeMessageStream: WelcomesStream<'a>,
+> where
+    Self: 'a,
+{
+    // type GroupMessageStream<'a>: Stream<Item = Result<GroupMessage, Error>> + Send + 'a
+    // where
+    //     Self: 'a;
 
-    type WelcomeMessageStream<'a>: Stream<Item = Result<WelcomeMessage, Error>> + Send + 'a
-    where
-        Self: 'a;
+    // type WelcomeMessageStream<'a>: Stream<Item = Result<WelcomeMessage, Error>> + Send + 'a
+    // where
+    //     Self: 'a;
 
     fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
-    ) -> impl futures::Future<Output = Result<Self::GroupMessageStream<'_>, Error>> + Send;
+    ) -> impl futures::Future<Output = Result<GroupMessageStream, Error>> + Send;
 
     fn subscribe_welcome_messages(
         &self,
         request: SubscribeWelcomeMessagesRequest,
-    ) -> impl futures::Future<Output = Result<Self::WelcomeMessageStream<'_>, Error>> + Send;
+    ) -> impl futures::Future<Output = Result<WelcomeMessageStream, Error>> + Send;
 }
 
 #[async_trait::async_trait]

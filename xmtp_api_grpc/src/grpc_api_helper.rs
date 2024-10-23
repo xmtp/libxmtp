@@ -455,14 +455,14 @@ impl Stream for WelcomeMessageStream {
     }
 }
 
-impl XmtpMlsStreams for Client {
-    type GroupMessageStream<'a> = GroupMessageStream;
-    type WelcomeMessageStream<'a> = WelcomeMessageStream;
+impl XmtpMlsStreams<'_, GroupMessageStream, WelcomeMessageStream> for Client {
+    // type GroupMessageStream<'a> = GroupMessageStream;
+    // type WelcomeMessageStream<'a> = WelcomeMessageStream;
 
     async fn subscribe_group_messages(
         &self,
         req: SubscribeGroupMessagesRequest,
-    ) -> Result<Self::GroupMessageStream<'_>, Error> {
+    ) -> Result<GroupMessageStream, Error> {
         let client = &mut self.mls_client.clone();
         let res = client
             .subscribe_group_messages(self.build_request(req))
@@ -476,7 +476,7 @@ impl XmtpMlsStreams for Client {
     async fn subscribe_welcome_messages(
         &self,
         req: SubscribeWelcomeMessagesRequest,
-    ) -> Result<Self::WelcomeMessageStream<'_>, Error> {
+    ) -> Result<WelcomeMessageStream, Error> {
         let client = &mut self.mls_client.clone();
         let res = client
             .subscribe_welcome_messages(self.build_request(req))

@@ -369,78 +369,78 @@ impl Stream for WelcomeMessageStream {
     }
 }
 
-impl XmtpMlsStreams for ClientV4 {
-    type GroupMessageStream<'a> = GroupMessageStream;
-    type WelcomeMessageStream<'a> = WelcomeMessageStream;
-
-    async fn subscribe_group_messages(
-        &self,
-        req: SubscribeGroupMessagesRequest,
-    ) -> Result<Self::GroupMessageStream<'_>, Error> {
-        unimplemented!();
-    }
-
-    async fn subscribe_welcome_messages(
-        &self,
-        req: SubscribeWelcomeMessagesRequest,
-    ) -> Result<Self::WelcomeMessageStream<'_>, Error> {
-        unimplemented!();
-    }
-}
-
-#[async_trait::async_trait]
-impl XmtpIdentityClient for ClientV4 {
-    #[tracing::instrument(level = "trace", skip_all)]
-    async fn publish_identity_update(
-        &self,
-        request: PublishIdentityUpdateRequest,
-    ) -> Result<PublishIdentityUpdateResponse, Error> {
-        unimplemented!()
-    }
-
-    #[tracing::instrument(level = "trace", skip_all)]
-    async fn get_inbox_ids(
-        &self,
-        request: GetInboxIdsRequest,
-    ) -> Result<GetInboxIdsResponse, Error> {
-        let client = &mut self.client.clone();
-        let req = GetInboxIdsRequestV4 {
-            requests: request
-                .requests
-                .into_iter()
-                .map(|r| get_inbox_ids_request::Request { address: r.address })
-                .collect(),
-        };
-
-        let res = client.get_inbox_ids(self.build_request(req)).await;
-
-        res.map(|response| response.into_inner())
-            .map(|response| GetInboxIdsResponse {
-                responses: response
-                    .responses
-                    .into_iter()
-                    .map(|r| get_inbox_ids_response::Response {
-                        address: r.address,
-                        inbox_id: r.inbox_id,
-                    })
-                    .collect(),
-            })
-            .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))
-    }
-
-    #[tracing::instrument(level = "trace", skip_all)]
-    async fn get_identity_updates_v2(
-        &self,
-        request: GetIdentityUpdatesV2Request,
-    ) -> Result<GetIdentityUpdatesV2Response, Error> {
-        unimplemented!()
-    }
-
-    #[tracing::instrument(level = "trace", skip_all)]
-    async fn verify_smart_contract_wallet_signatures(
-        &self,
-        request: VerifySmartContractWalletSignaturesRequest,
-    ) -> Result<VerifySmartContractWalletSignaturesResponse, Error> {
-        unimplemented!()
-    }
-}
+// impl XmtpMlsStreams for ClientV4 {
+//     type GroupMessageStream<'a> = GroupMessageStream;
+//     type WelcomeMessageStream<'a> = WelcomeMessageStream;
+//
+//     async fn subscribe_group_messages(
+//         &self,
+//         req: SubscribeGroupMessagesRequest,
+//     ) -> Result<Self::GroupMessageStream<'_>, Error> {
+//         unimplemented!();
+//     }
+//
+//     async fn subscribe_welcome_messages(
+//         &self,
+//         req: SubscribeWelcomeMessagesRequest,
+//     ) -> Result<Self::WelcomeMessageStream<'_>, Error> {
+//         unimplemented!();
+//     }
+// }
+//
+// #[async_trait::async_trait]
+// impl XmtpIdentityClient for ClientV4 {
+//     #[tracing::instrument(level = "trace", skip_all)]
+//     async fn publish_identity_update(
+//         &self,
+//         request: PublishIdentityUpdateRequest,
+//     ) -> Result<PublishIdentityUpdateResponse, Error> {
+//         unimplemented!()
+//     }
+//
+//     #[tracing::instrument(level = "trace", skip_all)]
+//     async fn get_inbox_ids(
+//         &self,
+//         request: GetInboxIdsRequest,
+//     ) -> Result<GetInboxIdsResponse, Error> {
+//         let client = &mut self.client.clone();
+//         let req = GetInboxIdsRequestV4 {
+//             requests: request
+//                 .requests
+//                 .into_iter()
+//                 .map(|r| get_inbox_ids_request::Request { address: r.address })
+//                 .collect(),
+//         };
+//
+//         let res = client.get_inbox_ids(self.build_request(req)).await;
+//
+//         res.map(|response| response.into_inner())
+//             .map(|response| GetInboxIdsResponse {
+//                 responses: response
+//                     .responses
+//                     .into_iter()
+//                     .map(|r| get_inbox_ids_response::Response {
+//                         address: r.address,
+//                         inbox_id: r.inbox_id,
+//                     })
+//                     .collect(),
+//             })
+//             .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))
+//     }
+//
+//     #[tracing::instrument(level = "trace", skip_all)]
+//     async fn get_identity_updates_v2(
+//         &self,
+//         request: GetIdentityUpdatesV2Request,
+//     ) -> Result<GetIdentityUpdatesV2Response, Error> {
+//         unimplemented!()
+//     }
+//
+//     #[tracing::instrument(level = "trace", skip_all)]
+//     async fn verify_smart_contract_wallet_signatures(
+//         &self,
+//         request: VerifySmartContractWalletSignaturesRequest,
+//     ) -> Result<VerifySmartContractWalletSignaturesResponse, Error> {
+//         unimplemented!()
+//     }
+// }
