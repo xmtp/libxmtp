@@ -14,6 +14,7 @@ tonic = { workspace = true, features = ["tls", "tls-native-roots", "tls-webpki-r
 tracing.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 xmtp_v2 = { path = "../xmtp_v2" }
+async-trait = "0.1"
 
 [dev-dependencies]
 uuid = { workspace = true, features = ["v4"] }

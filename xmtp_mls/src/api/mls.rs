@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::ApiClientWrapper;
 use crate::{retry_async, XmtpApi};
-use xmtp_proto::api_client::{Error as ApiError, ErrorKind};
+use xmtp_proto::api_client::{Error as ApiError, ErrorKind, XmtpMlsStreams};
 use xmtp_proto::xmtp::mls::api::v1::{
     group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
     subscribe_group_messages_request::Filter as GroupFilterProto,
@@ -262,7 +262,10 @@ where
     pub async fn subscribe_group_messages(
         &self,
         filters: Vec<GroupFilter>,
-    ) -> Result<impl futures::Stream<Item = Result<GroupMessage, ApiError>> + '_, ApiError> {
+    ) -> Result<impl futures::Stream<Item = Result<GroupMessage, ApiError>> + '_, ApiError>
+    where
+        ApiClient: XmtpMlsStreams,
+    {
         self.api_client
             .subscribe_group_messages(SubscribeGroupMessagesRequest {
                 filters: filters.into_iter().map(|f| f.into()).collect(),
@@ -274,7 +277,10 @@ where
         &self,
         installation_key: Vec<u8>,
         id_cursor: Option<u64>,
-    ) -> Result<impl futures::Stream<Item = Result<WelcomeMessage, ApiError>> + '_, ApiError> {
+    ) -> Result<impl futures::Stream<Item = Result<WelcomeMessage, ApiError>> + '_, ApiError>
+    where
+        ApiClient: XmtpMlsStreams,
+    {
         self.api_client
             .subscribe_welcome_messages(SubscribeWelcomeMessagesRequest {
                 filters: vec![WelcomeFilterProto {
@@ -320,7 +326,7 @@ pub mod tests {
                     .eq(&key_package)
             })
             .returning(move |_| Ok(()));
-        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
         let result = wrapper.upload_key_package(key_package_clone, false).await;
         assert!(result.is_ok());
     }
@@ -343,7 +349,7 @@ pub mod tests {
                 ],
             })
         });
-        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
         let result = wrapper
             .fetch_key_packages(installation_keys.clone())
             .await
@@ -381,7 +387,7 @@ pub mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
 
         let result = wrapper
             .query_group_messages(group_id_clone, None)
@@ -413,7 +419,7 @@ pub mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
 
         let result = wrapper
             .query_group_messages(group_id_clone, None)
@@ -464,7 +470,7 @@ pub mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
 
         let result = wrapper
             .query_group_messages(group_id_clone2, None)
@@ -498,7 +504,7 @@ pub mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
 
         let result = wrapper
             .query_group_messages(group_id_clone, None)
