@@ -789,12 +789,12 @@ pub(crate) mod tests {
                 let contract_call = scw_factory.create_account(owners.clone(), nonce);
 
                 contract_call.send().await.unwrap().await.unwrap();
-                let account_id = AccountId::new_evm(anvil_meta.chain_id, format!("{scw_addr:?}"));
-                let account_id_string: String = account_id.clone().into();
+                let account_address = format!("{scw_addr:?}");
+                let account_id = AccountId::new_evm(anvil_meta.chain_id, account_address.clone());
 
                 let identity_strategy = IdentityStrategy::CreateIfNotFound(
-                    generate_inbox_id(&account_id_string, &0),
-                    account_id_string,
+                    generate_inbox_id(&account_address, &0),
+                    account_address,
                     0,
                     None,
                 );
