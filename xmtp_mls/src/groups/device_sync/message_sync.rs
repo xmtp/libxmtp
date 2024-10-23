@@ -357,7 +357,22 @@ pub(crate) mod tests {
             )
             .unwrap();
 
-        assert_eq!(amal_b_messages.len(), 1);
+        let request_msg = &amal_b_messages[0];
+        let content: DeviceSyncContent =
+            serde_json::from_slice(&request_msg.decrypted_message_bytes).unwrap();
+
+        let DeviceSyncContent::Request(_request) = content else {
+            panic!("should be a request");
+        };
+
+        let reply_msg = &amal_b_messages[1];
+        let content: DeviceSyncContent =
+            serde_json::from_slice(&reply_msg.decrypted_message_bytes).unwrap();
+        let DeviceSyncContent::Reply(_reply) = content else {
+            panic!("should be a reply");
+        };
+
+        assert_eq!(amal_b_messages.len(), 2);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

@@ -682,10 +682,16 @@ fn insert_encrypted_syncables(
     for line in reader.lines() {
         let db_entry: Syncable = serde_json::from_str(&line?)?;
         match db_entry {
-            Syncable::Group(group) => group.store(&conn),
-            Syncable::GroupMessage(group_message) => group_message.store(&conn),
-            Syncable::ConsentRecord(consent_record) => consent_record.store(&conn),
-        }?;
+            Syncable::Group(group) => {
+                conn.insert_or_replace_group(group)?;
+            }
+            Syncable::GroupMessage(group_message) => {
+                group_message.store(&conn)?;
+            }
+            Syncable::ConsentRecord(consent_record) => {
+                consent_record.store(&conn)?;
+            }
+        };
     }
 
     Ok(())
