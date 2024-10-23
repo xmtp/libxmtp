@@ -1,6 +1,6 @@
 {
-  "name": "@xmtp/client-bindings-wasm",
-  "version": "0.0.0",
+  "name": "@xmtp/wasm-bindings",
+  "version": "0.0.1",
   "license": "MIT",
   "description": "WASM bindings for the libXMTP rust library",
   "keywords": [
@@ -23,26 +23,26 @@
     "directory": "bindings_wasm"
   },
   "scripts": {
-    "build": "npm run clean && npm run build:node && npm run clean:gitignore",
-    "build:node": "cargo xtask build BindingsWasm --out-dir ./dist -- --release",
+    "build": "yarn clean && yarn build:web && yarn clean:gitignore",
+    "build:web": "cargo xtask build BindingsWasm --out-dir ./dist -- --release",
     "clean": "rm -rf ./dist",
     "clean:gitignore": "rm -f ./dist/**/.gitignore",
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "yarn build",
     "test": "wasm-pack test --chrome --headless"
   },
   "files": [
-    "./dist/**/*"
+    "dist"
   ],
-  "main": "dist/node/bindings_wasm.js",
-  "types": "dist/node/bindings_wasm.d.ts",
+  "main": "dist/bindings_wasm.js",
+  "types": "dist/bindings_wasm.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/node/bindings_wasm.d.ts",
-      "default": "./dist/node/bindings_wasm.js"
+      "types": "./dist/bindings_wasm.d.ts",
+      "default": "./dist/bindings_wasm.js"
     }
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "publishConfig": {
     "access": "public",
@@ -51,5 +51,6 @@
   },
   "devDependencies": {
     "wasm-pack": "^0.13.0"
-  }
+  },
+  "packageManager": "yarn@4.5.1"
 }
