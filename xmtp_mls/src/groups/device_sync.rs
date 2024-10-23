@@ -136,6 +136,7 @@ where
             None,
             None,
             None,
+            None,
         )?;
 
         for msg in messages.into_iter().rev() {
@@ -174,6 +175,7 @@ where
 
         let messages = sync_group.find_messages(
             Some(GroupMessageKind::Application),
+            None,
             None,
             None,
             None,
@@ -243,6 +245,7 @@ where
             None,
             None,
             None,
+            None,
         )?;
 
         let mut replied_request_ids = vec![];
@@ -283,6 +286,7 @@ where
             None,
             None,
             None,
+            None,
         )?;
 
         for msg in messages.into_iter().rev() {
@@ -312,6 +316,7 @@ where
         sync_group.sync().await?;
         let messages = sync_group.find_messages(
             Some(GroupMessageKind::Application),
+            None,
             None,
             None,
             None,

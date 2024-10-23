@@ -72,24 +72,10 @@ pub mod xmtp {
             // @@protoc_insertion_point(xmtp.mls_validation.v1)
         }
     }
+    #[cfg(feature = "xmtp-xmtpv4")]
+    // @@protoc_insertion_point(attribute:xmtp.xmtpv4)
     pub mod xmtpv4 {
-        #[cfg(feature = "xmtp-xmtpv4-envelopes")]
-        // @@protoc_insertion_point(attribute:xmtp.xmtpv4.envelopes)
-        pub mod envelopes {
-            include!("xmtp.xmtpv4.envelopes.rs");
-            // @@protoc_insertion_point(xmtp.xmtpv4.envelopes)
-        }
-        #[cfg(feature = "xmtp-xmtpv4-message_api")]
-        // @@protoc_insertion_point(attribute:xmtp.xmtpv4.message_api)
-        pub mod message_api {
-            include!("xmtp.xmtpv4.message_api.rs");
-            // @@protoc_insertion_point(xmtp.xmtpv4.message_api)
-        }
-        #[cfg(feature = "xmtp-xmtpv4-payer_api")]
-        // @@protoc_insertion_point(attribute:xmtp.xmtpv4.payer_api)
-        pub mod payer_api {
-            include!("xmtp.xmtpv4.payer_api.rs");
-            // @@protoc_insertion_point(xmtp.xmtpv4.payer_api)
-        }
+        include!("xmtp.xmtpv4.rs");
+        // @@protoc_insertion_point(xmtp.xmtpv4)
     }
 }
