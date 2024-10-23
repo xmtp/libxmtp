@@ -42,7 +42,6 @@ use xmtp_mls::{
     },
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
-use xmtp_proto::xmtp::mls::api::v1::SortDirection;
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
