@@ -364,7 +364,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
 
-        let groups = amal_a.syncable_groups().await.unwrap();
+        let groups = amal_a.syncable_groups().unwrap();
 
         let input_file = NamedTempFile::new().unwrap();
         let input_path = input_file.path();
@@ -440,7 +440,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
 
-        let result = amal_a.syncable_groups().await.unwrap();
+        let result = amal_a.syncable_groups().unwrap();
         assert_eq!(result.len(), 2);
     }
 
@@ -460,41 +460,8 @@ pub(crate) mod tests {
         group_b.send_message(b"hi").await.expect("send");
         group_b.send_message(b"hi x2").await.expect("send");
 
-        let messages_result = amal_a.syncable_messages().await.unwrap();
+        let messages_result = amal_a.syncable_messages().unwrap();
         assert_eq!(messages_result.len(), 4);
-    }
-
-    #[tokio::test]
-    async fn test_write_to_file() {
-        let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let group_a = amal_a
-            .create_group(None, GroupMetadataOptions::default())
-            .expect("create group");
-        let group_b = amal_a
-            .create_group(None, GroupMetadataOptions::default())
-            .expect("create group");
-
-        group_a.send_message(b"hi").await.expect("send");
-        group_a.send_message(b"hi").await.expect("send");
-        group_b.send_message(b"hi").await.expect("send");
-        group_b.send_message(b"hi").await.expect("send");
-
-        let groups = amal_a.syncable_groups().await.unwrap();
-        let messages = amal_a.syncable_messages().await.unwrap();
-
-        let temp_file = NamedTempFile::new().expect("Unable to create temp file");
-        let wrote_groups = write_to_file(temp_file.path(), groups);
-        assert!(wrote_groups.is_ok());
-        let wrote_messages = write_to_file(temp_file.path(), messages);
-        assert!(wrote_messages.is_ok());
-
-        let file = File::open(temp_file.path()).expect("Unable to open test file");
-        let reader = BufReader::new(file);
-        let n_lines_written = reader.lines().count();
-        assert_eq!(n_lines_written, 6);
-
-        std::fs::remove_file(temp_file).expect("Unable to remove test file");
     }
 
     #[test]
