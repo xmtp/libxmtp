@@ -115,7 +115,10 @@ enum Commands {
         account_addresses: Vec<String>,
     },
     RequestHistorySync {},
-    ReplyToHistorySyncRequest {},
+    ReplyToHistorySyncRequest {
+        #[arg(value_name = "Pin Code")]
+        pin_code: String,
+    },
     ProcessHistorySyncReply {},
     ListHistorySyncMessages {},
     /// Information about the account that owns the DB
@@ -357,13 +360,13 @@ async fn main() {
             let group_id_str = hex::encode(group_id);
             info!("Sent history sync request in sync group {group_id_str}", { group_id: group_id_str})
         }
-        Commands::ReplyToHistorySyncRequest {} => {
+        Commands::ReplyToHistorySyncRequest { pin_code } => {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
             let group = client.get_sync_group().unwrap();
             let group_id_str = hex::encode(group.group_id);
-            let reply = client.reply_to_history_request().await.unwrap();
+            let reply = client.reply_to_history_request(&pin_code).await.unwrap();
 
             info!("Sent history sync reply in sync group {group_id_str}", { group_id: group_id_str});
             info!("Reply: {:?}", reply);
