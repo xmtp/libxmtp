@@ -57,6 +57,26 @@ pub struct WasmGroupMember {
 }
 
 #[wasm_bindgen]
+impl WasmGroupMember {
+  #[wasm_bindgen(constructor)]
+  pub fn new(
+    inbox_id: String,
+    account_addresses: Vec<String>,
+    installation_ids: Vec<String>,
+    permission_level: WasmPermissionLevel,
+    consent_state: WasmConsentState,
+  ) -> Self {
+    Self {
+      inbox_id,
+      account_addresses,
+      installation_ids,
+      permission_level,
+      consent_state,
+    }
+  }
+}
+
+#[wasm_bindgen]
 pub struct WasmGroup {
   inner_client: Arc<RustXmtpClient>,
   group_id: Vec<u8>,
@@ -174,6 +194,7 @@ impl WasmGroup {
         opts.sent_after_ns,
         delivery_status,
         opts.limit,
+        None,
       )
       .map_err(|e| JsError::new(&format!("{e}")))?
       .into_iter()

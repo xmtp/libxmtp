@@ -800,7 +800,7 @@ where
                 retry_async!(
                     Retry::default(),
                     (async {
-                        let welcome_v1 = welcome_v1.clone();
+                        let welcome_v1 = &welcome_v1;
                         self.intents.process_for_id(
                             &id,
                             EntityKind::Welcome,
@@ -810,7 +810,7 @@ where
                                     Arc::new(self.clone()),
                                     &provider,
                                     welcome_v1.hpke_public_key.as_slice(),
-                                    welcome_v1.data,
+                                    &welcome_v1.data,
                                     welcome_v1.id as i64,
                                 )
                                 .await;
@@ -1166,12 +1166,12 @@ pub(crate) mod tests {
         let bo_groups = bo.find_groups(FindGroupParams::default()).unwrap();
         let bo_group1 = bo.group(alix_bo_group1.clone().group_id).unwrap();
         let bo_messages1 = bo_group1
-            .find_messages(None, None, None, None, None)
+            .find_messages(None, None, None, None, None, None)
             .unwrap();
         assert_eq!(bo_messages1.len(), 0);
         let bo_group2 = bo.group(alix_bo_group2.clone().group_id).unwrap();
         let bo_messages2 = bo_group2
-            .find_messages(None, None, None, None, None)
+            .find_messages(None, None, None, None, None, None)
             .unwrap();
         assert_eq!(bo_messages2.len(), 0);
         alix_bo_group1
@@ -1186,12 +1186,12 @@ pub(crate) mod tests {
         bo.sync_all_groups(bo_groups).await.unwrap();
 
         let bo_messages1 = bo_group1
-            .find_messages(None, None, None, None, None)
+            .find_messages(None, None, None, None, None, None)
             .unwrap();
         assert_eq!(bo_messages1.len(), 1);
         let bo_group2 = bo.group(alix_bo_group2.clone().group_id).unwrap();
         let bo_messages2 = bo_group2
-            .find_messages(None, None, None, None, None)
+            .find_messages(None, None, None, None, None, None)
             .unwrap();
         assert_eq!(bo_messages2.len(), 1);
     }
@@ -1255,7 +1255,7 @@ pub(crate) mod tests {
 
         // Bola should have one readable message (them being added to the group)
         let mut bola_messages = bola_group
-            .find_messages(None, None, None, None, None)
+            .find_messages(None, None, None, None, None, None)
             .unwrap();
 
         assert_eq!(bola_messages.len(), 1);
@@ -1277,7 +1277,7 @@ pub(crate) mod tests {
         bola_group.sync().await.unwrap();
         // Find Bola's updated list of messages
         bola_messages = bola_group
-            .find_messages(None, None, None, None, None)
+            .find_messages(None, None, None, None, None, None)
             .unwrap();
         // Bola should have been able to decrypt the last message
         assert_eq!(bola_messages.len(), 2);

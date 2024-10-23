@@ -200,7 +200,7 @@ impl fmt::Debug for Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match &self.kind {
+        let s = match &self.kind {
             ErrorKind::SetupCreateChannelError => "failed to create channel",
             ErrorKind::SetupTLSConfigError => "tls configuration failed",
             ErrorKind::SetupConnectionError => "connection failed",
@@ -212,7 +212,8 @@ impl fmt::Display for Error {
             ErrorKind::MlsError => "mls error",
             ErrorKind::SubscriptionUpdateError => "subscription update error",
             ErrorKind::MetadataError => "metadata error",
-        })?;
+        };
+        f.write_str(s)?;
         if self.source().is_some() {
             f.write_str(": ")?;
             f.write_str(&self.source().unwrap().to_string())?;

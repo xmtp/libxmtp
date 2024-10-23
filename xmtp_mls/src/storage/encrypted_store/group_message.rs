@@ -40,6 +40,12 @@ pub struct StoredGroupMessage {
     pub delivery_status: DeliveryStatus,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum SortDirection {
+    Ascending,
+    Descending,
+}
+
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
@@ -110,6 +116,7 @@ impl_store_or_ignore!(StoredGroupMessage, group_messages);
 
 impl DbConnection {
     /// Query for group messages
+    #[allow(clippy::too_many_arguments)]
     pub fn get_group_messages<GroupId: AsRef<[u8]>>(
         &self,
         group_id: GroupId,
@@ -118,9 +125,9 @@ impl DbConnection {
         kind: Option<GroupMessageKind>,
         delivery_status: Option<DeliveryStatus>,
         limit: Option<i64>,
+        direction: Option<SortDirection>,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
         let mut query = dsl::group_messages
-            .order(dsl::sent_at_ns.asc())
             .filter(dsl::group_id.eq(group_id.as_ref()))
             .into_boxed();
 
@@ -139,6 +146,11 @@ impl DbConnection {
         if let Some(status) = delivery_status {
             query = query.filter(dsl::delivery_status.eq(status));
         }
+
+        query = match direction.unwrap_or(SortDirection::Ascending) {
+            SortDirection::Ascending => query.order(dsl::sent_at_ns.asc()),
+            SortDirection::Descending => query.order(dsl::sent_at_ns.desc()),
+        };
 
         if let Some(limit) = limit {
             query = query.limit(limit);
@@ -299,7 +311,7 @@ pub(crate) mod tests {
             assert_eq!(count, 50);
 
             let messages = conn
-                .get_group_messages(&group.id, None, None, None, None, None)
+                .get_group_messages(&group.id, None, None, None, None, None, None)
                 .unwrap();
 
             assert_eq!(messages.len(), 50);
@@ -326,18 +338,26 @@ pub(crate) mod tests {
             ];
             assert_ok!(messages.store(conn));
             let message = conn
-                .get_group_messages(&group.id, Some(1_000), Some(100_000), None, None, None)
+                .get_group_messages(
+                    &group.id,
+                    Some(1_000),
+                    Some(100_000),
+                    None,
+                    None,
+                    None,
+                    None,
+                )
                 .unwrap();
             assert_eq!(message.len(), 1);
             assert_eq!(message.first().unwrap().sent_at_ns, 10_000);
 
             let messages = conn
-                .get_group_messages(&group.id, None, Some(100_000), None, None, None)
+                .get_group_messages(&group.id, None, Some(100_000), None, None, None, None)
                 .unwrap();
             assert_eq!(messages.len(), 2);
 
             let messages = conn
-                .get_group_messages(&group.id, Some(10_000), None, None, None, None)
+                .get_group_messages(&group.id, Some(10_000), None, None, None, None, None)
                 .unwrap();
             assert_eq!(messages.len(), 2);
         })
@@ -381,6 +401,7 @@ pub(crate) mod tests {
                     Some(GroupMessageKind::Application),
                     None,
                     None,
+                    None,
                 )
                 .unwrap();
             assert_eq!(application_messages.len(), 15);
@@ -393,9 +414,63 @@ pub(crate) mod tests {
                     Some(GroupMessageKind::MembershipChange),
                     None,
                     None,
+                    None,
                 )
                 .unwrap();
             assert_eq!(membership_changes.len(), 15);
+        })
+        .await
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn it_orders_messages_by_sent() {
+        with_connection(|conn| {
+            let group = generate_group(None);
+            group.store(conn).unwrap();
+
+            let messages = vec![
+                generate_message(None, Some(&group.id), Some(10_000)),
+                generate_message(None, Some(&group.id), Some(1_000)),
+                generate_message(None, Some(&group.id), Some(100_000)),
+                generate_message(None, Some(&group.id), Some(1_000_000)),
+            ];
+
+            assert_ok!(messages.store(conn));
+
+            let messages_asc = conn
+                .get_group_messages(
+                    &group.id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(SortDirection::Ascending),
+                )
+                .unwrap();
+            assert_eq!(messages_asc.len(), 4);
+            assert_eq!(messages_asc[0].sent_at_ns, 1_000);
+            assert_eq!(messages_asc[1].sent_at_ns, 10_000);
+            assert_eq!(messages_asc[2].sent_at_ns, 100_000);
+            assert_eq!(messages_asc[3].sent_at_ns, 1_000_000);
+
+            let messages_desc = conn
+                .get_group_messages(
+                    &group.id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(SortDirection::Descending),
+                )
+                .unwrap();
+            assert_eq!(messages_desc.len(), 4);
+            assert_eq!(messages_desc[0].sent_at_ns, 1_000_000);
+            assert_eq!(messages_desc[1].sent_at_ns, 100_000);
+            assert_eq!(messages_desc[2].sent_at_ns, 10_000);
+            assert_eq!(messages_desc[3].sent_at_ns, 1_000);
         })
         .await
     }

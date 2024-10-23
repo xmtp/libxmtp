@@ -10,6 +10,7 @@ on:
       - "xmtp_mls/src/**"
       - "xmtp_id/src/**"
       - "xmtp_api_http/src/**"
+      - "xmtp_proto/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain"

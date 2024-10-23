@@ -4,6 +4,10 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(about = "MLS Validation Server")]
 pub(crate) struct Args {
+    // Print Version
+    #[arg(short, long)]
+    pub(crate) version: bool,
+
     // Port to run the server on
     #[arg(short, long, default_value_t = 50051)]
     pub(crate) port: u32,

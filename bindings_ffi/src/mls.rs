@@ -15,6 +15,7 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::storage::group_message::SortDirection;
 use xmtp_mls::{
     api::ApiClientWrapper,
     builder::ClientBuilder,
@@ -1112,12 +1113,28 @@ impl From<FfiConsentEntityType> for ConsentType {
     }
 }
 
+#[derive(uniffi::Enum, Clone)]
+pub enum FfiDirection {
+    Ascending,
+    Descending,
+}
+
+impl From<FfiDirection> for SortDirection {
+    fn from(direction: FfiDirection) -> Self {
+        match direction {
+            FfiDirection::Ascending => SortDirection::Ascending,
+            FfiDirection::Descending => SortDirection::Descending,
+        }
+    }
+}
+
 #[derive(uniffi::Record, Clone, Default)]
 pub struct FfiListMessagesOptions {
     pub sent_before_ns: Option<i64>,
     pub sent_after_ns: Option<i64>,
     pub limit: Option<i64>,
     pub delivery_status: Option<FfiDeliveryStatus>,
+    pub direction: Option<FfiDirection>,
 }
 
 #[derive(uniffi::Record, Clone, Default)]
@@ -1201,6 +1218,7 @@ impl FfiConversation {
         );
 
         let delivery_status = opts.delivery_status.map(|status| status.into());
+        let direction = opts.direction.map(|dir| dir.into());
 
         let messages: Vec<FfiMessage> = group
             .find_messages(
@@ -1209,6 +1227,7 @@ impl FfiConversation {
                 opts.sent_after_ns,
                 delivery_status,
                 opts.limit,
+                direction,
             )?
             .into_iter()
             .map(|msg| msg.into())
@@ -3384,11 +3403,7 @@ mod tests {
         // Bola gets the group id. This will be needed to fetch the group from
         // the database.
         let bola_groups = bola_conversations
-            .list(crate::FfiListConversationsOptions {
-                created_after_ns: None,
-                created_before_ns: None,
-                limit: None,
-            })
+            .list(FfiListConversationsOptions::default())
             .await
             .unwrap();
 
@@ -3575,11 +3590,7 @@ mod tests {
         let bola_conversations = bola.conversations();
         let _ = bola_conversations.sync().await;
         let bola_groups = bola_conversations
-            .list(crate::FfiListConversationsOptions {
-                created_after_ns: None,
-                created_before_ns: None,
-                limit: None,
-            })
+            .list(FfiListConversationsOptions::default())
             .await
             .unwrap();
 
@@ -3684,11 +3695,7 @@ mod tests {
         let bola_conversations = bola.conversations();
         let _ = bola_conversations.sync().await;
         let bola_groups = bola_conversations
-            .list(crate::FfiListConversationsOptions {
-                created_after_ns: None,
-                created_before_ns: None,
-                limit: None,
-            })
+            .list(FfiListConversationsOptions::default())
             .await
             .unwrap();
 
