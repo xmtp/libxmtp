@@ -17,11 +17,14 @@ where
 
     pub async fn reply_to_consent_sync_request(
         &self,
+        pin_code: &str,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
         let Some((_msg, request)) = self.pending_sync_request(DeviceSyncKind::Consent).await?
         else {
             return Err(DeviceSyncError::NoPendingRequest);
         };
+
+        self.verify_pin(&request.request_id, pin_code)?;
 
         let consent_records = self.syncable_consent_records()?;
 

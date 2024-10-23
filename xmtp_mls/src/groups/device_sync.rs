@@ -492,29 +492,6 @@ where
     }
 }
 
-pub(super) async fn upload_history_payload(
-    url: &str,
-    payload: Vec<u8>,
-) -> Result<String, DeviceSyncError> {
-    let response = reqwest::Client::new()
-        .post(url)
-        .body(payload)
-        .send()
-        .await?;
-
-    if !response.status().is_success() {
-        tracing::error!(
-            "Failed to upload file. Status code: {} Response: {:?}",
-            response.status(),
-            response
-        );
-        response.error_for_status()?;
-        unreachable!("Checked for success");
-    }
-
-    Ok(response.text().await?)
-}
-
 pub(crate) async fn download_history_payload(url: &str) -> Result<Vec<u8>, DeviceSyncError> {
     tracing::info!("downloading history bundle from {:?}", url);
     let response = reqwest::Client::new().get(url).send().await?;
@@ -570,6 +547,7 @@ pub(crate) struct DeviceSyncReply {
 }
 
 impl DeviceSyncReply {
+    #[cfg(test)]
     pub(crate) fn new(id: &str, url: &str, encryption_key: DeviceSyncKeyType) -> Self {
         Self {
             request_id: id.into(),
@@ -602,6 +580,7 @@ impl DeviceSyncKeyType {
         DeviceSyncKeyType::Chacha20Poly1305(key)
     }
 
+    #[cfg(test)]
     fn len(&self) -> usize {
         match self {
             DeviceSyncKeyType::Chacha20Poly1305(key) => key.len(),

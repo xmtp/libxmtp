@@ -15,13 +15,18 @@ where
         self.send_sync_request(request).await
     }
 
-    pub async fn reply_to_history_request(&self) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
+    pub async fn reply_to_history_request(
+        &self,
+        pin_code: &str,
+    ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
         let Some((_msg, request)) = self
             .pending_sync_request(DeviceSyncKind::MessageHistory)
             .await?
         else {
             return Err(DeviceSyncError::NoPendingRequest);
         };
+
+        self.verify_pin(&request.request_id, pin_code)?;
 
         let groups = self.syncable_groups()?;
         let messages = self.syncable_messages()?;
@@ -487,7 +492,7 @@ pub(crate) mod tests {
         assert_ok!(amal_b.enable_history_sync().await);
 
         // amal_b sends a history request
-        let (request_id, _pin_code) = amal_b
+        let (request_id, pin_code) = amal_b
             .send_history_request()
             .await
             .expect("history request");
@@ -517,7 +522,7 @@ pub(crate) mod tests {
         amal_a.history_sync_url = Some(url);
 
         // amal_a replies to the history request
-        let reply = amal_a.reply_to_history_request().await.unwrap();
+        let reply = amal_a.reply_to_history_request(&pin_code).await.unwrap();
 
         // verify the reply
         assert_eq!(reply.request_id, request_id);
