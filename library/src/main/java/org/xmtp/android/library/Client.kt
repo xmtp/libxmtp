@@ -603,10 +603,49 @@ class Client() {
         }
     }
 
+    @Deprecated("Find now includes DMs and Groups", replaceWith = ReplaceWith("findConversation"))
     fun findGroup(groupId: String): Group? {
         val client = v3Client ?: throw XMTPException("Error no V3 client initialized")
         try {
             return Group(this, client.conversation(groupId.hexToByteArray()))
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
+    fun findConversation(conversationId: String): Conversation? {
+        val client = v3Client ?: throw XMTPException("Error no V3 client initialized")
+        val conversation = client.conversation(conversationId.hexToByteArray())
+        return if (conversation.groupMetadata().conversationType() == "dm") {
+            Conversation.Dm(Dm(this, conversation))
+        } else if (conversation.groupMetadata().conversationType() == "group") {
+            Conversation.Group(Group(this, conversation))
+        } else {
+            null
+        }
+    }
+
+    fun findConversationByTopic(topic: String): Conversation? {
+        val client = v3Client ?: throw XMTPException("Error no V3 client initialized")
+        val regex = """/xmtp/mls/1/g-(.*?)/proto""".toRegex()
+        val matchResult = regex.find(topic)
+        val conversationId = matchResult?.groupValues?.get(1) ?: ""
+        val conversation = client.conversation(conversationId.hexToByteArray())
+        return if (conversation.groupMetadata().conversationType() == "dm") {
+            Conversation.Dm(Dm(this, conversation))
+        } else if (conversation.groupMetadata().conversationType() == "group") {
+            Conversation.Group(Group(this, conversation))
+        } else {
+            null
+        }
+    }
+
+    suspend fun findDm(address: String): Dm? {
+        val client = v3Client ?: throw XMTPException("Error no V3 client initialized")
+        val inboxId =
+            inboxIdFromAddress(address.lowercase()) ?: throw XMTPException("No inboxId present")
+        try {
+            return Dm(this, client.dmConversation(inboxId))
         } catch (e: Exception) {
             return null
         }

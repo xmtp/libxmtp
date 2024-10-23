@@ -212,7 +212,7 @@ class SmartContractWalletTest {
 
     @Test
     fun testCanStreamAllMessages() {
-        val group = runBlocking {
+        val group1 = runBlocking {
             davonSCWClient.conversations.newGroup(
                 listOf(
                     boV3.walletAddress,
@@ -228,13 +228,15 @@ class SmartContractWalletTest {
                 )
             )
         }
-        runBlocking { davonSCWClient.conversations.syncGroups() }
+        val dm1 = runBlocking { davonSCWClient.conversations.findOrCreateDm(eriSCW.walletAddress) }
+        val dm2 = runBlocking { boV3Client.conversations.findOrCreateDm(davonSCW.walletAddress) }
+        runBlocking { davonSCWClient.conversations.syncConversations() }
 
         val allMessages = mutableListOf<DecodedMessage>()
 
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {
-                davonSCWClient.conversations.streamAllGroupMessages()
+                davonSCWClient.conversations.streamAllConversationMessages()
                     .collect { message ->
                         allMessages.add(message)
                     }
@@ -243,21 +245,23 @@ class SmartContractWalletTest {
         }
         Thread.sleep(1000)
         runBlocking {
-            group.send("hi")
+            group1.send("hi")
             group2.send("hi")
+            dm1.send("hi")
+            dm2.send("hi")
         }
         Thread.sleep(1000)
-        assertEquals(2, allMessages.size)
+        assertEquals(4, allMessages.size)
         job.cancel()
     }
 
     @Test
-    fun testCanStreamGroups() {
+    fun testCanStreamConversations() {
         val allMessages = mutableListOf<String>()
 
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {
-                davonSCWClient.conversations.streamGroups()
+                davonSCWClient.conversations.streamConversations()
                     .collect { message ->
                         allMessages.add(message.topic)
                     }
@@ -269,10 +273,12 @@ class SmartContractWalletTest {
         runBlocking {
             eriSCWClient.conversations.newGroup(listOf(boV3.walletAddress, davonSCW.walletAddress))
             boV3Client.conversations.newGroup(listOf(eriSCW.walletAddress, davonSCW.walletAddress))
+            eriSCWClient.conversations.findOrCreateDm(davonSCW.walletAddress)
+            boV3Client.conversations.findOrCreateDm(davonSCW.walletAddress)
         }
 
         Thread.sleep(1000)
-        assertEquals(2, allMessages.size)
+        assertEquals(4, allMessages.size)
         job.cancel()
     }
 }

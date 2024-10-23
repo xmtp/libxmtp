@@ -151,6 +151,7 @@ data class Fixtures(
     val aliceAccount = PrivateKeyBuilder()
     val bobAccount = PrivateKeyBuilder()
     val caroAccount = PrivateKeyBuilder()
+    val davonV3Account = PrivateKeyBuilder()
 
     var alice: PrivateKey = aliceAccount.getPrivateKey()
     var aliceClient: Client =
