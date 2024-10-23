@@ -366,7 +366,7 @@ async fn main() {
                 .unwrap();
             let group = client.get_sync_group().unwrap();
             let group_id_str = hex::encode(group.group_id);
-            let reply = client.reply_to_history_request(&pin_code).await.unwrap();
+            let reply = client.reply_to_history_request(pin_code).await.unwrap();
 
             info!("Sent history sync reply in sync group {group_id_str}", { group_id: group_id_str});
             info!("Reply: {:?}", reply);

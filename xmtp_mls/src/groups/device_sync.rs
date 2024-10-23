@@ -340,7 +340,7 @@ where
     async fn process_sync_reply(&self, request_id: &str) -> Result<(), DeviceSyncError> {
         let conn = self.store().conn()?;
 
-        let Some(reply) = self.get_sync_reply(&request_id).await? else {
+        let Some(reply) = self.get_sync_reply(request_id).await? else {
             return Err(DeviceSyncError::NoReplyToProcess);
         };
         let Some(enc_key) = reply.encryption_key.clone() else {
@@ -666,7 +666,7 @@ fn insert_encrypted_syncables(
                 conn.insert_or_replace_group(group)?;
             }
             Syncable::GroupMessage(group_message) => {
-                if let Err(err) = group_message.store(&conn) {
+                if let Err(err) = group_message.store(conn) {
                     match err {
                         // this is fine because we are inserting messages that already exist
                         StorageError::DieselResult(diesel::result::Error::DatabaseError(
@@ -679,7 +679,7 @@ fn insert_encrypted_syncables(
                 }
             }
             Syncable::ConsentRecord(consent_record) => {
-                consent_record.store(&conn)?;
+                consent_record.store(conn)?;
             }
         };
     }

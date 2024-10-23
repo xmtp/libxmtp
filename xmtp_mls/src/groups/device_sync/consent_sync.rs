@@ -35,7 +35,7 @@ where
         Ok(reply)
     }
 
-    async fn process_consent_sync_reply(&self) -> Result<(), DeviceSyncError> {
+    async fn _process_consent_sync_reply(&self) -> Result<(), DeviceSyncError> {
         let conn = self.store().conn()?;
 
         // load the request_id
