@@ -129,7 +129,7 @@ where
         pin_code: &str,
     ) -> Result<(), DeviceSyncError> {
         let sync_group = self.get_sync_group()?;
-        let requests = sync_group.find_messages(
+        let messages = sync_group.find_messages(
             Some(GroupMessageKind::Application),
             None,
             None,
@@ -137,25 +137,27 @@ where
             None,
         )?;
 
-        let request = requests.into_iter().find(|msg| {
-            let message_history_content =
-                serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes);
-
-            match message_history_content {
-                Ok(DeviceSyncContent::Request(request)) => {
-                    request.request_id.eq(request_id) && request.pin_code.eq(pin_code)
-                }
+        for msg in messages.into_iter().rev() {
+            match serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes) {
                 Err(e) => {
-                    tracing::debug!("serde_json error: {:?}", e);
-                    false
+                    tracing::warn!(
+                        "Unable to deserialize message history. message_id: {:?}, err: {e:?}",
+                        msg.id
+                    );
+                    continue;
                 }
-                _ => false,
+                Ok(DeviceSyncContent::Request(request)) if request.request_id == request_id => {
+                    if request.pin_code == pin_code {
+                        return Ok(());
+                    } else {
+                        return Err(DeviceSyncError::PinMismatch);
+                    }
+                }
+                _ => continue,
             }
-        });
+        }
 
-        if request.is_none() {}
-
-        Ok(())
+        Err(DeviceSyncError::PinNotFound)
     }
 
     async fn send_sync_request(
