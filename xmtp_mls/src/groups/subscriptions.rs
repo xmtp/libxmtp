@@ -12,15 +12,17 @@ use crate::storage::group_message::StoredGroupMessage;
 use crate::storage::refresh_state::EntityKind;
 use crate::storage::StorageError;
 use crate::subscriptions::MessagesStreamInfo;
+use crate::subscriptions::SubscribeError;
 use crate::{retry::Retry, retry_async};
 use prost::Message;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
 impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
+    /// Internal stream processing function
     pub(crate) async fn process_stream_entry(
         &self,
         envelope: GroupMessage,
-    ) -> Result<Option<StoredGroupMessage>, GroupError> {
+    ) -> Result<StoredGroupMessage, SubscribeError> {
         let msgv1 = extract_message_v1(envelope)?;
         let msg_id = msgv1.id;
         let client_id = self.client.inbox_id();
@@ -50,27 +52,24 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                                 openmls_group.epoch()
                             );
 
-                            self.process_message(&mut openmls_group, &provider, msgv1, false)
-                                .await
-                                .map_err(GroupError::ReceiveError)
+                            self.process_message(&mut openmls_group, &provider, &msgv1, false)
+                                .await?;
+                            Ok::<_, SubscribeError>(())
                         })
                         .await
                 })
             );
 
-            if let Some(GroupError::ReceiveError(_)) = process_result.as_ref().err() {
+            if let Err(SubscribeError::Receive(_)) = process_result {
                 // Swallow errors here, since another process may have successfully saved the message
                 // to the DB
-                match self.sync_with_conn(&self.client.mls_provider()?).await {
-                    Ok(_) => {
-                        tracing::debug!("Sync triggered by streamed message successful")
-                    }
-                    Err(err) => {
-                        tracing::warn!("Sync triggered by streamed message failed: {}", err);
-                    }
-                };
-            } else if process_result.is_err() {
-                tracing::error!("Process stream entry {:?}", process_result.err());
+                if let Err(err) = self.sync_with_conn(&self.client.mls_provider()?).await {
+                    tracing::warn!("Sync triggered by streamed message failed: {}", err);
+                } else {
+                    tracing::debug!("Sync triggered by streamed message successful")
+                }
+            } else if let Err(e) = process_result {
+                tracing::error!("Process stream entry {:?}", e);
             }
         }
 
@@ -80,7 +79,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .context()
             .store()
             .conn()?
-            .get_group_message_by_timestamp(&self.group_id, created_ns as i64)?;
+            .get_group_message_by_timestamp(&self.group_id, created_ns as i64)?
+            .ok_or(SubscribeError::GroupMessageNotFound)?;
 
         Ok(new_message)
     }
@@ -96,18 +96,24 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(last_id >= id as i64)
     }
 
+    /// External proxy for `process_stream_entry`
+    /// Converts some `SubscribError` variants to an Option, if they are inconsequential.
     pub async fn process_streamed_group_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<StoredGroupMessage, GroupError> {
-        let envelope = GroupMessage::decode(envelope_bytes.as_slice())
-            .map_err(|e| GroupError::Generic(e.to_string()))?;
+    ) -> Result<StoredGroupMessage, SubscribeError> {
+        let envelope = GroupMessage::decode(envelope_bytes.as_slice())?;
+        // .map_err(|e| GroupError::Generic(e.to_string()))?;
 
-        let message = self.process_stream_entry(envelope).await?;
-        message.ok_or(GroupError::MissingMessage)
+        self.process_stream_entry(envelope).await
     }
 
-    pub async fn stream(&self) -> Result<impl Stream<Item = StoredGroupMessage> + '_, GroupError>
+    pub async fn stream(
+        &self,
+    ) -> Result<
+        impl Stream<Item = Result<StoredGroupMessage, SubscribeError>> + use<'_, ScopedClient>,
+        ClientError,
+    >
     where
         ScopedClient: Clone,
         <ScopedClient as ScopedGroupClient>::ApiClient: Clone + 'static,
@@ -126,7 +132,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         client: ScopedClient,
         group_id: Vec<u8>,
         created_at_ns: i64,
-        callback: impl FnMut(StoredGroupMessage) + Send + 'static,
+        callback: impl FnMut(Result<StoredGroupMessage, SubscribeError>) + Send + 'static,
     ) -> impl crate::StreamHandle<StreamOutput = Result<(), crate::groups::ClientError>>
     where
         ScopedClient: Clone + 'static,
@@ -147,7 +153,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 pub(crate) async fn stream_messages<ScopedClient>(
     client: &ScopedClient,
     group_id_to_info: Arc<HashMap<Vec<u8>, MessagesStreamInfo>>,
-) -> Result<impl Stream<Item = StoredGroupMessage> + '_, ClientError>
+) -> Result<impl Stream<Item = Result<StoredGroupMessage, SubscribeError>> + '_, ClientError>
 where
     ScopedClient: ScopedGroupClient + Clone,
     <ScopedClient as ScopedGroupClient>::ApiClient: XmtpApi + Clone + 'static,
@@ -160,7 +166,7 @@ where
     let messages_subscription = client.api().subscribe_group_messages(filters).await?;
 
     let stream = messages_subscription
-        .map(move |res| {
+        .then(move |res| {
             let group_id_to_info = group_id_to_info.clone();
             async move {
                 let envelope = res.map_err(GroupError::from)?;
@@ -178,15 +184,17 @@ where
                 mls_group.process_stream_entry(envelope).await
             }
         })
-        .filter_map(|res| async {
-            match crate::optify!(res.await, "Error processing stream entry").flatten() {
-                Some(message) => Some(message),
-                None => {
+        .filter(|e| {
+            let filter = match e {
+                Err(SubscribeError::GroupMessageNotFound) => {
                     tracing::info!("Skipped message streaming payload");
-                    None
+                    false
                 }
-            }
+                _ => true,
+            };
+            futures::future::ready(filter)
         });
+
     Ok(stream)
 }
 
@@ -195,7 +203,7 @@ where
 pub(crate) fn stream_messages_with_callback<ScopedClient>(
     client: ScopedClient,
     group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
-    mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
+    mut callback: impl FnMut(Result<StoredGroupMessage, SubscribeError>) + Send + 'static,
 ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>>
 where
     ScopedClient: ScopedGroupClient + Clone + 'static,
@@ -309,7 +317,7 @@ pub(crate) mod tests {
             .wait_for_delivery()
             .await
             .expect("timed out waiting for first message");
-        let first_val = stream.next().await.unwrap();
+        let first_val = stream.next().await.unwrap().unwrap();
         assert_eq!(first_val.decrypted_message_bytes, "hello".as_bytes());
 
         amal_group.send_message("goodbye".as_bytes()).await.unwrap();
@@ -318,7 +326,7 @@ pub(crate) mod tests {
             .wait_for_delivery()
             .await
             .expect("timed out waiting for second message");
-        let second_val = stream.next().await.unwrap();
+        let second_val = stream.next().await.unwrap().unwrap();
         assert_eq!(second_val.decrypted_message_bytes, "goodbye".as_bytes());
     }
 
@@ -358,6 +366,7 @@ pub(crate) mod tests {
         assert_eq!(values.len(), 10);
         for value in values {
             assert!(value
+                .unwrap()
                 .decrypted_message_bytes
                 .starts_with("hello".as_bytes()));
         }
@@ -405,7 +414,7 @@ pub(crate) mod tests {
             .wait_for_delivery()
             .await
             .expect("Never received group membership change from stream");
-        let first_val = stream.next().await.unwrap();
+        let first_val = stream.next().await.unwrap().unwrap();
         assert_eq!(first_val.kind, GroupMessageKind::MembershipChange);
 
         amal_group.send_message("hello".as_bytes()).await.unwrap();
@@ -413,7 +422,7 @@ pub(crate) mod tests {
             .wait_for_delivery()
             .await
             .expect("Never received second message from stream");
-        let second_val = stream.next().await.unwrap();
+        let second_val = stream.next().await.unwrap().unwrap();
         assert_eq!(second_val.decrypted_message_bytes, "hello".as_bytes());
     }
 }

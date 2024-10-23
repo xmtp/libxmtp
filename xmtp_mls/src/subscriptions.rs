@@ -7,10 +7,12 @@ use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
 use crate::{
-    client::{extract_welcome_message, ClientError},
-    groups::{group_metadata::ConversationType, subscriptions, MlsGroup},
+    client::{extract_welcome_message, ClientError, MessageProcessingError},
+    groups::{group_metadata::ConversationType, subscriptions, GroupError, MlsGroup},
     retry::Retry,
-    retry_async,
+    retry::RetryableError,
+    retry_async, retryable,
+    storage::StorageError,
     storage::{group::StoredGroup, group_message::StoredGroupMessage},
     Client, XmtpApi,
 };
@@ -84,6 +86,45 @@ impl From<StoredGroup> for (Vec<u8>, MessagesStreamInfo) {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum SubscribeError {
+    #[error("failed to start new messages stream {0}")]
+    FailedToStartNewMessagesStream(ClientError),
+    #[error(transparent)]
+    Client(#[from] ClientError),
+    #[error(transparent)]
+    Group(#[from] GroupError),
+    #[error("group message expected in database but is missing")]
+    GroupMessageNotFound,
+    #[error("processing message in stream: {0}")]
+    Receive(#[from] MessageProcessingError),
+    #[error(transparent)]
+    Database(#[from] diesel::result::Error),
+    #[error(transparent)]
+    Storage(#[from] StorageError),
+    #[error(transparent)]
+    Api(#[from] xmtp_proto::api_client::Error),
+    #[error(transparent)]
+    Decode(#[from] prost::DecodeError),
+}
+
+impl RetryableError for SubscribeError {
+    fn is_retryable(&self) -> bool {
+        use SubscribeError::*;
+        match self {
+            FailedToStartNewMessagesStream(e) => retryable!(e),
+            Client(e) => retryable!(e),
+            Group(e) => retryable!(e),
+            GroupMessageNotFound => true,
+            Receive(e) => retryable!(e),
+            Database(e) => retryable!(e),
+            Storage(e) => retryable!(e),
+            Api(e) => retryable!(e),
+            Decode(_) => false,
+        }
+    }
+}
+
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi + Clone + Send + Sync + 'static,
@@ -148,25 +189,32 @@ where
     pub async fn stream_conversations(
         &self,
         conversation_type: Option<ConversationType>,
-    ) -> Result<impl Stream<Item = MlsGroup<Self>> + '_, ClientError> {
+    ) -> Result<impl Stream<Item = Result<MlsGroup<Self>, SubscribeError>> + '_, ClientError> {
         let event_queue = tokio_stream::wrappers::BroadcastStream::new(
             self.local_events.subscribe(),
         )
         .filter_map(|event| async {
             crate::optify!(event, "Missed messages due to event queue lag")
-                .map(|c| c.group_filter())
-                .flatten()
+                .and_then(LocalEvents::<_>::group_filter)
+                .map(Result::Ok)
         });
 
         // Helper function for filtering Dm groups
-        let filter_group = move |group: MlsGroup<Self>| async move {
+        let filter_group = move |group: Result<MlsGroup<Self>, ClientError>| {
             let conversation_type = &conversation_type;
-            let provider = crate::optify!(group.client.context().mls_provider())?;
-            let metadata =
-                crate::optify!(group.metadata(provider), "error processing group metadata");
-            metadata
-                .filter(|m| conversation_type.map_or(true, |ct| ct == m.conversation_type))
-                .map(|_| group)
+            // take care of any possible errors
+            let result = || -> Result<_, _> {
+                let group = group?;
+                let provider = group.client.context().mls_provider()?;
+                let metadata = group.metadata(&provider)?;
+                Ok((metadata, group))
+            };
+            let filtered = result().map(|(metadata, group)| {
+                conversation_type
+                    .map_or(true, |ct| ct == metadata.conversation_type)
+                    .then_some(group)
+            });
+            futures::future::ready(filtered.transpose())
         };
 
         let installation_key = self.installation_public_key();
@@ -183,12 +231,7 @@ where
                 tracing::info!("Received conversation streaming payload");
                 self.process_streamed_welcome(welcome?).await
             })
-            .filter_map(move |res| async {
-                crate::optify!(
-                    res.await,
-                    "Error processing stream entry for conversation: "
-                )
-            });
+            .filter_map(|v| async { Some(v.await) });
 
         Ok(futures::stream::select(stream, event_queue).filter_map(filter_group))
     }
@@ -202,7 +245,7 @@ where
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient, V>>,
         conversation_type: Option<ConversationType>,
-        mut convo_callback: impl FnMut(MlsGroup<Self>) + Send + 'static,
+        mut convo_callback: impl FnMut(Result<MlsGroup<Self>, SubscribeError>) + Send + 'static,
     ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
@@ -222,7 +265,8 @@ where
     pub async fn stream_all_messages(
         &self,
         conversation_type: Option<ConversationType>,
-    ) -> Result<impl Stream<Item = Result<StoredGroupMessage, ClientError>> + '_, ClientError> {
+    ) -> Result<impl Stream<Item = Result<StoredGroupMessage, SubscribeError>> + '_, ClientError>
+    {
         self.sync_welcomes().await?;
 
         let mut group_id_to_info = self
@@ -257,46 +301,54 @@ where
 
                     messages = futures::future::ready(&mut extra_messages), if !extra_messages.is_empty() => {
                         for message in messages.drain(0..) {
-                            yield Ok(message);
+                            yield message;
                         }
                     },
                     Some(message) = messages_stream.next() => {
                         // an error can only mean the receiver has been dropped or closed so we're
                         // safe to end the stream
-                        yield Ok(message);
+                        yield message;
                     }
                     Some(new_group) = convo_stream.next() => {
-                        tracing::info!("Received new conversation inside streamAllMessages");
-                        if group_id_to_info.contains_key(&new_group.group_id) {
-                            continue;
-                        }
-                        for info in group_id_to_info.values_mut() {
-                            info.cursor = 0;
-                        }
-                        group_id_to_info.insert(
-                            new_group.group_id,
-                            MessagesStreamInfo {
-                                convo_created_at_ns: new_group.created_at_ns,
-                                cursor: 1, // For the new group, stream all messages since the group was created
-                            },
-                        );
-                        let new_messages_stream = match subscriptions::stream_messages(
-                            self,
-                            Arc::new(group_id_to_info.clone())
-                        ).await {
-                            Ok(stream) => stream,
-                            Err(e) => {
-                                tracing::error!("{}", e);
-                                break;
-                            }
-                        };
+                        match new_group {
+                            Ok(new_group) => {
+                                tracing::info!("Received new conversation inside streamAllMessages");
+                                if group_id_to_info.contains_key(&new_group.group_id) {
+                                    continue;
+                                }
+                                for info in group_id_to_info.values_mut() {
+                                    info.cursor = 0;
+                                }
+                                group_id_to_info.insert(
+                                    new_group.group_id,
+                                    MessagesStreamInfo {
+                                        convo_created_at_ns: new_group.created_at_ns,
+                                        cursor: 1, // For the new group, stream all messages since the group was created
+                                    },
+                                );
+                                let new_messages_stream = match subscriptions::stream_messages(
+                                    self,
+                                    Arc::new(group_id_to_info.clone())
+                                ).await {
+                                    Ok(s) => s,
+                                    Err(e) => {
+                                        yield Err(SubscribeError::FailedToStartNewMessagesStream(e));
+                                        continue;
+                                    },
+                                };
 
-                        tracing::debug!("switching streams");
-                        // attempt to drain all ready messages from existing stream
-                        while let Some(Some(message)) = messages_stream.next().now_or_never() {
-                            extra_messages.push(message);
+                                tracing::debug!("switching streams");
+                                // attempt to drain all ready messages from existing stream
+                                while let Some(Some(message)) = messages_stream.next().now_or_never() {
+                                    extra_messages.push(message);
+                                }
+                                messages_stream.set(new_messages_stream);
+                                continue;
+                            },
+                            Err(e) => {
+                                yield Err(SubscribeError::from(e))
+                            }
                         }
-                        messages_stream.set(new_messages_stream);
                     },
                 }
             }
@@ -308,7 +360,7 @@ where
     pub fn stream_all_messages_with_callback(
         client: Arc<Client<ApiClient, V>>,
         conversation_type: Option<ConversationType>,
-        mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
+        mut callback: impl FnMut(Result<StoredGroupMessage, SubscribeError>) + Send + 'static,
     ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
         let (tx, rx) = oneshot::channel();
 
@@ -317,10 +369,7 @@ where
             futures::pin_mut!(stream);
             let _ = tx.send(());
             while let Some(message) = stream.next().await {
-                match message {
-                    Ok(m) => callback(m),
-                    Err(m) => tracing::error!("error during stream all messages {}", m),
-                }
+                callback(message)
             }
             tracing::debug!("`stream_all_messages` stream ended, dropping stream");
             Ok::<_, ClientError>(())
@@ -381,7 +430,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let bob_received_groups = stream.next().await.unwrap();
+        let bob_received_groups = stream.next().await.unwrap().unwrap();
         assert_eq!(bob_received_groups.group_id, group_id);
     }
 
@@ -421,12 +470,12 @@ pub(crate) mod tests {
 
         bob_group.send_message(b"hello").await.unwrap();
         notify.wait_for_delivery().await.unwrap();
-        let message = stream.next().await.unwrap();
+        let message = stream.next().await.unwrap().unwrap();
         assert_eq!(message.decrypted_message_bytes, b"hello");
 
         bob_group.send_message(b"hello2").await.unwrap();
         notify.wait_for_delivery().await.unwrap();
-        let message = stream.next().await.unwrap();
+        let message = stream.next().await.unwrap().unwrap();
         assert_eq!(message.decrypted_message_bytes, b"hello2");
 
         // assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
@@ -468,7 +517,7 @@ pub(crate) mod tests {
             Arc::new(caro),
             None,
             move |message| {
-                (*messages_clone.lock()).push(message);
+                (*messages_clone.lock()).push(message.unwrap());
                 notify_pointer.notify_one();
             },
         );
@@ -520,7 +569,7 @@ pub(crate) mod tests {
             None,
             move |message| {
                 delivery_pointer.notify_one();
-                (*messages_clone.lock()).push(message);
+                (*messages_clone.lock()).push(message.unwrap());
             },
         );
         handle.wait_for_ready().await;
@@ -619,7 +668,7 @@ pub(crate) mod tests {
             caro.clone(),
             None,
             move |message| {
-                (*messages_clone.lock()).push(message);
+                (*messages_clone.lock()).push(message.unwrap());
                 blocked_pointer.fetch_sub(1, Ordering::SeqCst);
             },
         );
@@ -877,7 +926,7 @@ pub(crate) mod tests {
                     parking_lot::RawMutex,
                     Vec<StoredGroupMessage>,
                 > = messages_pointer.lock();
-                messages.push(message);
+                messages.push(message.unwrap());
                 notify_pointer.notify_one();
             },
         );
@@ -913,7 +962,7 @@ pub(crate) mod tests {
                     parking_lot::RawMutex,
                     Vec<StoredGroupMessage>,
                 > = messages_pointer.lock();
-                messages.push(message);
+                messages.push(message.unwrap());
                 notify_pointer.notify_one();
             },
         );
@@ -948,7 +997,7 @@ pub(crate) mod tests {
             None,
             move |message| {
                 let mut messages = messages_pointer.lock();
-                messages.push(message);
+                messages.push(message.unwrap());
                 notify_pointer.notify_one();
             },
         );

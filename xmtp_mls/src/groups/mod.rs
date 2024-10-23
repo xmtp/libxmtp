@@ -227,7 +227,7 @@ impl RetryableError for GroupError {
 pub struct MlsGroup<C> {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
-    pub(crate) client: Arc<C>,
+    pub client: Arc<C>,
     mutex: Arc<Mutex<()>>,
 }
 
