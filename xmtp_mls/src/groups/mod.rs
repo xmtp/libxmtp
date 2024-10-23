@@ -199,6 +199,8 @@ pub enum GroupError {
     MissingPendingCommit,
     #[error("Sync failed to wait for intent")]
     SyncFailedToWait,
+    #[error("cannot change metadata of DM")]
+    DmGroupMetadataForbidden,
 }
 
 impl RetryableError for GroupError {
@@ -481,11 +483,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         client: Arc<ScopedClient>,
         provider: &XmtpOpenMlsProvider,
         hpke_public_key: &[u8],
-        encrypted_welcome_bytes: Vec<u8>,
+        encrypted_welcome_bytes: &[u8],
         welcome_id: i64,
     ) -> Result<Self, GroupError> {
         tracing::info!("Trying to decrypt welcome");
-        let welcome_bytes = decrypt_welcome(provider, hpke_public_key, &encrypted_welcome_bytes)?;
+        let welcome_bytes = decrypt_welcome(provider, hpke_public_key, encrypted_welcome_bytes)?;
 
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
@@ -596,8 +598,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ///
     /// If so, adds/removes those group members
     pub async fn update_installations(&self) -> Result<(), GroupError> {
-        let conn = self.context().store().conn()?;
-        let provider = XmtpOpenMlsProvider::from(conn);
+        let provider = self.client.mls_provider()?;
         self.maybe_update_installations(&provider, Some(0)).await?;
         Ok(())
     }
@@ -796,12 +797,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Updates the name of the group. Will error if the user does not have the appropriate permissions
     /// to perform these updates.
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider()?;
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
+            return Err(GroupError::DmGroupMetadataForbidden);
+        }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
         let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
-            .await
+        self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
     /// Updates the permission policy of the group. This requires super admin permissions.
@@ -811,6 +815,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         permission_policy: PermissionPolicyOption,
         metadata_field: Option<MetadataField>,
     ) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider()?;
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
+            return Err(GroupError::DmGroupMetadataForbidden);
+        }
         if permission_update_type == PermissionUpdateType::UpdateMetadata
             && metadata_field.is_none()
         {
@@ -826,8 +834,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         let intent = self.queue_intent(IntentKind::UpdatePermission, intent_data)?;
 
-        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
-            .await
+        self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
     /// Retrieves the group name from the group's mutable metadata extension.
@@ -849,12 +856,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         group_description: String,
     ) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider()?;
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
+            return Err(GroupError::DmGroupMetadataForbidden);
+        }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_description(group_description).into();
         let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
-            .await
+        self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
     pub fn group_description(&self, provider: impl OpenMlsProvider) -> Result<String, GroupError> {
@@ -875,13 +885,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         group_image_url_square: String,
     ) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider()?;
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
+            return Err(GroupError::DmGroupMetadataForbidden);
+        }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_image_url_square(group_image_url_square)
                 .into();
         let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
-            .await
+        self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
     /// Retrieves the image URL (square) of the group from the group's mutable metadata extension.
@@ -905,12 +918,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         pinned_frame_url: String,
     ) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider()?;
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
+            return Err(GroupError::DmGroupMetadataForbidden);
+        }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_pinned_frame_url(pinned_frame_url).into();
         let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
 
-        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
-            .await
+        self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
     pub fn group_pinned_frame_url(
@@ -970,6 +986,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         action_type: UpdateAdminListType,
         inbox_id: String,
     ) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider()?;
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
+            return Err(GroupError::DmGroupMetadataForbidden);
+        }
         let intent_action_type = match action_type {
             UpdateAdminListType::Add => AdminListActionType::Add,
             UpdateAdminListType::Remove => AdminListActionType::Remove,
@@ -980,8 +1000,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
         let intent = self.queue_intent(IntentKind::UpdateAdminList, intent_data)?;
 
-        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
-            .await
+        self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
     /// Find the `inbox_id` of the group member who added the member to the group
@@ -1549,7 +1568,9 @@ pub(crate) mod tests {
 
     async fn get_latest_message(group: &MlsGroup<FullXmtpClient>) -> StoredGroupMessage {
         group.sync().await.unwrap();
-        let mut messages = group.find_messages(None, None, None, None, None, None).unwrap();
+        let mut messages = group
+            .find_messages(None, None, None, None, None, None)
+            .unwrap();
         messages.pop().unwrap()
     }
 
@@ -1633,7 +1654,9 @@ pub(crate) mod tests {
             .await
             .unwrap();
         // Check for messages
-        let messages = group.find_messages(None, None, None, None, None, None).unwrap();
+        let messages = group
+            .find_messages(None, None, None, None, None, None)
+            .unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
     }
@@ -1927,7 +1950,9 @@ pub(crate) mod tests {
             .await
             .expect("group create failure");
 
-        let messages_with_add = group.find_messages(None, None, None, None, None, None).unwrap();
+        let messages_with_add = group
+            .find_messages(None, None, None, None, None, None)
+            .unwrap();
         assert_eq!(messages_with_add.len(), 1);
 
         // Try and add another member without merging the pending commit
@@ -1936,7 +1961,9 @@ pub(crate) mod tests {
             .await
             .expect("group remove members failure");
 
-        let messages_with_remove = group.find_messages(None, None, None, None, None, None).unwrap();
+        let messages_with_remove = group
+            .find_messages(None, None, None, None, None, None)
+            .unwrap();
         assert_eq!(messages_with_remove.len(), 2);
 
         // We are expecting 1 message on the group topic, not 2, because the second one should have
@@ -2036,7 +2063,9 @@ pub(crate) mod tests {
             .unwrap();
         tracing::info!("created the group with 2 additional members");
         assert_eq!(group.members().await.unwrap().len(), 3);
-        let messages = group.find_messages(None, None, None, None, None, None).unwrap();
+        let messages = group
+            .find_messages(None, None, None, None, None, None)
+            .unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].kind, GroupMessageKind::MembershipChange);
         let encoded_content =
@@ -2051,7 +2080,9 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(group.members().await.unwrap().len(), 2);
         tracing::info!("removed bola");
-        let messages = group.find_messages(None, None, None, None, None, None).unwrap();
+        let messages = group
+            .find_messages(None, None, None, None, None, None)
+            .unwrap();
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[1].kind, GroupMessageKind::MembershipChange);
         let encoded_content =
@@ -2124,7 +2155,14 @@ pub(crate) mod tests {
         amal_group.sync().await.expect("sync failed");
 
         let amal_messages = amal_group
-            .find_messages(Some(GroupMessageKind::Application), None, None, None, None, None)
+            .find_messages(
+                Some(GroupMessageKind::Application),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .unwrap()
             .into_iter()
             .collect::<Vec<StoredGroupMessage>>();
@@ -3106,7 +3144,14 @@ pub(crate) mod tests {
         ];
 
         let messages = amal_group
-            .find_messages(Some(GroupMessageKind::Application), None, None, None, None, None)
+            .find_messages(
+                Some(GroupMessageKind::Application),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .unwrap()
             .into_iter()
             .collect::<Vec<StoredGroupMessage>>();
@@ -3207,7 +3252,9 @@ pub(crate) mod tests {
 
         // Amal sync and reads message
         amal_dm.sync().await.unwrap();
-        let messages = amal_dm.find_messages(None, None, None, None, None, None).unwrap();
+        let messages = amal_dm
+            .find_messages(None, None, None, None, None, None)
+            .unwrap();
         assert_eq!(messages.len(), 2);
         let message = messages.last().unwrap();
         assert_eq!(message.decrypted_message_bytes, b"test one");
@@ -3615,10 +3662,24 @@ pub(crate) mod tests {
         bo_group.sync().await.unwrap();
 
         let alix_messages = alix_group
-            .find_messages(Some(GroupMessageKind::Application), None, None, None, None, None)
+            .find_messages(
+                Some(GroupMessageKind::Application),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .unwrap();
         let bo_messages = bo_group
-            .find_messages(Some(GroupMessageKind::Application), None, None, None, None, None)
+            .find_messages(
+                Some(GroupMessageKind::Application),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .unwrap();
 
         assert_eq!(alix_messages.len(), 2);
@@ -3638,10 +3699,24 @@ pub(crate) mod tests {
         bo_group.sync().await.unwrap();
 
         let alix_messages = alix_group
-            .find_messages(Some(GroupMessageKind::Application), None, None, None, None, None)
+            .find_messages(
+                Some(GroupMessageKind::Application),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .unwrap();
         let bo_messages = bo_group
-            .find_messages(Some(GroupMessageKind::Application), None, None, None, None, None)
+            .find_messages(
+                Some(GroupMessageKind::Application),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .unwrap();
         assert_eq!(bo_messages.len(), 3);
         assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3

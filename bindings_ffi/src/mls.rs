@@ -15,6 +15,7 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::storage::group_message::SortDirection;
 use xmtp_mls::{
     api::ApiClientWrapper,
     builder::ClientBuilder,
@@ -1221,6 +1222,9 @@ impl FfiConversation {
             self.created_at_ns,
         );
 
+        let delivery_status = opts.delivery_status.map(|status| status.into());
+        let direction = opts.direction.map(|dir| dir.into());
+
         let messages: Vec<FfiMessage> = group
             .find_messages(
                 None,
@@ -1228,7 +1232,7 @@ impl FfiConversation {
                 opts.sent_after_ns,
                 opts.delivery_status.into(),
                 opts.limit,
-                opts.direction.into(),
+                direction,
             )?
             .into_iter()
             .map(|msg| msg.into())

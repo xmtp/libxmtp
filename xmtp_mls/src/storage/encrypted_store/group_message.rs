@@ -116,6 +116,7 @@ impl_store_or_ignore!(StoredGroupMessage, group_messages);
 
 impl DbConnection {
     /// Query for group messages
+    #[allow(clippy::too_many_arguments)]
     pub fn get_group_messages<GroupId: AsRef<[u8]>>(
         &self,
         group_id: GroupId,
@@ -146,12 +147,10 @@ impl DbConnection {
             query = query.filter(dsl::delivery_status.eq(status));
         }
 
-        if let Some(dir) = direction {
-            query = match dir {
-                SortDirection::Ascending => query.order(dsl::sent_at_ns.asc()),
-                SortDirection::Descending => query.order(dsl::sent_at_ns.desc()),
-            };
-        }
+        query = match direction.unwrap_or(SortDirection::Ascending) {
+            SortDirection::Ascending => query.order(dsl::sent_at_ns.asc()),
+            SortDirection::Descending => query.order(dsl::sent_at_ns.desc()),
+        };
 
         if let Some(limit) = limit {
             query = query.limit(limit);
@@ -431,13 +430,15 @@ pub(crate) mod tests {
             group.store(conn).unwrap();
 
             let messages = vec![
-                generate_message(None, Some(&group.id), Some(1_000)),
                 generate_message(None, Some(&group.id), Some(10_000)),
+                generate_message(None, Some(&group.id), Some(1_000)),
                 generate_message(None, Some(&group.id), Some(100_000)),
                 generate_message(None, Some(&group.id), Some(1_000_000)),
             ];
 
-            let membership_changes_asc = conn
+            assert_ok!(messages.store(conn));
+
+            let messages_asc = conn
                 .get_group_messages(
                     &group.id,
                     None,
@@ -448,9 +449,13 @@ pub(crate) mod tests {
                     Some(SortDirection::Ascending),
                 )
                 .unwrap();
-            assert_eq!(membership_changes_asc[0], messages[0]);
+            assert_eq!(messages_asc.len(), 4);
+            assert_eq!(messages_asc[0].sent_at_ns, 1_000);
+            assert_eq!(messages_asc[1].sent_at_ns, 10_000);
+            assert_eq!(messages_asc[2].sent_at_ns, 100_000);
+            assert_eq!(messages_asc[3].sent_at_ns, 1_000_000);
 
-            let membership_changes_desc = conn
+            let messages_desc = conn
                 .get_group_messages(
                     &group.id,
                     None,
@@ -461,7 +466,11 @@ pub(crate) mod tests {
                     Some(SortDirection::Descending),
                 )
                 .unwrap();
-            assert_eq!(membership_changes_desc[0], messages[4]);
+            assert_eq!(messages_desc.len(), 4);
+            assert_eq!(messages_desc[0].sent_at_ns, 1_000_000);
+            assert_eq!(messages_desc[1].sent_at_ns, 100_000);
+            assert_eq!(messages_desc[2].sent_at_ns, 10_000);
+            assert_eq!(messages_desc[3].sent_at_ns, 1_000);
         })
         .await
     }

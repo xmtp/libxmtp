@@ -194,6 +194,7 @@ impl WasmGroup {
         opts.sent_after_ns,
         delivery_status,
         opts.limit,
+        None,
       )
       .map_err(|e| JsError::new(&format!("{e}")))?
       .into_iter()

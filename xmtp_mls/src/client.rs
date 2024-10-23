@@ -802,7 +802,7 @@ where
                 retry_async!(
                     Retry::default(),
                     (async {
-                        let welcome_v1 = welcome_v1.clone();
+                        let welcome_v1 = &welcome_v1;
                         self.intents.process_for_id(
                             &id,
                             EntityKind::Welcome,
@@ -812,7 +812,7 @@ where
                                     Arc::new(self.clone()),
                                     &provider,
                                     welcome_v1.hpke_public_key.as_slice(),
-                                    welcome_v1.data,
+                                    &welcome_v1.data,
                                     welcome_v1.id as i64,
                                 )
                                 .await;
