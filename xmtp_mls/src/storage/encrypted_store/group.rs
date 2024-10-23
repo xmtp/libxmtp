@@ -10,10 +10,12 @@ use diesel::{
 };
 
 use serde::{Deserialize, Serialize};
+use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
 use super::{
     consent_record::{self, StoredConsentRecord},
     db_connection::DbConnection,
+    group_message,
     schema::groups::{self, dsl},
     Sqlite,
 };

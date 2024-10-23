@@ -87,6 +87,7 @@ pub(crate) mod tests {
 
     use super::*;
     use mockito;
+    use tracing::info;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 

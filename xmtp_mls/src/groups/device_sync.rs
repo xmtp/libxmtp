@@ -665,7 +665,17 @@ fn insert_encrypted_syncables(
                 conn.insert_or_replace_group(group)?;
             }
             Syncable::GroupMessage(group_message) => {
-                group_message.store(&conn)?;
+                if let Err(err) = group_message.store(&conn) {
+                    match err {
+                        // this is fine because we are inserting messages that already exist
+                        StorageError::DieselResult(diesel::result::Error::DatabaseError(
+                            diesel::result::DatabaseErrorKind::ForeignKeyViolation,
+                            _,
+                        )) => {}
+                        // otherwise propagate the error
+                        _ => Err(err)?,
+                    }
+                }
             }
             Syncable::ConsentRecord(consent_record) => {
                 consent_record.store(&conn)?;
