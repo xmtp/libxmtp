@@ -41,7 +41,6 @@ use xmtp_mls::{
     },
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
-use xmtp_proto::xmtp::mls::api::v1::SortDirection;
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
@@ -1230,7 +1229,7 @@ impl FfiConversation {
                 None,
                 opts.sent_before_ns,
                 opts.sent_after_ns,
-                opts.delivery_status.into(),
+                delivery_status,
                 opts.limit,
                 direction,
             )?
