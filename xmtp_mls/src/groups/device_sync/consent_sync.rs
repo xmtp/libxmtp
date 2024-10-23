@@ -1,11 +1,6 @@
-use std::io::Cursor;
-
 use super::*;
 use crate::{
-    storage::{
-        key_value_store::{KVStore, Key},
-        DbConnection,
-    },
+    storage::key_value_store::{KVStore, Key},
     Client, XmtpApi,
 };
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;

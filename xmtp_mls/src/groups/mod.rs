@@ -703,7 +703,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .await?;
         // get current number of users in group
         let member_count = self.members().await?.len();
-        if member_count + inbox_id_map.len() > MAX_GROUP_SIZE as usize {
+        if member_count + inbox_id_map.len() > MAX_GROUP_SIZE {
             return Err(GroupError::UserLimitExceeded);
         }
 

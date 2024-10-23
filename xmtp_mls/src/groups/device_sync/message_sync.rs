@@ -1,53 +1,15 @@
-use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Write};
-use std::path::{Path, PathBuf};
-
-use aes_gcm::aead::generic_array::GenericArray;
-use aes_gcm::{
-    aead::{Aead, KeyInit},
-    Aes256Gcm,
-};
-use serde::Deserialize;
-use tracing::warn;
-use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::{
-    xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{Reply, Request},
-    xmtp::mls::message_contents::plaintext_envelope::{Content, V2},
-    xmtp::mls::message_contents::{DeviceSyncRequest as DeviceSyncRequestProto, PlaintextEnvelope},
-};
-
 use super::*;
-
 use crate::storage::key_value_store::{KVStore, Key};
 use crate::storage::DbConnection;
 use crate::XmtpApi;
-use crate::{
-    groups::{GroupMessageKind, StoredGroupMessage},
-    storage::group::StoredGroup,
-    Client, Store,
-};
+use crate::{storage::group::StoredGroup, Client};
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi + Clone,
     V: SmartContractSignatureVerifier + Clone,
 {
-    pub async fn enable_history_sync(&self) -> Result<(), GroupError> {
-        // look for the sync group, create if not found
-        let sync_group = match self.get_sync_group() {
-            Ok(group) => group,
-            Err(_) => {
-                // create the sync group
-                self.create_sync_group()?
-            }
-        };
-
-        // sync the group
-        sync_group.sync().await?;
-
-        Ok(())
-    }
-
     // returns (request_id, pin_code)
     pub async fn send_history_request(&self) -> Result<(String, String), DeviceSyncError> {
         let request = DeviceSyncRequest::new(DeviceSyncKind::MessageHistory);
@@ -87,42 +49,6 @@ where
         self.process_sync_reply(&request_id).await
     }
 
-    pub(crate) fn verify_pin(
-        &self,
-        request_id: &str,
-        pin_code: &str,
-    ) -> Result<(), DeviceSyncError> {
-        let sync_group = self.get_sync_group()?;
-        let requests = sync_group.find_messages(
-            Some(GroupMessageKind::Application),
-            None,
-            None,
-            None,
-            None,
-        )?;
-        let request = requests.into_iter().find(|msg| {
-            let message_history_content =
-                serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes);
-
-            match message_history_content {
-                Ok(DeviceSyncContent::Request(request)) => {
-                    request.request_id.eq(request_id) && request.pin_code.eq(pin_code)
-                }
-                Err(e) => {
-                    tracing::debug!("serde_json error: {:?}", e);
-                    false
-                }
-                _ => false,
-            }
-        });
-
-        if request.is_none() {
-            return Err(DeviceSyncError::PinNotFound);
-        }
-
-        Ok(())
-    }
-
     fn syncable_groups(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
         let conn = self.store().conn()?;
         let groups = conn
@@ -159,7 +85,6 @@ pub(crate) mod tests {
 
     use super::*;
     use mockito;
-    use std::io::{BufRead, BufReader};
     use tempfile::NamedTempFile;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;

@@ -1091,7 +1091,7 @@ where
                         w
                     }
                 })
-                .unwrap_or(GRPC_DATA_LIMIT / usize::from(MAX_GROUP_SIZE));
+                .unwrap_or(GRPC_DATA_LIMIT / MAX_GROUP_SIZE);
 
         tracing::debug!("welcome chunk_size={chunk_size}");
         let api = self.client.api();

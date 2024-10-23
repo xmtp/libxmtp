@@ -109,6 +109,57 @@ where
     ApiClient: XmtpApi + Clone,
     V: SmartContractSignatureVerifier + Clone,
 {
+    pub async fn enable_history_sync(&self) -> Result<(), GroupError> {
+        // look for the sync group, create if not found
+        let sync_group = match self.get_sync_group() {
+            Ok(group) => group,
+            Err(_) => {
+                // create the sync group
+                self.create_sync_group()?
+            }
+        };
+
+        // sync the group
+        sync_group.sync().await?;
+
+        Ok(())
+    }
+
+    pub(crate) fn verify_pin(
+        &self,
+        request_id: &str,
+        pin_code: &str,
+    ) -> Result<(), DeviceSyncError> {
+        let sync_group = self.get_sync_group()?;
+        let requests = sync_group.find_messages(
+            Some(GroupMessageKind::Application),
+            None,
+            None,
+            None,
+            None,
+        )?;
+
+        let request = requests.into_iter().find(|msg| {
+            let message_history_content =
+                serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes);
+
+            match message_history_content {
+                Ok(DeviceSyncContent::Request(request)) => {
+                    request.request_id.eq(request_id) && request.pin_code.eq(pin_code)
+                }
+                Err(e) => {
+                    tracing::debug!("serde_json error: {:?}", e);
+                    false
+                }
+                _ => false,
+            }
+        });
+
+        if request.is_none() {}
+
+        Ok(())
+    }
+
     async fn send_sync_request(
         &self,
         request: DeviceSyncRequest,
@@ -251,7 +302,7 @@ where
         Ok(None)
     }
 
-    pub async fn get_sync_reply(
+    async fn get_sync_reply(
         &self,
         request_id: &str,
     ) -> Result<Option<DeviceSyncReplyProto>, DeviceSyncError> {
@@ -283,7 +334,7 @@ where
         Ok(None)
     }
 
-    pub async fn process_sync_reply(&self, request_id: &str) -> Result<(), DeviceSyncError> {
+    async fn process_sync_reply(&self, request_id: &str) -> Result<(), DeviceSyncError> {
         let Some(reply) = self.get_sync_reply(&request_id).await? else {
             return Err(DeviceSyncError::NoReplyToProcess);
         };
@@ -314,7 +365,7 @@ where
         Ok(())
     }
 
-    pub async fn ensure_member_of_all_groups(&self, inbox_id: &str) -> Result<(), GroupError> {
+    async fn ensure_member_of_all_groups(&self, inbox_id: &str) -> Result<(), GroupError> {
         let conn = self.store().conn()?;
         let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
         for group in groups {
@@ -325,7 +376,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn insert_sync_bundle(&self, history_file: &Path) -> Result<(), DeviceSyncError> {
+    fn insert_sync_bundle(&self, history_file: &Path) -> Result<(), DeviceSyncError> {
         let conn = self.store().conn()?;
 
         let file = File::open(history_file)?;
