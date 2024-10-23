@@ -1,5 +1,14 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
 
+use super::{
+    consent_record::StoredConsentRecord,
+    db_connection::DbConnection,
+    schema::groups::{self, dsl},
+    Sqlite,
+};
+use crate::{
+    groups::group_metadata::ConversationType, impl_fetch, impl_store, DuplicateItem, StorageError,
+};
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -8,20 +17,7 @@ use diesel::{
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
 };
-
 use serde::{Deserialize, Serialize};
-use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
-
-use super::{
-    consent_record::{self, StoredConsentRecord},
-    db_connection::DbConnection,
-    group_message,
-    schema::groups::{self, dsl},
-    Sqlite,
-};
-use crate::{
-    groups::group_metadata::ConversationType, impl_fetch, impl_store, DuplicateItem, StorageError,
-};
 
 /// The Group ID type.
 pub type ID = Vec<u8>;
