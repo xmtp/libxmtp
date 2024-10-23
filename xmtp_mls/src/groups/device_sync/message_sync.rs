@@ -394,33 +394,16 @@ pub(crate) mod tests {
         let key = DeviceSyncKeyType::new_chacha20_poly1305_key();
         let converted_key: DeviceSyncKeyTypeProto = key.into();
         let key_bytes = key.as_bytes();
-        let input_content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'";
-        let input_file = NamedTempFile::new().expect("Unable to create temp file");
-        let encrypted_file = NamedTempFile::new().expect("Unable to create temp file");
-        let decrypted_file = NamedTempFile::new().expect("Unable to create temp file");
-
-        // Write test input file
-        std::fs::write(input_file.path(), input_content).expect("Unable to write test input file");
+        let content = b"'{\"test\": \"data\"}\n{\"test\": \"data2\"}\n'".to_vec();
 
         // Encrypt the file
-        encrypt_bytes(input_file.path(), encrypted_file.path(), key_bytes)
-            .expect("Encryption failed");
+        let enc_content = encrypt_bytes(&content, key_bytes).expect("Encryption failed");
 
         // Decrypt the file
-        decrypt_history_file(encrypted_file.path(), decrypted_file.path(), converted_key)
-            .expect("Decryption failed");
-
-        // Read the decrypted file content
-        let decrypted_content =
-            std::fs::read(decrypted_file.path()).expect("Unable to read decrypted file");
+        let decrypted_content = decrypt_bytes(enc_content, key_bytes).expect("Decryption failed");
 
         // Assert the decrypted content is the same as the original input content
-        assert_eq!(decrypted_content, input_content);
-
-        // Clean up test files
-        std::fs::remove_file(input_file).expect("Unable to remove test input file");
-        std::fs::remove_file(encrypted_file).expect("Unable to remove test encrypted file");
-        std::fs::remove_file(decrypted_file).expect("Unable to remove test decrypted file");
+        assert_eq!(decrypted_content, content);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
