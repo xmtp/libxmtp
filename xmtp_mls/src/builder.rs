@@ -847,4 +847,33 @@ pub(crate) mod tests {
         )
         .await;
     }
+
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn test_replication_client() {
+        use xmtp_api_grpc::replication_client::ClientV4;
+        let wallet = generate_local_wallet();
+        let nonce = 1;
+        let inbox_id = generate_inbox_id(&wallet.get_address(), &nonce);
+
+        let identity_strategy = IdentityStrategy::CreateIfNotFound(
+            inbox_id,
+            wallet.get_address(),
+            0,
+            None,
+        );
+
+        let replication = xmtp_api_grpc::replication_client::ClientV4::create("http://localhost:5556".into(), false)
+            .await
+            .unwrap();
+
+        let xmtp_client = Client::<ClientV4>::builder(identity_strategy)
+            .temp_store()
+            .await
+            .api_client(replication)
+            .build()
+            .await
+            .unwrap();
+
+    }
 }
