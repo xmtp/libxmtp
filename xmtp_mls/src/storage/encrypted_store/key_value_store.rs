@@ -22,8 +22,12 @@ impl KVStore {
         key: &Key,
     ) -> Result<Option<T>, StorageError> {
         let key = format!("{key:?}");
-        let store: KVStore =
-            conn.raw_query(|conn| key_value_store::table.find(&key).first(conn))?;
+        let store: Option<KVStore> =
+            conn.raw_query(|conn| key_value_store::table.find(&key).first(conn).optional())?;
+
+        let Some(store) = store else {
+            return Ok(None);
+        };
 
         let value = match bincode::deserialize(&store.value) {
             Ok(value) => value,
