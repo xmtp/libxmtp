@@ -179,10 +179,10 @@ impl AssociationState {
         }
     }
 
-    pub fn new(account_address: String, nonce: u64) -> Self {
+    pub fn new(account_address: String, nonce: u64, chain_id: Option<u64>) -> Self {
         let inbox_id = generate_inbox_id(&account_address, &nonce);
         let identifier = MemberIdentifier::Address(account_address.clone());
-        let new_member = Member::new(identifier.clone(), None, None);
+        let new_member = Member::new(identifier.clone(), None, None, chain_id);
         Self {
             members: HashMap::from_iter([(identifier, new_member)]),
             seen_signatures: HashSet::new(),
@@ -204,7 +204,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn can_add_remove() {
-        let starting_state = AssociationState::new(rand_string(), 0);
+        let starting_state = AssociationState::new(rand_string(), 0, None);
         let new_entity = Member::default();
         let with_add = starting_state.add(new_entity.clone());
         assert!(with_add.get(&new_entity.identifier).is_some());
@@ -214,7 +214,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn can_diff() {
-        let starting_state = AssociationState::new(rand_string(), 0);
+        let starting_state = AssociationState::new(rand_string(), 0, None);
         let entity_1 = Member::default();
         let entity_2 = Member::default();
         let entity_3 = Member::default();

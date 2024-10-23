@@ -20,14 +20,21 @@ pub struct VerifiedSignature {
     pub signer: MemberIdentifier,
     pub kind: SignatureKind,
     pub raw_bytes: Vec<u8>,
+    pub chain_id: Option<u64>,
 }
 
 impl VerifiedSignature {
-    pub fn new(signer: MemberIdentifier, kind: SignatureKind, raw_bytes: Vec<u8>) -> Self {
+    pub fn new(
+        signer: MemberIdentifier,
+        kind: SignatureKind,
+        raw_bytes: Vec<u8>,
+        chain_id: Option<u64>,
+    ) -> Self {
         Self {
             signer,
             kind,
             raw_bytes,
+            chain_id,
         }
     }
 
@@ -46,6 +53,7 @@ impl VerifiedSignature {
             MemberIdentifier::Address(address),
             SignatureKind::Erc191,
             signature_bytes.to_vec(),
+            None,
         ))
     }
 
@@ -96,6 +104,7 @@ impl VerifiedSignature {
             MemberIdentifier::Installation(verifying_key_bytes.to_vec()),
             SignatureKind::InstallationKey,
             signature_bytes.to_vec(),
+            None,
         ))
     }
 
@@ -123,6 +132,7 @@ impl VerifiedSignature {
             // Must use the wallet signature bytes, since those are the ones we care about making unique.
             // This protects against using the legacy key more than once in the Identity Update Log
             signed_public_key.wallet_signature.raw_bytes,
+            None,
         ))
     }
 
@@ -153,6 +163,7 @@ impl VerifiedSignature {
                 ),
                 SignatureKind::Erc1271,
                 signature_bytes.to_vec(),
+                Some(account_id.get_chain_id_u64()?),
             ))
         } else {
             tracing::error!(

@@ -334,6 +334,7 @@ impl From<Member> for MemberProto {
             identifier: Some(member.identifier.into()),
             added_by_entity: member.added_by_entity.map(Into::into),
             client_timestamp_ns: member.client_timestamp_ns,
+            added_on_chain_id: member.added_on_chain_id,
         }
     }
 }
@@ -349,6 +350,7 @@ impl TryFrom<MemberProto> for Member {
                 .try_into()?,
             added_by_entity: proto.added_by_entity.map(TryInto::try_into).transpose()?,
             client_timestamp_ns: proto.client_timestamp_ns,
+            added_on_chain_id: proto.added_on_chain_id,
         })
     }
 }

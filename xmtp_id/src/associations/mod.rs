@@ -69,11 +69,13 @@ pub mod test_defaults {
                     existing_member.into(),
                     SignatureKind::Erc191,
                     rand_vec(),
+                    None,
                 ),
                 new_member_signature: VerifiedSignature::new(
                     new_member.clone().into(),
                     SignatureKind::InstallationKey,
                     rand_vec(),
+                    None,
                 ),
                 new_member_identifier: new_member.into(),
             }
@@ -91,6 +93,7 @@ pub mod test_defaults {
                     signer.into(),
                     SignatureKind::Erc191,
                     rand_vec(),
+                    None,
                 ),
             }
         }
@@ -104,6 +107,7 @@ pub mod test_defaults {
                     signer.into(),
                     SignatureKind::Erc191,
                     rand_vec(),
+                    None,
                 ),
                 revoked_member: rand_string().into(),
             }
@@ -140,6 +144,7 @@ pub(crate) mod tests {
                 initial_wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             ..Default::default()
         });
@@ -180,11 +185,13 @@ pub(crate) mod tests {
                 new_installation_identifier.clone(),
                 SignatureKind::InstallationKey,
                 rand_vec(),
+                None,
             ),
             existing_member_signature: VerifiedSignature::new(
                 first_member.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
         });
 
@@ -211,12 +218,14 @@ pub(crate) mod tests {
                 account_address.clone().into(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             // Add an installation ID
             new_member_signature: VerifiedSignature::new(
                 new_member_identifier.clone(),
                 SignatureKind::InstallationKey,
                 rand_vec(),
+                None,
             ),
             new_member_identifier: new_member_identifier.clone(),
         };
@@ -246,6 +255,7 @@ pub(crate) mod tests {
                 member_identifier.clone(),
                 SignatureKind::LegacyDelegated,
                 "0".as_bytes().to_vec(),
+                None,
             ),
         };
         let inbox_id = generate_inbox_id(&member_identifier.to_string(), &0);
@@ -263,6 +273,7 @@ pub(crate) mod tests {
                 SignatureKind::LegacyDelegated,
                 // All requests from the same legacy key will have the same signature nonce
                 "0".as_bytes().to_vec(),
+                None,
             ),
             ..Default::default()
         });
@@ -292,11 +303,13 @@ pub(crate) mod tests {
                 new_wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             existing_member_signature: VerifiedSignature::new(
                 installation_id.clone(),
                 SignatureKind::InstallationKey,
                 rand_vec(),
+                None,
             ),
         });
 
@@ -312,8 +325,12 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn reject_invalid_signature_on_create() {
         // Creates a signature with the wrong signer
-        let bad_signature =
-            VerifiedSignature::new(rand_string().into(), SignatureKind::Erc191, rand_vec());
+        let bad_signature = VerifiedSignature::new(
+            rand_string().into(),
+            SignatureKind::Erc191,
+            rand_vec(),
+            None,
+        );
         let action = CreateInbox {
             initial_address_signature: bad_signature,
             ..Default::default()
@@ -337,8 +354,12 @@ pub(crate) mod tests {
         let initial_state = new_test_inbox().await;
         let inbox_id = initial_state.inbox_id().clone();
         // Signature is from a random address
-        let bad_signature =
-            VerifiedSignature::new(rand_string().into(), SignatureKind::Erc191, rand_vec());
+        let bad_signature = VerifiedSignature::new(
+            rand_string().into(),
+            SignatureKind::Erc191,
+            rand_vec(),
+            None,
+        );
 
         let update_with_bad_existing_member = Action::AddAssociation(AddAssociation {
             existing_member_signature: bad_signature.clone(),
@@ -361,6 +382,7 @@ pub(crate) mod tests {
                 initial_state.recovery_address().clone().into(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             ..Default::default()
         });
@@ -388,6 +410,7 @@ pub(crate) mod tests {
                 rand_string().into(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             ..Default::default()
         });
@@ -416,12 +439,14 @@ pub(crate) mod tests {
                 existing_installation.identifier.clone(),
                 SignatureKind::InstallationKey,
                 rand_vec(),
+                None,
             ),
             new_member_identifier: new_installation_id.clone(),
             new_member_signature: VerifiedSignature::new(
                 new_installation_id.clone(),
                 SignatureKind::InstallationKey,
                 rand_vec(),
+                None,
             ),
         });
 
@@ -454,6 +479,7 @@ pub(crate) mod tests {
                 initial_state.recovery_address().clone().into(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             revoked_member: installation_id.clone(),
         });
@@ -483,6 +509,7 @@ pub(crate) mod tests {
                 wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             ..Default::default()
         });
@@ -499,6 +526,7 @@ pub(crate) mod tests {
                 wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             revoked_member: wallet_address.clone(),
         });
@@ -532,11 +560,13 @@ pub(crate) mod tests {
                 second_wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             existing_member_signature: VerifiedSignature::new(
                 wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
         });
 
@@ -545,6 +575,7 @@ pub(crate) mod tests {
                 wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             revoked_member: second_wallet_address.clone(),
         });
@@ -565,11 +596,13 @@ pub(crate) mod tests {
                 second_wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             existing_member_signature: VerifiedSignature::new(
                 wallet_address,
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
         });
 
@@ -595,6 +628,7 @@ pub(crate) mod tests {
                 initial_state.recovery_address().clone().into(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
         });
 
@@ -610,6 +644,7 @@ pub(crate) mod tests {
                 initial_recovery_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             revoked_member: initial_recovery_address.clone(),
         });
