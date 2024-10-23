@@ -124,7 +124,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::associations::verified_signature::VerifiedSignature;
 
-    pub async fn new_test_inbox() -> AssociationState {
+    pub fn new_test_inbox() -> AssociationState {
         let create_request = CreateInbox::default();
         let inbox_id = generate_inbox_id(&create_request.account_address, &create_request.nonce);
         let identity_update =
@@ -133,8 +133,8 @@ pub(crate) mod tests {
         get_state(vec![identity_update]).unwrap()
     }
 
-    pub async fn new_test_inbox_with_installation() -> AssociationState {
-        let initial_state = new_test_inbox().await;
+    pub fn new_test_inbox_with_installation() -> AssociationState {
+        let initial_state = new_test_inbox();
         let inbox_id = initial_state.inbox_id().clone();
         let initial_wallet_address: MemberIdentifier =
             initial_state.recovery_address().clone().into();
@@ -156,9 +156,8 @@ pub(crate) mod tests {
         .unwrap()
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn test_create_inbox() {
+    #[test]
+    fn test_create_inbox() {
         let create_request = CreateInbox::default();
         let inbox_id = generate_inbox_id(&create_request.account_address, &create_request.nonce);
         let account_address = create_request.account_address.clone();
@@ -171,10 +170,9 @@ pub(crate) mod tests {
         assert!(existing_entity.identifier.eq(&account_address.into()));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn create_and_add_separately() {
-        let initial_state = new_test_inbox().await;
+    #[test]
+    fn create_and_add_separately() {
+        let initial_state = new_test_inbox();
         let inbox_id = initial_state.inbox_id().clone();
         let new_installation_identifier: MemberIdentifier = rand_vec().into();
         let first_member: MemberIdentifier = initial_state.recovery_address().clone().into();
@@ -206,9 +204,8 @@ pub(crate) mod tests {
         assert_eq!(new_member.added_by_entity, Some(first_member));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn create_and_add_together() {
+    #[test]
+    fn create_and_add_together() {
         let create_action = CreateInbox::default();
         let account_address = create_action.account_address.clone();
         let inbox_id = generate_inbox_id(&account_address, &create_action.nonce);
@@ -244,9 +241,8 @@ pub(crate) mod tests {
         );
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn create_from_legacy_key() {
+    #[test]
+    fn create_from_legacy_key() {
         let member_identifier: MemberIdentifier = rand_string().into();
         let create_action = CreateInbox {
             nonce: 0,
@@ -284,10 +280,9 @@ pub(crate) mod tests {
         assert!(matches!(update_result, Err(AssociationError::Replay)));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn add_wallet_from_installation_key() {
-        let initial_state = new_test_inbox_with_installation().await;
+    #[test]
+    fn add_wallet_from_installation_key() {
+        let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().clone();
         let installation_id = initial_state
             .members_by_kind(MemberKind::Installation)
@@ -321,9 +316,8 @@ pub(crate) mod tests {
         assert_eq!(new_state.members().len(), 3);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn reject_invalid_signature_on_create() {
+    #[test]
+    fn reject_invalid_signature_on_create() {
         // Creates a signature with the wrong signer
         let bad_signature = VerifiedSignature::new(
             rand_string().into(),
@@ -348,10 +342,9 @@ pub(crate) mod tests {
         ));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn reject_invalid_signature_on_update() {
-        let initial_state = new_test_inbox().await;
+    #[test]
+    fn reject_invalid_signature_on_update() {
+        let initial_state = new_test_inbox();
         let inbox_id = initial_state.inbox_id().clone();
         // Signature is from a random address
         let bad_signature = VerifiedSignature::new(
@@ -397,9 +390,8 @@ pub(crate) mod tests {
         ));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn reject_if_signer_not_existing_member() {
+    #[test]
+    fn reject_if_signer_not_existing_member() {
         let create_inbox = CreateInbox::default();
         let inbox_id = generate_inbox_id(&create_inbox.account_address, &create_inbox.nonce);
         let create_request = Action::CreateInbox(create_inbox);
@@ -425,10 +417,9 @@ pub(crate) mod tests {
         ));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn reject_if_installation_adding_installation() {
-        let existing_state = new_test_inbox_with_installation().await;
+    #[test]
+    fn reject_if_installation_adding_installation() {
+        let existing_state = new_test_inbox_with_installation();
         let inbox_id = existing_state.inbox_id().clone();
         let existing_installations = existing_state.members_by_kind(MemberKind::Installation);
         let existing_installation = existing_installations.first().unwrap();
@@ -463,10 +454,9 @@ pub(crate) mod tests {
         ));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn revoke() {
-        let initial_state = new_test_inbox_with_installation().await;
+    #[test]
+    fn revoke() {
+        let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().clone();
         let installation_id = initial_state
             .members_by_kind(MemberKind::Installation)
@@ -492,10 +482,9 @@ pub(crate) mod tests {
         assert!(new_state.get(&installation_id).is_none());
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn revoke_children() {
-        let initial_state = new_test_inbox_with_installation().await;
+    #[test]
+    fn revoke_children() {
+        let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().clone();
         let wallet_address = initial_state
             .members_by_kind(MemberKind::Address)
@@ -540,10 +529,9 @@ pub(crate) mod tests {
         assert_eq!(new_state.members().len(), 0);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn revoke_and_re_add() {
-        let initial_state = new_test_inbox().await;
+    #[test]
+    fn revoke_and_re_add() {
+        let initial_state = new_test_inbox();
         let wallet_address = initial_state
             .members_by_kind(MemberKind::Address)
             .first()
@@ -614,10 +602,9 @@ pub(crate) mod tests {
         assert_eq!(state_after_re_add.members().len(), 2);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn change_recovery_address() {
-        let initial_state = new_test_inbox_with_installation().await;
+    #[test]
+    fn change_recovery_address() {
+        let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().clone();
         let initial_recovery_address: MemberIdentifier =
             initial_state.recovery_address().clone().into();
