@@ -13,7 +13,7 @@ use super::{
     validated_commit::extract_group_membership,
     GroupError, MlsGroup, ScopedGroupClient,
 };
-#[cfg(feature = "message-history")]
+
 use crate::groups::device_sync::DeviceSyncContent;
 use crate::{
     client::MessageProcessingError,
@@ -73,7 +73,6 @@ use xmtp_proto::xmtp::mls::{
     },
 };
 
-#[cfg(feature = "message-history")]
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{
     Reply, Request,
 };
@@ -402,12 +401,10 @@ where
                         }
                         .store_or_ignore(provider.conn_ref())?
                     }
-                    #[cfg_attr(not(feature = "message-history"), allow(unused_variables))]
                     Some(Content::V2(V2 {
                         idempotency_key,
                         message_type,
                     })) => match message_type {
-                        #[cfg(feature = "message-history")]
                         Some(Request(history_request)) => {
                             let content: DeviceSyncContent =
                                 DeviceSyncContent::Request(history_request);
@@ -431,7 +428,7 @@ where
                             }
                             .store_or_ignore(provider.conn_ref())?;
                         }
-                        #[cfg(feature = "message-history")]
+
                         Some(Reply(history_reply)) => {
                             let content: DeviceSyncContent =
                                 DeviceSyncContent::Reply(history_reply);

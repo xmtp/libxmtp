@@ -45,9 +45,7 @@ use crate::{
     Client,
 };
 
-#[cfg(feature = "consent-sync")]
 pub mod consent_sync;
-#[cfg(feature = "message-history")]
 pub mod message_sync;
 
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key

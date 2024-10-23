@@ -1,4 +1,3 @@
-#[cfg(any(feature = "message-history", feature = "consent-sync"))]
 pub mod device_sync;
 pub mod group_membership;
 pub mod group_metadata;
@@ -35,7 +34,6 @@ use prost::Message;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
-#[cfg(feature = "message-history")]
 use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
@@ -173,7 +171,7 @@ pub enum GroupError {
     CredentialError(#[from] BasicCredentialError),
     #[error("LeafNode error")]
     LeafNodeError(#[from] LibraryError),
-    #[cfg(feature = "message-history")]
+
     #[error("Message History error: {0}")]
     MessageHistory(#[from] Box<DeviceSyncError>),
     #[error("Installation diff error: {0}")]
@@ -509,7 +507,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Self::create_from_welcome(client, provider, welcome, inbox_id, welcome_id).await
     }
 
-    #[cfg(feature = "message-history")]
     pub(crate) fn create_and_insert_sync_group(
         client: Arc<ScopedClient>,
     ) -> Result<MlsGroup<ScopedClient>, GroupError> {

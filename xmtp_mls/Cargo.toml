@@ -23,11 +23,9 @@ bench = [
     "dep:xmtp_api_grpc",
     "criterion",
 ]
-consent-sync = ["dep:reqwest"]
-default = ["grpc-api", "message-history", "consent-sync"]
+default = ["grpc-api"]
 grpc-api = ["dep:xmtp_api_grpc"]
 http-api = ["dep:xmtp_api_http"]
-message-history = ["dep:reqwest"]
 test-utils = [
     "tracing-subscriber",
     "dep:tracing-wasm",
@@ -73,7 +71,7 @@ xmtp_proto = { workspace = true, features = ["convert"] }
 
 # Optional/Features
 console_error_panic_hook = { version = "0.1", optional = true }
-reqwest = { version = "0.12.4", features = ["stream"], optional = true }
+reqwest = { version = "0.12.4", features = ["stream"] }
 toml = { version = "0.8.4", optional = true }
 tracing-wasm = { version = "0.2", optional = true }
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }

@@ -33,5 +33,5 @@ tokio = "1.28.1"
 xmtp_api_grpc = { path = "../../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../../xmtp_cryptography" }
 xmtp_id = { path = "../../xmtp_id" }
-xmtp_mls = { path = "../../xmtp_mls", features = ["message-history"]}
+xmtp_mls = { path = "../../xmtp_mls" }
 xmtp_proto = { path = "../../xmtp_proto", features = ["proto_full"] }

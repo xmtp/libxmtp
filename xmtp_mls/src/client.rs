@@ -231,7 +231,6 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
     pub(crate) intents: Arc<Intents>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
-    #[cfg(feature = "message-history")]
     pub(crate) history_sync_url: Option<String>,
     pub(crate) local_events: broadcast::Sender<LocalEvents<Self>>,
     /// The method of verifying smart contract wallet signatures for this Client
@@ -248,7 +247,6 @@ where
         Self {
             api_client: self.api_client.clone(),
             context: self.context.clone(),
-            #[cfg(feature = "message-history")]
             history_sync_url: self.history_sync_url.clone(),
             local_events: self.local_events.clone(),
             scw_verifier: self.scw_verifier.clone(),
@@ -313,7 +311,7 @@ where
         identity: Identity,
         store: EncryptedMessageStore,
         scw_verifier: V,
-        #[cfg(feature = "message-history")] history_sync_url: Option<String>,
+        history_sync_url: Option<String>,
     ) -> Self
     where
         V: SmartContractSignatureVerifier,
@@ -330,7 +328,6 @@ where
         Self {
             api_client,
             context,
-            #[cfg(feature = "message-history")]
             history_sync_url,
             local_events: tx,
             scw_verifier,
@@ -612,7 +609,6 @@ where
         Ok(group)
     }
 
-    #[cfg(feature = "message-history")]
     pub(crate) fn create_sync_group(&self) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating sync group");
         let sync_group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()))?;
