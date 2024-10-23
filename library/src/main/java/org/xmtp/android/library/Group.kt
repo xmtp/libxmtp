@@ -12,10 +12,12 @@ import org.xmtp.android.library.messages.DecryptedMessage
 import org.xmtp.android.library.messages.MessageDeliveryStatus
 import org.xmtp.android.library.messages.PagingInfoSortDirection
 import org.xmtp.android.library.messages.Topic
-import org.xmtp.proto.message.api.v1.MessageApiOuterClass
-import uniffi.xmtpv3.FfiDeliveryStatus
+import org.xmtp.proto.message.api.v1.MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING
+import org.xmtp.proto.message.api.v1.MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING
 import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationMetadata
+import uniffi.xmtpv3.FfiDeliveryStatus
+import uniffi.xmtpv3.FfiDirection
 import uniffi.xmtpv3.FfiGroupPermissions
 import uniffi.xmtpv3.FfiListMessagesOptions
 import uniffi.xmtpv3.FfiMessage
@@ -119,10 +121,10 @@ class Group(val client: Client, private val libXMTPGroup: FfiConversation) {
         limit: Int? = null,
         before: Date? = null,
         after: Date? = null,
-        direction: PagingInfoSortDirection = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING,
+        direction: PagingInfoSortDirection = SORT_DIRECTION_DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
     ): List<DecodedMessage> {
-        val messages = libXMTPGroup.findMessages(
+        return libXMTPGroup.findMessages(
             opts = FfiListMessagesOptions(
                 sentBeforeNs = before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
                 sentAfterNs = after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
@@ -132,15 +134,14 @@ class Group(val client: Client, private val libXMTPGroup: FfiConversation) {
                     MessageDeliveryStatus.UNPUBLISHED -> FfiDeliveryStatus.UNPUBLISHED
                     MessageDeliveryStatus.FAILED -> FfiDeliveryStatus.FAILED
                     else -> null
+                },
+                direction = when (direction) {
+                    SORT_DIRECTION_ASCENDING -> FfiDirection.ASCENDING
+                    else -> FfiDirection.DESCENDING
                 }
             )
         ).mapNotNull {
             MessageV3(client, it).decodeOrNull()
-        }
-
-        return when (direction) {
-            MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING -> messages
-            else -> messages.reversed()
         }
     }
 
@@ -148,10 +149,10 @@ class Group(val client: Client, private val libXMTPGroup: FfiConversation) {
         limit: Int? = null,
         before: Date? = null,
         after: Date? = null,
-        direction: PagingInfoSortDirection = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING,
+        direction: PagingInfoSortDirection = SORT_DIRECTION_DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
     ): List<DecryptedMessage> {
-        val messages = libXMTPGroup.findMessages(
+        return libXMTPGroup.findMessages(
             opts = FfiListMessagesOptions(
                 sentBeforeNs = before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
                 sentAfterNs = after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
@@ -161,15 +162,14 @@ class Group(val client: Client, private val libXMTPGroup: FfiConversation) {
                     MessageDeliveryStatus.UNPUBLISHED -> FfiDeliveryStatus.UNPUBLISHED
                     MessageDeliveryStatus.FAILED -> FfiDeliveryStatus.FAILED
                     else -> null
+                },
+                direction = when (direction) {
+                    SORT_DIRECTION_ASCENDING -> FfiDirection.ASCENDING
+                    else -> FfiDirection.DESCENDING
                 }
             )
         ).mapNotNull {
             MessageV3(client, it).decryptOrNull()
-        }
-
-        return when (direction) {
-            MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING -> messages
-            else -> messages.reversed()
         }
     }
 
