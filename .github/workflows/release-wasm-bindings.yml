@@ -45,7 +45,7 @@ jobs:
 
       - name: Build
         working-directory: bindings_wasm
-        run: yarn build
+        run: RUST_BACKTRACE=full yarn build
 
       - name: Publish to NPM
         uses: JS-DevTools/npm-publish@v3
