@@ -30,6 +30,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 
+use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::key_value_store::Key;
 use crate::storage::DbConnection;
 use crate::Store;
@@ -128,14 +129,8 @@ where
         pin_code: &str,
     ) -> Result<(), DeviceSyncError> {
         let sync_group = self.get_sync_group()?;
-        let messages = sync_group.find_messages(
-            Some(GroupMessageKind::Application),
-            None,
-            None,
-            None,
-            None,
-            None,
-        )?;
+        let messages = sync_group
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
 
         for msg in messages.into_iter().rev() {
             match serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes) {
@@ -171,14 +166,8 @@ where
         // sync the group
         sync_group.sync().await?;
 
-        let messages = sync_group.find_messages(
-            Some(GroupMessageKind::Application),
-            None,
-            None,
-            None,
-            None,
-            None,
-        )?;
+        let messages = sync_group
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
 
         let store_key = match request.kind {
             DeviceSyncKind::Consent => Key::ConsentSyncRequestId,
@@ -237,14 +226,8 @@ where
 
         sync_group.sync().await?;
 
-        let messages = sync_group.find_messages(
-            Some(GroupMessageKind::Application),
-            None,
-            None,
-            None,
-            None,
-            None,
-        )?;
+        let messages = sync_group
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
 
         let mut replied_request_ids = vec![];
         for msg in messages.into_iter().rev() {
@@ -278,14 +261,8 @@ where
 
         sync_group.sync().await?;
 
-        let messages = sync_group.find_messages(
-            Some(GroupMessageKind::Application),
-            None,
-            None,
-            None,
-            None,
-            None,
-        )?;
+        let messages = sync_group
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
 
         for msg in messages.into_iter().rev() {
             let msg_content: DeviceSyncContent =
@@ -311,14 +288,8 @@ where
         let sync_group = self.get_sync_group()?;
 
         sync_group.sync().await?;
-        let messages = sync_group.find_messages(
-            Some(GroupMessageKind::Application),
-            None,
-            None,
-            None,
-            None,
-            None,
-        )?;
+        let messages = sync_group
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
 
         for msg in messages.iter().rev() {
             // ignore this installation's messages

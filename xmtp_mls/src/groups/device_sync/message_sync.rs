@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::key_value_store::{KVStore, Key};
 use crate::XmtpApi;
 use crate::{storage::group::StoredGroup, Client};
@@ -67,7 +68,7 @@ where
 
         let mut all_messages = vec![];
         for StoredGroup { id, .. } in groups.into_iter() {
-            let messages = conn.get_group_messages(id, None, None, None, None, None, None)?;
+            let messages = conn.get_group_messages(&id, &MsgQueryArgs::default())?;
             for msg in messages {
                 all_messages.push(Syncable::GroupMessage(msg));
             }
@@ -153,14 +154,7 @@ pub(crate) mod tests {
         // make sure there's only 1 message in the sync group
         let sync_group = client.get_sync_group().unwrap();
         let messages = sync_group
-            .find_messages(
-                Some(GroupMessageKind::Application),
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
             .unwrap();
         assert_eq!(messages.len(), 1);
     }
@@ -205,14 +199,7 @@ pub(crate) mod tests {
         // make sure there's 2 messages in the sync group
         let sync_group = client.get_sync_group().unwrap();
         let messages = sync_group
-            .find_messages(
-                Some(GroupMessageKind::Application),
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
             .unwrap();
         assert_eq!(messages.len(), 2);
     }
@@ -351,15 +338,7 @@ pub(crate) mod tests {
 
         let amal_b_conn = amal_b.store().conn().unwrap();
         let amal_b_messages = amal_b_conn
-            .get_group_messages(
-                amal_b_sync_group.group_id,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            .get_group_messages(&amal_b_sync_group.group_id, &MsgQueryArgs::default())
             .unwrap();
 
         // there should be two messages in the sync group
