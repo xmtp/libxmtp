@@ -69,7 +69,6 @@ pub(crate) mod tests {
     use crate::{
         assert_ok,
         builder::ClientBuilder,
-        groups::GroupMetadataOptions,
         storage::consent_record::{ConsentState, ConsentType},
     };
     use mockito;
@@ -97,12 +96,10 @@ pub(crate) mod tests {
 
         let wallet = generate_local_wallet();
         let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let group_a = amal_a
-            .create_group(None, GroupMetadataOptions::default())
-            .expect("create group");
+        amal_a.history_sync_url = Some(history_sync_url.clone());
 
+        // create an alix installation and consent with alix
         let alix_wallet = generate_local_wallet();
-        // let alix = ClientBuilder::new_test_client(&alix_wallet).await;
         let consent_record = StoredConsentRecord::new(
             ConsentType::Address,
             ConsentState::Allowed,
@@ -110,40 +107,29 @@ pub(crate) mod tests {
         );
         amal_a.set_consent_states(&[consent_record]).await.unwrap();
 
+        // Ensure those consent records now exist.
         let syncable_consent_records = amal_a.syncable_consent_records().unwrap();
         assert_eq!(syncable_consent_records.len(), 2);
 
-        let (enc_content, enc_key) = encrypt_syncables(&[syncable_consent_records]).unwrap();
-
-        let _m = server
-            .mock("GET", "/upload")
-            .with_status(201)
-            .with_body(&enc_content)
-            .create();
-
-        amal_a.history_sync_url = Some(history_sync_url.clone());
-
-        // the first installation should have zero sync groups
+        // The first installation should have zero sync groups.
         let amal_a_sync_groups = amal_a.store().conn().unwrap().find_sync_groups().unwrap();
         assert_eq!(amal_a_sync_groups.len(), 0);
 
-        // create a second installation for amal
+        // Create a second installation for amal.
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        // turn on history sync
+        // Turn on history sync for the second installation.
         assert_ok!(amal_b.enable_history_sync().await);
-        // check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b)
+        // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
         amal_a.sync_welcomes().await.expect("sync_welcomes");
-        // have the second installation request for a consent sync
+        // Have the second installation request for a consent sync.
         let (_group_id, pin_code) = amal_b
             .send_consent_sync_request()
             .await
             .expect("history request");
 
+        // The first installation should now be a part of the sync group created by the second installation.
         let amal_a_sync_groups = amal_a.store().conn().unwrap().find_sync_groups().unwrap();
         assert_eq!(amal_a_sync_groups.len(), 1);
-        // get the first sync group
-        // let amal_a_sync_group = amal_a.group(amal_a_sync_groups[0].id.clone()).unwrap();
-        // amal_a_sync_group.sync().await.expect("sync");
 
         // Have first installation reply.
         // This is to make sure it finds the request in its sync group history,
@@ -155,8 +141,8 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        // recreate the encrypted payload that was uploaded to our mock server...
-        let (enc_payload, key) = encrypt_syncables_with_key(
+        // recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
+        let (enc_payload, _key) = encrypt_syncables_with_key(
             &[amal_a.syncable_consent_records().unwrap()],
             reply.encryption_key.unwrap().try_into().unwrap(),
         )
