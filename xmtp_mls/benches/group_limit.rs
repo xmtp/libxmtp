@@ -224,7 +224,7 @@ fn remove_all_members_from_group(c: &mut Criterion) {
                         let group = client
                             .create_group(None, GroupMetadataOptions::default())
                             .unwrap();
-                        group.add_members_by_inbox_id(&ids).await.unwrap();
+                        group.add_members_by_inbox_id(ids).await.unwrap();
                         (group, span.clone(), ids.clone())
                     })
                 },
@@ -267,7 +267,7 @@ fn remove_half_members_from_group(c: &mut Criterion) {
                         let group = client
                             .create_group(None, GroupMetadataOptions::default())
                             .unwrap();
-                        group.add_members_by_inbox_id(&ids).await.unwrap();
+                        group.add_members_by_inbox_id(ids).await.unwrap();
                         (group, span.clone(), ids[0..(size / 2)].into())
                     })
                 },
@@ -310,7 +310,7 @@ fn add_1_member_to_group(c: &mut Criterion) {
                         let group = client
                             .create_group(None, GroupMetadataOptions::default())
                             .unwrap();
-                        group.add_members_by_inbox_id(&ids).await.unwrap();
+                        group.add_members_by_inbox_id(ids).await.unwrap();
                         let member = inbox_ids.last().unwrap().clone();
                         (group, vec![member], span.clone())
                     })
