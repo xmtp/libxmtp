@@ -87,11 +87,10 @@ pub(crate) mod tests {
     const HISTORY_SERVER_PORT: u16 = 5558;
 
     use super::*;
+    use crate::{assert_ok, builder::ClientBuilder, groups::GroupMetadataOptions};
     use mockito;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
-
-    use crate::{assert_ok, builder::ClientBuilder, groups::GroupMetadataOptions};
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_enable_history_sync() {
