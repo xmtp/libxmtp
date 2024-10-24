@@ -19,10 +19,7 @@ where
         &self,
         pin_code: &str,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
-        let Some((_msg, request)) = self.pending_sync_request(DeviceSyncKind::Consent).await?
-        else {
-            return Err(DeviceSyncError::NoPendingRequest);
-        };
+        let (_msg, request) = self.pending_sync_request(DeviceSyncKind::Consent).await?;
 
         self.verify_pin(&request.request_id, pin_code)?;
 
@@ -156,7 +153,7 @@ pub(crate) mod tests {
             .with_body(&enc_payload)
             .create();
 
-        // The second installatino has consented to nobody
+        // The second installation has consented to nobody
         let consent_records = amal_b.store().conn().unwrap().consent_records().unwrap();
         assert_eq!(consent_records.len(), 0);
 

@@ -52,7 +52,7 @@ pub mod message_sync;
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
 pub const NONCE_SIZE: usize = 12; // 96-bit nonce
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 enum Syncable {
     Group(StoredGroup),
@@ -221,7 +221,7 @@ where
     async fn pending_sync_request(
         &self,
         kind: DeviceSyncKind,
-    ) -> Result<Option<(StoredGroupMessage, DeviceSyncRequestProto)>, DeviceSyncError> {
+    ) -> Result<(StoredGroupMessage, DeviceSyncRequestProto), DeviceSyncError> {
         let sync_group = self.get_sync_group()?;
 
         sync_group.sync().await?;
@@ -234,12 +234,12 @@ where
             let msg_content: DeviceSyncContent =
                 serde_json::from_slice(&msg.decrypted_message_bytes)?;
             match msg_content {
-                DeviceSyncContent::Request(request) if request.kind == kind as i32 => {
+                DeviceSyncContent::Request(request) if request.kind() == kind => {
                     if replied_request_ids.contains(&request.request_id) {
                         // request was already replied to, no longer considered pending.
-                        return Ok(None);
+                        return Err(DeviceSyncError::NoPendingRequest);
                     } else {
-                        return Ok(Some((msg, request)));
+                        return Ok((msg, request));
                     }
                 }
                 DeviceSyncContent::Reply(reply) => {
@@ -250,7 +250,7 @@ where
             }
         }
 
-        Ok(None)
+        Err(DeviceSyncError::NoPendingRequest)
     }
 
     async fn pending_sync_request_id(
@@ -516,17 +516,6 @@ pub(crate) struct DeviceSyncReply {
     url: String,
     /// Encryption key for the backup bundle
     encryption_key: DeviceSyncKeyType,
-}
-
-impl DeviceSyncReply {
-    #[cfg(test)]
-    pub(crate) fn new(id: &str, url: &str, encryption_key: DeviceSyncKeyType) -> Self {
-        Self {
-            request_id: id.into(),
-            url: url.into(),
-            encryption_key,
-        }
-    }
 }
 
 impl From<DeviceSyncReply> for DeviceSyncReplyProto {

@@ -20,12 +20,9 @@ where
         &self,
         pin_code: &str,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
-        let Some((_msg, request)) = self
+        let (_msg, request) = self
             .pending_sync_request(DeviceSyncKind::MessageHistory)
-            .await?
-        else {
-            return Err(DeviceSyncError::NoPendingRequest);
-        };
+            .await?;
 
         self.verify_pin(&request.request_id, pin_code)?;
 
@@ -127,14 +124,21 @@ pub(crate) mod tests {
         let alix = ClientBuilder::new_test_client(&alix_wallet).await;
 
         // Have amal_a create a group and add alix to that group, then send a message.
+
         let group = amal_a
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
-        group.add_members_by_inbox_id(&[alix.inbox_id()]);
+        group
+            .add_members_by_inbox_id(&[alix.inbox_id()])
+            .await
+            .unwrap();
+        group.send_message(&[1, 2, 3]).await.unwrap();
 
-        // Ensure that consent record now exists.
-        let syncable_consent_records = amal_a.syncable_consent_records().unwrap();
-        assert_eq!(syncable_consent_records.len(), 1);
+        // Ensure that groups and messages now exists.
+        let syncable_groups = amal_a.syncable_groups().unwrap();
+        assert_eq!(syncable_groups.len(), 1);
+        let syncable_messages = amal_a.syncable_messages().unwrap();
+        assert_eq!(syncable_messages.len(), 2); // welcome message, and message that was just sent
 
         // The first installation should have zero sync groups.
         let amal_a_sync_groups = amal_a.store().conn().unwrap().find_sync_groups().unwrap();
@@ -148,7 +152,7 @@ pub(crate) mod tests {
         amal_a.sync_welcomes().await.expect("sync_welcomes");
         // Have the second installation request for a consent sync.
         let (_group_id, pin_code) = amal_b
-            .send_consent_sync_request()
+            .send_history_request()
             .await
             .expect("history request");
 
@@ -161,14 +165,14 @@ pub(crate) mod tests {
         // verifies the pin code,
         // has no problem packaging the consent records,
         // and sends a reply message to the first installation.
-        let reply = amal_a
-            .reply_to_consent_sync_request(&pin_code)
-            .await
-            .unwrap();
+        let reply = amal_a.reply_to_history_request(&pin_code).await.unwrap();
 
         // recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
         let (enc_payload, _key) = encrypt_syncables_with_key(
-            &[amal_a.syncable_consent_records().unwrap()],
+            &[
+                amal_a.syncable_groups().unwrap(),
+                amal_a.syncable_messages().unwrap(),
+            ],
             reply.encryption_key.unwrap().try_into().unwrap(),
         )
         .unwrap();
@@ -181,22 +185,29 @@ pub(crate) mod tests {
             .with_body(&enc_payload)
             .create();
 
-        // The second installatino has consented to nobody
-        let consent_records = amal_b.store().conn().unwrap().consent_records().unwrap();
-        assert_eq!(consent_records.len(), 0);
+        // The second installation has no groups
+        assert_eq!(amal_b.syncable_groups().unwrap().len(), 0);
+        assert_eq!(amal_b.syncable_messages().unwrap().len(), 0);
 
         // Have the second installation process the reply.
-        amal_b.process_consent_sync_reply().await.unwrap();
+        amal_b.process_message_history_reply().await.unwrap();
 
         // Load consents of both installations
-        let consent_records_a = amal_a.store().conn().unwrap().consent_records().unwrap();
-        let consent_records_b = amal_b.store().conn().unwrap().consent_records().unwrap();
+        let groups_a = amal_a.syncable_groups().unwrap();
+        let groups_b = amal_b.syncable_groups().unwrap();
+        let messages_a = amal_a.syncable_messages().unwrap();
+        let messages_b = amal_b.syncable_messages().unwrap();
 
-        // Ensure the consent is synced.
-        assert_eq!(consent_records_a.len(), 2); // 2 consents - alix, and the group sync
-        assert_eq!(consent_records_b.len(), 2);
-        for record in &consent_records_a {
-            assert!(consent_records_b.contains(record));
+        // Ensure the groups and messages are synced.
+        assert_eq!(groups_a.len(), 1);
+        assert_eq!(groups_b.len(), 1);
+        for record in &groups_a {
+            assert!(groups_b.contains(record));
+        }
+        assert_eq!(messages_a.len(), 2);
+        assert_eq!(messages_b.len(), 2);
+        for record in &messages_a {
+            assert!(messages_b.contains(record));
         }
     }
 
