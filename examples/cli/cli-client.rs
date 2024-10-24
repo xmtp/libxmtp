@@ -121,6 +121,7 @@ enum Commands {
         pin_code: String,
     },
     ProcessHistorySyncReply {},
+    ProcessConsentSyncReply {},
     ListHistorySyncMessages {},
     /// Information about the account that owns the DB
     Info {},
@@ -382,6 +383,16 @@ async fn main() {
             client.process_history_sync_reply().await.unwrap();
 
             info!("History bundle downloaded and inserted into user DB", {})
+        }
+        Commands::ProcessConsentSyncReply {} => {
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+            client.sync_welcomes().await.unwrap();
+            client.enable_history_sync().await.unwrap();
+            client.process_consent_sync_reply().await.unwrap();
+
+            info!("Consent bundle downloaded and inserted into user DB", {})
         }
         Commands::ListHistorySyncMessages {} => {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
