@@ -87,6 +87,8 @@ pub fn step_wasm_bindgen_build<T>(
     // TODO: Check for wasm-bindgen on `PATH`
     let sh = Shell::new()?;
     // let _env = sh.push_env("RUSTFLAGS", crate::RUSTFLAGS);
+    println!("wasm_path: {}", wasm_path.display());
+    println!("pkg_directory: {}", pkg_directory.display());
     let cmd = cmd!(sh, "wasm-bindgen {wasm_path} --out-dir {pkg_directory} --typescript --target web --split-linked-modules");
     pretty_print(cmd, f)?;
     Ok(())
