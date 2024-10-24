@@ -345,7 +345,7 @@ impl WasmClient {
       records.into_iter().map(StoredConsentRecord::from).collect();
 
     inner
-      .set_consent_states(stored_records)
+      .set_consent_states(&stored_records)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     Ok(())

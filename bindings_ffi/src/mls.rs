@@ -361,7 +361,7 @@ impl FfiXmtpClient {
         let stored_records: Vec<StoredConsentRecord> =
             records.into_iter().map(StoredConsentRecord::from).collect();
 
-        inner.set_consent_states(stored_records).await?;
+        inner.set_consent_states(&stored_records).await?;
         Ok(())
     }
 

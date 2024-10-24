@@ -411,7 +411,7 @@ impl NapiClient {
       records.into_iter().map(StoredConsentRecord::from).collect();
 
     inner
-      .set_consent_states(stored_records)
+      .set_consent_states(&stored_records)
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(())
