@@ -1020,6 +1020,9 @@ impl serde::Serialize for Member {
         if self.client_timestamp_ns.is_some() {
             len += 1;
         }
+        if self.added_on_chain_id.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.Member", len)?;
         if let Some(v) = self.identifier.as_ref() {
             struct_ser.serialize_field("identifier", v)?;
@@ -1031,6 +1034,11 @@ impl serde::Serialize for Member {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("clientTimestampNs", ToString::to_string(&v).as_str())?;
+        }
+        if let Some(v) = self.added_on_chain_id.as_ref() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("addedOnChainId", ToString::to_string(&v).as_str())?;
         }
         struct_ser.end()
     }
@@ -1047,6 +1055,8 @@ impl<'de> serde::Deserialize<'de> for Member {
             "addedByEntity",
             "client_timestamp_ns",
             "clientTimestampNs",
+            "added_on_chain_id",
+            "addedOnChainId",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1054,6 +1064,7 @@ impl<'de> serde::Deserialize<'de> for Member {
             Identifier,
             AddedByEntity,
             ClientTimestampNs,
+            AddedOnChainId,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1078,6 +1089,7 @@ impl<'de> serde::Deserialize<'de> for Member {
                             "identifier" => Ok(GeneratedField::Identifier),
                             "addedByEntity" | "added_by_entity" => Ok(GeneratedField::AddedByEntity),
                             "clientTimestampNs" | "client_timestamp_ns" => Ok(GeneratedField::ClientTimestampNs),
+                            "addedOnChainId" | "added_on_chain_id" => Ok(GeneratedField::AddedOnChainId),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1100,6 +1112,7 @@ impl<'de> serde::Deserialize<'de> for Member {
                 let mut identifier__ = None;
                 let mut added_by_entity__ = None;
                 let mut client_timestamp_ns__ = None;
+                let mut added_on_chain_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Identifier => {
@@ -1122,12 +1135,21 @@ impl<'de> serde::Deserialize<'de> for Member {
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
+                        GeneratedField::AddedOnChainId => {
+                            if added_on_chain_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("addedOnChainId"));
+                            }
+                            added_on_chain_id__ = 
+                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
+                            ;
+                        }
                     }
                 }
                 Ok(Member {
                     identifier: identifier__,
                     added_by_entity: added_by_entity__,
                     client_timestamp_ns: client_timestamp_ns__,
+                    added_on_chain_id: added_on_chain_id__,
                 })
             }
         }

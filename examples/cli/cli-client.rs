@@ -20,8 +20,9 @@ use kv_log_macro::{error, info};
 use prost::Message;
 use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature};
 use xmtp_mls::client::FindGroupParams;
+
 use xmtp_mls::groups::device_sync::DeviceSyncContent;
-use xmtp_mls::storage::group_message::GroupMessageKind;
+use xmtp_mls::storage::group_message::{GroupMessageKind, MsgQueryArgs};
 
 use crate::{
     json_logger::make_value,
@@ -256,9 +257,7 @@ async fn main() {
                 .await
                 .expect("failed to get group");
 
-            let messages = group
-                .find_messages(None, None, None, None, None, None)
-                .unwrap();
+            let messages = group.find_messages(&MsgQueryArgs::default()).unwrap();
             if cli.json {
                 let json_serializable_messages = messages
                     .iter()
@@ -391,14 +390,7 @@ async fn main() {
             let group_id_str = hex::encode(group.group_id.clone());
             group.sync().await.unwrap();
             let messages = group
-                .find_messages(
-                    Some(GroupMessageKind::Application),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                )
+                .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
                 .unwrap();
             info!("Listing history sync messages", { group_id: group_id_str, messages: messages.len()});
             for message in messages {

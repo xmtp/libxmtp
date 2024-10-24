@@ -981,6 +981,7 @@ pub(crate) mod tests {
         identity::serialize_key_package_hash_ref,
         storage::{
             consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+            group_message::MsgQueryArgs,
             schema::identity_updates,
         },
         XmtpApi,
@@ -1161,14 +1162,10 @@ pub(crate) mod tests {
 
         let bo_groups = bo.find_groups(FindGroupParams::default()).unwrap();
         let bo_group1 = bo.group(alix_bo_group1.clone().group_id).unwrap();
-        let bo_messages1 = bo_group1
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages1.len(), 0);
         let bo_group2 = bo.group(alix_bo_group2.clone().group_id).unwrap();
-        let bo_messages2 = bo_group2
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages2.len(), 0);
         alix_bo_group1
             .send_message(vec![1, 2, 3].as_slice())
@@ -1181,14 +1178,10 @@ pub(crate) mod tests {
 
         bo.sync_all_groups(bo_groups).await.unwrap();
 
-        let bo_messages1 = bo_group1
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages1.len(), 1);
         let bo_group2 = bo.group(alix_bo_group2.clone().group_id).unwrap();
-        let bo_messages2 = bo_group2
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages2.len(), 1);
     }
 
@@ -1250,9 +1243,7 @@ pub(crate) mod tests {
         // assert!(!bola_group.is_active().unwrap());
 
         // Bola should have one readable message (them being added to the group)
-        let mut bola_messages = bola_group
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        let mut bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
 
         assert_eq!(bola_messages.len(), 1);
 
@@ -1272,9 +1263,7 @@ pub(crate) mod tests {
         // Sync Bola's state to get the latest
         bola_group.sync().await.unwrap();
         // Find Bola's updated list of messages
-        bola_messages = bola_group
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
         // Bola should have been able to decrypt the last message
         assert_eq!(bola_messages.len(), 2);
         assert_eq!(
