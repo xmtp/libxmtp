@@ -382,7 +382,7 @@ where
         &self,
         addresses: &[String],
     ) -> Result<Vec<Option<String>>, ClientError> {
-        let sanitized_addresses = sanitize_evm_addresses(&addresses)?;
+        let sanitized_addresses = sanitize_evm_addresses(addresses)?;
         let mut results = self
             .api_client
             .get_inbox_ids(sanitized_addresses.clone())

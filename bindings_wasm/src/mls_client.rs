@@ -289,7 +289,7 @@ impl WasmClient {
   pub async fn request_history_sync(&self) -> Result<(), JsError> {
     let _ = self
       .inner_client
-      .send_history_request()
+      .send_history_sync_request()
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 

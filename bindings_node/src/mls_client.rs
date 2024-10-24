@@ -228,7 +228,7 @@ impl NapiClient {
   pub async fn request_history_sync(&self) -> Result<()> {
     let _ = self
       .inner_client
-      .send_history_request()
+      .send_history_sync_request()
       .await
       .map_err(ErrorWrapper::from);
 

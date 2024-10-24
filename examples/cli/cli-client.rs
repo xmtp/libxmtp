@@ -287,7 +287,7 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .add_members(&account_addresses)
+                .add_members(account_addresses)
                 .await
                 .expect("failed to add member");
 
@@ -309,7 +309,7 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .remove_members(&account_addresses)
+                .remove_members(account_addresses)
                 .await
                 .expect("failed to add member");
 
@@ -355,7 +355,7 @@ async fn main() {
                 .unwrap();
             client.sync_welcomes().await.unwrap();
             client.enable_history_sync().await.unwrap();
-            let (group_id, _) = client.send_history_request().await.unwrap();
+            let (group_id, _) = client.send_history_sync_request().await.unwrap();
             let group_id_str = hex::encode(group_id);
             info!("Sent history sync request in sync group {group_id_str}", { group_id: group_id_str})
         }
@@ -365,7 +365,10 @@ async fn main() {
                 .unwrap();
             let group = client.get_sync_group().unwrap();
             let group_id_str = hex::encode(group.group_id);
-            let reply = client.reply_to_history_request(pin_code).await.unwrap();
+            let reply = client
+                .reply_to_history_sync_request(pin_code)
+                .await
+                .unwrap();
 
             info!("Sent history sync reply in sync group {group_id_str}", { group_id: group_id_str});
             info!("Reply: {:?}", reply);
@@ -376,7 +379,7 @@ async fn main() {
                 .unwrap();
             client.sync_welcomes().await.unwrap();
             client.enable_history_sync().await.unwrap();
-            client.process_message_history_reply().await.unwrap();
+            client.process_history_sync_reply().await.unwrap();
 
             info!("History bundle downloaded and inserted into user DB", {})
         }

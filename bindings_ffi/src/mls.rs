@@ -406,7 +406,7 @@ impl FfiXmtpClient {
 
     pub async fn request_history_sync(&self) -> Result<(), GenericError> {
         self.inner_client
-            .send_history_request()
+            .send_history_sync_request()
             .await
             .map_err(GenericError::from_error)?;
         Ok(())

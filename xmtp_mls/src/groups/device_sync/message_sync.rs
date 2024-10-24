@@ -11,12 +11,12 @@ where
     V: SmartContractSignatureVerifier + Clone,
 {
     // returns (request_id, pin_code)
-    pub async fn send_history_request(&self) -> Result<(String, String), DeviceSyncError> {
+    pub async fn send_history_sync_request(&self) -> Result<(String, String), DeviceSyncError> {
         let request = DeviceSyncRequest::new(DeviceSyncKind::MessageHistory);
         self.send_sync_request(request).await
     }
 
-    pub async fn reply_to_history_request(
+    pub async fn reply_to_history_sync_request(
         &self,
         pin_code: &str,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
@@ -36,7 +36,7 @@ where
         Ok(reply)
     }
 
-    pub async fn process_message_history_reply(&self) -> Result<(), DeviceSyncError> {
+    pub async fn process_history_sync_reply(&self) -> Result<(), DeviceSyncError> {
         let conn = self.store().conn()?;
         // load the request_id
         let request_id: Option<String> = KVStore::get(&conn, &Key::MessageHistorySyncRequestId)
@@ -152,7 +152,7 @@ pub(crate) mod tests {
         amal_a.sync_welcomes().await.expect("sync_welcomes");
         // Have the second installation request for a consent sync.
         let (_group_id, pin_code) = amal_b
-            .send_history_request()
+            .send_history_sync_request()
             .await
             .expect("history request");
 
@@ -165,7 +165,10 @@ pub(crate) mod tests {
         // verifies the pin code,
         // has no problem packaging the consent records,
         // and sends a reply message to the first installation.
-        let reply = amal_a.reply_to_history_request(&pin_code).await.unwrap();
+        let reply = amal_a
+            .reply_to_history_sync_request(&pin_code)
+            .await
+            .unwrap();
 
         // recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
         let (enc_payload, _key) = encrypt_syncables_with_key(
@@ -190,7 +193,7 @@ pub(crate) mod tests {
         assert_eq!(amal_b.syncable_messages().unwrap().len(), 0);
 
         // Have the second installation process the reply.
-        amal_b.process_message_history_reply().await.unwrap();
+        amal_b.process_history_sync_reply().await.unwrap();
 
         // Load consents of both installations
         let groups_a = amal_a.syncable_groups().unwrap();
