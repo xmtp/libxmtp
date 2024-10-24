@@ -357,7 +357,7 @@ where
         tracing::info!("Using upload url {url}upload");
 
         let response = reqwest::Client::new()
-            .post(format!("{url}upload"))
+            .post(format!("{url}/upload"))
             .body(payload)
             .send()
             .await?;
@@ -372,7 +372,7 @@ where
             unreachable!();
         }
 
-        let url = format!("{url}files/{}", response.text().await?);
+        let url = format!("{url}/files/{}", response.text().await?);
 
         let sync_reply = DeviceSyncReplyProto {
             encryption_key: Some(enc_key.into()),
@@ -661,6 +661,14 @@ fn insert_encrypted_syncables(
 fn encrypt_syncables(
     syncables: &[Vec<Syncable>],
 ) -> Result<(Vec<u8>, DeviceSyncKeyType), DeviceSyncError> {
+    let enc_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
+    encrypt_syncables_with_key(syncables, enc_key)
+}
+
+fn encrypt_syncables_with_key(
+    syncables: &[Vec<Syncable>],
+    enc_key: DeviceSyncKeyType,
+) -> Result<(Vec<u8>, DeviceSyncKeyType), DeviceSyncError> {
     let mut payload = vec![];
     for collection in syncables {
         for syncable in collection {
@@ -669,10 +677,7 @@ fn encrypt_syncables(
         }
     }
 
-    // encrypt the payload
-    let enc_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
     let enc_key_bytes = enc_key.as_bytes();
-
     let mut result = generate_nonce().to_vec();
 
     // create a cipher instance

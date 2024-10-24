@@ -1014,7 +1014,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         let conn = self.context().store().conn()?;
-        conn.insert_or_replace_consent_records(vec![StoredConsentRecord::new(
+        conn.insert_or_replace_consent_records(&[StoredConsentRecord::new(
             ConsentType::ConversationId,
             state,
             hex::encode(self.group_id.clone()),

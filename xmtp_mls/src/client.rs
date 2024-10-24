@@ -443,7 +443,7 @@ where
     /// If the consent record is an address set the consent state for both the address and `inbox_id`
     pub async fn set_consent_states(
         &self,
-        mut records: Vec<StoredConsentRecord>,
+        records: &[StoredConsentRecord],
     ) -> Result<(), ClientError> {
         let conn = self.store().conn()?;
 
@@ -473,8 +473,8 @@ where
             }
         }
 
-        records.extend(new_records);
         conn.insert_or_replace_consent_records(records)?;
+        conn.insert_or_replace_consent_records(&new_records)?;
 
         Ok(())
     }
@@ -1283,7 +1283,7 @@ pub(crate) mod tests {
             ConsentState::Denied,
             bo_wallet.get_address(),
         );
-        alix.set_consent_states(vec![record]).await.unwrap();
+        alix.set_consent_states(&[record]).await.unwrap();
         let inbox_consent = alix
             .get_consent_state(ConsentType::InboxId, bo.inbox_id())
             .await

@@ -278,56 +278,30 @@ pub(crate) mod tests {
             .with_body("File uploaded")
             .create();
 
-        let history_sync_url = format!(
-            "http://{}:{}/upload",
-            HISTORY_SERVER_HOST,
-            HISTORY_SERVER_PORT + 1
-        );
-
-        let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let _group_a = amal_a
-            .create_group(None, GroupMetadataOptions::default())
-            .expect("create group");
-
-        let groups = amal_a.syncable_groups().unwrap();
-
-        let (enc_content, enc_key) = encrypt_syncables(&[groups]).unwrap();
-
-        let _m = server
-            .mock("GET", "/upload")
-            .with_status(201)
-            .with_body(&enc_content)
-            .create();
+        let history_sync_url =
+            format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT + 1);
 
         let wallet = generate_local_wallet();
         let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
         amal_a.history_sync_url = Some(history_sync_url.clone());
+
+        let _group_a = amal_a
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
+
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
         assert_ok!(amal_b.enable_history_sync().await);
 
         amal_a.sync_welcomes().await.expect("sync_welcomes");
 
         // amal_b sends a message history request to sync group messages
-        let (_group_id, _pin_code) = amal_b
+        let (_group_id, pin_code) = amal_b
             .send_history_request()
             .await
             .expect("history request");
 
-        let amal_a_sync_groups = amal_a.store().conn().unwrap().find_sync_groups().unwrap();
-        assert_eq!(amal_a_sync_groups.len(), 1);
-        // get the first sync group
-        let amal_a_sync_group = amal_a.group(amal_a_sync_groups[0].id.clone()).unwrap();
-        amal_a_sync_group.sync().await.expect("sync");
+        amal_a.reply_to_history_request(&pin_code).await.unwrap();
 
-        // amal_a builds and sends a message history reply back
-        let history_reply = DeviceSyncReply::new(&new_request_id(), &history_sync_url, enc_key);
-        amal_a
-            .send_sync_reply(history_reply.into())
-            .await
-            .expect("send reply");
-
-        amal_a_sync_group.sync().await.expect("sync");
         // amal_b should have received the reply
         let amal_b_sync_groups = amal_b.store().conn().unwrap().find_sync_groups().unwrap();
         assert_eq!(amal_b_sync_groups.len(), 1);
