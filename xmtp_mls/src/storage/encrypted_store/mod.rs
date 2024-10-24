@@ -20,6 +20,7 @@ pub mod identity;
 pub mod identity_update;
 pub mod key_package_history;
 pub mod key_store_entry;
+pub mod key_value_store;
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
 pub mod refresh_state;

@@ -53,8 +53,8 @@ diesel::table! {
         purpose -> Integer,
         added_by_inbox_id -> Text,
         welcome_id -> Nullable<BigInt>,
-        rotated_at_ns -> BigInt,
         dm_inbox_id -> Nullable<Text>,
+        rotated_at_ns -> BigInt,
     }
 }
 
@@ -81,6 +81,13 @@ diesel::table! {
         id -> Integer,
         key_package_hash_ref -> Binary,
         created_at_ns -> BigInt,
+    }
+}
+
+diesel::table! {
+    key_value_store (key) {
+        key -> Text,
+        value -> Binary,
     }
 }
 
@@ -119,6 +126,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     identity,
     identity_updates,
     key_package_history,
+    key_value_store,
     openmls_key_store,
     openmls_key_value,
     refresh_state,

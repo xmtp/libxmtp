@@ -296,7 +296,7 @@ impl WasmGroup {
     );
 
     group
-      .add_members(account_addresses)
+      .add_members(&account_addresses)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -387,7 +387,7 @@ impl WasmGroup {
     );
 
     group
-      .add_members_by_inbox_id(inbox_ids)
+      .add_members_by_inbox_id(&inbox_ids)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -403,7 +403,7 @@ impl WasmGroup {
     );
 
     group
-      .remove_members(account_addresses)
+      .remove_members(&account_addresses)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -419,7 +419,7 @@ impl WasmGroup {
     );
 
     group
-      .remove_members_by_inbox_id(inbox_ids)
+      .remove_members_by_inbox_id(&inbox_ids)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 

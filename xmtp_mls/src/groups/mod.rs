@@ -1,3 +1,4 @@
+pub mod device_sync;
 pub mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
@@ -6,11 +7,8 @@ pub mod intents;
 pub mod members;
 pub mod scoped_client;
 
-#[allow(dead_code)]
-#[cfg(feature = "message-history")]
-pub mod message_history;
+pub(super) mod node_sync;
 pub(super) mod subscriptions;
-pub(super) mod sync;
 pub mod validated_commit;
 
 use intents::SendMessageIntentData;
@@ -36,10 +34,9 @@ use prost::Message;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
+use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
-#[cfg(feature = "message-history")]
-use self::message_history::MessageHistoryError;
 use self::scoped_client::ScopedGroupClient;
 use self::{
     group_membership::GroupMembership,
@@ -174,9 +171,9 @@ pub enum GroupError {
     CredentialError(#[from] BasicCredentialError),
     #[error("LeafNode error")]
     LeafNodeError(#[from] LibraryError),
-    #[cfg(feature = "message-history")]
+
     #[error("Message History error: {0}")]
-    MessageHistory(#[from] Box<MessageHistoryError>),
+    MessageHistory(#[from] Box<DeviceSyncError>),
     #[error("Installation diff error: {0}")]
     InstallationDiff(#[from] InstallationDiffError),
     #[error("PSKs are not support")]
@@ -510,14 +507,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Self::create_from_welcome(client, provider, welcome, inbox_id, welcome_id).await
     }
 
-    #[cfg(feature = "message-history")]
     pub(crate) fn create_and_insert_sync_group(
         client: Arc<ScopedClient>,
     ) -> Result<MlsGroup<ScopedClient>, GroupError> {
         let context = client.context();
         let conn = context.store().conn()?;
         // let my_sequence_id = context.inbox_sequence_id(&conn)?;
-        let creator_inbox_id = context.inbox_id().to_string();
+        let creator_inbox_id = context.inbox_id() as String;
         let provider = XmtpOpenMlsProvider::new(conn);
         let protected_metadata =
             build_protected_metadata_extension(creator_inbox_id.clone(), Purpose::Sync)?;
@@ -682,10 +678,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
      * group membership will be updated to include those changes as well.
      */
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn add_members(
-        &self,
-        account_addresses_to_add: Vec<String>,
-    ) -> Result<(), GroupError> {
+    pub async fn add_members(&self, account_addresses_to_add: &[String]) -> Result<(), GroupError> {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_add)?;
         let inbox_id_map = self
             .client
@@ -694,7 +687,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .await?;
         // get current number of users in group
         let member_count = self.members().await?.len();
-        if member_count + inbox_id_map.len() > MAX_GROUP_SIZE as usize {
+        if member_count + inbox_id_map.len() > MAX_GROUP_SIZE {
             return Err(GroupError::UserLimitExceeded);
         }
 
@@ -707,15 +700,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             ));
         }
 
-        self.add_members_by_inbox_id(inbox_id_map.into_values().collect())
+        self.add_members_by_inbox_id(&inbox_id_map.into_values().collect::<Vec<_>>())
             .await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn add_members_by_inbox_id(&self, inbox_ids: Vec<String>) -> Result<(), GroupError> {
+    pub async fn add_members_by_inbox_id(&self, inbox_ids: &[String]) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
         let intent_data = self
-            .get_membership_update_intent(&provider, inbox_ids, vec![])
+            .get_membership_update_intent(&provider, inbox_ids, &[])
             .await?;
 
         // TODO:nm this isn't the best test for whether the request is valid
@@ -745,12 +738,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// A `Result` indicating success or failure of the operation.
     pub async fn remove_members(
         &self,
-        account_addresses_to_remove: Vec<InboxId>,
+        account_addresses_to_remove: &[InboxId],
     ) -> Result<(), GroupError> {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_remove)?;
         let inbox_id_map = self.client.api().get_inbox_ids(account_addresses).await?;
 
-        self.remove_members_by_inbox_id(inbox_id_map.into_values().collect())
+        self.remove_members_by_inbox_id(&inbox_id_map.into_values().collect::<Vec<_>>())
             .await
     }
 
@@ -764,12 +757,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// A `Result` indicating success or failure of the operation.
     pub async fn remove_members_by_inbox_id(
         &self,
-        inbox_ids: Vec<InboxId>,
+        inbox_ids: &[InboxId],
     ) -> Result<(), GroupError> {
         let provider = self.client.store().conn()?.into();
 
         let intent_data = self
-            .get_membership_update_intent(&provider, vec![], inbox_ids)
+            .get_membership_update_intent(&provider, &[], inbox_ids)
             .await?;
 
         let intent = self.queue_intent_with_conn(
@@ -1018,7 +1011,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         let conn = self.context().store().conn()?;
-        conn.insert_or_replace_consent_records(vec![StoredConsentRecord::new(
+        conn.insert_or_replace_consent_records(&[StoredConsentRecord::new(
             ConsentType::ConversationId,
             state,
             hex::encode(self.group_id.clone()),
@@ -1653,7 +1646,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
         alix_group
-            .add_members_by_inbox_id(vec![bo.inbox_id()])
+            .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
             .unwrap();
         let alix_message = b"hello from alix";
@@ -1687,7 +1680,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         amal_group
-            .add_members_by_inbox_id(vec![bola.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
 
@@ -1743,7 +1736,7 @@ pub(crate) mod tests {
             .unwrap();
         // Add bola
         amal_group
-            .add_members_by_inbox_id(vec![bola.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
 
@@ -1755,12 +1748,12 @@ pub(crate) mod tests {
         tracing::info!("Adding charlie from amal");
         // Have amal and bola both invite charlie.
         amal_group
-            .add_members_by_inbox_id(vec![charlie.inbox_id()])
+            .add_members_by_inbox_id(&[charlie.inbox_id()])
             .await
             .expect("failed to add charlie");
         tracing::info!("Adding charlie from bola");
         bola_group
-            .add_members_by_inbox_id(vec![charlie.inbox_id()])
+            .add_members_by_inbox_id(&[charlie.inbox_id()])
             .await
             .expect("bola's add should succeed in a no-op");
 
@@ -1873,7 +1866,7 @@ pub(crate) mod tests {
             .expect("create group");
 
         group
-            .add_members_by_inbox_id(vec![client_2.inbox_id()])
+            .add_members_by_inbox_id(&[client_2.inbox_id()])
             .await
             .unwrap();
 
@@ -1896,9 +1889,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
 
-        let result = group
-            .add_members_by_inbox_id(vec!["1234".to_string()])
-            .await;
+        let result = group.add_members_by_inbox_id(&["1234".to_string()]).await;
 
         assert!(result.is_err());
     }
@@ -1911,7 +1902,7 @@ pub(crate) mod tests {
         let group = amal
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
-        let result = group.add_members(vec![unconnected_wallet_address]).await;
+        let result = group.add_members(&[unconnected_wallet_address]).await;
 
         assert!(result.is_err());
     }
@@ -1927,7 +1918,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
         group
-            .add_members_by_inbox_id(vec![client_2.inbox_id()])
+            .add_members_by_inbox_id(&[client_2.inbox_id()])
             .await
             .expect("group create failure");
 
@@ -1936,7 +1927,7 @@ pub(crate) mod tests {
 
         // Try and add another member without merging the pending commit
         group
-            .remove_members_by_inbox_id(vec![client_2.inbox_id()])
+            .remove_members_by_inbox_id(&[client_2.inbox_id()])
             .await
             .expect("group remove members failure");
 
@@ -1965,7 +1956,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
         group
-            .add_members_by_inbox_id(vec![bola_client.inbox_id()])
+            .add_members_by_inbox_id(&[bola_client.inbox_id()])
             .await
             .unwrap();
 
@@ -2003,7 +1994,7 @@ pub(crate) mod tests {
             .expect("create group");
 
         group
-            .add_members_by_inbox_id(vec![client_2.inbox_id()])
+            .add_members_by_inbox_id(&[client_2.inbox_id()])
             .await
             .unwrap();
 
@@ -2030,10 +2021,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members(vec![
-                bola_wallet.get_address(),
-                charlie_wallet.get_address(),
-            ])
+            .add_members(&[bola_wallet.get_address(), charlie_wallet.get_address()])
             .await
             .unwrap();
         tracing::info!("created the group with 2 additional members");
@@ -2048,7 +2036,7 @@ pub(crate) mod tests {
         assert_eq!(group_update.removed_inboxes.len(), 0);
 
         group
-            .remove_members(vec![bola_wallet.get_address()])
+            .remove_members(&[bola_wallet.get_address()])
             .await
             .unwrap();
         assert_eq!(group.members().await.unwrap().len(), 2);
@@ -2082,16 +2070,13 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         amal_group
-            .add_members(vec![
-                bola_wallet.get_address(),
-                charlie_wallet.get_address(),
-            ])
+            .add_members(&[bola_wallet.get_address(), charlie_wallet.get_address()])
             .await
             .unwrap();
         assert_eq!(amal_group.members().await.unwrap().len(), 3);
 
         amal_group
-            .remove_members(vec![bola_wallet.get_address()])
+            .remove_members(&[bola_wallet.get_address()])
             .await
             .unwrap();
         assert_eq!(amal_group.members().await.unwrap().len(), 2);
@@ -2146,7 +2131,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members_by_inbox_id(vec![bola.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
 
@@ -2184,7 +2169,7 @@ pub(crate) mod tests {
             .unwrap();
         // Add bola to the group
         amal_group
-            .add_members_by_inbox_id(vec![bola.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
 
@@ -2192,12 +2177,12 @@ pub(crate) mod tests {
         bola_group.sync().await.unwrap();
         // Both Amal and Bola are up to date on the group state. Now each of them want to add someone else
         amal_group
-            .add_members_by_inbox_id(vec![charlie.inbox_id()])
+            .add_members_by_inbox_id(&[charlie.inbox_id()])
             .await
             .unwrap();
 
         bola_group
-            .add_members_by_inbox_id(vec![dave.inbox_id()])
+            .add_members_by_inbox_id(&[dave.inbox_id()])
             .await
             .unwrap();
 
@@ -2237,14 +2222,14 @@ pub(crate) mod tests {
             .unwrap();
         // Add bola to the group
         amal_group
-            .add_members_by_inbox_id(vec![bola.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
 
         let bola_group = receive_group_invite(&bola).await;
         bola_group.sync().await.unwrap();
         assert!(bola_group
-            .add_members_by_inbox_id(vec![charlie.inbox_id()])
+            .add_members_by_inbox_id(&[charlie.inbox_id()])
             .await
             .is_err(),);
     }
@@ -2309,11 +2294,11 @@ pub(crate) mod tests {
             ClientBuilder::new_test_client(&wallet).await;
             clients.push(wallet.get_address());
         }
-        amal_group.add_members(clients).await.unwrap();
+        amal_group.add_members(&clients).await.unwrap();
         let bola_wallet = generate_local_wallet();
         ClientBuilder::new_test_client(&bola_wallet).await;
         assert!(amal_group
-            .add_members_by_inbox_id(vec![bola_wallet.get_address()])
+            .add_members_by_inbox_id(&[bola_wallet.get_address()])
             .await
             .is_err(),);
     }
@@ -2343,7 +2328,7 @@ pub(crate) mod tests {
 
         // Add bola to the group
         amal_group
-            .add_members_by_inbox_id(vec![bola.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
@@ -2511,7 +2496,7 @@ pub(crate) mod tests {
 
         // Add bola to the group
         amal_group
-            .add_members(vec![bola_wallet.get_address()])
+            .add_members(&[bola_wallet.get_address()])
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
@@ -2591,7 +2576,7 @@ pub(crate) mod tests {
 
         // Add bola to the group
         amal_group
-            .add_members(vec![bola_wallet.get_address()])
+            .add_members(&[bola_wallet.get_address()])
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
@@ -2616,7 +2601,7 @@ pub(crate) mod tests {
         let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
         bola_group
-            .add_members_by_inbox_id(vec![caro.inbox_id()])
+            .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .expect_err("expected err");
 
@@ -2641,7 +2626,7 @@ pub(crate) mod tests {
 
         // Verify that bola can now add caro because they are an admin
         bola_group
-            .add_members_by_inbox_id(vec![caro.inbox_id()])
+            .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
 
@@ -2680,7 +2665,7 @@ pub(crate) mod tests {
         let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
         bola_group
-            .add_members_by_inbox_id(vec![charlie.inbox_id()])
+            .add_members_by_inbox_id(&[charlie.inbox_id()])
             .await
             .expect_err("expected err");
     }
@@ -2700,7 +2685,7 @@ pub(crate) mod tests {
 
         // Add bola to the group
         amal_group
-            .add_members_by_inbox_id(vec![bola.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
@@ -2760,7 +2745,7 @@ pub(crate) mod tests {
 
         // Verify that no one can remove a super admin from a group
         amal_group
-            .remove_members(vec![bola.inbox_id()])
+            .remove_members(&[bola.inbox_id()])
             .await
             .expect_err("expected err");
 
@@ -2800,7 +2785,7 @@ pub(crate) mod tests {
 
         // Add Bola and Caro to the group
         amal_group
-            .add_members_by_inbox_id(vec![bola.inbox_id(), caro.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id(), caro.inbox_id()])
             .await
             .unwrap();
         amal_group.sync().await.unwrap();
@@ -2897,7 +2882,7 @@ pub(crate) mod tests {
 
         // Amal adds Bola to the group
         amal_group
-            .add_members_by_inbox_id(vec![bola.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
 
@@ -2965,7 +2950,7 @@ pub(crate) mod tests {
         // Step 2:  Amal adds Bola to the group
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         amal_group
-            .add_members_by_inbox_id(vec![bola.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
 
@@ -3030,7 +3015,7 @@ pub(crate) mod tests {
         // Step 2:  Amal adds Bola to the group
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         amal_group
-            .add_members_by_inbox_id(vec![bola.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
 
@@ -3040,9 +3025,7 @@ pub(crate) mod tests {
         let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
-        let result = bola_group
-            .add_members_by_inbox_id(vec![caro.inbox_id()])
-            .await;
+        let result = bola_group.add_members_by_inbox_id(&[caro.inbox_id()]).await;
         if let Err(e) = &result {
             eprintln!("Error adding member: {:?}", e);
         } else {
@@ -3075,7 +3058,7 @@ pub(crate) mod tests {
 
         // Step 6: Bola can now add Caro to the group
         bola_group
-            .add_members_by_inbox_id(vec![caro.inbox_id()])
+            .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
         bola_group.sync().await.unwrap();
@@ -3095,7 +3078,7 @@ pub(crate) mod tests {
         amal_group.sync().await.unwrap();
         // Add bola to the group
         amal_group
-            .add_members(vec![bola_wallet.get_address()])
+            .add_members(&[bola_wallet.get_address()])
             .await
             .unwrap();
         let bola_group = receive_group_invite(&bola).await;
@@ -3182,12 +3165,12 @@ pub(crate) mod tests {
         let amal_dm = amal.create_dm_by_inbox_id(bola.inbox_id()).await.unwrap();
 
         // Amal can not add caro to the dm group
-        let result = amal_dm.add_members_by_inbox_id(vec![caro.inbox_id()]).await;
+        let result = amal_dm.add_members_by_inbox_id(&[caro.inbox_id()]).await;
         assert!(result.is_err());
 
         // Bola is already a member
         let result = amal_dm
-            .add_members_by_inbox_id(vec![bola.inbox_id(), caro.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id(), caro.inbox_id()])
             .await;
         assert!(result.is_err());
         amal_dm.sync().await.unwrap();
@@ -3213,9 +3196,7 @@ pub(crate) mod tests {
         assert_eq!(message.decrypted_message_bytes, b"test one");
 
         // Amal can not remove bola
-        let result = amal_dm
-            .remove_members_by_inbox_id(vec![bola.inbox_id()])
-            .await;
+        let result = amal_dm.remove_members_by_inbox_id(&[bola.inbox_id()]).await;
         assert!(result.is_err());
         amal_dm.sync().await.unwrap();
         let members = amal_dm.members().await.unwrap();
@@ -3253,7 +3234,7 @@ pub(crate) mod tests {
             .unwrap();
 
         alix_group
-            .add_members_by_inbox_id(vec![bo.inbox_id()])
+            .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
             .unwrap();
 
@@ -3378,7 +3359,7 @@ pub(crate) mod tests {
         provider: &XmtpOpenMlsProvider,
     ) {
         let intent_data = group
-            .get_membership_update_intent(provider, vec![], vec![])
+            .get_membership_update_intent(provider, &[], &[])
             .await
             .unwrap();
 
@@ -3543,7 +3524,7 @@ pub(crate) mod tests {
         assert_eq!(alix_group.consent_state().unwrap(), ConsentState::Denied);
 
         alix_group
-            .add_members_by_inbox_id(vec![bola.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
 
@@ -3562,7 +3543,7 @@ pub(crate) mod tests {
         assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Allowed);
 
         alix_group
-            .add_members_by_inbox_id(vec![caro.inbox_id()])
+            .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
 
@@ -3590,7 +3571,7 @@ pub(crate) mod tests {
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
         let alix_group = alix
             .create_group_with_members(
-                vec![bo_wallet.get_address()],
+                &[bo_wallet.get_address()],
                 None,
                 GroupMetadataOptions::default(),
             )

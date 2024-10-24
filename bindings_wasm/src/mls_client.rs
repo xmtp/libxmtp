@@ -122,7 +122,7 @@ impl WasmClient {
   pub async fn can_message(&self, account_addresses: Vec<String>) -> Result<JsValue, JsError> {
     let results: HashMap<String, bool> = self
       .inner_client
-      .can_message(account_addresses)
+      .can_message(&account_addresses)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
@@ -289,7 +289,7 @@ impl WasmClient {
   pub async fn request_history_sync(&self) -> Result<(), JsError> {
     let _ = self
       .inner_client
-      .send_history_request()
+      .send_history_sync_request()
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
@@ -345,7 +345,7 @@ impl WasmClient {
       records.into_iter().map(StoredConsentRecord::from).collect();
 
     inner
-      .set_consent_states(stored_records)
+      .set_consent_states(&stored_records)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     Ok(())

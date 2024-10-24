@@ -19,7 +19,7 @@ Edit the `up.sql` and `down.sql` files created
 ### Generate application code
 
 ```
-cargo run --bin update-schema
+cargo run --bin update-schema --features update-schema
 ```
 
 Make sure you run this from `xmtp_mls/`. This updates the generated `schema.rs` file. You can now update the models and queries to reference it in `xmtp_mls/src/storage/encrypted_store/`.

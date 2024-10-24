@@ -139,13 +139,7 @@ where
         Ok(result
             .responses
             .into_iter()
-            .filter(|inbox_id| inbox_id.inbox_id.is_some())
-            .map(|inbox_id| {
-                (
-                    inbox_id.address,
-                    inbox_id.inbox_id.expect("Checked for some"),
-                )
-            })
+            .filter_map(|resp| Some((resp.address, resp.inbox_id?)))
             .collect())
     }
 }

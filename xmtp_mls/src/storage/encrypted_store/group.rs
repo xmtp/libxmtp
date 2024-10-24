@@ -1,5 +1,14 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
 
+use super::{
+    consent_record::StoredConsentRecord,
+    db_connection::DbConnection,
+    schema::groups::{self, dsl},
+    Sqlite,
+};
+use crate::{
+    groups::group_metadata::ConversationType, impl_fetch, impl_store, DuplicateItem, StorageError,
+};
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -8,17 +17,7 @@ use diesel::{
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
 };
-
 use serde::{Deserialize, Serialize};
-
-use super::{
-    db_connection::DbConnection,
-    schema::{groups, groups::dsl},
-    Sqlite,
-};
-use crate::{
-    groups::group_metadata::ConversationType, impl_fetch, impl_store, DuplicateItem, StorageError,
-};
 
 /// The Group ID type.
 pub type ID = Vec<u8>;
@@ -42,10 +41,10 @@ pub struct StoredGroup {
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message
     pub welcome_id: Option<i64>,
-    /// The last time the leaf node encryption key was rotated
-    pub rotated_at_ns: i64,
     /// The inbox_id of the DM target
     pub dm_inbox_id: Option<String>,
+    /// The last time the leaf node encryption key was rotated
+    pub rotated_at_ns: i64,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -160,6 +159,10 @@ impl DbConnection {
         query = query.filter(dsl::purpose.eq(Purpose::Conversation));
 
         Ok(self.raw_query(|conn| query.load(conn))?)
+    }
+
+    pub fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, StorageError> {
+        Ok(self.raw_query(|conn| super::schema::consent_records::table.load(conn))?)
     }
 
     /// Return only the [`Purpose::Sync`] groups

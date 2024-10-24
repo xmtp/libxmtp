@@ -244,7 +244,7 @@ pub(crate) mod tests {
             .unwrap();
         // Add bola
         amal_group
-            .add_members_by_inbox_id(vec![bola.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
 
@@ -282,7 +282,7 @@ pub(crate) mod tests {
             .unwrap();
         // Add bola
         amal_group
-            .add_members_by_inbox_id(vec![bola.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
 
@@ -398,7 +398,7 @@ pub(crate) mod tests {
         crate::sleep(core::time::Duration::from_millis(100)).await;
 
         amal_group
-            .add_members_by_inbox_id(vec![bola.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
         notify

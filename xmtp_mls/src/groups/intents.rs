@@ -788,7 +788,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
         group_a
-            .add_members_by_inbox_id(vec![client_b.inbox_id()])
+            .add_members_by_inbox_id(&[client_b.inbox_id()])
             .await
             .unwrap();
         group_a.send_message(b"First message from A").await.unwrap();

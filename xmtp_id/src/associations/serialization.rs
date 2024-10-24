@@ -487,7 +487,7 @@ impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
         )?;
 
         let account_address = verified_wallet_signature.signer.to_string();
-        let account_address = sanitize_evm_addresses(vec![account_address])?[0].clone();
+        let account_address = sanitize_evm_addresses(&[account_address])?[0].clone();
 
         let legacy_unsigned_public_key_proto =
             LegacyUnsignedPublicKeyProto::decode(serialized_key_data.as_slice())

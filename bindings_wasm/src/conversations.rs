@@ -122,7 +122,7 @@ impl WasmConversations {
     } else {
       self
         .inner_client
-        .create_group_with_members(account_addresses, group_permissions, metadata_options)
+        .create_group_with_members(&account_addresses, group_permissions, metadata_options)
         .await
         .map_err(|e| JsError::new(format!("{}", e).as_str()))?
     };
