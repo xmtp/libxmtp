@@ -92,7 +92,7 @@ fn add_to_empty_group(c: &mut Criterion) {
                     )
                 },
                 |(group, addrs, span)| async move {
-                    group.add_members(addrs).instrument(span).await.unwrap();
+                    group.add_members(&addrs).instrument(span).await.unwrap();
                 },
                 BatchSize::SmallInput,
             );
@@ -131,7 +131,7 @@ fn add_to_empty_group_by_inbox_id(c: &mut Criterion) {
                 },
                 |(group, span, ids)| async move {
                     group
-                        .add_members_by_inbox_id(ids)
+                        .add_members_by_inbox_id(&ids)
                         .instrument(span)
                         .await
                         .unwrap();
@@ -149,7 +149,12 @@ fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
     benchmark_group.sample_size(SAMPLE_SIZE);
 
     let (client, identities, runtime) = setup();
-    let inbox_ids: Vec<String> = identities.into_iter().map(|i| i.inbox_id).collect();
+    let inbox_ids: Vec<String> = identities
+        .into_iter()
+        .map(|i| i.inbox_id)
+        .rev()
+        .take(100)
+        .collect();
 
     let mut map = HashMap::<usize, Vec<String>>::new();
 
@@ -172,7 +177,7 @@ fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
                             .add_members_by_inbox_id(
                                 // it is OK to take from the back for now because we aren't getting
                                 // near MAX_IDENTITIES
-                                inbox_ids.iter().rev().take(100).cloned().collect(),
+                                &inbox_ids,
                             )
                             .await
                             .unwrap();
@@ -219,13 +224,13 @@ fn remove_all_members_from_group(c: &mut Criterion) {
                         let group = client
                             .create_group(None, GroupMetadataOptions::default())
                             .unwrap();
-                        group.add_members_by_inbox_id(ids.clone()).await.unwrap();
+                        group.add_members_by_inbox_id(&ids).await.unwrap();
                         (group, span.clone(), ids.clone())
                     })
                 },
                 |(group, span, ids)| async move {
                     group
-                        .remove_members_by_inbox_id(ids)
+                        .remove_members_by_inbox_id(&ids)
                         .instrument(span)
                         .await
                         .unwrap();
