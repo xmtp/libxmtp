@@ -6,10 +6,13 @@ use napi::{
   JsFunction,
 };
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
-use xmtp_mls::groups::{
-  group_metadata::{ConversationType, GroupMetadata},
-  members::PermissionLevel,
-  MlsGroup, UpdateAdminListType,
+use xmtp_mls::{
+  groups::{
+    group_metadata::{ConversationType, GroupMetadata},
+    members::PermissionLevel,
+    MlsGroup, UpdateAdminListType,
+  },
+  storage::group_message::MsgQueryArgs,
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
@@ -167,12 +170,11 @@ impl NapiGroup {
 
     let messages: Vec<NapiMessage> = group
       .find_messages(
-        None,
-        opts.sent_before_ns,
-        opts.sent_after_ns,
-        delivery_status,
-        opts.limit,
-        None,
+        &MsgQueryArgs::default()
+          .maybe_sent_before_ns(opts.sent_before_ns)
+          .maybe_sent_after_ns(opts.sent_after_ns)
+          .maybe_delivery_status(delivery_status)
+          .maybe_limit(opts.limit),
       )
       .map_err(ErrorWrapper::from)?
       .into_iter()
