@@ -75,6 +75,16 @@ pub struct NapiGroup {
   created_at_ns: i64,
 }
 
+impl From<MlsGroup<RustXmtpClient>> for NapiGroup {
+  fn from(mls_group: MlsGroup<RustXmtpClient>) -> Self {
+    NapiGroup {
+      group_id: mls_group.group_id,
+      created_at_ns: mls_group.created_at_ns,
+      inner_client: mls_group.client,
+    }
+  }
+}
+
 #[napi]
 impl NapiGroup {
   pub fn new(inner_client: Arc<RustXmtpClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
@@ -548,7 +558,13 @@ impl NapiGroup {
       self.group_id.clone(),
       self.created_at_ns,
       move |message| {
-        tsfn.call(Ok(message.into()), ThreadsafeFunctionCallMode::Blocking);
+        tsfn.call(
+          message
+            .map(NapiMessage::from)
+            .map_err(ErrorWrapper::from)
+            .map_err(napi::Error::from),
+          ThreadsafeFunctionCallMode::Blocking,
+        );
       },
     );
 

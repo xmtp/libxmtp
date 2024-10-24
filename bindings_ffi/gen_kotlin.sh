@@ -18,12 +18,15 @@ fi
 echo "Android Directory: $XMTP_ANDROID"
 
 cd $WORKSPACE_PATH
-cargo build --release --manifest-path $BINDINGS_MANIFEST
+cargo build --release -p xmtpv3
 rm -f $BINDINGS_PATH/src/uniffi/$PROJECT_NAME/$PROJECT_NAME.kt
-$TARGET_DIR/release/ffi-uniffi-bindgen generate \
-    --lib-file $TARGET_DIR/release/libxmtpv3.dylib \
-    $BINDINGS_PATH/src/$PROJECT_NAME.udl \
-    --language kotlin
+cargo run --bin ffi-uniffi-bindgen \
+  --manifest-path $BINDINGS_MANIFEST \
+  --features uniffi/cli --release -- \
+  generate \
+  --lib-file $TARGET_DIR/release/lib$PROJECT_NAME.dylib $BINDINGS_PATH/src/$PROJECT_NAME.udl \
+  --language kotlin
+
 cd $BINDINGS_PATH
 make libxmtp-version
 cp libxmtp-version.txt src/uniffi/$PROJECT_NAME/

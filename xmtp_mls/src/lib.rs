@@ -80,7 +80,7 @@ macro_rules! optify {
         match $e {
             Ok(v) => Some(v),
             Err(e) => {
-                tracing::error!("{:?}", e);
+                tracing::error!("{}", e);
                 None
             }
         }
