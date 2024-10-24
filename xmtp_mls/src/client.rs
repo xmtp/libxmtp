@@ -368,7 +368,7 @@ where
         &self,
         address: String,
     ) -> Result<Option<String>, ClientError> {
-        let results = self.find_inbox_ids_from_addresses(vec![address]).await?;
+        let results = self.find_inbox_ids_from_addresses(&[address]).await?;
         if let Some(first_result) = results.into_iter().next() {
             Ok(first_result)
         } else {
@@ -380,9 +380,9 @@ where
     /// If no `inbox_id` is found, returns None.
     pub async fn find_inbox_ids_from_addresses(
         &self,
-        addresses: Vec<String>,
+        addresses: &[String],
     ) -> Result<Vec<Option<String>>, ClientError> {
-        let sanitized_addresses = sanitize_evm_addresses(addresses.clone())?;
+        let sanitized_addresses = sanitize_evm_addresses(&addresses)?;
         let mut results = self
             .api_client
             .get_inbox_ids(sanitized_addresses.clone())
@@ -459,7 +459,7 @@ where
         }
 
         let inbox_ids = self
-            .find_inbox_ids_from_addresses(addresses_to_lookup)
+            .find_inbox_ids_from_addresses(&addresses_to_lookup)
             .await?;
 
         for (i, inbox_id_opt) in inbox_ids.into_iter().enumerate() {
@@ -554,7 +554,7 @@ where
     /// Create a group with an initial set of members added
     pub async fn create_group_with_members(
         &self,
-        account_addresses: Vec<String>,
+        account_addresses: &[String],
         permissions_policy_set: Option<PolicySet>,
         opts: GroupMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
@@ -599,9 +599,7 @@ where
             dm_target_inbox_id.clone(),
         )?;
 
-        group
-            .add_members_by_inbox_id(vec![dm_target_inbox_id])
-            .await?;
+        group.add_members_by_inbox_id(&[dm_target_inbox_id]).await?;
 
         // notify any streams of the new group
         let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
@@ -921,7 +919,7 @@ where
     /// A Vec of booleans indicating whether each account address has a key package registered on the network
     pub async fn can_message(
         &self,
-        account_addresses: Vec<String>,
+        account_addresses: &[String],
     ) -> Result<HashMap<String, bool>, ClientError> {
         let account_addresses = sanitize_evm_addresses(account_addresses)?;
         let inbox_id_map = self
@@ -1001,7 +999,7 @@ pub(crate) mod tests {
 
         // Add both of Bola's installations to the group
         group
-            .add_members_by_inbox_id(vec![bola_a.inbox_id(), bola_b.inbox_id()])
+            .add_members_by_inbox_id(&[bola_a.inbox_id(), bola_b.inbox_id()])
             .await
             .unwrap();
 
@@ -1118,7 +1116,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alice_bob_group
-            .add_members_by_inbox_id(vec![bob.inbox_id()])
+            .add_members_by_inbox_id(&[bob.inbox_id()])
             .await
             .unwrap();
 
@@ -1149,11 +1147,11 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_bo_group1
-            .add_members_by_inbox_id(vec![bo.inbox_id()])
+            .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
             .unwrap();
         alix_bo_group2
-            .add_members_by_inbox_id(vec![bo.inbox_id()])
+            .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
             .unwrap();
 
@@ -1220,14 +1218,14 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         amal_group
-            .add_members_by_inbox_id(vec![bola.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
         assert_eq!(amal_group.members().await.unwrap().len(), 2);
 
         // Now remove bola
         amal_group
-            .remove_members_by_inbox_id(vec![bola.inbox_id()])
+            .remove_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
         assert_eq!(amal_group.members().await.unwrap().len(), 1);
@@ -1249,7 +1247,7 @@ pub(crate) mod tests {
 
         // Add Bola back to the group
         amal_group
-            .add_members_by_inbox_id(vec![bola.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
@@ -1335,7 +1333,7 @@ pub(crate) mod tests {
         assert!(bo_original_from_db.is_ok());
 
         alix.create_group_with_members(
-            vec![bo_wallet.get_address()],
+            &[bo_wallet.get_address()],
             None,
             GroupMetadataOptions::default(),
         )
@@ -1359,7 +1357,7 @@ pub(crate) mod tests {
         assert_eq!(alix_original_init_key, alix_key_2);
 
         alix.create_group_with_members(
-            vec![bo_wallet.get_address()],
+            &[bo_wallet.get_address()],
             None,
             GroupMetadataOptions::default(),
         )

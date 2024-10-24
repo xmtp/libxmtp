@@ -964,7 +964,7 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), GroupError> {
         let intent_data = self
-            .get_membership_update_intent(provider, vec![], vec![])
+            .get_membership_update_intent(provider, &[], &[])
             .await?;
 
         // If there is nothing to do, stop here
@@ -993,15 +993,15 @@ where
     pub(super) async fn get_membership_update_intent(
         &self,
         provider: &XmtpOpenMlsProvider,
-        inbox_ids_to_add: Vec<InboxId>,
-        inbox_ids_to_remove: Vec<InboxId>,
+        inbox_ids_to_add: &[InboxId],
+        inbox_ids_to_remove: &[InboxId],
     ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
         let mls_group = self.load_mls_group(provider)?;
         let existing_group_membership = extract_group_membership(mls_group.extensions())?;
 
         // TODO:nm prevent querying for updates on members who are being removed
         let mut inbox_ids = existing_group_membership.inbox_ids();
-        inbox_ids.extend(inbox_ids_to_add);
+        inbox_ids.extend_from_slice(inbox_ids_to_add);
         let conn = provider.conn_ref();
         // Load any missing updates from the network
         load_identity_updates(self.client.api(), conn, inbox_ids.clone()).await?;
@@ -1043,7 +1043,7 @@ where
 
         Ok(UpdateGroupMembershipIntentData::new(
             changed_inbox_ids,
-            inbox_ids_to_remove,
+            inbox_ids_to_remove.to_vec(),
         ))
     }
 

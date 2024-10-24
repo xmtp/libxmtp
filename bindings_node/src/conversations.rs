@@ -91,7 +91,7 @@ impl NapiConversations {
     } else {
       self
         .inner_client
-        .create_group_with_members(account_addresses, group_permissions, metadata_options)
+        .create_group_with_members(&account_addresses, group_permissions, metadata_options)
         .await
         .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?
     };

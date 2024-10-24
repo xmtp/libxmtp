@@ -172,7 +172,7 @@ impl NapiClient {
   pub async fn can_message(&self, account_addresses: Vec<String>) -> Result<HashMap<String, bool>> {
     let results: HashMap<String, bool> = self
       .inner_client
-      .can_message(account_addresses)
+      .can_message(&account_addresses)
       .await
       .map_err(ErrorWrapper::from)?;
 

@@ -107,9 +107,9 @@ pub(crate) mod tests {
         );
         amal_a.set_consent_states(&[consent_record]).await.unwrap();
 
-        // Ensure those consent records now exist.
+        // Ensure that consent record now exists.
         let syncable_consent_records = amal_a.syncable_consent_records().unwrap();
-        assert_eq!(syncable_consent_records.len(), 2);
+        assert_eq!(syncable_consent_records.len(), 1);
 
         // The first installation should have zero sync groups.
         let amal_a_sync_groups = amal_a.store().conn().unwrap().find_sync_groups().unwrap();
@@ -156,13 +156,22 @@ pub(crate) mod tests {
             .with_body(&enc_payload)
             .create();
 
+        // The second installatino has consented to nobody
         let consent_records = amal_b.store().conn().unwrap().consent_records().unwrap();
         assert_eq!(consent_records.len(), 0);
 
-        // have the second installation process the reply
+        // Have the second installation process the reply.
         amal_b.process_consent_sync_reply().await.unwrap();
 
-        let consent_records = amal_b.store().conn().unwrap().consent_records().unwrap();
-        assert_eq!(consent_records.len(), 3);
+        // Load consents of both installations
+        let consent_records_a = amal_a.store().conn().unwrap().consent_records().unwrap();
+        let consent_records_b = amal_b.store().conn().unwrap().consent_records().unwrap();
+
+        // Ensure the consent is synced.
+        assert_eq!(consent_records_a.len(), 2); // 2 consents - alix, and the group sync
+        assert_eq!(consent_records_b.len(), 2);
+        for record in &consent_records_a {
+            assert!(consent_records_b.contains(record));
+        }
     }
 }

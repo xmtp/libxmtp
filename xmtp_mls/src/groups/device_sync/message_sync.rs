@@ -100,171 +100,8 @@ pub(crate) mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_installations_are_added_to_sync_group() {
-        let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        let amal_c = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_c.enable_history_sync().await);
-
-        amal_a.sync_welcomes().await.expect("sync_welcomes");
-        amal_b.sync_welcomes().await.expect("sync_welcomes");
-
-        let conn_a = amal_a.store().conn().unwrap();
-        let amal_a_sync_groups = conn_a.find_sync_groups().unwrap();
-
-        let conn_b = amal_b.store().conn().unwrap();
-        let amal_b_sync_groups = conn_b.find_sync_groups().unwrap();
-
-        let conn_c = amal_c.store().conn().unwrap();
-        let amal_c_sync_groups = conn_c.find_sync_groups().unwrap();
-
-        assert_eq!(amal_a_sync_groups.len(), 1);
-        assert_eq!(amal_b_sync_groups.len(), 1);
-        assert_eq!(amal_c_sync_groups.len(), 1);
-        // make sure all installations are in the same sync group
-        assert_eq!(amal_a_sync_groups[0].id, amal_b_sync_groups[0].id);
-        assert_eq!(amal_b_sync_groups[0].id, amal_c_sync_groups[0].id);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_send_history_request() {
-        let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(client.enable_history_sync().await);
-
-        // test that the request is sent, and that the pin code is returned
-        let (request_id, pin_code) = client
-            .send_history_request()
-            .await
-            .expect("history request");
-        assert_eq!(request_id.len(), 32);
-        assert_eq!(pin_code.len(), 4);
-
-        // test that another request will return the same request_id and
-        // pin_code because it hasn't been replied to yet
-        let (request_id2, pin_code2) = client
-            .send_history_request()
-            .await
-            .expect("history request");
-        assert_eq!(request_id, request_id2);
-        assert_eq!(pin_code, pin_code2);
-
-        // make sure there's only 1 message in the sync group
-        let sync_group = client.get_sync_group().unwrap();
-        let messages = sync_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
-            .unwrap();
-        assert_eq!(messages.len(), 1);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_send_history_reply() {
-        let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(client.enable_history_sync().await);
-
-        let request_id = new_request_id();
-        let url = "https://test.com/abc-123";
-        let encryption_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
-        let reply = DeviceSyncReply::new(&request_id, url, encryption_key);
-        let result = client.send_sync_reply(reply.into()).await;
-
-        // the reply should fail because there's no pending request to reply to
-        assert!(result.is_err());
-
-        let (request_id, _) = client
-            .send_history_request()
-            .await
-            .expect("history request");
-
-        let request_id2 = new_request_id();
-        let url = "https://test.com/abc-123";
-        let encryption_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
-        let reply = DeviceSyncReply::new(&request_id2, url, encryption_key);
-        let result = client.send_sync_reply(reply.into()).await;
-
-        // the reply should fail because there's a mismatched request ID
-        assert!(result.is_err());
-
-        let url = "https://test.com/abc-123";
-        let encryption_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
-        let reply = DeviceSyncReply::new(&request_id, url, encryption_key);
-        let result = client.send_sync_reply(reply.into()).await;
-
-        // the reply should succeed with a valid request ID
-        assert_ok!(result);
-
-        // make sure there's 2 messages in the sync group
-        let sync_group = client.get_sync_group().unwrap();
-        let messages = sync_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
-            .unwrap();
-        assert_eq!(messages.len(), 2);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_history_messages_stored_correctly() {
-        let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_b.enable_history_sync().await);
-
-        amal_a.sync_welcomes().await.expect("sync_welcomes");
-
-        let (_group_id, _pin_code) = amal_b
-            .send_history_request()
-            .await
-            .expect("history request");
-
-        // find the sync group
-        let amal_a_sync_groups = amal_a.store().conn().unwrap().find_sync_groups().unwrap();
-        assert_eq!(amal_a_sync_groups.len(), 1);
-        // get the first sync group
-        let amal_a_sync_group = amal_a.group(amal_a_sync_groups[0].id.clone()).unwrap();
-        amal_a_sync_group.sync().await.expect("sync");
-
-        // find the sync group (it should be the same as amal_a's sync group)
-        let amal_b_sync_groups = amal_b.store().conn().unwrap().find_sync_groups().unwrap();
-        assert_eq!(amal_b_sync_groups.len(), 1);
-        // get the first sync group
-        let amal_b_sync_group = amal_b.group(amal_b_sync_groups[0].id.clone()).unwrap();
-        amal_b_sync_group.sync().await.expect("sync");
-
-        // make sure they are the same group
-        assert_eq!(amal_a_sync_group.group_id, amal_b_sync_group.group_id);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    #[ignore] // this test is only relevant if we are enforcing the PIN challenge
-    async fn test_verify_pin() {
-        let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal_b.enable_history_sync().await);
-
-        amal_a.sync_welcomes().await.expect("sync_welcomes");
-
-        let (request_id, pin_code) = amal_b
-            .send_history_request()
-            .await
-            .expect("history request");
-
-        let amal_a_sync_groups = amal_a.store().conn().unwrap().find_sync_groups().unwrap();
-        assert_eq!(amal_a_sync_groups.len(), 1);
-        // get the first sync group
-        let amal_a_sync_group = amal_a.group(amal_a_sync_groups[0].id.clone()).unwrap();
-        amal_a_sync_group.sync().await.expect("sync");
-        let pin_challenge_result = amal_a.verify_pin(&request_id, &pin_code);
-        assert_ok!(pin_challenge_result);
-
-        let pin_challenge_result_2 = amal_a.verify_pin("000", "000");
-        assert!(pin_challenge_result_2.is_err());
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     #[ignore]
-    async fn test_request_reply_roundtrip() {
+    async fn test_message_history_sync() {
         let options = mockito::ServerOpts {
             host: HISTORY_SERVER_HOST,
             port: HISTORY_SERVER_PORT + 1,
@@ -275,7 +112,7 @@ pub(crate) mod tests {
         let _m = server
             .mock("POST", "/upload")
             .with_status(201)
-            .with_body("File uploaded")
+            .with_body("12345")
             .create();
 
         let history_sync_url =
@@ -285,54 +122,82 @@ pub(crate) mod tests {
         let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
         amal_a.history_sync_url = Some(history_sync_url.clone());
 
-        let _group_a = amal_a
+        // Create an alix client.
+        let alix_wallet = generate_local_wallet();
+        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
+
+        // Have amal_a create a group and add alix to that group, then send a message.
+        let group = amal_a
             .create_group(None, GroupMetadataOptions::default())
-            .expect("create group");
+            .unwrap();
+        group.add_members_by_inbox_id(&[alix.inbox_id()]);
 
+        // Ensure that consent record now exists.
+        let syncable_consent_records = amal_a.syncable_consent_records().unwrap();
+        assert_eq!(syncable_consent_records.len(), 1);
+
+        // The first installation should have zero sync groups.
+        let amal_a_sync_groups = amal_a.store().conn().unwrap().find_sync_groups().unwrap();
+        assert_eq!(amal_a_sync_groups.len(), 0);
+
+        // Create a second installation for amal.
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
+        // Turn on history sync for the second installation.
         assert_ok!(amal_b.enable_history_sync().await);
-
+        // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
         amal_a.sync_welcomes().await.expect("sync_welcomes");
-
-        // amal_b sends a message history request to sync group messages
+        // Have the second installation request for a consent sync.
         let (_group_id, pin_code) = amal_b
-            .send_history_request()
+            .send_consent_sync_request()
             .await
             .expect("history request");
 
-        amal_a.reply_to_history_request(&pin_code).await.unwrap();
+        // The first installation should now be a part of the sync group created by the second installation.
+        let amal_a_sync_groups = amal_a.store().conn().unwrap().find_sync_groups().unwrap();
+        assert_eq!(amal_a_sync_groups.len(), 1);
 
-        // amal_b should have received the reply
-        let amal_b_sync_groups = amal_b.store().conn().unwrap().find_sync_groups().unwrap();
-        assert_eq!(amal_b_sync_groups.len(), 1);
-
-        let amal_b_sync_group = amal_b.group(amal_b_sync_groups[0].id.clone()).unwrap();
-        amal_b_sync_group.sync().await.expect("sync");
-
-        let amal_b_conn = amal_b.store().conn().unwrap();
-        let amal_b_messages = amal_b_conn
-            .get_group_messages(&amal_b_sync_group.group_id, &MsgQueryArgs::default())
+        // Have first installation reply.
+        // This is to make sure it finds the request in its sync group history,
+        // verifies the pin code,
+        // has no problem packaging the consent records,
+        // and sends a reply message to the first installation.
+        let reply = amal_a
+            .reply_to_consent_sync_request(&pin_code)
+            .await
             .unwrap();
 
-        // there should be two messages in the sync group
-        assert_eq!(amal_b_messages.len(), 2);
+        // recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
+        let (enc_payload, _key) = encrypt_syncables_with_key(
+            &[amal_a.syncable_consent_records().unwrap()],
+            reply.encryption_key.unwrap().try_into().unwrap(),
+        )
+        .unwrap();
 
-        // first a request
-        let request_msg = &amal_b_messages[0];
-        let content: DeviceSyncContent =
-            serde_json::from_slice(&request_msg.decrypted_message_bytes).unwrap();
+        // have the mock server reply with the payload
+        let file_path = reply.url.replace(&history_sync_url, "");
+        let _m = server
+            .mock("GET", &*file_path)
+            .with_status(200)
+            .with_body(&enc_payload)
+            .create();
 
-        let DeviceSyncContent::Request(_request) = content else {
-            panic!("should be a request");
-        };
+        // The second installatino has consented to nobody
+        let consent_records = amal_b.store().conn().unwrap().consent_records().unwrap();
+        assert_eq!(consent_records.len(), 0);
 
-        // then a reply
-        let reply_msg = &amal_b_messages[1];
-        let content: DeviceSyncContent =
-            serde_json::from_slice(&reply_msg.decrypted_message_bytes).unwrap();
-        let DeviceSyncContent::Reply(_reply) = content else {
-            panic!("should be a reply");
-        };
+        // Have the second installation process the reply.
+        amal_b.process_consent_sync_reply().await.unwrap();
+
+        // Load consents of both installations
+        let consent_records_a = amal_a.store().conn().unwrap().consent_records().unwrap();
+        let consent_records_b = amal_b.store().conn().unwrap().consent_records().unwrap();
+
+        // Ensure the consent is synced.
+        assert_eq!(consent_records_a.len(), 2); // 2 consents - alix, and the group sync
+        assert_eq!(consent_records_b.len(), 2);
+        for record in &consent_records_a {
+            assert!(consent_records_b.contains(record));
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -348,169 +213,6 @@ pub(crate) mod tests {
 
         let result = amal_a.syncable_groups().unwrap();
         assert_eq!(result.len(), 2);
-    }
-
-    #[tokio::test]
-    async fn test_prepare_group_messages_to_sync() {
-        let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let group_a = amal_a
-            .create_group(None, GroupMetadataOptions::default())
-            .expect("create group");
-        let group_b = amal_a
-            .create_group(None, GroupMetadataOptions::default())
-            .expect("create group");
-
-        group_a.send_message(b"hi").await.expect("send");
-        group_a.send_message(b"hi x2").await.expect("send");
-        group_b.send_message(b"hi").await.expect("send");
-        group_b.send_message(b"hi x2").await.expect("send");
-
-        let messages_result = amal_a.syncable_messages().unwrap();
-        assert_eq!(messages_result.len(), 4);
-    }
-
-    #[tokio::test]
-    async fn test_get_pending_history_request() {
-        let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client(&wallet).await;
-
-        // enable history sync for the client
-        assert_ok!(amal_a.enable_history_sync().await);
-
-        // create a history request
-        let request = amal_a
-            .send_history_request()
-            .await
-            .expect("history request");
-
-        // check for the pending request
-        let pending_request = amal_a
-            .pending_sync_request(DeviceSyncKind::MessageHistory)
-            .await
-            .unwrap();
-        assert!(pending_request.is_some());
-
-        let (_msg, req) = pending_request.unwrap();
-        assert_eq!(req.request_id, request.0);
-        assert_eq!(req.pin_code, request.1);
-    }
-
-    #[tokio::test]
-    async fn test_get_latest_history_reply() {
-        let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let amal_b = ClientBuilder::new_test_client(&wallet).await;
-
-        // enable history sync for both clients
-        assert_ok!(amal_a.enable_history_sync().await);
-        assert_ok!(amal_b.enable_history_sync().await);
-
-        // amal_b sends a history request
-        let (request_id, _pin_code) = amal_b
-            .send_history_request()
-            .await
-            .expect("history request");
-
-        // sync amal_a
-        amal_a.sync_welcomes().await.expect("sync_welcomes");
-
-        // amal_a sends a reply
-        amal_a
-            .send_sync_reply(DeviceSyncReplyProto {
-                request_id: request_id.clone(),
-                url: "http://foo/bar".to_string(),
-                encryption_key: None,
-            })
-            .await
-            .expect("send reply");
-
-        // check latest reply for amal_b
-        let sync_reply = amal_b.get_sync_reply(&request_id).await.unwrap();
-        assert!(sync_reply.is_some());
-
-        let sync_reply = sync_reply.unwrap();
-        assert_eq!(sync_reply.request_id, request_id);
-    }
-
-    #[tokio::test]
-    async fn test_reply_to_history_request() {
-        let wallet = generate_local_wallet();
-        let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let amal_b = ClientBuilder::new_test_client(&wallet).await;
-
-        // enable history sync for both clients
-        assert_ok!(amal_a.enable_history_sync().await);
-        assert_ok!(amal_b.enable_history_sync().await);
-
-        // amal_b sends a history request
-        let (request_id, pin_code) = amal_b
-            .send_history_request()
-            .await
-            .expect("history request");
-
-        // sync amal_a
-        amal_a.sync_welcomes().await.expect("sync_welcomes");
-
-        // start mock server
-        let options = mockito::ServerOpts {
-            host: HISTORY_SERVER_HOST,
-            port: HISTORY_SERVER_PORT + 3,
-            ..Default::default()
-        };
-        let mut server = mockito::Server::new_with_opts_async(options).await;
-
-        let _m = server
-            .mock("POST", "/upload")
-            .with_status(201)
-            .with_body("File uploaded")
-            .create();
-
-        let url = format!(
-            "http://{}:{}/",
-            HISTORY_SERVER_HOST,
-            HISTORY_SERVER_PORT + 3
-        );
-        amal_a.history_sync_url = Some(url);
-
-        // amal_a replies to the history request
-        let reply = amal_a.reply_to_history_request(&pin_code).await.unwrap();
-
-        // verify the reply
-        assert_eq!(reply.request_id, request_id);
-        assert!(!reply.url.is_empty());
-        assert!(reply.encryption_key.is_some());
-
-        // check if amal_b received the reply
-        let received_reply = amal_b.get_sync_reply(&reply.request_id).await.unwrap();
-        assert!(received_reply.is_some());
-        let received_reply = received_reply.unwrap();
-        assert_eq!(received_reply.request_id, request_id);
-        assert_eq!(received_reply.url, reply.url);
-        assert_eq!(received_reply.encryption_key, reply.encryption_key);
-
-        _m.assert_async().await;
-        server.reset();
-    }
-
-    #[tokio::test]
-    async fn test_insert_history_bundle() {
-        let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        let group_a = amal_a
-            .create_group(None, GroupMetadataOptions::default())
-            .expect("create group");
-
-        group_a.send_message(b"hi").await.expect("send message");
-
-        let syncables = amal_a.syncable_messages().unwrap();
-        let (enc_payload, enc_key) = encrypt_syncables(&[syncables]).unwrap();
-
-        let amal_b_conn = amal_b.store().conn().unwrap();
-        let result = insert_encrypted_syncables(&amal_b_conn, enc_payload, &enc_key);
-
-        assert!(result.is_ok());
     }
 
     #[tokio::test]
@@ -546,7 +248,7 @@ pub(crate) mod tests {
             created_at_ns,
         );
         let result = external_client_group
-            .add_members(vec![external_wallet.get_address()])
+            .add_members(&[external_wallet.get_address()])
             .await;
         assert!(result.is_err());
     }

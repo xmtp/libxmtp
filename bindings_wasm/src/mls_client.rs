@@ -122,7 +122,7 @@ impl WasmClient {
   pub async fn can_message(&self, account_addresses: Vec<String>) -> Result<JsValue, JsError> {
     let results: HashMap<String, bool> = self
       .inner_client
-      .can_message(account_addresses)
+      .can_message(&account_addresses)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 

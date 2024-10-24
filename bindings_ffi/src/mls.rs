@@ -289,7 +289,7 @@ impl FfiXmtpClient {
     ) -> Result<HashMap<String, bool>, GenericError> {
         let inner = self.inner_client.as_ref();
 
-        let results: HashMap<String, bool> = inner.can_message(account_addresses).await?;
+        let results: HashMap<String, bool> = inner.can_message(&account_addresses).await?;
 
         Ok(results)
     }
@@ -798,7 +798,7 @@ impl FfiConversations {
                 .create_group(group_permissions, metadata_options)?
         } else {
             self.inner_client
-                .create_group_with_members(account_addresses, group_permissions, metadata_options)
+                .create_group_with_members(&account_addresses, group_permissions, metadata_options)
                 .await?
         };
 
@@ -1288,7 +1288,7 @@ impl FfiConversation {
             self.created_at_ns,
         );
 
-        group.add_members(account_addresses).await?;
+        group.add_members(&account_addresses).await?;
 
         Ok(())
     }
@@ -1305,7 +1305,7 @@ impl FfiConversation {
             self.created_at_ns,
         );
 
-        group.add_members_by_inbox_id(inbox_ids).await?;
+        group.add_members_by_inbox_id(&inbox_ids).await?;
 
         Ok(())
     }
@@ -1317,7 +1317,7 @@ impl FfiConversation {
             self.created_at_ns,
         );
 
-        group.remove_members(account_addresses).await?;
+        group.remove_members(&account_addresses).await?;
 
         Ok(())
     }
@@ -1332,7 +1332,7 @@ impl FfiConversation {
             self.created_at_ns,
         );
 
-        group.remove_members_by_inbox_id(inbox_ids).await?;
+        group.remove_members_by_inbox_id(&inbox_ids).await?;
 
         Ok(())
     }

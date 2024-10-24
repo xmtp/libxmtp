@@ -337,7 +337,7 @@ where
         let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
         for group in groups {
             let group = self.group(group.id)?;
-            Box::pin(group.add_members_by_inbox_id(vec![inbox_id.to_string()])).await?;
+            Box::pin(group.add_members_by_inbox_id(&[inbox_id.to_string()])).await?;
         }
 
         Ok(())
