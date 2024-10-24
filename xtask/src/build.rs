@@ -87,9 +87,9 @@ pub fn step_wasm_bindgen_build<T>(
     // TODO: Check for wasm-bindgen on `PATH`
     let sh = Shell::new()?;
     // let _env = sh.push_env("RUSTFLAGS", crate::RUSTFLAGS);
-    println!("wasm_path: {}", wasm_path.display());
-    println!("pkg_directory: {}", pkg_directory.display());
     let cmd = cmd!(sh, "wasm-bindgen {wasm_path} --out-dir {pkg_directory} --typescript --target web --split-linked-modules");
+    println!("wasm-bindgen command: {}", cmd);
+    println!("working directory: {}", sh.current_dir().display());
     pretty_print(cmd, f)?;
     Ok(())
 }
@@ -97,6 +97,7 @@ pub fn step_wasm_bindgen_build<T>(
 /// Construct our `pkg` directory in the crate.
 pub fn create_pkg_dir<T>(out_dir: &Path, f: impl Fn(&str) -> T) -> Result<()> {
     f(&format!("creating package directory {}", out_dir.display()));
+    println!("creating package directory: {}", out_dir.display());
     let _ = fs::remove_file(out_dir.join("package.json")); // Clean up package.json from previous runs
     fs::create_dir_all(out_dir)?;
     Ok(())
