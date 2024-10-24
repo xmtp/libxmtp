@@ -9,7 +9,7 @@ use crate::{
 };
 use thiserror::Error;
 use xmtp_id::associations::DeserializationError as AssociationDeserializationError;
-use xmtp_proto::api_client::Error as ApiError;
+use xmtp_proto::api_client::{BoxedApiClient, Error as ApiError};
 
 pub use identity::*;
 pub use mls::*;
@@ -29,16 +29,13 @@ impl RetryableError for WrappedApiError {
 }
 
 #[derive(Clone, Debug)]
-pub struct ApiClientWrapper<ApiClient> {
-    pub(crate) api_client: ApiClient,
+pub struct ApiClientWrapper {
+    pub(crate) api_client: BoxedApiClient,
     pub(crate) retry_strategy: Retry,
 }
 
-impl<ApiClient> ApiClientWrapper<ApiClient>
-where
-    ApiClient: XmtpApi,
-{
-    pub fn new(api_client: ApiClient, retry_strategy: Retry) -> Self {
+impl ApiClientWrapper {
+    pub fn new(api_client: BoxedApiClient, retry_strategy: Retry) -> Self {
         Self {
             api_client,
             retry_strategy,

@@ -1,6 +1,7 @@
 pub mod auth_token;
 pub mod grpc_api_helper;
 mod identity;
+pub mod replication_client;
 
 pub const LOCALHOST_ADDRESS: &str = "http://localhost:5556";
 pub const DEV_ADDRESS: &str = "https://grpc.dev.xmtp.network:443";
@@ -10,16 +11,14 @@ pub use grpc_api_helper::{Client, GroupMessageStream, WelcomeMessageStream};
 mod utils {
     #[cfg(feature = "test-utils")]
     mod test {
-        use xmtp_proto::api_client::XmtpTestClient;
-
-        impl XmtpTestClient for crate::Client {
-            async fn create_local() -> Self {
+        impl crate::Client {
+            pub async fn create_local() -> Self {
                 crate::Client::create("http://localhost:5556".into(), false)
                     .await
                     .unwrap()
             }
 
-            async fn create_dev() -> Self {
+            pub async fn create_dev() -> Self {
                 crate::Client::create("https://grpc.dev.xmtp.network:443".into(), false)
                     .await
                     .unwrap()

@@ -1,11 +1,10 @@
 use std::{error::Error as StdError, fmt};
 
-use futures::Stream;
-
 pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PagingInfo, PublishRequest, PublishResponse,
     QueryRequest, QueryResponse, SubscribeRequest,
 };
+use crate::api_client::trait_impls::XmtpApi;
 use crate::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
@@ -18,20 +17,15 @@ use crate::xmtp::mls::api::v1::{
     SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
     SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage,
 };
+use futures::Stream;
 
-#[cfg(any(test, feature = "test-utils"))]
-#[trait_variant::make(XmtpTestClient: Send)]
-pub trait LocalXmtpTestClient {
-    async fn create_local() -> Self;
-    async fn create_dev() -> Self;
-}
+pub type BoxedApiClient<'a, M, W> = Box<dyn XmtpApi<'a, M, W>>;
 
 /// XMTP Api Super Trait
 /// Implements all Trait Network APIs for convenience.
 pub mod trait_impls {
     #[allow(unused)]
     #[cfg(any(test, feature = "test-utils"))]
-    use super::{LocalXmtpTestClient, XmtpTestClient};
     pub use inner::*;
 
     // native, release
@@ -66,7 +60,6 @@ pub mod trait_impls {
     // wasm32, release
     #[cfg(all(not(feature = "test-utils"), target_arch = "wasm32"))]
     mod inner {
-
         use crate::api_client::{
             ClientWithMetadata, LocalXmtpIdentityClient, LocalXmtpMlsClient, LocalXmtpMlsStreams,
         };
@@ -92,33 +85,43 @@ pub mod trait_impls {
     // test, native
     #[cfg(all(feature = "test-utils", not(target_arch = "wasm32")))]
     mod inner {
-        use crate::api_client::{
-            ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
+        use futures::Stream;
+
+        use crate::{
+            api_client::{
+                ClientWithMetadata, Error, MessagesStream, WelcomesStream, XmtpIdentityClient,
+                XmtpMlsClient, XmtpMlsStreams,
+            },
+            xmtp::mls::api::v1::{GroupMessage, WelcomeMessage},
         };
 
-        pub trait XmtpApi
+        pub trait XmtpApi<'a, M: MessagesStream<'a>, W: WelcomesStream<'a>>
         where
             Self: XmtpMlsClient
-                + XmtpMlsStreams
+                + XmtpMlsStreams<'a, M, W>
                 + XmtpIdentityClient
-                + super::XmtpTestClient
                 + ClientWithMetadata
                 + Send
                 + Sync,
         {
         }
-        impl<T> XmtpApi for T where
+        impl<'a, T, M, W> XmtpApi<'a, M, W> for T
+        where
             T: XmtpMlsClient
-                + XmtpMlsStreams
+                + XmtpMlsStreams<'a, M, W>
                 + XmtpIdentityClient
-                + super::XmtpTestClient
                 + ClientWithMetadata
                 + Send
                 + Sync
-                + ?Sized
+                + ?Sized,
+            M: MessagesStream<'a>,
+            W: WelcomesStream<'a>,
         {
         }
     }
+
+    // Support Clone with dynamic dispatch:
+    // https://users.rust-lang.org/t/how-to-deal-with-the-trait-cannot-be-made-into-an-object-error-in-rust-which-traits-are-object-safe-and-which-aint/90620/3
 
     // test, wasm32
     #[cfg(all(feature = "test-utils", target_arch = "wasm32"))]
@@ -132,7 +135,6 @@ pub mod trait_impls {
             Self: LocalXmtpMlsClient
                 + LocalXmtpMlsStreams
                 + LocalXmtpIdentityClient
-                + super::LocalXmtpTestClient
                 + ClientWithMetadata,
         {
         }
@@ -141,7 +143,6 @@ pub mod trait_impls {
             T: LocalXmtpMlsClient
                 + LocalXmtpMlsStreams
                 + LocalXmtpIdentityClient
-                + super::LocalXmtpTestClient
                 + ClientWithMetadata
                 + Send
                 + Sync
@@ -280,10 +281,10 @@ pub trait LocalXmtpApiClient {
 }
 
 // Wasm futures don't have `Send` or `Sync` bounds.
-#[allow(async_fn_in_trait)]
-#[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpMlsClient: Send))]
-#[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpMlsClient: Wasm))]
-pub trait LocalXmtpMlsClient {
+#[async_trait::async_trait]
+// #[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpMlsClient: Send))]
+// #[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpMlsClient: Wasm))]
+pub trait XmtpMlsClient: Send {
     async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
     async fn fetch_key_packages(
         &self,
@@ -302,6 +303,7 @@ pub trait LocalXmtpMlsClient {
     ) -> Result<QueryWelcomeMessagesResponse, Error>;
 }
 
+// TODO: support Wasm
 #[allow(async_fn_in_trait)]
 #[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpMlsStreams: Wasm))]
 pub trait LocalXmtpMlsStreams {
@@ -323,34 +325,47 @@ pub trait LocalXmtpMlsStreams {
     ) -> Result<Self::WelcomeMessageStream<'_>, Error>;
 }
 
+pub trait MessagesStream<'a>: Stream<Item = Result<GroupMessage, Error>> + Send + 'a {}
+pub trait WelcomesStream<'a>: Stream<Item = Result<WelcomeMessage, Error>> + Send + 'a {}
+
 // we manually make a Local+Non-Local trait variant here b/c the
 // macro breaks with GATs
 #[allow(async_fn_in_trait)]
+// https://blog.rust-lang.org/2023/12/21/async-fn-rpit-in-traits.html#should-i-still-use-the-async_trait-macro
 #[cfg(not(target_arch = "wasm32"))]
-pub trait XmtpMlsStreams: Send {
-    type GroupMessageStream<'a>: Stream<Item = Result<GroupMessage, Error>> + Send + 'a
-    where
-        Self: 'a;
+// https://blog.rust-lang.org/2022/10/28/gats-stabilization.html#traits-with-gats-are-not-object-safe
+// #[async_trait::async_trait]
+pub trait XmtpMlsStreams<
+    'a,
+    GroupMessageStream: MessagesStream<'a>,
+    WelcomeMessageStream: WelcomesStream<'a>,
+> where
+    Self: 'a,
+{
+    // type GroupMessageStream<'a>: Stream<Item = Result<GroupMessage, Error>> + Send + 'a
+    // where
+    //     Self: 'a;
 
-    type WelcomeMessageStream<'a>: Stream<Item = Result<WelcomeMessage, Error>> + Send + 'a
-    where
-        Self: 'a;
+    // type WelcomeMessageStream<'a>: Stream<Item = Result<WelcomeMessage, Error>> + Send + 'a
+    // where
+    //     Self: 'a;
 
     fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
-    ) -> impl futures::Future<Output = Result<Self::GroupMessageStream<'_>, Error>> + Send;
+    ) -> impl futures::Future<Output = Result<GroupMessageStream, Error>> + Send;
 
     fn subscribe_welcome_messages(
         &self,
         request: SubscribeWelcomeMessagesRequest,
-    ) -> impl futures::Future<Output = Result<Self::WelcomeMessageStream<'_>, Error>> + Send;
+    ) -> impl futures::Future<Output = Result<WelcomeMessageStream, Error>> + Send;
 }
 
+#[async_trait::async_trait]
 #[allow(async_fn_in_trait)]
-#[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpIdentityClient: Send))]
-#[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpIdentityClient: Wasm))]
-pub trait LocalXmtpIdentityClient {
+// #[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(XmtpIdentityClient: Send))]
+// #[cfg_attr(target_arch = "wasm32", trait_variant::make(XmtpIdentityClient: Wasm))]
+pub trait XmtpIdentityClient: Send {
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,

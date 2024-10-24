@@ -14,7 +14,7 @@ use xmtp_id::{
     },
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
 };
-use xmtp_proto::api_client::XmtpTestClient;
+use xmtp_proto::api_client::BoxedApiClient;
 
 use crate::{
     builder::ClientBuilder,
@@ -30,7 +30,7 @@ pub mod traced_test;
 #[cfg(not(target_arch = "wasm32"))]
 pub use traced_test::traced_test;
 
-pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
+pub type FullXmtpClient = Client<MockSmartContractSignatureVerifier>;
 
 #[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
 pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
@@ -104,9 +104,9 @@ impl<A, V> ClientBuilder<A, V> {
     }
 }
 
-impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
+impl ClientBuilder<MockSmartContractSignatureVerifier> {
     pub async fn new_test_client(owner: &impl InboxOwner) -> FullXmtpClient {
-        let api_client = <TestClient as XmtpTestClient>::create_local().await;
+        let api_client = TestClient::create_local().await;
         inner_build(
             owner,
             &api_client,
@@ -119,7 +119,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
     pub async fn new_mock_dev_client(
         owner: impl InboxOwner,
     ) -> Client<TestClient, MockSmartContractSignatureVerifier> {
-        let api_client = <TestClient as XmtpTestClient>::create_dev().await;
+        let api_client = TestClient::create_dev().await;
         inner_build(
             owner,
             &api_client,
@@ -132,44 +132,47 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
 impl ClientBuilder<TestClient> {
     /// Create a client pointed at the local container with the default remote verifier
     pub async fn new_local_client(owner: &impl InboxOwner) -> Client<TestClient> {
-        let api_client = <TestClient as XmtpTestClient>::create_local().await;
+        let api_client = TestClient::create_local().await;
         inner_build(
             owner,
             &api_client,
-            RemoteSignatureVerifier::new(api_client.clone()),
+            RemoteSignatureVerifier::new(Box::new(api_client.clone())),
         )
         .await
     }
 
     pub async fn new_dev_client(owner: &impl InboxOwner) -> Client<TestClient> {
-        let api_client = <TestClient as XmtpTestClient>::create_dev().await;
+        let api_client = TestClient::create_dev().await;
         inner_build(
             owner,
             &api_client,
-            RemoteSignatureVerifier::new(api_client.clone()),
+            RemoteSignatureVerifier::new(Box::new(api_client.clone())),
         )
         .await
     }
 
     /// Add the local client to this builder
     pub async fn local_client(self) -> Self {
-        self.api_client(<TestClient as XmtpTestClient>::create_local().await)
+        self.api_client(Box::new(TestClient::create_local().await))
     }
 
     pub async fn dev_client(self) -> Self {
-        self.api_client(<TestClient as XmtpTestClient>::create_dev().await)
+        self.api_client(Box::new(TestClient::create_dev().await))
     }
 }
 
-async fn inner_build<A, V>(owner: impl InboxOwner, api_client: &A, scw_verifier: V) -> Client<A, V>
+async fn inner_build<V>(
+    owner: impl InboxOwner,
+    api_client: BoxedApiClient,
+    scw_verifier: V,
+) -> Client<V>
 where
-    A: XmtpApi + Clone,
     V: SmartContractSignatureVerifier + Clone,
 {
     let nonce = 1;
     let inbox_id = generate_inbox_id(&owner.get_address(), &nonce);
 
-    let client = Client::<A, V>::builder(IdentityStrategy::CreateIfNotFound(
+    let client = Client::<V>::builder(IdentityStrategy::CreateIfNotFound(
         inbox_id,
         owner.get_address(),
         nonce,
@@ -177,7 +180,7 @@ where
     ))
     .temp_store()
     .await
-    .api_client(api_client.clone())
+    .api_client(Box::new(api_client.clone()))
     .scw_signature_verifier(scw_verifier)
     .build_with_verifier()
     .await
@@ -212,9 +215,8 @@ impl Delivery {
     }
 }
 
-impl<ApiClient, V> Client<ApiClient, V>
+impl<V> Client<V>
 where
-    ApiClient: XmtpApi + Clone,
     V: SmartContractSignatureVerifier + Clone,
 {
     pub async fn is_registered(&self, address: &String) -> bool {
@@ -227,8 +229,8 @@ where
     }
 }
 
-pub async fn register_client<T: XmtpApi + Clone, V: SmartContractSignatureVerifier + Clone>(
-    client: &Client<T, V>,
+pub async fn register_client<V: SmartContractSignatureVerifier + Clone>(
+    client: &Client<V>,
     owner: impl InboxOwner,
 ) {
     let mut signature_request = client.context.signature_request().unwrap();

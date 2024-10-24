@@ -1,6 +1,7 @@
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex}; // TODO switch to async mutexes
+use std::sync::{Arc, Mutex};
+// TODO switch to async mutexes
 use std::time::Duration;
 
 use futures::stream::{AbortHandle, Abortable};
@@ -9,23 +10,31 @@ use tokio::sync::oneshot;
 use tonic::transport::ClientTlsConfig;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 
-use xmtp_proto::api_client::{ClientWithMetadata, XmtpMlsStreams};
+use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsStreams};
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
+use xmtp_proto::xmtp::xmtpv4::message_api::replication_api_client::ReplicationApiClient;
 use xmtp_proto::{
     api_client::{
         Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
     },
-    xmtp::identity::api::v1::identity_api_client::IdentityApiClient as ProtoIdentityApiClient,
+    xmtp::identity::api::v1::{
+        get_inbox_ids_response, GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
+        GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
+        GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
+        VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
+    },
     xmtp::message_api::v1::{
-        message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
-        PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
+        BatchQueryRequest, BatchQueryResponse, Envelope, PublishRequest, PublishResponse,
+        QueryRequest, QueryResponse, SubscribeRequest,
     },
     xmtp::mls::api::v1::{
-        mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
-        FetchKeyPackagesResponse, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
-        QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, SendGroupMessagesRequest,
-        SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-        UploadKeyPackageRequest,
+        FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
+        QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
+        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
+        SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
+    },
+    xmtp::xmtpv4::message_api::{
+        get_inbox_ids_request, GetInboxIdsRequest as GetInboxIdsRequestV4,
     },
 };
 
@@ -66,15 +75,13 @@ async fn create_tls_channel(address: String) -> Result<Channel, Error> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Client {
-    pub(crate) client: MessageApiClient<Channel>,
-    pub(crate) mls_client: ProtoMlsApiClient<Channel>,
-    pub(crate) identity_client: ProtoIdentityApiClient<Channel>,
+pub struct ClientV4 {
+    pub(crate) client: ReplicationApiClient<Channel>,
     pub(crate) app_version: MetadataValue<tonic::metadata::Ascii>,
     pub(crate) libxmtp_version: MetadataValue<tonic::metadata::Ascii>,
 }
 
-impl Client {
+impl ClientV4 {
     pub async fn create(host: String, is_secure: bool) -> Result<Self, Error> {
         let host = host.to_string();
         let app_version = MetadataValue::try_from(&String::from("0.0.0"))
@@ -91,16 +98,12 @@ impl Client {
                 .map_err(|e| Error::new(ErrorKind::SetupConnectionError).with(e))?,
         };
 
-        let client = MessageApiClient::new(channel.clone());
-        let mls_client = ProtoMlsApiClient::new(channel.clone());
-        let identity_client = ProtoIdentityApiClient::new(channel);
+        let client = ReplicationApiClient::new(channel.clone());
 
         Ok(Self {
             client,
-            mls_client,
             app_version,
             libxmtp_version,
-            identity_client,
         })
     }
 
@@ -113,13 +116,9 @@ impl Client {
 
         req
     }
-
-    pub fn identity_client(&self) -> &ProtoIdentityApiClient<Channel> {
-        &self.identity_client
-    }
 }
 
-impl ClientWithMetadata for Client {
+impl ClientWithMetadata for ClientV4 {
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Error> {
         self.libxmtp_version = MetadataValue::try_from(&version)
             .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
@@ -135,7 +134,7 @@ impl ClientWithMetadata for Client {
     }
 }
 
-impl XmtpApiClient for Client {
+impl XmtpApiClient for ClientV4 {
     type Subscription = Subscription;
     type MutableSubscription = GrpcMutableSubscription;
 
@@ -144,81 +143,26 @@ impl XmtpApiClient for Client {
         token: String,
         request: PublishRequest,
     ) -> Result<PublishResponse, Error> {
-        let auth_token_string = format!("Bearer {}", token);
-        let token: MetadataValue<_> = auth_token_string
-            .parse()
-            .map_err(|e| Error::new(ErrorKind::PublishError).with(e))?;
-
-        let mut tonic_request = self.build_request(request);
-        tonic_request.metadata_mut().insert("authorization", token);
-        let client = &mut self.client.clone();
-
-        client
-            .publish(tonic_request)
-            .await
-            .map(|r| r.into_inner())
-            .map_err(|e| Error::new(ErrorKind::PublishError).with(e))
+        unimplemented!();
     }
 
     async fn subscribe(&self, request: SubscribeRequest) -> Result<Subscription, Error> {
-        let client = &mut self.client.clone();
-        let stream = client
-            .subscribe(self.build_request(request))
-            .await
-            .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
-            .into_inner();
-
-        Ok(Subscription::start(stream).await)
+        unimplemented!();
     }
 
     async fn subscribe2(
         &self,
         request: SubscribeRequest,
     ) -> Result<GrpcMutableSubscription, Error> {
-        let (sender, mut receiver) = futures::channel::mpsc::unbounded::<SubscribeRequest>();
-
-        let input_stream = async_stream::stream! {
-            yield request;
-            // Wait for the receiver to send a new request.
-            // This happens in the update method of the Subscription
-            while let Some(result) = receiver.next().await {
-                yield result;
-            }
-        };
-
-        let client = &mut self.client.clone();
-
-        let stream = client
-            .subscribe2(self.build_request(input_stream))
-            .await
-            .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
-            .into_inner();
-
-        Ok(GrpcMutableSubscription::new(
-            Box::pin(stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))),
-            sender,
-        ))
+        unimplemented!();
     }
 
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error> {
-        let client = &mut self.client.clone();
-
-        let res = client.query(self.build_request(request)).await;
-
-        match res {
-            Ok(response) => Ok(response.into_inner()),
-            Err(e) => Err(Error::new(ErrorKind::QueryError).with(e)),
-        }
+        unimplemented!();
     }
 
     async fn batch_query(&self, request: BatchQueryRequest) -> Result<BatchQueryResponse, Error> {
-        let client = &mut self.client.clone();
-        let res = client.batch_query(self.build_request(request)).await;
-
-        match res {
-            Ok(response) => Ok(response.into_inner()),
-            Err(e) => Err(Error::new(ErrorKind::QueryError).with(e)),
-        }
+        unimplemented!();
     }
 }
 
@@ -338,16 +282,10 @@ impl MutableApiSubscription for GrpcMutableSubscription {
 }
 
 #[async_trait::async_trait]
-impl XmtpMlsClient for Client {
+impl XmtpMlsClient for ClientV4 {
     #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Error> {
-        let client = &mut self.mls_client.clone();
-
-        let res = client.upload_key_package(self.build_request(req)).await;
-        match res {
-            Ok(_) => Ok(()),
-            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
-        }
+        unimplemented!();
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -355,33 +293,17 @@ impl XmtpMlsClient for Client {
         &self,
         req: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client.fetch_key_packages(self.build_request(req)).await;
-
-        res.map(|r| r.into_inner())
-            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+        unimplemented!();
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client.send_group_messages(self.build_request(req)).await;
-
-        match res {
-            Ok(_) => Ok(()),
-            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
-        }
+        unimplemented!();
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn send_welcome_messages(&self, req: SendWelcomeMessagesRequest) -> Result<(), Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client.send_welcome_messages(self.build_request(req)).await;
-
-        match res {
-            Ok(_) => Ok(()),
-            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
-        }
+        unimplemented!();
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -389,11 +311,7 @@ impl XmtpMlsClient for Client {
         &self,
         req: QueryGroupMessagesRequest,
     ) -> Result<QueryGroupMessagesResponse, Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client.query_group_messages(self.build_request(req)).await;
-
-        res.map(|r| r.into_inner())
-            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+        unimplemented!();
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -401,11 +319,7 @@ impl XmtpMlsClient for Client {
         &self,
         req: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client.query_welcome_messages(self.build_request(req)).await;
-
-        res.map(|r| r.into_inner())
-            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+        unimplemented!();
     }
 }
 
@@ -455,36 +369,78 @@ impl Stream for WelcomeMessageStream {
     }
 }
 
-impl XmtpMlsStreams<'_, GroupMessageStream, WelcomeMessageStream> for Client {
-    // type GroupMessageStream<'a> = GroupMessageStream;
-    // type WelcomeMessageStream<'a> = WelcomeMessageStream;
-
-    async fn subscribe_group_messages(
-        &self,
-        req: SubscribeGroupMessagesRequest,
-    ) -> Result<GroupMessageStream, Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client
-            .subscribe_group_messages(self.build_request(req))
-            .await
-            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
-
-        let stream = res.into_inner();
-        Ok(stream.into())
-    }
-
-    async fn subscribe_welcome_messages(
-        &self,
-        req: SubscribeWelcomeMessagesRequest,
-    ) -> Result<WelcomeMessageStream, Error> {
-        let client = &mut self.mls_client.clone();
-        let res = client
-            .subscribe_welcome_messages(self.build_request(req))
-            .await
-            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
-
-        let stream = res.into_inner();
-
-        Ok(stream.into())
-    }
-}
+// impl XmtpMlsStreams for ClientV4 {
+//     type GroupMessageStream<'a> = GroupMessageStream;
+//     type WelcomeMessageStream<'a> = WelcomeMessageStream;
+//
+//     async fn subscribe_group_messages(
+//         &self,
+//         req: SubscribeGroupMessagesRequest,
+//     ) -> Result<Self::GroupMessageStream<'_>, Error> {
+//         unimplemented!();
+//     }
+//
+//     async fn subscribe_welcome_messages(
+//         &self,
+//         req: SubscribeWelcomeMessagesRequest,
+//     ) -> Result<Self::WelcomeMessageStream<'_>, Error> {
+//         unimplemented!();
+//     }
+// }
+//
+// #[async_trait::async_trait]
+// impl XmtpIdentityClient for ClientV4 {
+//     #[tracing::instrument(level = "trace", skip_all)]
+//     async fn publish_identity_update(
+//         &self,
+//         request: PublishIdentityUpdateRequest,
+//     ) -> Result<PublishIdentityUpdateResponse, Error> {
+//         unimplemented!()
+//     }
+//
+//     #[tracing::instrument(level = "trace", skip_all)]
+//     async fn get_inbox_ids(
+//         &self,
+//         request: GetInboxIdsRequest,
+//     ) -> Result<GetInboxIdsResponse, Error> {
+//         let client = &mut self.client.clone();
+//         let req = GetInboxIdsRequestV4 {
+//             requests: request
+//                 .requests
+//                 .into_iter()
+//                 .map(|r| get_inbox_ids_request::Request { address: r.address })
+//                 .collect(),
+//         };
+//
+//         let res = client.get_inbox_ids(self.build_request(req)).await;
+//
+//         res.map(|response| response.into_inner())
+//             .map(|response| GetInboxIdsResponse {
+//                 responses: response
+//                     .responses
+//                     .into_iter()
+//                     .map(|r| get_inbox_ids_response::Response {
+//                         address: r.address,
+//                         inbox_id: r.inbox_id,
+//                     })
+//                     .collect(),
+//             })
+//             .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))
+//     }
+//
+//     #[tracing::instrument(level = "trace", skip_all)]
+//     async fn get_identity_updates_v2(
+//         &self,
+//         request: GetIdentityUpdatesV2Request,
+//     ) -> Result<GetIdentityUpdatesV2Response, Error> {
+//         unimplemented!()
+//     }
+//
+//     #[tracing::instrument(level = "trace", skip_all)]
+//     async fn verify_smart_contract_wallet_signatures(
+//         &self,
+//         request: VerifySmartContractWalletSignaturesRequest,
+//     ) -> Result<VerifySmartContractWalletSignaturesResponse, Error> {
+//         unimplemented!()
+//     }
+// }

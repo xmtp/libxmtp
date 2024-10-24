@@ -29,7 +29,9 @@ use crate::{
 };
 use serializable::maybe_get_text;
 use thiserror::Error;
-use xmtp_api_grpc::grpc_api_helper::Client as ApiClient;
+use xmtp_api_grpc::grpc_api_helper::Client as ClientV2;
+use xmtp_api_grpc::replication_client::ClientV4;
+use xmtp_api_grpc::{GroupMessageStream, WelcomeMessageStream};
 use xmtp_cryptography::{
     signature::{RecoverableSignature, SignatureError},
     utils::rng,
@@ -48,9 +50,11 @@ use xmtp_mls::{
     utils::time::now_ns,
     InboxOwner,
 };
-type Client = xmtp_mls::client::Client<ApiClient>;
-type ClientBuilder = xmtp_mls::builder::ClientBuilder<ApiClient>;
-type MlsGroup = xmtp_mls::groups::MlsGroup<Client>;
+use xmtp_proto::api_client::trait_impls::XmtpApi;
+use xmtp_proto::api_client::BoxedApiClient;
+
+type ClientBuilder = xmtp_mls::builder::ClientBuilder<ClientV2>;
+type MlsGroup = xmtp_mls::groups::MlsGroup<BoxedApiClient>;
 
 /// A fictional versioning CLI
 #[derive(Debug, Parser)] // requires `derive` feature
@@ -66,6 +70,8 @@ struct Cli {
     local: bool,
     #[clap(long, default_value_t = false)]
     json: bool,
+    #[clap(long, default_value_t = false)]
+    testnet: bool,
 }
 
 #[derive(ValueEnum, Debug, Copy, Clone)]
@@ -413,29 +419,52 @@ async fn main() {
     }
 }
 
-async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, CliError> {
+async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<BoxedApiClient, CliError> {
     let msg_store = get_encrypted_store(&cli.db).await.unwrap();
     let mut builder = ClientBuilder::new(account).store(msg_store);
-
+    //
+    // if cli.testnet {
+    //     if cli.local {
+    //         info!("Using local network");
+    //         builder = builder
+    //             .api_client(
+    //                 ClientV4::create("http://localhost:5050".into(), false)
+    //                     .await
+    //                     .unwrap(),
+    //             )
+    //             .history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS);
+    //     } else {
+    //         info!("Using dev network");
+    //         builder = builder
+    //             .api_client(
+    //                 ClientV4::create("https://grpc.testnet.xmtp.network:443".into(), true)
+    //                     .await
+    //                     .unwrap(),
+    //             )
+    //             .history_sync_url(MessageHistoryUrls::DEV_ADDRESS);
+    //     }
+    // }
+    // else {
     if cli.local {
         info!("Using local network");
         builder = builder
-            .api_client(
-                ApiClient::create("http://localhost:5556".into(), false)
+            .api_client(Box::new(
+                ClientV2::create("http://localhost:5556".into(), false)
                     .await
                     .unwrap(),
-            )
+            ))
             .history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS);
     } else {
         info!("Using dev network");
         builder = builder
-            .api_client(
-                ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true)
+            .api_client(Box::new(
+                ClientV2::create("https://grpc.dev.xmtp.network:443".into(), true)
                     .await
                     .unwrap(),
-            )
+            ))
             .history_sync_url(MessageHistoryUrls::DEV_ADDRESS);
     }
+    // }
 
     let client = builder.build().await.map_err(CliError::ClientBuilder)?;
 
