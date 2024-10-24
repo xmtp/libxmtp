@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
+use xmtp_mls::storage::group_message::{DeliveryStatus, MsgQueryArgs};
 
 use crate::encoded_content::WasmEncodedContent;
 use crate::messages::{WasmListMessagesOptions, WasmMessage};
@@ -189,12 +190,11 @@ impl WasmGroup {
 
     let messages: Vec<WasmMessage> = group
       .find_messages(
-        None,
-        opts.sent_before_ns,
-        opts.sent_after_ns,
-        delivery_status,
-        opts.limit,
-        None,
+        &MsgQueryArgs::default()
+          .maybe_sent_before_ns(opts.sent_before_ns)
+          .maybe_sent_after_ns(opts.sent_after_ns)
+          .maybe_delivery_status(delivery_status)
+          .maybe_limit(opts.limit),
       )
       .map_err(|e| JsError::new(&format!("{e}")))?
       .into_iter()
