@@ -100,6 +100,8 @@ pub enum DeviceSyncError {
     InvalidPayload,
     #[error("invalid history bundle url")]
     InvalidBundleUrl,
+    #[error("unspecified device sync kind")]
+    UnspecifiedDeviceSyncKind,
 }
 
 impl<ApiClient, V> Client<ApiClient, V>
@@ -172,6 +174,7 @@ where
         let store_key = match request.kind {
             DeviceSyncKind::Consent => Key::ConsentSyncRequestId,
             DeviceSyncKind::MessageHistory => Key::MessageHistorySyncRequestId,
+            DeviceSyncKind::Unspecified => return Err(DeviceSyncError::UnspecifiedDeviceSyncKind),
         };
 
         if let Some(request_id) =

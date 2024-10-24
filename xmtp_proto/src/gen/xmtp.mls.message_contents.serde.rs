@@ -402,8 +402,9 @@ impl serde::Serialize for DeviceSyncKind {
         S: serde::Serializer,
     {
         let variant = match self {
-            Self::MessageHistory => "MESSAGE_HISTORY",
-            Self::Consent => "CONSENT",
+            Self::Unspecified => "DEVICE_SYNC_KIND_UNSPECIFIED",
+            Self::MessageHistory => "DEVICE_SYNC_KIND_MESSAGE_HISTORY",
+            Self::Consent => "DEVICE_SYNC_KIND_CONSENT",
         };
         serializer.serialize_str(variant)
     }
@@ -415,8 +416,9 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncKind {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "MESSAGE_HISTORY",
-            "CONSENT",
+            "DEVICE_SYNC_KIND_UNSPECIFIED",
+            "DEVICE_SYNC_KIND_MESSAGE_HISTORY",
+            "DEVICE_SYNC_KIND_CONSENT",
         ];
 
         struct GeneratedVisitor;
@@ -457,8 +459,9 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncKind {
                 E: serde::de::Error,
             {
                 match value {
-                    "MESSAGE_HISTORY" => Ok(DeviceSyncKind::MessageHistory),
-                    "CONSENT" => Ok(DeviceSyncKind::Consent),
+                    "DEVICE_SYNC_KIND_UNSPECIFIED" => Ok(DeviceSyncKind::Unspecified),
+                    "DEVICE_SYNC_KIND_MESSAGE_HISTORY" => Ok(DeviceSyncKind::MessageHistory),
+                    "DEVICE_SYNC_KIND_CONSENT" => Ok(DeviceSyncKind::Consent),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
