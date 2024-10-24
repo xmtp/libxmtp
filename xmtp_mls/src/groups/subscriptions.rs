@@ -52,7 +52,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                                 openmls_group.epoch()
                             );
 
-                            self.process_message(&mut openmls_group, &provider, &msgv1, false)
+                            self.process_message(&mut openmls_group, &provider, msgv1, false)
                                 .await?;
                             Ok::<_, SubscribeError>(())
                         })
@@ -125,7 +125,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 cursor: 0,
             },
         )]);
-        Ok(stream_messages(&*self.client, Arc::new(group_list)).await?)
+        stream_messages(&*self.client, Arc::new(group_list)).await
     }
 
     pub fn stream_with_callback(

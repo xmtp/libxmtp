@@ -346,7 +346,7 @@ where
                                 continue;
                             },
                             Err(e) => {
-                                yield Err(SubscribeError::from(e))
+                                yield Err(e)
                             }
                         }
                     },

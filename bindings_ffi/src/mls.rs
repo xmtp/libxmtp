@@ -929,11 +929,9 @@ impl FfiConversations {
         let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
             Some(ConversationType::Dm),
-            move |convo| {
-                match convo {
-                    Ok(c) => callback.on_conversation(Arc::new(c.into())),
-                    Err(e) => log::warn!("ERROR in stream_dms {:?}:{}", e, e)
-                }
+            move |convo| match convo {
+                Ok(c) => callback.on_conversation(Arc::new(c.into())),
+                Err(e) => log::warn!("ERROR in stream_dms {:?}:{}", e, e),
             },
         );
 
@@ -945,11 +943,9 @@ impl FfiConversations {
         let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
             None,
-            move |convo| {
-                match convo {
-                    Ok(c) => callback.on_conversation(Arc::new(c.into())),
-                    Err(e) => log::warn!("ERROR in stream {:?}:{}", e,e)
-                }
+            move |convo| match convo {
+                Ok(c) => callback.on_conversation(Arc::new(c.into())),
+                Err(e) => log::warn!("ERROR in stream {:?}:{}", e, e),
             },
         );
 
@@ -963,11 +959,9 @@ impl FfiConversations {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             Some(ConversationType::Group),
-            move |message| {
-                match message {
-                    Ok(m) => message_callback.on_message(m.into()),
-                    Err(e) => log::warn!("ERROR in stream_all_group_messages {}:{:?}", e, e),
-                }
+            move |message| match message {
+                Ok(m) => message_callback.on_message(m.into()),
+                Err(e) => log::warn!("ERROR in stream_all_group_messages {}:{:?}", e, e),
             },
         );
 
@@ -981,11 +975,9 @@ impl FfiConversations {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             Some(ConversationType::Dm),
-            move |message| {
-                match message {
-                    Ok(m) => message_callback.on_message(m.into()),
-                    Err(e) => log::warn!("ERROR in stream_all_dm_messages {}:{:?}", e, e),
-                }
+            move |message| match message {
+                Ok(m) => message_callback.on_message(m.into()),
+                Err(e) => log::warn!("ERROR in stream_all_dm_messages {}:{:?}", e, e),
             },
         );
 
@@ -999,11 +991,9 @@ impl FfiConversations {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             None,
-            move |message| {
-                match message {
-                    Ok(m) => message_callback.on_message(m.into()),
-                    Err(e) => log::warn!("ERROR in stream_all_messages {}:{:?}", e, e),
-                }
+            move |message| match message {
+                Ok(m) => message_callback.on_message(m.into()),
+                Err(e) => log::warn!("ERROR in stream_all_messages {}:{:?}", e, e),
             },
         );
 
@@ -1681,11 +1671,7 @@ mod tests {
         generate_inbox_id,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     };
-    use xmtp_mls::{
-        groups::{GroupError, MlsGroup},
-        storage::EncryptionKey,
-        InboxOwner,
-    };
+    use xmtp_mls::{groups::GroupError, storage::EncryptionKey, InboxOwner};
 
     #[derive(Clone)]
     pub struct LocalWalletInboxOwner {
@@ -1833,13 +1819,7 @@ mod tests {
     impl FfiConversation {
         #[cfg(test)]
         async fn update_installations(&self) -> Result<(), GroupError> {
-            let group = MlsGroup::new(
-                self.inner_client.clone(),
-                self.conversation_id.clone(),
-                self.created_at_ns,
-            );
-
-            group.update_installations().await?;
+            self.inner.update_installations().await?;
             Ok(())
         }
     }
@@ -3080,9 +3060,7 @@ mod tests {
             .unwrap();
 
         bola.inner_client.sync_welcomes().await.unwrap();
-        let bola_group = bola
-            .conversation(amal_group.conversation_id.clone())
-            .unwrap();
+        let bola_group = bola.conversation(amal_group.id()).unwrap();
 
         let stream_callback = RustStreamCallback::default();
         let stream_closer = bola_group.stream(Box::new(stream_callback.clone())).await;
