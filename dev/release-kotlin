@@ -31,7 +31,7 @@ for arch in arm64-v8a armeabi-v7a x86 x86_64; do
   mv "./bindings_ffi/jniLibs/$arch/$LIBRARY_NAME.so" "./bindings_ffi/jniLibs/$arch/$TARGET_NAME.so"
 done
 
-if [[ -v $1 ]]; then
+if [[ -n "$1" ]]; then
   rm -rf $1/library/src/main/jniLibs
   mv "./bindings_ffi/jniLibs" $1/library/src/main
 fi
